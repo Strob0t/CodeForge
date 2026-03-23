@@ -926,7 +926,8 @@ func run() error {
 	// --- MCP Server (Phase 15B) ---
 	var mcpServer *cfmcp.Server
 	if cfg.MCP.Enabled {
-		mcpServer = cfmcp.NewServer(cfmcp.ServerConfig{
+		var mcpErr error
+		mcpServer, mcpErr = cfmcp.NewServer(cfmcp.ServerConfig{
 			Addr:    fmt.Sprintf(":%d", cfg.MCP.ServerPort),
 			Name:    "codeforge",
 			Version: cfversion.Version,
@@ -936,6 +937,9 @@ func run() error {
 			RunReader:     store,
 			CostReader:    store,
 		})
+		if mcpErr != nil {
+			return fmt.Errorf("mcp server init: %w", mcpErr)
+		}
 		if err := mcpServer.Start(); err != nil {
 			return fmt.Errorf("mcp server: %w", err)
 		}

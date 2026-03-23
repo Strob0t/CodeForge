@@ -73,7 +73,10 @@ func (p *GitHubProvider) DeviceFlowStart(ctx context.Context) (*DeviceCode, erro
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("device code request failed (HTTP %d): %s",
 			resp.StatusCode, truncate(respBody))
@@ -113,7 +116,10 @@ func (p *GitHubProvider) DeviceFlowPoll(ctx context.Context, code string) (*Toke
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token request failed (HTTP %d): %s",
 			resp.StatusCode, truncate(respBody))

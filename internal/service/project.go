@@ -773,7 +773,10 @@ func fetchJSON(ctx context.Context, url string, dest any) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if readErr != nil {
+			return fmt.Errorf("HTTP %d (reading body: %w)", resp.StatusCode, readErr)
+		}
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 

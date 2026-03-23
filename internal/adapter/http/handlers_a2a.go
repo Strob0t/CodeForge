@@ -238,7 +238,11 @@ func (h *Handlers) SubscribeA2ATask(w http.ResponseWriter, r *http.Request) {
 
 // writeSSEEvent writes a single SSE event to the response.
 func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, event string, data any) {
-	payload, _ := json.Marshal(data)
+	payload, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
 	flusher.Flush()
 }

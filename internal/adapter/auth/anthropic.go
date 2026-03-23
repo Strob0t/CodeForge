@@ -67,7 +67,10 @@ func (p *AnthropicProvider) DeviceFlowStart(ctx context.Context) (*DeviceCode, e
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("device code request failed (HTTP %d): %s",
 			resp.StatusCode, truncate(respBody))
@@ -109,7 +112,10 @@ func (p *AnthropicProvider) DeviceFlowPoll(ctx context.Context, code string) (*T
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, mapOAuthError(respBody, resp.StatusCode)
@@ -149,7 +155,10 @@ func (p *AnthropicProvider) ExchangeForAPIKey(ctx context.Context, token *Token)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("api key request failed (HTTP %d): %s",
 			resp.StatusCode, truncate(respBody))

@@ -92,7 +92,10 @@ func (n *Notifier) Send(ctx context.Context, notification notifier.Notification)
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading slack response: %w", err)
+		}
 		return fmt.Errorf("slack API %d: %s", resp.StatusCode, string(respBody))
 	}
 

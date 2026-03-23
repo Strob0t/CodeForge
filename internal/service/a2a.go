@@ -89,7 +89,10 @@ func (s *A2AService) RegisterRemoteAgent(ctx context.Context, name, agentURL, tr
 		ra.Skills = append(ra.Skills, card.Skills[i].ID)
 	}
 
-	cardJSON, _ := json.Marshal(card)
+	cardJSON, marshalErr := json.Marshal(card)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshal agent card: %w", marshalErr)
+	}
 	ra.CardJSON = cardJSON
 	now := time.Now().UTC()
 	ra.LastSeen = &now
@@ -116,7 +119,10 @@ func (s *A2AService) RefreshAgent(ctx context.Context, agentID string) (*a2adoma
 	for i := range card.Skills {
 		ra.Skills = append(ra.Skills, card.Skills[i].ID)
 	}
-	cardJSON, _ := json.Marshal(card)
+	cardJSON, marshalErr := json.Marshal(card)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshal agent card: %w", marshalErr)
+	}
 	ra.CardJSON = cardJSON
 	now := time.Now().UTC()
 	ra.LastSeen = &now
@@ -176,9 +182,15 @@ func (s *A2AService) SendTask(ctx context.Context, remoteAgentID, skillID, promp
 	dt.SkillID = skillID
 	dt.RemoteAgentID = remoteAgentID
 
-	historyJSON, _ := json.Marshal(sdkTask.History)
+	historyJSON, err := json.Marshal(sdkTask.History)
+	if err != nil {
+		return nil, fmt.Errorf("marshal task history: %w", err)
+	}
 	dt.History = historyJSON
-	artifactsJSON, _ := json.Marshal(sdkTask.Artifacts)
+	artifactsJSON, err := json.Marshal(sdkTask.Artifacts)
+	if err != nil {
+		return nil, fmt.Errorf("marshal task artifacts: %w", err)
+	}
 	dt.Artifacts = artifactsJSON
 
 	if err := s.store.CreateA2ATask(ctx, dt); err != nil {
@@ -290,7 +302,10 @@ func (s *A2AService) CancelTask(ctx context.Context, id string) error {
 	}
 
 	// Inbound: publish cancel to NATS for Python worker.
-	data, _ := json.Marshal(map[string]string{"task_id": id})
+	data, err := json.Marshal(map[string]string{"task_id": id})
+	if err != nil {
+		return fmt.Errorf("marshal cancel payload: %w", err)
+	}
 	if err := s.queue.Publish(ctx, messagequeue.SubjectA2ATaskCancel, data); err != nil {
 		return fmt.Errorf("cancel inbound a2a task: %w", err)
 	}
@@ -382,11 +397,15 @@ func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID strin
 		return
 	}
 
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"task_id":   task.ID,
 		"state":     string(task.State),
 		"artifacts": json.RawMessage(task.Artifacts),
 	})
+	if err != nil {
+		slog.Warn("push dispatch: marshal payload", "task_id", taskID, "error", err)
+		return
+	}
 
 	for _, cfg := range configs {
 		go s.sendWebhook(cfg.URL, cfg.Token, payload) //nolint:gosec // G118: webhook must outlive the HTTP request

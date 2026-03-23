@@ -57,7 +57,10 @@ func (s *BackendHealthService) CheckHealth(ctx context.Context) ([]BackendHealth
 	ch := s.waiter.register(requestID)
 	defer s.waiter.unregister(requestID)
 
-	payload, _ := json.Marshal(map[string]string{"request_id": requestID})
+	payload, err := json.Marshal(map[string]string{"request_id": requestID})
+	if err != nil {
+		return nil, fmt.Errorf("marshal backend health request: %w", err)
+	}
 	if err := s.queue.Publish(ctx, messagequeue.SubjectBackendHealthRequest, payload); err != nil {
 		return nil, fmt.Errorf("publish backend health request: %w", err)
 	}

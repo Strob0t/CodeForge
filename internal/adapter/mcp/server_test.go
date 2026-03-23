@@ -75,7 +75,10 @@ func TestNewServer(t *testing.T) {
 		Name:    "test-server",
 		Version: "0.8.0",
 	}
-	s := cfmcp.NewServer(cfg, validDeps())
+	s, err := cfmcp.NewServer(cfg, validDeps())
+	if err != nil {
+		t.Fatalf("NewServer returned error: %v", err)
+	}
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}
@@ -84,7 +87,7 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
-func TestNewServer_NilDepsPanics(t *testing.T) {
+func TestNewServer_NilDepsErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		deps cfmcp.ServerDeps
@@ -122,20 +125,13 @@ func TestNewServer_NilDepsPanics(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				r := recover()
-				if r == nil {
-					t.Fatal("expected panic for nil dependency")
-				}
-				msg, ok := r.(string)
-				if !ok {
-					t.Fatalf("expected string panic, got %T: %v", r, r)
-				}
-				if !strings.Contains(msg, tc.want) {
-					t.Fatalf("panic message %q should mention %q", msg, tc.want)
-				}
-			}()
-			cfmcp.NewServer(cfmcp.ServerConfig{}, tc.deps)
+			_, err := cfmcp.NewServer(cfmcp.ServerConfig{}, tc.deps)
+			if err == nil {
+				t.Fatal("expected error for nil dependency")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error message %q should mention %q", err.Error(), tc.want)
+			}
 		})
 	}
 }
@@ -146,7 +142,10 @@ func TestServerStartStop(t *testing.T) {
 		Name:    "test-server",
 		Version: "0.8.0",
 	}
-	s := cfmcp.NewServer(cfg, validDeps())
+	s, err := cfmcp.NewServer(cfg, validDeps())
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	if err := s.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -175,7 +174,10 @@ func TestToolRegistration(t *testing.T) {
 			},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	s, err := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	tools := s.MCPServer().ListTools()
 	if len(tools) != 4 {
@@ -210,7 +212,10 @@ func TestHandleListProjects(t *testing.T) {
 			{ID: "p2", Name: "Beta"},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	s, err := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	ctx := context.Background()
 
@@ -251,7 +256,10 @@ func TestHandleGetRunStatus(t *testing.T) {
 			"run-abc": {ID: "run-abc", Status: run.StatusCompleted},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	s, err := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	tools := s.MCPServer().ListTools()
 	runTool, ok := tools["get_run_status"]
@@ -287,7 +295,10 @@ func TestHandleGetRunStatus(t *testing.T) {
 }
 
 func TestHandleGetRunStatusMissingArg(t *testing.T) {
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, validDeps())
+	s, err := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, validDeps())
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	tools := s.MCPServer().ListTools()
 	runTool, ok := tools["get_run_status"]
@@ -324,7 +335,10 @@ func TestNewServer_WithAPIKey_RejectsUnauthenticated(t *testing.T) {
 		RunReader:  &mockRunReader{runs: map[string]*run.Run{}},
 		CostReader: &mockCostReader{},
 	}
-	s := cfmcp.NewServer(cfg, deps)
+	s, err := cfmcp.NewServer(cfg, deps)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}
@@ -341,7 +355,10 @@ func TestNewServer_WithoutAPIKey_AllowsRequests(t *testing.T) {
 		Version: "0.8.0",
 		APIKey:  "", // Empty means no auth
 	}
-	s := cfmcp.NewServer(cfg, validDeps())
+	s, err := cfmcp.NewServer(cfg, validDeps())
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 	if s == nil {
 		t.Fatal("NewServer returned nil")
 	}
@@ -427,7 +444,10 @@ func TestHandleGetCostSummary(t *testing.T) {
 			{ProjectID: "p1", ProjectName: "Alpha", Summary: cost.Summary{TotalCostUSD: 42.5, RunCount: 10}},
 		},
 	}
-	s := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	s, err := cfmcp.NewServer(cfmcp.ServerConfig{Name: "test", Version: "0.8.0"}, deps)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	tools := s.MCPServer().ListTools()
 	costTool, ok := tools["get_cost_summary"]

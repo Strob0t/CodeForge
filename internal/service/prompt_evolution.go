@@ -206,7 +206,10 @@ func (s *PromptEvolutionService) PromoteVariant(ctx context.Context, tenantID, v
 		VariantID: variantID,
 		Action:    "promoted",
 	}
-	eventData, _ := json.Marshal(event)
+	eventData, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal promotion event: %w", err)
+	}
 	return s.queue.Publish(ctx, mq.SubjectPromptEvolutionPromoted, eventData)
 }
 
@@ -241,7 +244,10 @@ func (s *PromptEvolutionService) RevertMode(ctx context.Context, tenantID, modeI
 		ModeID:   modeID,
 		Action:   "reverted",
 	}
-	eventData, _ := json.Marshal(event)
+	eventData, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal revert event: %w", err)
+	}
 	return s.queue.Publish(ctx, mq.SubjectPromptEvolutionReverted, eventData)
 }
 

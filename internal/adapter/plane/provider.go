@@ -177,8 +177,11 @@ func (p *Provider) ListItems(ctx context.Context, projectRef string) ([]pmprovid
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, readErr := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
+			if readErr != nil {
+				return nil, fmt.Errorf("plane: list issues: status %d (reading body: %w)", resp.StatusCode, readErr)
+			}
 			return nil, fmt.Errorf("plane: list issues: status %d: %s", resp.StatusCode, string(body))
 		}
 
@@ -220,7 +223,10 @@ func (p *Provider) GetItem(ctx context.Context, projectRef, itemID string) (*pmp
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("plane: get issue %q: status %d (reading body: %w)", itemID, resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("plane: get issue %q: status %d: %s", itemID, resp.StatusCode, string(body))
 	}
 
@@ -265,7 +271,10 @@ func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmpr
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("plane: create issue: status %d (reading body: %w)", resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("plane: create issue: status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -307,7 +316,10 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("plane: update issue %q: status %d (reading body: %w)", item.ID, resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("plane: update issue %q: status %d: %s", item.ID, resp.StatusCode, string(respBody))
 	}
 

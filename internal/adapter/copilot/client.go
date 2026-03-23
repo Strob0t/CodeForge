@@ -103,7 +103,10 @@ func (c *Client) ExchangeToken(ctx context.Context) (string, time.Time, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("reading response body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", time.Time{}, fmt.Errorf("token exchange failed (HTTP %d): %s",
 			resp.StatusCode, string(body[:min(500, len(body))]))

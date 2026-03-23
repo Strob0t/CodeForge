@@ -106,7 +106,7 @@ func (s *Store) ListVariants(ctx context.Context, modeID, status string) ([]prom
 	                mode_id, model_family, created_at, updated_at
 	         FROM prompt_sections
 	         WHERE tenant_id = $1 AND mode_id != ''`
-	args := []interface{}{tid}
+	args := []any{tid}
 	argIdx := 2
 
 	if modeID != "" {
@@ -119,7 +119,6 @@ func (s *Store) ListVariants(ctx context.Context, modeID, status string) ([]prom
 		args = append(args, status)
 		argIdx++
 	}
-	_ = argIdx
 
 	query += " ORDER BY mode_id, version DESC"
 

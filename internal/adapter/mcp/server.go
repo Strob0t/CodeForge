@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -60,16 +61,16 @@ type Server struct {
 }
 
 // NewServer creates a new MCP server with tools and resources registered.
-// It panics if any required dependency is nil (fail-fast at construction time).
-func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
+// It returns an error if any required dependency is nil.
+func NewServer(cfg ServerConfig, deps ServerDeps) (*Server, error) {
 	if deps.ProjectLister == nil {
-		panic("MCP ServerDeps.ProjectLister must not be nil")
+		return nil, errors.New("MCP ServerDeps.ProjectLister must not be nil")
 	}
 	if deps.RunReader == nil {
-		panic("MCP ServerDeps.RunReader must not be nil")
+		return nil, errors.New("MCP ServerDeps.RunReader must not be nil")
 	}
 	if deps.CostReader == nil {
-		panic("MCP ServerDeps.CostReader must not be nil")
+		return nil, errors.New("MCP ServerDeps.CostReader must not be nil")
 	}
 
 	mcpSrv := mcpserver.NewMCPServer(cfg.Name, cfg.Version)
@@ -106,7 +107,7 @@ func NewServer(cfg ServerConfig, deps ServerDeps) *Server {
 
 	s.httpSrv = mcpserver.NewStreamableHTTPServer(mcpSrv, opts...)
 
-	return s
+	return s, nil
 }
 
 // Start begins listening for MCP requests on the configured address.

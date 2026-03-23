@@ -455,7 +455,10 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		data, _ := io.ReadAll(resp.Body)
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("reading stream error response: %w", err)
+		}
 		return nil, fmt.Errorf("litellm stream API error %d: %s", resp.StatusCode, string(data))
 	}
 
