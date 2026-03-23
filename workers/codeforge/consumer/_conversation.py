@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from typing import TYPE_CHECKING, ClassVar
 
@@ -17,10 +18,171 @@ from codeforge.runtime import RuntimeClient
 if TYPE_CHECKING:
     import nats.aio.msg
 
-    from codeforge.models import AgentLoopResult
+    from codeforge.mcp_models import MCPTool
+    from codeforge.mcp_workbench import McpWorkbench
+    from codeforge.models import AgentLoopResult, ContextEntry
     from codeforge.routing.router import HybridRouter
 
 logger = structlog.get_logger()
+
+# --- Framework detection helpers for proactive docs prefetch ---
+
+# Mapping of package names / dependency keys to canonical framework names.
+_JS_FRAMEWORK_MAP: dict[str, str] = {
+    "solid-js": "solidjs",
+    "react": "react",
+    "vue": "vue",
+    "next": "nextjs",
+    "svelte": "svelte",
+    "angular": "angular",
+    "express": "express",
+    "fastify": "fastify",
+    "tailwindcss": "tailwindcss",
+}
+
+_PY_FRAMEWORK_MAP: dict[str, str] = {
+    "fastapi": "fastapi",
+    "flask": "flask",
+    "django": "django",
+    "starlette": "starlette",
+    "pydantic": "pydantic",
+    "sqlalchemy": "sqlalchemy",
+    "pytest": "pytest",
+}
+
+_GO_MODULE_MAP: dict[str, str] = {
+    "chi": "chi",
+    "gin": "gin",
+    "echo": "echo",
+    "fiber": "fiber",
+}
+
+
+def _scan_file_for_keys(
+    filepath: str,
+    mapping: dict[str, str],
+    existing: set[str],
+    *,
+    parse_json: bool = False,
+) -> list[str]:
+    """Scan a file for known dependency keys and return matched framework names.
+
+    When *parse_json* is True, parses the file as JSON and checks against
+    the combined ``dependencies`` and ``devDependencies`` keys.
+    Otherwise, does a simple substring match on the lowercased content.
+    """
+    if not os.path.isfile(filepath):
+        return []
+    try:
+        with open(filepath) as f:
+            raw = f.read()
+    except OSError:
+        return []
+
+    hits: list[str] = []
+    if parse_json:
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return []
+        all_deps: dict[str, str] = {}
+        all_deps.update(data.get("dependencies", {}))
+        all_deps.update(data.get("devDependencies", {}))
+        for pkg, name in mapping.items():
+            if pkg in all_deps and name not in existing:
+                hits.append(name)
+    else:
+        content = raw.lower()
+        for pkg, name in mapping.items():
+            if pkg in content and name not in existing:
+                hits.append(name)
+    return hits
+
+
+def _detect_frameworks(workspace_path: str) -> list[str]:
+    """Detect frameworks from workspace dependency files.
+
+    Scans package.json (JS/TS), requirements.txt / pyproject.toml (Python),
+    and go.mod (Go) for known framework dependencies.
+
+    Returns up to 5 canonical framework names.
+    """
+    if not workspace_path or not os.path.isdir(workspace_path):
+        return []
+
+    frameworks: list[str] = []
+    seen: set[str] = set()
+
+    for filepath, mapping, use_json in [
+        (os.path.join(workspace_path, "package.json"), _JS_FRAMEWORK_MAP, True),
+        (os.path.join(workspace_path, "requirements.txt"), _PY_FRAMEWORK_MAP, False),
+        (os.path.join(workspace_path, "pyproject.toml"), _PY_FRAMEWORK_MAP, False),
+        (os.path.join(workspace_path, "go.mod"), _GO_MODULE_MAP, False),
+    ]:
+        hits = _scan_file_for_keys(filepath, mapping, seen, parse_json=use_json)
+        frameworks.extend(hits)
+        seen.update(hits)
+
+    return frameworks[:5]
+
+
+def _find_search_docs_tool(workbench: McpWorkbench) -> MCPTool | None:
+    """Find the search_docs tool in the workbench's discovered tools."""
+    for tool in workbench._tools:
+        if tool.name == "search_docs":
+            return tool
+    return None
+
+
+async def _prefetch_docs(
+    workbench: McpWorkbench,
+    workspace_path: str,
+    user_message: str,
+    log: structlog.stdlib.BoundLogger,
+) -> list[ContextEntry]:
+    """Pre-fetch documentation from docs-mcp-server for detected frameworks.
+
+    Returns context entries to inject into run_msg.context before the
+    history manager builds messages.  Called BEFORE the agent loop so the
+    agent sees relevant docs directly without needing to call search_docs.
+    """
+    from codeforge.models import ContextEntry
+
+    if not workbench or not user_message:
+        return []
+
+    search_tool = _find_search_docs_tool(workbench)
+    if search_tool is None:
+        return []
+
+    frameworks = _detect_frameworks(workspace_path)
+    if not frameworks:
+        return []
+
+    entries: list[ContextEntry] = []
+    for framework in frameworks[:3]:
+        try:
+            result = await workbench.call_tool(
+                search_tool.server_id,
+                "search_docs",
+                {"library": framework, "query": user_message, "limit": 3},
+            )
+            if result and result.output and len(result.output) > 50:
+                entries.append(
+                    ContextEntry(
+                        kind="knowledge",
+                        path=f"docs/{framework}",
+                        content=result.output[:2000],
+                        tokens=len(result.output) // 4,
+                        priority=80,
+                    )
+                )
+                log.info("prefetched docs", framework=framework, chars=len(result.output))
+        except Exception as exc:
+            log.debug("docs prefetch failed", framework=framework, error=str(exc))
+
+    return entries
+
 
 # Context token limits per capability level (M3).
 # Weak models have smaller effective context windows even if the advertised
@@ -142,6 +304,9 @@ class ConversationHandlerMixin:
                 await workbench.discover_tools()
                 registry.merge_mcp_tools(workbench)
                 log.info("mcp tools merged", count=len(workbench.get_tools_for_llm()))
+
+            # Proactive docs prefetch: inject framework docs before history is built.
+            await self._maybe_prefetch_docs(workbench, run_msg, log)
 
             system_prompt, loaded_skills = await self._build_system_prompt(run_msg, registry, log)
 
@@ -1008,6 +1173,29 @@ class ConversationHandlerMixin:
             ),
             _HandoffProxy(self._js, run_id),
         )
+
+    @staticmethod
+    async def _maybe_prefetch_docs(
+        workbench: McpWorkbench | None,
+        run_msg: ConversationRunStartMessage,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Prefetch docs from MCP workbench and append to run_msg.context."""
+        if workbench is None:
+            return
+        user_message = next(
+            (m.content for m in run_msg.messages if m.role == "user" and m.content),
+            "",
+        )
+        prefetched = await _prefetch_docs(
+            workbench=workbench,
+            workspace_path=run_msg.workspace_path,
+            user_message=user_message,
+            log=log,
+        )
+        if prefetched:
+            run_msg.context.extend(prefetched)
+            log.info("docs prefetch injected", count=len(prefetched))
 
     def _register_propose_goal_tool(self, registry: object, runtime: object) -> None:
         """Register the propose_goal tool for agent-driven goal proposals."""
