@@ -694,6 +694,8 @@ class LiteLLMClient:
         on_chunk: Callable[[str], None] | None = None,
         on_tool_call: Callable[[ToolCallPart], None] | None = None,
         provider_api_key: str = "",
+        top_p: float | None = None,
+        extra_body: dict[str, object] | None = None,
     ) -> ChatCompletionResponse:
         """Stream a chat completion with automatic retry on transient errors."""
         if not model:
@@ -702,22 +704,18 @@ class LiteLLMClient:
             model = resolve_model()
 
         async def _inner() -> ChatCompletionResponse:
-            payload: dict[str, object] = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "stream": True,
-            }
-            if tools:
-                payload["tools"] = tools
-            if tool_choice is not None:
-                payload["tool_choice"] = tool_choice
-            if tags:
-                payload["tags"] = tags
-            if max_tokens is not None:
-                payload["max_tokens"] = max_tokens
-            if provider_api_key:
-                payload["api_key"] = provider_api_key
+            payload = _build_stream_payload(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                tools=tools,
+                tool_choice=tool_choice,
+                tags=tags,
+                max_tokens=max_tokens,
+                provider_api_key=provider_api_key,
+                top_p=top_p,
+                extra_body=extra_body,
+            )
 
             logger.debug(
                 "chat_completion_stream model=%s tools=%d temperature=%.2f",
@@ -784,6 +782,43 @@ class LiteLLMClient:
     async def close(self) -> None:
         """Close the HTTP client."""
         await self._client.aclose()
+
+
+def _build_stream_payload(
+    *,
+    model: str,
+    messages: list[dict[str, object]],
+    temperature: float,
+    tools: list[dict[str, object]] | None,
+    tool_choice: str | dict[str, object] | None,
+    tags: list[str] | None,
+    max_tokens: int | None,
+    provider_api_key: str,
+    top_p: float | None,
+    extra_body: dict[str, object] | None,
+) -> dict[str, object]:
+    """Build the JSON payload for a streaming chat completion request."""
+    payload: dict[str, object] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True,
+    }
+    if tools:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    if tags:
+        payload["tags"] = tags
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if provider_api_key:
+        payload["api_key"] = provider_api_key
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if extra_body:
+        payload["extra_body"] = extra_body
+    return payload
 
 
 class _StreamAccumulator:

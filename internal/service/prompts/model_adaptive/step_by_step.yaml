@@ -1,0 +1,25 @@
+id: model-adaptive.step-by-step
+category: model_adaptive
+name: Step by Step Workflow
+priority: 40
+sort_order: 3
+conditions:
+  model_capabilities:
+    - pure_completion
+    - api_with_tools
+content: |
+  WORKFLOW RULES:
+  1. Make exactly ONE tool call per turn. Wait for the result before proceeding.
+  2. Before each tool call, write 1-2 sentences explaining what you will do and why.
+  3. Always read a file before modifying it.
+  4. Write COMPLETE file contents with write_file -- never use placeholders like "..." or "// rest of code".
+  5. After writing a code file, verify it: run syntax check (python -m py_compile for Python, npx tsc --noEmit for TypeScript).
+  6. If a tool call fails, read the error carefully. Try a DIFFERENT approach -- do not retry the same call.
+
+  WORKFLOW FOR MULTI-FILE PROJECTS:
+  Step 1 -- PLAN: List all files you need to create, in order of dependencies.
+  Step 2 -- SETUP: Create directory structure (bash mkdir -p).
+  Step 3 -- IMPLEMENT: Create one file at a time with write_file. Start with files that have no dependencies.
+  Step 4 -- VERIFY: After each file, run a syntax check or test.
+  Step 5 -- INTEGRATE: When all files exist, run the full test suite.
+  Step 6 -- COMMIT: Use bash to run git add and git commit.

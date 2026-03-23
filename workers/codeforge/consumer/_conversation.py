@@ -22,6 +22,51 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# Context token limits per capability level (M3).
+# Weak models have smaller effective context windows even if the advertised
+# window is larger -- capping prevents prompt bloat and confused outputs.
+_CONTEXT_LIMITS: dict[str, int] = {
+    "full": 120_000,
+    "api_with_tools": 32_000,
+    "pure_completion": 16_000,
+}
+
+# Cache the step-by-step prompt content (loaded once from YAML).
+_STEP_BY_STEP_CACHE: str | None = None
+
+
+def _load_step_by_step_prompt() -> str:
+    """Load the step-by-step workflow prompt from the model_adaptive YAML.
+
+    The content is cached after the first load.
+    """
+    global _STEP_BY_STEP_CACHE
+    if _STEP_BY_STEP_CACHE is not None:
+        return _STEP_BY_STEP_CACHE
+
+    import pathlib
+
+    import yaml
+
+    # Walk up from workers/codeforge/consumer/ to find the project root.
+    here = pathlib.Path(__file__).resolve()
+    # Go up: consumer/ -> codeforge/ -> workers/ -> project root
+    project_root = here.parent.parent.parent.parent
+    yaml_path = project_root / "internal" / "service" / "prompts" / "model_adaptive" / "step_by_step.yaml"
+    if not yaml_path.exists():
+        logger.debug("step_by_step.yaml not found", path=str(yaml_path))
+        _STEP_BY_STEP_CACHE = ""
+        return ""
+
+    try:
+        with yaml_path.open() as f:
+            data = yaml.safe_load(f)
+        _STEP_BY_STEP_CACHE = str(data.get("content", "")).strip()
+    except Exception as exc:
+        logger.warning("failed to load step_by_step.yaml", error=str(exc))
+        _STEP_BY_STEP_CACHE = ""
+    return _STEP_BY_STEP_CACHE
+
 
 class ConversationHandlerMixin:
     """Handles conversation.run.start messages — agentic loop with tool calling."""
@@ -116,7 +161,15 @@ class ConversationHandlerMixin:
                 )
                 run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
-            history_mgr = ConversationHistoryManager(HistoryConfig())
+            # Cap context tokens based on model capability level (M3).
+            from codeforge.tools.capability import classify_model
+
+            _cap_level = classify_model(run_msg.model)
+            _context_cap = _CONTEXT_LIMITS.get(_cap_level, 120_000)
+            history_cfg = HistoryConfig(max_context_tokens=_context_cap)
+            log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
+
+            history_mgr = ConversationHistoryManager(history_cfg)
             messages = history_mgr.build_messages(
                 system_prompt=system_prompt,
                 history=run_msg.messages,
@@ -311,6 +364,7 @@ class ConversationHandlerMixin:
     ) -> AgentLoopResult:
         """Run the LiteLLM-based agentic loop with optional multi-rollout."""
         from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor, LoopConfig
+        from codeforge.tools.capability import classify_model
 
         executor = AgentLoopExecutor(
             llm=self._llm,
@@ -320,11 +374,19 @@ class ConversationHandlerMixin:
             experience_pool=getattr(self, "_experience_pool", None),
         )
         mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
+        capability_level = classify_model(primary_model)
+
+        # Optimized sampling parameters for local models (M6).
+        _is_local = primary_model.startswith(("lm_studio/", "ollama/"))
+        _temperature = 0.7 if _is_local else routing.temperature
+        _top_p: float | None = 0.8 if _is_local else None
+        _extra_body: dict[str, object] | None = {"top_k": 20, "repetition_penalty": 1.05} if _is_local else None
+
         loop_cfg = LoopConfig(
             max_iterations=run_msg.termination.max_steps or 50,
             max_cost=run_msg.termination.max_cost or 0.0,
             model=primary_model,
-            temperature=routing.temperature,
+            temperature=_temperature,
             tags=routing.tags,
             fallback_models=fallback_models,
             routing_layer=routing.routing_layer,
@@ -334,6 +396,10 @@ class ConversationHandlerMixin:
             plan_act_enabled=run_msg.plan_act_enabled,
             extra_plan_tools=mode_tools,
             routing_metadata=getattr(routing, "routing_metadata", None),
+            capability_level=str(capability_level),
+            mode_tools=mode_tools,
+            top_p=_top_p,
+            extra_body=_extra_body,
         )
 
         # Use multi-rollout executor when rollout_count > 1.
@@ -605,11 +671,17 @@ class ConversationHandlerMixin:
             return system_prompt
 
         guide = build_tool_usage_guide(registry, level)
-        if not guide:
-            return system_prompt
+        if guide:
+            system_prompt = f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
+            log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
 
-        log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
-        return f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
+        # Inject step-by-step workflow prompt for weak models (M2).
+        step_by_step = _load_step_by_step_prompt()
+        if step_by_step:
+            system_prompt = f"{system_prompt}\n\n--- Workflow Rules ---\n{step_by_step}"
+            log.info("step-by-step prompt injected", capability_level=level.value)
+
+        return system_prompt
 
     def _wire_skill_tools(
         self,
