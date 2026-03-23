@@ -112,9 +112,9 @@ services:
       - "6280:6280"
       - "6281:6281"
     environment:
-      OPENAI_API_KEY: "ollama"
-      OPENAI_API_BASE: "http://host.docker.internal:11434/v1"
-      DOCS_MCP_EMBEDDING_MODEL: "nomic-embed-text"
+      OPENAI_API_KEY: "lm-studio"
+      OPENAI_API_BASE: "http://host.docker.internal:1234/v1"
+      DOCS_MCP_EMBEDDING_MODEL: "text-embedding-nomic-embed-text-v1.5"
     volumes:
       - docs_mcp_data:/data
       - docs_mcp_config:/config

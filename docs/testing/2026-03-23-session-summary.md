@@ -287,3 +287,21 @@ cd frontend && npm run dev
 # Model: /model lm_studio/qwen/qwen3-30b-a3b
 # Mode: /mode goal_researcher
 ```
+
+## Phase 11: Run 4d — LM Studio + docs-mcp-server (10 MCP Tools)
+
+**MCP Enabled Bug: GEFIXT** — 10 Tools von docs-mcp-server gemerged (search_docs, scrape_docs, list_libraries, etc.)
+
+**Ergebnis:**
+- Agent verwendete wttr.in (Verbesserung gegenüber Run 4b's OpenWeatherMap)
+- Aber: Agent nutzte search_docs NICHT aktiv
+- 7 Steps, stalled bei "repeated bash after 2 escape attempts"
+- 2 Dateien (backend/main.py + README.md), kein Frontend
+- lru_cache(timeout=600) Bug wieder aufgetreten
+
+**Erkenntnis:** 10 zusätzliche MCP-Tools überfordern ein 3B-Active-Parameter Modell. Das Modell nutzt die neuen Tools nicht — es fällt auf seine Trainingsdaten zurück. Mehr Tools = mehr Verwirrung für schwache Modelle (bestätigt "Less is More" Paper).
+
+**Nächste Schritte:**
+1. Proaktive Context-Injection: docs-mcp Search-Ergebnisse VOR dem Agent-Loop in den Context packen (statt darauf zu warten dass der Agent search_docs aufruft)
+2. Stärkeres Modell: qwen2.5-coder-32b-instruct (32B dense) oder Cloud-Modell
+3. MCP-Tool-Filterung: Für pure_completion nur search_docs und list_libraries exponieren, nicht alle 10
