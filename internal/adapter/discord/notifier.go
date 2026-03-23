@@ -91,7 +91,10 @@ func (n *Notifier) Send(ctx context.Context, notification notifier.Notification)
 
 	// Discord returns 204 on success
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("reading discord response: %w", err)
+		}
 		return fmt.Errorf("discord API %d: %s", resp.StatusCode, string(respBody))
 	}
 
