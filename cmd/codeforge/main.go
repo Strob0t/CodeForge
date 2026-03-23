@@ -607,7 +607,7 @@ func run() error {
 	evoSvc := service.NewPromptEvolutionService(queue, store, &evoCfg)
 	scoreCollector := service.NewPromptScoreCollector(store)
 	slog.Info("prompt score collector initialized")
-	_ = scoreCollector // TODO: wire to run completion handler for automatic score collection
+	conversationSvc.SetPromptScoreCollector(scoreCollector)
 	convRunCancel, err := conversationSvc.StartCompletionSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)

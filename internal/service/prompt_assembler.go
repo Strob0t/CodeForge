@@ -113,6 +113,20 @@ func (a *PromptAssembler) assembleInternal(ctx prompt.AssemblyContext, templateD
 	}
 }
 
+// FingerprintForMode returns the current prompt fingerprint for a given mode ID.
+// Returns empty string if the library has no entries for that mode (caller skips scoring).
+func (a *PromptAssembler) FingerprintForMode(modeID string) string {
+	if a.library == nil {
+		return ""
+	}
+	ctx := prompt.AssemblyContext{ModeID: modeID}
+	entries := a.library.Query(ctx)
+	if len(entries) == 0 {
+		return ""
+	}
+	return prompt.Fingerprint(entries)
+}
+
 // renderEntry renders a prompt entry's content, executing Go templates if present.
 func renderEntry(e *prompt.PromptEntry, data any) string {
 	if data == nil || !strings.Contains(e.Content, "{{") {
