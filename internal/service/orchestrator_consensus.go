@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -88,7 +87,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		slog.Error("start step run", "step_id", stepID, "error", err)
 		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error()), "UpdatePlanStepStatus", slog.String("step_id", stepID))
 		s.broadcastStepStatus(ctx, p, step, plan.StepStatusFailed)
-		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIStepFinished, event.AGUIStepFinishedEvent{
 			RunID:  "",
 			StepID: step.ID,
 			Status: string(plan.StepStatusFailed),
@@ -98,7 +97,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 
 	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, ""), "UpdatePlanStepStatus", slog.String("step_id", stepID))
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
-	s.hub.BroadcastEvent(ctx, ws.AGUIStepStarted, ws.AGUIStepStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIStepStarted, event.AGUIStepStartedEvent{
 		RunID:  r.ID,
 		StepID: step.ID,
 		Name:   step.TaskID,
@@ -129,7 +128,7 @@ func (s *OrchestratorService) evaluateStepReview(ctx context.Context, p *plan.Ex
 	routed := s.reviewRouter.ShouldRoute(decision)
 
 	// Broadcast the review decision for frontend visibility.
-	s.hub.BroadcastEvent(ctx, ws.EventReviewRouterDecision, ws.ReviewRouterDecisionEvent{
+	s.hub.BroadcastEvent(ctx, event.EventReviewRouterDecision, event.ReviewRouterDecisionEvent{
 		PlanID:             p.ID,
 		StepID:             step.ID,
 		ProjectID:          p.ProjectID,
@@ -196,7 +195,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
 
 	// Broadcast debate started event.
-	s.hub.BroadcastEvent(ctx, ws.EventDebateStatus, ws.DebateStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDebateStatus, event.DebateStatusEvent{
 		PlanID:       p.ID,
 		StepID:       step.ID,
 		ProjectID:    p.ProjectID,
@@ -282,7 +281,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	}
 
 	// Broadcast debate completion.
-	s.hub.BroadcastEvent(ctx, ws.EventDebateStatus, ws.DebateStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDebateStatus, event.DebateStatusEvent{
 		PlanID:       ds.ParentPlanID,
 		StepID:       ds.ParentStepID,
 		ProjectID:    ds.ProjectID,
@@ -359,7 +358,7 @@ func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPla
 // --- helpers ---
 
 func (s *OrchestratorService) broadcastPlanStatus(ctx context.Context, p *plan.ExecutionPlan) {
-	s.hub.BroadcastEvent(ctx, ws.EventPlanStatus, ws.PlanStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventPlanStatus, event.PlanStatusEvent{
 		PlanID:    p.ID,
 		ProjectID: p.ProjectID,
 		Status:    string(p.Status),
@@ -367,7 +366,7 @@ func (s *OrchestratorService) broadcastPlanStatus(ctx context.Context, p *plan.E
 }
 
 func (s *OrchestratorService) broadcastStepStatus(ctx context.Context, p *plan.ExecutionPlan, step *plan.Step, status plan.StepStatus) {
-	s.hub.BroadcastEvent(ctx, ws.EventPlanStepStatus, ws.PlanStepStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventPlanStepStatus, event.PlanStepStatusEvent{
 		PlanID:    p.ID,
 		StepID:    step.ID,
 		ProjectID: p.ProjectID,
@@ -379,7 +378,7 @@ func (s *OrchestratorService) broadcastStepStatus(ctx context.Context, p *plan.E
 	// Emit AG-UI step_finished for terminal statuses.
 	switch status {
 	case plan.StepStatusCompleted, plan.StepStatusFailed, plan.StepStatusCancelled, plan.StepStatusSkipped:
-		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIStepFinished, event.AGUIStepFinishedEvent{
 			RunID:  step.RunID,
 			StepID: step.ID,
 			Status: string(status),

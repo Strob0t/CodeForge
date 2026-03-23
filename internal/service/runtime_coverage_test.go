@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	goalPkg "github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -285,9 +285,9 @@ func TestFinalizeRun_FailedStatus(t *testing.T) {
 	defer bc.mu.Unlock()
 	foundFinished := false
 	for _, ev := range bc.events {
-		if ev.EventType == ws.AGUIRunFinished {
+		if ev.EventType == event.AGUIRunFinished {
 			foundFinished = true
-			if finEv, ok := ev.Data.(ws.AGUIRunFinishedEvent); ok {
+			if finEv, ok := ev.Data.(event.AGUIRunFinishedEvent); ok {
 				if finEv.Status != "failed" {
 					t.Errorf("expected AG-UI status 'failed', got %q", finEv.Status)
 				}
@@ -629,8 +629,8 @@ func TestHandleToolCallResult_BudgetExceeded(t *testing.T) {
 	defer bc.mu.Unlock()
 	found := false
 	for _, ev := range bc.events {
-		if ev.EventType == ws.EventRunStatus {
-			if statusEv, ok := ev.Data.(ws.RunStatusEvent); ok && statusEv.Status == string(run.StatusTimeout) {
+		if ev.EventType == event.EventRunStatus {
+			if statusEv, ok := ev.Data.(event.RunStatusEvent); ok && statusEv.Status == string(run.StatusTimeout) {
 				found = true
 			}
 		}
@@ -993,7 +993,7 @@ func TestConversationToolCall_WsBroadcast(t *testing.T) {
 	defer bc.mu.Unlock()
 	found := false
 	for _, ev := range bc.events {
-		if ev.EventType == ws.EventToolCallStatus {
+		if ev.EventType == event.EventToolCallStatus {
 			found = true
 		}
 	}
@@ -1136,9 +1136,9 @@ func TestHandleToolCallRequest_AGUIBroadcast(t *testing.T) {
 	foundToolCall := false
 	foundToolStatus := false
 	for _, ev := range bc.events {
-		if ev.EventType == ws.AGUIToolCall {
+		if ev.EventType == event.AGUIToolCall {
 			foundToolCall = true
-			if tcEv, ok := ev.Data.(ws.AGUIToolCallEvent); ok {
+			if tcEv, ok := ev.Data.(event.AGUIToolCallEvent); ok {
 				if tcEv.Name != "Read" {
 					t.Errorf("expected tool name 'Read', got %q", tcEv.Name)
 				}
@@ -1147,7 +1147,7 @@ func TestHandleToolCallRequest_AGUIBroadcast(t *testing.T) {
 				}
 			}
 		}
-		if ev.EventType == ws.EventToolCallStatus {
+		if ev.EventType == event.EventToolCallStatus {
 			foundToolStatus = true
 		}
 	}
@@ -1192,9 +1192,9 @@ func TestHandleToolCallResult_AGUIBroadcast(t *testing.T) {
 	defer bc.mu.Unlock()
 	foundResult := false
 	for _, ev := range bc.events {
-		if ev.EventType == ws.AGUIToolResult {
+		if ev.EventType == event.AGUIToolResult {
 			foundResult = true
-			if trEv, ok := ev.Data.(ws.AGUIToolResultEvent); ok {
+			if trEv, ok := ev.Data.(event.AGUIToolResultEvent); ok {
 				if trEv.Result != "file contents here" {
 					t.Errorf("expected result 'file contents here', got %q", trEv.Result)
 				}
@@ -1242,8 +1242,8 @@ func TestHandleToolCallResult_FailedToolAGUIError(t *testing.T) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 	for _, ev := range bc.events {
-		if ev.EventType == ws.AGUIToolResult {
-			if trEv, ok := ev.Data.(ws.AGUIToolResultEvent); ok {
+		if ev.EventType == event.AGUIToolResult {
+			if trEv, ok := ev.Data.(event.AGUIToolResultEvent); ok {
 				if trEv.Error != "command not found" {
 					t.Errorf("expected error 'command not found', got %q", trEv.Error)
 				}

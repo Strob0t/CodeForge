@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -57,7 +56,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 			"status": string(run.StatusTimeout),
 			"reason": reason,
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -132,7 +131,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	if decision != policy.DecisionAllow {
 		phase = "denied"
 	}
-	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
 		RunID:    r.ID,
 		CallID:   req.CallID,
 		Tool:     req.Tool,
@@ -141,7 +140,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	})
 
 	// Broadcast AG-UI tool_call alongside native event
-	s.hub.BroadcastEvent(ctx, ws.AGUIToolCall, ws.AGUIToolCallEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
 		RunID:  r.ID,
 		CallID: req.CallID,
 		Name:   req.Tool,
@@ -282,7 +281,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if decision != policy.DecisionAllow {
 		phase = "denied"
 	}
-	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
 		RunID:    req.RunID,
 		CallID:   req.CallID,
 		Tool:     req.Tool,
@@ -328,7 +327,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"reason": reason,
 			})
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+			s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 				RunID:     r.ID,
 				TaskID:    r.TaskID,
 				ProjectID: r.ProjectID,
@@ -350,7 +349,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 			if pct >= threshold {
 				alertKey := fmt.Sprintf("%s:%d", r.ID, int(threshold))
 				if _, alreadySent := s.budgetAlerts.LoadOrStore(alertKey, true); !alreadySent {
-					s.hub.BroadcastEvent(ctx, ws.EventBudgetAlert, ws.BudgetAlertEvent{
+					s.hub.BroadcastEvent(ctx, event.EventBudgetAlert, event.BudgetAlertEvent{
 						RunID:      r.ID,
 						TaskID:     r.TaskID,
 						ProjectID:  r.ProjectID,
@@ -376,7 +375,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+			s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 				RunID:     r.ID,
 				TaskID:    r.TaskID,
 				ProjectID: r.ProjectID,
@@ -402,7 +401,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
 
 	// Broadcast WS with token data
-	s.hub.BroadcastEvent(ctx, ws.EventToolCallStatus, ws.ToolCallStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
 		RunID:  r.ID,
 		CallID: result.CallID,
 		Tool:   result.Tool,
@@ -414,7 +413,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	if !result.Success {
 		toolResultErr = result.Output
 	}
-	s.hub.BroadcastEvent(ctx, ws.AGUIToolResult, ws.AGUIToolResultEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIToolResult, event.AGUIToolResultEvent{
 		RunID:  r.ID,
 		CallID: result.CallID,
 		Result: result.Output,
@@ -450,7 +449,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			if err := s.store.UpdateRunArtifact(ctx, r.ID, m.RequiredArtifact, &valid, result.Errors); err != nil {
 				slog.Error("failed to persist artifact validation", "run_id", r.ID, "error", err)
 			}
-			s.hub.BroadcastEvent(ctx, ws.EventArtifactValidation, ws.ArtifactValidationEvent{
+			s.hub.BroadcastEvent(ctx, event.EventArtifactValidation, event.ArtifactValidationEvent{
 				RunID:        r.ID,
 				TaskID:       r.TaskID,
 				ProjectID:    r.ProjectID,
@@ -528,13 +527,13 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			"run_tests": fmt.Sprintf("%t", profile.QualityGate.RequireTestsPass),
 			"run_lint":  fmt.Sprintf("%t", profile.QualityGate.RequireLintPass),
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
 			Status:    "started",
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+		s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -576,7 +575,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	if allPassed {
 		s.appendAudit(ctx, r, "qualitygate.passed", "Quality gate passed")
 		s.appendRunEvent(ctx, event.TypeQualityGatePassed, r, map[string]string{})
-		s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
 			RunID:       r.ID,
 			TaskID:      r.TaskID,
 			ProjectID:   r.ProjectID,
@@ -620,7 +619,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{
 		"error": errMsg,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventQualityGate, ws.QualityGateEvent{
+	s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
 		RunID:       r.ID,
 		TaskID:      r.TaskID,
 		ProjectID:   r.ProjectID,

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -187,10 +187,10 @@ func TestHandleConversationRunComplete_FailedStatus(t *testing.T) {
 
 			found := false
 			for _, ev := range bc.events {
-				if ev.EventType != ws.AGUIRunFinished {
+				if ev.EventType != event.AGUIRunFinished {
 					continue
 				}
-				finEv, ok := ev.Data.(ws.AGUIRunFinishedEvent)
+				finEv, ok := ev.Data.(event.AGUIRunFinishedEvent)
 				if !ok {
 					continue
 				}

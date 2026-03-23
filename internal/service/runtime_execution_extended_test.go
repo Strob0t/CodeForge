@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -107,10 +107,10 @@ func TestHandleToolCallResult_BudgetAlertThresholds(t *testing.T) {
 			bc.mu.Lock()
 			defer bc.mu.Unlock()
 
-			var alertEvents []ws.BudgetAlertEvent
+			var alertEvents []event.BudgetAlertEvent
 			for _, ev := range bc.events {
-				if ev.EventType == ws.EventBudgetAlert {
-					if alertEv, ok := ev.Data.(ws.BudgetAlertEvent); ok {
+				if ev.EventType == event.EventBudgetAlert {
+					if alertEv, ok := ev.Data.(event.BudgetAlertEvent); ok {
 						alertEvents = append(alertEvents, alertEv)
 					}
 				}
@@ -387,7 +387,7 @@ func TestHandleConversationToolCall_HITLAsk(t *testing.T) {
 		if ev.EventType == "agui.permission_request" {
 			foundPermRequest = true
 		}
-		if ev.EventType == ws.EventToolCallStatus {
+		if ev.EventType == event.EventToolCallStatus {
 			foundToolStatus = true
 		}
 	}

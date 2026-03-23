@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
@@ -195,10 +195,10 @@ func (r *ModelRegistry) broadcastHealth(ctx context.Context, models []llm.Discov
 		return
 	}
 
-	entries := make([]ws.ModelHealthEntry, len(models))
+	entries := make([]event.ModelHealthEntry, len(models))
 	healthy, unhealthy := 0, 0
 	for i := range models {
-		entries[i] = ws.ModelHealthEntry{
+		entries[i] = event.ModelHealthEntry{
 			ModelName:   models[i].ModelName,
 			Status:      models[i].Status,
 			Provider:    models[i].Provider,
@@ -212,7 +212,7 @@ func (r *ModelRegistry) broadcastHealth(ctx context.Context, models []llm.Discov
 		}
 	}
 
-	r.hub.BroadcastEvent(ctx, ws.EventModelHealth, ws.ModelHealthEvent{
+	r.hub.BroadcastEvent(ctx, event.EventModelHealth, event.ModelHealthEvent{
 		Models:         entries,
 		BestModel:      bestModel,
 		HealthyCount:   healthy,

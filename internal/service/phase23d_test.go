@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -48,10 +48,10 @@ func TestHandoff_BroadcastsToWSHub(t *testing.T) {
 		t.Fatalf("expected 1 broadcast event, got %d", len(hub.events))
 	}
 	evt := hub.events[0]
-	if evt.eventType != ws.EventHandoffStatus {
-		t.Errorf("expected event type %q, got %q", ws.EventHandoffStatus, evt.eventType)
+	if evt.eventType != event.EventHandoffStatus {
+		t.Errorf("expected event type %q, got %q", event.EventHandoffStatus, evt.eventType)
 	}
-	hsEvt, ok := evt.payload.(ws.HandoffStatusEvent)
+	hsEvt, ok := evt.payload.(event.HandoffStatusEvent)
 	if !ok {
 		t.Fatalf("expected HandoffStatusEvent payload, got %T", evt.payload)
 	}

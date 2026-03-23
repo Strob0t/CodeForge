@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -58,7 +58,7 @@ func (s *ActiveWorkService) ClaimTask(ctx context.Context, taskID, agentID strin
 	}
 
 	if result.Claimed {
-		s.hub.BroadcastEvent(ctx, ws.EventActiveWorkClaimed, ws.ActiveWorkClaimedEvent{
+		s.hub.BroadcastEvent(ctx, event.EventActiveWorkClaimed, event.ActiveWorkClaimedEvent{
 			TaskID:    taskID,
 			TaskTitle: t.Title,
 			ProjectID: t.ProjectID,
@@ -81,7 +81,7 @@ func (s *ActiveWorkService) ReleaseStaleWork(ctx context.Context, threshold time
 	}
 
 	for i := range released {
-		s.hub.BroadcastEvent(ctx, ws.EventActiveWorkReleased, ws.ActiveWorkReleasedEvent{
+		s.hub.BroadcastEvent(ctx, event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
 			TaskID:    released[i].ID,
 			ProjectID: released[i].ProjectID,
 			Reason:    "stale task released after timeout",

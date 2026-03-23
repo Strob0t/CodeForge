@@ -14,9 +14,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
@@ -283,7 +283,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 	}
 
 	// Broadcast run started via WebSocket.
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunStarted, ws.AGUIRunStartedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     runID,
 		ThreadID:  conversationID,
 		AgentName: "assistant",
@@ -291,7 +291,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 
 	// Publish to NATS for the Python worker.
 	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
-		s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+		s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 			RunID:  runID,
 			Status: "failed",
 			Error:  err.Error(),

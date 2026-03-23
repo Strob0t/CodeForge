@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -97,7 +97,7 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 
 	slog.Info("github push event", "repo", ev.Repository, "branch", branch, "commits", len(ev.Commits))
 
-	s.hub.BroadcastEvent(ctx, ws.EventVCSPush, ev)
+	s.hub.BroadcastEvent(ctx, event.EventVCSPush, ev)
 
 	// Trigger review checks on push events.
 	if s.review != nil && s.store != nil {
@@ -163,7 +163,7 @@ func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (
 
 	slog.Info("gitlab push event", "repo", ev.Repository, "branch", branch, "commits", len(ev.Commits))
 
-	s.hub.BroadcastEvent(ctx, ws.EventVCSPush, ev)
+	s.hub.BroadcastEvent(ctx, event.EventVCSPush, ev)
 
 	// Trigger review checks on push events.
 	if s.review != nil && s.store != nil {
@@ -221,7 +221,7 @@ func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, data []
 
 	slog.Info("github PR event", "repo", ev.Repository, "action", ev.Action, "pr", ev.PRNumber)
 
-	s.hub.BroadcastEvent(ctx, ws.EventVCSPullRequest, ev)
+	s.hub.BroadcastEvent(ctx, event.EventVCSPullRequest, ev)
 
 	// Trigger pre-merge review checks on PR open/synchronize.
 	if s.review != nil && s.store != nil && (ev.Action == "opened" || ev.Action == "synchronize") {

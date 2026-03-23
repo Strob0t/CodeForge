@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
@@ -34,7 +34,7 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 	defer s.pendingApprovals.Delete(key)
 
 	// Broadcast permission request to connected WebSocket clients.
-	s.hub.BroadcastEvent(ctx, ws.AGUIPermissionRequest, ws.AGUIPermissionRequestEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIPermissionRequest, event.AGUIPermissionRequestEvent{
 		RunID:   runID,
 		CallID:  callID,
 		Tool:    tool,

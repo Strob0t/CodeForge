@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -140,10 +140,10 @@ func TestModelRegistryRefresh(t *testing.T) {
 	if !ok {
 		t.Fatal("no events")
 	}
-	if evt.eventType != ws.EventModelHealth {
-		t.Errorf("expected event type %q, got %q", ws.EventModelHealth, evt.eventType)
+	if evt.eventType != event.EventModelHealth {
+		t.Errorf("expected event type %q, got %q", event.EventModelHealth, evt.eventType)
 	}
-	healthEvt, ok := evt.payload.(ws.ModelHealthEvent)
+	healthEvt, ok := evt.payload.(event.ModelHealthEvent)
 	if !ok {
 		t.Fatalf("expected ModelHealthEvent payload, got %T", evt.payload)
 	}

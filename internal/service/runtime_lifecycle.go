@@ -13,7 +13,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -91,7 +90,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 		"status": string(run.StatusTimeout),
 		"reason": reason,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -171,7 +170,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	})
 
 	// Broadcast WS
-	s.hub.BroadcastEvent(ctx, ws.EventRunStatus, ws.RunStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -182,7 +181,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		TokensOut: payload.TokensOut,
 		Model:     payload.Model,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventAgentStatus, ws.AgentStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
 		AgentID:   r.AgentID,
 		ProjectID: r.ProjectID,
 		Status:    string(agent.StatusIdle),
@@ -196,7 +195,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	case run.StatusCancelled:
 		aguiStatus = "cancelled"
 	}
-	s.hub.BroadcastEvent(ctx, ws.AGUIRunFinished, ws.AGUIRunFinishedEvent{
+	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:     r.ID,
 		Status:    aguiStatus,
 		Model:     payload.Model,
@@ -266,7 +265,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 	s.appendRunEvent(ctx, event.TypeDeliveryStarted, r, map[string]string{
 		"mode": string(r.DeliverMode),
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
@@ -283,7 +282,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 			"mode":  string(r.DeliverMode),
 			"error": deliverErr.Error(),
 		})
-		s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
+		s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -306,7 +305,7 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		"branch_name": deliverResult.BranchName,
 		"pr_url":      deliverResult.PRURL,
 	})
-	s.hub.BroadcastEvent(ctx, ws.EventDelivery, ws.DeliveryEvent{
+	s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 		RunID:      r.ID,
 		TaskID:     r.TaskID,
 		ProjectID:  r.ProjectID,

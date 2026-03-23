@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -1725,7 +1724,7 @@ func TestHandleToolCallResult_StallDetected(t *testing.T) {
 	found := false
 	for _, ev := range bc.events {
 		if ev.EventType == "run.status" {
-			if statusEv, ok := ev.Data.(ws.RunStatusEvent); ok && statusEv.RunID == r.ID && statusEv.Status == "failed" {
+			if statusEv, ok := ev.Data.(event.RunStatusEvent); ok && statusEv.RunID == r.ID && statusEv.Status == "failed" {
 				found = true
 			}
 		}
@@ -2173,11 +2172,11 @@ func TestHandleToolCallResult_BudgetAlert80Percent(t *testing.T) {
 	defer bc.mu.Unlock()
 	var alertCount int
 	for _, ev := range bc.events {
-		if ev.EventType != ws.EventBudgetAlert {
+		if ev.EventType != event.EventBudgetAlert {
 			continue
 		}
 		alertCount++
-		alert := ev.Data.(ws.BudgetAlertEvent)
+		alert := ev.Data.(event.BudgetAlertEvent)
 		if alert.RunID != "run-budget80" {
 			t.Fatalf("expected run-budget80, got %s", alert.RunID)
 		}
@@ -2226,7 +2225,7 @@ func TestHandleToolCallResult_BudgetAlert90Percent(t *testing.T) {
 	defer bc.mu.Unlock()
 	var alertCount int
 	for _, ev := range bc.events {
-		if ev.EventType == ws.EventBudgetAlert {
+		if ev.EventType == event.EventBudgetAlert {
 			alertCount++
 		}
 	}
@@ -2282,7 +2281,7 @@ func TestHandleToolCallResult_BudgetAlertNoDuplicate(t *testing.T) {
 	defer bc.mu.Unlock()
 	var alertCount int
 	for _, ev := range bc.events {
-		if ev.EventType == ws.EventBudgetAlert {
+		if ev.EventType == event.EventBudgetAlert {
 			alertCount++
 		}
 	}

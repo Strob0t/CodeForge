@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -74,7 +74,7 @@ func (s *PoolManagerService) CreateTeam(ctx context.Context, req *agent.CreateTe
 	}
 
 	// Broadcast team status via WebSocket.
-	s.hub.BroadcastEvent(ctx, ws.EventTeamStatus, ws.TeamStatusEvent{
+	s.hub.BroadcastEvent(ctx, event.EventTeamStatus, event.TeamStatusEvent{
 		TeamID:    team.ID,
 		ProjectID: req.ProjectID,
 		Status:    string(team.Status),
