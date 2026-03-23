@@ -5,11 +5,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 )
 
 func TestAGUIGoalProposalEventMarshal(t *testing.T) {
-	ev := ws.AGUIGoalProposalEvent{
+	ev := event.AGUIGoalProposalEvent{
 		RunID:      "run-123",
 		ProposalID: "prop-456",
 		Action:     "create",
@@ -50,8 +50,8 @@ func TestAGUIGoalProposalEventMarshal(t *testing.T) {
 }
 
 func TestAGUIGoalProposalConstant(t *testing.T) {
-	if ws.AGUIGoalProposal != "agui.goal_proposal" {
-		t.Errorf("AGUIGoalProposal = %q, want agui.goal_proposal", ws.AGUIGoalProposal)
+	if event.AGUIGoalProposal != "agui.goal_proposal" {
+		t.Errorf("AGUIGoalProposal = %q, want agui.goal_proposal", event.AGUIGoalProposal)
 	}
 }
 
@@ -62,17 +62,17 @@ func TestAGUIEventTypeConstants(t *testing.T) {
 		got      string
 		expected string
 	}{
-		{"RunStarted", ws.AGUIRunStarted, "agui.run_started"},
-		{"RunFinished", ws.AGUIRunFinished, "agui.run_finished"},
-		{"TextMessage", ws.AGUITextMessage, "agui.text_message"},
-		{"ToolCall", ws.AGUIToolCall, "agui.tool_call"},
-		{"ToolResult", ws.AGUIToolResult, "agui.tool_result"},
-		{"StateDelta", ws.AGUIStateDelta, "agui.state_delta"},
-		{"StepStarted", ws.AGUIStepStarted, "agui.step_started"},
-		{"StepFinished", ws.AGUIStepFinished, "agui.step_finished"},
-		{"PermissionRequest", ws.AGUIPermissionRequest, "agui.permission_request"},
-		{"GoalProposal", ws.AGUIGoalProposal, "agui.goal_proposal"},
-		{"ActionSuggestion", ws.AGUIActionSuggestion, "agui.action_suggestion"},
+		{"RunStarted", event.AGUIRunStarted, "agui.run_started"},
+		{"RunFinished", event.AGUIRunFinished, "agui.run_finished"},
+		{"TextMessage", event.AGUITextMessage, "agui.text_message"},
+		{"ToolCall", event.AGUIToolCall, "agui.tool_call"},
+		{"ToolResult", event.AGUIToolResult, "agui.tool_result"},
+		{"StateDelta", event.AGUIStateDelta, "agui.state_delta"},
+		{"StepStarted", event.AGUIStepStarted, "agui.step_started"},
+		{"StepFinished", event.AGUIStepFinished, "agui.step_finished"},
+		{"PermissionRequest", event.AGUIPermissionRequest, "agui.permission_request"},
+		{"GoalProposal", event.AGUIGoalProposal, "agui.goal_proposal"},
+		{"ActionSuggestion", event.AGUIActionSuggestion, "agui.action_suggestion"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "RunStarted",
 			original: func() interface{} {
-				return &ws.AGUIRunStartedEvent{
+				return &event.AGUIRunStartedEvent{
 					RunID:     "run-001",
 					ThreadID:  "thread-abc",
 					AgentName: "assistant",
@@ -110,7 +110,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "RunStarted_OmitEmpty",
 			original: func() interface{} {
-				return &ws.AGUIRunStartedEvent{
+				return &event.AGUIRunStartedEvent{
 					RunID: "run-002",
 				}
 			},
@@ -122,7 +122,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "RunFinished",
 			original: func() interface{} {
-				return &ws.AGUIRunFinishedEvent{
+				return &event.AGUIRunFinishedEvent{
 					RunID:     "run-010",
 					Status:    "completed",
 					Error:     "something went wrong",
@@ -147,7 +147,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "RunFinished_OmitEmpty",
 			original: func() interface{} {
-				return &ws.AGUIRunFinishedEvent{
+				return &event.AGUIRunFinishedEvent{
 					RunID:  "run-011",
 					Status: "failed",
 				}
@@ -161,7 +161,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "TextMessage",
 			original: func() interface{} {
-				return &ws.AGUITextMessageEvent{
+				return &event.AGUITextMessageEvent{
 					RunID:   "run-020",
 					Role:    "assistant",
 					Content: "Hello, I will help you refactor this module.",
@@ -176,7 +176,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "ToolCall",
 			original: func() interface{} {
-				return &ws.AGUIToolCallEvent{
+				return &event.AGUIToolCallEvent{
 					RunID:  "run-030",
 					CallID: "call-xyz",
 					Name:   "Read",
@@ -193,7 +193,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "ToolResult",
 			original: func() interface{} {
-				return &ws.AGUIToolResultEvent{
+				return &event.AGUIToolResultEvent{
 					RunID:  "run-040",
 					CallID: "call-res-1",
 					Result: `{"lines":42}`,
@@ -211,7 +211,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "ToolResult_OmitEmpty",
 			original: func() interface{} {
-				return &ws.AGUIToolResultEvent{
+				return &event.AGUIToolResultEvent{
 					RunID:  "run-041",
 					CallID: "call-res-2",
 					Result: `{"ok":true}`,
@@ -227,7 +227,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "StateDelta",
 			original: func() interface{} {
-				return &ws.AGUIStateDeltaEvent{
+				return &event.AGUIStateDeltaEvent{
 					RunID: "run-050",
 					Delta: `[{"op":"replace","path":"/cost","value":0.01}]`,
 				}
@@ -240,7 +240,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "StepStarted",
 			original: func() interface{} {
-				return &ws.AGUIStepStartedEvent{
+				return &event.AGUIStepStartedEvent{
 					RunID:  "run-060",
 					StepID: "step-1",
 					Name:   "analyze_code",
@@ -255,7 +255,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "StepFinished",
 			original: func() interface{} {
-				return &ws.AGUIStepFinishedEvent{
+				return &event.AGUIStepFinishedEvent{
 					RunID:  "run-070",
 					StepID: "step-2",
 					Status: "completed",
@@ -270,7 +270,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "PermissionRequest",
 			original: func() interface{} {
-				return &ws.AGUIPermissionRequestEvent{
+				return &event.AGUIPermissionRequestEvent{
 					RunID:   "run-080",
 					CallID:  "call-perm-1",
 					Tool:    "Bash",
@@ -289,7 +289,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "PermissionRequest_OmitEmpty",
 			original: func() interface{} {
-				return &ws.AGUIPermissionRequestEvent{
+				return &event.AGUIPermissionRequestEvent{
 					RunID:  "run-081",
 					CallID: "call-perm-2",
 					Tool:   "Read",
@@ -305,7 +305,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "ActionSuggestion",
 			original: func() interface{} {
-				return &ws.AGUIActionSuggestionEvent{
+				return &event.AGUIActionSuggestionEvent{
 					RunID:  "run-090",
 					Label:  "Run tests",
 					Action: "run_tool",
@@ -322,7 +322,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "GoalProposal",
 			original: func() interface{} {
-				return &ws.AGUIGoalProposalEvent{
+				return &event.AGUIGoalProposalEvent{
 					RunID:      "run-100",
 					ProposalID: "prop-abc",
 					Action:     "create",
@@ -347,7 +347,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		{
 			name: "GoalProposal_OmitEmpty",
 			original: func() interface{} {
-				return &ws.AGUIGoalProposalEvent{
+				return &event.AGUIGoalProposalEvent{
 					RunID:      "run-101",
 					ProposalID: "prop-def",
 					Action:     "update",
@@ -426,7 +426,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 // preserves arbitrary JSON through marshal/unmarshal.
 func TestAGUIToolResultEvent_DiffRawJSON(t *testing.T) {
 	diffPayload := `{"op":"replace","path":"/content","value":"new"}`
-	ev := ws.AGUIToolResultEvent{
+	ev := event.AGUIToolResultEvent{
 		RunID:  "run-diff",
 		CallID: "call-diff",
 		Result: "ok",
@@ -438,7 +438,7 @@ func TestAGUIToolResultEvent_DiffRawJSON(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	var got ws.AGUIToolResultEvent
+	var got event.AGUIToolResultEvent
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -455,17 +455,17 @@ func TestAGUIEvents_EmptyStructs(t *testing.T) {
 		name  string
 		event interface{}
 	}{
-		{"RunStarted_zero", ws.AGUIRunStartedEvent{}},
-		{"RunFinished_zero", ws.AGUIRunFinishedEvent{}},
-		{"TextMessage_zero", ws.AGUITextMessageEvent{}},
-		{"ToolCall_zero", ws.AGUIToolCallEvent{}},
-		{"ToolResult_zero", ws.AGUIToolResultEvent{}},
-		{"StateDelta_zero", ws.AGUIStateDeltaEvent{}},
-		{"StepStarted_zero", ws.AGUIStepStartedEvent{}},
-		{"StepFinished_zero", ws.AGUIStepFinishedEvent{}},
-		{"PermissionRequest_zero", ws.AGUIPermissionRequestEvent{}},
-		{"ActionSuggestion_zero", ws.AGUIActionSuggestionEvent{}},
-		{"GoalProposal_zero", ws.AGUIGoalProposalEvent{}},
+		{"RunStarted_zero", event.AGUIRunStartedEvent{}},
+		{"RunFinished_zero", event.AGUIRunFinishedEvent{}},
+		{"TextMessage_zero", event.AGUITextMessageEvent{}},
+		{"ToolCall_zero", event.AGUIToolCallEvent{}},
+		{"ToolResult_zero", event.AGUIToolResultEvent{}},
+		{"StateDelta_zero", event.AGUIStateDeltaEvent{}},
+		{"StepStarted_zero", event.AGUIStepStartedEvent{}},
+		{"StepFinished_zero", event.AGUIStepFinishedEvent{}},
+		{"PermissionRequest_zero", event.AGUIPermissionRequestEvent{}},
+		{"ActionSuggestion_zero", event.AGUIActionSuggestionEvent{}},
+		{"GoalProposal_zero", event.AGUIGoalProposalEvent{}},
 	}
 
 	for _, tt := range zeros {

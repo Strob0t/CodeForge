@@ -3,6 +3,8 @@ package ws
 import (
 	"context"
 	"testing"
+
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 )
 
 func TestNewHub(t *testing.T) {
@@ -37,7 +39,7 @@ func TestHubBroadcastEventNoConnections(t *testing.T) {
 	hub := NewHub("", nil)
 
 	// BroadcastEvent with no connections should not panic.
-	hub.BroadcastEvent(context.Background(), EventTaskStatus, TaskStatusEvent{
+	hub.BroadcastEvent(context.Background(), event.EventTaskStatus, event.TaskStatusEvent{
 		TaskID:    "t1",
 		ProjectID: "p1",
 		Status:    "completed",
