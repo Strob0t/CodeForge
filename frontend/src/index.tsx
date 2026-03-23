@@ -19,6 +19,7 @@ import DesignSystemPage from "./features/dev/DesignSystemPage.tsx";
 import KnowledgePage from "./features/knowledge/KnowledgePage.tsx";
 import AIConfigPage from "./features/llm/AIConfigPage.tsx";
 import MCPServersPage from "./features/mcp/MCPServersPage.tsx";
+import MicroagentsPage from "./features/microagents/MicroagentsPage.tsx";
 import NotFoundPage from "./features/NotFoundPage.tsx";
 import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import PromptEditorPage from "./features/prompts/PromptEditorPage.tsx";
@@ -46,6 +47,7 @@ render(
       <Route path="/ai" component={AIConfigPage} />
       <Route path="/knowledge" component={KnowledgePage} />
       <Route path="/mcp" component={MCPServersPage} />
+      <Route path="/microagents" component={MicroagentsPage} />
       <Route path="/prompts" component={PromptEditorPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />

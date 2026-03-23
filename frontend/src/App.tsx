@@ -41,6 +41,7 @@ import {
   DashboardIcon,
   KnowledgeBaseIcon,
   McpIcon,
+  MicroagentsIcon,
   ModelsIcon,
   PromptsIcon,
   SettingsIcon,
@@ -171,6 +172,13 @@ function AppShell(props: {
                 </NavLink>
                 <NavLink href="/mcp" icon={<McpIcon />} label={t("app.nav.mcp")}>
                   {t("app.nav.mcp")}
+                </NavLink>
+                <NavLink
+                  href="/microagents"
+                  icon={<MicroagentsIcon />}
+                  label={t("app.nav.microagents")}
+                >
+                  {t("app.nav.microagents")}
                 </NavLink>
                 <Show when={props.health()?.dev_mode}>
                   <NavLink
@@ -350,6 +358,7 @@ const KNOWN_ROUTES = new Set([
   "/activity",
   "/knowledge",
   "/mcp",
+  "/microagents",
   "/prompts",
   "/settings",
   "/benchmarks",
