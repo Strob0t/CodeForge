@@ -7,8 +7,8 @@
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: "50m"
+    max-file: "10"
 
 services:
   # --- Infrastructure ---
@@ -16,6 +16,16 @@ services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-codeforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -49,6 +59,10 @@ services:
   nats:
     image: nats:2-alpine
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     command:
       - "--jetstream"
       - "--store_dir"
@@ -75,8 +89,12 @@ services:
     logging: *default-logging
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    image: ghcr.io/berriai/litellm:v1.63.2
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
@@ -121,6 +139,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - "no-new-privileges:true"
     environment:
@@ -158,6 +178,8 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - "no-new-privileges:true"
     environment:
@@ -189,6 +211,10 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "${FRONTEND_PORT:-80}:80"
     depends_on:

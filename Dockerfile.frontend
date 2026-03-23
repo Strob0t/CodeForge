@@ -16,7 +16,7 @@ COPY frontend/ ./frontend/
 RUN cd frontend && npm run postinstall && npm run build
 
 # --- Serve stage ---
-FROM nginx:alpine
+FROM nginx:1.27-alpine
 
 ARG APP_VERSION=dev
 ARG GIT_SHA=unknown
