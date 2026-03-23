@@ -13,6 +13,7 @@ interface CommandResponse {
 const FALLBACK_COMMANDS: Item[] = [
   { id: "compact", label: "compact", category: "command" },
   { id: "clear", label: "clear", category: "command" },
+  { id: "diff", label: "diff", category: "command" },
   { id: "help", label: "help", category: "command" },
   { id: "mode", label: "mode", category: "command" },
   { id: "model", label: "model", category: "command" },

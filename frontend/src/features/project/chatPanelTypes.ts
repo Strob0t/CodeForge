@@ -51,4 +51,21 @@ export interface ChatAGUIState {
   sessionSteps: () => number;
   commandOutput: () => string | null;
   setCommandOutput: (v: string | null) => void;
+  sessionDiffs: () => {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  }[];
+  stepHistory: () => {
+    stepId: string;
+    name: string;
+    timestamp: string;
+    status: "running" | "completed" | "failed" | "cancelled" | "skipped";
+  }[];
 }
