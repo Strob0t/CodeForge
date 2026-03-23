@@ -2145,3 +2145,44 @@ export interface BoundaryConfig {
   last_analyzed: string;
   version: number;
 }
+
+// --- Prompt Evolution types ---
+
+/** Per-mode evolution status returned within PromptEvolutionStatus. */
+export interface ModeEvolutionStatus {
+  mode_id: string;
+  active_variant: string;
+  candidate_count: number;
+  total_trials: number;
+  avg_score: number;
+  strategy: string;
+}
+
+/** Response from GET /prompt-evolution/status. */
+export interface PromptEvolutionStatus {
+  enabled: boolean;
+  trigger: string;
+  strategy: string;
+  mode_status?: Record<string, ModeEvolutionStatus>;
+}
+
+/** Prompt variant row from GET /prompt-evolution/variants. */
+export interface PromptVariant {
+  id: string;
+  tenant_id: string;
+  name: string;
+  scope: string;
+  content: string;
+  priority: number;
+  enabled: boolean;
+  version: number;
+  parent_id: string;
+  mutation_source: string;
+  promotion_status: "candidate" | "promoted" | "retired";
+  trial_count: number;
+  avg_score: number;
+  mode_id: string;
+  model_family: string;
+  created_at: string;
+  updated_at: string;
+}

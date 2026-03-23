@@ -29,6 +29,7 @@ export {
   createTrajectoryResource,
 } from "./misc";
 export { createBatchResource, createProjectsResource } from "./projects";
+export { createPromptEvolutionResource } from "./promptEvolution";
 export { createRoadmapResource } from "./roadmap";
 export {
   createAgentConfigResource,

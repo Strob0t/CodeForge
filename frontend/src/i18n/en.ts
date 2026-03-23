@@ -1325,6 +1325,35 @@ const en = {
   "prompts.error.deleteFailed": "Failed to delete prompt section",
   "prompts.error.previewFailed": "Failed to generate preview",
 
+  // -- Prompt Evolution (tabs + evolution UI) --------------------------------
+  "prompts.tabs.sections": "Sections",
+  "prompts.tabs.evolution": "Evolution",
+  "prompts.evolution.title": "Prompt Evolution",
+  "prompts.evolution.status": "Evolution Status",
+  "prompts.evolution.enabled": "Enabled",
+  "prompts.evolution.trigger": "Trigger",
+  "prompts.evolution.strategy": "Strategy",
+  "prompts.evolution.variants": "Variants",
+  "prompts.evolution.empty": "No variants yet",
+  "prompts.evolution.emptyDescription": "Trigger a reflection to generate prompt variants.",
+  "prompts.evolution.promote": "Promote",
+  "prompts.evolution.revert": "Revert Mode",
+  "prompts.evolution.triggerReflection": "Trigger Reflection",
+  "prompts.evolution.field.modeId": "Mode ID",
+  "prompts.evolution.field.modelFamily": "Model Family",
+  "prompts.evolution.field.currentPrompt": "Current Prompt",
+  "prompts.evolution.confirm.promote":
+    "Promote this variant? It will replace the currently active prompt for this mode.",
+  "prompts.evolution.confirm.revert":
+    "Revert this mode to base prompts? All promoted variants will be retired.",
+  "prompts.evolution.promoted": "Variant promoted successfully.",
+  "prompts.evolution.reverted": "Mode reverted to base prompts.",
+  "prompts.evolution.reflectionTriggered":
+    "Reflection triggered. Variants will appear after processing.",
+  "prompts.evolution.error.promoteFailed": "Failed to promote variant.",
+  "prompts.evolution.error.revertFailed": "Failed to revert mode.",
+  "prompts.evolution.error.reflectFailed": "Failed to trigger reflection.",
+
   // -- Benchmark Mode (Phase 20E) -------------------------------------------
   "app.nav.benchmarks": "Benchmarks",
 

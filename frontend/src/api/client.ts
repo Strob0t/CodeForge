@@ -30,6 +30,7 @@ import {
   createTrajectoryResource,
 } from "./resources/misc";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
+import { createPromptEvolutionResource } from "./resources/promptEvolution";
 import { createRoadmapResource } from "./resources/roadmap";
 import {
   createAgentConfigResource,
@@ -81,6 +82,7 @@ export const api = {
   dev: createDevResource(core),
   mcp: createMCPResource(core),
   promptSections: createPromptSectionsResource(core),
+  promptEvolution: createPromptEvolutionResource(core),
   benchmarks: createBenchmarksResource(core),
   files: createFilesResource(core),
   autoAgent: createAutoAgentResource(core),

@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createResource, createSignal, For, lazy, onMount, Show, Suspense } from "solid-js";
 
 import { api } from "~/api/client";
 import type { PromptSectionRow } from "~/api/types";
@@ -20,9 +20,13 @@ import {
 } from "~/ui";
 import { DocumentPenIcon } from "~/ui/icons/EmptyStateIcons";
 
+const EvolutionTab = lazy(() => import("./EvolutionTab"));
+
 const MERGE_OPTIONS = ["replace", "prepend", "append"];
 
 const SCOPE_OPTIONS = ["global"];
+
+type TabId = "sections" | "evolution";
 
 export default function PromptEditorPage() {
   onMount(() => {
@@ -31,6 +35,8 @@ export default function PromptEditorPage() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
+
+  const [activeTab, setActiveTab] = createSignal<TabId>("sections");
 
   const [scope, setScope] = createSignal("global");
   const [sections, { refetch }] = createResource(scope, (s) => api.promptSections.list(s));
@@ -136,156 +142,182 @@ export default function PromptEditorPage() {
 
   return (
     <PageLayout title={t("prompts.title")} description={t("prompts.subtitle")}>
-      {/* Scope selector + actions */}
-      <div class="mb-4 flex items-center gap-3">
-        <Select value={scope()} onChange={(e) => setScope(e.currentTarget.value)} class="w-40">
-          <For each={SCOPE_OPTIONS}>
-            {(s) => <option value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>}
-          </For>
-        </Select>
-        <Button onClick={() => crud.startCreate()} size="sm">
-          {t("prompts.add")}
-        </Button>
-        <Button onClick={() => void handlePreview()} size="sm" variant="secondary">
-          {t("prompts.preview")}
-        </Button>
+      {/* Tab bar */}
+      <div class="mb-4 flex border-b border-cf-border">
+        <button
+          class={`px-4 py-2 text-sm font-medium ${activeTab() === "sections" ? "border-b-2 border-cf-accent text-cf-accent" : "text-cf-text-muted"}`}
+          onClick={() => setActiveTab("sections")}
+        >
+          {t("prompts.tabs.sections")}
+        </button>
+        <button
+          class={`px-4 py-2 text-sm font-medium ${activeTab() === "evolution" ? "border-b-2 border-cf-accent text-cf-accent" : "text-cf-text-muted"}`}
+          onClick={() => setActiveTab("evolution")}
+        >
+          {t("prompts.tabs.evolution")}
+        </button>
       </div>
 
-      {/* Preview panel */}
-      <Show when={previewText()}>
-        <Card class="mb-4">
-          <div class="flex items-center justify-between px-4 py-2">
-            <span class="text-sm font-medium">{t("prompts.previewTitle")}</span>
-            <Badge variant={previewTokens() > 2048 ? "error" : "success"}>
-              {previewTokens()} tokens
-            </Badge>
-          </div>
-          <pre class="max-h-60 overflow-auto whitespace-pre-wrap border-t border-cf-border px-4 py-2 font-mono text-xs text-cf-text-muted">
-            {previewText()}
-          </pre>
-        </Card>
-      </Show>
-
-      {/* Section form */}
-      <Show when={crud.showForm()}>
-        <Card class="mb-4 p-4">
-          <h3 class="mb-3 text-sm font-semibold">
-            {crud.editingId() ? t("prompts.editSection") : t("prompts.newSection")}
-          </h3>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <FormField label={t("prompts.field.name")}>
-              <Input
-                value={crud.form.state.name}
-                onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
-              />
-            </FormField>
-            <FormField label={t("prompts.field.merge")}>
-              <Select
-                value={crud.form.state.merge}
-                onChange={(e) => crud.form.setState("merge", e.currentTarget.value)}
-              >
-                <For each={MERGE_OPTIONS}>
-                  {(m) => <option value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>}
-                </For>
-              </Select>
-            </FormField>
-            <FormField label={t("prompts.field.priority")}>
-              <div class="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={crud.form.state.priority}
-                  onInput={(e) => crud.form.setState("priority", Number(e.currentTarget.value))}
-                  class="flex-1"
-                />
-                <span class="w-8 text-center text-xs text-cf-text-muted">
-                  {crud.form.state.priority}
-                </span>
-              </div>
-            </FormField>
-            <FormField label={t("prompts.field.sortOrder")}>
-              <Input
-                type="number"
-                value={String(crud.form.state.sortOrder)}
-                onInput={(e) => crud.form.setState("sortOrder", Number(e.currentTarget.value))}
-              />
-            </FormField>
-          </div>
-          <FormField label={t("prompts.field.content")} class="mt-3">
-            <Textarea
-              value={crud.form.state.content}
-              onInput={(e) => crud.form.setState("content", e.currentTarget.value)}
-              rows={8}
-              class="font-mono text-xs"
-            />
-            <span class="mt-1 text-xs text-cf-text-muted">
-              ~{estimateTokens(crud.form.state.content)} tokens
-            </span>
-          </FormField>
-          <div class="mt-3 flex items-center gap-2">
-            <label class="flex items-center gap-1 text-sm">
-              <input
-                type="checkbox"
-                checked={crud.form.state.enabled}
-                onChange={(e) => crud.form.setState("enabled", e.currentTarget.checked)}
-              />
-              {t("prompts.field.enabled")}
-            </label>
-          </div>
-          <div class="mt-4 flex gap-2">
-            <Button onClick={() => void handleSave()} size="sm" disabled={saving()}>
-              {saving() ? t("common.saving") : t("common.save")}
-            </Button>
-            <Button onClick={() => crud.cancelForm()} size="sm" variant="ghost">
-              {t("common.cancel")}
-            </Button>
-          </div>
-        </Card>
-      </Show>
-
-      {/* Section list */}
-      <Show when={!sections.loading} fallback={<LoadingState />}>
-        <Show
-          when={(sections() ?? []).length > 0}
-          fallback={
-            <EmptyState
-              illustration={<DocumentPenIcon />}
-              title={t("prompts.empty")}
-              description={t("prompts.emptyDescription")}
-            />
-          }
-        >
-          <div class="space-y-2">
-            <For each={sections()}>
-              {(row) => (
-                <Card class="flex items-center gap-3 px-4 py-3">
-                  <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium">{row.name}</span>
-                      <Badge variant={row.enabled ? "success" : "neutral"}>
-                        {row.enabled ? "on" : "off"}
-                      </Badge>
-                      <Badge variant="neutral">{row.merge}</Badge>
-                      <span class="text-xs text-cf-text-muted">
-                        P{row.priority} / S{row.sort_order}
-                      </span>
-                    </div>
-                    <p class="mt-1 line-clamp-2 text-xs text-cf-text-muted">{row.content}</p>
-                  </div>
-                  <div class="flex gap-1">
-                    <Button onClick={() => handleEdit(row)} size="sm" variant="ghost">
-                      {t("common.edit")}
-                    </Button>
-                    <Button onClick={() => void handleDelete(row.id)} size="sm" variant="ghost">
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                </Card>
-              )}
+      {/* Sections tab */}
+      <Show when={activeTab() === "sections"}>
+        {/* Scope selector + actions */}
+        <div class="mb-4 flex items-center gap-3">
+          <Select value={scope()} onChange={(e) => setScope(e.currentTarget.value)} class="w-40">
+            <For each={SCOPE_OPTIONS}>
+              {(s) => <option value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>}
             </For>
-          </div>
+          </Select>
+          <Button onClick={() => crud.startCreate()} size="sm">
+            {t("prompts.add")}
+          </Button>
+          <Button onClick={() => void handlePreview()} size="sm" variant="secondary">
+            {t("prompts.preview")}
+          </Button>
+        </div>
+
+        {/* Preview panel */}
+        <Show when={previewText()}>
+          <Card class="mb-4">
+            <div class="flex items-center justify-between px-4 py-2">
+              <span class="text-sm font-medium">{t("prompts.previewTitle")}</span>
+              <Badge variant={previewTokens() > 2048 ? "error" : "success"}>
+                {previewTokens()} tokens
+              </Badge>
+            </div>
+            <pre class="max-h-60 overflow-auto whitespace-pre-wrap border-t border-cf-border px-4 py-2 font-mono text-xs text-cf-text-muted">
+              {previewText()}
+            </pre>
+          </Card>
         </Show>
+
+        {/* Section form */}
+        <Show when={crud.showForm()}>
+          <Card class="mb-4 p-4">
+            <h3 class="mb-3 text-sm font-semibold">
+              {crud.editingId() ? t("prompts.editSection") : t("prompts.newSection")}
+            </h3>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FormField label={t("prompts.field.name")}>
+                <Input
+                  value={crud.form.state.name}
+                  onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
+                />
+              </FormField>
+              <FormField label={t("prompts.field.merge")}>
+                <Select
+                  value={crud.form.state.merge}
+                  onChange={(e) => crud.form.setState("merge", e.currentTarget.value)}
+                >
+                  <For each={MERGE_OPTIONS}>
+                    {(m) => <option value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</option>}
+                  </For>
+                </Select>
+              </FormField>
+              <FormField label={t("prompts.field.priority")}>
+                <div class="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={crud.form.state.priority}
+                    onInput={(e) => crud.form.setState("priority", Number(e.currentTarget.value))}
+                    class="flex-1"
+                  />
+                  <span class="w-8 text-center text-xs text-cf-text-muted">
+                    {crud.form.state.priority}
+                  </span>
+                </div>
+              </FormField>
+              <FormField label={t("prompts.field.sortOrder")}>
+                <Input
+                  type="number"
+                  value={String(crud.form.state.sortOrder)}
+                  onInput={(e) => crud.form.setState("sortOrder", Number(e.currentTarget.value))}
+                />
+              </FormField>
+            </div>
+            <FormField label={t("prompts.field.content")} class="mt-3">
+              <Textarea
+                value={crud.form.state.content}
+                onInput={(e) => crud.form.setState("content", e.currentTarget.value)}
+                rows={8}
+                class="font-mono text-xs"
+              />
+              <span class="mt-1 text-xs text-cf-text-muted">
+                ~{estimateTokens(crud.form.state.content)} tokens
+              </span>
+            </FormField>
+            <div class="mt-3 flex items-center gap-2">
+              <label class="flex items-center gap-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked={crud.form.state.enabled}
+                  onChange={(e) => crud.form.setState("enabled", e.currentTarget.checked)}
+                />
+                {t("prompts.field.enabled")}
+              </label>
+            </div>
+            <div class="mt-4 flex gap-2">
+              <Button onClick={() => void handleSave()} size="sm" disabled={saving()}>
+                {saving() ? t("common.saving") : t("common.save")}
+              </Button>
+              <Button onClick={() => crud.cancelForm()} size="sm" variant="ghost">
+                {t("common.cancel")}
+              </Button>
+            </div>
+          </Card>
+        </Show>
+
+        {/* Section list */}
+        <Show when={!sections.loading} fallback={<LoadingState />}>
+          <Show
+            when={(sections() ?? []).length > 0}
+            fallback={
+              <EmptyState
+                illustration={<DocumentPenIcon />}
+                title={t("prompts.empty")}
+                description={t("prompts.emptyDescription")}
+              />
+            }
+          >
+            <div class="space-y-2">
+              <For each={sections()}>
+                {(row) => (
+                  <Card class="flex items-center gap-3 px-4 py-3">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium">{row.name}</span>
+                        <Badge variant={row.enabled ? "success" : "neutral"}>
+                          {row.enabled ? "on" : "off"}
+                        </Badge>
+                        <Badge variant="neutral">{row.merge}</Badge>
+                        <span class="text-xs text-cf-text-muted">
+                          P{row.priority} / S{row.sort_order}
+                        </span>
+                      </div>
+                      <p class="mt-1 line-clamp-2 text-xs text-cf-text-muted">{row.content}</p>
+                    </div>
+                    <div class="flex gap-1">
+                      <Button onClick={() => handleEdit(row)} size="sm" variant="ghost">
+                        {t("common.edit")}
+                      </Button>
+                      <Button onClick={() => void handleDelete(row.id)} size="sm" variant="ghost">
+                        {t("common.delete")}
+                      </Button>
+                    </div>
+                  </Card>
+                )}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </Show>
+
+      {/* Evolution tab */}
+      <Show when={activeTab() === "evolution"}>
+        <Suspense fallback={<LoadingState />}>
+          <EvolutionTab />
+        </Suspense>
       </Show>
     </PageLayout>
   );
