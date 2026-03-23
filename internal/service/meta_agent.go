@@ -12,12 +12,12 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 //go:embed templates/*.tmpl
@@ -36,7 +36,7 @@ type decomposeData struct {
 // MetaAgentService uses an LLM to decompose features into subtasks and build execution plans.
 type MetaAgentService struct {
 	store         database.Store
-	llm           *litellm.Client
+	llm           llm.Provider
 	orchSvc       *OrchestratorService
 	orchCfg       *config.Orchestrator
 	limits        *config.Limits
@@ -51,14 +51,14 @@ func (s *MetaAgentService) SetModelRegistry(r *ModelRegistry) {
 // NewMetaAgentService creates a MetaAgentService with all dependencies.
 func NewMetaAgentService(
 	store database.Store,
-	llm *litellm.Client,
+	llmProvider llm.Provider,
 	orchSvc *OrchestratorService,
 	orchCfg *config.Orchestrator,
 	limits *config.Limits,
 ) *MetaAgentService {
 	return &MetaAgentService{
 		store:   store,
-		llm:     llm,
+		llm:     llmProvider,
 		orchSvc: orchSvc,
 		orchCfg: orchCfg,
 		limits:  limits,
@@ -110,9 +110,9 @@ func (s *MetaAgentService) DecomposeFeature(ctx context.Context, req *plan.Decom
 
 	systemPrompt, userPrompt := buildDecomposePrompt(req.Feature, req.Context, agents, tasks, s.limits.MaxInputLen)
 
-	llmResp, err := s.llm.ChatCompletion(ctx, litellm.ChatCompletionRequest{
+	llmResp, err := s.llm.ChatCompletion(ctx, llm.ChatCompletionRequest{
 		Model: model,
-		Messages: []litellm.ChatMessage{
+		Messages: []llm.ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
 		},

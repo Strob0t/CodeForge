@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/auth"
+	"github.com/Strob0t/CodeForge/internal/port/subscription"
 )
 
 // SubscriptionService orchestrates OAuth device flows for subscription providers.
 type SubscriptionService struct {
-	providers   map[string]auth.SubscriptionProvider
+	providers   map[string]subscription.Provider
 	envWriter   *EnvWriter
 	minInterval time.Duration // minimum polling interval (default 5s)
 
@@ -23,7 +23,7 @@ type SubscriptionService struct {
 
 // activeFlow tracks a running device authorization flow.
 type activeFlow struct {
-	deviceCode *auth.DeviceCode
+	deviceCode *subscription.DeviceCode
 	startedAt  time.Time
 	cancel     context.CancelFunc
 	done       chan flowResult
@@ -71,8 +71,8 @@ var providerMeta = map[string]struct {
 
 // NewSubscriptionService creates a new SubscriptionService with the given
 // providers and .env file path.
-func NewSubscriptionService(envPath string, providers ...auth.SubscriptionProvider) *SubscriptionService {
-	pm := make(map[string]auth.SubscriptionProvider, len(providers))
+func NewSubscriptionService(envPath string, providers ...subscription.Provider) *SubscriptionService {
+	pm := make(map[string]subscription.Provider, len(providers))
 	for _, p := range providers {
 		pm[p.Name()] = p
 	}
@@ -105,7 +105,7 @@ func (s *SubscriptionService) ListProviders() []ProviderInfo {
 
 // StartConnect initiates a device authorization flow for the named provider.
 // Returns the device code info the user needs to authorize in their browser.
-func (s *SubscriptionService) StartConnect(ctx context.Context, providerName string) (*auth.DeviceCode, error) {
+func (s *SubscriptionService) StartConnect(ctx context.Context, providerName string) (*subscription.DeviceCode, error) {
 	provider, ok := s.providers[providerName]
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", providerName)
@@ -201,8 +201,8 @@ func (s *SubscriptionService) Disconnect(providerName string) error {
 // the token for an API key on success.
 func (s *SubscriptionService) pollAndExchange(
 	ctx context.Context,
-	provider auth.SubscriptionProvider,
-	dc *auth.DeviceCode,
+	provider subscription.Provider,
+	dc *subscription.DeviceCode,
 	done chan<- flowResult,
 ) {
 	defer func() {
@@ -223,10 +223,10 @@ func (s *SubscriptionService) pollAndExchange(
 			return
 		case <-ticker.C:
 			token, err := provider.DeviceFlowPoll(ctx, dc.DeviceCode)
-			if errors.Is(err, auth.ErrAuthPending) {
+			if errors.Is(err, subscription.ErrAuthPending) {
 				continue
 			}
-			if errors.Is(err, auth.ErrSlowDown) {
+			if errors.Is(err, subscription.ErrSlowDown) {
 				interval += 5 * time.Second
 				ticker.Reset(interval)
 				continue

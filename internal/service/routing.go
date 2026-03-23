@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 // RoutingService manages model routing state: outcomes, stats, and aggregation.
@@ -192,7 +192,7 @@ func (s *RoutingService) SeedFromBenchmarkRun(ctx context.Context, runID string)
 
 // SyncModelCapabilities updates model performance stats with capability
 // metadata from discovered models (tools, vision, context, cost).
-func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []litellm.DiscoveredModel) error {
+func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm.DiscoveredModel) error {
 	for i := range models {
 		if models[i].Status != "reachable" {
 			continue
