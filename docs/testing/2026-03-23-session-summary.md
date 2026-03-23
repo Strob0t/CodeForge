@@ -228,13 +228,62 @@ Tasks 3+4 auf User-Anweisung revertiert — **keine hardcodierten Framework-Spic
 
 ---
 
+## Phase 8: Run 4b (groq/llama-3.1-8b, M1-M6 aktiv)
+
+**Score: 35%** — Infrastruktur validiert, Wissen fehlt.
+- 4 Goals vorgeschlagen (propose_goal funktioniert)
+- Zero Tool-Verwechslung (M1 Filterung funktioniert)
+- 7 Dateien, 20 Steps, kein create_skill-Loop
+- Aber: React statt SolidJS, OpenWeatherMap statt wttr.in (Modell kennt beides nicht)
+
+## Phase 9: docs-mcp-server Integration
+
+- Docker-Compose Konfiguration (LM Studio Embeddings)
+- 6 Libraries indexiert: solidjs, fastapi, wttr-in, vite, pytest, wttr.in
+- Search funktioniert (SolidJS createSignal Docs abrufbar)
+- **MCP Enabled Bug gefunden und gefixt** — `conversation_agent.go` setzte `Enabled` nicht im NATS Payload
+
+## Phase 10: Run 4c+4d (Versuch mit docs-mcp-server)
+
+- Run 4c: MCP Server als "disabled" geskippt (Bug), 3 Dateien, 0 MCP-Aufrufe
+- Run 4d: Vorbereitet (Backend, Worker, docs-mcp, Projekt mit MCP zugewiesen)
+- **Playwright-MCP Session abgelaufen** — Run konnte nicht über UI gestartet werden
+- Bereit für nächste Claude Code Session
+
 ## Offene Punkte
 
 | # | Was | Status |
 |---|---|---|
-| 1 | Neuer Test-Run (Mode A) mit allen Fixes + docs-mcp-server | Bereit |
-| 2 | KB→Context Pipeline testen (fetchKnowledgeBaseEntries) | Code gemerged, nicht getestet |
-| 3 | Test mit Cloud-Modell (Claude/GPT) | Braucht API-Key |
-| 4 | Scope-based MCP Resolution | Aufgeschoben (YAGNI) |
-| 5 | KB ↔ MCP Server Verknüpfung | Aufgeschoben (YAGNI) |
-| 6 | Auto-Provisioning für docs-mcp-server | Aufgeschoben |
+| 1 | **Run 4d ausführen** — alles vorbereitet, nur Playwright-MCP Session erneuern | BEREIT |
+| 2 | docs-mcp search_docs verifizieren im Agent-Context | BEREIT (MCP Enabled Bug gefixt) |
+| 3 | KB→Context Pipeline testen (fetchKnowledgeBaseEntries) | Code gemerged, nicht getestet |
+| 4 | Test mit Cloud-Modell (Claude/GPT) | Braucht API-Key |
+| 5 | Scope-based MCP Resolution | Aufgeschoben (YAGNI) |
+| 6 | Post-Write Lint für TypeScript (`tsc --noEmit`) | Offen |
+
+## Vorbereitung für nächste Session
+
+Alles ist bereit für Run 4d:
+```bash
+# Services laufen (docker compose)
+docker compose up -d postgres nats litellm docs-mcp
+
+# IPs auflösen (WSL2)
+source scripts/resolve-docker-ips.sh
+
+# Backend starten (mit korrekten IPs!)
+DATABASE_URL="postgresql://codeforge:codeforge_dev@${POSTGRES_IP}:5432/codeforge" \
+  NATS_URL="nats://${NATS_IP}:4222" APP_ENV=development go run ./cmd/codeforge/
+
+# Worker starten
+PYTHONPATH=workers NATS_URL="nats://${NATS_IP}:4222" \
+  LITELLM_BASE_URL="http://${LITELLM_IP}:4000" ... .venv/bin/python -m codeforge.consumer
+
+# Frontend
+cd frontend && npm run dev
+
+# docs-mcp hat 6 Libraries indexiert (persistent in Docker Volume)
+# Projekt weather-r4d existiert mit docs-mcp zugewiesen
+# Model: /model lm_studio/qwen/qwen3-30b-a3b
+# Mode: /mode goal_researcher
+```
