@@ -576,7 +576,9 @@ func run() error {
 	// --- Conversation Service ---
 	// Use the static config model as fallback; the registry provides live best model.
 	conversationModel := cfg.LiteLLM.ConversationModel
+	convMsgSvc := service.NewConversationMessageService(store, queue, hub)
 	conversationSvc := service.NewConversationService(store, hub, conversationModel, modeSvc)
+	conversationSvc.SetMessageService(convMsgSvc)
 	conversationSvc.SetMetrics(metrics)
 	conversationSvc.SetQueue(queue)
 	conversationSvc.SetAgentConfig(&cfg.Agent)
@@ -600,6 +602,13 @@ func run() error {
 
 		conversationSvc.SetPromptAssembler(assembler)
 		conversationSvc.SetEventStore(eventStore)
+
+		// Wire PromptAssemblyService sub-service.
+		// goalSvc is nil here; it is wired later via SetGoalService.
+		promptSvc := service.NewPromptAssemblyService(store, contextOptSvc, nil, modeSvc, assembler, eventStore, &cfg.Agent)
+		promptSvc.SetAppEnv(cfg.AppEnv)
+		promptSvc.SetLLMKeyService(llmKeySvc)
+		conversationSvc.SetPromptService(promptSvc)
 		slog.Info("modular prompt library loaded", "entries", promptLib.Len())
 	}
 
@@ -698,6 +707,10 @@ func run() error {
 	goalSvc := service.NewGoalDiscoveryService(store)
 	projectSvc.SetGoalDiscovery(goalSvc)
 	conversationSvc.SetGoalService(goalSvc)
+	// Wire goal service into prompt assembly sub-service (created earlier with nil goalSvc).
+	if conversationSvc.PromptService() != nil {
+		conversationSvc.PromptService().SetGoalService(goalSvc)
+	}
 	contextOptSvc.SetGoalService(goalSvc)
 	runtimeSvc.SetGoalService(goalSvc)
 	slog.Info("goal discovery service initialized")
@@ -729,7 +742,11 @@ func run() error {
 		slog.Info("email feedback provider registered")
 	}
 
-	benchmarkSvc := service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir)
+	benchmarkSuiteSvc := service.NewBenchmarkSuiteService(store, cfg.Benchmark.DatasetsDir)
+	benchmarkRunMgr := service.NewBenchmarkRunManager(store, benchmarkSuiteSvc)
+	benchmarkResultAgg := service.NewBenchmarkResultAggregator(store)
+	benchmarkWatchdog := service.NewBenchmarkWatchdog(store)
+	benchmarkSvc := service.NewBenchmarkService(benchmarkSuiteSvc, benchmarkRunMgr, benchmarkResultAgg, benchmarkWatchdog)
 	benchmarkSvc.SetRoutingService(routingSvc)
 	benchmarkSvc.SetQueue(queue)
 	benchmarkSvc.SetHub(hub)

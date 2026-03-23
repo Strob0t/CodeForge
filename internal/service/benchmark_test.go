@@ -29,6 +29,20 @@ func newBenchMockStore() *benchMockStore {
 	}
 }
 
+// newTestBenchmarkService creates a BenchmarkService with sub-services wired for testing.
+func newTestBenchmarkService(store *benchMockStore) *service.BenchmarkService {
+	return newTestBenchmarkServiceWithDir(store, "")
+}
+
+// newTestBenchmarkServiceWithDir creates a BenchmarkService with a custom datasets directory.
+func newTestBenchmarkServiceWithDir(store *benchMockStore, datasetsDir string) *service.BenchmarkService {
+	suiteSvc := service.NewBenchmarkSuiteService(store, datasetsDir)
+	runMgr := service.NewBenchmarkRunManager(store, suiteSvc)
+	resultAgg := service.NewBenchmarkResultAggregator(store)
+	watchdog := service.NewBenchmarkWatchdog(store)
+	return service.NewBenchmarkService(suiteSvc, runMgr, resultAgg, watchdog)
+}
+
 func (m *benchMockStore) CreateBenchmarkSuite(_ context.Context, s *benchmark.Suite) error {
 	m.suites[s.ID] = s
 	return nil
@@ -112,7 +126,7 @@ func (m *benchMockStore) ListBenchmarkResults(_ context.Context, runID string) (
 
 func TestBenchmarkService_CompareMulti(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	for _, id := range []string{"run-1", "run-2", "run-3"} {
@@ -145,7 +159,7 @@ func TestBenchmarkService_CompareMulti(t *testing.T) {
 
 func TestBenchmarkService_CompareMulti_TooFewRuns(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 
 	_, err := svc.CompareMulti(context.Background(), []string{"run-1"})
 	if err == nil {
@@ -155,7 +169,7 @@ func TestBenchmarkService_CompareMulti_TooFewRuns(t *testing.T) {
 
 func TestBenchmarkService_CompareMulti_MissingRun(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 
 	store.benchRuns["run-1"] = &benchmark.Run{ID: "run-1", Model: "gpt-4"}
 
@@ -167,7 +181,7 @@ func TestBenchmarkService_CompareMulti_MissingRun(t *testing.T) {
 
 func TestBenchmarkService_CostAnalysis(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	store.benchRuns["run-1"] = &benchmark.Run{
@@ -219,7 +233,7 @@ func TestBenchmarkService_CostAnalysis(t *testing.T) {
 
 func TestBenchmarkService_CostAnalysis_NoResults(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 
 	store.benchRuns["run-1"] = &benchmark.Run{ID: "run-1", Model: "gpt-4"}
 
@@ -237,7 +251,7 @@ func TestBenchmarkService_CostAnalysis_NoResults(t *testing.T) {
 
 func TestBenchmarkService_CostAnalysis_MissingRun(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 
 	_, err := svc.CostAnalysis(context.Background(), "nonexistent")
 	if err == nil {
@@ -247,7 +261,7 @@ func TestBenchmarkService_CostAnalysis_MissingRun(t *testing.T) {
 
 func TestBenchmarkService_Leaderboard(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	store.benchRuns["run-1"] = &benchmark.Run{
@@ -293,7 +307,7 @@ func TestBenchmarkService_Leaderboard(t *testing.T) {
 
 func TestBenchmarkService_Leaderboard_EmptySuite(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 
 	entries, err := svc.Leaderboard(context.Background(), "nonexistent")
 	if err != nil {
@@ -306,7 +320,7 @@ func TestBenchmarkService_Leaderboard_EmptySuite(t *testing.T) {
 
 func TestBenchmarkService_Leaderboard_NoSuiteFilter(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 
 	store.benchRuns["run-1"] = &benchmark.Run{
 		ID: "run-1", Model: "gpt-4", Status: benchmark.StatusCompleted,
@@ -339,7 +353,7 @@ func TestRegisterSuite_AutoDerivesTypeFromProvider(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newBenchMockStore()
-			svc := service.NewBenchmarkService(store, "")
+			svc := newTestBenchmarkService(store)
 			ctx := context.Background()
 
 			req := &benchmark.CreateSuiteRequest{
@@ -361,7 +375,7 @@ func TestRegisterSuite_AutoDerivesTypeFromProvider(t *testing.T) {
 
 func TestRegisterSuite_ExplicitTypeNotOverridden(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	req := &benchmark.CreateSuiteRequest{
@@ -381,7 +395,7 @@ func TestRegisterSuite_ExplicitTypeNotOverridden(t *testing.T) {
 
 func TestRegisterSuite_UnknownProviderWithoutTypeFailsValidation(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	req := &benchmark.CreateSuiteRequest{
@@ -426,7 +440,7 @@ func (q *benchMockQueue) IsConnected() bool { return true }
 func TestStartRun_NonExistentDataset_NoSuite_ReturnsError(t *testing.T) {
 	store := newBenchMockStore()
 	// Use /tmp as datasetsDir — it exists but won't contain "nonexistent-dataset.yaml".
-	svc := service.NewBenchmarkService(store, "/tmp")
+	svc := newTestBenchmarkServiceWithDir(store, "/tmp")
 	q := &benchMockQueue{}
 	svc.SetQueue(q)
 	ctx := context.Background()
@@ -474,7 +488,7 @@ func TestStartRun_NonExistentDataset_NoSuite_ReturnsError(t *testing.T) {
 
 func TestWatchdog_MarksStaleRunAsFailed(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// Run created 20 minutes ago, still running — should be marked failed.
@@ -501,7 +515,7 @@ func TestWatchdog_MarksStaleRunAsFailed(t *testing.T) {
 
 func TestWatchdog_DoesNotMarkYoungRuns(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// Run created 5 minutes ago, still running — should stay running.
@@ -525,7 +539,7 @@ func TestWatchdog_DoesNotMarkYoungRuns(t *testing.T) {
 
 func TestWatchdog_SkipsCompletedRuns(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// Run created 20 minutes ago but already completed — should stay completed.
@@ -549,7 +563,7 @@ func TestWatchdog_SkipsCompletedRuns(t *testing.T) {
 
 func TestWatchdog_PerTypeTimeout_SimpleRunTimesOutFaster(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// A simple run created 45 minutes ago should be marked failed even with a
@@ -575,7 +589,7 @@ func TestWatchdog_PerTypeTimeout_SimpleRunTimesOutFaster(t *testing.T) {
 
 func TestWatchdog_PerTypeTimeout_AgentRunSurvivesLonger(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// An agent run created 3 hours ago should NOT be marked failed because
@@ -601,7 +615,7 @@ func TestWatchdog_PerTypeTimeout_AgentRunSurvivesLonger(t *testing.T) {
 
 func TestWatchdog_PerTypeTimeout_AgentRunTimesOutAt4h(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// An agent run created 5 hours ago should be marked failed (exceeds 4h).
@@ -626,7 +640,7 @@ func TestWatchdog_PerTypeTimeout_AgentRunTimesOutAt4h(t *testing.T) {
 
 func TestWatchdog_PerTypeTimeout_ToolUseRunTimesOutAt1h(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// A tool_use run created 75 minutes ago should be marked failed (exceeds 60 min).
@@ -664,7 +678,7 @@ func TestWatchdog_PerTypeTimeout_ToolUseRunTimesOutAt1h(t *testing.T) {
 
 func TestWatchdog_PerTypeTimeout_EmptyTypeFallsBackToGlobal(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// Run with empty BenchmarkType created 90 minutes ago.
@@ -698,7 +712,7 @@ func TestWatchdog_PerTypeTimeout_EmptyTypeFallsBackToGlobal(t *testing.T) {
 
 func TestWatchdog_PerTypeTimeout_MixedTypes(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	// All runs created 45 minutes ago. With 2h global timeout:
@@ -753,7 +767,7 @@ func TestWatchdog_PerTypeTimeout_MixedTypes(t *testing.T) {
 func TestStartRun_NonExistentDataset_WithSuite_Continues(t *testing.T) {
 	store := newBenchMockStore()
 	// Use /tmp as datasetsDir — it exists but won't contain "nonexistent-dataset.yaml".
-	svc := service.NewBenchmarkService(store, "/tmp")
+	svc := newTestBenchmarkServiceWithDir(store, "/tmp")
 	q := &benchMockQueue{}
 	svc.SetQueue(q)
 	ctx := context.Background()

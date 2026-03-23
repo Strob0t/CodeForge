@@ -81,6 +81,10 @@ type ConversationService struct {
 	scoreCollector  *PromptScoreCollector
 	events          eventstore.Store
 
+	// Sub-services for decomposed responsibilities.
+	msgSvc    *ConversationMessageService
+	promptSvc *PromptAssemblyService
+
 	// completionWaiters allows in-process consumers (e.g. autoagent) to wait for
 	// a conversation run to finish without creating a second NATS subscription.
 	completionWaiters   map[string]chan CompletionResult
@@ -153,6 +157,15 @@ func (s *ConversationService) SetPromptScoreCollector(sc *PromptScoreCollector) 
 // SetEventStore configures access to trajectory events for budget tracking.
 func (s *ConversationService) SetEventStore(es eventstore.Store) { s.events = es }
 
+// SetMessageService configures the message sub-service.
+func (s *ConversationService) SetMessageService(svc *ConversationMessageService) { s.msgSvc = svc }
+
+// SetPromptService configures the prompt assembly sub-service.
+func (s *ConversationService) SetPromptService(svc *PromptAssemblyService) { s.promptSvc = svc }
+
+// PromptService returns the prompt assembly sub-service for external wiring.
+func (s *ConversationService) PromptService() *PromptAssemblyService { return s.promptSvc }
+
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).
 func (s *ConversationService) resolveModel() string {
@@ -202,11 +215,17 @@ func (s *ConversationService) Delete(ctx context.Context, id string) error {
 
 // ListMessages returns all messages in a conversation.
 func (s *ConversationService) ListMessages(ctx context.Context, conversationID string) ([]conversation.Message, error) {
+	if s.msgSvc != nil {
+		return s.msgSvc.ListMessages(ctx, conversationID)
+	}
 	return s.db.ListMessages(ctx, conversationID)
 }
 
 // SearchMessages performs full-text search across conversation messages.
 func (s *ConversationService) SearchMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error) {
+	if s.msgSvc != nil {
+		return s.msgSvc.SearchMessages(ctx, query, projectIDs, limit)
+	}
 	return s.db.SearchConversationMessages(ctx, query, projectIDs, limit)
 }
 
@@ -318,8 +337,10 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 }
 
 // CompactConversation publishes a compaction request to the Python worker via NATS.
-// The worker will summarise the conversation history to reduce token usage.
 func (s *ConversationService) CompactConversation(ctx context.Context, conversationID string) error {
+	if s.msgSvc != nil {
+		return s.msgSvc.CompactConversation(ctx, conversationID)
+	}
 	_, err := s.db.GetConversation(ctx, conversationID)
 	if err != nil {
 		return err
@@ -342,8 +363,10 @@ func (s *ConversationService) CompactConversation(ctx context.Context, conversat
 var errMissingConversationID = errors.New("missing conversation_id")
 
 // HandleCompactComplete processes a conversation.compact.complete message from the Python worker.
-// It logs the outcome and silently drops non-completed statuses.
-func (s *ConversationService) HandleCompactComplete(_ context.Context, _ string, data []byte) error {
+func (s *ConversationService) HandleCompactComplete(ctx context.Context, subject string, data []byte) error {
+	if s.msgSvc != nil {
+		return s.msgSvc.HandleCompactComplete(ctx, subject, data)
+	}
 	var p messagequeue.ConversationCompactCompletePayload
 	if err := json.Unmarshal(data, &p); err != nil {
 		return fmt.Errorf("unmarshal compact complete: %w", err)
@@ -365,6 +388,9 @@ func (s *ConversationService) HandleCompactComplete(_ context.Context, _ string,
 
 // StartCompactSubscriber subscribes to conversation.compact.complete and returns a cancel function.
 func (s *ConversationService) StartCompactSubscriber(ctx context.Context) (func(), error) {
+	if s.msgSvc != nil {
+		return s.msgSvc.StartCompactSubscriber(ctx)
+	}
 	if s.queue == nil {
 		return func() {}, nil
 	}
@@ -373,6 +399,9 @@ func (s *ConversationService) StartCompactSubscriber(ctx context.Context) (func(
 
 // ClearConversation deletes all messages from a conversation.
 func (s *ConversationService) ClearConversation(ctx context.Context, conversationID string) error {
+	if s.msgSvc != nil {
+		return s.msgSvc.ClearConversation(ctx, conversationID)
+	}
 	_, err := s.db.GetConversation(ctx, conversationID)
 	if err != nil {
 		return err

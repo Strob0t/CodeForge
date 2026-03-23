@@ -72,28 +72,8 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 	evoCfg := prompt.DefaultEvolutionConfig()
 	evoSvc := service.NewPromptEvolutionService(queue, nil, &evoCfg)
 
-	evoProjectSvc := service.NewProjectService(store, os.TempDir())
-	evoLimits := &config.Limits{
-		MaxRequestBodySize: 1 << 20,
-		MaxQueryLength:     2000,
-		MaxFiles:           50,
-		MaxFileSize:        32768,
-		MaxInputLen:        10000,
-		MaxEntries:         100,
-	}
 	handlers := &cfhttp.Handlers{
-		Project: &cfhttp.ProjectHandlers{
-			Projects:  evoProjectSvc,
-			RepoMap:   repoMapSvc,
-			Retrieval: retrievalSvc,
-			Limits:    evoLimits,
-		},
-		Agent:            &cfhttp.AgentHandlers{Agents: service.NewAgentService(store, queue, bc), Limits: evoLimits},
-		Task:             &cfhttp.TaskHandlers{Tasks: service.NewTaskService(store, queue), Limits: evoLimits},
-		Run:              &cfhttp.RunHandlers{Runtime: runtimeSvc, Events: es, Limits: evoLimits},
-		Policy:           &cfhttp.PolicyHandlers{Policies: policySvc, Projects: evoProjectSvc, Limits: evoLimits},
-		Utility:          &cfhttp.UtilityHandlers{},
-		Projects:         evoProjectSvc,
+		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient("http://localhost:4000", ""),
@@ -127,13 +107,26 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 		MCP:              mcpSvc,
 		Scope:            service.NewScopeService(store),
 		PromptSections:   service.NewPromptSectionService(store),
-		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
-		ActiveWork:       service.NewActiveWorkService(store, bc),
-		Routing:          service.NewRoutingService(store),
-		GoalDiscovery:    service.NewGoalDiscoveryService(store),
-		PromptEvolution:  evoSvc,
-		AppEnv:           os.Getenv("APP_ENV"),
-		Limits:           evoLimits,
+		Benchmarks: func() *service.BenchmarkService {
+			suiteSvc := service.NewBenchmarkSuiteService(store, os.TempDir())
+			runMgr := service.NewBenchmarkRunManager(store, suiteSvc)
+			resultAgg := service.NewBenchmarkResultAggregator(store)
+			watchdog := service.NewBenchmarkWatchdog(store)
+			return service.NewBenchmarkService(suiteSvc, runMgr, resultAgg, watchdog)
+		}(),
+		ActiveWork:      service.NewActiveWorkService(store, bc),
+		Routing:         service.NewRoutingService(store),
+		GoalDiscovery:   service.NewGoalDiscoveryService(store),
+		PromptEvolution: evoSvc,
+		AppEnv:          os.Getenv("APP_ENV"),
+		Limits: &config.Limits{
+			MaxRequestBodySize: 1 << 20,
+			MaxQueryLength:     2000,
+			MaxFiles:           50,
+			MaxFileSize:        32768,
+			MaxInputLen:        10000,
+			MaxEntries:         100,
+		},
 	}
 
 	r := chi.NewRouter()

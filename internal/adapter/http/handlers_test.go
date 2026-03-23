@@ -1653,48 +1653,10 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	sessionSvc := service.NewSessionService(store, es)
 	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 	mcpSvc.SetStore(store)
-	projectSvc := service.NewProjectService(store, os.TempDir())
-	taskSvc := service.NewTaskService(store, queue)
-	agentSvc := service.NewAgentService(store, queue, bc)
-	activeWorkSvc := service.NewActiveWorkService(store, bc)
-	limits := &config.Limits{
-		MaxRequestBodySize: 1 << 20,
-		MaxQueryLength:     2000,
-		MaxFiles:           50,
-		MaxFileSize:        32768,
-		MaxInputLen:        10000,
-		MaxEntries:         100,
-	}
 	handlers := &cfhttp.Handlers{
-		Project: &cfhttp.ProjectHandlers{
-			Projects:  projectSvc,
-			RepoMap:   repoMapSvc,
-			Retrieval: retrievalSvc,
-			Limits:    limits,
-		},
-		Agent: &cfhttp.AgentHandlers{
-			Agents: agentSvc,
-			Limits: limits,
-		},
-		Task: &cfhttp.TaskHandlers{
-			Tasks:      taskSvc,
-			ActiveWork: activeWorkSvc,
-			Limits:     limits,
-		},
-		Run: &cfhttp.RunHandlers{
-			Runtime: runtimeSvc,
-			Events:  es,
-			Limits:  limits,
-		},
-		Policy: &cfhttp.PolicyHandlers{
-			Policies: policySvc,
-			Projects: projectSvc,
-			Limits:   limits,
-		},
-		Utility:          &cfhttp.UtilityHandlers{},
-		Projects:         projectSvc,
-		Tasks:            taskSvc,
-		Agents:           agentSvc,
+		Projects:         service.NewProjectService(store, os.TempDir()),
+		Tasks:            service.NewTaskService(store, queue),
+		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient("http://localhost:4000", ""),
 		Policies:         policySvc,
 		Runtime:          runtimeSvc,
@@ -1726,12 +1688,25 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		MCP:              mcpSvc,
 		Scope:            service.NewScopeService(store),
 		PromptSections:   service.NewPromptSectionService(store),
-		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
-		ActiveWork:       activeWorkSvc,
-		Routing:          service.NewRoutingService(store),
-		GoalDiscovery:    service.NewGoalDiscoveryService(store),
-		AppEnv:           os.Getenv("APP_ENV"),
-		Limits:           limits,
+		Benchmarks: func() *service.BenchmarkService {
+			suiteSvc := service.NewBenchmarkSuiteService(store, os.TempDir())
+			runMgr := service.NewBenchmarkRunManager(store, suiteSvc)
+			resultAgg := service.NewBenchmarkResultAggregator(store)
+			watchdog := service.NewBenchmarkWatchdog(store)
+			return service.NewBenchmarkService(suiteSvc, runMgr, resultAgg, watchdog)
+		}(),
+		ActiveWork:    service.NewActiveWorkService(store, bc),
+		Routing:       service.NewRoutingService(store),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
+		AppEnv:        os.Getenv("APP_ENV"),
+		Limits: &config.Limits{
+			MaxRequestBodySize: 1 << 20,
+			MaxQueryLength:     2000,
+			MaxFiles:           50,
+			MaxFileSize:        32768,
+			MaxInputLen:        10000,
+			MaxEntries:         100,
+		},
 	}
 
 	r := chi.NewRouter()
@@ -1801,48 +1776,10 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 	sessionSvc := service.NewSessionService(store, es)
 	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
 	mcpSvc.SetStore(store)
-	projectSvc2 := service.NewProjectService(store, os.TempDir())
-	taskSvc2 := service.NewTaskService(store, queue)
-	agentSvc2 := service.NewAgentService(store, queue, bc)
-	activeWorkSvc2 := service.NewActiveWorkService(store, bc)
-	limits2 := &config.Limits{
-		MaxRequestBodySize: 1 << 20,
-		MaxQueryLength:     2000,
-		MaxFiles:           50,
-		MaxFileSize:        32768,
-		MaxInputLen:        10000,
-		MaxEntries:         100,
-	}
 	handlers := &cfhttp.Handlers{
-		Project: &cfhttp.ProjectHandlers{
-			Projects:  projectSvc2,
-			RepoMap:   repoMapSvc,
-			Retrieval: retrievalSvc,
-			Limits:    limits2,
-		},
-		Agent: &cfhttp.AgentHandlers{
-			Agents: agentSvc2,
-			Limits: limits2,
-		},
-		Task: &cfhttp.TaskHandlers{
-			Tasks:      taskSvc2,
-			ActiveWork: activeWorkSvc2,
-			Limits:     limits2,
-		},
-		Run: &cfhttp.RunHandlers{
-			Runtime: runtimeSvc,
-			Events:  es,
-			Limits:  limits2,
-		},
-		Policy: &cfhttp.PolicyHandlers{
-			Policies: policySvc,
-			Projects: projectSvc2,
-			Limits:   limits2,
-		},
-		Utility:          &cfhttp.UtilityHandlers{},
-		Projects:         projectSvc2,
-		Tasks:            taskSvc2,
-		Agents:           agentSvc2,
+		Projects:         service.NewProjectService(store, os.TempDir()),
+		Tasks:            service.NewTaskService(store, queue),
+		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient("http://localhost:4000", ""),
 		Policies:         policySvc,
 		Runtime:          runtimeSvc,
@@ -1874,12 +1811,25 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		MCP:              mcpSvc,
 		Scope:            service.NewScopeService(store),
 		PromptSections:   service.NewPromptSectionService(store),
-		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
-		ActiveWork:       activeWorkSvc2,
-		Routing:          service.NewRoutingService(store),
-		GoalDiscovery:    service.NewGoalDiscoveryService(store),
-		AppEnv:           os.Getenv("APP_ENV"),
-		Limits:           limits2,
+		Benchmarks: func() *service.BenchmarkService {
+			suiteSvc := service.NewBenchmarkSuiteService(store, os.TempDir())
+			runMgr := service.NewBenchmarkRunManager(store, suiteSvc)
+			resultAgg := service.NewBenchmarkResultAggregator(store)
+			watchdog := service.NewBenchmarkWatchdog(store)
+			return service.NewBenchmarkService(suiteSvc, runMgr, resultAgg, watchdog)
+		}(),
+		ActiveWork:    service.NewActiveWorkService(store, bc),
+		Routing:       service.NewRoutingService(store),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
+		AppEnv:        os.Getenv("APP_ENV"),
+		Limits: &config.Limits{
+			MaxRequestBodySize: 1 << 20,
+			MaxQueryLength:     2000,
+			MaxFiles:           50,
+			MaxFileSize:        32768,
+			MaxInputLen:        10000,
+			MaxEntries:         100,
+		},
 	}
 
 	r := chi.NewRouter()
@@ -2771,21 +2721,8 @@ func TestGenerateRepoMap(t *testing.T) {
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg, &config.Limits{})
-	rmLimits := &config.Limits{MaxRequestBodySize: 1 << 20, MaxQueryLength: 2000}
-	rmProjectSvc := service.NewProjectService(store, os.TempDir())
 	handlers := &cfhttp.Handlers{
-		Project: &cfhttp.ProjectHandlers{
-			Projects:  rmProjectSvc,
-			RepoMap:   repoMapSvc,
-			Retrieval: retrievalSvc,
-			Limits:    rmLimits,
-		},
-		Agent:            &cfhttp.AgentHandlers{Agents: service.NewAgentService(store, queue, bc), Limits: rmLimits},
-		Task:             &cfhttp.TaskHandlers{Tasks: service.NewTaskService(store, queue), Limits: rmLimits},
-		Run:              &cfhttp.RunHandlers{Runtime: runtimeSvc, Limits: rmLimits},
-		Policy:           &cfhttp.PolicyHandlers{Policies: policySvc, Projects: rmProjectSvc, Limits: rmLimits},
-		Utility:          &cfhttp.UtilityHandlers{},
-		Projects:         rmProjectSvc,
+		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient("http://localhost:4000", ""),
@@ -2801,7 +2738,7 @@ func TestGenerateRepoMap(t *testing.T) {
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Cost:             service.NewCostService(store),
-		Limits:           rmLimits,
+		Limits:           &config.Limits{MaxRequestBodySize: 1 << 20, MaxQueryLength: 2000},
 	}
 
 	r := chi.NewRouter()
@@ -2842,21 +2779,8 @@ func TestIndexProject(t *testing.T) {
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
 	retrievalSvc := service.NewRetrievalService(store, queue, bc, orchCfg, &config.Limits{})
-	idxLimits := &config.Limits{MaxRequestBodySize: 1 << 20, MaxQueryLength: 2000}
-	idxProjectSvc := service.NewProjectService(store, os.TempDir())
 	handlers := &cfhttp.Handlers{
-		Project: &cfhttp.ProjectHandlers{
-			Projects:  idxProjectSvc,
-			RepoMap:   repoMapSvc,
-			Retrieval: retrievalSvc,
-			Limits:    idxLimits,
-		},
-		Agent:            &cfhttp.AgentHandlers{Agents: service.NewAgentService(store, queue, bc), Limits: idxLimits},
-		Task:             &cfhttp.TaskHandlers{Tasks: service.NewTaskService(store, queue), Limits: idxLimits},
-		Run:              &cfhttp.RunHandlers{Runtime: runtimeSvc, Limits: idxLimits},
-		Policy:           &cfhttp.PolicyHandlers{Policies: policySvc, Projects: idxProjectSvc, Limits: idxLimits},
-		Utility:          &cfhttp.UtilityHandlers{},
-		Projects:         idxProjectSvc,
+		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient("http://localhost:4000", ""),
@@ -2872,7 +2796,7 @@ func TestIndexProject(t *testing.T) {
 		RepoMap:          repoMapSvc,
 		Retrieval:        retrievalSvc,
 		Cost:             service.NewCostService(store),
-		Limits:           idxLimits,
+		Limits:           &config.Limits{MaxRequestBodySize: 1 << 20, MaxQueryLength: 2000},
 	}
 
 	r := chi.NewRouter()

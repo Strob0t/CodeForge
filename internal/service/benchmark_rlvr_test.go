@@ -75,7 +75,7 @@ func TestComputeRLVRReward(t *testing.T) {
 
 func TestExportRLVRDataset(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	store.benchRuns["run-1"] = &benchmark.Run{
@@ -137,7 +137,7 @@ func TestExportRLVRDataset(t *testing.T) {
 
 func TestExportRLVRDataset_Empty(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	store.benchRuns["run-1"] = &benchmark.Run{
@@ -157,7 +157,7 @@ func TestExportRLVRDataset_Empty(t *testing.T) {
 
 func TestExportRLVRDataset_MissingRun(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	_, err := svc.ExportRLVRDataset(ctx, "nonexistent")
@@ -168,7 +168,7 @@ func TestExportRLVRDataset_MissingRun(t *testing.T) {
 
 func TestExportRLVRDataset_EmptyScores(t *testing.T) {
 	store := newBenchMockStore()
-	svc := service.NewBenchmarkService(store, "")
+	svc := newTestBenchmarkService(store)
 	ctx := context.Background()
 
 	store.benchRuns["run-1"] = &benchmark.Run{

@@ -2,6 +2,44 @@ package service
 
 import "github.com/Strob0t/CodeForge/internal/port/messagequeue"
 
+// BudgetCalculator is a strategy interface for computing context token budgets.
+// Implementations receive a base budget and contextual information, returning
+// the adjusted budget.
+type BudgetCalculator interface {
+	Calculate(baseBudget int, ctx BudgetContext) int
+}
+
+// BudgetContext carries contextual information for budget calculation.
+type BudgetContext struct {
+	ModeID  string
+	Tier    string
+	History []messagequeue.ConversationMessagePayload
+}
+
+// PhaseAwareBudgetCalculator adapts the budget based on the active review pipeline phase.
+type PhaseAwareBudgetCalculator struct{}
+
+// Calculate returns the phase-scaled budget.
+func (PhaseAwareBudgetCalculator) Calculate(baseBudget int, ctx BudgetContext) int {
+	return PhaseAwareContextBudget(baseBudget, ctx.ModeID)
+}
+
+// ComplexityBasedBudgetCalculator scales the budget by task complexity tier.
+type ComplexityBasedBudgetCalculator struct{}
+
+// Calculate returns the complexity-scaled budget.
+func (ComplexityBasedBudgetCalculator) Calculate(baseBudget int, ctx BudgetContext) int {
+	return ComplexityBudget(ctx.Tier, baseBudget)
+}
+
+// AdaptiveBudgetCalculator applies linear decay based on conversation history length.
+type AdaptiveBudgetCalculator struct{}
+
+// Calculate returns the history-decay-scaled budget.
+func (AdaptiveBudgetCalculator) Calculate(baseBudget int, ctx BudgetContext) int {
+	return AdaptiveContextBudget(baseBudget, ctx.History)
+}
+
 // contextDecayThreshold is the number of history messages at which
 // the adaptive budget reaches zero. ~30 exchanges (user+assistant pairs).
 const contextDecayThreshold = 60
