@@ -32,12 +32,11 @@ import {
   createTrajectoryResource,
 } from "./resources/misc";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
-<<<<<<< HEAD
 import { createQuarantineResource } from "./resources/quarantine";
-=======
 import { createPromptEvolutionResource } from "./resources/promptEvolution";
 >>>>>>> feat/frontend-prompt-evolution
 import { createRoadmapResource } from "./resources/roadmap";
+import { createRoutingResource } from "./resources/routing";
 import {
   createAgentConfigResource,
   createKnowledgeBasesResource,
@@ -101,4 +100,5 @@ export const api = {
   subscriptionProviders: createSubscriptionProvidersResource(core),
   audit: createAuditResource(core),
   quarantine: createQuarantineResource(core),
+  routing: createRoutingResource(core),
 };

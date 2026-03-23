@@ -46,6 +46,7 @@ import {
   ModelsIcon,
   PromptsIcon,
   QuarantineIcon,
+  RoutingIcon,
   SettingsIcon,
 } from "~/ui/layout/NavIcons";
 import { updateTabBadge } from "~/utils/tabBadge";
@@ -193,6 +194,9 @@ function AppShell(props: {
                     {t("app.nav.benchmarks")}
                   </NavLink>
                 </Show>
+                <NavLink href="/routing" icon={<RoutingIcon />} label={t("app.nav.routing")}>
+                  {t("app.nav.routing")}
+                </NavLink>
               </NavSection>
               <NavSection label={t("app.nav.section.knowledge")}>
                 <NavLink
@@ -375,6 +379,7 @@ const KNOWN_ROUTES = new Set([
   "/settings",
   "/benchmarks",
   "/quarantine",
+  "/routing",
 ]);
 
 /** Inner component rendered inside AuthProvider so the WS has access to the auth token. */

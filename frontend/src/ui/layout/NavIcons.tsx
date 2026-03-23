@@ -127,6 +127,13 @@ export function MicroagentsIcon(): JSX.Element {
       <circle cx="10" cy="7" r="3" />
       <path d="M5 17c0-2.8 2.2-5 5-5s5 2.2 5 5" />
       <path d="M14 5l2-2M16 5l-2-2M6 5L4 3M4 5l2-2" />
+export function RoutingIcon(): JSX.Element {
+  return (
+    <svg {...svgBase}>
+      <circle cx="5" cy="10" r="2" />
+      <circle cx="15" cy="5" r="2" />
+      <circle cx="15" cy="15" r="2" />
+      <path d="M7 10h2c2 0 3-2 4-5M7 10h2c2 0 3 2 4 5" />
     </svg>
   );
 }
