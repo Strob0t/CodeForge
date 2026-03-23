@@ -54,6 +54,9 @@ SUBJECT_GRAPH_BUILD_RESULT = "graph.build.result"
 SUBJECT_GRAPH_SEARCH_REQUEST = "graph.search.request"
 SUBJECT_GRAPH_SEARCH_RESULT = "graph.search.result"
 
+# Shared context events
+SUBJECT_SHARED_UPDATED = "context.shared.updated"
+
 # Context re-ranking (Phase 3 — Context Intelligence)
 SUBJECT_CONTEXT_RERANK_REQUEST = "context.rerank.request"
 SUBJECT_CONTEXT_RERANK_RESULT = "context.rerank.result"
