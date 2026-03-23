@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 )
@@ -82,6 +81,7 @@ func TestLanguageFromURI(t *testing.T) {
 }
 
 // newTestLSPService creates an LSPService with a noop broadcaster and no real clients.
+// Uses noopBroadcaster defined in autoagent_test.go.
 func newTestLSPService() *LSPService {
 	cfg := &config.LSP{
 		Enabled:         true,
@@ -89,8 +89,7 @@ func newTestLSPService() *LSPService {
 		ShutdownTimeout: 5 * time.Second,
 		DiagnosticDelay: 100 * time.Millisecond,
 	}
-	hub := ws.NewHub("*", func(_ context.Context) string { return "test-tenant" })
-	return NewLSPService(cfg, hub, &mockStore{})
+	return NewLSPService(cfg, &noopBroadcaster{}, &mockStore{})
 }
 
 // NOTE(FIX-032): TestStartServers_MultipleLanguages is skipped because it

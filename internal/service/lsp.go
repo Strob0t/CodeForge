@@ -9,19 +9,19 @@ import (
 	"time"
 
 	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
-	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
+	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // LSPService manages language server clients per project.
 type LSPService struct {
-	cfg   *config.LSP
-	hub   *ws.Hub
-	store database.Store
+	cfg         *config.LSP
+	broadcaster broadcast.Broadcaster
+	store       database.Store
 
 	clients map[string]map[string]*lspAdapter.Client // projectID -> language -> client
 	mu      sync.RWMutex
@@ -32,13 +32,13 @@ type LSPService struct {
 }
 
 // NewLSPService creates a new LSP service.
-func NewLSPService(cfg *config.LSP, hub *ws.Hub, store database.Store) *LSPService {
+func NewLSPService(cfg *config.LSP, broadcaster broadcast.Broadcaster, store database.Store) *LSPService {
 	return &LSPService{
-		cfg:        cfg,
-		hub:        hub,
-		store:      store,
-		clients:    make(map[string]map[string]*lspAdapter.Client),
-		diagTimers: make(map[string]*time.Timer),
+		cfg:         cfg,
+		broadcaster: broadcaster,
+		store:       store,
+		clients:     make(map[string]map[string]*lspAdapter.Client),
+		diagTimers:  make(map[string]*time.Timer),
 	}
 }
 
@@ -314,7 +314,7 @@ func (s *LSPService) onDiagnostic(projectID, uri string, diags []lspDomain.Diagn
 
 	// Set a new debounce timer.
 	s.diagTimers[key] = time.AfterFunc(s.cfg.DiagnosticDelay, func() {
-		s.hub.BroadcastEvent(context.Background(), event.EventLSPDiagnostic, event.LSPDiagnosticEvent{
+		s.broadcaster.BroadcastEvent(context.Background(), event.EventLSPDiagnostic, event.LSPDiagnosticEvent{
 			ProjectID:   projectID,
 			URI:         uri,
 			Diagnostics: diags,
@@ -328,7 +328,7 @@ func (s *LSPService) onDiagnostic(projectID, uri string, diags []lspDomain.Diagn
 
 // broadcastStatus sends an LSP status event via WebSocket.
 func (s *LSPService) broadcastStatus(ctx context.Context, projectID, language string, status lspDomain.ServerStatus, errMsg string) {
-	s.hub.BroadcastEvent(ctx, event.EventLSPStatus, event.LSPStatusEvent{
+	s.broadcaster.BroadcastEvent(ctx, event.EventLSPStatus, event.LSPStatusEvent{
 		ProjectID: projectID,
 		Language:  language,
 		Status:    string(status),
