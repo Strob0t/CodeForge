@@ -266,7 +266,7 @@ func (h *Handlers) RevertToolCall(w http.ResponseWriter, r *http.Request) {
 
 	err := h.Checkpoint.Revert(runID, callID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeDomainError(w, err, "revert tool call failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{

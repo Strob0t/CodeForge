@@ -29,9 +29,10 @@ func WebhookHMAC(secret, header string) func(http.Handler) http.Handler {
 				return
 			}
 
+			r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				http.Error(w, "failed to read body", http.StatusBadRequest)
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))

@@ -5,9 +5,9 @@ This is Layer 2 of the three-layer prompt injection protection:
 - Layer 2: LLM-based safety check (this module, at import time only)
 - Layer 3: Runtime sandboxing (skill tags with trust levels)
 
-Design: fail-open -- if the LLM is unavailable or returns a malformed
-response, the skill is treated as safe. Runtime sandboxing (Layer 3)
-is the final safety net.
+Design: fail-closed -- if the LLM is unavailable or returns a malformed
+response, the skill is treated as UNSAFE and rejected. Runtime sandboxing
+(Layer 3) provides defense-in-depth but should not be the sole safety net.
 """
 
 from __future__ import annotations
@@ -46,13 +46,12 @@ class SafetyResult(BaseModel):
 async def check_skill_safety(content: str, llm_client: LiteLLMClient) -> SafetyResult:
     """One-time LLM safety check at import time.
 
-    Returns SafetyResult. Fails open (safe=True) if LLM is unavailable,
-    since runtime sandboxing provides the final safety layer.
+    Returns SafetyResult. Fails closed (safe=False) if LLM is unavailable
+    or returns a malformed response, denying the skill by default.
     """
     model = resolve_skill_selection_model()
     if not model:
-        logger.warning("No model available for skill safety check, treating as safe")
-        return SafetyResult(safe=True)
+        return SafetyResult(safe=False, risks=["no model available for safety check"])
 
     try:
         messages: list[dict[str, object]] = [
@@ -69,5 +68,5 @@ async def check_skill_safety(content: str, llm_client: LiteLLMClient) -> SafetyR
             risks=list(data.get("risks", [])),
         )
     except Exception:
-        logger.warning("Skill safety check failed, treating as safe (fail-open)", exc_info=True)
-        return SafetyResult(safe=True)
+        logger.error("Skill safety check failed, treating as UNSAFE (fail-closed)", exc_info=True)
+        return SafetyResult(safe=False, risks=["safety check unavailable - denied by fail-closed policy"])

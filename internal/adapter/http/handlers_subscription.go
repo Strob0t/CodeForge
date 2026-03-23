@@ -32,7 +32,7 @@ func (h *Handlers) StartProviderConnect(w http.ResponseWriter, r *http.Request) 
 
 	dc, err := h.Subscription.StartConnect(r.Context(), provider)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "provider connect failed")
 		return
 	}
 
@@ -70,7 +70,7 @@ func (h *Handlers) DisconnectProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.Subscription.Disconnect(provider); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "provider disconnect failed")
 		return
 	}
 

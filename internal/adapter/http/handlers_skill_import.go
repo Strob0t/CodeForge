@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 )
 
 type importSkillRequest struct {
@@ -27,9 +27,8 @@ type skillRejection struct {
 // ImportSkill handles POST /api/v1/skills/import.
 // Fetches content from a URL, checks for injection, and creates the skill.
 func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
-	var req importSkillRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[importSkillRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
 		return
 	}
 	if req.SourceURL == "" {
@@ -40,7 +39,7 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 	// Fetch content from URL.
 	content, contentType, err := fetchURL(r.Context(), req.SourceURL)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("failed to fetch URL: %v", err))
+		writeInternalError(w, fmt.Errorf("fetch skill URL: %w", err))
 		return
 	}
 
@@ -71,7 +70,7 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 
 	sk, err := h.Skills.Create(r.Context(), &createReq)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeDomainError(w, err, "create skill failed")
 		return
 	}
 
@@ -80,13 +79,13 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 
 // fetchURL retrieves content from a URL with a 15-second timeout and 1 MB size limit.
 func fetchURL(ctx context.Context, rawURL string) (content, contentType string, err error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody) //nolint:gosec // URL comes from authenticated admin user
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return "", "", fmt.Errorf("building request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(httpReq) //nolint:gosec // URL from authenticated admin user, validated above
+	client := &http.Client{Timeout: 15 * time.Second, Transport: netutil.SafeTransport()}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", "", fmt.Errorf("HTTP request failed: %w", err)
 	}
