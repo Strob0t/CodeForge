@@ -415,6 +415,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 				Args:      servers[i].Args,
 				URL:       servers[i].URL,
 				Env:       servers[i].Env,
+				Enabled:   servers[i].Enabled,
 			})
 		}
 	}
@@ -658,6 +659,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 				Args:      servers[i].Args,
 				URL:       servers[i].URL,
 				Env:       servers[i].Env,
+				Enabled:   servers[i].Enabled,
 			})
 		}
 	}
