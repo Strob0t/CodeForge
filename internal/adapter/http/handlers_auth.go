@@ -41,7 +41,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.TenantIDFromContext(r.Context())
 	resp, rawRefresh, err := h.Auth.Login(r.Context(), req, tenantID)
 	if err != nil {
-		slog.Debug("login failed", "email", req.Email, "error", err)
+		slog.Debug("login failed", "error", err)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}

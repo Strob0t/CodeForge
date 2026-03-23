@@ -816,8 +816,11 @@ func run() error {
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
 
-	// WebSocket — no Timeout/RateLimiter/Idempotency (long-lived connection)
-	r.Get("/ws", hub.HandleWS)
+	// WebSocket — rate-limited but no Timeout/Idempotency (long-lived connection)
+	r.Group(func(wsGroup chi.Router) {
+		wsGroup.Use(rateLimiter.Handler)
+		wsGroup.Get("/ws", hub.HandleWS)
+	})
 
 	// Liveness (always 200)
 	r.Get("/health", livenessHandler(logDropped, cfg.AppEnv))
@@ -910,6 +913,7 @@ func run() error {
 		ReadTimeout:       cfg.Server.ReadTimeout,
 		WriteTimeout:      cfg.Server.WriteTimeout,
 		IdleTimeout:       cfg.Server.IdleTimeout,
+		MaxHeaderBytes:    1 << 13,
 	}
 
 	// Wait for interrupt signal

@@ -134,7 +134,7 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	case strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "SQLSTATE 23505"):
 		writeError(w, http.StatusConflict, "resource already exists")
 	default:
-		slog.Error("unhandled domain error", "error", err)
+		slog.Error("unhandled domain error", "error", err.Error())
 		writeError(w, http.StatusInternalServerError, "internal server error")
 	}
 }

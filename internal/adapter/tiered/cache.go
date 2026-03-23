@@ -3,6 +3,7 @@ package tiered
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/cache"
@@ -51,7 +52,7 @@ func (c *Cache) Get(ctx context.Context, key string) (data []byte, ok bool, err 
 // Set writes to both L1 and L2.
 func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	if err := c.l1.Set(ctx, key, value, ttl); err != nil {
-		return err
+		return fmt.Errorf("l1 cache set: %w", err)
 	}
 	return c.l2.Set(ctx, key, value, ttl)
 }
@@ -59,7 +60,7 @@ func (c *Cache) Set(ctx context.Context, key string, value []byte, ttl time.Dura
 // Delete removes from both L1 and L2.
 func (c *Cache) Delete(ctx context.Context, key string) error {
 	if err := c.l1.Delete(ctx, key); err != nil {
-		return err
+		return fmt.Errorf("l1 cache delete: %w", err)
 	}
 	return c.l2.Delete(ctx, key)
 }

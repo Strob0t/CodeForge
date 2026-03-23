@@ -13,8 +13,8 @@ func TestUser_CreateRequest_Validate(t *testing.T) {
 		{name: "invalid email", req: CreateRequest{Email: "bad", Name: "A", Password: "Abcdef1234", Role: RoleAdmin}, wantErr: "invalid email format"},
 		{name: "missing name", req: CreateRequest{Email: "a@b.com", Password: "Abcdef1234", Role: RoleAdmin}, wantErr: "name is required"},
 		{name: "missing password", req: CreateRequest{Email: "a@b.com", Name: "A", Role: RoleAdmin}, wantErr: "password is required"},
-		{name: "short password", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "short", Role: RoleAdmin}, wantErr: "password must be at least 10 characters"},
-		{name: "missing uppercase", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "abcdefg123", Role: RoleAdmin}, wantErr: "password must contain at least one uppercase letter"},
+		{name: "short password", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "short", Role: RoleAdmin}, wantErr: "password complexity: password must be at least 10 characters"},
+		{name: "missing uppercase", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "abcdefg123", Role: RoleAdmin}, wantErr: "password complexity: password must contain at least one uppercase letter"},
 		{name: "invalid role", req: CreateRequest{Email: "a@b.com", Name: "A", Password: "Abcdef1234", Role: "superadmin"}, wantErr: "invalid role: must be admin, editor, or viewer"},
 	}
 

@@ -3,6 +3,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -31,7 +32,7 @@ func (p *Pool) Run(ctx context.Context, fn func() error) error {
 		return fn()
 	}
 	if err := p.sem.Acquire(ctx, 1); err != nil {
-		return err
+		return fmt.Errorf("acquire semaphore: %w", err)
 	}
 	defer p.sem.Release(1)
 	return fn()

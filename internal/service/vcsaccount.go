@@ -96,7 +96,7 @@ func (s *VCSAccountService) Delete(ctx context.Context, id string) error {
 func (s *VCSAccountService) Test(ctx context.Context, id string) error {
 	a, err := s.db.GetVCSAccount(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("get vcs account: %w", err)
 	}
 
 	token, err := vcsaccount.Decrypt(a.EncryptedToken, s.key)
