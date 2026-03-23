@@ -609,6 +609,18 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
 	}
+	convCompactCancel, err := conversationSvc.StartCompactSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("conversation compact subscriber: %w", err)
+	}
+	evoCancels, err := evoSvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("prompt evolution subscribers: %w", err)
+	}
+	reviewTriggerCancel, err := queue.Subscribe(ctx, messagequeue.SubjectReviewTriggerComplete, reviewTriggerSvc.HandleReviewTriggerComplete)
+	if err != nil {
+		return fmt.Errorf("review trigger complete subscriber: %w", err)
+	}
 	slog.Info("conversation service initialized", "agentic_by_default", cfg.Agent.AgenticByDefault)
 
 	// --- Auto-Agent Service ---
@@ -1010,6 +1022,11 @@ func run() error {
 	cancelAgentOutput()
 	repoMapCancel()
 	convRunCancel()
+	convCompactCancel()
+	for _, cancel := range evoCancels {
+		cancel()
+	}
+	reviewTriggerCancel()
 	benchmarkRunCancel()
 	cancelWatchdog()
 	for _, cancel := range retrievalCancels {
