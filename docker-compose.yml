@@ -28,6 +28,9 @@ services:
       - dev
     ipc: host
     shm_size: "1gb"
+    user: "1000:1000"
+    security_opt:
+      - "no-new-privileges:true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -39,7 +42,6 @@ services:
       - "chromium"
       - "--isolated"
       - "--headless"
-      - "--no-sandbox"
       - "--port"
       - "8001"
       - "--host"
