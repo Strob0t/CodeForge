@@ -440,3 +440,259 @@ func TestPromptEvolutionService_GetStatus(t *testing.T) {
 		}
 	})
 }
+
+// --- Integration Tests: Full Evolution Loop ---
+
+func TestEvolutionLoop_TriggerToStoreToPromote(t *testing.T) {
+	t.Parallel()
+
+	t.Run("full_loop_reflect_mutate_store_promote", func(t *testing.T) {
+		t.Parallel()
+		queue := &fakeQueue{}
+		store := &inMemoryVariantStore{}
+		cfg := prompt.DefaultEvolutionConfig()
+		svc := NewPromptEvolutionService(queue, store, &cfg)
+
+		// Step 1: TriggerReflection publishes a reflect request to NATS.
+		failures := []map[string]json.RawMessage{
+			{"task_id": json.RawMessage(`"t1"`), "error": json.RawMessage(`"unchecked error"`)},
+		}
+		err := svc.TriggerReflection(context.Background(), "tenant-1", "coder", "openai", "base prompt", failures)
+		if err != nil {
+			t.Fatalf("TriggerReflection: %v", err)
+		}
+		if len(queue.published) != 1 {
+			t.Fatalf("expected 1 NATS publish after TriggerReflection, got %d", len(queue.published))
+		}
+		if queue.published[0].subject != mq.SubjectPromptEvolutionReflect {
+			t.Errorf("expected reflect subject, got %s", queue.published[0].subject)
+		}
+
+		// Step 2: Simulate Python worker returning reflect complete (logged, not stored).
+		reflectPayload := mq.PromptEvolutionReflectCompletePayload{
+			TenantID:    "tenant-1",
+			ModeID:      "coder",
+			ModelFamily: "openai",
+			TacticalFixes: []mq.PromptEvolutionTacticalFix{
+				{TaskID: "t1", FailureDescription: "unchecked error", RootCause: "missing check", ProposedAddition: "add error handling", Confidence: 0.95},
+			},
+			StrategicPrinciples: []string{"always check errors"},
+		}
+		reflectData, _ := json.Marshal(reflectPayload)
+		err = svc.HandleReflectComplete(context.Background(), "", reflectData)
+		if err != nil {
+			t.Fatalf("HandleReflectComplete: %v", err)
+		}
+
+		// Step 3: Simulate Python worker returning mutate complete (stores variant).
+		mutatePayload := mq.PromptEvolutionMutateCompletePayload{
+			TenantID:         "tenant-1",
+			ModeID:           "coder",
+			ModelFamily:      "openai",
+			VariantContent:   "improved prompt with error handling",
+			Version:          2,
+			MutationSource:   "tactical",
+			ValidationPassed: true,
+		}
+		mutateData, _ := json.Marshal(mutatePayload)
+		err = svc.HandleMutateComplete(context.Background(), mutateData)
+		if err != nil {
+			t.Fatalf("HandleMutateComplete: %v", err)
+		}
+
+		// Step 4: Verify variant was stored as candidate.
+		variants, _ := store.GetVariantsByModeAndModel(context.Background(), "coder", "openai")
+		if len(variants) != 1 {
+			t.Fatalf("expected 1 stored variant, got %d", len(variants))
+		}
+		if variants[0].PromotionStatus != prompt.PromotionCandidate {
+			t.Errorf("variant should be candidate, got %s", variants[0].PromotionStatus)
+		}
+		if variants[0].Content != "improved prompt with error handling" {
+			t.Errorf("variant content mismatch: %q", variants[0].Content)
+		}
+		if variants[0].Version != 2 {
+			t.Errorf("variant version = %d, want 2", variants[0].Version)
+		}
+
+		// Step 5: Assign an ID to the stored variant (in real DB this would be auto-generated).
+		store.variants[0].ID = "variant-1"
+
+		// Step 6: Promote the variant.
+		queue.published = nil // reset published messages
+		err = svc.PromoteVariant(context.Background(), "tenant-1", "variant-1")
+		if err != nil {
+			t.Fatalf("PromoteVariant: %v", err)
+		}
+
+		// Step 7: Verify the variant is now promoted.
+		v, err := store.GetVariantByID(context.Background(), "variant-1")
+		if err != nil {
+			t.Fatalf("GetVariantByID: %v", err)
+		}
+		if v.PromotionStatus != prompt.PromotionPromoted {
+			t.Errorf("variant should be promoted, got %s", v.PromotionStatus)
+		}
+
+		// Step 8: Verify promoted event was published to NATS.
+		if len(queue.published) != 1 {
+			t.Fatalf("expected 1 promoted event, got %d", len(queue.published))
+		}
+		if queue.published[0].subject != mq.SubjectPromptEvolutionPromoted {
+			t.Errorf("expected promoted subject, got %s", queue.published[0].subject)
+		}
+	})
+
+	t.Run("full_loop_with_score_collector", func(t *testing.T) {
+		t.Parallel()
+		scoreStore := &inMemoryScoreStore{}
+		collector := NewPromptScoreCollector(scoreStore)
+		ctx := context.Background()
+
+		fingerprint := "fp-evolved-prompt"
+
+		// Record multiple score signals.
+		err := collector.RecordBenchmarkScore(ctx, "t1", fingerprint, "coder", "openai", "r1", 0.88)
+		if err != nil {
+			t.Fatalf("RecordBenchmarkScore: %v", err)
+		}
+		err = collector.RecordSuccessScore(ctx, "t1", fingerprint, "coder", "openai", "r1", true)
+		if err != nil {
+			t.Fatalf("RecordSuccessScore: %v", err)
+		}
+		err = collector.RecordCostScore(ctx, "t1", fingerprint, "coder", "openai", "r1", 0.72)
+		if err != nil {
+			t.Fatalf("RecordCostScore: %v", err)
+		}
+		err = collector.RecordUserFeedback(ctx, "t1", fingerprint, "coder", "openai", "r1", true)
+		if err != nil {
+			t.Fatalf("RecordUserFeedback: %v", err)
+		}
+		err = collector.RecordEfficiencyScore(ctx, "t1", fingerprint, "coder", "openai", "r1", 0.65)
+		if err != nil {
+			t.Fatalf("RecordEfficiencyScore: %v", err)
+		}
+
+		// Verify composite score is computed.
+		composite, ok := collector.CompositeScoreForFingerprint(fingerprint)
+		if !ok {
+			t.Fatal("expected composite score to exist")
+		}
+		// All 5 signals present:
+		// benchmark=0.88*0.35 + success=1.0*0.25 + cost=0.72*0.15 + user=1.0*0.15 + efficiency=0.65*0.10
+		// = 0.308 + 0.25 + 0.108 + 0.15 + 0.065 = 0.881
+		// Divided by total weight: 0.35+0.25+0.15+0.15+0.10 = 1.0
+		// = 0.881
+		if composite < 0.87 || composite > 0.89 {
+			t.Errorf("composite score = %f, expected ~0.881", composite)
+		}
+
+		// Verify score count.
+		count := collector.ScoreCountForFingerprint(fingerprint)
+		if count != 5 {
+			t.Errorf("score count = %d, want 5", count)
+		}
+
+		// Verify store persisted all scores.
+		scoreStore.mu.Lock()
+		storedCount := len(scoreStore.scores)
+		scoreStore.mu.Unlock()
+		if storedCount != 5 {
+			t.Errorf("stored scores = %d, want 5", storedCount)
+		}
+	})
+
+	t.Run("mutate_then_promote_retires_previous", func(t *testing.T) {
+		t.Parallel()
+		queue := &fakeQueue{}
+		store := &inMemoryVariantStore{}
+		cfg := prompt.DefaultEvolutionConfig()
+		svc := NewPromptEvolutionService(queue, store, &cfg)
+
+		// Store two mutations (simulating two evolution rounds).
+		for i, content := range []string{"variant-v2", "variant-v3"} {
+			payload := mq.PromptEvolutionMutateCompletePayload{
+				TenantID:         "t1",
+				ModeID:           "coder",
+				ModelFamily:      "openai",
+				VariantContent:   content,
+				Version:          i + 2,
+				MutationSource:   "tactical",
+				ValidationPassed: true,
+			}
+			data, _ := json.Marshal(payload)
+			if err := svc.HandleMutateComplete(context.Background(), data); err != nil {
+				t.Fatalf("HandleMutateComplete round %d: %v", i, err)
+			}
+		}
+
+		// Assign IDs (simulating DB auto-generation).
+		store.variants[0].ID = "v2"
+		store.variants[1].ID = "v3"
+
+		// Promote v2.
+		if err := svc.PromoteVariant(context.Background(), "t1", "v2"); err != nil {
+			t.Fatalf("PromoteVariant v2: %v", err)
+		}
+
+		// Verify v2 is promoted.
+		v2, _ := store.GetVariantByID(context.Background(), "v2")
+		if v2.PromotionStatus != prompt.PromotionPromoted {
+			t.Errorf("v2 should be promoted, got %s", v2.PromotionStatus)
+		}
+
+		// Now promote v3 (should retire v2).
+		if err := svc.PromoteVariant(context.Background(), "t1", "v3"); err != nil {
+			t.Fatalf("PromoteVariant v3: %v", err)
+		}
+
+		// Verify v2 is now retired, v3 is promoted.
+		v2, _ = store.GetVariantByID(context.Background(), "v2")
+		if v2.PromotionStatus != prompt.PromotionRetired {
+			t.Errorf("v2 should be retired after promoting v3, got %s", v2.PromotionStatus)
+		}
+		v3, _ := store.GetVariantByID(context.Background(), "v3")
+		if v3.PromotionStatus != prompt.PromotionPromoted {
+			t.Errorf("v3 should be promoted, got %s", v3.PromotionStatus)
+		}
+	})
+
+	t.Run("selector_picks_promoted_variant", func(t *testing.T) {
+		t.Parallel()
+		store := &inMemoryVariantStore{
+			variants: []prompt.PromptVariant{
+				{
+					ID:              "base",
+					ModeID:          "coder",
+					ModelFamily:     "openai",
+					Content:         "base prompt",
+					PromotionStatus: prompt.PromotionRetired,
+					Enabled:         true,
+					Version:         1,
+				},
+				{
+					ID:              "evolved",
+					ModeID:          "coder",
+					ModelFamily:     "openai",
+					Content:         "evolved prompt with improvements",
+					PromotionStatus: prompt.PromotionPromoted,
+					Enabled:         true,
+					Version:         2,
+					AvgScore:        0.9,
+					TrialCount:      30,
+				},
+			},
+		}
+		cfg := prompt.DefaultEvolutionConfig()
+		cfg.PromotionStrategy = prompt.StrategyManual
+
+		selector := NewPromptSelector(store, &cfg)
+		content, ok := selector.SelectVariant("coder", "openai")
+		if !ok {
+			t.Fatal("expected selector to return a variant")
+		}
+		if content != "evolved prompt with improvements" {
+			t.Errorf("selector returned %q, expected evolved prompt", content)
+		}
+	})
+}
