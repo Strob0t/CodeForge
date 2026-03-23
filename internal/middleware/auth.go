@@ -95,10 +95,24 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 			}
 
 			// WebSocket auth via ?token= query parameter (P1-5).
-			// NOTE: Browsers cannot set custom headers on WebSocket upgrade requests,
-			// so the token must be passed as a query parameter. This exposes the token
-			// in server access logs and browser history. Mitigation: use short-lived
-			// access tokens (default: 15min) and ensure HTTPS in production.
+			//
+			// ACCEPTED RISK (CWE-598): Token is passed in the URL query string because
+			// browsers cannot set custom headers (Authorization) on WebSocket upgrade
+			// requests. This exposes the token in:
+			//   - Server access logs (if URL logging is enabled)
+			//   - Browser history and address bar
+			//   - Proxy/CDN logs along the request path
+			//
+			// Mitigations in place:
+			//   1. Short-lived access tokens (default: 15min TTL) limit exposure window
+			//   2. HTTPS in production encrypts the URL in transit (HSTS enforced)
+			//   3. Token is validated server-side on every connection
+			//   4. WebSocket connections are long-lived, so the token is sent only once
+			//
+			// Re-evaluate if:
+			//   - Token lifetime is extended beyond 30min
+			//   - Non-HTTPS deployments become supported
+			//   - URL logging is enabled in production reverse proxies
 			if r.URL.Path == "/ws" {
 				tokenParam := r.URL.Query().Get("token")
 				if tokenParam == "" {

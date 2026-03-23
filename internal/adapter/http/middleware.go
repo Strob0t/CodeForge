@@ -43,7 +43,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // misconfiguration in production. The appEnv parameter should come from cfg.AppEnv.
 func CORS(allowedOrigin, appEnv string) func(http.Handler) http.Handler {
 	if allowedOrigin == "*" {
-		if appEnv != "" && appEnv != "development" {
+		if appEnv != "development" {
 			slog.Error("CORS wildcard (*) is not allowed in non-development environments; set CODEFORGE_CORS_ORIGIN to a specific origin")
 			// Fall back to deny-all rather than allow-all in production.
 			allowedOrigin = ""

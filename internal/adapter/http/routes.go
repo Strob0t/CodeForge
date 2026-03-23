@@ -140,7 +140,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.UpdateAgentState)
 
 		// Tasks (nested under projects)
-		r.Post("/projects/{id}/tasks", h.CreateTask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/tasks", h.CreateTask)
 		r.Get("/projects/{id}/tasks", h.ListTasks)
 
 		// Active agents (Phase 23D War Room)
@@ -155,12 +155,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/tasks/{id}/runs", h.ListTaskRuns)
 		r.Get("/tasks/{id}/context", h.GetContextPack)
 		r.Post("/tasks/{id}/context", h.BuildContextPack)
-		r.Post("/tasks/{id}/claim", h.ClaimTask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/tasks/{id}/claim", h.ClaimTask)
 
 		// Runs
-		r.Post("/runs", h.StartRun)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/runs", h.StartRun)
 		r.Get("/runs/{id}", h.GetRun)
-		r.Post("/runs/{id}/cancel", h.CancelRun)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/runs/{id}/cancel", h.CancelRun)
 		r.Get("/runs/{id}/events", h.ListRunEvents)
 
 		// Run Approval (Phase 31)
@@ -176,8 +176,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 
 		// LLM management (proxied to LiteLLM)
 		r.Get("/llm/models", h.ListLLMModels)
-		r.Post("/llm/models", h.AddLLMModel)
-		r.Post("/llm/models/delete", h.DeleteLLMModel)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/llm/models", h.AddLLMModel)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Post("/llm/models/delete", h.DeleteLLMModel)
 		r.Get("/llm/health", h.LLMHealth)
 		r.Get("/llm/discover", h.DiscoverLLMModels)
 
@@ -198,10 +198,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 
 		// Policy profiles
 		r.Get("/policies", h.ListPolicyProfiles)
-		r.Post("/policies", h.CreatePolicyProfile)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/policies", h.CreatePolicyProfile)
 		r.Post("/policies/allow-always", h.AllowAlwaysPolicy)
 		r.Get("/policies/{name}", h.GetPolicyProfile)
-		r.Delete("/policies/{name}", h.DeletePolicyProfile)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/policies/{name}", h.DeletePolicyProfile)
 		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)
 
 		// Feature Decomposition (Meta-Agent)
@@ -211,13 +211,13 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Post("/projects/{id}/plan-feature", h.PlanFeature)
 
 		// Execution Plans (nested under projects)
-		r.Post("/projects/{id}/plans", h.CreatePlan)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/plans", h.CreatePlan)
 		r.Get("/projects/{id}/plans", h.ListPlans)
 
 		// Execution Plans (direct access)
 		r.Get("/plans/{id}", h.GetPlan)
-		r.Post("/plans/{id}/start", h.StartPlan)
-		r.Post("/plans/{id}/cancel", h.CancelPlan)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/plans/{id}/start", h.StartPlan)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/plans/{id}/cancel", h.CancelPlan)
 		r.Get("/plans/{id}/graph", h.GetPlanGraph)
 		r.Post("/plans/{id}/steps/{stepId}/evaluate", h.EvaluateStep)
 
@@ -227,15 +227,15 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/modes/tools", h.ListModeTools)
 		r.Get("/modes/artifact-types", h.ListArtifactTypes)
 		r.Get("/modes/{id}", h.GetMode)
-		r.Post("/modes", h.CreateMode)
-		r.Put("/modes/{id}", h.UpdateMode)
-		r.Delete("/modes/{id}", h.DeleteMode)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/modes", h.CreateMode)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/modes/{id}", h.UpdateMode)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/modes/{id}", h.DeleteMode)
 
 		// Pipeline Templates
 		r.Get("/pipelines", h.ListPipelines)
-		r.Post("/pipelines", h.RegisterPipeline)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/pipelines", h.RegisterPipeline)
 		r.Get("/pipelines/{id}", h.GetPipeline)
-		r.Post("/pipelines/{id}/instantiate", h.InstantiatePipeline)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/pipelines/{id}/instantiate", h.InstantiatePipeline)
 
 		// RepoMap (nested under projects)
 		r.Get("/projects/{id}/repomap", h.GetRepoMap)
@@ -253,11 +253,11 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Post("/projects/{id}/graph/search", h.SearchGraph)
 
 		// Retrieval Scopes (cross-project search)
-		r.Post("/scopes", h.CreateScope)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/scopes", h.CreateScope)
 		r.Get("/scopes", h.ListScopes)
 		r.Get("/scopes/{id}", h.GetScope)
-		r.Put("/scopes/{id}", h.UpdateScope)
-		r.Delete("/scopes/{id}", h.DeleteScope)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/scopes/{id}", h.UpdateScope)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/scopes/{id}", h.DeleteScope)
 		r.Post("/scopes/{id}/projects", h.AddProjectToScope)
 		r.Delete("/scopes/{id}/projects/{pid}", h.RemoveProjectFromScope)
 		r.Post("/scopes/{id}/search", h.SearchScope)

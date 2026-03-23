@@ -50,6 +50,39 @@ func TestResponseWriterHijackFallback(t *testing.T) {
 	}
 }
 
+func TestCORSWildcardRestriction(t *testing.T) {
+	noop := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	tests := []struct {
+		name         string
+		origin       string
+		appEnv       string
+		expectOrigin string // expected Access-Control-Allow-Origin header
+	}{
+		{"empty env rejects wildcard", "*", "", ""},
+		{"development allows wildcard", "*", "development", "*"},
+		{"production rejects wildcard", "*", "production", ""},
+		{"staging rejects wildcard", "*", "staging", ""},
+		{"specific origin always allowed", "https://app.example.com", "", "https://app.example.com"},
+		{"specific origin in production", "https://app.example.com", "production", "https://app.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := CORS(tt.origin, tt.appEnv)(noop)
+			req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			got := rec.Header().Get("Access-Control-Allow-Origin")
+			if got != tt.expectOrigin {
+				t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, tt.expectOrigin)
+			}
+		})
+	}
+}
+
 func TestResponseWriterFlush(t *testing.T) {
 	inner := httptest.NewRecorder()
 	rw := &responseWriter{ResponseWriter: inner, status: http.StatusOK}
