@@ -101,20 +101,17 @@ export default function ChatHeader(props: ChatHeaderProps) {
                 const convId = props.activeConversation();
                 if (!convId) return;
                 setForkLoading(true);
-                void api.conversations
-                  .fork(convId)
-                  .then(
-                    () => {
-                      props.refetchSession();
-                      toast("success", t("session.forkSuccess"));
-                    },
-                    () => {
-                      toast("error", t("session.forkFailed"));
-                    },
-                  )
-                  .finally(() => {
+                void (async () => {
+                  try {
+                    await api.conversations.fork(convId);
+                    props.refetchSession();
+                    toast("success", t("session.forkSuccess"));
+                  } catch {
+                    toast("error", t("session.forkFailed"));
+                  } finally {
                     setForkLoading(false);
-                  });
+                  }
+                })();
               }}
             >
               {forkLoading() ? "..." : t("session.fork")}
@@ -128,21 +125,18 @@ export default function ChatHeader(props: ChatHeaderProps) {
                 const convId = props.activeConversation();
                 if (!convId) return;
                 setRewindLoading(true);
-                void api.conversations
-                  .rewind(convId)
-                  .then(
-                    () => {
-                      props.refetchSession();
-                      props.refetchMessages();
-                      toast("success", t("session.rewindSuccess"));
-                    },
-                    () => {
-                      toast("error", t("session.rewindFailed"));
-                    },
-                  )
-                  .finally(() => {
+                void (async () => {
+                  try {
+                    await api.conversations.rewind(convId);
+                    props.refetchSession();
+                    props.refetchMessages();
+                    toast("success", t("session.rewindSuccess"));
+                  } catch {
+                    toast("error", t("session.rewindFailed"));
+                  } finally {
                     setRewindLoading(false);
-                  });
+                  }
+                })();
               }}
             >
               {rewindLoading() ? "..." : t("session.rewind")}
@@ -165,20 +159,17 @@ export default function ChatHeader(props: ChatHeaderProps) {
                 const runId = props.session()?.current_run_id;
                 if (!runId) return;
                 setResumeLoading(true);
-                void api.runs
-                  .resume(runId)
-                  .then(
-                    () => {
-                      props.refetchSession();
-                      toast("success", t("session.resumeSuccess"));
-                    },
-                    () => {
-                      toast("error", t("session.resumeFailed"));
-                    },
-                  )
-                  .finally(() => {
+                void (async () => {
+                  try {
+                    await api.runs.resume(runId);
+                    props.refetchSession();
+                    toast("success", t("session.resumeSuccess"));
+                  } catch {
+                    toast("error", t("session.resumeFailed"));
+                  } finally {
                     setResumeLoading(false);
-                  });
+                  }
+                })();
               }}
             >
               {resumeLoading() ? "..." : t("session.resume")}

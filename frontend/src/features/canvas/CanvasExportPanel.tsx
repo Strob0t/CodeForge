@@ -111,9 +111,14 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
     // PNG (async, only if SVG ref is available)
     const svg = props.svgRef?.();
     if (svg) {
-      exportPng(svg)
-        .then((dataUrl) => setPngDataUrl(dataUrl))
-        .catch(() => setPngDataUrl(""));
+      void (async () => {
+        try {
+          const dataUrl = await exportPng(svg);
+          setPngDataUrl(dataUrl);
+        } catch {
+          setPngDataUrl("");
+        }
+      })();
     } else {
       setPngDataUrl("");
     }
@@ -126,16 +131,14 @@ export function CanvasExportPanel(props: CanvasExportPanelProps): JSX.Element {
     }
 
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(content).then(
-        () => showFeedback("Copied!"),
-        () => {
-          if (execCommandCopy(content)) {
-            showFeedback("Copied!");
-          } else {
-            showFeedback("Copy failed");
-          }
-        },
-      );
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(content);
+          showFeedback("Copied!");
+        } catch {
+          showFeedback(execCommandCopy(content) ? "Copied!" : "Copy failed");
+        }
+      })();
     } else if (execCommandCopy(content)) {
       showFeedback("Copied!");
     } else {

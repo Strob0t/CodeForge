@@ -69,12 +69,14 @@ export default function RunPanel(props: RunPanelProps) {
       // Fetch max_steps from the policy for progress indicator
       const policyName = run.policy_profile;
       if (policyName) {
-        api.policies
-          .get(policyName)
-          .then((p) => {
+        void (async () => {
+          try {
+            const p = await api.policies.get(policyName);
             setRunMaxSteps(p.termination?.max_steps ?? 0);
-          })
-          .catch(() => setRunMaxSteps(0));
+          } catch {
+            setRunMaxSteps(0);
+          }
+        })();
       } else {
         setRunMaxSteps(0);
       }

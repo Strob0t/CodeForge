@@ -319,8 +319,12 @@ export default function BenchmarkPage() {
       const existing = liveFeedStates().get(run.id);
       if (existing?.hydratedFromApi) continue;
 
-      Promise.all([api.trajectory.get(run.id, { limit: 200 }), api.benchmarks.listResults(run.id)])
-        .then(([trajectory, resultsList]) => {
+      void (async () => {
+        try {
+          const [trajectory, resultsList] = await Promise.all([
+            api.trajectory.get(run.id, { limit: 200 }),
+            api.benchmarks.listResults(run.id),
+          ]);
           const events = trajectory.events.map(agentEventToLiveFeedEvent);
           const stats = statsFromSummary(trajectory.stats, resultsList);
 
@@ -359,12 +363,12 @@ export default function BenchmarkPage() {
             lastEventId: prev.lastEventId ?? lastEvent?.id ?? null,
             lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
           }));
-        })
-        .catch(() => {
-          // FIX-104: Silently mark as hydrated on failure — the WS live feed
+        } catch {
+          // best-effort: silently mark as hydrated on failure — the WS live feed
           // will continue to provide updates. Hydration is best-effort.
           updateRunState(run.id, (prev) => ({ ...prev, hydratedFromApi: true }));
-        });
+        }
+      })();
     }
   });
 
@@ -386,9 +390,12 @@ export default function BenchmarkPage() {
         const state = liveFeedStates().get(run.id);
         if (!state || state.lastSequenceNumber === 0) continue;
 
-        api.trajectory
-          .get(run.id, { limit: 500, after_sequence: state.lastSequenceNumber })
-          .then((trajectory) => {
+        void (async () => {
+          try {
+            const trajectory = await api.trajectory.get(run.id, {
+              limit: 500,
+              after_sequence: state.lastSequenceNumber,
+            });
             const gapEvents = trajectory.events.map(agentEventToLiveFeedEvent);
             if (gapEvents.length === 0) return;
 
@@ -404,10 +411,10 @@ export default function BenchmarkPage() {
                 lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
               };
             });
-          })
-          .catch(() => {
-            // FIX-104: Gap-fill is best-effort — WS will catch up on next event.
-          });
+          } catch {
+            // best-effort: gap-fill failure is non-critical, WS will catch up on next event
+          }
+        })();
       }
     }
   });
