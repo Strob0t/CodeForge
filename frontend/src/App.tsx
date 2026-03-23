@@ -35,6 +35,7 @@ import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
 import { CodeForgeLogo } from "~/ui/icons/CodeForgeLogo";
 import { NavSection } from "~/ui/layout";
 import {
+  A2AIcon,
   ActivityIcon,
   BenchmarksIcon,
   CostsIcon,
@@ -171,6 +172,9 @@ function AppShell(props: {
                 </NavLink>
                 <NavLink href="/mcp" icon={<McpIcon />} label={t("app.nav.mcp")}>
                   {t("app.nav.mcp")}
+                </NavLink>
+                <NavLink href="/a2a" icon={<A2AIcon />} label={t("app.nav.a2a")}>
+                  {t("app.nav.a2a")}
                 </NavLink>
                 <Show when={props.health()?.dev_mode}>
                   <NavLink
@@ -350,6 +354,7 @@ const KNOWN_ROUTES = new Set([
   "/activity",
   "/knowledge",
   "/mcp",
+  "/a2a",
   "/prompts",
   "/settings",
   "/benchmarks",

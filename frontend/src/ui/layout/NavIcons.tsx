@@ -91,6 +91,17 @@ export function SettingsIcon(): JSX.Element {
   );
 }
 
+export function A2AIcon(): JSX.Element {
+  return (
+    <svg {...svgBase}>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="14" cy="6" r="2.5" />
+      <circle cx="10" cy="15" r="2.5" />
+      <path d="M8 7l2 6M12 7l-2 6M7.5 7.5l5-1" />
+    </svg>
+  );
+}
+
 export function BenchmarksIcon(): JSX.Element {
   return (
     <svg {...svgBase}>
