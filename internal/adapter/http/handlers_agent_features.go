@@ -8,11 +8,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 // --- Dev Tools ---
@@ -48,14 +48,14 @@ func (h *Handlers) BenchmarkPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messages := []litellm.ChatMessage{}
+	messages := []llm.ChatMessage{}
 	if req.SystemPrompt != "" {
-		messages = append(messages, litellm.ChatMessage{Role: "system", Content: req.SystemPrompt})
+		messages = append(messages, llm.ChatMessage{Role: "system", Content: req.SystemPrompt})
 	}
-	messages = append(messages, litellm.ChatMessage{Role: "user", Content: req.Prompt})
+	messages = append(messages, llm.ChatMessage{Role: "user", Content: req.Prompt})
 
 	start := time.Now()
-	resp, err := h.LiteLLM.ChatCompletion(r.Context(), litellm.ChatCompletionRequest{
+	resp, err := h.LLM.ChatCompletion(r.Context(), llm.ChatCompletionRequest{
 		Model:       req.Model,
 		Messages:    messages,
 		Temperature: req.Temperature,
