@@ -191,13 +191,15 @@ export default function ChatPanel(props: ChatPanelProps) {
   const sendChatMessage = (content: string): void => {
     const convId = activeConversation();
     if (!convId || !content) return;
-    void api.conversations
-      .send(convId, { content })
-      .then(() => refetchMessages())
-      .then(() => scrollToBottom())
-      .catch(() => {
-        // toast handled by API layer
-      });
+    void (async () => {
+      try {
+        await api.conversations.send(convId, { content });
+        await refetchMessages();
+        scrollToBottom();
+      } catch {
+        // best-effort: toast handled by API layer
+      }
+    })();
   };
 
   const handleSend = async () => {
@@ -286,7 +288,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     const convId = activeConversation();
     if (!convId) return;
     void api.conversations.stop(convId).catch(() => {
-      // error handled by API layer
+      // best-effort: stop is fire-and-forget, errors handled by API layer
     });
   };
 
@@ -471,16 +473,16 @@ export default function ChatPanel(props: ChatPanelProps) {
             const convId = activeConversation();
             if (!convId) return;
             setShowRewindTimeline(false);
-            void api.conversations
-              .rewind(convId, { to_event_id: stepId })
-              .then(() => {
+            void (async () => {
+              try {
+                await api.conversations.rewind(convId, { to_event_id: stepId });
                 refetchMessages();
                 refetchSession();
                 toast("success", t("session.rewindSuccess"));
-              })
-              .catch(() => {
+              } catch {
                 toast("error", t("session.rewindFailed"));
-              });
+              }
+            })();
           }}
         />
 

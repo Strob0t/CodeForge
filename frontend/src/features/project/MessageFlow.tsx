@@ -3,6 +3,16 @@ import { createSignal, For, onCleanup } from "solid-js";
 import type { HandoffStatusEvent } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
 
+function isHandoffStatusEvent(p: unknown): p is HandoffStatusEvent {
+  return (
+    typeof p === "object" &&
+    p !== null &&
+    "source_agent_id" in p &&
+    "target_agent_id" in p &&
+    "status" in p
+  );
+}
+
 interface Arrow {
   id: string;
   sourceId: string;
@@ -18,7 +28,8 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
 
   const cleanup = onMessage((msg) => {
     if (msg.type !== "handoff.status") return;
-    const p = msg.payload as unknown as HandoffStatusEvent;
+    if (!isHandoffStatusEvent(msg.payload)) return;
+    const p = msg.payload;
 
     setArrows((prev) => {
       const existing = prev.find(

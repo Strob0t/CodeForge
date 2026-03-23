@@ -20,8 +20,8 @@ import type {
   CreateBenchmarkRunRequest,
   LiveFeedEvent,
   ProviderConfig,
+  RoutingReport as RoutingReportType,
 } from "~/api/types";
-import type { RoutingReport as RoutingReportType } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
@@ -42,6 +42,10 @@ import {
   Tabs,
 } from "~/ui";
 import { ChartTrophyIcon } from "~/ui/icons/EmptyStateIcons";
+
+function isRoutingReport(v: unknown): v is RoutingReportType {
+  return typeof v === "object" && v !== null && "models_used" in v;
+}
 
 import { BenchmarkCompare } from "./BenchmarkCompare";
 import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
@@ -315,8 +319,12 @@ export default function BenchmarkPage() {
       const existing = liveFeedStates().get(run.id);
       if (existing?.hydratedFromApi) continue;
 
-      Promise.all([api.trajectory.get(run.id, { limit: 200 }), api.benchmarks.listResults(run.id)])
-        .then(([trajectory, resultsList]) => {
+      void (async () => {
+        try {
+          const [trajectory, resultsList] = await Promise.all([
+            api.trajectory.get(run.id, { limit: 200 }),
+            api.benchmarks.listResults(run.id),
+          ]);
           const events = trajectory.events.map(agentEventToLiveFeedEvent);
           const stats = statsFromSummary(trajectory.stats, resultsList);
 
@@ -355,12 +363,12 @@ export default function BenchmarkPage() {
             lastEventId: prev.lastEventId ?? lastEvent?.id ?? null,
             lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
           }));
-        })
-        .catch(() => {
-          // FIX-104: Silently mark as hydrated on failure — the WS live feed
+        } catch {
+          // best-effort: silently mark as hydrated on failure — the WS live feed
           // will continue to provide updates. Hydration is best-effort.
           updateRunState(run.id, (prev) => ({ ...prev, hydratedFromApi: true }));
-        });
+        }
+      })();
     }
   });
 
@@ -382,9 +390,12 @@ export default function BenchmarkPage() {
         const state = liveFeedStates().get(run.id);
         if (!state || state.lastSequenceNumber === 0) continue;
 
-        api.trajectory
-          .get(run.id, { limit: 500, after_sequence: state.lastSequenceNumber })
-          .then((trajectory) => {
+        void (async () => {
+          try {
+            const trajectory = await api.trajectory.get(run.id, {
+              limit: 500,
+              after_sequence: state.lastSequenceNumber,
+            });
             const gapEvents = trajectory.events.map(agentEventToLiveFeedEvent);
             if (gapEvents.length === 0) return;
 
@@ -400,10 +411,10 @@ export default function BenchmarkPage() {
                 lastSequenceNumber: Math.max(prev.lastSequenceNumber, maxSeq),
               };
             });
-          })
-          .catch(() => {
-            // FIX-104: Gap-fill is best-effort — WS will catch up on next event.
-          });
+          } catch {
+            // best-effort: gap-fill failure is non-critical, WS will catch up on next event
+          }
+        })();
       }
     }
   });
@@ -786,17 +797,14 @@ export default function BenchmarkPage() {
                             formatDuration={formatDuration}
                           />
                           <Show
-                            when={
-                              run.model === "auto" &&
-                              run.status === "completed" &&
-                              run.summary_scores?.routing_report
-                            }
+                            when={(() => {
+                              if (run.model !== "auto" || run.status !== "completed")
+                                return undefined;
+                              const candidate: unknown = run.summary_scores?.routing_report;
+                              return isRoutingReport(candidate) ? candidate : undefined;
+                            })()}
                           >
-                            <RoutingReport
-                              report={
-                                run.summary_scores.routing_report as unknown as RoutingReportType
-                              }
-                            />
+                            {(report) => <RoutingReport report={report()} />}
                           </Show>
                           <Show when={run.status === "completed"}>
                             <PromptOptimizationPanel runId={run.id} suiteId={run.suite_id ?? ""} />

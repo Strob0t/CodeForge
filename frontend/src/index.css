@@ -26,7 +26,7 @@
   /* Text colors */
   --cf-text-primary: #073642; /* base02 */
   --cf-text-secondary: #586e75; /* base01 */
-  --cf-text-tertiary: #657b83; /* base00 */
+  --cf-text-tertiary: #596e76; /* base00 — adjusted for WCAG 4.5:1 contrast */
   --cf-text-muted: #93a1a1; /* base1 */
 
   /* Accent */
@@ -102,7 +102,7 @@
   /* Text colors */
   --cf-text-primary: #cccccc; /* editor foreground */
   --cf-text-secondary: #9d9d9d; /* description foreground */
-  --cf-text-tertiary: #858585; /* dim text */
+  --cf-text-tertiary: #8a8a8a; /* dim text — adjusted for WCAG 4.5:1 contrast */
   --cf-text-muted: #6a6a6a; /* muted text */
 
   /* Accent */

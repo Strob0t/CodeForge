@@ -16,17 +16,17 @@ export function createLLMResource(c: CoreClient) {
   return {
     models: () => c.get<LLMModel[]>("/llm/models"),
 
-    addModel: (data: AddModelRequest) =>
-      c.post<undefined>("/llm/models", data).then((r) => {
-        c.invalidateCache("/llm");
-        return r;
-      }),
+    addModel: async (data: AddModelRequest) => {
+      const r = await c.post<undefined>("/llm/models", data);
+      c.invalidateCache("/llm");
+      return r;
+    },
 
-    deleteModel: (modelId: string) =>
-      c.del<undefined>(url`/llm/models/${modelId}`).then((r) => {
-        c.invalidateCache("/llm");
-        return r;
-      }),
+    deleteModel: async (modelId: string) => {
+      const r = await c.del<undefined>(url`/llm/models/${modelId}`);
+      c.invalidateCache("/llm");
+      return r;
+    },
 
     health: () => c.get<{ status: string }>("/llm/health"),
 

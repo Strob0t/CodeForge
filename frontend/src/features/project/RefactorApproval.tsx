@@ -15,6 +15,10 @@ interface ApprovalRequest {
   structural: boolean;
 }
 
+function isApprovalRequest(p: unknown): p is ApprovalRequest {
+  return typeof p === "object" && p !== null && "run_id" in p && "plan_id" in p && "step_id" in p;
+}
+
 export default function RefactorApproval() {
   const [request, setRequest] = createSignal<ApprovalRequest | null>(null);
   const [loading, setLoading] = createSignal(false);
@@ -27,8 +31,8 @@ export default function RefactorApproval() {
   );
 
   const cleanup = onMessage((msg) => {
-    if (msg.type === "refactor.approval_required") {
-      setRequest(msg.payload as unknown as ApprovalRequest);
+    if (msg.type === "refactor.approval_required" && isApprovalRequest(msg.payload)) {
+      setRequest(msg.payload);
     }
   });
   onCleanup(cleanup);

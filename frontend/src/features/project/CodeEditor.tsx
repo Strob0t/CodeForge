@@ -1,3 +1,5 @@
+import type { Monaco } from "@monaco-editor/loader";
+import type { editor } from "monaco-editor";
 import { createEffect, createSignal, type JSX, on } from "solid-js";
 import { MonacoEditor } from "solid-monaco";
 
@@ -9,12 +11,6 @@ export interface CodeEditorProps {
   path: string;
   onChange: (value: string) => void;
   onSave: () => void;
-}
-
-interface MonacoNamespace {
-  editor: {
-    setTheme(theme: string): void;
-  };
 }
 
 // Map language IDs to Monaco language identifiers
@@ -51,15 +47,10 @@ function monacoLanguage(lang: string): string {
   return mapping[lang] ?? "plaintext";
 }
 
-// Editor instance type — use the interface from solid-monaco's onMount callback
-interface EditorInstance {
-  addCommand(keybinding: number, handler: () => void): void;
-}
-
 export default function CodeEditor(props: CodeEditorProps): JSX.Element {
   const { resolved } = useTheme();
-  const [editorRef, setEditorRef] = createSignal<EditorInstance | null>(null);
-  const [monacoRef, setMonacoRef] = createSignal<MonacoNamespace | null>(null);
+  const [editorRef, setEditorRef] = createSignal<editor.IStandaloneCodeEditor | null>(null);
+  const [monacoRef, setMonacoRef] = createSignal<Monaco | null>(null);
 
   // Explicitly sync Monaco theme whenever the app theme changes
   createEffect(() => {
@@ -88,9 +79,9 @@ export default function CodeEditor(props: CodeEditorProps): JSX.Element {
         value={props.value}
         theme={resolved() === "dark" ? "vs-dark" : "vs"}
         onChange={(val) => props.onChange(val ?? "")}
-        onMount={(monaco, editor) => {
-          setMonacoRef(monaco as unknown as MonacoNamespace);
-          setEditorRef(editor as unknown as EditorInstance);
+        onMount={(monaco, ed) => {
+          setMonacoRef(monaco);
+          setEditorRef(ed);
         }}
         options={{
           minimap: { enabled: false },

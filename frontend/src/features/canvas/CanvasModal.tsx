@@ -100,16 +100,15 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
     // PNG is async — capture callback synchronously, fire after resolve
     const onExport = props.onExport;
     if (svg) {
-      void exportPng(svg)
-        .then((pngDataUrl) => {
-          const exports: CanvasExports = { png: pngDataUrl, ascii, json };
-          onExport(exports);
-        })
-        .catch(() => {
+      void (async () => {
+        try {
+          const pngDataUrl = await exportPng(svg);
+          onExport({ png: pngDataUrl, ascii, json });
+        } catch {
           // Fallback: export without PNG
-          const exports: CanvasExports = { png: "", ascii, json };
-          onExport(exports);
-        });
+          onExport({ png: "", ascii, json });
+        }
+      })();
     } else {
       const exports: CanvasExports = { png: "", ascii, json };
       props.onExport(exports);

@@ -5,15 +5,11 @@ import {
   createSignal,
   ErrorBoundary,
   For,
-  onCleanup,
   onMount,
   Show,
 } from "solid-js";
 
 import { api } from "~/api/client";
-import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
-import { useToast } from "~/components/Toast";
-import { useWebSocket } from "~/components/WebSocketProvider";
 import {
   DEFAULT_SPLIT,
   MAX_SPLIT,
@@ -39,10 +35,8 @@ import CostBreakdown from "./CostBreakdown";
 import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
-import type { OutputLine } from "./LiveOutput";
 import LiveOutput from "./LiveOutput";
 import LSPPanel from "./LSPPanel";
-import type { AgentTerminal } from "./MultiTerminal";
 import MultiTerminal from "./MultiTerminal";
 import OnboardingProgress from "./OnboardingProgress";
 import PlanPanel from "./PlanPanel";
@@ -56,6 +50,7 @@ import SearchSimulator from "./SearchSimulator";
 import SessionPanel from "./SessionPanel";
 import TaskPanel from "./TaskPanel";
 import TrajectoryPanel from "./TrajectoryPanel";
+import { useProjectDetail } from "./useProjectDetail";
 import WarRoom from "./WarRoom";
 
 /** Fallback UI for sub-panel ErrorBoundary: shows an inline alert with retry */
@@ -133,53 +128,40 @@ function TrajectoryTabContent(props: {
 
 export default function ProjectDetailPage() {
   const { t, fmt } = useI18n();
-  const { show: toast } = useToast();
   const params = useParams<{ id: string }>();
-  const { onMessage } = useWebSocket();
 
-  const [project, { refetch: refetchProject }] = createResource(
-    () => params.id,
-    (id) => api.projects.get(id),
-  );
-  const [tasks, { refetch: refetchTasks }] = createResource(
-    () => params.id,
-    (id) => api.tasks.list(id),
-  );
-  const [gitStatus, { refetch: refetchGitStatus }] = createResource(
-    () => (project()?.workspace_path ? params.id : undefined),
-    (id: string) => api.projects.gitStatus(id),
-  );
-  const [, { refetch: refetchBranches }] = createResource(
-    () => (project()?.workspace_path ? params.id : undefined),
-    (id: string) => api.projects.branches(id),
-  );
+  // Extract data-fetching, WS events, and state into a custom hook
+  const pd = useProjectDetail(() => params.id);
 
-  const [agents, { refetch: refetchAgents }] = createResource(
-    () => params.id,
-    (id) => api.agents.list(id),
-  );
-
-  // Onboarding data
-  const [onboardGoals] = createResource(
-    () => params.id,
-    (pid) => api.goals.list(pid).catch(() => []),
-  );
-  const [onboardRoadmap] = createResource(
-    () => params.id,
-    (pid) => api.roadmap.get(pid).catch(() => null),
-  );
-  const [onboardSessions] = createResource(
-    () => params.id,
-    (pid) => api.sessions.list(pid).catch(() => []),
-  );
-
-  const [cloning, setCloning] = createSignal(false);
-  const [pulling, setPulling] = createSignal(false);
-  const [error, setError] = createSignal("");
-  const [budgetAlert, setBudgetAlert] = createSignal<BudgetAlertEvent | null>(null);
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
-  const [showCanvas, setShowCanvas] = createSignal(false);
-  const [autoAgentStatus, setAutoAgentStatus] = createSignal<AutoAgentStatus | undefined>();
+  // Destructure for template readability
+  const {
+    project,
+    refetchProject,
+    tasks,
+    refetchTasks,
+    gitStatus,
+    agents,
+    onboardGoals,
+    onboardRoadmap,
+    onboardSessions,
+    cloning,
+    pulling,
+    error,
+    setError,
+    budgetAlert,
+    setBudgetAlert,
+    settingsOpen,
+    setSettingsOpen,
+    showCanvas,
+    setShowCanvas,
+    autoAgentStatus,
+    liveOutputTaskId,
+    liveOutputLines,
+    agentTerminals,
+    activeRunCost,
+    handleClone,
+    handlePull,
+  } = pd;
 
   // Left panel tab
   type LeftTab =
@@ -200,18 +182,6 @@ export default function ProjectDetailPage() {
     | "policy";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
-
-  // WS-driven state for LiveOutput, MultiTerminal, CostBreakdown panels
-  const [liveOutputTaskId, setLiveOutputTaskId] = createSignal<string | null>(null);
-  const [liveOutputLines, setLiveOutputLines] = createSignal<OutputLine[]>([]);
-  const [agentTerminals, setAgentTerminals] = createSignal<AgentTerminal[]>([]);
-  const [activeRunCost, setActiveRunCost] = createSignal<{
-    costUsd: number;
-    tokensIn: number;
-    tokensOut: number;
-    steps: number;
-    model?: string;
-  } | null>(null);
 
   // Unified navigation handler: "chat" switches mobile view, other tabs switch left panel
   function handleNavigate(target: string) {
@@ -279,206 +249,6 @@ export default function ProjectDetailPage() {
   function handlePointerUp() {
     setDragging(false);
   }
-
-  // WebSocket event handling
-  const cleanup = onMessage((msg) => {
-    const payload = msg.payload;
-    const projectId = params.id;
-
-    switch (msg.type) {
-      case "task.status": {
-        const taskProjectId = payload.project_id as string;
-        if (taskProjectId === projectId) {
-          refetchTasks();
-        }
-        break;
-      }
-      case "agent.status": {
-        const agentProjectId = payload.project_id as string;
-        if (agentProjectId === projectId) {
-          refetchAgents();
-        }
-        break;
-      }
-      case "run.status": {
-        const runProjectId = payload.project_id as string;
-        if (runProjectId === projectId) {
-          const status = payload.status as string;
-          if (status === "completed") {
-            toast("info", t("detail.toast.runCompleted"));
-          } else if (status === "failed") {
-            toast("error", t("detail.toast.runFailed"));
-          } else if (status === "cancelled") {
-            toast("info", t("detail.toast.runCancelled"));
-          }
-
-          // Extract cost data for CostBreakdown panel
-          const costUsd = payload.cost_usd as number | undefined;
-          if (costUsd !== undefined) {
-            setActiveRunCost({
-              costUsd,
-              tokensIn: (payload.tokens_in as number) ?? 0,
-              tokensOut: (payload.tokens_out as number) ?? 0,
-              steps: (payload.steps as number) ?? 0,
-              model: payload.model as string | undefined,
-            });
-          }
-        }
-        break;
-      }
-      case "run.toolcall":
-        // Tool calls are rendered via AG-UI events in ChatPanel
-        break;
-      case "run.qualitygate": {
-        const qgProjectId = payload.project_id as string;
-        if (qgProjectId === projectId) {
-          // Quality gate events are reflected via run.status updates
-        }
-        break;
-      }
-      case "run.delivery": {
-        const delProjectId = payload.project_id as string;
-        if (delProjectId === projectId) {
-          // Delivery events are reflected via run.status updates
-        }
-        break;
-      }
-      case "plan.status": {
-        const planProjectId = payload.project_id as string;
-        if (planProjectId === projectId) {
-          const status = payload.status as string;
-          if (status === "completed") {
-            toast("info", t("detail.toast.planCompleted"));
-          } else if (status === "failed") {
-            toast("error", t("detail.toast.planFailed"));
-          }
-        }
-        break;
-      }
-      case "plan.step.status": {
-        const stepProjectId = payload.project_id as string;
-        if (stepProjectId === projectId) {
-          // PlanPanel will refetch via its own resource
-        }
-        break;
-      }
-      case "repomap.status": {
-        const rmProjectId = payload.project_id as string;
-        if (rmProjectId === projectId) {
-          // RepoMapPanel will refetch via its own resource
-        }
-        break;
-      }
-      case "retrieval.status": {
-        const retProjectId = payload.project_id as string;
-        if (retProjectId === projectId) {
-          // RetrievalPanel handles its own state
-        }
-        break;
-      }
-      case "roadmap.status": {
-        const rmProjectId = payload.project_id as string;
-        if (rmProjectId === projectId) {
-          // RoadmapPanel will refetch via its own resource
-        }
-        break;
-      }
-      case "run.budget_alert": {
-        const alertProjectId = payload.project_id as string;
-        if (alertProjectId === projectId) {
-          setBudgetAlert(payload as unknown as BudgetAlertEvent);
-          const pct = (payload as unknown as BudgetAlertEvent).percentage;
-          toast("warning", t("detail.toast.budgetAlert", { pct: fmt.percent(pct) }));
-        }
-        break;
-      }
-      case "task.output": {
-        const toProjectId = payload.project_id as string;
-        if (toProjectId === projectId) {
-          const taskId = (payload.task_id as string) ?? null;
-          const line = payload.line as string;
-          const stream = (payload.stream as "stdout" | "stderr") ?? "stdout";
-          const agentId = payload.agent_id as string | undefined;
-          const agentName = payload.agent_name as string | undefined;
-
-          // Feed LiveOutput
-          setLiveOutputTaskId(taskId);
-          setLiveOutputLines((prev) => [...prev, { line, stream, timestamp: Date.now() }]);
-
-          // Feed MultiTerminal (group by agent)
-          if (agentId) {
-            setAgentTerminals((prev) => {
-              const idx = prev.findIndex((t) => t.agentId === agentId);
-              const entry: AgentTerminal =
-                idx >= 0
-                  ? {
-                      ...prev[idx],
-                      lines: [...prev[idx].lines, { line, stream, timestamp: Date.now() }],
-                    }
-                  : {
-                      agentId,
-                      agentName: agentName ?? agentId,
-                      lines: [{ line, stream, timestamp: Date.now() }],
-                    };
-              if (idx >= 0) {
-                const next = [...prev];
-                next[idx] = entry;
-                return next;
-              }
-              return [...prev, entry];
-            });
-          }
-        }
-        break;
-      }
-      case "autoagent.status": {
-        const aaProjectId = payload.project_id as string;
-        if (aaProjectId === projectId) {
-          setAutoAgentStatus(payload as unknown as AutoAgentStatus);
-        }
-        break;
-      }
-      case "activework.claimed":
-      case "activework.released":
-        // ActiveWorkPanel handles its own refetch via WS
-        break;
-    }
-  });
-  onCleanup(cleanup);
-
-  const handleClone = async () => {
-    setCloning(true);
-    setError("");
-    try {
-      await api.projects.clone(params.id);
-      refetchProject();
-      refetchGitStatus();
-      refetchBranches();
-      toast("success", t("detail.toast.cloned"));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.cloneFailed");
-      setError(msg);
-      toast("error", msg);
-    } finally {
-      setCloning(false);
-    }
-  };
-
-  const handlePull = async () => {
-    setPulling(true);
-    setError("");
-    try {
-      await api.projects.pull(params.id);
-      refetchGitStatus();
-      toast("success", t("detail.toast.pulled"));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.pullFailed");
-      setError(msg);
-      toast("error", msg);
-    } finally {
-      setPulling(false);
-    }
-  };
 
   return (
     <div class="flex flex-col h-full">
