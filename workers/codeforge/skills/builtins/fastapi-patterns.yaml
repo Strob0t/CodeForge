@@ -1,0 +1,41 @@
+name: fastapi-patterns
+type: knowledge
+description: Python FastAPI patterns and common mistakes
+tags: [fastapi, python, backend]
+content: |
+  # FastAPI Patterns
+
+  ## Project Setup
+  pip install fastapi uvicorn[standard] httpx pytest
+
+  ## Basic App
+  from fastapi import FastAPI
+  from fastapi.middleware.cors import CORSMiddleware
+
+  app = FastAPI()
+  app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+  @app.get("/health")
+  def health(): return {"status": "ok"}
+
+  ## Caching (CORRECT way)
+  from functools import lru_cache  # NO ttl parameter!
+  # lru_cache does NOT support ttl. Use cachetools instead:
+  from cachetools import TTLCache
+  cache = TTLCache(maxsize=100, ttl=300)
+
+  ## Running
+  uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  ## Testing
+  from fastapi.testclient import TestClient
+  from main import app
+  client = TestClient(app)
+  def test_health():
+      response = client.get("/health")
+      assert response.status_code == 200
+
+  ## Common Mistakes
+  - lru_cache does NOT have a ttl parameter (use cachetools.TTLCache)
+  - Don't forget CORS middleware for frontend communication
+  - Use httpx for async HTTP calls, requests for sync

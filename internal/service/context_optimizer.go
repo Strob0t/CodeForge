@@ -301,6 +301,13 @@ func (s *ContextOptimizerService) assembleAndPack(
 		}
 	}
 
+	// Knowledge base entries (matched to project scopes).
+	kbEntries, kbErr := s.fetchKnowledgeBaseEntries(ctx, projectID, prompt)
+	if kbErr == nil && len(kbEntries) > 0 {
+		candidates = append(candidates, kbEntries...)
+		slog.Info("knowledge base entries added", "count", len(kbEntries))
+	}
+
 	if len(candidates) == 0 {
 		return nil, 0
 	}
@@ -479,6 +486,87 @@ func (s *ContextOptimizerService) fetchGraphEntries(ctx context.Context, project
 
 	slog.Info("graph context entries", "project_id", projectID, "hits", len(entries), "seeds", len(seedSymbols))
 	return entries
+}
+
+// fetchKnowledgeBaseEntries searches knowledge bases attached to the project's scopes
+// and returns matching content as context entries.
+func (s *ContextOptimizerService) fetchKnowledgeBaseEntries(
+	ctx context.Context,
+	projectID, userMessage string,
+) ([]cfcontext.ContextEntry, error) {
+	scopes, err := s.store.GetScopesForProject(ctx, projectID)
+	if err != nil || len(scopes) == 0 {
+		return nil, err
+	}
+
+	var entries []cfcontext.ContextEntry
+	seen := make(map[string]bool) // deduplicate KBs across scopes
+
+	for i := range scopes {
+		kbs, kbErr := s.store.ListKnowledgeBasesByScope(ctx, scopes[i].ID)
+		if kbErr != nil || len(kbs) == 0 {
+			continue
+		}
+		for j := range kbs {
+			kb := &kbs[j]
+			if seen[kb.ID] {
+				continue
+			}
+			seen[kb.ID] = true
+
+			if kb.Status != "indexed" {
+				continue
+			}
+
+			// Try retrieval search using the "kb:<id>" namespace.
+			if s.retrieval != nil {
+				kbProjectID := "kb:" + kb.ID
+				if info := s.retrieval.GetIndexStatus(kbProjectID); info != nil && info.Status == "ready" {
+					result, rErr := s.retrieval.SearchSync(ctx, kbProjectID, userMessage,
+						3, s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
+					if rErr == nil && len(result.Results) > 0 {
+						for _, hit := range result.Results {
+							entries = append(entries, cfcontext.ContextEntry{
+								Kind:     cfcontext.EntryKnowledge,
+								Path:     kb.Name,
+								Content:  hit.Content,
+								Tokens:   cfcontext.EstimateTokens(hit.Content),
+								Priority: 75,
+							})
+						}
+						continue
+					}
+				}
+			}
+
+			// Fallback: read content directly from the KB file (truncated).
+			if kb.ContentPath != "" {
+				content, readErr := os.ReadFile(kb.ContentPath) //nolint:gosec // G304: path from admin-configured KB
+				if readErr == nil && len(content) > 0 {
+					text := string(content)
+					const maxKBTokens = 2048
+					tokens := cfcontext.EstimateTokens(text)
+					if tokens > maxKBTokens {
+						// Truncate to roughly maxKBTokens worth of characters.
+						maxChars := maxKBTokens * 4
+						if maxChars < len(text) {
+							text = text[:maxChars]
+						}
+						tokens = maxKBTokens
+					}
+					entries = append(entries, cfcontext.ContextEntry{
+						Kind:     cfcontext.EntryKnowledge,
+						Path:     kb.Name,
+						Content:  text,
+						Tokens:   tokens,
+						Priority: 75,
+					})
+				}
+			}
+		}
+	}
+
+	return entries, nil
 }
 
 // ---------------------------------------------------------------------------

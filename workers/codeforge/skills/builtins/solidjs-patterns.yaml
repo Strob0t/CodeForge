@@ -1,0 +1,56 @@
+name: solidjs-patterns
+type: knowledge
+description: SolidJS framework patterns and common mistakes
+tags: [solidjs, typescript, frontend]
+content: |
+  # SolidJS Patterns (NOT React)
+
+  SolidJS uses fine-grained reactivity. Do NOT use React patterns.
+
+  ## Correct Imports
+  import { createSignal, createEffect, createResource, For, Show } from "solid-js";
+  import { render } from "solid-js/web";
+
+  ## State Management
+  WRONG (React): const [count, setCount] = useState(0);
+  RIGHT (SolidJS): const [count, setCount] = createSignal(0);
+
+  ## Reading Signals (MUST call as function)
+  WRONG: <p>{count}</p>
+  RIGHT: <p>{count()}</p>
+
+  ## Effects
+  WRONG (React): useEffect(() => { ... }, [dep]);
+  RIGHT (SolidJS): createEffect(() => { console.log(count()); });
+  // No dependency array -- SolidJS tracks automatically
+
+  ## Data Fetching
+  const [data] = createResource(source, fetcher);
+  // source is a signal, fetcher is async function
+
+  ## Conditional Rendering
+  WRONG (React): {condition && <Component />}
+  RIGHT (SolidJS): <Show when={condition()}><Component /></Show>
+
+  ## Lists
+  WRONG (React): {items.map(item => <div>{item}</div>)}
+  RIGHT (SolidJS): <For each={items()}>{(item) => <div>{item}</div>}</For>
+
+  ## JSX Differences
+  - Use `class` not `className`
+  - Use `onclick` not `onClick` (lowercase)
+  - Components render ONCE (not on every state change)
+
+  ## Project Setup (Vite)
+  npm create vite@latest my-app -- --template solid-ts
+  cd my-app && npm install && npm run dev
+
+  ## Testing (vitest)
+  npm install -D vitest @solidjs/testing-library jsdom
+  // vitest.config.ts:
+  import { defineConfig } from 'vitest/config';
+  import solidPlugin from 'vite-plugin-solid';
+  export default defineConfig({
+    plugins: [solidPlugin()],
+    test: { environment: 'jsdom' }
+  });
