@@ -182,6 +182,7 @@ type Auth struct {
 	AutoGenerateInitialPassword bool          `yaml:"auto_generate_initial_password"` // Generate random password to file (GitLab-style)
 	InitialPasswordFile         string        `yaml:"initial_password_file"`          // Path for generated password (default: data/initial_admin_password)
 	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`          // Setup wizard timeout in minutes (default: 5)
+	LLMKeyEncryptionSecret      string        `yaml:"llm_key_encryption_secret"`      // Separate encryption key for LLM user keys (falls back to JWTSecret)
 }
 
 // Webhook holds VCS/PM webhook verification configuration.

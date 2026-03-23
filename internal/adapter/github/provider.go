@@ -54,7 +54,10 @@ func (p *Provider) Capabilities() gitprovider.Capabilities {
 	}
 }
 
-// CloneURL returns a token-authenticated HTTPS clone URL for the given repo (owner/name).
+// CloneURL returns a token-authenticated HTTPS clone URL for the given repo.
+// Security: Token is embedded in URL (standard git HTTPS auth pattern, used by
+// GitHub Actions and GitLab CI). This URL must never be logged or displayed to
+// users. For interactive use, prefer SSH keys or credential helpers.
 func (p *Provider) CloneURL(_ context.Context, repo string) (string, error) {
 	if repo == "" {
 		return "", fmt.Errorf("github: empty repository identifier")

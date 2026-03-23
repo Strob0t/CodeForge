@@ -1370,6 +1370,16 @@ LLM-based security analysis evaluates agent actions. The InvariantAnalyzer valid
 
 It can be disabled for trusted agents to reduce latency.
 
+### CSRF Protection
+
+CodeForge does not use explicit CSRF tokens because:
+1. **API-only backend** — no HTML forms, no cookie-based auth for mutations
+2. **Bearer token authentication** — tokens are sent via Authorization header, not auto-attached by browsers
+3. **Refresh tokens** use HttpOnly + SameSite=Lax cookies (immune to CSRF)
+4. **CORS** restricts cross-origin requests to the configured origin
+
+Reference: OWASP CSRF Prevention Cheat Sheet — token-based authentication (Bearer/JWT) is inherently CSRF-resistant when tokens are not auto-attached by the browser.
+
 ### Security and Trust Infrastructure (Phase 23)
 
 #### Trust Annotations
