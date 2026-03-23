@@ -1,3 +1,4 @@
+export { createA2AResource } from "./a2a";
 export { createAgentsResource, createTasksResource } from "./agents";
 export {
   createAuthResource,
