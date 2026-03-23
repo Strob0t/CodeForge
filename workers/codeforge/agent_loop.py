@@ -182,6 +182,8 @@ class LoopConfig:
     routing_config: RoutingConfig | None = None  # RoutingConfig instance (active config for reward computation)
     capability_level: str = "full"  # CapabilityLevel value for tool filtering
     mode_tools: frozenset[str] = field(default_factory=frozenset)  # Mode-declared extra tools
+    top_p: float | None = None  # Sampling top_p (None = provider default)
+    extra_body: dict[str, object] | None = None  # Extra LiteLLM payload params
 
 
 @dataclass
@@ -676,6 +678,8 @@ class AgentLoopExecutor:
                     tags=cfg.tags or None,
                     on_chunk=_on_chunk,
                     provider_api_key=cfg.provider_api_key,
+                    top_p=cfg.top_p,
+                    extra_body=cfg.extra_body,
                 )
             except LLMError as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))

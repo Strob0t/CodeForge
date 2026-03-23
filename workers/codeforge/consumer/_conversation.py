@@ -375,11 +375,18 @@ class ConversationHandlerMixin:
         )
         mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
         capability_level = classify_model(primary_model)
+
+        # Optimized sampling parameters for local models (M6).
+        _is_local = primary_model.startswith(("lm_studio/", "ollama/"))
+        _temperature = 0.7 if _is_local else routing.temperature
+        _top_p: float | None = 0.8 if _is_local else None
+        _extra_body: dict[str, object] | None = {"top_k": 20, "repetition_penalty": 1.05} if _is_local else None
+
         loop_cfg = LoopConfig(
             max_iterations=run_msg.termination.max_steps or 50,
             max_cost=run_msg.termination.max_cost or 0.0,
             model=primary_model,
-            temperature=routing.temperature,
+            temperature=_temperature,
             tags=routing.tags,
             fallback_models=fallback_models,
             routing_layer=routing.routing_layer,
@@ -391,6 +398,8 @@ class ConversationHandlerMixin:
             routing_metadata=getattr(routing, "routing_metadata", None),
             capability_level=str(capability_level),
             mode_tools=mode_tools,
+            top_p=_top_p,
+            extra_body=_extra_body,
         )
 
         # Use multi-rollout executor when rollout_count > 1.
