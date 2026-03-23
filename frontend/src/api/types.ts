@@ -2145,3 +2145,101 @@ export interface BoundaryConfig {
   last_analyzed: string;
   version: number;
 }
+
+// --- Microagent types ---
+
+/** Microagent type (matches Go domain/microagent.Type) */
+export type MicroagentType = "knowledge" | "repo" | "task";
+
+/** Matches Go domain/microagent.Microagent */
+export interface Microagent {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  type: MicroagentType;
+  trigger_pattern: string;
+  description: string;
+  prompt: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/microagent.CreateRequest */
+export interface CreateMicroagentRequest {
+  project_id?: string;
+  name: string;
+  type: MicroagentType;
+  trigger_pattern: string;
+  description: string;
+  prompt: string;
+}
+
+/** Matches Go domain/microagent.UpdateRequest */
+export interface UpdateMicroagentRequest {
+  name?: string;
+  trigger_pattern?: string;
+  description?: string;
+  prompt?: string;
+  enabled?: boolean;
+}
+
+// --- Skill types ---
+
+/** Matches Go domain/skill.Skill */
+export interface Skill {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  type: string;
+  description: string;
+  language: string;
+  content: string;
+  tags: string[];
+  source: string;
+  source_url?: string;
+  format_origin: string;
+  status: string;
+  usage_count: number;
+  created_at: string;
+}
+
+/** Matches Go domain/skill.CreateRequest */
+export interface CreateSkillRequest {
+  project_id?: string;
+  name: string;
+  type: string;
+  description: string;
+  language: string;
+  content: string;
+  tags: string[];
+  source?: string;
+  source_url?: string;
+  format_origin?: string;
+}
+
+/** Matches Go domain/skill.UpdateRequest */
+export interface UpdateSkillRequest {
+  name?: string;
+  type?: string;
+  description?: string;
+  language?: string;
+  content?: string;
+  tags?: string[];
+  status?: string;
+}
+
+/** Import skill request */
+export interface ImportSkillRequest {
+  source_url: string;
+  project_id?: string;
+}
+
+/** Skill import rejection response */
+export interface SkillImportRejection {
+  error: string;
+  score: number;
+  factors: string[];
+}
