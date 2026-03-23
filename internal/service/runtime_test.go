@@ -669,6 +669,9 @@ func (m *runtimeMockStore) DeleteScope(_ context.Context, _ string) error { retu
 func (m *runtimeMockStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
 	return nil, nil
 }
+func (m *runtimeMockStore) GetScopesForProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
 func (m *runtimeMockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *runtimeMockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
 

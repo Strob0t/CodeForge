@@ -477,6 +477,9 @@ func (s *testStore) DeleteScope(_ context.Context, _ string) error { return nil 
 func (s *testStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
 	return nil, nil
 }
+func (s *testStore) GetScopesForProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
 func (s *testStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (s *testStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
 

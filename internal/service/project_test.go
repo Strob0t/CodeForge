@@ -673,6 +673,9 @@ func (m *mockStore) DeleteScope(_ context.Context, _ string) error { return nil 
 func (m *mockStore) ListScopesByProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
 	return nil, nil
 }
+func (m *mockStore) GetScopesForProject(_ context.Context, _ string) ([]cfcontext.RetrievalScope, error) {
+	return nil, nil
+}
 func (m *mockStore) AddProjectToScope(_ context.Context, _, _ string) error      { return nil }
 func (m *mockStore) RemoveProjectFromScope(_ context.Context, _, _ string) error { return nil }
 

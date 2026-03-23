@@ -183,6 +183,31 @@ func (s *Store) ListScopesByProject(ctx context.Context, projectID string) ([]cf
 	return scopes, nil
 }
 
+// GetScopesForProject returns all scopes associated with a project (via the join table)
+// plus all global scopes, suitable for knowledge base fan-out.
+func (s *Store) GetScopesForProject(ctx context.Context, projectID string) ([]cfcontext.RetrievalScope, error) {
+	tid := tenantFromCtx(ctx)
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT rs.id, rs.name, rs.type, rs.description, rs.created_at, rs.updated_at
+		 FROM retrieval_scopes rs
+		 JOIN retrieval_scope_projects rsp ON rs.id = rsp.scope_id
+		 WHERE rsp.project_id = $1 AND rs.tenant_id = $2
+		 UNION
+		 SELECT rs.id, rs.name, rs.type, rs.description, rs.created_at, rs.updated_at
+		 FROM retrieval_scopes rs
+		 WHERE rs.type = 'global' AND rs.tenant_id = $2
+		 ORDER BY created_at ASC`, projectID, tid)
+	if err != nil {
+		return nil, fmt.Errorf("get scopes for project: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (cfcontext.RetrievalScope, error) {
+		var sc cfcontext.RetrievalScope
+		err := r.Scan(&sc.ID, &sc.Name, &sc.Type, &sc.Description, &sc.CreatedAt, &sc.UpdatedAt)
+		return sc, err
+	})
+}
+
 func (s *Store) AddProjectToScope(ctx context.Context, scopeID, projectID string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO retrieval_scope_projects (scope_id, project_id) VALUES ($1, $2)

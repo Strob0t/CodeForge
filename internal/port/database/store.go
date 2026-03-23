@@ -234,6 +234,7 @@ type Store interface {
 	UpdateScope(ctx context.Context, id string, req cfcontext.UpdateScopeRequest) (*cfcontext.RetrievalScope, error)
 	DeleteScope(ctx context.Context, id string) error
 	ListScopesByProject(ctx context.Context, projectID string) ([]cfcontext.RetrievalScope, error)
+	GetScopesForProject(ctx context.Context, projectID string) ([]cfcontext.RetrievalScope, error)
 	AddProjectToScope(ctx context.Context, scopeID, projectID string) error
 	RemoveProjectFromScope(ctx context.Context, scopeID, projectID string) error
 
