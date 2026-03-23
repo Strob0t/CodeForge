@@ -3,6 +3,7 @@ import { Portal } from "solid-js/web";
 
 import { useSidebar } from "~/components/SidebarProvider";
 import { useI18n } from "~/i18n";
+import { Backdrop } from "~/ui/primitives/Backdrop";
 
 import { CollapseIcon, ExpandIcon } from "./NavIcons";
 
@@ -24,7 +25,7 @@ function SidebarRoot(props: SidebarProps): JSX.Element {
     <Portal>
       <Show when={mobileOpen()}>
         {/* Backdrop */}
-        <div class="fixed inset-0 z-40 bg-black/50 transition-opacity" onClick={closeMobile} />
+        <Backdrop onClick={closeMobile} class="bg-black/50 transition-opacity" />
         {/* Drawer */}
         <aside
           class={

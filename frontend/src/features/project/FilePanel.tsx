@@ -7,7 +7,7 @@ import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { useI18n } from "~/i18n";
 import { fileIconUrl } from "~/lib/file-icon";
-import { Button, FormField, Input, Modal, Spinner, Textarea } from "~/ui";
+import { Backdrop, Button, FormField, Input, Modal, Spinner, Textarea } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import CodeEditor from "./CodeEditor";
@@ -649,7 +649,7 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
 
         {/* Mobile file tree overlay */}
         <Show when={fileDrawerOpen()}>
-          <div class="fixed inset-0 z-40 bg-black/50" onClick={() => setFileDrawerOpen(false)} />
+          <Backdrop onClick={() => setFileDrawerOpen(false)} class="bg-black/50" />
           <div class="fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r border-cf-border bg-cf-bg-surface shadow-cf-lg">
             <FileTreeProvider>
               <div class="flex items-center justify-between p-2 border-b border-cf-border">

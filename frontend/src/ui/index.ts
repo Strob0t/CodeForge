@@ -9,6 +9,7 @@ export { builtInThemes, nordTheme, solarizedDarkTheme } from "./tokens";
 
 // Primitives (Phase 2)
 export { Alert } from "./primitives";
+export { Backdrop } from "./primitives";
 export { Badge } from "./primitives";
 export { Button } from "./primitives";
 export { Checkbox } from "./primitives";

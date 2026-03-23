@@ -2,6 +2,7 @@ import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, Show } from "solid-js";
 
 import { useFocusTrap } from "~/hooks/useFocusTrap";
+import { Backdrop } from "~/ui";
 import { cx } from "~/utils/cx";
 
 import NotificationItem from "./NotificationItem";
@@ -73,7 +74,7 @@ export default function NotificationCenter(props: NotificationCenterProps): JSX.
   return (
     <Show when={props.visible}>
       {/* Backdrop — click to close */}
-      <div class="fixed inset-0 z-40" onClick={() => props.onClose()} />
+      <Backdrop onClick={() => props.onClose()} class="bg-transparent" />
 
       {/* Dropdown panel */}
       <div

@@ -10,7 +10,7 @@ import {
 import { Portal } from "solid-js/web";
 
 import { api } from "~/api/client";
-import { Button, Spinner } from "~/ui";
+import { Backdrop, Button, Spinner } from "~/ui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,7 +125,7 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
     <Show when={props.visible}>
       <Portal>
         {/* Backdrop */}
-        <div class="fixed inset-0 z-40 bg-black/30" onClick={() => props.onClose()} />
+        <Backdrop onClick={() => props.onClose()} />
 
         {/* Slide-over panel */}
         <div class="fixed inset-y-0 right-0 z-50 flex w-96 max-w-full flex-col border-l border-cf-border bg-cf-bg-surface shadow-cf-lg">
