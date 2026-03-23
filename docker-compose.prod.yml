@@ -109,8 +109,6 @@ services:
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
       LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
-    ports:
-      - "${LITELLM_PORT:-4000}:4000"
     volumes:
       - ./litellm:/app/data:ro
     command: ["--config", "/app/data/config.yaml", "--port", "4000"]
