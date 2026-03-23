@@ -37,6 +37,7 @@ SUBJECT_RUN_CANCEL = "runs.cancel"
 SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
 SUBJECT_RUN_HEARTBEAT = "runs.heartbeat"
 SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
+SUBJECT_AGENT_OUTPUT = "agents.output"
 
 RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
 
@@ -85,7 +86,7 @@ class RuntimeClient:
                 try:
                     msg = await sub.next_msg(timeout=1.0)  # type: ignore[attr-defined]
                     data = json.loads(msg.data)
-                    if data.get("run_id") == self.run_id:
+                    if data.get("run_id") == self.run_id or data.get("task_id") == self.task_id:
                         self._cancelled = True
                         self._log.info("run cancelled by control plane")
                 except TimeoutError:
@@ -327,7 +328,11 @@ class RuntimeClient:
         )
 
     async def send_output(self, line: str, stream: str = "stdout") -> None:
-        """Send a streaming output line to the control plane."""
+        """Send a streaming output line to the control plane.
+
+        Also publishes to ``agents.output`` so the Go AgentService can
+        broadcast the line to WebSocket clients.
+        """
         payload = {
             "run_id": self.run_id,
             "task_id": self.task_id,
@@ -338,6 +343,8 @@ class RuntimeClient:
             SUBJECT_RUN_OUTPUT,
             json.dumps(payload).encode(),
         )
+        # Mirror to agents.output for WS broadcast (best-effort).
+        await self.publish_agent_output(line, stream)
 
     async def publish_trajectory_event(self, event: dict[str, object]) -> None:
         """Publish a trajectory event for recording and UI display."""
@@ -350,3 +357,25 @@ class RuntimeClient:
             )
         except Exception as exc:
             self._log.debug("trajectory event publish failed", error=str(exc))
+
+    async def publish_agent_output(self, line: str, stream: str = "stdout") -> None:
+        """Publish a line of agent output for Go WS broadcast.
+
+        Unlike ``send_output`` (which publishes to ``runs.output`` for the run
+        protocol), this method publishes to ``agents.output`` so the Go
+        ``AgentService.StartAgentOutputSubscriber`` can broadcast the line to
+        WebSocket clients.
+        """
+        payload = {
+            "task_id": self.task_id,
+            "line": line,
+            "stream": stream,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        try:
+            await self._js.publish(
+                SUBJECT_AGENT_OUTPUT,
+                json.dumps(payload).encode(),
+            )
+        except Exception as exc:
+            self._log.debug("agent output publish failed", error=str(exc))

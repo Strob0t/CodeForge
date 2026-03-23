@@ -29,6 +29,7 @@ from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._benchmark import BenchmarkHandlerMixin
 from codeforge.consumer._compact import CompactHandlerMixin
 from codeforge.consumer._context import ContextHandlerMixin
+from codeforge.consumer._context_events import ContextEventsHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._graph import GraphHandlerMixin
 from codeforge.consumer._handoff import HandoffHandlerMixin
@@ -56,13 +57,16 @@ from codeforge.consumer._subjects import (
     SUBJECT_HANDOFF_REQUEST,
     SUBJECT_MEMORY_RECALL,
     SUBJECT_MEMORY_STORE,
+    SUBJECT_PROMPT_EVOLUTION_PROMOTED,
     SUBJECT_PROMPT_EVOLUTION_REFLECT,
+    SUBJECT_PROMPT_EVOLUTION_REVERTED,
     SUBJECT_QG_REQUEST,
     SUBJECT_REPOMAP_REQUEST,
     SUBJECT_RETRIEVAL_INDEX_REQUEST,
     SUBJECT_RETRIEVAL_SEARCH_REQUEST,
     SUBJECT_REVIEW_TRIGGER_REQUEST,
     SUBJECT_RUN_START,
+    SUBJECT_SHARED_UPDATED,
     SUBJECT_SUBAGENT_SEARCH_REQUEST,
     consumer_name,
 )
@@ -101,6 +105,7 @@ class TaskConsumer(
     ConversationHandlerMixin,
     CompactHandlerMixin,
     ContextHandlerMixin,
+    ContextEventsHandlerMixin,
     BenchmarkHandlerMixin,
     MemoryHandlerMixin,
     HandoffHandlerMixin,
@@ -181,6 +186,9 @@ class TaskConsumer(
             (SUBJECT_BACKEND_HEALTH_REQUEST, self._handle_backend_health),
             (SUBJECT_REVIEW_TRIGGER_REQUEST, self._handle_review_trigger),
             (SUBJECT_PROMPT_EVOLUTION_REFLECT, self._handle_prompt_evolution_reflect),
+            (SUBJECT_PROMPT_EVOLUTION_PROMOTED, self._handle_prompt_promoted),
+            (SUBJECT_PROMPT_EVOLUTION_REVERTED, self._handle_prompt_reverted),
+            (SUBJECT_SHARED_UPDATED, self._handle_shared_context_updated),
         ]
 
         loops = []

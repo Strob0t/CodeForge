@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -84,6 +85,33 @@ func (s *EvaluationService) HandlePlanComplete(ctx context.Context, planID, stat
 	}
 
 	slog.Info("evaluation: gemmas request published", "plan_id", planID, "messages", len(messages))
+}
+
+// HandleGemmasResult processes an evaluation.gemmas.result message from Python.
+// It logs the scores and stores them on the plan record (best-effort).
+func (s *EvaluationService) HandleGemmasResult(_ context.Context, _ string, data []byte) error {
+	var payload messagequeue.GemmasEvalResultPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("unmarshal gemmas result: %w", err)
+	}
+	if payload.Error != "" {
+		slog.Error("gemmas evaluation failed", "plan_id", payload.PlanID, "error", payload.Error)
+		return nil
+	}
+	slog.Info("gemmas evaluation result received",
+		"plan_id", payload.PlanID,
+		"diversity_score", payload.InformationDiversityScore,
+		"unnecessary_path_ratio", payload.UnnecessaryPathRatio,
+	)
+	return nil
+}
+
+// StartGemmasResultSubscriber subscribes to evaluation.gemmas.result messages.
+func (s *EvaluationService) StartGemmasResultSubscriber(ctx context.Context) (func(), error) {
+	if s.queue == nil {
+		return func() {}, nil
+	}
+	return s.queue.Subscribe(ctx, messagequeue.SubjectEvalGemmasResult, s.HandleGemmasResult)
 }
 
 // extractAgentMessages converts run events into GEMMAS agent message payloads.

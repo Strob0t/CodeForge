@@ -76,7 +76,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
-		LiteLLM:          litellm.NewClient("http://localhost:4000", ""),
+		LLM:              litellm.NewClient("http://localhost:4000", ""),
 		Policies:         policySvc,
 		Runtime:          runtimeSvc,
 		Orchestrator:     orchSvc,

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.consumer._subjects import SUBJECT_TASK_CANCEL
 from codeforge.models import RunStartMessage, TaskMessage
 from codeforge.runtime import RuntimeClient
 
@@ -45,7 +46,7 @@ class RunHandlerMixin:
             project_id=run_msg.project_id,
             termination=run_msg.termination,
         )
-        await runtime.start_cancel_listener()
+        await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
 
         # Enrich prompt with pre-packed context entries (Phase 5D)
         enriched_prompt = run_msg.prompt

@@ -27,6 +27,10 @@ STREAM_SUBJECTS = [
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
+SUBJECT_TASK_CANCEL = "tasks.cancel"
+
+# Agent output (Python -> Go: per-line backend output for WS broadcast)
+SUBJECT_AGENT_OUTPUT = "agents.output"
 
 # Run subjects
 SUBJECT_RUN_START = "runs.start"
@@ -52,6 +56,9 @@ SUBJECT_GRAPH_BUILD_REQUEST = "graph.build.request"
 SUBJECT_GRAPH_BUILD_RESULT = "graph.build.result"
 SUBJECT_GRAPH_SEARCH_REQUEST = "graph.search.request"
 SUBJECT_GRAPH_SEARCH_RESULT = "graph.search.result"
+
+# Shared context events
+SUBJECT_SHARED_UPDATED = "context.shared.updated"
 
 # Context re-ranking (Phase 3 — Context Intelligence)
 SUBJECT_CONTEXT_RERANK_REQUEST = "context.rerank.request"
@@ -102,6 +109,8 @@ SUBJECT_REVIEW_APPROVAL_REQUIRED = "review.approval.required"
 SUBJECT_PROMPT_EVOLUTION_REFLECT = "prompt.evolution.reflect"
 SUBJECT_PROMPT_EVOLUTION_REFLECT_COMPLETE = "prompt.evolution.reflect.complete"
 SUBJECT_PROMPT_EVOLUTION_MUTATE_COMPLETE = "prompt.evolution.mutate.complete"
+SUBJECT_PROMPT_EVOLUTION_PROMOTED = "prompt.evolution.promoted"
+SUBJECT_PROMPT_EVOLUTION_REVERTED = "prompt.evolution.reverted"
 
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"

@@ -45,7 +45,8 @@ const (
 	EventVCSPullRequest = "vcs.pull_request"
 
 	// Phase 12I: review events
-	EventReviewStatus = "review.status"
+	EventReviewStatus           = "review.status"
+	EventReviewApprovalRequired = "review.approval_required"
 
 	// Phase 13.5A: conversation events
 	EventConversationMessage = "conversation.message"
