@@ -123,45 +123,45 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Post("/projects/{id}/git/checkout", h.Project.CheckoutBranch)
 
 		// Agents (nested under projects)
-		r.Post("/projects/{id}/agents", h.CreateAgent)
-		r.Get("/projects/{id}/agents", h.ListAgents)
+		r.Post("/projects/{id}/agents", h.Agent.CreateAgent)
+		r.Get("/projects/{id}/agents", h.Agent.ListAgents)
 
 		// Agents (direct access)
-		r.Get("/agents/{id}", h.GetAgent)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/agents/{id}", h.DeleteAgent)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/dispatch", h.DispatchTask)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/stop", h.StopAgentTask)
+		r.Get("/agents/{id}", h.Agent.GetAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/agents/{id}", h.Agent.DeleteAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/dispatch", h.Agent.DispatchTask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/stop", h.Agent.StopAgentTask)
 
 		// Agent Identity (Phase 23C)
-		r.Get("/agents/{id}/inbox", h.ListAgentInbox)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/inbox", h.SendAgentMessage)
-		r.Post("/agents/{id}/inbox/{msgId}/read", h.MarkInboxRead)
-		r.Get("/agents/{id}/state", h.GetAgentState)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.UpdateAgentState)
+		r.Get("/agents/{id}/inbox", h.Agent.ListAgentInbox)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/inbox", h.Agent.SendAgentMessage)
+		r.Post("/agents/{id}/inbox/{msgId}/read", h.Agent.MarkInboxRead)
+		r.Get("/agents/{id}/state", h.Agent.GetAgentState)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.Agent.UpdateAgentState)
 
 		// Tasks (nested under projects)
-		r.Post("/projects/{id}/tasks", h.CreateTask)
-		r.Get("/projects/{id}/tasks", h.ListTasks)
+		r.Post("/projects/{id}/tasks", h.Task.CreateTask)
+		r.Get("/projects/{id}/tasks", h.Task.ListTasks)
 
 		// Active agents (Phase 23D War Room)
-		r.Get("/projects/{id}/agents/active", h.ListActiveAgents)
+		r.Get("/projects/{id}/agents/active", h.Agent.ListActiveAgents)
 
 		// Active Work (Phase 24)
-		r.Get("/projects/{id}/active-work", h.ListActiveWork)
+		r.Get("/projects/{id}/active-work", h.Task.ListActiveWork)
 
 		// Tasks (direct access)
-		r.Get("/tasks/{id}", h.GetTask)
-		r.Get("/tasks/{id}/events", h.ListTaskEvents)
-		r.Get("/tasks/{id}/runs", h.ListTaskRuns)
+		r.Get("/tasks/{id}", h.Task.GetTask)
+		r.Get("/tasks/{id}/events", h.Agent.ListTaskEvents)
+		r.Get("/tasks/{id}/runs", h.Run.ListTaskRuns)
 		r.Get("/tasks/{id}/context", h.GetContextPack)
 		r.Post("/tasks/{id}/context", h.BuildContextPack)
-		r.Post("/tasks/{id}/claim", h.ClaimTask)
+		r.Post("/tasks/{id}/claim", h.Task.ClaimTask)
 
 		// Runs
-		r.Post("/runs", h.StartRun)
-		r.Get("/runs/{id}", h.GetRun)
-		r.Post("/runs/{id}/cancel", h.CancelRun)
-		r.Get("/runs/{id}/events", h.ListRunEvents)
+		r.Post("/runs", h.Run.StartRun)
+		r.Get("/runs/{id}", h.Run.GetRun)
+		r.Post("/runs/{id}/cancel", h.Run.CancelRun)
+		r.Get("/runs/{id}/events", h.Run.ListRunEvents)
 
 		// Run Approval (Phase 31)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
@@ -182,8 +182,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/llm/discover", h.DiscoverLLMModels)
 
 		// Provider registries
-		r.Get("/providers/git", h.ListGitProviders)
-		r.Get("/providers/agent", h.ListAgentBackends)
+		r.Get("/providers/git", h.Utility.ListGitProviders)
+		r.Get("/providers/agent", h.Utility.ListAgentBackends)
 		r.Get("/providers/spec", h.ListSpecProviders)
 		r.Get("/providers/pm", h.ListPMProviders)
 
@@ -197,12 +197,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/repos/info", h.Project.FetchRepoInfo)
 
 		// Policy profiles
-		r.Get("/policies", h.ListPolicyProfiles)
-		r.Post("/policies", h.CreatePolicyProfile)
-		r.Post("/policies/allow-always", h.AllowAlwaysPolicy)
-		r.Get("/policies/{name}", h.GetPolicyProfile)
-		r.Delete("/policies/{name}", h.DeletePolicyProfile)
-		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)
+		r.Get("/policies", h.Policy.ListPolicyProfiles)
+		r.Post("/policies", h.Policy.CreatePolicyProfile)
+		r.Post("/policies/allow-always", h.Policy.AllowAlwaysPolicy)
+		r.Get("/policies/{name}", h.Policy.GetPolicyProfile)
+		r.Delete("/policies/{name}", h.Policy.DeletePolicyProfile)
+		r.Post("/policies/{name}/evaluate", h.Policy.EvaluatePolicy)
 
 		// Feature Decomposition (Meta-Agent)
 		r.Post("/projects/{id}/decompose", h.DecomposeFeature)

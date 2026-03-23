@@ -72,8 +72,28 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 	evoCfg := prompt.DefaultEvolutionConfig()
 	evoSvc := service.NewPromptEvolutionService(queue, nil, &evoCfg)
 
+	evoProjectSvc := service.NewProjectService(store, os.TempDir())
+	evoLimits := &config.Limits{
+		MaxRequestBodySize: 1 << 20,
+		MaxQueryLength:     2000,
+		MaxFiles:           50,
+		MaxFileSize:        32768,
+		MaxInputLen:        10000,
+		MaxEntries:         100,
+	}
 	handlers := &cfhttp.Handlers{
-		Projects:         service.NewProjectService(store, os.TempDir()),
+		Project: &cfhttp.ProjectHandlers{
+			Projects:  evoProjectSvc,
+			RepoMap:   repoMapSvc,
+			Retrieval: retrievalSvc,
+			Limits:    evoLimits,
+		},
+		Agent:   &cfhttp.AgentHandlers{Agents: service.NewAgentService(store, queue, bc), Limits: evoLimits},
+		Task:    &cfhttp.TaskHandlers{Tasks: service.NewTaskService(store, queue), Limits: evoLimits},
+		Run:     &cfhttp.RunHandlers{Runtime: runtimeSvc, Events: es, Limits: evoLimits},
+		Policy:  &cfhttp.PolicyHandlers{Policies: policySvc, Projects: evoProjectSvc, Limits: evoLimits},
+		Utility: &cfhttp.UtilityHandlers{},
+		Projects:         evoProjectSvc,
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient("http://localhost:4000", ""),
@@ -113,14 +133,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 		GoalDiscovery:    service.NewGoalDiscoveryService(store),
 		PromptEvolution:  evoSvc,
 		AppEnv:           os.Getenv("APP_ENV"),
-		Limits: &config.Limits{
-			MaxRequestBodySize: 1 << 20,
-			MaxQueryLength:     2000,
-			MaxFiles:           50,
-			MaxFileSize:        32768,
-			MaxInputLen:        10000,
-			MaxEntries:         100,
-		},
+		Limits:           evoLimits,
 	}
 
 	r := chi.NewRouter()

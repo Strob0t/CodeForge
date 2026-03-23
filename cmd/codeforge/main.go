@@ -752,6 +752,39 @@ func run() error {
 	slog.Info("backend health service initialized")
 
 	handlers := &cfhttp.Handlers{
+		// Domain-specific handler groups
+		Project: &cfhttp.ProjectHandlers{
+			Projects:      projectSvc,
+			RepoMap:       repoMapSvc,
+			Retrieval:     retrievalSvc,
+			Graph:         graphSvc,
+			ReviewTrigger: reviewTriggerSvc,
+			Limits:        &cfg.Limits,
+		},
+		Agent: &cfhttp.AgentHandlers{
+			Agents: agentSvc,
+			Limits: &cfg.Limits,
+		},
+		Task: &cfhttp.TaskHandlers{
+			Tasks:      taskSvc,
+			ActiveWork: activeWorkSvc,
+			Limits:     &cfg.Limits,
+		},
+		Run: &cfhttp.RunHandlers{
+			Runtime: runtimeSvc,
+			Events:  eventStore,
+			Limits:  &cfg.Limits,
+		},
+		Policy: &cfhttp.PolicyHandlers{
+			Policies: policySvc,
+			Projects: projectSvc,
+			Limits:   &cfg.Limits,
+		},
+		Utility: &cfhttp.UtilityHandlers{
+			AgentConfig:   &cfg.Agent,
+			OllamaBaseURL: cfg.Ollama.BaseURL,
+		},
+
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
 		Agents:           agentSvc,
