@@ -275,11 +275,50 @@ CodeForge/
 | 4000 | LiteLLM Proxy        | LLM Routing (OpenAI-compatible)  |
 | 5432 | PostgreSQL           | Primary Database (App + LiteLLM) |
 | 4222 | NATS                 | Message Queue (client connections)|
-| 6280 | docs-mcp-server      | Documentation Indexing           |
+| 6280 | docs-mcp-server      | MCP Endpoint (SSE/HTTP)          |
+| 6281 | docs-mcp-server      | Web Dashboard                    |
 | 8001 | playwright-mcp       | Browser Automation               |
 | 8080 | Go API               | Core Service REST/WebSocket      |
 | 8222 | NATS Monitoring      | NATS HTTP monitoring dashboard   |
 | 3001 | MCP Server           | MCP Streamable HTTP (when enabled)|
+
+### docs-mcp-server (Documentation Grounding)
+
+Provides AI agents with up-to-date library documentation via MCP tools.
+
+**Start:**
+
+```bash
+docker compose up -d docs-mcp
+```
+
+**Web Dashboard:** http://localhost:6281 (manage indexed libraries)
+
+**MCP Endpoint:** http://localhost:6280/sse (for MCP client configuration)
+
+**Index documentation (via Web UI or CLI):**
+
+```bash
+# Example: Index SolidJS docs
+docker exec codeforge-docs-mcp npx docs-mcp-server scrape solidjs https://docs.solidjs.com
+
+# Example: Index FastAPI docs
+docker exec codeforge-docs-mcp npx docs-mcp-server scrape fastapi https://fastapi.tiangolo.com
+```
+
+**Assign to project:**
+
+1. Go to Settings > MCP Servers > register docs-mcp-server (type: SSE, URL: http://docs-mcp:6280/sse)
+2. Open project > Settings (gear icon) > check "docs-mcp-server"
+3. Agent now has `search_docs`, `scrape_docs`, `list_libraries` tools
+
+**Embeddings:** Uses Ollama by default (no API key needed). Requires `nomic-embed-text` model:
+
+```bash
+ollama pull nomic-embed-text
+```
+
+**Ports:** 6280 (MCP), 6281 (Web UI)
 
 ### Playwright MCP Container
 
