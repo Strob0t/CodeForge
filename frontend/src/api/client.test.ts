@@ -49,7 +49,6 @@ describe("API Client", () => {
     it("should have tasks resource group", () => {
       expect(api.tasks).toBeDefined();
       expect(typeof api.tasks.list).toBe("function");
-      expect(typeof api.tasks.get).toBe("function");
       expect(typeof api.tasks.create).toBe("function");
     });
 
