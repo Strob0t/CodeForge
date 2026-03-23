@@ -15,6 +15,8 @@ from codeforge.models import ConversationRunCompleteMessage, ConversationRunStar
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
+    import pathlib
+
     import nats.aio.msg
 
     from codeforge.models import AgentLoopResult
@@ -66,6 +68,61 @@ def _load_step_by_step_prompt() -> str:
         logger.warning("failed to load step_by_step.yaml", error=str(exc))
         _STEP_BY_STEP_CACHE = ""
     return _STEP_BY_STEP_CACHE
+
+
+# Map framework keywords to built-in skill filenames and dependency markers.
+_FRAMEWORK_SKILL_MAP: dict[str, dict[str, str | list[str]]] = {
+    "solidjs": {
+        "file": "solidjs-patterns.yaml",
+        "markers": ["solid-js", "vite-plugin-solid"],
+    },
+    "react": {
+        "file": "react-patterns.yaml",
+        "markers": ["react", "react-dom"],
+    },
+    "fastapi": {
+        "file": "fastapi-patterns.yaml",
+        "markers": ["fastapi"],
+    },
+    "django": {
+        "file": "django-patterns.yaml",
+        "markers": ["django"],
+    },
+    "express": {
+        "file": "express-patterns.yaml",
+        "markers": ["express"],
+    },
+}
+
+
+def _read_workspace_deps(workspace: pathlib.Path) -> str:
+    """Read dependency file contents from a workspace for framework detection."""
+    import contextlib
+
+    detected = ""
+    for dep_file in ("package.json", "requirements.txt", "pyproject.toml", "go.mod"):
+        dep_path = workspace / dep_file
+        if dep_path.exists():
+            with contextlib.suppress(OSError):
+                detected += dep_path.read_text(errors="replace").lower()
+    return detected
+
+
+def _load_framework_skill(
+    skill_path: pathlib.Path,
+    log: structlog.stdlib.BoundLogger,
+) -> str:
+    """Load content from a framework skill YAML file. Returns empty string on failure."""
+    if not skill_path.exists():
+        return ""
+    try:
+        import yaml
+
+        data = yaml.safe_load(skill_path.read_text())
+        return data.get("content", "") if isinstance(data, dict) else ""
+    except Exception as exc:
+        log.warning("failed to load framework skill", path=str(skill_path), error=str(exc))
+        return ""
 
 
 class ConversationHandlerMixin:
@@ -550,6 +607,13 @@ class ConversationHandlerMixin:
             log,
         )
 
+        # Inject framework-specific skills based on workspace stack detection.
+        system_prompt = self._inject_framework_skills(
+            system_prompt,
+            run_msg.workspace_path,
+            log,
+        )
+
         # Inject adaptive tool-usage guide for weaker models.
         prompt = self._inject_tool_guide(system_prompt, registry, run_msg.model, log)
         return prompt, loaded_skills
@@ -654,6 +718,44 @@ class ConversationHandlerMixin:
         except Exception as exc:
             log.warning("skill injection failed, continuing without", exc_info=True, error=str(exc))
         return system_prompt, all_skills
+
+    @staticmethod
+    def _inject_framework_skills(
+        system_prompt: str,
+        workspace_path: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> str:
+        """Inject built-in framework skills matching the detected workspace stack.
+
+        Scans the workspace for framework markers (package.json, requirements.txt,
+        etc.) and appends matching built-in skill YAML content to the system prompt.
+        """
+        if not workspace_path:
+            return system_prompt
+
+        from pathlib import Path
+
+        builtins_dir = Path(__file__).resolve().parent.parent / "skills" / "builtins"
+        if not builtins_dir.exists():
+            return system_prompt
+
+        detected_deps = _read_workspace_deps(Path(workspace_path))
+        if not detected_deps:
+            return system_prompt
+
+        injected: list[str] = []
+        for framework, info in _FRAMEWORK_SKILL_MAP.items():
+            markers = info["markers"]
+            if not any(m in detected_deps for m in markers):
+                continue
+            content = _load_framework_skill(builtins_dir / info["file"], log)
+            if content:
+                system_prompt += f'\n\n<framework-guide name="{framework}">\n{content}\n</framework-guide>'
+                injected.append(framework)
+
+        if injected:
+            log.info("framework skills injected", frameworks=injected)
+        return system_prompt
 
     @staticmethod
     def _inject_tool_guide(
