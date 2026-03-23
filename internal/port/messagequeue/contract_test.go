@@ -438,6 +438,26 @@ func sampleA2ATaskCompletePayload() mq.A2ATaskCompletePayload {
 	}
 }
 
+func sampleConversationCompactCompletePayload() mq.ConversationCompactCompletePayload {
+	return mq.ConversationCompactCompletePayload{
+		ConversationID: "550e8400-e29b-41d4-a716-446655440002",
+		TenantID:       "550e8400-e29b-41d4-a716-446655440006",
+		Summary:        "The conversation covered LRU cache design decisions and error handling patterns.",
+		OriginalCount:  42,
+		Status:         "completed",
+	}
+}
+
+func sampleReviewTriggerCompletePayload() mq.ReviewTriggerCompletePayload {
+	return mq.ReviewTriggerCompletePayload{
+		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
+		CommitSHA: "abcdef1234567890abcdef1234567890",
+		Status:    "dispatched",
+		RunID:     "550e8400-e29b-41d4-a716-446655440025",
+	}
+}
+
 // FIX-086: Additional sample factories for previously uncovered subjects.
 // The remaining subjects (tasks.*, runs.*, mcp.*, memory.*, handoff.*)
 // still need coverage — tracked in a follow-up TODO below.
@@ -551,7 +571,7 @@ func sampleContextRerankResultPayload() mq.ContextRerankResultPayload {
 //  - runs.complete / runs.cancel / runs.output / runs.heartbeat
 //  - runs.qualitygate.request / runs.qualitygate.result
 //  - context.shared.updated
-//  - conversation.run.cancel / conversation.compact.request / conversation.compact.complete
+//  - conversation.run.cancel / conversation.compact.request
 //  - mcp.server.status / mcp.tools.discovered
 //  - memory.store / memory.recall / memory.recall.result
 //  - handoff.request
@@ -571,6 +591,7 @@ func allFixtures() []fixtureEntry {
 	return []fixtureEntry{
 		{mq.SubjectConversationRunStart, sampleConversationRunStartPayload()},
 		{mq.SubjectConversationRunComplete, sampleConversationRunCompletePayload()},
+		{mq.SubjectConversationCompactComplete, sampleConversationCompactCompletePayload()},
 		{mq.SubjectBenchmarkRunRequest, sampleBenchmarkRunRequestPayload()},
 		{mq.SubjectBenchmarkRunResult, sampleBenchmarkRunResultPayload()},
 		{mq.SubjectBenchmarkTaskStarted, sampleBenchmarkTaskStartedPayload()},
@@ -593,6 +614,7 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectA2ATaskComplete, sampleA2ATaskCompletePayload()},
 		// FIX-086: Review/Refactor subjects (Phase 31)
 		{mq.SubjectReviewTriggerRequest, sampleReviewTriggerRequestPayload()},
+		{mq.SubjectReviewTriggerComplete, sampleReviewTriggerCompletePayload()},
 		{mq.SubjectReviewBoundaryAnalyzed, sampleReviewBoundaryAnalyzedPayload()},
 		{mq.SubjectReviewApprovalRequired, sampleReviewApprovalRequiredPayload()},
 		{mq.SubjectReviewApprovalResponse, sampleReviewApprovalResponsePayload()},
@@ -662,30 +684,32 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 
 	// Common field expectations per subject.
 	expectedKeys := map[string][]string{
-		mq.SubjectConversationRunStart:    {"run_id", "conversation_id", "project_id", "messages", "model", "agentic"},
-		mq.SubjectConversationRunComplete: {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model"},
-		mq.SubjectBenchmarkRunRequest:     {"run_id", "dataset_path", "model"},
-		mq.SubjectBenchmarkRunResult:      {"run_id", "status", "results", "summary"},
-		mq.SubjectBenchmarkTaskStarted:    {"run_id", "task_id", "task_name", "index", "total"},
-		mq.SubjectBenchmarkTaskProgress:   {"run_id", "task_id", "completed_tasks", "total_tasks"},
-		mq.SubjectEvalGemmasRequest:       {"plan_id", "messages"},
-		mq.SubjectEvalGemmasResult:        {"plan_id", "information_diversity_score", "unnecessary_path_ratio"},
-		mq.SubjectRepoMapRequest:          {"project_id", "workspace_path", "token_budget"},
-		mq.SubjectRepoMapResult:           {"project_id", "map_text", "token_count", "file_count"},
-		mq.SubjectRetrievalIndexRequest:   {"project_id", "workspace_path", "embedding_model"},
-		mq.SubjectRetrievalIndexResult:    {"project_id", "status", "file_count", "chunk_count"},
-		mq.SubjectRetrievalSearchRequest:  {"project_id", "query", "request_id", "top_k"},
-		mq.SubjectRetrievalSearchResult:   {"project_id", "query", "request_id", "results"},
-		mq.SubjectSubAgentSearchRequest:   {"project_id", "query", "request_id", "model"},
-		mq.SubjectSubAgentSearchResult:    {"project_id", "query", "request_id", "results", "expanded_queries"},
-		mq.SubjectGraphBuildRequest:       {"project_id", "workspace_path"},
-		mq.SubjectGraphBuildResult:        {"project_id", "status", "node_count", "edge_count"},
-		mq.SubjectGraphSearchRequest:      {"project_id", "request_id", "seed_symbols", "max_hops"},
-		mq.SubjectGraphSearchResult:       {"project_id", "request_id", "results"},
-		mq.SubjectA2ATaskCreated:          {"task_id", "tenant_id", "skill_id", "prompt"},
-		mq.SubjectA2ATaskComplete:         {"task_id", "state"},
+		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic"},
+		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model"},
+		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
+		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model"},
+		mq.SubjectBenchmarkRunResult:          {"run_id", "status", "results", "summary"},
+		mq.SubjectBenchmarkTaskStarted:        {"run_id", "task_id", "task_name", "index", "total"},
+		mq.SubjectBenchmarkTaskProgress:       {"run_id", "task_id", "completed_tasks", "total_tasks"},
+		mq.SubjectEvalGemmasRequest:           {"plan_id", "messages"},
+		mq.SubjectEvalGemmasResult:            {"plan_id", "information_diversity_score", "unnecessary_path_ratio"},
+		mq.SubjectRepoMapRequest:              {"project_id", "workspace_path", "token_budget"},
+		mq.SubjectRepoMapResult:               {"project_id", "map_text", "token_count", "file_count"},
+		mq.SubjectRetrievalIndexRequest:       {"project_id", "workspace_path", "embedding_model"},
+		mq.SubjectRetrievalIndexResult:        {"project_id", "status", "file_count", "chunk_count"},
+		mq.SubjectRetrievalSearchRequest:      {"project_id", "query", "request_id", "top_k"},
+		mq.SubjectRetrievalSearchResult:       {"project_id", "query", "request_id", "results"},
+		mq.SubjectSubAgentSearchRequest:       {"project_id", "query", "request_id", "model"},
+		mq.SubjectSubAgentSearchResult:        {"project_id", "query", "request_id", "results", "expanded_queries"},
+		mq.SubjectGraphBuildRequest:           {"project_id", "workspace_path"},
+		mq.SubjectGraphBuildResult:            {"project_id", "status", "node_count", "edge_count"},
+		mq.SubjectGraphSearchRequest:          {"project_id", "request_id", "seed_symbols", "max_hops"},
+		mq.SubjectGraphSearchResult:           {"project_id", "request_id", "results"},
+		mq.SubjectA2ATaskCreated:              {"task_id", "tenant_id", "skill_id", "prompt"},
+		mq.SubjectA2ATaskComplete:             {"task_id", "state"},
 		// FIX-086: Review/Refactor subjects
 		mq.SubjectReviewTriggerRequest:   {"project_id", "tenant_id", "commit_sha", "source"},
+		mq.SubjectReviewTriggerComplete:  {"project_id", "tenant_id", "commit_sha", "status", "run_id"},
 		mq.SubjectReviewBoundaryAnalyzed: {"project_id", "tenant_id", "boundaries"},
 		mq.SubjectReviewApprovalRequired: {"run_id", "project_id", "tenant_id", "impact_level"},
 		mq.SubjectReviewApprovalResponse: {"run_id", "decision"},

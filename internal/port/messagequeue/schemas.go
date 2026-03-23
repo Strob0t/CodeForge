@@ -468,6 +468,16 @@ type ConversationRunCompletePayload struct {
 	Model            string                       `json:"model"`
 }
 
+// ConversationCompactCompletePayload is the schema for conversation.compact.complete messages.
+// Python publishes this after summarising a conversation's history.
+type ConversationCompactCompletePayload struct {
+	ConversationID string `json:"conversation_id"`
+	TenantID       string `json:"tenant_id"`
+	Summary        string `json:"summary"`
+	OriginalCount  int    `json:"original_count"`
+	Status         string `json:"status"`
+}
+
 // --- GEMMAS Evaluation payloads (Phase 20G) ---
 
 // GemmasAgentMessagePayload represents a single agent message for GEMMAS evaluation.
@@ -591,6 +601,16 @@ type ReviewTriggerRequestPayload struct {
 	TenantID  string `json:"tenant_id"`
 	CommitSHA string `json:"commit_sha"`
 	Source    string `json:"source"`
+}
+
+// ReviewTriggerCompletePayload is the schema for review.trigger.complete messages.
+// Python publishes this after a review trigger has been processed.
+type ReviewTriggerCompletePayload struct {
+	ProjectID string `json:"project_id"`
+	TenantID  string `json:"tenant_id"`
+	CommitSHA string `json:"commit_sha"`
+	Status    string `json:"status"`
+	RunID     string `json:"run_id"`
 }
 
 // ReviewBoundaryEntry describes a single detected layer boundary.
