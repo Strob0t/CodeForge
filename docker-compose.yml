@@ -64,6 +64,16 @@ services:
     container_name: codeforge-postgres
     restart: unless-stopped
     logging: *default-logging
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       - "5432:5432"
     environment:
@@ -99,6 +109,10 @@ services:
     container_name: codeforge-nats
     restart: unless-stopped
     logging: *default-logging
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       - "4222:4222"
       - "8222:8222"
@@ -122,6 +136,10 @@ services:
     container_name: codeforge-docs-mcp
     restart: unless-stopped
     logging: *default-logging
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       - "6280:6280"
       - "6281:6281"
@@ -153,6 +171,10 @@ services:
     container_name: codeforge-litellm
     restart: unless-stopped
     logging: *default-logging
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     ports:
       - "4000:4000"
     environment:
