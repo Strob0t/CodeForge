@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,9 +27,8 @@ type skillRejection struct {
 // ImportSkill handles POST /api/v1/skills/import.
 // Fetches content from a URL, checks for injection, and creates the skill.
 func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
-	var req importSkillRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	req, ok := readJSON[importSkillRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
 		return
 	}
 	if req.SourceURL == "" {

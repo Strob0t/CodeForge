@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -83,6 +84,18 @@ func sanitizeName(name string) error {
 		return errors.New("name contains invalid path characters")
 	}
 	return nil
+}
+
+// readBody reads the request body with a size limit. Returns nil if the body
+// exceeds maxBytes (and writes a 413 response).
+func readBody(w http.ResponseWriter, r *http.Request, maxBytes int64) []byte {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return nil
+	}
+	return body
 }
 
 // ---------------------------------------------------------------------------
