@@ -49,8 +49,6 @@ export function createCostsResource(c: CoreClient) {
       c.get<Run[]>(url`/projects/${id}/costs/runs?limit=${limit}`),
 
     byTool: (id: string) => c.get<ToolCostSummary[]>(url`/projects/${id}/costs/by-tool`),
-
-    byToolForRun: (runId: string) => c.get<ToolCostSummary[]>(url`/runs/${runId}/costs/by-tool`),
   };
 }
 

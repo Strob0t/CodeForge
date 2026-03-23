@@ -267,7 +267,6 @@ describe("API Resources index", () => {
     expect(typeof mod.createModesResource).toBe("function");
     expect(typeof mod.createPoliciesResource).toBe("function");
     expect(typeof mod.createUsersResource).toBe("function");
-    expect(typeof mod.createReviewsResource).toBe("function");
     expect(typeof mod.createScopesResource).toBe("function");
     expect(typeof mod.createKnowledgeBasesResource).toBe("function");
     expect(typeof mod.createPromptSectionsResource).toBe("function");

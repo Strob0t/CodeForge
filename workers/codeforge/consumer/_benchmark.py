@@ -640,6 +640,8 @@ _DIMENSION_TO_METRIC: dict[str, str] = {
     "logprob_verification": "logprob_verifier",
     # FunctionalTestEvaluator -> identity (already matches)
     "functional_test": "functional_test",
+    # FilesystemStateEvaluator -> identity
+    "filesystem_state": "filesystem_state",
 }
 
 
@@ -840,13 +842,17 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
             from codeforge.evaluation.evaluators.logprob_verifier import LogprobVerifierEvaluator
 
             evaluators.append(LogprobVerifierEvaluator(model=model))
+        elif name == "filesystem_state":
+            from codeforge.evaluation.evaluators.filesystem_state import FilesystemStateEvaluator
+
+            evaluators.append(FilesystemStateEvaluator())
         elif name in llm_judge_metrics:
             collected_llm_metrics.append(name)
         else:
             valid_names = (
                 "llm_judge, functional_test, sparc, trajectory_verifier, "
-                "logprob_verifier, correctness, faithfulness, relevance, coherence, fluency, "
-                "tool_correctness, answer_relevancy, contextual_precision"
+                "logprob_verifier, filesystem_state, correctness, faithfulness, relevance, "
+                "coherence, fluency, tool_correctness, answer_relevancy, contextual_precision"
             )
             raise ValueError(f"unknown evaluator/metric: {name!r}. Valid: {valid_names}")
 

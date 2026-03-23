@@ -19,16 +19,11 @@ import type {
   GraphSearchResult,
   GraphStatus,
   HealthStatus,
-  LSPDiagnostic,
-  LSPDocumentSymbol,
-  LSPHoverResult,
-  LSPLocation,
   LSPServerInfo,
   MCPServer,
   MCPServerTool,
   MCPTestResult,
   ModelUsage,
-  PlanFeatureRequest,
   PlanGraph,
   ProjectCostBar,
   ProjectGoal,
@@ -87,7 +82,6 @@ export function createRunsResource(c: CoreClient) {
 export function createSessionsResource(c: CoreClient) {
   return {
     list: (projectId: string) => c.get<Session[]>(url`/projects/${projectId}/sessions`),
-    get: (id: string) => c.get<Session>(url`/sessions/${id}`),
   };
 }
 
@@ -95,8 +89,6 @@ export function createPlansResource(c: CoreClient) {
   return {
     decompose: (projectId: string, data: DecomposeRequest) =>
       c.post<ExecutionPlan>(url`/projects/${projectId}/decompose`, data),
-    planFeature: (projectId: string, data: PlanFeatureRequest) =>
-      c.post<ExecutionPlan>(url`/projects/${projectId}/plan-feature`, data),
     list: (projectId: string) => c.get<ExecutionPlan[]>(url`/projects/${projectId}/plans`),
     get: (id: string) => c.get<ExecutionPlan>(url`/plans/${id}`),
     create: (projectId: string, data: CreatePlanRequest) =>
@@ -226,30 +218,6 @@ export function createLSPResource(c: CoreClient) {
       c.post<{ status: string }>(url`/projects/${projectId}/lsp/start`, { languages }),
     stop: (projectId: string) => c.post<{ status: string }>(url`/projects/${projectId}/lsp/stop`),
     status: (projectId: string) => c.get<LSPServerInfo[]>(url`/projects/${projectId}/lsp/status`),
-    diagnostics: (projectId: string, uri?: string) =>
-      c.get<LSPDiagnostic[]>(
-        `/projects/${encodeURIComponent(projectId)}/lsp/diagnostics${uri ? `?uri=${encodeURIComponent(uri)}` : ""}`,
-      ),
-    definition: (projectId: string, uri: string, line: number, character: number) =>
-      c.post<LSPLocation[]>(url`/projects/${projectId}/lsp/definition`, {
-        uri,
-        line,
-        character,
-      }),
-    references: (projectId: string, uri: string, line: number, character: number) =>
-      c.post<LSPLocation[]>(url`/projects/${projectId}/lsp/references`, {
-        uri,
-        line,
-        character,
-      }),
-    symbols: (projectId: string, uri: string) =>
-      c.post<LSPDocumentSymbol[]>(url`/projects/${projectId}/lsp/symbols`, { uri }),
-    hover: (projectId: string, uri: string, line: number, character: number) =>
-      c.post<LSPHoverResult>(url`/projects/${projectId}/lsp/hover`, {
-        uri,
-        line,
-        character,
-      }),
   };
 }
 
@@ -297,7 +265,6 @@ export function createGoalsResource(c: CoreClient) {
       c.post<ProjectGoal>(url`/projects/${projectId}/goals`, data),
     detect: (projectId: string) =>
       c.post<GoalDiscoveryResult>(url`/projects/${projectId}/goals/detect`),
-    get: (id: string) => c.get<ProjectGoal>(url`/goals/${id}`),
     update: (id: string, data: UpdateGoalRequest) => c.put<ProjectGoal>(url`/goals/${id}`, data),
     delete: (id: string) => c.del<undefined>(url`/goals/${id}`),
     aiDiscover: (projectId: string) =>
