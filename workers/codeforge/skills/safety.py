@@ -68,6 +68,6 @@ async def check_skill_safety(content: str, llm_client: LiteLLMClient) -> SafetyR
             safe=bool(data.get("safe", True)),
             risks=list(data.get("risks", [])),
         )
-    except Exception:
-        logger.warning("Skill safety check failed, treating as safe (fail-open)", exc_info=True)
+    except Exception as exc:
+        logger.warning("Skill safety check failed, treating as safe (fail-open)", exc_info=True, error=str(exc))
         return SafetyResult(safe=True)

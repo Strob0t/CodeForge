@@ -330,8 +330,8 @@ class BenchmarkHandlerMixin:
             if router is not None:
                 log.info("auto-routing enabled for benchmark run")
                 return _RoutingLLMWrapper(self._llm, router)
-        except Exception:
-            log.warning("HybridRouter initialization failed", exc_info=True)
+        except Exception as exc:
+            log.warning("HybridRouter initialization failed", exc_info=True, error=str(exc))
 
         raise ValueError(
             "model='auto' requires intelligent routing, but routing is not enabled. "
@@ -753,8 +753,8 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         ).encode()
         try:
             await js.publish(SUBJECT_BENCHMARK_TASK_STARTED, payload)
-        except Exception:
-            logger.debug("failed to publish benchmark.task.started", exc_info=True)
+        except Exception as exc:
+            logger.debug("failed to publish benchmark.task.started", exc_info=True, error=str(exc))
 
     async def on_task_complete(task: object, result: object, index: int, total: int) -> None:
         nonlocal accumulated_cost
@@ -795,8 +795,8 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         ).encode()
         try:
             await js.publish(SUBJECT_BENCHMARK_TASK_PROGRESS, payload)
-        except Exception:
-            logger.debug("failed to publish benchmark.task.progress", exc_info=True)
+        except Exception as exc:
+            logger.debug("failed to publish benchmark.task.progress", exc_info=True, error=str(exc))
 
     return on_task_start, on_task_complete
 

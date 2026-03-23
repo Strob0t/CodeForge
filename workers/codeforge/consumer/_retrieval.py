@@ -92,9 +92,10 @@ class RetrievalHandlerMixin:
                 bm25_weight=request.bm25_weight,
                 semantic_weight=request.semantic_weight,
             )
-        except Exception:
+        except Exception as exc:
             # Publish error result so the Go waiter gets a response, then re-raise
             # so _handle_request performs the nak.
+            logger.error("retrieval search failed", error=str(exc))
             await self._publish_error(
                 RetrievalSearchResult(
                     project_id=request.project_id,
@@ -147,9 +148,10 @@ class RetrievalHandlerMixin:
                 rerank=request.rerank,
                 expansion_prompt=request.expansion_prompt,
             )
-        except Exception:
+        except Exception as exc:
             # Publish error result so the Go waiter gets a response, then re-raise
             # so _handle_request performs the nak.
+            logger.error("subagent search failed", error=str(exc))
             await self._publish_error(
                 SubAgentSearchResult(
                     project_id=request.project_id,

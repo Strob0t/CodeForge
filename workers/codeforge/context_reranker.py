@@ -77,8 +77,8 @@ class ContextReranker:
                 temperature=0.0,
                 tags=["background"],
             )
-        except Exception:
-            logger.warning("context rerank LLM call failed, using original order", exc_info=True)
+        except Exception as exc:
+            logger.warning("context rerank LLM call failed, using original order", exc_info=True, error=str(exc))
             return RerankResult(entries=list(entries), fallback_used=True)
 
         # Parse ranking
