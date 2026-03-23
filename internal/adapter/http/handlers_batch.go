@@ -83,7 +83,7 @@ func (h *Handlers) BatchStatusProjects(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			status, err := h.Projects.Status(r.Context(), projID)
 			if err != nil {
-				results[idx] = batchStatusResultItem{ID: projID, OK: false, Error: err.Error()}
+				results[idx] = batchStatusResultItem{ID: projID, OK: false, Error: "status check failed"}
 				return
 			}
 			results[idx] = batchStatusResultItem{ID: projID, OK: true, Status: status}
@@ -119,7 +119,7 @@ func (h *Handlers) runBatch(r *http.Request, ids []string, op func(ctx context.C
 		go func(idx int, projID string) {
 			defer wg.Done()
 			if err := op(r.Context(), projID); err != nil {
-				results[idx] = batchResultItem{ID: projID, OK: false, Error: err.Error()}
+				results[idx] = batchResultItem{ID: projID, OK: false, Error: "operation failed"}
 				return
 			}
 			results[idx] = batchResultItem{ID: projID, OK: true}

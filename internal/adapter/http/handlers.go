@@ -215,7 +215,7 @@ func (h *Handlers) ParseRepoURL(w http.ResponseWriter, r *http.Request) {
 	}
 	parsed, err := project.ParseRepoURL(req.URL)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "invalid repository URL")
 		return
 	}
 	writeJSON(w, http.StatusOK, parsed)

@@ -39,7 +39,7 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 	// Fetch content from URL.
 	content, contentType, err := fetchURL(r.Context(), req.SourceURL)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("failed to fetch URL: %v", err))
+		writeInternalError(w, fmt.Errorf("fetch skill URL: %w", err))
 		return
 	}
 
@@ -70,7 +70,7 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 
 	sk, err := h.Skills.Create(r.Context(), &createReq)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeDomainError(w, err, "create skill failed")
 		return
 	}
 

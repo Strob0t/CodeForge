@@ -45,7 +45,7 @@ func (h *Handlers) GitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	account, err := h.GitHubOAuth.HandleCallback(r.Context(), code, state)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeDomainError(w, err, "GitHub OAuth callback failed")
 		return
 	}
 

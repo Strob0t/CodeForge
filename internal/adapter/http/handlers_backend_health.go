@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -19,7 +20,7 @@ func (h *Handlers) CheckBackendHealth(w http.ResponseWriter, r *http.Request) {
 
 	backends, err := h.BackendHealth.CheckHealth(ctx)
 	if err != nil {
-		writeError(w, http.StatusGatewayTimeout, "backend health check failed: "+err.Error())
+		writeInternalError(w, fmt.Errorf("backend health check: %w", err))
 		return
 	}
 
