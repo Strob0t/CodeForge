@@ -4,18 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
 
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -23,708 +16,166 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
-// BenchmarkService manages benchmark runs and results.
-// TODO: decompose into smaller services (RunManager, ResultAggregator, DatasetResolver)
-// to reduce file size (currently 1000+ LOC) and improve testability.
+// BenchmarkService is a thin orchestrator that composes focused sub-services
+// for suites, runs, results, and watchdog. It owns the NATS message handlers
+// and WebSocket broadcast logic that span multiple sub-services.
 type BenchmarkService struct {
-	store       database.Store
-	datasetsDir string
-	routingSvc  *RoutingService
-	queue       messagequeue.Queue
-	hub         broadcast.Broadcaster
+	Suites   *BenchmarkSuiteService
+	Runs     *BenchmarkRunManager
+	Results  *BenchmarkResultAggregator
+	Watchdog *BenchmarkWatchdog
+
+	store database.Store
+	queue messagequeue.Queue
+	hub   broadcast.Broadcaster
 }
 
-// NewBenchmarkService creates a benchmark service.
-func NewBenchmarkService(store database.Store, datasetsDir string) *BenchmarkService {
-	return &BenchmarkService{store: store, datasetsDir: datasetsDir}
-}
-
-// defaultSuites defines built-in benchmark suites seeded on startup.
-var defaultSuites = []benchmark.CreateSuiteRequest{
-	{Name: "Basic Coding", Type: benchmark.TypeSimple, ProviderName: "codeforge_simple"},
-	{Name: "Agent Coding", Type: benchmark.TypeAgent, ProviderName: "codeforge_agent"},
-	{Name: "Tool Use Basic", Type: benchmark.TypeToolUse, ProviderName: "codeforge_tool_use"},
-	{Name: "HumanEval", Type: benchmark.TypeSimple, ProviderName: "humaneval"},
-	{Name: "MBPP", Type: benchmark.TypeSimple, ProviderName: "mbpp"},
-	{Name: "SWE-bench", Type: benchmark.TypeAgent, ProviderName: "swebench"},
-	{Name: "BigCodeBench", Type: benchmark.TypeSimple, ProviderName: "bigcodebench"},
-	{Name: "CRUXEval", Type: benchmark.TypeSimple, ProviderName: "cruxeval"},
-	{Name: "LiveCodeBench", Type: benchmark.TypeSimple, ProviderName: "livecodebench"},
-	{Name: "SPARCBench", Type: benchmark.TypeAgent, ProviderName: "sparcbench"},
-	{Name: "Aider Polyglot", Type: benchmark.TypeAgent, ProviderName: "aider_polyglot"},
-	{Name: "DPAI Arena", Type: benchmark.TypeSimple, ProviderName: "dpai_arena"},
-	{Name: "Terminal-Bench", Type: benchmark.TypeAgent, ProviderName: "terminal_bench"},
-}
-
-// SeedDefaultSuites creates built-in benchmark suites if they don't exist.
-func (s *BenchmarkService) SeedDefaultSuites(ctx context.Context) {
-	existing, err := s.store.ListBenchmarkSuites(ctx)
-	if err != nil {
-		slog.Warn("failed to list suites for seeding", "error", err)
-		return
-	}
-	seen := make(map[string]bool, len(existing))
-	for i := range existing {
-		seen[existing[i].ProviderName] = true
-	}
-	for i := range defaultSuites {
-		def := defaultSuites[i]
-		if seen[def.ProviderName] {
-			continue
-		}
-		if _, err := s.RegisterSuite(ctx, &def); err != nil {
-			slog.Warn("failed to seed benchmark suite", "name", def.Name, "error", err)
-		} else {
-			slog.Info("seeded benchmark suite", "name", def.Name, "provider", def.ProviderName)
-		}
+// NewBenchmarkService creates a benchmark orchestrator composing the given sub-services.
+func NewBenchmarkService(
+	suites *BenchmarkSuiteService,
+	runs *BenchmarkRunManager,
+	results *BenchmarkResultAggregator,
+	watchdog *BenchmarkWatchdog,
+) *BenchmarkService {
+	return &BenchmarkService{
+		Suites:   suites,
+		Runs:     runs,
+		Results:  results,
+		Watchdog: watchdog,
+		store:    suites.store, // shared store reference for NATS handlers
 	}
 }
 
-// SetRoutingService sets the routing service for benchmark → routing integration.
-func (s *BenchmarkService) SetRoutingService(routingSvc *RoutingService) {
-	s.routingSvc = routingSvc
+// SetQueue sets the NATS queue for publishing benchmark requests and subscribing to results.
+func (s *BenchmarkService) SetQueue(q messagequeue.Queue) {
+	s.queue = q
+	s.Runs.SetQueue(q)
 }
-
-// SetQueue sets the NATS queue for publishing benchmark requests.
-func (s *BenchmarkService) SetQueue(q messagequeue.Queue) { s.queue = q }
 
 // SetHub sets the WebSocket hub for broadcasting benchmark progress events.
 func (s *BenchmarkService) SetHub(hub broadcast.Broadcaster) { s.hub = hub }
 
-// RegisterSuite validates and persists a new benchmark suite.
-// If Type is empty, it is auto-derived from ProviderName.
+// SetRoutingService sets the routing service for benchmark -> routing integration.
+func (s *BenchmarkService) SetRoutingService(routingSvc *RoutingService) {
+	s.Runs.SetRoutingService(routingSvc)
+}
+
+// --- Delegation methods (preserve existing API for handlers) ---
+
+// SeedDefaultSuites delegates to BenchmarkSuiteService.
+func (s *BenchmarkService) SeedDefaultSuites(ctx context.Context) { s.Suites.SeedDefaultSuites(ctx) }
+
+// RegisterSuite delegates to BenchmarkSuiteService.
 func (s *BenchmarkService) RegisterSuite(ctx context.Context, req *benchmark.CreateSuiteRequest) (*benchmark.Suite, error) {
-	if req.Type == "" {
-		req.Type = benchmark.ProviderDefaultType(req.ProviderName)
-	}
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-	suite := &benchmark.Suite{
-		ID:           uuid.New().String(),
-		Name:         req.Name,
-		Description:  req.Description,
-		Type:         req.Type,
-		ProviderName: req.ProviderName,
-		Config:       req.Config,
-		CreatedAt:    time.Now().UTC(),
-	}
-	if err := s.store.CreateBenchmarkSuite(ctx, suite); err != nil {
-		return nil, err
-	}
-	return suite, nil
+	return s.Suites.RegisterSuite(ctx, req)
 }
 
-// GetSuite retrieves a benchmark suite by ID.
+// GetSuite delegates to BenchmarkSuiteService.
 func (s *BenchmarkService) GetSuite(ctx context.Context, id string) (*benchmark.Suite, error) {
-	return s.store.GetBenchmarkSuite(ctx, id)
+	return s.Suites.GetSuite(ctx, id)
 }
 
-// ListSuites returns all registered benchmark suites.
+// ListSuites delegates to BenchmarkSuiteService.
 func (s *BenchmarkService) ListSuites(ctx context.Context) ([]benchmark.Suite, error) {
-	return s.store.ListBenchmarkSuites(ctx)
+	return s.Suites.ListSuites(ctx)
 }
 
-// UpdateSuite updates an existing benchmark suite.
+// UpdateSuite delegates to BenchmarkSuiteService.
 func (s *BenchmarkService) UpdateSuite(ctx context.Context, suite *benchmark.Suite) error {
-	return s.store.UpdateBenchmarkSuite(ctx, suite)
+	return s.Suites.UpdateSuite(ctx, suite)
 }
 
-// DeleteSuite removes a benchmark suite by ID.
+// DeleteSuite delegates to BenchmarkSuiteService.
 func (s *BenchmarkService) DeleteSuite(ctx context.Context, id string) error {
-	return s.store.DeleteBenchmarkSuite(ctx, id)
+	return s.Suites.DeleteSuite(ctx, id)
 }
 
-// CreateRun validates and persists a new benchmark run.
-func (s *BenchmarkService) CreateRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-	rolloutCount := req.RolloutCount
-	if rolloutCount < 1 {
-		rolloutCount = 1
-	}
-	rolloutStrategy := req.RolloutStrategy
-	if rolloutStrategy == "" {
-		rolloutStrategy = "best"
-	}
-	r := &benchmark.Run{
-		ID:                 uuid.New().String(),
-		Dataset:            req.Dataset,
-		Model:              req.Model,
-		Metrics:            req.Metrics,
-		Status:             benchmark.StatusRunning,
-		SuiteID:            req.SuiteID,
-		BenchmarkType:      req.BenchmarkType,
-		ExecMode:           req.ExecMode,
-		HybridVerification: req.HybridVerification,
-		RolloutCount:       rolloutCount,
-		RolloutStrategy:    rolloutStrategy,
-		CreatedAt:          time.Now().UTC(),
-	}
-	if err := s.store.CreateBenchmarkRun(ctx, r); err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
-// StartRun creates a benchmark run in the database and publishes it to NATS
-// for Python worker execution. Falls back to CreateRun (DB-only) if queue is nil.
-func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
-	run, err := s.CreateRun(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	if s.queue == nil {
-		slog.Warn("benchmark NATS queue not configured, run will stay in running state", "run_id", run.ID)
-		return run, nil
-	}
-
-	// Resolve dataset name to absolute file path (e.g. "basic-coding" → "/workspaces/.../configs/benchmarks/basic-coding.yaml").
-	datasetPath := run.Dataset
-	if s.datasetsDir != "" && !filepath.IsAbs(datasetPath) {
-		base := datasetPath
-		if !strings.HasSuffix(base, ".yaml") {
-			base += ".yaml"
-		}
-		candidate := filepath.Join(s.datasetsDir, base)
-		absCandidate, _ := filepath.Abs(candidate)
-		if _, statErr := os.Stat(absCandidate); statErr == nil {
-			datasetPath = absCandidate
-			slog.Info("resolved dataset path", "original", run.Dataset, "resolved", datasetPath)
-		} else if run.SuiteID == "" {
-			// No suite fallback — the dataset is mandatory and must exist.
-			run.Status = benchmark.StatusFailed
-			run.ErrorMessage = fmt.Sprintf("dataset %q not found", run.Dataset)
-			logBestEffort(ctx, s.store.UpdateBenchmarkRun(ctx, run), "UpdateBenchmarkRun", slog.String("run_id", run.ID))
-			return nil, fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)
-		} else {
-			slog.Warn("dataset path resolution failed, relying on suite provider", "original", run.Dataset, "candidate", absCandidate, "error", statErr)
-		}
-	}
-
-	// Resolve provider info from suite (if suite-based run).
-	var providerName string
-	var providerConfig json.RawMessage
-	if run.SuiteID != "" {
-		suite, sErr := s.store.GetBenchmarkSuite(ctx, run.SuiteID)
-		if sErr != nil {
-			slog.Warn("failed to load suite for run, falling back to dataset path", "suite_id", run.SuiteID, "error", sErr)
-		} else {
-			providerName = suite.ProviderName
-			providerConfig = mergeProviderConfig(suite.Config, req.ProviderConfig)
-			if run.BenchmarkType == "" {
-				run.BenchmarkType = suite.Type
-			}
-		}
-	}
-
-	payload := messagequeue.BenchmarkRunRequestPayload{
-		RunID:              run.ID,
-		TenantID:           tenantctx.FromContext(ctx),
-		DatasetPath:        datasetPath,
-		Model:              run.Model,
-		Metrics:            run.Metrics,
-		BenchmarkType:      string(run.BenchmarkType),
-		SuiteID:            run.SuiteID,
-		ExecMode:           string(run.ExecMode),
-		Evaluators:         run.Metrics, // metrics double as evaluator names
-		HybridVerification: run.HybridVerification,
-		RolloutCount:       run.RolloutCount,
-		RolloutStrategy:    run.RolloutStrategy,
-		ProviderName:       providerName,
-		ProviderConfig:     providerConfig,
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal benchmark run request: %w", err)
-	}
-
-	if err := s.queue.Publish(ctx, messagequeue.SubjectBenchmarkRunRequest, data); err != nil {
-		// Run is already saved — mark as failed if we can't dispatch.
-		slog.Error("failed to publish benchmark run request", "run_id", run.ID, "error", err)
-		run.Status = benchmark.StatusFailed
-		logBestEffort(ctx, s.store.UpdateBenchmarkRun(ctx, run), "UpdateBenchmarkRun", slog.String("run_id", run.ID))
-		return nil, fmt.Errorf("publish benchmark run request: %w", err)
-	}
-
-	slog.Info("benchmark run dispatched to worker", "run_id", run.ID, "model", run.Model, "dataset", run.Dataset)
-	return run, nil
-}
-
-// mergeProviderConfig merges suite-level config with request-level overrides.
-func mergeProviderConfig(suiteConfig, requestConfig json.RawMessage) json.RawMessage {
-	if len(requestConfig) == 0 || string(requestConfig) == "null" {
-		return suiteConfig
-	}
-	if len(suiteConfig) == 0 || string(suiteConfig) == "null" {
-		return requestConfig
-	}
-	var base map[string]json.RawMessage
-	if err := json.Unmarshal(suiteConfig, &base); err != nil {
-		return requestConfig
-	}
-	var override map[string]json.RawMessage
-	if err := json.Unmarshal(requestConfig, &override); err != nil {
-		return suiteConfig
-	}
-	for k, v := range override {
-		base[k] = v
-	}
-	merged, _ := json.Marshal(base) //nolint:errcheck // best effort
-	return merged
-}
-
-// GetRun retrieves a benchmark run by ID.
-func (s *BenchmarkService) GetRun(ctx context.Context, id string) (*benchmark.Run, error) {
-	return s.store.GetBenchmarkRun(ctx, id)
-}
-
-// ListRuns returns all benchmark runs.
-func (s *BenchmarkService) ListRuns(ctx context.Context) ([]benchmark.Run, error) {
-	return s.store.ListBenchmarkRuns(ctx)
-}
-
-// ListRunsFiltered returns benchmark runs matching the given filter.
-func (s *BenchmarkService) ListRunsFiltered(ctx context.Context, filter *benchmark.RunFilter) ([]benchmark.Run, error) {
-	return s.store.ListBenchmarkRunsFiltered(ctx, filter)
-}
-
-// UpdateRun updates a benchmark run. When the run transitions to completed,
-// its results are asynchronously seeded into the routing system for MAB learning.
-func (s *BenchmarkService) UpdateRun(ctx context.Context, r *benchmark.Run) error {
-	if err := s.store.UpdateBenchmarkRun(ctx, r); err != nil {
-		return err
-	}
-
-	// Seed routing outcomes from completed benchmark runs.
-	if r.Status == benchmark.StatusCompleted && s.routingSvc != nil {
-		go func() {
-			if _, err := s.routingSvc.SeedFromBenchmarkRun(ctx, r.ID); err != nil {
-				slog.Warn("seed routing from benchmark run failed", "run_id", r.ID, "error", err)
-			}
-		}()
-	}
-
-	return nil
-}
-
-// DeleteRun deletes a benchmark run and its results.
-func (s *BenchmarkService) DeleteRun(ctx context.Context, id string) error {
-	return s.store.DeleteBenchmarkRun(ctx, id)
-}
-
-// ListResults returns all results for a benchmark run.
-func (s *BenchmarkService) ListResults(ctx context.Context, runID string) ([]benchmark.Result, error) {
-	return s.store.ListBenchmarkResults(ctx, runID)
-}
-
-// Compare loads two runs and their results for side-by-side comparison.
-func (s *BenchmarkService) Compare(ctx context.Context, idA, idB string) (*benchmark.CompareResult, error) {
-	runA, err := s.store.GetBenchmarkRun(ctx, idA)
-	if err != nil {
-		return nil, fmt.Errorf("run A: %w", err)
-	}
-	runB, err := s.store.GetBenchmarkRun(ctx, idB)
-	if err != nil {
-		return nil, fmt.Errorf("run B: %w", err)
-	}
-	resultsA, err := s.store.ListBenchmarkResults(ctx, idA)
-	if err != nil {
-		return nil, fmt.Errorf("results A: %w", err)
-	}
-	resultsB, err := s.store.ListBenchmarkResults(ctx, idB)
-	if err != nil {
-		return nil, fmt.Errorf("results B: %w", err)
-	}
-	return &benchmark.CompareResult{
-		RunA:    runA,
-		RunB:    runB,
-		ResultA: resultsA,
-		ResultB: resultsB,
-	}, nil
-}
-
-// datasetFile is the YAML structure of a benchmark dataset file.
-type datasetFile struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Tasks       []struct {
-		ID             string `yaml:"id"`
-		Name           string `yaml:"name"`
-		Input          string `yaml:"input"`
-		ExpectedOutput string `yaml:"expected_output"`
-	} `yaml:"tasks"`
-}
-
-// ListDatasets scans the datasets directory for YAML files and returns metadata.
+// ListDatasets delegates to BenchmarkSuiteService.
 func (s *BenchmarkService) ListDatasets() ([]benchmark.DatasetInfo, error) {
-	if s.datasetsDir == "" {
-		return nil, nil
-	}
-
-	var datasets []benchmark.DatasetInfo
-	err := filepath.WalkDir(s.datasetsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip inaccessible files
-		}
-		if d.IsDir() {
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yaml" && ext != ".yml" {
-			return nil
-		}
-
-		data, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec // path is from WalkDir within datasetsDir
-		if err != nil {
-			return nil // skip unreadable files
-		}
-		var df datasetFile
-		if err := yaml.Unmarshal(data, &df); err != nil {
-			return nil // skip invalid files
-		}
-
-		rel, _ := filepath.Rel(s.datasetsDir, path)
-		datasets = append(datasets, benchmark.DatasetInfo{
-			Name:        df.Name,
-			Description: df.Description,
-			TaskCount:   len(df.Tasks),
-			Path:        rel,
-		})
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk datasets dir: %w", err)
-	}
-	return datasets, nil
+	return s.Suites.ListDatasets()
 }
 
-// CompareMulti loads N runs and their results for multi-way comparison.
+// CreateRun delegates to BenchmarkRunManager.
+func (s *BenchmarkService) CreateRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
+	return s.Runs.CreateRun(ctx, req)
+}
+
+// StartRun delegates to BenchmarkRunManager.
+func (s *BenchmarkService) StartRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
+	return s.Runs.StartRun(ctx, req)
+}
+
+// GetRun delegates to BenchmarkRunManager.
+func (s *BenchmarkService) GetRun(ctx context.Context, id string) (*benchmark.Run, error) {
+	return s.Runs.GetRun(ctx, id)
+}
+
+// ListRuns delegates to BenchmarkRunManager.
+func (s *BenchmarkService) ListRuns(ctx context.Context) ([]benchmark.Run, error) {
+	return s.Runs.ListRuns(ctx)
+}
+
+// ListRunsFiltered delegates to BenchmarkRunManager.
+func (s *BenchmarkService) ListRunsFiltered(ctx context.Context, filter *benchmark.RunFilter) ([]benchmark.Run, error) {
+	return s.Runs.ListRunsFiltered(ctx, filter)
+}
+
+// UpdateRun delegates to BenchmarkRunManager.
+func (s *BenchmarkService) UpdateRun(ctx context.Context, r *benchmark.Run) error {
+	return s.Runs.UpdateRun(ctx, r)
+}
+
+// DeleteRun delegates to BenchmarkRunManager.
+func (s *BenchmarkService) DeleteRun(ctx context.Context, id string) error {
+	return s.Runs.DeleteRun(ctx, id)
+}
+
+// ListResults delegates to BenchmarkResultAggregator.
+func (s *BenchmarkService) ListResults(ctx context.Context, runID string) ([]benchmark.Result, error) {
+	return s.Results.ListResults(ctx, runID)
+}
+
+// Compare delegates to BenchmarkResultAggregator.
+func (s *BenchmarkService) Compare(ctx context.Context, idA, idB string) (*benchmark.CompareResult, error) {
+	return s.Results.Compare(ctx, idA, idB)
+}
+
+// CompareMulti delegates to BenchmarkResultAggregator.
 func (s *BenchmarkService) CompareMulti(ctx context.Context, runIDs []string) ([]benchmark.MultiCompareEntry, error) {
-	if len(runIDs) < 2 {
-		return nil, fmt.Errorf("at least 2 run IDs are required for multi-comparison")
-	}
-
-	entries := make([]benchmark.MultiCompareEntry, len(runIDs))
-	errs := make([]error, len(runIDs))
-	var wg sync.WaitGroup
-
-	for i, id := range runIDs {
-		wg.Add(1)
-		go func(idx int, runID string) {
-			defer wg.Done()
-			run, err := s.store.GetBenchmarkRun(ctx, runID)
-			if err != nil {
-				errs[idx] = fmt.Errorf("run %s: %w", runID, err)
-				return
-			}
-			results, err := s.store.ListBenchmarkResults(ctx, runID)
-			if err != nil {
-				errs[idx] = fmt.Errorf("results for %s: %w", runID, err)
-				return
-			}
-			entries[idx] = benchmark.MultiCompareEntry{Run: run, Results: results}
-		}(i, id)
-	}
-	wg.Wait()
-
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
-	}
-	return entries, nil
+	return s.Results.CompareMulti(ctx, runIDs)
 }
 
-// CostAnalysis computes cost breakdown and efficiency metrics for a benchmark run.
+// CostAnalysis delegates to BenchmarkResultAggregator.
 func (s *BenchmarkService) CostAnalysis(ctx context.Context, runID string) (*benchmark.CostAnalysis, error) {
-	run, err := s.store.GetBenchmarkRun(ctx, runID)
-	if err != nil {
-		return nil, fmt.Errorf("run: %w", err)
-	}
-	results, err := s.store.ListBenchmarkResults(ctx, runID)
-	if err != nil {
-		return nil, fmt.Errorf("results: %w", err)
-	}
-
-	var totalCost float64
-	var totalTokensIn, totalTokensOut int64
-	var totalScore float64
-	var scoreCount int
-
-	breakdown := make([]benchmark.CostBreakdown, 0, len(results))
-	for i := range results {
-		taskScore := avgScoreFromJSON(results[i].Scores)
-		breakdown = append(breakdown, benchmark.CostBreakdown{
-			TaskID:    results[i].TaskID,
-			TaskName:  results[i].TaskName,
-			CostUSD:   results[i].CostUSD,
-			TokensIn:  results[i].TokensIn,
-			TokensOut: results[i].TokensOut,
-			Score:     taskScore,
-		})
-		totalCost += results[i].CostUSD
-		totalTokensIn += results[i].TokensIn
-		totalTokensOut += results[i].TokensOut
-		if taskScore > 0 {
-			totalScore += taskScore
-			scoreCount++
-		}
-	}
-
-	avgScore := 0.0
-	if scoreCount > 0 {
-		avgScore = totalScore / float64(scoreCount)
-	}
-
-	costPerPoint := 0.0
-	if avgScore > 0 {
-		costPerPoint = totalCost / avgScore
-	}
-
-	tokenEff := 0.0
-	totalTokens := totalTokensIn + totalTokensOut
-	if totalTokens > 0 && avgScore > 0 {
-		tokenEff = avgScore / float64(totalTokens) * 1000 // score per 1K tokens
-	}
-
-	return &benchmark.CostAnalysis{
-		RunID:             runID,
-		Model:             run.Model,
-		SuiteID:           run.SuiteID,
-		TotalCostUSD:      totalCost,
-		TotalTokensIn:     totalTokensIn,
-		TotalTokensOut:    totalTokensOut,
-		AvgScore:          avgScore,
-		CostPerScorePoint: costPerPoint,
-		TokenEfficiency:   tokenEff,
-		TaskBreakdown:     breakdown,
-	}, nil
+	return s.Results.CostAnalysis(ctx, runID)
 }
 
-// Leaderboard computes ranked model performance across runs for a given suite.
+// Leaderboard delegates to BenchmarkResultAggregator.
 func (s *BenchmarkService) Leaderboard(ctx context.Context, suiteID string) ([]benchmark.LeaderboardEntry, error) {
-	filter := &benchmark.RunFilter{SuiteID: suiteID}
-	runs, err := s.store.ListBenchmarkRunsFiltered(ctx, filter)
-	if err != nil {
-		return nil, fmt.Errorf("list runs: %w", err)
-	}
-	if len(runs) == 0 {
-		return []benchmark.LeaderboardEntry{}, nil
-	}
-
-	// Build one entry per run (each run = one model execution).
-	entries := make([]benchmark.LeaderboardEntry, 0, len(runs))
-	for i := range runs {
-		run := &runs[i]
-		if run.Status != benchmark.StatusCompleted {
-			continue
-		}
-
-		results, err := s.store.ListBenchmarkResults(ctx, run.ID)
-		if err != nil {
-			continue // skip runs with missing results
-		}
-
-		var totalCost float64
-		var totalTokensIn, totalTokensOut int64
-		var totalScore float64
-		var scoreCount int
-
-		for i := range results {
-			taskScore := avgScoreFromJSON(results[i].Scores)
-			totalCost += results[i].CostUSD
-			totalTokensIn += results[i].TokensIn
-			totalTokensOut += results[i].TokensOut
-			if taskScore > 0 {
-				totalScore += taskScore
-				scoreCount++
-			}
-		}
-
-		avgScore := 0.0
-		if scoreCount > 0 {
-			avgScore = totalScore / float64(scoreCount)
-		}
-
-		costPerPoint := 0.0
-		if avgScore > 0 {
-			costPerPoint = totalCost / avgScore
-		}
-
-		tokenEff := 0.0
-		totalTokens := totalTokensIn + totalTokensOut
-		if totalTokens > 0 && avgScore > 0 {
-			tokenEff = avgScore / float64(totalTokens) * 1000
-		}
-
-		entries = append(entries, benchmark.LeaderboardEntry{
-			Model:             run.Model,
-			RunID:             run.ID,
-			SuiteID:           run.SuiteID,
-			AvgScore:          avgScore,
-			TotalCostUSD:      totalCost,
-			TotalTokensIn:     totalTokensIn,
-			TotalTokensOut:    totalTokensOut,
-			TaskCount:         len(results),
-			CostPerScorePoint: costPerPoint,
-			TokenEfficiency:   tokenEff,
-			DurationMs:        run.TotalDurationMs,
-		})
-	}
-
-	// Sort by avg_score descending (best first).
-	sortLeaderboard(entries)
-	return entries, nil
+	return s.Results.Leaderboard(ctx, suiteID)
 }
 
-// sortLeaderboard sorts entries by AvgScore descending.
-func sortLeaderboard(entries []benchmark.LeaderboardEntry) {
-	for i := 1; i < len(entries); i++ {
-		for j := i; j > 0 && entries[j].AvgScore > entries[j-1].AvgScore; j-- {
-			entries[j], entries[j-1] = entries[j-1], entries[j]
-		}
-	}
-}
-
-// ExportTrainingPairs generates chosen/rejected DPO pairs from multi-rollout results.
+// ExportTrainingPairs delegates to BenchmarkResultAggregator.
 func (s *BenchmarkService) ExportTrainingPairs(ctx context.Context, runID string) ([]benchmark.TrainingPair, error) {
-	results, err := s.store.ListBenchmarkResults(ctx, runID)
-	if err != nil {
-		return nil, fmt.Errorf("results: %w", err)
-	}
-
-	// Group results by TaskID.
-	grouped := make(map[string][]benchmark.Result)
-	for i := range results {
-		grouped[results[i].TaskID] = append(grouped[results[i].TaskID], results[i])
-	}
-
-	var pairs []benchmark.TrainingPair
-	for taskID, taskResults := range grouped {
-		if len(taskResults) < 2 {
-			continue
-		}
-
-		// Find the best rollout.
-		var best *benchmark.Result
-		for i := range taskResults {
-			if taskResults[i].IsBestRollout {
-				best = &taskResults[i]
-				break
-			}
-		}
-		if best == nil {
-			continue
-		}
-
-		chosenScore := avgScoreFromJSON(best.Scores)
-		chosen := resultToTrainingEntry(best, chosenScore)
-
-		for i := range taskResults {
-			r := &taskResults[i]
-			if r.IsBestRollout {
-				continue
-			}
-			rejectedScore := avgScoreFromJSON(r.Scores)
-			rejected := resultToTrainingEntry(r, rejectedScore)
-			pairs = append(pairs, benchmark.TrainingPair{
-				TaskID:   taskID,
-				Prompt:   best.TaskName,
-				Chosen:   chosen,
-				Rejected: rejected,
-				ScoreGap: chosenScore - rejectedScore,
-			})
-		}
-	}
-
-	return pairs, nil
+	return s.Results.ExportTrainingPairs(ctx, runID)
 }
 
-func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
-	scores := make(map[string]float64)
-	_ = json.Unmarshal(r.Scores, &scores) //nolint:errcheck // best effort
-
-	return benchmark.TrainingEntry{
-		RolloutID:   r.RolloutID,
-		TaskID:      r.TaskID,
-		TaskName:    r.TaskName,
-		Output:      r.ActualOutput,
-		Scores:      scores,
-		AvgScore:    avgScore,
-		CostUSD:     r.CostUSD,
-		TokensTotal: r.TokensIn + r.TokensOut,
-	}
-}
-
-// ComputeRLVRReward computes an RLVR reward from evaluation scores.
-// Strategy: weighted average where functional_test scores get 2x weight.
-// All other scores get 1x weight. Result is clamped to [0.0, 1.0].
-func ComputeRLVRReward(scores map[string]float64) float64 {
-	if len(scores) == 0 {
-		return 0.0
-	}
-
-	var totalWeighted, totalWeight float64
-	for key, value := range scores {
-		weight := 1.0
-		if key == "functional_test" {
-			weight = 2.0
-		}
-		totalWeighted += value * weight
-		totalWeight += weight
-	}
-
-	if totalWeight == 0.0 {
-		return 0.0
-	}
-
-	avg := totalWeighted / totalWeight
-
-	// Clamp to [0.0, 1.0].
-	if avg > 1.0 {
-		return 1.0
-	}
-	if avg < 0.0 {
-		return 0.0
-	}
-	return avg
-}
-
-// ExportRLVRDataset generates RLVR training entries from a benchmark run.
-// Each result becomes one entry with prompt, response, scalar reward, and metadata.
+// ExportRLVRDataset delegates to BenchmarkResultAggregator.
 func (s *BenchmarkService) ExportRLVRDataset(ctx context.Context, runID string) ([]benchmark.RLVREntry, error) {
-	run, err := s.store.GetBenchmarkRun(ctx, runID)
-	if err != nil {
-		return nil, fmt.Errorf("run: %w", err)
-	}
-	results, err := s.store.ListBenchmarkResults(ctx, runID)
-	if err != nil {
-		return nil, fmt.Errorf("results: %w", err)
-	}
-
-	entries := make([]benchmark.RLVREntry, 0, len(results))
-	for i := range results {
-		scores := make(map[string]float64)
-		_ = json.Unmarshal(results[i].Scores, &scores) //nolint:errcheck // best effort
-
-		entries = append(entries, benchmark.RLVREntry{
-			Prompt:   results[i].TaskName,
-			Response: results[i].ActualOutput,
-			Reward:   ComputeRLVRReward(scores),
-			Metadata: map[string]string{
-				"task_id": results[i].TaskID,
-				"model":   run.Model,
-				"run_id":  runID,
-			},
-		})
-	}
-
-	return entries, nil
+	return s.Results.ExportRLVRDataset(ctx, runID)
 }
+
+// RunWatchdogOnce delegates to BenchmarkWatchdog.
+func (s *BenchmarkService) RunWatchdogOnce(ctx context.Context, timeout time.Duration) {
+	s.Watchdog.RunWatchdogOnce(ctx, timeout)
+}
+
+// StartWatchdog delegates to BenchmarkWatchdog.
+func (s *BenchmarkService) StartWatchdog(interval, timeout time.Duration) context.CancelFunc {
+	return s.Watchdog.StartWatchdog(interval, timeout)
+}
+
+// --- NATS handlers (orchestrator-owned: they span store + hub + run updates) ---
 
 // HandleBenchmarkRunResult processes a benchmark.run.result message from Python.
 // It stores individual task results, updates the run status, and broadcasts WS events.
@@ -857,7 +308,7 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 		run.SummaryScores = summaryJSON
 	}
 
-	if err := s.UpdateRun(ctx, run); err != nil {
+	if err := s.Runs.UpdateRun(ctx, run); err != nil {
 		return fmt.Errorf("update run status: %w", err)
 	}
 
@@ -874,27 +325,6 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 	}
 
 	return nil
-}
-
-// BenchmarkTaskCompletedPayload is broadcast when a single benchmark task finishes.
-type BenchmarkTaskCompletedPayload struct {
-	RunID    string  `json:"run_id"`
-	TaskID   string  `json:"task_id"`
-	TaskName string  `json:"task_name"`
-	Score    float64 `json:"score"`
-	CostUSD  float64 `json:"cost_usd"`
-	Index    int     `json:"index"`
-	Total    int     `json:"total"`
-}
-
-// BenchmarkRunProgressPayload is broadcast when a benchmark run progresses or completes.
-type BenchmarkRunProgressPayload struct {
-	RunID          string  `json:"run_id"`
-	Status         string  `json:"status"`
-	CompletedTasks int     `json:"completed_tasks"`
-	TotalTasks     int     `json:"total_tasks"`
-	AvgScore       float64 `json:"avg_score"`
-	TotalCostUSD   float64 `json:"total_cost_usd"`
 }
 
 // HandleBenchmarkTaskStarted processes a benchmark.task.started message from Python
@@ -984,6 +414,81 @@ func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), e
 	}, nil
 }
 
+// --- Shared types and helper functions used across sub-services ---
+
+// defaultSuites defines built-in benchmark suites seeded on startup.
+var defaultSuites = []benchmark.CreateSuiteRequest{
+	{Name: "Basic Coding", Type: benchmark.TypeSimple, ProviderName: "codeforge_simple"},
+	{Name: "Agent Coding", Type: benchmark.TypeAgent, ProviderName: "codeforge_agent"},
+	{Name: "Tool Use Basic", Type: benchmark.TypeToolUse, ProviderName: "codeforge_tool_use"},
+	{Name: "HumanEval", Type: benchmark.TypeSimple, ProviderName: "humaneval"},
+	{Name: "MBPP", Type: benchmark.TypeSimple, ProviderName: "mbpp"},
+	{Name: "SWE-bench", Type: benchmark.TypeAgent, ProviderName: "swebench"},
+	{Name: "BigCodeBench", Type: benchmark.TypeSimple, ProviderName: "bigcodebench"},
+	{Name: "CRUXEval", Type: benchmark.TypeSimple, ProviderName: "cruxeval"},
+	{Name: "LiveCodeBench", Type: benchmark.TypeSimple, ProviderName: "livecodebench"},
+	{Name: "SPARCBench", Type: benchmark.TypeAgent, ProviderName: "sparcbench"},
+	{Name: "Aider Polyglot", Type: benchmark.TypeAgent, ProviderName: "aider_polyglot"},
+	{Name: "DPAI Arena", Type: benchmark.TypeSimple, ProviderName: "dpai_arena"},
+	{Name: "Terminal-Bench", Type: benchmark.TypeAgent, ProviderName: "terminal_bench"},
+}
+
+// datasetFile is the YAML structure of a benchmark dataset file.
+type datasetFile struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Tasks       []struct {
+		ID             string `yaml:"id"`
+		Name           string `yaml:"name"`
+		Input          string `yaml:"input"`
+		ExpectedOutput string `yaml:"expected_output"`
+	} `yaml:"tasks"`
+}
+
+// BenchmarkTaskCompletedPayload is broadcast when a single benchmark task finishes.
+type BenchmarkTaskCompletedPayload struct {
+	RunID    string  `json:"run_id"`
+	TaskID   string  `json:"task_id"`
+	TaskName string  `json:"task_name"`
+	Score    float64 `json:"score"`
+	CostUSD  float64 `json:"cost_usd"`
+	Index    int     `json:"index"`
+	Total    int     `json:"total"`
+}
+
+// BenchmarkRunProgressPayload is broadcast when a benchmark run progresses or completes.
+type BenchmarkRunProgressPayload struct {
+	RunID          string  `json:"run_id"`
+	Status         string  `json:"status"`
+	CompletedTasks int     `json:"completed_tasks"`
+	TotalTasks     int     `json:"total_tasks"`
+	AvgScore       float64 `json:"avg_score"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+}
+
+// mergeProviderConfig merges suite-level config with request-level overrides.
+func mergeProviderConfig(suiteConfig, requestConfig json.RawMessage) json.RawMessage {
+	if len(requestConfig) == 0 || string(requestConfig) == "null" {
+		return suiteConfig
+	}
+	if len(suiteConfig) == 0 || string(suiteConfig) == "null" {
+		return requestConfig
+	}
+	var base map[string]json.RawMessage
+	if err := json.Unmarshal(suiteConfig, &base); err != nil {
+		return requestConfig
+	}
+	var override map[string]json.RawMessage
+	if err := json.Unmarshal(requestConfig, &override); err != nil {
+		return suiteConfig
+	}
+	for k, v := range override {
+		base[k] = v
+	}
+	merged, _ := json.Marshal(base) //nolint:errcheck // best effort
+	return merged
+}
+
 // watchdogTimeoutForType returns a per-benchmark-type timeout. Simple runs
 // timeout faster (30 min) while agent runs get more time (4h). The
 // globalDefault is returned for unknown or empty types.
@@ -1000,49 +505,63 @@ func watchdogTimeoutForType(bt benchmark.BenchmarkType, globalDefault time.Durat
 	}
 }
 
-// RunWatchdogOnce scans for benchmark runs stuck in "running" state beyond the
-// per-type timeout and marks them as "failed". This prevents orphaned runs when
-// a Python worker crashes or a NATS message is lost.
-func (s *BenchmarkService) RunWatchdogOnce(ctx context.Context, timeout time.Duration) {
-	runs, err := s.store.ListBenchmarkRunsFiltered(ctx, &benchmark.RunFilter{Status: benchmark.StatusRunning})
-	if err != nil {
-		slog.Warn("watchdog: failed to list running benchmark runs", "error", err)
-		return
-	}
-	now := time.Now()
-	for i := range runs {
-		run := &runs[i]
-		runTimeout := watchdogTimeoutForType(run.BenchmarkType, timeout)
-		if run.CreatedAt.Before(now.Add(-runTimeout)) {
-			run.Status = benchmark.StatusFailed
-			run.ErrorMessage = fmt.Sprintf("watchdog timeout: run exceeded %s without completion", runTimeout)
-			if err := s.store.UpdateBenchmarkRun(ctx, run); err != nil {
-				slog.Warn("watchdog: failed to update stale run", "run_id", run.ID, "error", err)
-				continue
-			}
-			slog.Warn("watchdog: marked stale benchmark run as failed", "run_id", run.ID, "age", now.Sub(run.CreatedAt))
+// sortLeaderboard sorts entries by AvgScore descending.
+func sortLeaderboard(entries []benchmark.LeaderboardEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j].AvgScore > entries[j-1].AvgScore; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
 		}
 	}
 }
 
-// StartWatchdog launches a background goroutine that periodically calls
-// RunWatchdogOnce to detect and fail orphaned benchmark runs. Returns a
-// cancel function to stop the goroutine.
-func (s *BenchmarkService) StartWatchdog(interval, timeout time.Duration) context.CancelFunc {
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.RunWatchdogOnce(ctx, timeout)
-			}
+func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
+	scores := make(map[string]float64)
+	_ = json.Unmarshal(r.Scores, &scores) //nolint:errcheck // best effort
+
+	return benchmark.TrainingEntry{
+		RolloutID:   r.RolloutID,
+		TaskID:      r.TaskID,
+		TaskName:    r.TaskName,
+		Output:      r.ActualOutput,
+		Scores:      scores,
+		AvgScore:    avgScore,
+		CostUSD:     r.CostUSD,
+		TokensTotal: r.TokensIn + r.TokensOut,
+	}
+}
+
+// ComputeRLVRReward computes an RLVR reward from evaluation scores.
+// Strategy: weighted average where functional_test scores get 2x weight.
+// All other scores get 1x weight. Result is clamped to [0.0, 1.0].
+func ComputeRLVRReward(scores map[string]float64) float64 {
+	if len(scores) == 0 {
+		return 0.0
+	}
+
+	var totalWeighted, totalWeight float64
+	for key, value := range scores {
+		weight := 1.0
+		if key == "functional_test" {
+			weight = 2.0
 		}
-	}()
-	return cancel
+		totalWeighted += value * weight
+		totalWeight += weight
+	}
+
+	if totalWeight == 0.0 {
+		return 0.0
+	}
+
+	avg := totalWeighted / totalWeight
+
+	// Clamp to [0.0, 1.0].
+	if avg > 1.0 {
+		return 1.0
+	}
+	if avg < 0.0 {
+		return 0.0
+	}
+	return avg
 }
 
 // avgFromMap computes the average of a float64 map's values.

@@ -1688,11 +1688,17 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		MCP:              mcpSvc,
 		Scope:            service.NewScopeService(store),
 		PromptSections:   service.NewPromptSectionService(store),
-		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
-		ActiveWork:       service.NewActiveWorkService(store, bc),
-		Routing:          service.NewRoutingService(store),
-		GoalDiscovery:    service.NewGoalDiscoveryService(store),
-		AppEnv:           os.Getenv("APP_ENV"),
+		Benchmarks: func() *service.BenchmarkService {
+			suiteSvc := service.NewBenchmarkSuiteService(store, os.TempDir())
+			runMgr := service.NewBenchmarkRunManager(store, suiteSvc)
+			resultAgg := service.NewBenchmarkResultAggregator(store)
+			watchdog := service.NewBenchmarkWatchdog(store)
+			return service.NewBenchmarkService(suiteSvc, runMgr, resultAgg, watchdog)
+		}(),
+		ActiveWork:    service.NewActiveWorkService(store, bc),
+		Routing:       service.NewRoutingService(store),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
+		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,
@@ -1805,11 +1811,17 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		MCP:              mcpSvc,
 		Scope:            service.NewScopeService(store),
 		PromptSections:   service.NewPromptSectionService(store),
-		Benchmarks:       service.NewBenchmarkService(store, os.TempDir()),
-		ActiveWork:       service.NewActiveWorkService(store, bc),
-		Routing:          service.NewRoutingService(store),
-		GoalDiscovery:    service.NewGoalDiscoveryService(store),
-		AppEnv:           os.Getenv("APP_ENV"),
+		Benchmarks: func() *service.BenchmarkService {
+			suiteSvc := service.NewBenchmarkSuiteService(store, os.TempDir())
+			runMgr := service.NewBenchmarkRunManager(store, suiteSvc)
+			resultAgg := service.NewBenchmarkResultAggregator(store)
+			watchdog := service.NewBenchmarkWatchdog(store)
+			return service.NewBenchmarkService(suiteSvc, runMgr, resultAgg, watchdog)
+		}(),
+		ActiveWork:    service.NewActiveWorkService(store, bc),
+		Routing:       service.NewRoutingService(store),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
+		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
 			MaxQueryLength:     2000,

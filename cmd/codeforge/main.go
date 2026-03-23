@@ -729,7 +729,11 @@ func run() error {
 		slog.Info("email feedback provider registered")
 	}
 
-	benchmarkSvc := service.NewBenchmarkService(store, cfg.Benchmark.DatasetsDir)
+	benchmarkSuiteSvc := service.NewBenchmarkSuiteService(store, cfg.Benchmark.DatasetsDir)
+	benchmarkRunMgr := service.NewBenchmarkRunManager(store, benchmarkSuiteSvc)
+	benchmarkResultAgg := service.NewBenchmarkResultAggregator(store)
+	benchmarkWatchdog := service.NewBenchmarkWatchdog(store)
+	benchmarkSvc := service.NewBenchmarkService(benchmarkSuiteSvc, benchmarkRunMgr, benchmarkResultAgg, benchmarkWatchdog)
 	benchmarkSvc.SetRoutingService(routingSvc)
 	benchmarkSvc.SetQueue(queue)
 	benchmarkSvc.SetHub(hub)
