@@ -8,8 +8,6 @@ import type {
   CreateScopeRequest,
   CreateUserRequest,
   EvaluationResult,
-  GraphSearchRequest,
-  GraphSearchResult,
   KnowledgeBase,
   Mode,
   PolicyProfile,
@@ -19,10 +17,7 @@ import type {
   PromptSectionRow,
   RetrievalScope,
   RetrievalSearchResult,
-  Review,
-  ReviewPolicy,
   SearchRequest,
-  UpdateScopeRequest,
   UpdateUserRequest,
   User,
 } from "../types";
@@ -43,7 +38,6 @@ export function createAgentConfigResource(c: CoreClient) {
 export function createModesResource(c: CoreClient) {
   return {
     list: () => c.get<Mode[]>("/modes"),
-    get: (id: string) => c.get<Mode>(url`/modes/${id}`),
     create: (data: CreateModeRequest) => c.post<Mode>("/modes", data),
     update: (id: string, data: CreateModeRequest) => c.put<Mode>(url`/modes/${id}`, data),
     delete: (id: string) => c.del<undefined>(url`/modes/${id}`),
@@ -79,36 +73,10 @@ export function createUsersResource(c: CoreClient) {
   };
 }
 
-export function createReviewsResource(c: CoreClient) {
-  return {
-    listPolicies: (projectId: string) =>
-      c.get<ReviewPolicy[]>(url`/projects/${projectId}/review-policies`),
-
-    createPolicy: (projectId: string, data: Partial<ReviewPolicy>) =>
-      c.post<ReviewPolicy>(url`/projects/${projectId}/review-policies`, data),
-
-    getPolicy: (id: string) => c.get<ReviewPolicy>(url`/review-policies/${id}`),
-
-    updatePolicy: (id: string, data: Partial<ReviewPolicy>) =>
-      c.put<ReviewPolicy>(url`/review-policies/${id}`, data),
-
-    deletePolicy: (id: string) => c.del<undefined>(url`/review-policies/${id}`),
-
-    trigger: (policyId: string) => c.post<Review>(url`/review-policies/${policyId}/trigger`),
-
-    list: (projectId: string) => c.get<Review[]>(url`/projects/${projectId}/reviews`),
-
-    get: (id: string) => c.get<Review>(url`/reviews/${id}`),
-  };
-}
-
 export function createScopesResource(c: CoreClient) {
   return {
     list: () => c.get<RetrievalScope[]>("/scopes"),
-    get: (id: string) => c.get<RetrievalScope>(url`/scopes/${id}`),
     create: (data: CreateScopeRequest) => c.post<RetrievalScope>("/scopes", data),
-    update: (id: string, data: UpdateScopeRequest) =>
-      c.put<RetrievalScope>(url`/scopes/${id}`, data),
     delete: (id: string) => c.del<undefined>(url`/scopes/${id}`),
     addProject: (scopeId: string, projectId: string) =>
       c.post<undefined>(url`/scopes/${scopeId}/projects`, { project_id: projectId }),
@@ -116,15 +84,12 @@ export function createScopesResource(c: CoreClient) {
       c.del<undefined>(url`/scopes/${scopeId}/projects/${projectId}`),
     search: (scopeId: string, data: SearchRequest) =>
       c.post<RetrievalSearchResult>(url`/scopes/${scopeId}/search`, data),
-    graphSearch: (scopeId: string, data: GraphSearchRequest) =>
-      c.post<GraphSearchResult>(url`/scopes/${scopeId}/graph/search`, data),
   };
 }
 
 export function createKnowledgeBasesResource(c: CoreClient) {
   return {
     list: () => c.get<KnowledgeBase[]>("/knowledge-bases"),
-    get: (id: string) => c.get<KnowledgeBase>(url`/knowledge-bases/${id}`),
     create: (data: CreateKnowledgeBaseRequest) => c.post<KnowledgeBase>("/knowledge-bases", data),
     delete: (id: string) => c.del<undefined>(url`/knowledge-bases/${id}`),
     index: (id: string) => c.post<{ status: string }>(url`/knowledge-bases/${id}/index`),

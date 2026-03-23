@@ -2,7 +2,6 @@ import type { CoreClient } from "../core";
 import { url } from "../factory";
 import type {
   BenchmarkCompareResult,
-  BenchmarkDatasetInfo,
   BenchmarkResult,
   BenchmarkRun,
   BenchmarkSuite,
@@ -32,8 +31,6 @@ export function createBenchmarksResource(c: CoreClient) {
         run_id_b: runIdB,
       }),
 
-    listDatasets: () => c.get<BenchmarkDatasetInfo[]>("/benchmarks/datasets"),
-
     listSuites: () => c.get<BenchmarkSuite[]>("/benchmarks/suites"),
 
     createSuite: (data: {
@@ -42,8 +39,6 @@ export function createBenchmarksResource(c: CoreClient) {
       type: string;
       provider_name: string;
     }) => c.post<BenchmarkSuite>("/benchmarks/suites", data),
-
-    getSuite: (id: string) => c.get<BenchmarkSuite>(url`/benchmarks/suites/${id}`),
 
     deleteSuite: (id: string) => c.del<undefined>(url`/benchmarks/suites/${id}`),
 

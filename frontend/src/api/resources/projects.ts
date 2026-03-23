@@ -37,9 +37,6 @@ export function createProjectsResource(c: CoreClient) {
 
     branches: (id: string) => c.get<Branch[]>(url`/projects/${id}/git/branches`),
 
-    checkout: (id: string, branch: string) =>
-      c.post<{ status: string; branch: string }>(url`/projects/${id}/git/checkout`, { branch }),
-
     setup: (id: string, branch?: string) =>
       c.post<SetupResult>(url`/projects/${id}/setup`, branch ? { branch } : {}),
 

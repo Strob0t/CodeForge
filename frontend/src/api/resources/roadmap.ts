@@ -37,15 +37,11 @@ export function createRoadmapResource(c: CoreClient) {
     updateMilestone: (id: string, data: Partial<Milestone> & { version: number }) =>
       c.put<Milestone>(url`/milestones/${id}`, data),
 
-    deleteMilestone: (id: string) => c.del<undefined>(url`/milestones/${id}`),
-
     createFeature: (milestoneId: string, data: CreateFeatureRequest) =>
       c.post<RoadmapFeature>(url`/milestones/${milestoneId}/features`, data),
 
     updateFeature: (id: string, data: Partial<RoadmapFeature> & { version: number }) =>
       c.put<RoadmapFeature>(url`/features/${id}`, data),
-
-    deleteFeature: (id: string) => c.del<undefined>(url`/features/${id}`),
 
     importSpecs: (projectId: string) =>
       c.post<ImportResult>(url`/projects/${projectId}/roadmap/import`),

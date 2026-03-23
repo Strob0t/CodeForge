@@ -15,10 +15,6 @@ export function createConversationsResource(c: CoreClient) {
 
     list: (projectId: string) => c.get<Conversation[]>(url`/projects/${projectId}/conversations`),
 
-    get: (id: string) => c.get<Conversation>(url`/conversations/${id}`),
-
-    delete: (id: string) => c.del<undefined>(url`/conversations/${id}`),
-
     messages: (id: string) => c.get<ConversationMessage[]>(url`/conversations/${id}/messages`),
 
     send: (id: string, data: SendMessageRequest) =>

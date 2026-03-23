@@ -533,17 +533,6 @@ export interface CreateTeamRequest {
   members: { agent_id: string; role: TeamRole }[];
 }
 
-// --- Context-Optimized Planning types (Phase 5C) ---
-
-/** Plan feature request matching Go domain/plan.PlanFeatureRequest */
-export interface PlanFeatureRequest {
-  feature: string;
-  context?: string;
-  model?: string;
-  auto_start?: boolean;
-  auto_team?: boolean;
-}
-
 // --- Context types (Phase 5D) ---
 
 /** Context entry kind enum matching Go domain/context.EntryKind */
@@ -1251,36 +1240,6 @@ export interface AGUIStepFinishedEvent {
   status: "completed" | "failed";
 }
 
-// Phase 12I: Review Policies & Reviews
-
-export interface ReviewPolicy {
-  id: string;
-  project_id: string;
-  tenant_id: string;
-  name: string;
-  trigger_type: "commit_count" | "pre_merge" | "cron";
-  commit_threshold: number;
-  cron_expr: string;
-  branch_pattern: string;
-  template_id: string;
-  enabled: boolean;
-  commit_counter: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Review {
-  id: string;
-  policy_id: string;
-  project_id: string;
-  tenant_id: string;
-  plan_id: string;
-  status: "pending" | "running" | "completed" | "failed";
-  trigger_ref: string;
-  created_at: string;
-  completed_at?: string;
-}
-
 // Phase 6: Automatic Orchestration
 
 /** Matches Go domain/project.SetupStep */
@@ -1831,14 +1790,6 @@ export interface BenchmarkCompareResult {
   run_b: BenchmarkRun;
   results_a: BenchmarkResult[];
   results_b: BenchmarkResult[];
-}
-
-/** Matches Go domain/benchmark.DatasetInfo */
-export interface BenchmarkDatasetInfo {
-  name: string;
-  description?: string;
-  task_count: number;
-  path: string;
 }
 
 /** Matches Go domain/benchmark.Suite */

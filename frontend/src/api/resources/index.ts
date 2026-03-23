@@ -36,7 +36,6 @@ export {
   createModesResource,
   createPoliciesResource,
   createPromptSectionsResource,
-  createReviewsResource,
   createScopesResource,
   createSettingsResource,
   createUsersResource,
