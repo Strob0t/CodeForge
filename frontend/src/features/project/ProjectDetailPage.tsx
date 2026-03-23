@@ -28,17 +28,33 @@ import { Alert, Badge, Button, ErrorBanner } from "~/ui";
 import AuditTable from "../audit/AuditTable";
 import { CanvasModal } from "../canvas/CanvasModal";
 import ActiveWorkPanel from "./ActiveWorkPanel";
+import AgentNetwork from "./AgentNetwork";
+import AgentPanel from "./AgentPanel";
+import ArchitectureGraph from "./ArchitectureGraph";
 import AutoAgentButton from "./AutoAgentButton";
 import BoundariesPanel from "./BoundariesPanel";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
+import CostBreakdown from "./CostBreakdown";
 import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
 import GoalsPanel from "./GoalsPanel";
+import type { OutputLine } from "./LiveOutput";
+import LiveOutput from "./LiveOutput";
+import LSPPanel from "./LSPPanel";
+import type { AgentTerminal } from "./MultiTerminal";
+import MultiTerminal from "./MultiTerminal";
 import OnboardingProgress from "./OnboardingProgress";
+import PlanPanel from "./PlanPanel";
+import PolicyPanel from "./PolicyPanel";
 import RefactorApproval from "./RefactorApproval";
+import RepoMapPanel from "./RepoMapPanel";
+import RetrievalPanel from "./RetrievalPanel";
 import RoadmapPanel from "./RoadmapPanel";
+import RunPanel from "./RunPanel";
+import SearchSimulator from "./SearchSimulator";
 import SessionPanel from "./SessionPanel";
+import TaskPanel from "./TaskPanel";
 import TrajectoryPanel from "./TrajectoryPanel";
 import WarRoom from "./WarRoom";
 
@@ -125,7 +141,7 @@ export default function ProjectDetailPage() {
     () => params.id,
     (id) => api.projects.get(id),
   );
-  const [, { refetch: refetchTasks }] = createResource(
+  const [tasks, { refetch: refetchTasks }] = createResource(
     () => params.id,
     (id) => api.tasks.list(id),
   );
@@ -138,7 +154,7 @@ export default function ProjectDetailPage() {
     (id: string) => api.projects.branches(id),
   );
 
-  const [, { refetch: refetchAgents }] = createResource(
+  const [agents, { refetch: refetchAgents }] = createResource(
     () => params.id,
     (id) => api.agents.list(id),
   );
@@ -175,9 +191,27 @@ export default function ProjectDetailPage() {
     | "audit"
     | "sessions"
     | "trajectory"
-    | "boundaries";
+    | "boundaries"
+    | "agents"
+    | "code"
+    | "retrieval"
+    | "plans"
+    | "tasks"
+    | "policy";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
+
+  // WS-driven state for LiveOutput, MultiTerminal, CostBreakdown panels
+  const [liveOutputTaskId, setLiveOutputTaskId] = createSignal<string | null>(null);
+  const [liveOutputLines, setLiveOutputLines] = createSignal<OutputLine[]>([]);
+  const [agentTerminals, setAgentTerminals] = createSignal<AgentTerminal[]>([]);
+  const [activeRunCost, setActiveRunCost] = createSignal<{
+    costUsd: number;
+    tokensIn: number;
+    tokensOut: number;
+    steps: number;
+    model?: string;
+  } | null>(null);
 
   // Unified navigation handler: "chat" switches mobile view, other tabs switch left panel
   function handleNavigate(target: string) {
@@ -277,6 +311,18 @@ export default function ProjectDetailPage() {
           } else if (status === "cancelled") {
             toast("info", t("detail.toast.runCancelled"));
           }
+
+          // Extract cost data for CostBreakdown panel
+          const costUsd = payload.cost_usd as number | undefined;
+          if (costUsd !== undefined) {
+            setActiveRunCost({
+              costUsd,
+              tokensIn: (payload.tokens_in as number) ?? 0,
+              tokensOut: (payload.tokens_out as number) ?? 0,
+              steps: (payload.steps as number) ?? 0,
+              model: payload.model as string | undefined,
+            });
+          }
         }
         break;
       }
@@ -347,7 +393,42 @@ export default function ProjectDetailPage() {
         break;
       }
       case "task.output": {
-        // Task output handled by individual panels
+        const toProjectId = payload.project_id as string;
+        if (toProjectId === projectId) {
+          const taskId = (payload.task_id as string) ?? null;
+          const line = payload.line as string;
+          const stream = (payload.stream as "stdout" | "stderr") ?? "stdout";
+          const agentId = payload.agent_id as string | undefined;
+          const agentName = payload.agent_name as string | undefined;
+
+          // Feed LiveOutput
+          setLiveOutputTaskId(taskId);
+          setLiveOutputLines((prev) => [...prev, { line, stream, timestamp: Date.now() }]);
+
+          // Feed MultiTerminal (group by agent)
+          if (agentId) {
+            setAgentTerminals((prev) => {
+              const idx = prev.findIndex((t) => t.agentId === agentId);
+              const entry: AgentTerminal =
+                idx >= 0
+                  ? {
+                      ...prev[idx],
+                      lines: [...prev[idx].lines, { line, stream, timestamp: Date.now() }],
+                    }
+                  : {
+                      agentId,
+                      agentName: agentName ?? agentId,
+                      lines: [{ line, stream, timestamp: Date.now() }],
+                    };
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = entry;
+                return next;
+              }
+              return [...prev, entry];
+            });
+          }
+        }
         break;
       }
       case "autoagent.status": {
@@ -582,7 +663,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 overflow-hidden ${leftTab() === "featuremap" || leftTab() === "files" || leftTab() === "warroom" || leftTab() === "goals" || leftTab() === "audit" || leftTab() === "sessions" || leftTab() === "trajectory" || leftTab() === "boundaries" ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 overflow-hidden ${["featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -630,6 +711,12 @@ export default function ProjectDetailPage() {
                           <option value="trajectory">{t("detail.tab.trajectory")}</option>
                           <option value="audit">{t("audit.title")}</option>
                           <option value="boundaries">Boundaries</option>
+                          <option value="tasks">{t("detail.tab.tasks")}</option>
+                          <option value="plans">{t("detail.tab.plans")}</option>
+                          <option value="agents">{t("detail.tab.agents")}</option>
+                          <option value="code">{t("detail.tab.code")}</option>
+                          <option value="retrieval">{t("detail.tab.retrieval")}</option>
+                          <option value="policy">{t("detail.tab.policy")}</option>
                         </select>
                       </div>
                       <Button
@@ -748,6 +835,101 @@ export default function ProjectDetailPage() {
                       >
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                           <BoundariesPanel projectId={params.id} />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "agents"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
+                          <AgentPanel
+                            projectId={params.id}
+                            tasks={tasks() ?? []}
+                            onError={setError}
+                          />
+                          <RunPanel
+                            projectId={params.id}
+                            tasks={tasks() ?? []}
+                            agents={agents() ?? []}
+                            onError={setError}
+                          />
+                          <AgentNetwork projectId={params.id} />
+                          <Show when={liveOutputLines().length > 0}>
+                            <LiveOutput taskId={liveOutputTaskId()} lines={liveOutputLines()} />
+                          </Show>
+                          <Show when={agentTerminals().length > 0}>
+                            <MultiTerminal terminals={agentTerminals()} />
+                          </Show>
+                          <Show when={activeRunCost()}>
+                            {(cost) => (
+                              <CostBreakdown
+                                costUsd={cost().costUsd}
+                                tokensIn={cost().tokensIn}
+                                tokensOut={cost().tokensOut}
+                                steps={cost().steps}
+                                model={cost().model}
+                              />
+                            )}
+                          </Show>
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "code"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
+                          <RepoMapPanel projectId={params.id} />
+                          <ArchitectureGraph projectId={params.id} />
+                          <LSPPanel projectId={params.id} />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "retrieval"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
+                          <RetrievalPanel projectId={params.id} />
+                          <SearchSimulator projectId={params.id} />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "plans"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                          <PlanPanel
+                            projectId={params.id}
+                            tasks={tasks() ?? []}
+                            agents={agents() ?? []}
+                            onError={setError}
+                          />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "tasks"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                          <TaskPanel
+                            projectId={params.id}
+                            tasks={tasks() ?? []}
+                            onRefetch={refetchTasks}
+                            onError={setError}
+                          />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "policy"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                          <PolicyPanel projectId={params.id} onError={setError} />
                         </div>
                       </ErrorBoundary>
                     </Show>
