@@ -262,7 +262,6 @@ export function createDevResource(c: CoreClient) {
 export function createMCPResource(c: CoreClient) {
   return {
     listServers: () => c.get<MCPServer[]>("/mcp/servers"),
-    getServer: (id: string) => c.get<MCPServer>(url`/mcp/servers/${id}`),
     createServer: (data: CreateMCPServerRequest) => c.post<MCPServer>("/mcp/servers", data),
     updateServer: (id: string, data: CreateMCPServerRequest) =>
       c.put<MCPServer>(url`/mcp/servers/${id}`, data),
@@ -271,12 +270,6 @@ export function createMCPResource(c: CoreClient) {
     testConnection: (data: CreateMCPServerRequest) =>
       c.post<MCPTestResult>("/mcp/servers/test", data),
     listTools: (id: string) => c.get<MCPServerTool[]>(url`/mcp/servers/${id}/tools`),
-    listProjectServers: (projectId: string) =>
-      c.get<MCPServer[]>(url`/projects/${projectId}/mcp-servers`),
-    assignToProject: (projectId: string, serverId: string) =>
-      c.post<undefined>(url`/projects/${projectId}/mcp-servers`, { server_id: serverId }),
-    unassignFromProject: (projectId: string, serverId: string) =>
-      c.del<undefined>(url`/projects/${projectId}/mcp-servers/${serverId}`),
   };
 }
 

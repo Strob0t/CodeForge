@@ -9,7 +9,6 @@ import type {
   Project,
   RepoInfo,
   SetupResult,
-  StackDetectionResult,
   UpdateProjectRequest,
 } from "../types";
 
@@ -40,10 +39,6 @@ export function createProjectsResource(c: CoreClient) {
 
     checkout: (id: string, branch: string) =>
       c.post<{ status: string; branch: string }>(url`/projects/${id}/git/checkout`, { branch }),
-
-    detectStack: (id: string) => c.get<StackDetectionResult>(url`/projects/${id}/detect-stack`),
-
-    detectStackByPath: (path: string) => c.post<StackDetectionResult>("/detect-stack", { path }),
 
     setup: (id: string, branch?: string) =>
       c.post<SetupResult>(url`/projects/${id}/setup`, branch ? { branch } : {}),

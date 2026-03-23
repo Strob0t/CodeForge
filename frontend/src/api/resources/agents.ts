@@ -1,13 +1,6 @@
 import type { CoreClient } from "../core";
 import { url } from "../factory";
-import type {
-  Agent,
-  AgentEvent,
-  ContextPack,
-  CreateAgentRequest,
-  CreateTaskRequest,
-  Task,
-} from "../types";
+import type { Agent, CreateAgentRequest, CreateTaskRequest, Task } from "../types";
 
 export function createAgentsResource(c: CoreClient) {
   return {
@@ -34,24 +27,7 @@ export function createTasksResource(c: CoreClient) {
   return {
     list: (projectId: string) => c.get<Task[]>(url`/projects/${projectId}/tasks`),
 
-    get: (id: string) => c.get<Task>(url`/tasks/${id}`),
-
     create: (projectId: string, data: CreateTaskRequest) =>
       c.post<Task>(url`/projects/${projectId}/tasks`, data),
-
-    events: (taskId: string) => c.get<AgentEvent[]>(url`/tasks/${taskId}/events`),
-
-    context: (taskId: string) => c.get<ContextPack>(url`/tasks/${taskId}/context`),
-
-    buildContext: (taskId: string, projectId: string, teamId?: string) =>
-      c.post<ContextPack>(url`/tasks/${taskId}/context`, {
-        project_id: projectId,
-        team_id: teamId ?? "",
-      }),
-
-    claim: (taskId: string, agentId: string) =>
-      c.post<{ claimed: boolean; reason?: string }>(url`/tasks/${taskId}/claim`, {
-        agent_id: agentId,
-      }),
   };
 }
