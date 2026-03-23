@@ -78,6 +78,7 @@ type ConversationService struct {
 	contextOpt      *ContextOptimizerService
 	llmKeySvc       *LLMKeyService
 	promptAssembler *PromptAssembler
+	scoreCollector  *PromptScoreCollector
 	events          eventstore.Store
 
 	// completionWaiters allows in-process consumers (e.g. autoagent) to wait for
@@ -143,6 +144,11 @@ func (s *ConversationService) SetLLMKeyService(svc *LLMKeyService) { s.llmKeySvc
 
 // SetPromptAssembler configures the modular prompt assembler for system prompt generation.
 func (s *ConversationService) SetPromptAssembler(a *PromptAssembler) { s.promptAssembler = a }
+
+// SetPromptScoreCollector configures automatic score recording on run completion.
+func (s *ConversationService) SetPromptScoreCollector(sc *PromptScoreCollector) {
+	s.scoreCollector = sc
+}
 
 // SetEventStore configures access to trajectory events for budget tracking.
 func (s *ConversationService) SetEventStore(es eventstore.Store) { s.events = es }

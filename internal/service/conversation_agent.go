@@ -843,6 +843,33 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	}
 	s.completionWaitersMu.Unlock()
 
+	// Record prompt scores for evolution tracking.
+	if s.scoreCollector != nil && payload.Model != "" {
+		tenantID := tenantctx.FromContext(ctx)
+		fingerprint := ""
+		if s.promptAssembler != nil {
+			conv, convErr := s.db.GetConversation(ctx, payload.ConversationID)
+			if convErr == nil && conv.Mode != "" {
+				fingerprint = s.promptAssembler.FingerprintForMode(conv.Mode)
+			}
+		}
+		if fingerprint != "" {
+			modelFamily := ExtractModelFamily(payload.Model)
+			succeeded := payload.Status == "completed"
+			if err := s.scoreCollector.RecordSuccessScore(ctx, tenantID, fingerprint,
+				"", modelFamily, payload.RunID, succeeded); err != nil {
+				logBestEffort(ctx, err, "record success score")
+			}
+			if payload.CostUSD > 0 && payload.TokensOut > 0 {
+				qualityPerDollar := float64(payload.TokensOut) / payload.CostUSD
+				if err := s.scoreCollector.RecordCostScore(ctx, tenantID, fingerprint,
+					"", modelFamily, payload.RunID, qualityPerDollar); err != nil {
+					logBestEffort(ctx, err, "record cost score")
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -940,6 +967,15 @@ func (s *ConversationService) historyToPayload(messages []conversation.Message) 
 		result = append(result, pm)
 	}
 	return result
+}
+
+// ExtractModelFamily returns the provider prefix from a model string
+// (e.g. "openai/gpt-4o" -> "openai"). Returns the full string when no slash is present.
+func ExtractModelFamily(model string) string {
+	if idx := strings.Index(model, "/"); idx > 0 {
+		return model[:idx]
+	}
+	return model
 }
 
 // appendModelAdaptation appends a model-family-specific prompt adaptation from the

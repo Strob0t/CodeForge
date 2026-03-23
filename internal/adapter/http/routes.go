@@ -316,6 +316,13 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 				Post("/prompt-evolution/promote/{variantId}", h.PromotePromptEvolutionVariant)
 		}
 
+		// Shared Context
+		if h.SharedContext != nil {
+			r.Post("/teams/{teamId}/shared-context", h.InitSharedContext)
+			r.Get("/teams/{teamId}/shared-context", h.GetSharedContext)
+			r.Post("/teams/{teamId}/shared-context/items", h.AddSharedContextItem)
+		}
+
 		// Roadmap (nested under projects)
 		r.Get("/projects/{id}/roadmap", h.GetProjectRoadmap)
 		r.Post("/projects/{id}/roadmap", h.CreateProjectRoadmap)
