@@ -198,7 +198,7 @@ function TreeNode(props: TreeNodeProps): JSX.Element {
         </Show>
         <img
           src={fileIconUrl(props.entry.name, props.entry.is_dir, isExpanded())}
-          alt=""
+          alt={props.entry.is_dir ? "folder" : "file"}
           class="w-4 h-4 flex-shrink-0"
         />
         <span class="truncate">{props.entry.name}</span>
@@ -280,7 +280,7 @@ function FilteredTreeNode(props: FilteredNodeProps): JSX.Element {
       </Show>
       <img
         src={fileIconUrl(props.entry.name, props.entry.is_dir, isExpanded())}
-        alt=""
+        alt={props.entry.is_dir ? "folder" : "file"}
         class="w-4 h-4 flex-shrink-0"
       />
       <span class="truncate">

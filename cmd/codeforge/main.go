@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -102,6 +103,12 @@ func run() error {
 		"log_level", cfg.Logging.Level,
 		"pg_max_conns", cfg.Postgres.MaxConns,
 	)
+
+	if cfg.AppEnv != "" && cfg.AppEnv != "development" {
+		if strings.Contains(cfg.Postgres.DSN, "codeforge_dev") {
+			slog.Warn("production detected with default database password - change POSTGRES_PASSWORD")
+		}
+	}
 
 	if cfg.InternalKey == "" {
 		slog.Warn("CODEFORGE_INTERNAL_KEY not set — Python worker API calls will fail with 401")
@@ -511,7 +518,14 @@ func run() error {
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
 	// --- LLM Key Service ---
-	llmKeyEncKey := crypto.DeriveKey(cfg.Auth.JWTSecret)
+	llmKeySecret := cfg.Auth.LLMKeyEncryptionSecret
+	if llmKeySecret == "" {
+		llmKeySecret = cfg.Auth.JWTSecret
+		if cfg.AppEnv != "" && cfg.AppEnv != "development" {
+			slog.Warn("LLM key encryption using JWT secret - set AUTH_LLM_KEY_ENCRYPTION_SECRET for production")
+		}
+	}
+	llmKeyEncKey := crypto.DeriveKey(llmKeySecret)
 	llmKeySvc := service.NewLLMKeyService(store, llmKeyEncKey)
 
 	// --- MCP Service (Phase 15C) ---
