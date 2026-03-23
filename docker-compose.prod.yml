@@ -32,6 +32,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-codeforge}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres_archive:/archive
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeforge}"]
       interval: 10s
@@ -55,6 +56,14 @@ services:
       - "ssl_cert_file=/var/lib/postgresql/data/server.crt"
       - "-c"
       - "ssl_key_file=/var/lib/postgresql/data/server.key"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "archive_mode=on"
+      - "-c"
+      - "archive_command=test ! -f /archive/%f && cp %p /archive/%f"
+      - "-c"
+      - "archive_timeout=300"
     deploy:
       resources:
         limits:
@@ -238,4 +247,5 @@ services:
 
 volumes:
   postgres_data:
+  postgres_archive:
   nats_data:
