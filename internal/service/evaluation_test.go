@@ -179,6 +179,76 @@ func TestEvaluationService_HandlePlanComplete_NoMessagesSkipsPublish(t *testing.
 	}
 }
 
+func TestEvaluationService_HandleGemmasResult_Success(t *testing.T) {
+	store := &orchMockStore{}
+	es := &evalMockEventStore{}
+	queue := &runtimeMockQueue{}
+
+	evalSvc := service.NewEvaluationService(store, es, queue)
+
+	payload := messagequeue.GemmasEvalResultPayload{
+		PlanID:                    "plan-gemmas-1",
+		InformationDiversityScore: 0.85,
+		UnnecessaryPathRatio:      0.12,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	if err := evalSvc.HandleGemmasResult(context.Background(), "", data); err != nil {
+		t.Fatalf("HandleGemmasResult: %v", err)
+	}
+}
+
+func TestEvaluationService_HandleGemmasResult_WithError(t *testing.T) {
+	store := &orchMockStore{}
+	es := &evalMockEventStore{}
+	queue := &runtimeMockQueue{}
+
+	evalSvc := service.NewEvaluationService(store, es, queue)
+
+	payload := messagequeue.GemmasEvalResultPayload{
+		PlanID: "plan-gemmas-2",
+		Error:  "LLM timeout",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Should not return an error -- it logs and returns nil.
+	if err := evalSvc.HandleGemmasResult(context.Background(), "", data); err != nil {
+		t.Fatalf("HandleGemmasResult should not error on payload.Error: %v", err)
+	}
+}
+
+func TestEvaluationService_HandleGemmasResult_InvalidJSON(t *testing.T) {
+	store := &orchMockStore{}
+	es := &evalMockEventStore{}
+	queue := &runtimeMockQueue{}
+
+	evalSvc := service.NewEvaluationService(store, es, queue)
+
+	err := evalSvc.HandleGemmasResult(context.Background(), "", []byte("bad json"))
+	if err == nil {
+		t.Fatal("expected error on invalid JSON")
+	}
+}
+
+func TestEvaluationService_StartGemmasResultSubscriber_NilQueue(t *testing.T) {
+	store := &orchMockStore{}
+	es := &evalMockEventStore{}
+
+	evalSvc := service.NewEvaluationService(store, es, nil)
+
+	cancel, err := evalSvc.StartGemmasResultSubscriber(context.Background())
+	if err != nil {
+		t.Fatalf("StartGemmasResultSubscriber: %v", err)
+	}
+	cancel() // should be a no-op
+}
+
 func TestOrchestratorService_MultipleCallbacks(t *testing.T) {
 	_, orchSvc := newOrchTestSetup()
 

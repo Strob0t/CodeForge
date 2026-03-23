@@ -624,6 +624,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("review trigger complete subscriber: %w", err)
 	}
+	gemmasCancel, err := evalSvc.StartGemmasResultSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("gemmas result subscriber: %w", err)
+	}
 	slog.Info("conversation service initialized", "agentic_by_default", cfg.Agent.AgenticByDefault)
 
 	// --- Auto-Agent Service ---
@@ -1030,6 +1034,7 @@ func run() error {
 		cancel()
 	}
 	reviewTriggerCancel()
+	gemmasCancel()
 	benchmarkRunCancel()
 	cancelWatchdog()
 	for _, cancel := range retrievalCancels {
