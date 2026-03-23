@@ -80,9 +80,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		})
 
 		// Projects
-		r.Get("/projects", h.ListProjects)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.CreateProject)
-		r.Get("/projects/remote-branches", h.ListRemoteBranches)
+		r.Get("/projects", h.Project.ListProjects)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.Project.CreateProject)
+		r.Get("/projects/remote-branches", h.Project.ListRemoteBranches)
 
 		// Batch project operations
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/delete", h.BatchDeleteProjects)
@@ -93,16 +93,16 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Post("/search", h.GlobalSearch)
 		r.Post("/search/conversations", h.SearchConversations)
 
-		r.Get("/projects/{id}", h.GetProject)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.DeleteProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.UpdateProject)
+		r.Get("/projects/{id}", h.Project.GetProject)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.Project.DeleteProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.Project.UpdateProject)
 
 		// Workspace operations (nested under projects)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/clone", h.CloneProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/adopt", h.AdoptProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/setup", h.SetupProject)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/init-workspace", h.InitWorkspace)
-		r.Get("/projects/{id}/workspace", h.GetWorkspaceInfo)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/clone", h.Project.CloneProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/adopt", h.Project.AdoptProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/setup", h.Project.SetupProject)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/init-workspace", h.Project.InitWorkspace)
+		r.Get("/projects/{id}/workspace", h.Project.GetWorkspaceInfo)
 
 		// File operations (nested under projects)
 		r.Get("/projects/{id}/files", h.ListFiles)
@@ -113,55 +113,55 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Patch("/projects/{id}/files/rename", h.RenameFile)
 
 		// Stack Detection
-		r.Get("/projects/{id}/detect-stack", h.DetectProjectStack)
-		r.Post("/detect-stack", h.DetectStackByPath)
+		r.Get("/projects/{id}/detect-stack", h.Project.DetectProjectStack)
+		r.Post("/detect-stack", h.Project.DetectStackByPath)
 
 		// Git operations (nested under projects)
-		r.Get("/projects/{id}/git/status", h.ProjectGitStatus)
-		r.Post("/projects/{id}/git/pull", h.PullProject)
-		r.Get("/projects/{id}/git/branches", h.ListProjectBranches)
-		r.Post("/projects/{id}/git/checkout", h.CheckoutBranch)
+		r.Get("/projects/{id}/git/status", h.Project.ProjectGitStatus)
+		r.Post("/projects/{id}/git/pull", h.Project.PullProject)
+		r.Get("/projects/{id}/git/branches", h.Project.ListProjectBranches)
+		r.Post("/projects/{id}/git/checkout", h.Project.CheckoutBranch)
 
 		// Agents (nested under projects)
-		r.Post("/projects/{id}/agents", h.CreateAgent)
-		r.Get("/projects/{id}/agents", h.ListAgents)
+		r.Post("/projects/{id}/agents", h.Agent.CreateAgent)
+		r.Get("/projects/{id}/agents", h.Agent.ListAgents)
 
 		// Agents (direct access)
-		r.Get("/agents/{id}", h.GetAgent)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/agents/{id}", h.DeleteAgent)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/dispatch", h.DispatchTask)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/stop", h.StopAgentTask)
+		r.Get("/agents/{id}", h.Agent.GetAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/agents/{id}", h.Agent.DeleteAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/dispatch", h.Agent.DispatchTask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/stop", h.Agent.StopAgentTask)
 
 		// Agent Identity (Phase 23C)
-		r.Get("/agents/{id}/inbox", h.ListAgentInbox)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/inbox", h.SendAgentMessage)
-		r.Post("/agents/{id}/inbox/{msgId}/read", h.MarkInboxRead)
-		r.Get("/agents/{id}/state", h.GetAgentState)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.UpdateAgentState)
+		r.Get("/agents/{id}/inbox", h.Agent.ListAgentInbox)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/inbox", h.Agent.SendAgentMessage)
+		r.Post("/agents/{id}/inbox/{msgId}/read", h.Agent.MarkInboxRead)
+		r.Get("/agents/{id}/state", h.Agent.GetAgentState)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.Agent.UpdateAgentState)
 
 		// Tasks (nested under projects)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/tasks", h.CreateTask)
-		r.Get("/projects/{id}/tasks", h.ListTasks)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/tasks", h.Task.CreateTask)
+		r.Get("/projects/{id}/tasks", h.Task.ListTasks)
 
 		// Active agents (Phase 23D War Room)
-		r.Get("/projects/{id}/agents/active", h.ListActiveAgents)
+		r.Get("/projects/{id}/agents/active", h.Agent.ListActiveAgents)
 
 		// Active Work (Phase 24)
-		r.Get("/projects/{id}/active-work", h.ListActiveWork)
+		r.Get("/projects/{id}/active-work", h.Task.ListActiveWork)
 
 		// Tasks (direct access)
-		r.Get("/tasks/{id}", h.GetTask)
-		r.Get("/tasks/{id}/events", h.ListTaskEvents)
-		r.Get("/tasks/{id}/runs", h.ListTaskRuns)
+		r.Get("/tasks/{id}", h.Task.GetTask)
+		r.Get("/tasks/{id}/events", h.Agent.ListTaskEvents)
+		r.Get("/tasks/{id}/runs", h.Run.ListTaskRuns)
 		r.Get("/tasks/{id}/context", h.GetContextPack)
 		r.Post("/tasks/{id}/context", h.BuildContextPack)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/tasks/{id}/claim", h.ClaimTask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/tasks/{id}/claim", h.Task.ClaimTask)
 
 		// Runs
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/runs", h.StartRun)
-		r.Get("/runs/{id}", h.GetRun)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/runs/{id}/cancel", h.CancelRun)
-		r.Get("/runs/{id}/events", h.ListRunEvents)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/runs", h.Run.StartRun)
+		r.Get("/runs/{id}", h.Run.GetRun)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/runs/{id}/cancel", h.Run.CancelRun)
+		r.Get("/runs/{id}/events", h.Run.ListRunEvents)
 
 		// Run Approval (Phase 31)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
@@ -182,8 +182,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/llm/discover", h.DiscoverLLMModels)
 
 		// Provider registries
-		r.Get("/providers/git", h.ListGitProviders)
-		r.Get("/providers/agent", h.ListAgentBackends)
+		r.Get("/providers/git", h.Utility.ListGitProviders)
+		r.Get("/providers/agent", h.Utility.ListAgentBackends)
 		r.Get("/providers/spec", h.ListSpecProviders)
 		r.Get("/providers/pm", h.ListPMProviders)
 
@@ -191,18 +191,18 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/backends/health", h.CheckBackendHealth)
 
 		// Parse repo URL
-		r.Post("/parse-repo-url", h.ParseRepoURL)
+		r.Post("/parse-repo-url", h.Project.ParseRepoURL)
 
 		// Repo info (fetch metadata from remote hosting API)
-		r.Get("/repos/info", h.FetchRepoInfo)
+		r.Get("/repos/info", h.Project.FetchRepoInfo)
 
 		// Policy profiles
-		r.Get("/policies", h.ListPolicyProfiles)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/policies", h.CreatePolicyProfile)
-		r.Post("/policies/allow-always", h.AllowAlwaysPolicy)
-		r.Get("/policies/{name}", h.GetPolicyProfile)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/policies/{name}", h.DeletePolicyProfile)
-		r.Post("/policies/{name}/evaluate", h.EvaluatePolicy)
+		r.Get("/policies", h.Policy.ListPolicyProfiles)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/policies", h.Policy.CreatePolicyProfile)
+		r.Post("/policies/allow-always", h.Policy.AllowAlwaysPolicy)
+		r.Get("/policies/{name}", h.Policy.GetPolicyProfile)
+		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/policies/{name}", h.Policy.DeletePolicyProfile)
+		r.Post("/policies/{name}/evaluate", h.Policy.EvaluatePolicy)
 
 		// Feature Decomposition (Meta-Agent)
 		r.Post("/projects/{id}/decompose", h.DecomposeFeature)
