@@ -15,6 +15,7 @@ import (
 // routeOptions holds optional configuration for MountRoutes.
 type routeOptions struct {
 	authRateLimiter *middleware.RateLimiter
+	auditStore      middleware.AuditStore
 }
 
 // RouteOption configures optional behavior in MountRoutes.
@@ -25,6 +26,11 @@ type RouteOption func(*routeOptions)
 // attempts independently of the global rate limiter.
 func WithAuthRateLimiter(rl *middleware.RateLimiter) RouteOption {
 	return func(o *routeOptions) { o.authRateLimiter = rl }
+}
+
+// WithAuditStore enables audit logging middleware on security-sensitive routes.
+func WithAuditStore(s middleware.AuditStore) RouteOption {
+	return func(o *routeOptions) { o.auditStore = s }
 }
 
 // MountRoutes registers all API routes on the given chi router.
@@ -56,6 +62,15 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 	var ro routeOptions
 	for _, o := range opts {
 		o(&ro)
+	}
+
+	// audit returns AuditLog middleware when an audit store is configured,
+	// or a pass-through no-op otherwise.
+	audit := func(action, resource string) func(http.Handler) http.Handler {
+		if ro.auditStore == nil {
+			return func(next http.Handler) http.Handler { return next }
+		}
+		return middleware.AuditLog(ro.auditStore, action, resource)
 	}
 
 	// VCS Webhooks (outside auth, use HMAC/token verification)
@@ -198,10 +213,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 
 		// Policy profiles
 		r.Get("/policies", h.Policy.ListPolicyProfiles)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/policies", h.Policy.CreatePolicyProfile)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "policy")).Post("/policies", h.Policy.CreatePolicyProfile)
 		r.Post("/policies/allow-always", h.Policy.AllowAlwaysPolicy)
 		r.Get("/policies/{name}", h.Policy.GetPolicyProfile)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/policies/{name}", h.Policy.DeletePolicyProfile)
+		r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "policy")).Delete("/policies/{name}", h.Policy.DeletePolicyProfile)
 		r.Post("/policies/{name}/evaluate", h.Policy.EvaluatePolicy)
 
 		// Feature Decomposition (Meta-Agent)
@@ -227,9 +242,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Get("/modes/tools", h.ListModeTools)
 		r.Get("/modes/artifact-types", h.ListArtifactTypes)
 		r.Get("/modes/{id}", h.GetMode)
-		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/modes", h.CreateMode)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "mode")).Post("/modes", h.CreateMode)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/modes/{id}", h.UpdateMode)
-		r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/modes/{id}", h.DeleteMode)
+		r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "mode")).Delete("/modes/{id}", h.DeleteMode)
 
 		// Pipeline Templates
 		r.Get("/pipelines", h.ListPipelines)
@@ -493,10 +508,10 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Route("/users", func(r chi.Router) {
 			r.Use(middleware.RequireRole(user.RoleAdmin))
 			r.Get("/", h.ListUsersHandler)
-			r.Post("/", h.CreateUserHandler)
-			r.Put("/{id}", h.UpdateUserHandler)
-			r.Delete("/{id}", h.DeleteUserHandler)
-			r.Post("/{id}/force-password-change", h.AdminForcePasswordChange)
+			r.With(audit("create", "user")).Post("/", h.CreateUserHandler)
+			r.With(audit("update", "user")).Put("/{id}", h.UpdateUserHandler)
+			r.With(audit("delete", "user")).Delete("/{id}", h.DeleteUserHandler)
+			r.With(audit("force_password_change", "user")).Post("/{id}/force-password-change", h.AdminForcePasswordChange)
 		})
 
 		// Commands (slash commands for chat)
@@ -638,8 +653,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 			r.Get("/", h.listQuarantinedMessages)
 			r.Get("/stats", h.quarantineStats)
 			r.Get("/{id}", h.getQuarantinedMessage)
-			r.Post("/{id}/approve", h.approveQuarantinedMessage)
-			r.Post("/{id}/reject", h.rejectQuarantinedMessage)
+			r.With(audit("approve", "quarantine")).Post("/{id}/approve", h.approveQuarantinedMessage)
+			r.With(audit("reject", "quarantine")).Post("/{id}/reject", h.rejectQuarantinedMessage)
 		})
 	})
 }
