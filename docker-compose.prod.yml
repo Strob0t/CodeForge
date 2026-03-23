@@ -64,6 +64,8 @@ services:
       - "archive_command=test ! -f /archive/%f && cp %p /archive/%f"
       - "-c"
       - "archive_timeout=300"
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -96,6 +98,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -136,6 +140,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -177,6 +183,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - public
+      - internal
     deploy:
       resources:
         limits:
@@ -211,6 +220,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -238,6 +249,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - public
     deploy:
       resources:
         limits:
@@ -249,3 +262,10 @@ volumes:
   postgres_data:
   postgres_archive:
   nats_data:
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
