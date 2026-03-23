@@ -103,6 +103,35 @@ services:
     networks:
       - codeforge
 
+  docs-mcp:
+    image: ghcr.io/arabold/docs-mcp-server:latest
+    container_name: codeforge-docs-mcp
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "6280:6280"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - docs_mcp_data:/data
+      - docs_mcp_config:/config
+    command: [ "mcp", "--protocol", "http", "--host", "0.0.0.0", "--port", "6280", "--no-logo" ]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:6280/health').then(r=>{if(!r.ok)throw r}).catch(()=>process.exit(1))" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - codeforge
+
   litellm:
     image: ghcr.io/berriai/litellm:v1.63.2
     container_name: codeforge-litellm
@@ -148,6 +177,10 @@ volumes:
     name: codeforge-pgdata
   nats_data:
     name: codeforge-nats-data
+  docs_mcp_data:
+    name: codeforge-docs-mcp-data
+  docs_mcp_config:
+    name: codeforge-docs-mcp-config
 
 networks:
   codeforge:
