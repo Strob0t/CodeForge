@@ -21,10 +21,10 @@ func TestBenchmarkHandlers_UseChiURLParam(t *testing.T) {
 }
 
 func TestBenchmarkAnalyzeHandlers_UseChiURLParam(t *testing.T) {
-	// Also verify the analyze handler file.
-	src := readHandlerSource(t, "handlers_benchmark_analyze.go")
+	// AnalyzeBenchmarkRun was merged into handlers_benchmark.go.
+	src := readHandlerSource(t, "handlers_benchmark.go")
 
 	if strings.Contains(src, "r.PathValue") {
-		t.Fatal("handlers_benchmark_analyze.go must use chi.URLParam, not r.PathValue")
+		t.Fatal("handlers_benchmark.go must use chi.URLParam, not r.PathValue")
 	}
 }
