@@ -149,7 +149,10 @@ func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmpr
 		"title": item.Title,
 		"body":  item.Description,
 	}
-	payloadJSON, _ := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("gitea marshal create payload: %w", err)
+	}
 
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues", p.baseURL, owner, repo)
 	body, err := p.doRequest(ctx, http.MethodPost, url, strings.NewReader(string(payloadJSON)))
@@ -180,7 +183,10 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 	if item.Status != "" {
 		payload["state"] = item.Status
 	}
-	payloadJSON, _ := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("gitea marshal update payload: %w", err)
+	}
 
 	url := fmt.Sprintf("%s/api/v1/repos/%s/%s/issues/%s", p.baseURL, owner, repo, item.ID)
 	body, err := p.doRequest(ctx, http.MethodPatch, url, strings.NewReader(string(payloadJSON)))

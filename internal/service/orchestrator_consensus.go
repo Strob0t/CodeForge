@@ -387,13 +387,17 @@ func (s *OrchestratorService) broadcastStepStatus(ctx context.Context, p *plan.E
 }
 
 func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event.Type, p *plan.ExecutionPlan) {
-	payload, _ := json.Marshal(map[string]string{
+	payload, err := json.Marshal(map[string]string{
 		"plan_id":    p.ID,
 		"name":       p.Name,
 		"protocol":   string(p.Protocol),
 		"status":     string(p.Status),
 		"project_id": p.ProjectID,
 	})
+	if err != nil {
+		slog.Warn("marshal plan event payload", "plan_id", p.ID, "error", err)
+		return
+	}
 
 	_ = s.events.Append(ctx, &event.AgentEvent{
 		AgentID:   "",

@@ -72,10 +72,13 @@ func (s *SessionService) ForkConversation(ctx context.Context, conversationID st
 		return nil, fmt.Errorf("fork conversation: find session: %w", err)
 	}
 
-	meta, _ := json.Marshal(map[string]string{
+	meta, err := json.Marshal(map[string]string{
 		"forked_from_conversation": conversationID,
 		"from_event":               req.FromEventID,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("fork conversation: marshal metadata: %w", err)
+	}
 
 	sess := &run.Session{
 		ProjectID:       existing.ProjectID,
@@ -109,10 +112,13 @@ func (s *SessionService) Resume(ctx context.Context, req run.ResumeRequest) (*ru
 		return nil, fmt.Errorf("resume: source run: %w", err)
 	}
 
-	meta, _ := json.Marshal(map[string]string{
+	meta, err := json.Marshal(map[string]string{
 		"resumed_from": r.ID,
 		"prompt":       req.Prompt,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("resume: marshal metadata: %w", err)
+	}
 
 	sess := &run.Session{
 		ProjectID:   r.ProjectID,
@@ -137,11 +143,14 @@ func (s *SessionService) Fork(ctx context.Context, req run.ForkRequest) (*run.Se
 		return nil, fmt.Errorf("fork: source run: %w", err)
 	}
 
-	meta, _ := json.Marshal(map[string]string{
+	meta, err := json.Marshal(map[string]string{
 		"forked_from": r.ID,
 		"from_event":  req.FromEventID,
 		"prompt":      req.Prompt,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("fork: marshal metadata: %w", err)
+	}
 
 	sess := &run.Session{
 		ProjectID:   r.ProjectID,
@@ -174,10 +183,13 @@ func (s *SessionService) Rewind(ctx context.Context, req run.RewindRequest) (*ru
 		return nil, fmt.Errorf("rewind: source run: %w", err)
 	}
 
-	meta, _ := json.Marshal(map[string]string{
+	meta, err := json.Marshal(map[string]string{
 		"rewound_from": r.ID,
 		"to_event":     req.ToEventID,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("rewind: marshal metadata: %w", err)
+	}
 
 	sess := &run.Session{
 		ProjectID:   r.ProjectID,

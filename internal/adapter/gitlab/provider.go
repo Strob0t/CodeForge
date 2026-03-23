@@ -103,7 +103,10 @@ func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmpr
 		"title":       item.Title,
 		"description": item.Description,
 	}
-	payloadJSON, _ := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab marshal create payload: %w", err)
+	}
 
 	reqURL := fmt.Sprintf("%s/api/v4/projects/%s/issues", p.baseURL, encodedRef)
 	body, err := p.doRequest(ctx, http.MethodPost, reqURL, strings.NewReader(string(payloadJSON)))
@@ -131,7 +134,10 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 		// GitLab uses "close" / "reopen" as state_event, but also accepts "closed" / "opened" on state.
 		payload["state_event"] = mapStatusToStateEvent(item.Status)
 	}
-	payloadJSON, _ := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("gitlab marshal update payload: %w", err)
+	}
 
 	reqURL := fmt.Sprintf("%s/api/v4/projects/%s/issues/%s", p.baseURL, encodedRef, item.ID)
 	body, err := p.doRequest(ctx, http.MethodPut, reqURL, strings.NewReader(string(payloadJSON)))

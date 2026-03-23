@@ -331,7 +331,10 @@ func (s *ConversationService) CompactConversation(ctx context.Context, conversat
 		"conversation_id": conversationID,
 		"tenant_id":       tenantctx.FromContext(ctx),
 	}
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal compact request: %w", err)
+	}
 	return s.queue.Publish(ctx, messagequeue.SubjectConversationCompactRequest, data)
 }
 
