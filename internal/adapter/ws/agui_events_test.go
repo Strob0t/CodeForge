@@ -88,20 +88,20 @@ func TestAGUIEventTypeConstants(t *testing.T) {
 func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 	tests := []struct {
 		name       string
-		original   func() interface{}     // factory returns a pointer
-		expectedKs map[string]interface{} // key -> expected value in the raw JSON map
-		omittedKs  []string               // keys expected absent due to omitempty + zero
+		original   func() any     // factory returns a pointer
+		expectedKs map[string]any // key -> expected value in the raw JSON map
+		omittedKs  []string       // keys expected absent due to omitempty + zero
 	}{
 		{
 			name: "RunStarted",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIRunStartedEvent{
 					RunID:     "run-001",
 					ThreadID:  "thread-abc",
 					AgentName: "assistant",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":     "run-001",
 				"thread_id":  "thread-abc",
 				"agent_name": "assistant",
@@ -109,19 +109,19 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "RunStarted_OmitEmpty",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIRunStartedEvent{
 					RunID: "run-002",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id": "run-002",
 			},
 			omittedKs: []string{"thread_id", "agent_name"},
 		},
 		{
 			name: "RunFinished",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIRunFinishedEvent{
 					RunID:     "run-010",
 					Status:    "completed",
@@ -133,7 +133,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					Steps:     7,
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":     "run-010",
 				"status":     "completed",
 				"error":      "something went wrong",
@@ -146,13 +146,13 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "RunFinished_OmitEmpty",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIRunFinishedEvent{
 					RunID:  "run-011",
 					Status: "failed",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id": "run-011",
 				"status": "failed",
 			},
@@ -160,14 +160,14 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "TextMessage",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUITextMessageEvent{
 					RunID:   "run-020",
 					Role:    "assistant",
 					Content: "Hello, I will help you refactor this module.",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-020",
 				"role":    "assistant",
 				"content": "Hello, I will help you refactor this module.",
@@ -175,7 +175,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "ToolCall",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIToolCallEvent{
 					RunID:  "run-030",
 					CallID: "call-xyz",
@@ -183,7 +183,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					Args:   `{"path":"/src/main.go"}`,
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-030",
 				"call_id": "call-xyz",
 				"name":    "Read",
@@ -192,7 +192,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "ToolResult",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIToolResultEvent{
 					RunID:  "run-040",
 					CallID: "call-res-1",
@@ -201,7 +201,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					Diff:   json.RawMessage(`{"op":"add","path":"/foo","value":"bar"}`),
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-040",
 				"call_id": "call-res-1",
 				"result":  `{"lines":42}`,
@@ -210,14 +210,14 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "ToolResult_OmitEmpty",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIToolResultEvent{
 					RunID:  "run-041",
 					CallID: "call-res-2",
 					Result: `{"ok":true}`,
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-041",
 				"call_id": "call-res-2",
 				"result":  `{"ok":true}`,
@@ -226,27 +226,27 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "StateDelta",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIStateDeltaEvent{
 					RunID: "run-050",
 					Delta: `[{"op":"replace","path":"/cost","value":0.01}]`,
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id": "run-050",
 				"delta":  `[{"op":"replace","path":"/cost","value":0.01}]`,
 			},
 		},
 		{
 			name: "StepStarted",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIStepStartedEvent{
 					RunID:  "run-060",
 					StepID: "step-1",
 					Name:   "analyze_code",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-060",
 				"step_id": "step-1",
 				"name":    "analyze_code",
@@ -254,14 +254,14 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "StepFinished",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIStepFinishedEvent{
 					RunID:  "run-070",
 					StepID: "step-2",
 					Status: "completed",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-070",
 				"step_id": "step-2",
 				"status":  "completed",
@@ -269,7 +269,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "PermissionRequest",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIPermissionRequestEvent{
 					RunID:   "run-080",
 					CallID:  "call-perm-1",
@@ -278,7 +278,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					Path:    "/tmp/build",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-080",
 				"call_id": "call-perm-1",
 				"tool":    "Bash",
@@ -288,14 +288,14 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "PermissionRequest_OmitEmpty",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIPermissionRequestEvent{
 					RunID:  "run-081",
 					CallID: "call-perm-2",
 					Tool:   "Read",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":  "run-081",
 				"call_id": "call-perm-2",
 				"tool":    "Read",
@@ -304,7 +304,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "ActionSuggestion",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIActionSuggestionEvent{
 					RunID:  "run-090",
 					Label:  "Run tests",
@@ -312,7 +312,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					Value:  "Bash",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id": "run-090",
 				"label":  "Run tests",
 				"action": "run_tool",
@@ -321,7 +321,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "GoalProposal",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIGoalProposalEvent{
 					RunID:      "run-100",
 					ProposalID: "prop-abc",
@@ -333,7 +333,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					GoalID:     "goal-42",
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":      "run-100",
 				"proposal_id": "prop-abc",
 				"action":      "create",
@@ -346,7 +346,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 		},
 		{
 			name: "GoalProposal_OmitEmpty",
-			original: func() interface{} {
+			original: func() any {
 				return &event.AGUIGoalProposalEvent{
 					RunID:      "run-101",
 					ProposalID: "prop-def",
@@ -357,7 +357,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					Priority:   50,
 				}
 			},
-			expectedKs: map[string]interface{}{
+			expectedKs: map[string]any{
 				"run_id":      "run-101",
 				"proposal_id": "prop-def",
 				"action":      "update",
@@ -381,7 +381,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 			}
 
 			// Verify valid JSON and check key names + values.
-			var raw map[string]interface{}
+			var raw map[string]any
 			if err := json.Unmarshal(data, &raw); err != nil {
 				t.Fatalf("json.Unmarshal to map failed: %v", err)
 			}
@@ -392,7 +392,7 @@ func TestAGUIEvents_JSONRoundTrip(t *testing.T) {
 					t.Errorf("JSON key %q missing from output", key)
 					continue
 				}
-				// json.RawMessage unmarshals to interface{} differently;
+				// json.RawMessage unmarshals to any differently;
 				// for the diff field we just check presence was already done.
 				if key == "diff" {
 					continue
@@ -453,7 +453,7 @@ func TestAGUIToolResultEvent_DiffRawJSON(t *testing.T) {
 func TestAGUIEvents_EmptyStructs(t *testing.T) {
 	zeros := []struct {
 		name  string
-		event interface{}
+		event any
 	}{
 		{"RunStarted_zero", event.AGUIRunStartedEvent{}},
 		{"RunFinished_zero", event.AGUIRunFinishedEvent{}},
@@ -474,7 +474,7 @@ func TestAGUIEvents_EmptyStructs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("marshal zero-value struct: %v", err)
 			}
-			var raw map[string]interface{}
+			var raw map[string]any
 			if err := json.Unmarshal(data, &raw); err != nil {
 				t.Fatalf("unmarshal zero-value JSON: %v", err)
 			}
