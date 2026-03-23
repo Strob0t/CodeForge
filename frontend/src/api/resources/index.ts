@@ -29,6 +29,7 @@ export {
   createTrajectoryResource,
 } from "./misc";
 export { createBatchResource, createProjectsResource } from "./projects";
+export { createQuarantineResource } from "./quarantine";
 export { createRoadmapResource } from "./roadmap";
 export {
   createAgentConfigResource,

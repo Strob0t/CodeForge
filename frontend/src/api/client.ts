@@ -30,6 +30,7 @@ import {
   createTrajectoryResource,
 } from "./resources/misc";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
+import { createQuarantineResource } from "./resources/quarantine";
 import { createRoadmapResource } from "./resources/roadmap";
 import {
   createAgentConfigResource,
@@ -89,4 +90,5 @@ export const api = {
   channels: createChannelsResource(core),
   subscriptionProviders: createSubscriptionProvidersResource(core),
   audit: createAuditResource(core),
+  quarantine: createQuarantineResource(core),
 };
