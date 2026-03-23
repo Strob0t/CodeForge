@@ -89,7 +89,8 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const [attaching, setAttaching] = createSignal(false);
-  let chatFileInputRef: HTMLInputElement | undefined;
+  // eslint-disable-next-line prefer-const -- SolidJS ref requires let
+  let chatFileInputRef: HTMLInputElement | undefined = undefined;
 
   function handleAttachChange(e: Event) {
     const fileInput = e.target as HTMLInputElement;

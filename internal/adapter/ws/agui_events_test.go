@@ -22,24 +22,30 @@ func TestAGUIGoalProposalEventMarshal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got map[string]any
+	var got struct {
+		RunID      string `json:"run_id"`
+		ProposalID string `json:"proposal_id"`
+		Kind       string `json:"kind"`
+		Action     string `json:"action"`
+		Title      string `json:"title"`
+	}
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got["run_id"] != "run-123" {
-		t.Errorf("run_id = %v, want run-123", got["run_id"])
+	if got.RunID != "run-123" {
+		t.Errorf("run_id = %v, want run-123", got.RunID)
 	}
-	if got["proposal_id"] != "prop-456" {
-		t.Errorf("proposal_id = %v, want prop-456", got["proposal_id"])
+	if got.ProposalID != "prop-456" {
+		t.Errorf("proposal_id = %v, want prop-456", got.ProposalID)
 	}
-	if got["kind"] != "requirement" {
-		t.Errorf("kind = %v, want requirement", got["kind"])
+	if got.Kind != "requirement" {
+		t.Errorf("kind = %v, want requirement", got.Kind)
 	}
-	if got["action"] != "create" {
-		t.Errorf("action = %v, want create", got["action"])
+	if got.Action != "create" {
+		t.Errorf("action = %v, want create", got.Action)
 	}
-	if got["title"] != "User can search products" {
-		t.Errorf("title = %v, want User can search products", got["title"])
+	if got.Title != "User can search products" {
+		t.Errorf("title = %v, want User can search products", got.Title)
 	}
 }
 
