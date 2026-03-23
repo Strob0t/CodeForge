@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 from codeforge.consumer._subjects import SUBJECT_HANDOFF_REQUEST
 
@@ -62,7 +65,7 @@ HANDOFF_TOOL_DEF = {
 async def execute_handoff(
     run_id: str,
     arguments: dict[str, Any],
-    nats_publish: Any,
+    nats_publish: Callable[[str, bytes], Awaitable[object]],
 ) -> str:
     """Execute a handoff_to tool call by publishing to the handoff NATS subject."""
     target = arguments.get("target_agent_id", "")
