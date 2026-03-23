@@ -85,7 +85,7 @@ class RuntimeClient:
                 try:
                     msg = await sub.next_msg(timeout=1.0)  # type: ignore[attr-defined]
                     data = json.loads(msg.data)
-                    if data.get("run_id") == self.run_id:
+                    if data.get("run_id") == self.run_id or data.get("task_id") == self.task_id:
                         self._cancelled = True
                         self._log.info("run cancelled by control plane")
                 except TimeoutError:

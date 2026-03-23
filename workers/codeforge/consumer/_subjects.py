@@ -27,6 +27,7 @@ STREAM_SUBJECTS = [
 SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
+SUBJECT_TASK_CANCEL = "tasks.cancel"
 
 # Run subjects
 SUBJECT_RUN_START = "runs.start"
