@@ -49,6 +49,12 @@ services:
       - "max_connections=200"
       - "-c"
       - "log_line_prefix=%t [%p] %q%u@%d "
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/data/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/data/server.key"
     deploy:
       resources:
         limits:
@@ -96,7 +102,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -143,7 +149,7 @@ services:
       - "no-new-privileges:true"
     environment:
       CODEFORGE_PORT: "8080"
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=disable"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
       NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       LITELLM_BASE_URL: "http://litellm:4000"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
@@ -184,7 +190,7 @@ services:
       NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       LITELLM_BASE_URL: "http://litellm:4000"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=disable"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
     depends_on:
       nats:
         condition: service_healthy
