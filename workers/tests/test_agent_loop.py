@@ -414,3 +414,70 @@ async def test_fallback_records_error_in_rate_tracker() -> None:
     assert result is None  # None means "retry with new model"
     assert cfg.model == "mistral/mistral-large-latest"
     tracker.record_error.assert_called_once_with("anthropic", error_type="billing")
+
+
+# --- _ToolErrorTracker tests ---
+
+
+class TestToolErrorTracker:
+    def test_first_error_not_blocked(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        tracker = _ToolErrorTracker(max_identical=2)
+        blocked = tracker.record_error("edit_file", "not found in file at line 42")
+        assert not blocked
+
+    def test_same_error_twice_is_blocked(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        tracker = _ToolErrorTracker(max_identical=2)
+        tracker.record_error("edit_file", "not found in file at line 42")
+        blocked = tracker.record_error("edit_file", "not found in file at line 99")
+        # Line numbers are normalized, so these are the same error signature.
+        assert blocked
+
+    def test_different_errors_not_blocked(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        tracker = _ToolErrorTracker(max_identical=2)
+        tracker.record_error("edit_file", "not found in file")
+        blocked = tracker.record_error("edit_file", "permission denied")
+        assert not blocked
+
+    def test_different_tools_tracked_separately(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        tracker = _ToolErrorTracker(max_identical=2)
+        tracker.record_error("edit_file", "not found")
+        blocked = tracker.record_error("bash", "not found")
+        assert not blocked
+
+    def test_block_message_contains_tool_name(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        tracker = _ToolErrorTracker(max_identical=2)
+        msg = tracker.get_block_message("edit_file")
+        assert "edit_file" in msg
+        assert "NON-RETRYABLE" in msg
+
+    def test_normalize_strips_uuids(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        sig1 = _ToolErrorTracker._normalize_error("Failed for id a1b2c3d4-e5f6 end")
+        sig2 = _ToolErrorTracker._normalize_error("Failed for id deadbeef-1234 end")
+        # Both UUID-prefix patterns get replaced to "UUID", then digits to "N".
+        assert sig1 == sig2
+
+    def test_normalize_strips_line_numbers(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        sig1 = _ToolErrorTracker._normalize_error("Error at line 42 col 10")
+        sig2 = _ToolErrorTracker._normalize_error("Error at line 999 col 5")
+        assert sig1 == sig2
+
+    def test_normalize_truncates_long_errors(self) -> None:
+        from codeforge.agent_loop import _ToolErrorTracker
+
+        long_error = "x" * 500
+        sig = _ToolErrorTracker._normalize_error(long_error)
+        assert len(sig) <= 200

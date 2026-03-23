@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from codeforge.routing.models import ComplexityTier, RoutingConfig, RoutingMetadata
     from codeforge.runtime import RuntimeClient
     from codeforge.tools import ToolRegistry
+    from codeforge.tools._base import ToolResult as _ToolResultType
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,46 @@ class StallDetector:
             "repeated_action": self.get_repeated_action(),
             "escape_count": self._escape_count,
         }
+
+
+class _ToolErrorTracker:
+    """Tracks per-tool error counts to prevent retry loops.
+
+    When a tool produces the same error twice (after normalization), it is
+    marked as NON-RETRYABLE and the agent receives a block message telling
+    it to stop retrying and move on.
+    """
+
+    __slots__ = ("_counts", "_max_identical")
+
+    def __init__(self, max_identical: int = 2) -> None:
+        self._counts: dict[tuple[str, str], int] = {}  # (tool, error_sig) -> count
+        self._max_identical = max_identical
+
+    def record_error(self, tool_name: str, error: str) -> bool:
+        """Record an error. Returns True if this is NON-RETRYABLE (exceeded max)."""
+        sig = self._normalize_error(error)
+        key = (tool_name, sig)
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key] >= self._max_identical
+
+    def get_block_message(self, tool_name: str) -> str:
+        """Return a message telling the agent this tool is blocked."""
+        return (
+            f"[NON-RETRYABLE] Tool '{tool_name}' has failed {self._max_identical} times "
+            f"with the same error. Do NOT retry. Continue with your main task "
+            f"using read_file, write_file, or bash."
+        )
+
+    @staticmethod
+    def _normalize_error(error: str) -> str:
+        """Strip variable parts (line numbers, paths, UUIDs) for comparison."""
+        import re
+
+        # Strip UUIDs before numbers so hex digits are caught.
+        s = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}", "UUID", error)
+        s = re.sub(r"\d+", "N", s)
+        return s[:200]
 
 
 @dataclass
@@ -390,6 +431,7 @@ class AgentLoopExecutor:
         quality_tracker = IterationQualityTracker()
         state = _LoopState(model=cfg.model, quality_tracker=quality_tracker)
         stall_detector = StallDetector()
+        error_tracker = _ToolErrorTracker()
 
         # Check experience pool cache before starting the loop
         user_prompt = self._extract_user_prompt(messages)
@@ -425,7 +467,9 @@ class AgentLoopExecutor:
             # Auto-transition from plan to act when max plan iterations reached.
             _check_plan_act_transition(plan_act, messages)
 
-            result = await self._do_llm_iteration(cfg, tools_array, messages, state, iteration, plan_act=plan_act)
+            result = await self._do_llm_iteration(
+                cfg, tools_array, messages, state, iteration, plan_act=plan_act, error_tracker=error_tracker
+            )
             if result is not None:
                 # result is True for "stop" (final text), string for error.
                 if isinstance(result, str):
@@ -594,6 +638,7 @@ class AgentLoopExecutor:
         state: _LoopState,
         iteration: int,
         plan_act: PlanActController | None = None,
+        error_tracker: _ToolErrorTracker | None = None,
     ) -> bool | str | None:
         """Run one LLM iteration. Returns True on stop, error string on failure, None to continue."""
         llm_decision = await self._runtime.request_tool_call(tool="LLM", command="chat_completion")
@@ -660,7 +705,14 @@ class AgentLoopExecutor:
             await self._runtime.send_output(full_text)
 
         return await self._process_llm_response(
-            cfg, state, response, llm_decision, full_text, messages, plan_act=plan_act
+            cfg,
+            state,
+            response,
+            llm_decision,
+            full_text,
+            messages,
+            plan_act=plan_act,
+            error_tracker=error_tracker,
         )
 
     async def _process_llm_response(
@@ -672,6 +724,7 @@ class AgentLoopExecutor:
         full_text: str,
         messages: list[dict[str, object]],
         plan_act: PlanActController | None = None,
+        error_tracker: _ToolErrorTracker | None = None,
     ) -> bool | None:
         """Process LLM response: update state, report results, execute tool calls."""
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
@@ -752,7 +805,9 @@ class AgentLoopExecutor:
                     self._append_tool_result(tc, blocked_msg, messages, state)
                     continue
 
-            await self._execute_tool_call(tc, messages, state, quality_tracker=state.quality_tracker)
+            await self._execute_tool_call(
+                tc, messages, state, quality_tracker=state.quality_tracker, error_tracker=error_tracker
+            )
             if self._runtime.is_cancelled:
                 # Append placeholder results for remaining tool calls so the
                 # message history stays balanced (required by strict providers
@@ -769,6 +824,7 @@ class AgentLoopExecutor:
         messages: list[dict[str, object]],
         state: _LoopState,
         quality_tracker: IterationQualityTracker | None = None,
+        error_tracker: _ToolErrorTracker | None = None,
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
@@ -845,15 +901,9 @@ class AgentLoopExecutor:
                     logger.debug("failed to publish tool_called trajectory event: %s", traj_exc)
                 return
 
-            if not result.success and result.error:
-                tool_span.set_status(StatusCode.ERROR, result.error)
-                correction = _build_correction_hint(tc.name, result.error)
-                result_text = f"Error: {result.error}\n\n{correction}" if correction else f"Error: {result.error}"
-            elif not result.success:
-                tool_span.set_status(StatusCode.ERROR, "Tool returned an error")
-                result_text = "Tool returned an error"
-            else:
-                result_text = result.output
+            result_text = _build_tool_result_text(result, tc.name, error_tracker)
+            if not result.success:
+                tool_span.set_status(StatusCode.ERROR, result.error or "Tool returned an error")
             self._append_tool_result(tc, result_text, messages, state)
             await self._runtime.report_tool_result(
                 call_id=decision.call_id,
@@ -1294,6 +1344,24 @@ async def _record_routing_outcome(
                 await asyncio.sleep(1)
                 continue
             logger.warning("failed to record routing outcome after retries: %s", exc, exc_info=True)
+
+
+def _build_tool_result_text(
+    result: _ToolResultType,
+    tool_name: str,
+    error_tracker: _ToolErrorTracker | None,
+) -> str:
+    """Build the result text for a tool call, including correction hints and error tracking."""
+    if result.success:
+        return result.output
+    if not result.error:
+        return "Tool returned an error"
+    correction = _build_correction_hint(tool_name, result.error)
+    text = f"Error: {result.error}\n\n{correction}" if correction else f"Error: {result.error}"
+    # Track repeated errors and block if NON-RETRYABLE (M5).
+    if error_tracker is not None and error_tracker.record_error(tool_name, result.error):
+        text = error_tracker.get_block_message(tool_name)
+    return text
 
 
 def _build_correction_hint(tool_name: str, error: str) -> str:
