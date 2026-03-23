@@ -10,6 +10,7 @@ import { createBenchmarksResource } from "./resources/benchmarks";
 import { createConversationsResource } from "./resources/conversations";
 import { createFilesResource } from "./resources/files";
 import { createCostsResource, createLLMResource, createProvidersResource } from "./resources/llm";
+import { createMicroagentsResource, createSkillsResource } from "./resources/microagents";
 import {
   createActiveWorkResource,
   createAuditResource,
@@ -83,6 +84,8 @@ export const api = {
   lsp: createLSPResource(core),
   dev: createDevResource(core),
   mcp: createMCPResource(core),
+  microagents: createMicroagentsResource(core),
+  skills: createSkillsResource(core),
   promptSections: createPromptSectionsResource(core),
   benchmarks: createBenchmarksResource(core),
   files: createFilesResource(core),

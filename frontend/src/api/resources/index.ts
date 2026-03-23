@@ -9,6 +9,7 @@ export { createBenchmarksResource } from "./benchmarks";
 export { createConversationsResource } from "./conversations";
 export { createFilesResource } from "./files";
 export { createCostsResource, createLLMResource, createProvidersResource } from "./llm";
+export { createMicroagentsResource, createSkillsResource } from "./microagents";
 export {
   createActiveWorkResource,
   createAuditResource,

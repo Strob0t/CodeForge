@@ -50,6 +50,7 @@ _PURE_COMPLETION_PATTERNS: list[re.Pattern[str]] = [
 # Local models known to support function calling reliably.
 # These override the pure-completion classification for local prefixes.
 _LOCAL_FC_CAPABLE_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"qwen3", re.IGNORECASE),
     re.compile(r"qwen2\.5.*(?:coder|instruct)", re.IGNORECASE),
     re.compile(r"mistral.*instruct", re.IGNORECASE),
     re.compile(r"functionary", re.IGNORECASE),
