@@ -86,15 +86,16 @@ func (s *ConversationService) summarizeThreshold() int {
 	return 0
 }
 
-// buildConversationContextEntries assembles context entries for a conversation run
-// when ContextEnabled is true and the context optimizer is wired. The history
-// parameter drives the adaptive budget: early turns get the full budget, long
-// conversations get progressively less (or zero) injected context.
+// buildConversationContextEntries assembles context entries for a conversation run.
+// Delegates to PromptAssemblyService when available.
 func (s *ConversationService) buildConversationContextEntries(
 	ctx context.Context,
 	projectID, userMessage, conversationID string,
 	history []messagequeue.ConversationMessagePayload,
 ) []messagequeue.ContextEntryPayload {
+	if s.promptSvc != nil {
+		return s.promptSvc.BuildConversationContextEntries(ctx, projectID, userMessage, conversationID, history)
+	}
 	if s.contextOpt == nil || s.agentCfg == nil || !s.agentCfg.ContextEnabled {
 		return nil
 	}
@@ -135,11 +136,15 @@ func (s *ConversationService) buildConversationContextEntries(
 }
 
 // evaluateReminders checks runtime conditions and returns matching reminder texts.
+// Delegates to PromptAssemblyService when available.
 func (s *ConversationService) evaluateReminders(
 	ctx context.Context,
 	conversationID string,
 	history []messagequeue.ConversationMessagePayload,
 ) []string {
+	if s.promptSvc != nil {
+		return s.promptSvc.EvaluateReminders(ctx, conversationID, history)
+	}
 	if s.promptAssembler == nil || s.promptAssembler.library == nil {
 		return nil
 	}
@@ -177,10 +182,12 @@ func (s *ConversationService) evaluateReminders(
 // defaultBudgetLimit is the default cost budget (USD) when no explicit limit is configured.
 const defaultBudgetLimit = 5.0
 
-// computeBudget queries the event store for accumulated cost and returns
-// (percent, usedStr, limitStr). Returns (0, "", "") when the event store is
-// unavailable or the conversation has no cost data yet.
+// computeBudget queries the event store for accumulated cost.
+// Delegates to PromptAssemblyService when available.
 func (s *ConversationService) computeBudget(ctx context.Context, conversationID string) (pct float64, usedStr, limitStr string) {
+	if s.promptSvc != nil {
+		return s.promptSvc.ComputeBudget(ctx, conversationID)
+	}
 	if s.events == nil || conversationID == "" {
 		return 0, "", ""
 	}
@@ -938,35 +945,9 @@ func (s *ConversationService) StartCompletionSubscriber(ctx context.Context) (fu
 }
 
 // historyToPayload converts domain messages to protocol payload messages.
+// Delegates to the shared HistoryToPayload function.
 func (s *ConversationService) historyToPayload(messages []conversation.Message) []messagequeue.ConversationMessagePayload {
-	result := make([]messagequeue.ConversationMessagePayload, 0, len(messages))
-	for i := range messages {
-		if messages[i].Role == "system" {
-			continue
-		}
-		pm := messagequeue.ConversationMessagePayload{
-			Role:       messages[i].Role,
-			Content:    messages[i].Content,
-			ToolCallID: messages[i].ToolCallID,
-			Name:       messages[i].ToolName,
-		}
-		// Parse tool_calls from stored JSON.
-		if len(messages[i].ToolCalls) > 0 {
-			var tcs []messagequeue.ConversationToolCall
-			if err := json.Unmarshal(messages[i].ToolCalls, &tcs); err == nil {
-				pm.ToolCalls = tcs
-			}
-		}
-		// Propagate images if present.
-		if len(messages[i].Images) > 0 {
-			var imgs []messagequeue.MessageImagePayload
-			if err := json.Unmarshal(messages[i].Images, &imgs); err == nil {
-				pm.Images = imgs
-			}
-		}
-		result = append(result, pm)
-	}
-	return result
+	return HistoryToPayload(messages)
 }
 
 // ExtractModelFamily returns the provider prefix from a model string
@@ -992,10 +973,13 @@ func appendModelAdaptation(systemPrompt, model string, mode *messagequeue.ModePa
 	return systemPrompt
 }
 
-// buildSystemPrompt assembles the system prompt for a conversation using the
-// embedded template and project context. Failures in fetching optional context
-// (agents, tasks, roadmap) are logged and skipped gracefully.
+// buildSystemPrompt assembles the system prompt for a conversation.
+// Delegates to PromptAssemblyService when available.
 func (s *ConversationService) buildSystemPrompt(ctx context.Context, projectID string) string {
+	if s.promptSvc != nil {
+		return s.promptSvc.BuildSystemPrompt(ctx, projectID)
+	}
+
 	data := conversationPromptData{}
 
 	// Fetch project info (required for a meaningful prompt).
@@ -1145,8 +1129,11 @@ func detectStackSummary(workspacePath string) (string, error) {
 }
 
 // resolveProviderAPIKey attempts to look up the user's per-provider LLM key.
-// Returns "" when no key is found (caller falls back to global key).
+// Delegates to PromptAssemblyService when available.
 func (s *ConversationService) resolveProviderAPIKey(ctx context.Context, userID, model string) string {
+	if s.promptSvc != nil {
+		return s.promptSvc.ResolveProviderAPIKey(ctx, userID, model)
+	}
 	if s.llmKeySvc == nil || userID == "" {
 		return ""
 	}
