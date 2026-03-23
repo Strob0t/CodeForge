@@ -31,6 +31,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfmcp "github.com/Strob0t/CodeForge/internal/adapter/mcp"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
 	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
 	"github.com/Strob0t/CodeForge/internal/adapter/openhands"
@@ -205,6 +206,7 @@ func run() error {
 	hub := ws.NewHub(cfg.Server.CORSOrigin, middleware.TenantIDFromContext)
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
+	osFS := osfs.New()
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
@@ -727,7 +729,7 @@ func run() error {
 	slog.Info("skill service initialized")
 
 	// --- File Service ---
-	fileSvc := service.NewFileService(store)
+	fileSvc := service.NewFileService(store, osFS)
 	slog.Info("file service initialized")
 
 	// --- Feedback Providers (Phase 22D) ---
