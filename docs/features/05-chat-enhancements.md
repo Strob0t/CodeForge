@@ -41,7 +41,7 @@
 - Copy-to-clipboard for code blocks, retry failed messages, apply suggested changes
 - Buttons appear on hover/focus for each message bubble
 
-**Files:** `frontend/src/features/project/MessageActions.tsx`
+**Files:** <!-- NOT IMPLEMENTED as of 2026-03-23 --> `frontend/src/features/project/MessageActions.tsx`
 
 ### 4. Cost Tracking per Message (Phase 4)
 
@@ -62,7 +62,7 @@
 - `useFrequencyTracker` hook for sorting suggestions by usage frequency
 - `TokenBadge` for rendering resolved references inline
 
-**Files:** `frontend/src/features/project/AutocompletePopover.tsx`, `frontend/src/features/project/ChatInput.tsx`
+**Files:** `frontend/src/features/chat/AutocompletePopover.tsx`, `frontend/src/features/chat/ChatInput.tsx`
 
 ### 6. Slash Commands (Phase 6)
 
@@ -74,7 +74,7 @@
 - `DiffModal` for reviewing changes before applying rewind
 - Rewind timeline picker showing conversation checkpoints
 
-**Files:** `frontend/src/features/project/CommandRegistry.ts`, `internal/adapter/http/handlers_conversation_control.go`
+**Files:** `frontend/src/features/chat/commandStore.ts`, `frontend/src/features/chat/commandExecutor.ts`, compact handler in `internal/adapter/http/handlers_conversation.go`, rewind handler in `internal/adapter/http/handlers_session.go`
 
 ### 7. Conversation Search (Phase 7)
 
@@ -108,7 +108,7 @@
 
 **What:** Slack-style messaging channels for project collaboration and bot integrations.
 
-- Migration 070: `channels`, `channel_messages`, `channel_members` tables with FTS
+- Migration 071: `channels`, `channel_messages`, `channel_members` tables with FTS
 - Domain model: `Channel` (project/bot types), `Message` (user/agent/bot/webhook senders), `Member` with roles
 - Channel service with validation, bot-only deletion, webhook key generation (`crypto/rand`)
 - 9 HTTP endpoints: list/create/get/delete channels, list/send messages, thread replies, member notify settings, webhook ingress
@@ -148,14 +148,14 @@
 | DELETE | `/api/v1/channels/{id}` | Delete channel (bot-only) |
 | GET | `/api/v1/channels/{id}/messages` | List channel messages |
 | POST | `/api/v1/channels/{id}/messages` | Send channel message |
-| POST | `/api/v1/channels/{id}/messages/{mid}/replies` | Send thread reply |
-| PUT | `/api/v1/channels/{id}/members/me/notify` | Update notification setting |
-| POST | `/api/v1/channels/{id}/webhook/{key}` | Webhook message ingress |
+| POST | `/api/v1/channels/{id}/messages/{mid}/thread` | Send thread reply |
+| PUT | `/api/v1/channels/{id}/members/{uid}` | Update notification setting |
+| POST | `/api/v1/channels/{id}/webhook` | Webhook message ingress |
 
 ## Database Migrations
 
 - **069**: GIN index for conversation message full-text search
-- **070**: channels, channel_messages, channel_members tables
+- **071**: channels, channel_messages, channel_members tables
 
 ## AG-UI Event Flow Architecture
 
@@ -173,12 +173,12 @@ Python Worker  --[NATS]--> Go Core Service --[WebSocket]--> Frontend
 |---|---|---|---|
 | `agui.run_started` | `ConversationService` (direct) | Emitted before NATS publish | `conversation_agent.go`, `conversation.go` |
 | `agui.run_finished` | `ConversationService` | `conversation.run.complete` | `conversation_agent.go` |
-| `agui.text_message` | `RuntimeService` | `runs.output` | `runtime.go` (line 650) |
-| `agui.tool_call` | `RuntimeService` | `runs.toolcall.request` | `runtime_execution.go` (line 144) |
-| `agui.tool_result` | `RuntimeService` | `runs.toolcall.result` | `runtime_execution.go` (line 417) |
+| `agui.text_message` | `RuntimeService` | `runs.output` | `runtime.go` (line 644) |
+| `agui.tool_call` | `RuntimeService` | `runs.toolcall.request` | `runtime_execution.go` (line 142) |
+| `agui.tool_result` | `RuntimeService` | `runs.toolcall.result` | `runtime_execution.go` (line 412) |
 | `agui.step_started` | `OrchestratorService` | Direct (orchestration steps) | `orchestrator_consensus.go` |
 | `agui.step_finished` | `OrchestratorService` | Direct (orchestration steps) | `orchestrator_consensus.go` |
-| `agui.state_delta` | Not emitted | N/A | Defined in `agui_events.go` but no producer exists |
+| `agui.state_delta` | Not emitted | N/A | Defined in `agui.go` but no producer exists |
 
 ### Python Worker NATS Subjects
 

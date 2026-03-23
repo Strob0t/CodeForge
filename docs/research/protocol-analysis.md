@@ -35,7 +35,7 @@ Architecture uses Host / Client / Server roles:
 CodeForge should implement MCP in three roles:
 
 - As an MCP Host (primary role): CodeForge is the user-facing application that orchestrates agents. The Go Core acts as the Host, creating MCP Clients to connect to external MCP Servers. This gives CodeForge's agents access to the entire MCP ecosystem (5,800+ servers for databases, APIs, cloud services, etc.).
-- As an MCP Client (within the Host): Each Python Worker spawns MCP Client connections to relevant MCP Servers based on the task context. The `McpWorkbench` pattern (already planned in `workers/codeforge/execution/workbench.py`) is the right abstraction -- it wraps MCP server connections as tool containers.
+- As an MCP Client (within the Host): Each Python Worker spawns MCP Client connections to relevant MCP Servers based on the task context. The `McpWorkbench` pattern (already planned in `workers/codeforge/mcp_workbench.py`) is the right abstraction -- it wraps MCP server connections as tool containers.
 - As an MCP Server (secondary role): CodeForge exposes its own capabilities as MCP tools so that external MCP clients (Claude Desktop, VS Code Copilot, Cursor, etc.) can invoke CodeForge tasks. This means users can trigger CodeForge agent workflows directly from their IDE.
 
 Implementation complexity is medium. SDKs exist for Python (workers) and TypeScript (frontend). The Go Core needs either a Go MCP SDK (emerging) or can proxy through the Python workers. The `mcp-agent` framework by lastmile-ai provides composable patterns (map-reduce, orchestrator, evaluator-optimizer) that align with CodeForge's existing workflow architecture.
@@ -132,7 +132,7 @@ How AG-UI differs from MCP and A2A:
 
 AG-UI addresses the exact layer CodeForge needs for its SolidJS frontend: streaming agent state, tool call results, plan approvals, and live logs to the user interface. However, CodeForge already plans a custom WebSocket-based event system (Event Bus from CrewAI pattern) that covers similar ground.
 
-AG-UI is designed for React-based applications (the `useAgent` hook). CodeForge uses SolidJS, which would require either a SolidJS adapter or manual event stream handling. The WebSocket + Event Bus architecture already planned in `workers/codeforge/events/bus.py` achieves the same goal with less external dependency.
+AG-UI is designed for React-based applications (the `useAgent` hook). CodeForge uses SolidJS, which would require either a SolidJS adapter or manual event stream handling. The WebSocket + Event Bus architecture already implemented in `internal/domain/event/agui.go` and `internal/domain/event/broadcast.go` (event types are Go-side) achieves the same goal with less external dependency.
 
 **Priority:** Phase 3+ (monitor) -- If AG-UI gains a SolidJS adapter or becomes framework-agnostic, reconsider. For now, the custom WebSocket event system is the right choice. AG-UI's guardrail patterns (prompt injection at the boundary) are worth studying for the Safety Layer regardless.
 
@@ -496,7 +496,7 @@ JSON-RPC is the transport for both MCP and A2A. CodeForge does not need to imple
 
 GraphQL is a query language for APIs that lets clients request exactly the data they need.
 
-Architecture decision (already made): GraphQL was explicitly rejected in `docs/architecture.md` ("Explicitly NOT adopted: HAL+JSON/HATEOAS, GraphQL, custom PM tool"). The GitHub and GitLab PM adapters use their GraphQL APIs as consumers but CodeForge does not expose GraphQL.
+Architecture decision (already made): GraphQL was explicitly rejected as noted in CodeForge's architecture decisions. The GitHub and GitLab PM adapters use their GraphQL APIs as consumers but CodeForge does not expose GraphQL.
 
 This decision remains correct. GraphQL adds complexity (schema management, resolver layer, N+1 query problems) that is not justified for CodeForge's use case. REST + WebSocket covers all needs. The only GraphQL interaction is as a client to GitHub/GitLab APIs, handled by their respective adapter packages.
 

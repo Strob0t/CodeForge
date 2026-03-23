@@ -146,7 +146,7 @@ model_list:
 | **Model Blocklist** | `workers/codeforge/routing/blocklist.py` | TTL-based model blocklist for temporarily disabling failing models |
 | **Rate Limit Tracker** | `workers/codeforge/routing/rate_tracker.py` | Per-provider rate limit tracking for intelligent request routing |
 
-- [x] Python routing package: `workers/codeforge/routing/` (10 modules, 164 tests)
+- [x] Python routing package: `workers/codeforge/routing/` (11 modules, 164 tests)
 - [x] Integration: `resolve_model_with_routing()` in llm.py, conversation handler, executor
 - [x] LiteLLM wildcard config: 6 provider entries replace 38 individual models
 - [x] Task-type complexity boost: inherent task difficulty (PLAN/REVIEW/REFACTOR etc.) shifts tier classification (29K)

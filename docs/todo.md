@@ -39,7 +39,7 @@
 #### Phase 5 -- Multi-Agent Orchestration (COMPLETED)
 - [x] DAG scheduling (sequential, parallel, ping-pong, consensus), Meta-Agent LLM decomposition
 - [x] Agent Teams with role-based composition, Context Optimizer with token budget packing
-- [x] Modes System: 21 built-in agent specialization modes
+- [x] Modes System: 24 built-in agent specialization modes
 
 #### Phase 6 -- Code-RAG (COMPLETED)
 - [x] tree-sitter Repo Map (16+ languages, PageRank), Hybrid Retrieval (BM25S + semantic, RRF fusion)
@@ -219,7 +219,7 @@
 
 #### Benchmark E2E Full Run (2026-03-19) — Findings & Recommendations (OPEN)
 
-> Report: `docs/testing/2026-03-19-benchmark-e2e-report.md`
+> Report: `docs/testing/benchmark-e2e-report.md`
 > Full API + Playwright-MCP UI test. 86/90 passed, 4 deferred (queue timing).
 
 ##### REC-1: Parallel Benchmark Run Processing with Dependency Awareness (Critical)
@@ -514,9 +514,9 @@
 
 #### Test Suites (COMPLETED)
 - [x] Browser E2E: 17 Playwright tests (health, navigation, projects, costs, models, a11y)
-- [x] LLM E2E: 95 API-level tests across 12 spec files
+- [x] LLM E2E: 95 API-level tests across 11 spec files
 - [x] Benchmark E2E: 132 browser Playwright tests across 12 spec files
-- [x] Benchmark Validation E2E: 22 API-level tests across 6 blocks (`frontend/e2e/benchmark-validation/`)
+- [x] Benchmark Validation E2E: 22 API-level tests across 7 blocks (`frontend/e2e/benchmark-validation/`)
 - [x] Backend E2E: 88 pass / 0 fail / 3 skip (97% pass rate)
 - [x] Python unit tests: 134 pass (107 prior + 27 new from evaluation improvements)
 
@@ -547,7 +547,6 @@
 
 ### E2E Playwright Test Findings (2026-03-09)
 
-> Report: [docs/testing/2026-03-09-e2e-playwright-report.md](testing/2026-03-09-e2e-playwright-report.md)
 > 5 findings from interactive end-to-end Playwright MCP test of full agent evaluation workflow.
 
 #### F4: Workspace Path Resolution Bug (Priority: CRITICAL)
@@ -597,8 +596,8 @@
 > failed without trying another provider. Rate tracker only handles 429 (rate limit), not
 > 401/402/billing errors.
 
-- [x] F3.1: Add test for billing/auth error classification — 4 tests (2026-03-09)
-  - File: `workers/tests/test_routing_rate_tracker.py` (new or extend existing)
+- [ ] F3.1: Add test for billing/auth error classification — 4 tests (2026-03-09)
+  - File: `workers/tests/test_routing_rate_tracker.py` (File absorbed into other test files — not yet created as standalone)
   - Test: Call `rate_tracker.record_error("anthropic", error_type="billing")` → `is_exhausted("anthropic")` returns `True`
   - Test: Call `rate_tracker.record_error("anthropic", error_type="auth")` → `is_exhausted("anthropic")` returns `True`
   - Run: `cd workers && poetry run pytest tests/test_routing_rate_tracker.py -v`
@@ -1007,14 +1006,14 @@
 
 #### B2: NATS Payload Contract Tests (Priority: HIGH) -- DONE 2026-03-08
 
-> Go side: `internal/port/messagequeue/contract_test.go` (20 sample factories, roundtrip + fixture generation)
+> Go side: `internal/port/messagequeue/contract_test.go` (39 sample factories, roundtrip + fixture generation)
 > Python side: `workers/tests/test_nats_contracts.py` (80 parametrized tests, fixture validation + field coverage)
-> Fixtures: `internal/port/messagequeue/testdata/contracts/*.json` (20 files, Go-generated)
+> Fixtures: `internal/port/messagequeue/testdata/contracts/*.json` (31 files, Go-generated)
 > Contract violation found & fixed: `BenchmarkRunResult` Python model was missing `tenant_id`
 
 **Infrastructure:**
 
-- [x] Create Go contract test generator -- `TestContract_GenerateFixtures` writes 20 JSON fixtures
+- [x] Create Go contract test generator -- `TestContract_GenerateFixtures` writes 31 JSON fixtures
 - [x] Create Python contract validator -- 80 parametrized tests: fixture parse, roundtrip, field coverage, required fields
 - [x] Create reverse contract test -- Python roundtrip (Pydantic parse → dump → re-parse)
 - [x] Add contract test verification checklist -- field coverage, required fields, tenant_id presence
@@ -1027,9 +1026,9 @@
 - [x] Contract test: `benchmark.run.result` -- PASS (fixed missing `tenant_id` in Python model)
 - [x] Contract test: `evaluation.gemmas.request` -- PASS
 - [x] Contract test: `evaluation.gemmas.result` -- PASS
-- [x] Contract test: `memory.store` -- PASS
-- [x] Contract test: `memory.recall` -- PASS
-- [x] Contract test: `memory.recall.result` -- PASS
+- [ ] Contract test: `memory.store` -- fixture not yet generated
+- [ ] Contract test: `memory.recall` -- fixture not yet generated
+- [ ] Contract test: `memory.recall.result` -- fixture not yet generated
 - [x] Contract test: `repomap.generate.request` -- PASS
 - [x] Contract test: `repomap.generate.result` -- PASS
 - [x] Contract test: `retrieval.index.request` -- PASS
@@ -1044,7 +1043,7 @@
 - [x] Contract test: `graph.search.result` -- PASS
 - [x] Contract test: `a2a.task.created` -- PASS
 - [x] Contract test: `a2a.task.complete` -- PASS
-- [x] Contract test: `handoff.request` -- PASS
+- [ ] Contract test: `handoff.request` -- fixture not yet generated
 
 #### B3: Unit Tests for Untested Critical Modules (Priority: HIGH) -- DONE 2026-03-08
 
@@ -1125,13 +1124,13 @@
 
 #### C1: Feature Verification Matrix (Priority: MEDIUM) -- DONE 2026-03-08
 
-> File: `docs/feature-verification-matrix.md`
+> File: `docs/feature-verification-matrix.md` (File not yet created)
 
-- [x] Create initial matrix with all 30 features listed
-- [x] Define verification criteria per feature: 5 test layers (Go Unit, Py Unit, E2E, Contract, Smoke)
-- [x] Mark currently-passing features based on test results (24 partial, 0 blocked)
-- [x] Add "Last Verified" date column
-- [x] Cross-reference: each feature row links to relevant test files
+- [ ] Create initial matrix with all 30 features listed
+- [ ] Define verification criteria per feature: 5 test layers (Go Unit, Py Unit, E2E, Contract, Smoke)
+- [ ] Mark currently-passing features based on test results (24 partial, 0 blocked)
+- [ ] Add "Last Verified" date column
+- [ ] Cross-reference: each feature row links to relevant test files
 
 #### C2: Automated Verification Reporter (Priority: MEDIUM) -- DONE 2026-03-08
 
@@ -1530,3 +1529,13 @@
 - [ ] **F-015 (HIGH):** Redact PII (user email) from INFO-level production logs (GDPR Art. 5(1)(c))
 - [ ] **F-016 (HIGH):** Implement GDPR data deletion (`DELETE /users/me`) and export (`GET /users/me/export`) endpoints
 - [ ] **F-017 to F-055:** 24 MEDIUM + 10 LOW findings -- see audit report for full details
+
+---
+
+#### Frontend Feature Pages & Prompt Evolution (COMPLETED 2026-03-23)
+
+- [x] (2026-03-23) **MicroagentsPage:** UI for managing YAML+Markdown trigger-driven microagents -- `frontend/src/features/microagents/MicroagentsPage.tsx`
+- [x] (2026-03-23) **QuarantinePage:** Admin review UI for Phase 23B message quarantine (risk scores, evaluate/approve/reject) -- `frontend/src/features/quarantine/QuarantinePage.tsx`
+- [x] (2026-03-23) **A2APage:** Frontend for Phase 27 A2A v0.3.0 agent federation (remote agents, task history, AgentCard details) -- `frontend/src/features/a2a/A2APage.tsx`
+- [x] (2026-03-23) **RoutingStatsPage:** Live statistics for Phase 29 hybrid routing (model distribution, fallback events, MAB UCB1 scores) -- `frontend/src/features/routing/RoutingStatsPage.tsx`
+- [x] (2026-03-23) **Prompt Evolution:** LLM-driven prompt improvement pipeline -- reflect/mutate cycles via NATS. Files: `frontend/src/features/prompts/EvolutionTab.tsx`, `internal/service/prompt_evolution.go`, `workers/codeforge/consumer/_prompt_evolution.py`, migration 078

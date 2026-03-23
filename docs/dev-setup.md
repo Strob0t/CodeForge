@@ -28,7 +28,7 @@ cp .env.example .env
 
 Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` and select "Dev Containers: Reopen in Container". Wait until `setup.sh` has finished running.
 
-**Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_BASE_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed.
+**Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed. Note: Python workers use `LITELLM_BASE_URL` which may differ from the devcontainer variable name.
 
 ### Critical Startup Order (Manual / Outside Devcontainer)
 
@@ -75,6 +75,7 @@ CodeForge/
 │   └── postgres/             # PostgreSQL Data
 ├── cmd/
 │   └── codeforge/
+│       ├── admin.go          # Admin command entrypoints
 │       ├── main.go           # Entry point, Dependency Injection
 │       └── providers.go      # Blank imports of all active adapters
 ├── internal/
@@ -85,10 +86,14 @@ CodeForge/
 │   │   ├── artifact/         # Build artifacts
 │   │   ├── autoagent/        # Automatic agent orchestration
 │   │   ├── benchmark/        # Benchmark evaluation models
+│   │   ├── boundary/         # Boundary detection models
 │   │   ├── branchprotection/ # Branch protection rules
+│   │   ├── channel/          # Real-time channel + thread models
+│   │   ├── command/          # Slash command models
 │   │   ├── context/          # Context pack (token budget management)
 │   │   ├── conversation/     # Conversation + message models
 │   │   ├── cost/             # Cost aggregation models
+│   │   ├── dashboard/        # Dashboard models
 │   │   ├── errors.go         # Sentinel errors (ErrNotFound, ErrConflict)
 │   │   ├── event/            # Event types: agent events (22+ types), broadcast events (55 constants + 49 payloads), AG-UI events
 │   │   ├── experience/       # Experience pool caching
@@ -124,7 +129,7 @@ CodeForge/
 │   ├── git/                  # Git worker pool (semaphore-bounded)
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
-│   ├── port/                 # Interfaces + Registries (15 packages)
+│   ├── port/                 # Interfaces + Registries (17 packages)
 │   │   ├── agentbackend/     # Agent backend interface + registry
 │   │   ├── benchprovider/    # Benchmark provider interface
 │   │   ├── broadcast/        # Broadcaster interface (WS events)
@@ -137,17 +142,21 @@ CodeForge/
 │   │   ├── messagequeue/     # Message queue interface + schemas
 │   │   ├── metrics/          # Metrics recorder interface (OTEL abstraction)
 │   │   ├── notifier/         # Notification interface (Slack, Discord, Email)
+│   │   ├── llm/              # LLM provider interface
 │   │   ├── pmprovider/       # PM provider interface + registry
 │   │   ├── specprovider/     # Spec provider interface + registry
+│   │   ├── subscription/     # Subscription interface
 │   │   └── tokenexchange/    # Token exchange interface (Copilot abstraction)
 │   ├── adapter/              # Concrete Implementations (33 packages)
 │   │   ├── a2a/              # A2A protocol server/client
 │   │   ├── aider/            # Aider agent backend
+│   │   ├── auth/             # Authentication adapter
 │   │   ├── autospec/         # Autospec spec provider
 │   │   ├── copilot/          # GitHub Copilot token exchange
 │   │   ├── discord/          # Discord notification adapter
 │   │   ├── email/            # Email notification + feedback adapter
 │   │   ├── gitea/            # Gitea/Forgejo adapter
+│   │   ├── github/           # GitHub adapter
 │   │   ├── githubpm/         # GitHub Issues PM provider (gh CLI)
 │   │   ├── gitlab/           # GitLab adapter
 │   │   ├── gitlocal/         # Local git CLI provider
@@ -198,8 +207,8 @@ CodeForge/
 │       ├── tracing/          # OpenTelemetry tracing
 │       └── trust/            # Trust annotation helpers
 ├── frontend/                 # SolidJS Web GUI
-│   ├── e2e/                  # Playwright E2E tests (37 browser specs + 11 LLM API specs)
-│   │   └── llm/              # LLM E2E test suite (95 tests, no browser needed)
+│   ├── e2e/                  # Playwright E2E tests (82 browser specs + 11 LLM API specs)
+│   │   └── llm/              # LLM E2E test suite (88 tests, no browser needed)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
 │   ├── public/
 │   │   ├── favicon.svg       # Anvil brand favicon
@@ -216,23 +225,33 @@ CodeForge/
 │       │   ├── DESIGN-SYSTEM.md  # Design token documentation
 │       │   └── index.ts      # Barrel: import { Button, Card } from "~/ui"
 │       ├── features/
+│       │   ├── a2a/          # Agent-to-Agent federation UI
 │       │   ├── activity/     # Activity feed
 │       │   ├── audit/        # Audit trail viewer
 │       │   ├── auth/         # Login, auth guards
 │       │   ├── benchmarks/   # BenchmarkPage (dev-mode evaluation dashboard)
+│       │   ├── canvas/       # Visual design canvas (SVG, 7 tools, triple export)
+│       │   ├── channels/     # Real-time channels with threads
+│       │   ├── chat/         # Chat enhancements (slash commands, search, notifications)
 │       │   ├── dev/          # DesignSystemPage (dev-mode living style guide)
+│       │   ├── knowledge/    # Knowledge management
 │       │   ├── onboarding/   # OnboardingWizard (3-step first-time user flow)
 │       │   ├── costs/        # CostDashboardPage (global cost overview)
 │       │   ├── dashboard/    # Project list, ProjectCard
 │       │   ├── knowledgebases/ # Knowledge base management
 │       │   ├── llm/          # ModelsPage (LLM model management)
 │       │   ├── mcp/          # MCPServersPage (MCP server management)
+│       │   ├── microagents/  # Microagents management UI
 │       │   ├── modes/        # Agent modes management
+│       │   ├── notifications/ # Notification center
 │       │   ├── project/      # ProjectDetailPage, ChatPanel, WarRoom,
 │       │   │                 # AgentPanel, RunPanel, PlanPanel, PolicyPanel,
 │       │   │                 # RoadmapPanel, FeatureMapPanel, RepoMapPanel
 │       │   ├── prompts/      # Prompt template management
+│       │   ├── quarantine/   # Message quarantine admin UI
+│       │   ├── routing/      # LLM routing configuration UI
 │       │   ├── scopes/       # Scope/permissions management
+│       │   ├── search/       # Conversation search UI
 │       │   └── settings/     # Application settings
 │       └── api/              # API Client, Types, WebSocket
 ├── scripts/
@@ -259,7 +278,7 @@ CodeForge/
 ├── Dockerfile                # Go Core multi-stage build
 ├── Dockerfile.worker         # Python Worker image
 ├── Dockerfile.frontend       # Frontend nginx image
-├── codeforge.yaml.example    # Config file template (all fields documented)
+├── codeforge.example.yaml    # Config file template (all fields documented)
 ├── docker-compose.yml        # Dev Services
 ├── docker-compose.prod.yml   # Production Services (6 containers)
 ├── LICENSE                   # AGPL-3.0
@@ -410,7 +429,7 @@ cd frontend && npm run test:e2e:headed           # See browser
 cd frontend && npm run test:e2e:report           # View HTML report
 ```
 
-Tests span 37 spec files covering health checks, navigation, auth, project CRUD, cost dashboard, models, modes, prompts, MCP, benchmarks, canvas, knowledge bases, settings, scopes, war room, accessibility, security, and more.
+Tests span 82 spec files covering health checks, navigation, auth, project CRUD, cost dashboard, models, modes, prompts, MCP, benchmarks, canvas, knowledge bases, settings, scopes, war room, accessibility, security, and more.
 
 #### LLM E2E Tests (API-Level)
 

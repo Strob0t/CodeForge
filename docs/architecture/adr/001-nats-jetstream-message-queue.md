@@ -22,7 +22,7 @@ The two main candidates were NATS JetStream and Redis Streams.
 Go Core and Python Workers communicate exclusively through NATS:
 - Go Core publishes tasks to subjects like `tasks.agent.aider`, `tasks.agent.openhands`
 - Python Workers subscribe as JetStream consumers with explicit acknowledgment
-- Result streaming via dedicated subjects like `results.{task_id}`
+- Result streaming via `tasks.result` (shared subject; the per-task-id pattern `results.{task_id}` was superseded)
 - Real-time fan-out for WebSocket updates via standard NATS pub/sub
 
 > **Note (Phase 17+):** The primary subjects have evolved to `conversation.run.start/complete` and `runs.start` for the agentic conversation loop. The `tasks.agent.*` pattern above reflects the original design; both co-exist in the current codebase.

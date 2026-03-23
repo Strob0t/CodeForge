@@ -15,7 +15,7 @@
 <!-- [![Discord](https://img.shields.io/discord/SERVERID?color=7289da&label=Discord&logo=discord&logoColor=white)](https://discord.gg/INVITE) -->
 
 [![127+ LLM Models](https://img.shields.io/badge/LLM_Models-127+-8A2BE2)](#-intelligent-llm-routing)
-[![21 Agent Modes](https://img.shields.io/badge/Agent_Modes-21-FF6B6B)](#-agent-orchestration)
+[![24 Agent Modes](https://img.shields.io/badge/Agent_Modes-24-FF6B6B)](#-agent-orchestration)
 [![5 Protocols](https://img.shields.io/badge/Protocols-MCP_|_A2A_|_AG--UI_|_LSP_|_OTEL-00B4D8)](#architecture)
 
 [**Quick Start**](#quick-start) | [**Documentation**](docs/README.md) | [**Architecture**](docs/architecture.md) | [**Roadmap**](docs/project-status.md)
@@ -53,7 +53,7 @@ Drag-and-drop feature planning with OpenSpec, Spec Kit, and Autospec support. Bi
 <td width="50%" valign="top">
 
 ### :robot: Agent Orchestration
-Coordinate Aider, Goose, OpenHands, OpenCode, and Plandex with 5 autonomy levels, 21 built-in modes, DAG scheduling, and multi-agent teams. Built-in agentic loop with 7 tools + MCP.
+Coordinate Aider, Goose, OpenHands, OpenCode, and Plandex with 5 autonomy levels, 24 built-in modes, DAG scheduling, and multi-agent teams. Built-in agentic loop with 7 tools + MCP.
 
 </td>
 </tr>
@@ -102,7 +102,7 @@ The Dev Container auto-installs Go 1.25, Python 3.12, Node.js 22, and starts inf
 
 ```bash
 go run ./cmd/codeforge/ &                                    # API on :8080
-cd workers && poetry run python -m codeforge.consumer &      # AI workers
+poetry run python -m codeforge.consumer &                    # AI workers
 cd frontend && npm run dev                                   # UI on :3000
 ```
 
@@ -113,7 +113,7 @@ git clone https://github.com/Strob0t/CodeForge.git && cd CodeForge
 cp .env.example .env                                         # Add your API keys
 docker compose up -d                                         # PostgreSQL, NATS, LiteLLM
 go run ./cmd/codeforge/ &                                    # API on :8080
-cd workers && poetry run python -m codeforge.consumer &      # AI workers
+poetry run python -m codeforge.consumer &                    # AI workers
 cd frontend && npm run dev                                   # UI on :3000
 ```
 
@@ -138,7 +138,7 @@ SolidJS Frontend (:3000)  --REST/WS/AG-UI-->  Go Core (:8080)  --NATS JetStream-
 | Workers | Python 3.12, LiteLLM, tree-sitter | LLM calls, agent execution, RAG |
 | Infra | Docker, PostgreSQL 18, NATS, LiteLLM | Storage, messaging, LLM proxy |
 
-**Protocols:** [MCP](https://modelcontextprotocol.io/) (agent-to-tool) | [A2A](https://github.com/google/a2a-spec) (agent-to-agent) | [AG-UI](https://docs.ag-ui.com/) (agent-to-frontend) | [LSP](https://microsoft.github.io/language-server-protocol/) (code intelligence) | [OpenTelemetry](https://opentelemetry.io/) (tracing)
+**Protocols:** [MCP](https://modelcontextprotocol.io/) (agent-to-tool) | [A2A](https://github.com/a2aproject/a2a-spec) (agent-to-agent) | [AG-UI](https://docs.ag-ui.com/) (agent-to-frontend) | [LSP](https://microsoft.github.io/language-server-protocol/) (code intelligence) | [OpenTelemetry](https://opentelemetry.io/) (tracing)
 
 **Design:** Hexagonal architecture, provider registry pattern, zero-config defaults. [Full architecture docs](docs/architecture.md) | [ADRs](docs/architecture/adr/)
 

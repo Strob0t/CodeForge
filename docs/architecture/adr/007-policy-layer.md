@@ -148,7 +148,7 @@ Custom profiles are loaded on startup from YAML files and can be created/deleted
 - `internal/domain/policy/validate.go` -- Profile validation
 - `internal/domain/policy/loader.go` -- YAML loading + SaveToFile
 - `internal/service/policy.go` -- PolicyService with first-match-wins evaluation
-- `internal/service/policy_test.go` -- 25+ test functions
+- `internal/service/policy_test.go` -- 38 test functions
 - `internal/adapter/http/handlers.go` -- REST API handlers (list, get, evaluate, create, delete)
 - `frontend/src/features/project/PolicyPanel.tsx` -- Frontend UI component
 - `docs/features/04-agent-orchestration.md` -- Policy System section

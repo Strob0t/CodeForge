@@ -42,10 +42,11 @@ Key design:
 
 #### Python Workers (`workers/codeforge/logger.py`)
 
-Mirrors the Go approach using Python stdlib:
+Mirrors the Go approach using Python stdlib for async buffering and `structlog` for JSON formatting:
 - `queue.Queue(maxsize=10_000)` as the buffer
-- `logging.handlers.QueueHandler` for non-blocking enqueue
+- `logging.handlers.QueueHandler` for non-blocking enqueue (provides the async mechanism)
 - `logging.handlers.QueueListener` with a background thread for draining
+- `structlog.JSONRenderer` for formatting log records as structured JSON (formatting only, not async)
 - `stop_logging()` function for graceful shutdown
 
 #### Log Schemas

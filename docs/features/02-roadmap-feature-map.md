@@ -100,11 +100,11 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] 4 new REST endpoints: `POST /projects/{id}/roadmap/import`, `POST /projects/{id}/roadmap/import/pm`, `GET /providers/spec`, `GET /providers/pm`.
 - [x] Provider wiring via blank imports + main.go instantiation from registries.
 - [x] Frontend: Import Specs button, Import from PM form (provider dropdown + project ref), import result display.
-- [x] 24 new adapter tests (8 openspec, 7 markdownspec, 9 githubpm), all passing.
+- [x] 29 new adapter tests (8 openspec, 7 markdownspec, 14 githubpm), all passing.
 
 ### Phase 9D: Plane.so Adapter + Full Auto-Detection + Feature-Map Editor (Completed)
 
-- [x] Plane.so PM Adapter (`internal/adapter/plane/`) -- REST API v1 with `X-API-Key` auth, full CRUD (ListItems, GetItem, CreateItem, UpdateItem), cursor pagination, status mapping (5 Plane state groups to FeatureStatus), self-registration via `init()`, 22 tests.
+- [x] Plane.so PM Adapter (`internal/adapter/plane/`) -- REST API v1 with `X-API-Key` auth, full CRUD (ListItems, GetItem, CreateItem, UpdateItem), cursor pagination, status mapping (5 Plane state groups to FeatureStatus), self-registration via `init()`, 21 tests.
 - [x] Full Auto-Detection Engine (`internal/service/detection.go`) -- extends Phase 3 AutoDetect with PM platform detection: `detectFromGitRemote()` (github.com -> github-issues, gitlab.com -> gitlab), `detectFromProjectConfig()` (Plane workspace/project, generic pm_provider/pm_project_ref), deduplication, filtered by `pmprovider.Available()`. New `PlatformDetection` struct in domain model. 19 tests.
 - [x] Backend: Cross-milestone feature move -- `milestone_id` field added to UpdateFeature handler + SQL UPDATE, enabling drag-and-drop across milestone columns.
 - [x] Frontend: Feature-Map Visual Editor -- Kanban-style board view as new `"Feature Map"` tab in ProjectDetailPage:

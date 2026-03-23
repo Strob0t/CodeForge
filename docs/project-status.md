@@ -164,9 +164,9 @@ AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumente
 
 ### Test Suites (COMPLETED)
 
-**Browser E2E:** 17 Playwright tests (health, navigation, projects, costs, models, a11y).
+**Browser E2E:** 82 Playwright tests (health, navigation, projects, costs, models, a11y).
 **LLM E2E:** 95 API-level Playwright tests across 11 spec files (prerequisites, models, conversations, streaming, multi-provider, routing, costs, MCP, benchmarks).
-**Benchmark E2E:** 132 browser Playwright tests across 12 spec files.
+**Benchmark E2E:** 132 browser Playwright tests across 13 spec files.
 **Backend E2E:** 88 pass / 0 fail / 3 skip (97% pass rate) across all 4 pillars with real LLM calls.
 
 ### Mobile-Responsive Frontend (COMPLETED)
@@ -306,3 +306,17 @@ Routing fallback E2E test (`workers/tests/test_routing_fallback_e2e.py`, 6 tests
 ### UX/UI Audit Implementation (COMPLETED)
 
 17 atomic tasks across 3 layers. **Layer 1 Quick Wins (6):** Anvil SVG favicon, per-page document titles (17 pages), Prompts Preview button variant fix, debounced WebSocket reconnect banner (2s delay + 3s initial suppress), abbreviated KPI labels for mobile, hover effects + click-to-navigate on project cards. **Layer 2 Medium-Term (7):** SVG empty state illustrations (6 pages), page transition fade-in animations (PageTransition component), skeleton loaders on AI Config/Costs/Settings, sticky section navigation on Settings page (9 sections, IntersectionObserver), per-panel ErrorBoundary for graceful degradation, anvil brand mark in sidebar header (CodeForgeLogo), collapsible model cards on AI Config page. **Layer 3 Strategic (4):** Typography system (Outfit display + Source Sans 3 body, self-hosted woff2), micro-interactions (button press, card hover lift, tab animation, KPI count-up, toast slide-in, modal fade+scale), living design system page at `/design-system` (dev-mode only) with `DESIGN-SYSTEM.md`, 3-step onboarding wizard (Connect Code -> Configure AI -> Create Project).
+
+### Frontend Feature Pages & Prompt Evolution (COMPLETED 2026-03-23)
+
+Five features merged on 2026-03-23:
+
+**MicroagentsPage** (`frontend/src/features/microagents/MicroagentsPage.tsx`): UI for managing YAML+Markdown trigger-driven microagents. Lists, creates, and edits microagent definitions backed by the existing microagent domain and service layer.
+
+**QuarantinePage** (`frontend/src/features/quarantine/QuarantinePage.tsx`): Admin review UI for the Phase 23B message quarantine system. Displays quarantined messages with risk scores, allows evaluate/approve/reject actions.
+
+**A2APage** (`frontend/src/features/a2a/A2APage.tsx`): Frontend for the A2A v0.3.0 agent federation system (Phase 27). Shows registered remote agents, task history, and AgentCard details.
+
+**RoutingStatsPage** (`frontend/src/features/routing/RoutingStatsPage.tsx`): Live statistics for the Phase 29 hybrid routing system. Displays model selection distribution, fallback events, provider availability, and MAB UCB1 scores.
+
+**Prompt Evolution** (`frontend/src/features/prompts/EvolutionTab.tsx`, `internal/service/prompt_evolution.go`, `workers/codeforge/consumer/_prompt_evolution.py`, migration 078): LLM-driven prompt improvement pipeline. Go service orchestrates reflect/mutate cycles via NATS; Python worker executes LLM calls for reflection and mutation; frontend EvolutionTab shows evolution history and allows triggering new cycles.

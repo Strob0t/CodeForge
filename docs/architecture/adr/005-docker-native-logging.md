@@ -27,11 +27,11 @@ Requirements:
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: "50m"
+    max-file: "10"
 ```
 
-Applied to all Docker Compose services (jaeger, playwright-mcp, postgres, nats, litellm) via YAML anchor. Go Core and Python Workers run on the host (not in Docker) and write structured JSON to stdout directly. Each containerized service gets at most 30 MB of log storage (3 files x 10 MB), automatically rotated by Docker.
+Applied to all Docker Compose services (jaeger, playwright-mcp, postgres, nats, litellm) via YAML anchor. Go Core and Python Workers run on the host (not in Docker) and write structured JSON to stdout directly. Each containerized service gets at most 500 MB of log storage (10 files x 50 MB), automatically rotated by Docker.
 
 #### Structured JSON Output
 

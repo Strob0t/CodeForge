@@ -680,7 +680,7 @@ Models lose focus with large context (~25k tokens). No GraphRAG or semantic retr
 ```text
 CodeForge Go Core
        |
-       v  Task Assignment via NATS/Redis
+       v  Task Assignment via NATS JetStream
 Python AI Worker
        |
        v  Subprocess / Python API

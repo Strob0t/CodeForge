@@ -24,7 +24,7 @@ We adopt a three-pillar evaluation stack, all running in the Python worker:
 
 - LLM-as-judge evaluation using `GEval`, `FaithfulnessMetric`, and `AnswerRelevancyMetric`
 - Custom `LiteLLMJudge` wrapper routes judge calls through the existing LiteLLM Proxy
-- 3 specialized runners (`SimpleBenchmarkRunner`, `ToolUseBenchmarkRunner`, `AgentBenchmarkRunner`) plus `MultiRolloutRunner` for parallel evaluation with diversity-aware selection. All inherit from `BaseBenchmarkRunner` ABC
+- 3 specialized runners (`SimpleBenchmarkRunner`, `ToolUseBenchmarkRunner`, `AgentBenchmarkRunner`) plus `MultiRolloutRunner` for parallel evaluation with diversity-aware selection. All inherit from `BaseBenchmarkRunner` ABC. Diversity-aware selection (entropy-UCB1) is implemented in the `MABModelSelector` class inside `workers/codeforge/routing/mab.py` (not a separate `diversity_mab.py` file).
 - Results persisted to PostgreSQL via Go Core API
 
 #### OpenTelemetry (Tracing & Observability)

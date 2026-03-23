@@ -4,7 +4,10 @@
 
 | Version | Supported          |
 |---------|--------------------|
-| 0.1.x   | Yes                |
+| 0.8.x   | Yes                |
+| 0.7.x   | No                 |
+| 0.2.x – 0.6.x | No           |
+| 0.1.x   | No                 |
 
 ## Reporting a Vulnerability
 
@@ -42,7 +45,7 @@ We will acknowledge receipt within 48 hours and aim to provide a fix or mitigati
 
 - HTTP security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - CORS with configurable allowed origins
-- Refresh tokens in httpOnly, Secure, SameSite=Strict cookies
+- Refresh tokens in httpOnly, Secure, SameSite=Lax cookies
 - Webhook signature verification (HMAC-SHA256 with constant-time comparison)
 
 ### Infrastructure

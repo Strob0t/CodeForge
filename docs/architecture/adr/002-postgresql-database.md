@@ -19,7 +19,7 @@ The goal is to minimize tech stack complexity: use as few different technologies
 
 ### Decision
 
-**PostgreSQL 18** is the single database for CodeForge, shared with LiteLLM via schema separation.
+**PostgreSQL 18** is the single database for CodeForge, shared with LiteLLM (same `public` schema, LiteLLM tables prefixed with `LiteLLM_`).
 
 #### Stack
 

@@ -92,7 +92,7 @@ interface MessageImage {
 - `MessageImage` struct in `internal/domain/conversation/conversation.go`
 - `SendMessageRequest.Images []MessageImage`
 - `Message.Images json.RawMessage` (JSONB column)
-- `DiscoveredModel.SupportsVision bool`
+- `DiscoveredModel.SupportsVision bool` (defined in `internal/port/llm/types.go`)
 
 ### Database
 

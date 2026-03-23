@@ -394,7 +394,7 @@ sequenceDiagram
 
 It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives the result via NATS, batch-inserts tool messages, stores the final assistant message, and broadcasts `agui.run_finished` via WebSocket.
 
-**Agent Loop Executor** (`workers/codeforge/agent_loop.py`) implements the core loop. It merges built-in tools (Read, Write, Edit, Bash, Search, Glob, ListDir) with MCP-discovered tools into a single tools array. Each iteration calls `chat_completion_stream()`, streams text chunks to the frontend via AG-UI events, and checks for tool_calls. For each tool call, it requests permission from Go via the Runtime API, executes the tool if allowed, and appends the result to the message history. The loop terminates on `finish_reason="stop"`, max steps, max cost, or cancellation.
+**Agent Loop Executor** (`workers/codeforge/agent_loop.py`) implements the core loop. It merges built-in tools (Read, Write, Edit, Bash, Search, Glob, ListDir, Handoff, ProposeGoal, CreateSkill, SearchSkills, SearchConversations, ToolGuide, Capability) with MCP-discovered tools into a single tools array. Each iteration calls `chat_completion_stream()`, streams text chunks to the frontend via AG-UI events, and checks for tool_calls. For each tool call, it requests permission from Go via the Runtime API, executes the tool if allowed, and appends the result to the message history. The loop terminates on `finish_reason="stop"`, max steps, max cost, or cancellation.
 
 **Conversation History Manager** (`workers/codeforge/history.py`) assembles the message array within a token budget. It uses a head-and-tail strategy: always include the system prompt and the last N messages, compress older tool results to stay within `MaxContextTokens`. Long tool outputs are truncated to a configurable maximum (default 10,000 chars) with head+tail preservation.
 
@@ -404,7 +404,7 @@ It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives th
 
 #### Observability
 
-**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording plus all broadcast event types and AG-UI event constants (55 event constants + 49 payload structs, moved from the adapter layer to enforce hexagonal architecture). Events are stored in a PostgreSQL table `agent_events` (indexed by task_id, agent_id, run_id, timestamp). There are 35 event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status, plan lifecycle, review lifecycle, and session management. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
+**Event Sourcing** (`internal/domain/event/`) provides an append-only event stream for agent trajectory recording plus all broadcast event types and AG-UI event constants (53 event constants (45 broadcast + 8 AG-UI) + 39 payload structs, moved from the adapter layer to enforce hexagonal architecture). Events are stored in a PostgreSQL table `agent_events` (indexed by (task_id, version), (agent_id, version), (project_id, created_at), and run_id). There are 35 event types covering tool call requested/approved/denied/result, run started/completed, stall detected, quality gate pass/fail, delivery status, plan lifecycle, review lifecycle, and session management. API endpoints include `GET /api/v1/tasks/{id}/events`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/{id}/trajectory` (cursor-paginated, type/time filtering), and `GET /api/v1/runs/{id}/trajectory/export` (JSON download).
 
 Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
 
@@ -1402,8 +1402,8 @@ Inter-agent messages carry trust annotations for provenance tracking. Four trust
 Low-trust messages are intercepted before NATS dispatch, risk-scored, and held for admin review. This prevents untrusted or external agents from executing potentially harmful actions without oversight.
 
 - Risk scorer: 10 scoring tests covering injection patterns, path traversal, credential exposure
-- PostgreSQL storage: migration 049, `quarantined_messages` table
-- `QuarantineService`: Evaluate/Approve/Reject/List/Get with 7 service tests
+- PostgreSQL storage: migration 049, `quarantine_messages` table
+- `QuarantineService`: Evaluate/Approve/Reject/List/Get with 9 service tests
 - Integration: Runtime + Handoff quarantine gates, HTTP handlers, WebSocket `quarantine.*` events
 
 #### Persistent Agent Identity
@@ -1430,11 +1430,11 @@ The benchmark system uses a provider registry pattern (matching the hexagonal ar
 Based on R2E-Gym (COLM 2025) and EntroPO (arXiv 2509.12434):
 
 - **Hybrid Verification Pipeline** (`workers/codeforge/evaluation/hybrid_pipeline.py`): Two-stage filter-then-rank evaluation. Execution-based filtering first (binary pass/fail), then LLM ranking of survivors only. Eliminates wasted tokens on broken outputs.
-- **Trajectory Verifier** (`workers/codeforge/evaluation/trajectory_verifier.py`): 5-dimension LLM trajectory evaluation (correctness, efficiency, tool usage, completeness, safety).
-- **Multi-Rollout Scaling** (`workers/codeforge/evaluation/multi_rollout.py`): N independent rollouts with best-of-N selection. Configurable concurrency and budget limits.
-- **Diversity-Aware MAB** (`workers/codeforge/routing/diversity_mab.py`): Entropy-enhanced UCB1 (`entropy_ucb1 = avg_reward + c * sqrt(ln(N)/n_i) + lambda * (-log(p_i))`) prevents diversity collapse during test-time scaling.
-- **DPO Export** (`workers/codeforge/evaluation/dpo_export.py`): Trajectory pairs (chosen/rejected) exported as JSONL for preference optimization training.
-- **SWE-GEN** (`workers/codeforge/evaluation/swe_gen.py`): Synthetic benchmark task generation from Git commit history.
+- **Trajectory Verifier** (`workers/codeforge/evaluation/evaluators/trajectory_verifier.py`): 5-dimension LLM trajectory evaluation (correctness, efficiency, tool usage, completeness, safety).
+- **Multi-Rollout Scaling** (`workers/codeforge/evaluation/runners/multi_rollout.py`): N independent rollouts with best-of-N selection. Configurable concurrency and budget limits.
+- **Diversity-Aware MAB** (`workers/codeforge/routing/mab.py`): Entropy-enhanced UCB1 (`entropy_ucb1 = avg_reward + c * sqrt(ln(N)/n_i) + lambda * (-log(p_i))`) prevents diversity collapse during test-time scaling. The entropy-UCB1 logic lives in the `MABModelSelector` class.
+- **DPO Export** (`workers/codeforge/evaluation/export/trajectory_exporter.py`): Trajectory pairs (chosen/rejected) exported as JSONL for preference optimization training.
+- **SWE-GEN** (`workers/codeforge/evaluation/generators/swegen.py`): Synthetic benchmark task generation from Git commit history.
 
 ### Roadmap/Feature-Map: Auto-Detection and Adaptive Integration
 
@@ -1701,19 +1701,21 @@ flowchart TD
 
 **Reward computation** (`workers/codeforge/routing/reward.py`): `reward = quality_weight * quality - cost_weight * norm_cost - latency_weight * norm_latency`. Failure = -0.5. Rewards are recorded via `POST /api/v1/routing/outcomes` for MAB learning.
 
-**Configuration** (env vars with `CODEFORGE_ROUTING_*` prefix):
+**Configuration:**
 
-| Field | Default | Purpose |
-|---|---|---|
-| `enabled` | true | Master switch for intelligent routing |
-| `mab_enabled` | true | Enable Layer 2 (UCB1) |
-| `llm_meta_enabled` | true | Enable Layer 3 (LLM classifier) |
-| `mab_min_trials` | 10 | Minimum observations before MAB trusts data |
-| `mab_exploration_rate` | 1.414 | UCB1 exploration parameter |
-| `cost_weight` | 0.3 | Cost weight in reward function |
-| `quality_weight` | 0.5 | Quality weight in reward function |
-| `latency_weight` | 0.2 | Latency weight in reward function |
-| `meta_router_model` | groq/llama-3.1-8b-instant | Model for Layer 3 |
+Only `CODEFORGE_ROUTING_ENABLED` (Go env var, default `true`) exists as an environment variable in the Go config (`internal/config/config.go`). All other routing fields are Python-side settings defined in `workers/codeforge/routing/models.py` and are not exposed as `CODEFORGE_ROUTING_*` environment variables.
+
+| Field | Default | Layer | Purpose |
+|---|---|---|---|
+| `CODEFORGE_ROUTING_ENABLED` | true | Go env var | Master switch for intelligent routing |
+| `mab_enabled` | true | Python (`RoutingConfig`) | Enable Layer 2 (UCB1) |
+| `llm_meta_enabled` | true | Python (`RoutingConfig`) | Enable Layer 3 (LLM classifier) |
+| `mab_min_trials` | 10 | Python (`RoutingConfig`) | Minimum observations before MAB trusts data |
+| `mab_exploration_rate` | 1.414 | Python (`RoutingConfig`) | UCB1 exploration parameter |
+| `cost_weight` | 0.3 | Python (`RoutingConfig`) | Cost weight in reward function |
+| `quality_weight` | 0.5 | Python (`RoutingConfig`) | Quality weight in reward function |
+| `latency_weight` | 0.2 | Python (`RoutingConfig`) | Latency weight in reward function |
+| `meta_router_model` | groq/llama-3.1-8b-instant | Python (`RoutingConfig`) | Model for Layer 3 |
 
 When routing is disabled, the system falls back to scenario-based tag routing (legacy).
 

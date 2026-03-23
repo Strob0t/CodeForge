@@ -302,7 +302,7 @@ MCP Integration for SCM: PR/MR creation via MCP tools. Automatic links back to O
 | React Frontend | SolidJS chosen (lighter, more performant, no VDOM) |
 | Redux + TanStack Query | SolidJS has its own reactive primitives |
 | FastAPI as HTTP Server | Go net/http for Core (performance, concurrency) |
-| SSH-based Sandbox Communication | Message queue (NATS/Redis) between Go Core and Python Workers |
+| SSH-based Sandbox Communication | Message queue (NATS JetStream) between Go Core and Python Workers |
 | Single-Session Architecture | Multi-project dashboard with parallel sessions |
 | Event-Sourcing as only persistence mechanism | Additionally PostgreSQL for structured data (projects, users, config) |
 | Plugin Marketplace Approach | Focus on Provider Registry Pattern + YAML-based extensibility |
@@ -1267,7 +1267,7 @@ Tier 3: File-Based Detectors (simple markers)
 | MetaGPT's 90 Dependencies | Lean workers, only what's needed |
 | All Single-Process Runtimes | Go Core orchestrates, Python Workers execute |
 | LangGraph Platform / CrewAI Enterprise | Self-hosted by design |
-| AutoGen's gRPC Runtime | Go Core manages agent lifecycle via NATS/Redis |
+| AutoGen's gRPC Runtime | Go Core manages agent lifecycle via NATS JetStream |
 | MetaGPT's Pydantic Inheritance Chains | Composition over deep inheritance |
 
 ---
@@ -1353,7 +1353,7 @@ Tier 3: File-Based Detectors (simple markers)
 | Cline's Shadow Git in Extension | CodeForge uses Git in agent containers (Docker-native) |
 | Cline's Single-Agent Architecture | CodeForge: Multi-agent orchestration via Go Core |
 | Cline's Provider-specific ApiHandler | LiteLLM as unified proxy (no custom provider interface) |
-| Devika's Flask Single-Process | Go Core + Python Workers via NATS/Redis |
+| Devika's Flask Single-Process | Go Core + Python Workers via NATS JetStream |
 | Devika's SQLite | PostgreSQL (production-grade) |
 | Devika's Missing Approval Flow | Human-in-the-loop is a core principle of CodeForge |
 | Devika's Missing Checkpoints | Git-based checkpointing in agent containers |

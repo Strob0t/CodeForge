@@ -330,7 +330,7 @@ Agents connect to external MCP servers during runs to use their tools.
 Persistent storage for MCP server definitions with project-level assignment.
 
 - **Database**: `mcp_servers`, `project_mcp_servers`, `mcp_server_tools` tables (migration 036)
-- **HTTP API**: 10 endpoints for CRUD, test connection, tools listing, project assignment
+- **HTTP API**: 11 endpoints for CRUD, test connection, tools listing, project assignment
 - **Frontend**: MCPServersPage (server list, add/edit modal, test connection, tools discovery)
 - **Code**: `internal/adapter/postgres/store_mcp.go`, `internal/adapter/http/handlers_mcp.go`, `frontend/src/features/mcp/MCPServersPage.tsx`
 
@@ -445,7 +445,7 @@ Context injection is **enabled by default** (`context_enabled: true`). The conve
 | `workers/codeforge/tools/` | Built-in tool registry (7 tools) |
 | `internal/service/conversation.go` | Agentic dispatch and completion handler |
 | `internal/service/runtime_approval.go` | HITL approval (waitForApproval, ResolveApproval) |
-| `internal/adapter/http/handlers.go` | HTTP handlers (agentic routing, approval endpoint) |
+| `internal/adapter/http/handlers_conversation.go` | HTTP handlers (approval endpoint) |
 | `frontend/src/features/project/ChatPanel.tsx` | Chat UI with agentic enhancements |
 | `frontend/src/features/project/ToolCallCard.tsx` | Tool call display component |
 
@@ -487,7 +487,7 @@ All endpoints gated by `DevModeOnly` middleware.
 
 | File | Purpose |
 |------|---------|
-| `workers/codeforge/evaluation/runner.py` | BenchmarkRunner (dataset execution + evaluation) |
+| `workers/codeforge/evaluation/runners/` | BenchmarkRunner variants (simple.py, tool_use.py, agent.py) |
 | `workers/codeforge/evaluation/metrics.py` | DeepEval metric wrappers |
 | `workers/codeforge/evaluation/litellm_judge.py` | LiteLLM judge for DeepEval |
 | `workers/codeforge/evaluation/datasets.py` | Dataset loading and result persistence |
@@ -657,7 +657,7 @@ Detection is workspace-path-based: files are read from disk, parsed for relevant
 
 Goals reach agents through two complementary paths:
 
-1. **System prompt injection** -- `renderGoalContext()` in `internal/service/goal_discovery.go` fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt.
+1. **System prompt injection** -- `renderGoalContext()` in `internal/service/conversation_agent.go` (line 436) fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt. Note: `internal/service/goal_discovery.go` provides `AsContextEntries()` for context pack integration.
 
 2. **Context pack entries** -- `ContextOptimizerService` includes goal entries (kind `EntryGoal`) as high-priority candidates during context packing, ensuring goals survive token budget trimming.
 
@@ -683,6 +683,7 @@ Goal detection runs automatically during `SetupProject()` (Step 4) after repo cl
 | `GET` | `/api/v1/projects/{id}/goals` | List all goals for a project |
 | `POST` | `/api/v1/projects/{id}/goals` | Create a goal manually |
 | `POST` | `/api/v1/projects/{id}/goals/detect` | Trigger auto-detection from workspace |
+| `POST` | `/api/v1/projects/{id}/goals/ai-discover` | AI-powered goal discovery |
 | `GET` | `/api/v1/goals/{id}` | Get a single goal by ID |
 | `PUT` | `/api/v1/goals/{id}` | Update a goal (title, content, kind, priority, enabled) |
 | `DELETE` | `/api/v1/goals/{id}` | Delete a goal |
@@ -836,6 +837,7 @@ Goals are injected into agent interactions through two complementary paths:
 | `GET` | `/api/v1/projects/{id}/goals` | List goals for a project |
 | `POST` | `/api/v1/projects/{id}/goals` | Create a goal (manual) |
 | `POST` | `/api/v1/projects/{id}/goals/detect` | Trigger auto-detection |
+| `POST` | `/api/v1/projects/{id}/goals/ai-discover` | AI-powered goal discovery |
 | `GET` | `/api/v1/goals/{id}` | Get a single goal |
 | `PUT` | `/api/v1/goals/{id}` | Update a goal |
 | `DELETE` | `/api/v1/goals/{id}` | Delete a goal |
