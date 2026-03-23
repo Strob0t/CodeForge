@@ -12,10 +12,16 @@ import (
 	"github.com/Strob0t/CodeForge/internal/version"
 )
 
+// auditDB groups the store methods needed by audit logging (write + read).
+type auditDB interface {
+	middleware.AuditStore
+	auditLogReader
+}
+
 // routeOptions holds optional configuration for MountRoutes.
 type routeOptions struct {
 	authRateLimiter *middleware.RateLimiter
-	auditStore      middleware.AuditStore
+	auditStore      auditDB
 }
 
 // RouteOption configures optional behavior in MountRoutes.
@@ -28,8 +34,8 @@ func WithAuthRateLimiter(rl *middleware.RateLimiter) RouteOption {
 	return func(o *routeOptions) { o.authRateLimiter = rl }
 }
 
-// WithAuditStore enables audit logging middleware on security-sensitive routes.
-func WithAuditStore(s middleware.AuditStore) RouteOption {
+// WithAuditStore enables audit logging middleware and the GET /audit-logs endpoint.
+func WithAuditStore(s auditDB) RouteOption {
 	return func(o *routeOptions) { o.auditStore = s }
 }
 
@@ -386,6 +392,11 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		r.Post("/runs/{id}/replay", h.ReplayRun)
 		r.Get("/audit", h.GlobalAuditTrail)
 		r.Get("/projects/{id}/audit", h.ProjectAuditTrail)
+
+		// Admin Audit Logs (SOC 2 CC6.1)
+		if ro.auditStore != nil {
+			r.With(middleware.RequireRole(user.RoleAdmin)).Get("/audit-logs", ListAuditLogs(ro.auditStore))
+		}
 
 		// Sessions (nested under runs + projects + direct access)
 		r.Post("/runs/{id}/resume", h.ResumeRun)
