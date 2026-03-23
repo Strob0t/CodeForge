@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from codeforge.tools._base import ToolDefinition, ToolResult
 
@@ -23,9 +24,7 @@ _ROLE_HIJACK_RE = re.compile(
     r"(?i)(from\s+now\s+on\s+you|switch\s+to\s+|change\s+your\s+behavior|"
     r"your\s+role\s+is\s+now)"
 )
-_EXFIL_RE = re.compile(
-    r"(?i)(send\s+to\s+https?://|exfiltrate|leak\s+(the|all)\s+)"
-)
+_EXFIL_RE = re.compile(r"(?i)(send\s+to\s+https?://|exfiltrate|leak\s+(the|all)\s+)")
 
 _VALID_TYPES = {"workflow", "pattern"}
 
@@ -36,6 +35,16 @@ DEFINITION = ToolDefinition(
         "you discovered during this task. The skill is saved as a draft "
         "and requires user approval before activation."
     ),
+    when_to_use=(
+        "Use ONLY when you've discovered a genuinely reusable pattern. "
+        "Do NOT use for regular file creation -- use write_file instead."
+    ),
+    common_mistakes=[
+        "Using create_skill for normal coding work -- use write_file to create files",
+        "Calling create_skill without a real reusable pattern to save",
+        "Missing required fields: name, type, description, content",
+        "Retrying after UUID/validation error -- the error means the skill system is not available for this task",
+    ],
     parameters={
         "type": "object",
         "properties": {

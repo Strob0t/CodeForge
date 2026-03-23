@@ -6,7 +6,7 @@ import logging
 import uuid
 from typing import Any
 
-from ._base import ToolDefinition, ToolResult
+from ._base import ToolDefinition, ToolExample, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,26 @@ PROPOSE_GOAL_DEFINITION = ToolDefinition(
         "Proposing all goals at once instead of one at a time.",
         "Missing goal_id when action is update or delete.",
     ],
+    examples=[
+        ToolExample(
+            description="Propose a backend development goal",
+            tool_call_json=(
+                '{"action": "create", "kind": "requirement", "title": "Python FastAPI Backend",'
+                ' "content": "Create REST API with weather data endpoints, caching, and CORS",'
+                ' "priority": 1}'
+            ),
+            expected_result="Goal proposed for review: Python FastAPI Backend",
+        ),
+        ToolExample(
+            description="Propose a testing goal",
+            tool_call_json=(
+                '{"action": "create", "kind": "requirement", "title": "Test Coverage",'
+                ' "content": "Write pytest tests for backend and vitest tests for frontend",'
+                ' "priority": 2}'
+            ),
+            expected_result="Goal proposed for review: Test Coverage",
+        ),
+    ],
 )
 
 _VALID_ACTIONS = {"create", "update", "delete"}
@@ -73,7 +93,9 @@ class ProposeGoalExecutor:
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         action = arguments.get("action", "")
         if action not in _VALID_ACTIONS:
-            return ToolResult(output="", error=f"Unknown action: {action}. Use create, update, or delete.", success=False)
+            return ToolResult(
+                output="", error=f"Unknown action: {action}. Use create, update, or delete.", success=False
+            )
 
         title = arguments.get("title", "")
         content = arguments.get("content", "")
