@@ -530,6 +530,7 @@ class ConversationHandlerMixin:
         """Run the LiteLLM-based agentic loop with optional multi-rollout."""
         from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor, LoopConfig
         from codeforge.tools.capability import classify_model
+        from codeforge.tools.tool_router import ToolRouter
 
         executor = AgentLoopExecutor(
             llm=self._llm,
@@ -540,6 +541,16 @@ class ConversationHandlerMixin:
         )
         mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
         capability_level = classify_model(primary_model)
+
+        # Pre-select tools via keyword-based ToolRouter (no LLM call).
+        user_msg = next(
+            (m.content for m in run_msg.messages if m.role == "user" and m.content),
+            "",
+        )
+        tool_router = ToolRouter(all_tool_names=registry.tool_names)
+        selected_tools = tool_router.select(user_msg) if user_msg else None
+        if selected_tools is not None:
+            logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
 
         # Optimized sampling parameters for local models (M6).
         _is_local = primary_model.startswith(("lm_studio/", "ollama/"))
@@ -565,6 +576,7 @@ class ConversationHandlerMixin:
             mode_tools=mode_tools,
             top_p=_top_p,
             extra_body=_extra_body,
+            selected_tools=selected_tools,
         )
 
         # Use multi-rollout executor when rollout_count > 1.
