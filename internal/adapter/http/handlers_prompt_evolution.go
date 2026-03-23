@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -61,4 +62,47 @@ func (h *Handlers) PromotePromptEvolutionVariant(w http.ResponseWriter, r *http.
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "promoted", "variant_id": variantID})
+}
+
+// triggerReflectRequest is the request body for POST /api/v1/prompt-evolution/reflect.
+type triggerReflectRequest struct {
+	ModeID        string                       `json:"mode_id"`
+	ModelFamily   string                       `json:"model_family"`
+	CurrentPrompt string                       `json:"current_prompt"`
+	Failures      []map[string]json.RawMessage `json:"failures"`
+}
+
+// TriggerPromptEvolutionReflect handles POST /api/v1/prompt-evolution/reflect
+func (h *Handlers) TriggerPromptEvolutionReflect(w http.ResponseWriter, r *http.Request) {
+	if h.PromptEvolution == nil {
+		writeError(w, http.StatusServiceUnavailable, "prompt evolution not enabled")
+		return
+	}
+
+	var req triggerReflectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ModeID == "" {
+		writeError(w, http.StatusBadRequest, "mode_id is required")
+		return
+	}
+	if req.ModelFamily == "" {
+		writeError(w, http.StatusBadRequest, "model_family is required")
+		return
+	}
+	if req.CurrentPrompt == "" {
+		writeError(w, http.StatusBadRequest, "current_prompt is required")
+		return
+	}
+
+	tenantID := tenantctx.FromContext(r.Context())
+	if err := h.PromptEvolution.TriggerReflection(r.Context(), tenantID, req.ModeID, req.ModelFamily, req.CurrentPrompt, req.Failures); err != nil {
+		writeInternalError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "reflection_triggered"})
 }
