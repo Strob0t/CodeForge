@@ -7,7 +7,6 @@ single conftest fixture (e.g., `@pytest.fixture def fake_llm()`) so that
 test setup is consistent and mock behavior is centralized.
 
 TODO (FIX-066 to FIX-070): Missing test coverage for the following modules:
-  - codeforge/memory/storage.py (MemoryStore: store, recall, embedding edge cases)
   - codeforge/memory/experience.py (ExperiencePool: lookup, store, invalidate)
   - codeforge/consumer/_conversation.py (ConversationHandlerMixin: routing, fallback chain)
   - codeforge/routing/router.py (HybridRouter: cascade routing, rate limiting)

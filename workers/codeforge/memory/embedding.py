@@ -1,6 +1,6 @@
 """Shared embedding computation helper for memory modules.
 
-Extracted from MemoryStore and ExperiencePool to avoid code duplication (FIX-056).
+Extracted to a shared helper to avoid code duplication (FIX-056).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ _logger = structlog.get_logger()
 async def compute_embedding(llm: LiteLLMClient, text: str) -> np.ndarray | None:
     """Compute an embedding vector for the given text via LiteLLM.
 
-    Shared helper used by MemoryStore and ExperiencePool to avoid duplication.
+    Shared helper used by ExperiencePool and memory consumer to avoid duplication.
     """
     try:
         resp = await llm.embedding(text)
