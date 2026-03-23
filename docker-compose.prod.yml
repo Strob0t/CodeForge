@@ -84,8 +84,6 @@ services:
       - "--jetstream"
       - "--store_dir"
       - "/data"
-      - "-m"
-      - "8222"
       - "--user"
       - "${NATS_USER:?NATS_USER is required}"
       - "--pass"
@@ -93,7 +91,7 @@ services:
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      test: ["CMD", "sh", "-c", "echo | nc -z localhost 4222"]
       interval: 10s
       timeout: 5s
       retries: 5
