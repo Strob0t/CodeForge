@@ -479,6 +479,7 @@ func run() error {
 	// --- Boundary & Review Trigger Services (Phase 31) ---
 	boundarySvc := service.NewBoundaryService(store)
 	reviewTriggerSvc := service.NewReviewTriggerService(store, nil, 30*time.Minute)
+	reviewApprovalSvc := service.NewReviewApprovalService(queue, hub)
 	slog.Info("boundary and review trigger services initialized")
 
 	// --- GEMMAS Evaluation Hook (Phase 20G) ---
@@ -627,6 +628,10 @@ func run() error {
 	gemmasCancel, err := evalSvc.StartGemmasResultSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("gemmas result subscriber: %w", err)
+	}
+	reviewApprovalCancel, err := reviewApprovalSvc.StartSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("review approval subscriber: %w", err)
 	}
 	slog.Info("conversation service initialized", "agentic_by_default", cfg.Agent.AgenticByDefault)
 
@@ -1035,6 +1040,7 @@ func run() error {
 	}
 	reviewTriggerCancel()
 	gemmasCancel()
+	reviewApprovalCancel()
 	benchmarkRunCancel()
 	cancelWatchdog()
 	for _, cancel := range retrievalCancels {
