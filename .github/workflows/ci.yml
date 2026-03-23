@@ -67,6 +67,9 @@ jobs:
         with:
           version: v2.1.6
 
+      - name: Check circular imports
+        run: go vet ./... 2>&1 | grep -i "import cycle" && exit 1 || true
+
   test-python:
     name: Python
     runs-on: ubuntu-latest
