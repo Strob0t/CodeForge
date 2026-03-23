@@ -209,6 +209,7 @@ class ConversationHistoryManager:
                 logger.warning(
                     "skipping image with invalid base64 data",
                     extra={"image_id": getattr(img, "id", "unknown")},
+                    exc_info=True,
                 )
                 continue
             valid.append(img)
@@ -362,7 +363,7 @@ class ConversationSummarizer:
         try:
             summary_text = await self._summarize_history(head)
         except Exception:
-            logger.warning("conversation summarization failed, keeping original history")
+            logger.warning("conversation summarization failed, keeping original history", exc_info=True)
             return history
 
         summary_msg = ConversationMessagePayload(

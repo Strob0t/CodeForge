@@ -78,7 +78,7 @@ class ContextReranker:
                 tags=["background"],
             )
         except Exception:
-            logger.warning("context rerank LLM call failed, using original order")
+            logger.warning("context rerank LLM call failed, using original order", exc_info=True)
             return RerankResult(entries=list(entries), fallback_used=True)
 
         # Parse ranking
