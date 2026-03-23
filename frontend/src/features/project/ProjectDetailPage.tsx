@@ -14,6 +14,16 @@ import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
+
+function isBudgetAlertEvent(p: unknown): p is BudgetAlertEvent {
+  return (
+    typeof p === "object" && p !== null && "run_id" in p && "percentage" in p && "cost_usd" in p
+  );
+}
+
+function isAutoAgentStatus(p: unknown): p is AutoAgentStatus {
+  return typeof p === "object" && p !== null && "id" in p && "project_id" in p && "status" in p;
+}
 import {
   DEFAULT_SPLIT,
   MAX_SPLIT,
@@ -385,10 +395,9 @@ export default function ProjectDetailPage() {
       }
       case "run.budget_alert": {
         const alertProjectId = payload.project_id as string;
-        if (alertProjectId === projectId) {
-          setBudgetAlert(payload as unknown as BudgetAlertEvent);
-          const pct = (payload as unknown as BudgetAlertEvent).percentage;
-          toast("warning", t("detail.toast.budgetAlert", { pct: fmt.percent(pct) }));
+        if (alertProjectId === projectId && isBudgetAlertEvent(payload)) {
+          setBudgetAlert(payload);
+          toast("warning", t("detail.toast.budgetAlert", { pct: fmt.percent(payload.percentage) }));
         }
         break;
       }
@@ -433,8 +442,8 @@ export default function ProjectDetailPage() {
       }
       case "autoagent.status": {
         const aaProjectId = payload.project_id as string;
-        if (aaProjectId === projectId) {
-          setAutoAgentStatus(payload as unknown as AutoAgentStatus);
+        if (aaProjectId === projectId && isAutoAgentStatus(payload)) {
+          setAutoAgentStatus(payload);
         }
         break;
       }

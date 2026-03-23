@@ -1,6 +1,25 @@
 import { createStore, produce } from "solid-js/store";
 
-import type { CanvasElement, CanvasStoreState, ToolType, Viewport } from "./canvasTypes";
+import type {
+  CanvasElement,
+  CanvasStoreState,
+  ElementStyle,
+  ToolType,
+  Viewport,
+} from "./canvasTypes";
+
+/** Apply a partial patch to a CanvasElement inside a produce() callback. */
+function applyElementPatch(el: CanvasElement, patch: ElementPatch): void {
+  const { style: stylePatch, ...rest } = patch;
+  // Merge top-level fields via Object.assign (safe: keys come from Partial<CanvasElement>)
+  if (Object.keys(rest).length > 0) {
+    Object.assign(el, rest);
+  }
+  // Merge style partially
+  if (stylePatch && Object.keys(stylePatch).length > 0) {
+    Object.assign(el.style as ElementStyle, stylePatch);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -126,27 +145,7 @@ export function createCanvasStore(): CanvasStore {
 
     setState(
       produce((s) => {
-        const el = s.elements[idx];
-        const { style: stylePatch, ...rest } = patch;
-
-        // Merge top-level fields
-        for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
-          const value = rest[key];
-          if (value !== undefined) {
-            // Safe: key is a known CanvasElement field (minus id/style)
-            (el as unknown as Record<string, unknown>)[key] = value;
-          }
-        }
-
-        // Merge style partially
-        if (stylePatch) {
-          for (const key of Object.keys(stylePatch) as (keyof typeof stylePatch)[]) {
-            const value = stylePatch[key];
-            if (value !== undefined) {
-              (el.style as unknown as Record<string, unknown>)[key] = value;
-            }
-          }
-        }
+        applyElementPatch(s.elements[idx], patch);
       }),
     );
   }
@@ -157,24 +156,7 @@ export function createCanvasStore(): CanvasStore {
 
     setState(
       produce((s) => {
-        const el = s.elements[idx];
-        const { style: stylePatch, ...rest } = patch;
-
-        for (const key of Object.keys(rest) as (keyof typeof rest)[]) {
-          const value = rest[key];
-          if (value !== undefined) {
-            (el as unknown as Record<string, unknown>)[key] = value;
-          }
-        }
-
-        if (stylePatch) {
-          for (const key of Object.keys(stylePatch) as (keyof typeof stylePatch)[]) {
-            const value = stylePatch[key];
-            if (value !== undefined) {
-              (el.style as unknown as Record<string, unknown>)[key] = value;
-            }
-          }
-        }
+        applyElementPatch(s.elements[idx], patch);
       }),
     );
   }

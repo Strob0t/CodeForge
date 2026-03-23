@@ -20,8 +20,8 @@ import type {
   CreateBenchmarkRunRequest,
   LiveFeedEvent,
   ProviderConfig,
+  RoutingReport as RoutingReportType,
 } from "~/api/types";
-import type { RoutingReport as RoutingReportType } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { benchmarkStatusVariant, getVariant } from "~/config/statusVariants";
@@ -42,6 +42,10 @@ import {
   Tabs,
 } from "~/ui";
 import { ChartTrophyIcon } from "~/ui/icons/EmptyStateIcons";
+
+function isRoutingReport(v: unknown): v is RoutingReportType {
+  return typeof v === "object" && v !== null && "models_used" in v;
+}
 
 import { BenchmarkCompare } from "./BenchmarkCompare";
 import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
@@ -786,17 +790,14 @@ export default function BenchmarkPage() {
                             formatDuration={formatDuration}
                           />
                           <Show
-                            when={
-                              run.model === "auto" &&
-                              run.status === "completed" &&
-                              run.summary_scores?.routing_report
-                            }
+                            when={(() => {
+                              if (run.model !== "auto" || run.status !== "completed")
+                                return undefined;
+                              const candidate: unknown = run.summary_scores?.routing_report;
+                              return isRoutingReport(candidate) ? candidate : undefined;
+                            })()}
                           >
-                            <RoutingReport
-                              report={
-                                run.summary_scores.routing_report as unknown as RoutingReportType
-                              }
-                            />
+                            {(report) => <RoutingReport report={report()} />}
                           </Show>
                           <Show when={run.status === "completed"}>
                             <PromptOptimizationPanel runId={run.id} suiteId={run.suite_id ?? ""} />
