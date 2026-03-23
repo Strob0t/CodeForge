@@ -1,12 +1,12 @@
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: "50m"
+    max-file: "10"
 
 services:
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/all-in-one:1.67
     container_name: codeforge-jaeger
     logging: *default-logging
     profiles:
@@ -21,9 +21,11 @@ services:
       - codeforge
 
   playwright-mcp:
-    image: mcp/playwright:latest
+    image: mcp/playwright:v1.0.14
     container_name: codeforge-playwright
     logging: *default-logging
+    profiles:
+      - dev
     ipc: host
     shm_size: "1gb"
     extra_hosts:
@@ -73,7 +75,7 @@ services:
         -c log_line_prefix='%t [%p] %q%u@%d '
         -c wal_level=replica
         -c archive_mode=on
-        -c archive_command='test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
+        -c archive_command='mkdir -p /var/lib/postgresql/data/archive && test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U codeforge" ]
       interval: 5s
@@ -102,7 +104,7 @@ services:
       - codeforge
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    image: ghcr.io/berriai/litellm:v1.63.2
     container_name: codeforge-litellm
     restart: unless-stopped
     logging: *default-logging
