@@ -101,6 +101,17 @@ export function BenchmarksIcon(): JSX.Element {
   );
 }
 
+export function RoutingIcon(): JSX.Element {
+  return (
+    <svg {...svgBase}>
+      <circle cx="5" cy="10" r="2" />
+      <circle cx="15" cy="5" r="2" />
+      <circle cx="15" cy="15" r="2" />
+      <path d="M7 10h2c2 0 3-2 4-5M7 10h2c2 0 3 2 4 5" />
+    </svg>
+  );
+}
+
 export function CollapseIcon(): JSX.Element {
   return (
     <svg {...svgBase}>
