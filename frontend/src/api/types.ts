@@ -2145,3 +2145,47 @@ export interface BoundaryConfig {
   last_analyzed: string;
   version: number;
 }
+
+// --- Routing Stats types (Phase 29) ---
+
+/** Matches Go domain/routing.ModelPerformanceStats */
+export interface ModelPerformanceStats {
+  id: string;
+  model_name: string;
+  task_type: string;
+  complexity_tier: string;
+  trial_count: number;
+  total_reward: number;
+  avg_reward: number;
+  avg_cost_usd: number;
+  avg_latency_ms: number;
+  avg_quality: number;
+  last_selected?: string;
+  supports_tools: boolean;
+  supports_vision: boolean;
+  max_context: number;
+  input_cost_per: number;
+  output_cost_per: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches Go domain/routing.RoutingOutcome */
+export interface RoutingOutcome {
+  id: string;
+  model_name: string;
+  task_type: string;
+  complexity_tier: string;
+  success: boolean;
+  quality_score: number;
+  cost_usd: number;
+  latency_ms: number;
+  tokens_in: number;
+  tokens_out: number;
+  reward: number;
+  routing_layer: string;
+  run_id?: string;
+  conversation_id?: string;
+  prompt_hash?: string;
+  created_at: string;
+}

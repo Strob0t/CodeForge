@@ -31,6 +31,7 @@ import {
 } from "./resources/misc";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
 import { createRoadmapResource } from "./resources/roadmap";
+import { createRoutingResource } from "./resources/routing";
 import {
   createAgentConfigResource,
   createKnowledgeBasesResource,
@@ -89,4 +90,5 @@ export const api = {
   channels: createChannelsResource(core),
   subscriptionProviders: createSubscriptionProvidersResource(core),
   audit: createAuditResource(core),
+  routing: createRoutingResource(core),
 };

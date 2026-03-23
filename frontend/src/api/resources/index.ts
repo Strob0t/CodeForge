@@ -30,6 +30,7 @@ export {
 } from "./misc";
 export { createBatchResource, createProjectsResource } from "./projects";
 export { createRoadmapResource } from "./roadmap";
+export { createRoutingResource } from "./routing";
 export {
   createAgentConfigResource,
   createKnowledgeBasesResource,
