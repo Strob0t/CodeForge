@@ -3476,6 +3476,12 @@ func (m *mockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (stri
 func (m *mockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
 	return false, nil
 }
+func (m *mockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
+	return nil
+}
+func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]database.AuditEntry, error) {
+	return nil, nil
+}
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {
 	tests := []struct {

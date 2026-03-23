@@ -433,6 +433,10 @@ type Store interface {
 	// Review Triggers (Phase 31)
 	CreateReviewTrigger(ctx context.Context, projectID, commitSHA, source string) (string, error)
 	FindRecentReviewTrigger(ctx context.Context, projectID, commitSHA string, within time.Duration) (bool, error)
+
+	// Audit Log
+	InsertAuditEntry(ctx context.Context, e *AuditEntry) error
+	ListAuditEntries(ctx context.Context, action string, limit, offset int) ([]AuditEntry, error)
 }
 
 // A2ATaskFilter defines filters for listing A2A tasks.
@@ -452,4 +456,18 @@ type A2APushConfig struct {
 	URL       string    `json:"url"`
 	Token     string    `json:"token"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// AuditEntry represents a single admin audit log record.
+type AuditEntry struct {
+	ID         string    `json:"id"`
+	TenantID   string    `json:"tenant_id"`
+	AdminID    string    `json:"admin_id"`
+	AdminEmail string    `json:"admin_email"`
+	Action     string    `json:"action"`
+	Resource   string    `json:"resource"`
+	ResourceID string    `json:"resource_id,omitempty"`
+	Details    []byte    `json:"details,omitempty"`
+	IPAddress  string    `json:"ip_address,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }

@@ -833,3 +833,9 @@ func (s *testStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (stri
 func (s *testStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
 	return false, nil
 }
+func (s *testStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
+	return nil
+}
+func (s *testStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]database.AuditEntry, error) {
+	return nil, nil
+}
