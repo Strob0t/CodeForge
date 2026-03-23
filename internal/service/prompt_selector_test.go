@@ -23,6 +23,22 @@ func (s *inMemoryVariantStore) GetVariantsByModeAndModel(_ context.Context, mode
 	return result, nil
 }
 
+func (s *inMemoryVariantStore) ListVariants(_ context.Context, modeID, status string) ([]prompt.PromptVariant, error) {
+	var result []prompt.PromptVariant
+	for i := range s.variants {
+		if modeID != "" && s.variants[i].ModeID != modeID {
+			continue
+		}
+		if status != "" && string(s.variants[i].PromotionStatus) != status {
+			continue
+		}
+		if s.variants[i].ModeID != "" {
+			result = append(result, s.variants[i])
+		}
+	}
+	return result, nil
+}
+
 func (s *inMemoryVariantStore) UpdateVariantStats(_ context.Context, id string, trialCount int, avgScore float64) error {
 	for i := range s.variants {
 		if s.variants[i].ID == id {

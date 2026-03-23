@@ -95,6 +95,51 @@ func (s *Store) GetVariantsByModeAndModel(ctx context.Context, modeID, modelFami
 	})
 }
 
+// ListVariants returns all prompt variants for a tenant, optionally filtered
+// by mode_id and promotion status.
+func (s *Store) ListVariants(ctx context.Context, modeID, status string) ([]prompt.PromptVariant, error) {
+	tid := tenantFromCtx(ctx)
+
+	query := `SELECT id, name, scope, content, priority, enabled, version,
+	                COALESCE(parent_id, ''), COALESCE(mutation_source, ''),
+	                promotion_status, trial_count, avg_score,
+	                mode_id, model_family, created_at, updated_at
+	         FROM prompt_sections
+	         WHERE tenant_id = $1 AND mode_id != ''`
+	args := []interface{}{tid}
+	argIdx := 2
+
+	if modeID != "" {
+		query += fmt.Sprintf(" AND mode_id = $%d", argIdx)
+		args = append(args, modeID)
+		argIdx++
+	}
+	if status != "" {
+		query += fmt.Sprintf(" AND promotion_status = $%d", argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+	_ = argIdx
+
+	query += " ORDER BY mode_id, version DESC"
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list variants: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (prompt.PromptVariant, error) {
+		var v prompt.PromptVariant
+		v.TenantID = tid
+		err := r.Scan(
+			&v.ID, &v.Name, &v.Scope, &v.Content, &v.Priority, &v.Enabled, &v.Version,
+			&v.ParentID, &v.MutationSource,
+			&v.PromotionStatus, &v.TrialCount, &v.AvgScore,
+			&v.ModeID, &v.ModelFamily, &v.CreatedAt, &v.UpdatedAt,
+		)
+		return v, err
+	})
+}
+
 // UpdatePromotionStatus updates the promotion status of a prompt variant.
 func (s *Store) UpdatePromotionStatus(ctx context.Context, id string, status prompt.PromotionStatus) error {
 	tid := tenantFromCtx(ctx)
