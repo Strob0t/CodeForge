@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import structlog
 
@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 logger = structlog.get_logger()
+
+RequestT = TypeVar("RequestT", bound="BaseModel")
+ResultT = TypeVar("ResultT", bound="BaseModel")
 
 _PROCESSED_IDS_MAX = 10_000
 
@@ -126,11 +129,11 @@ class ConsumerBaseMixin:
     async def _handle_request(
         self,
         msg: nats.aio.msg.Msg,
-        request_model: type,
-        dedup_key: Callable[[Any], str],
-        handler: Callable[[Any, Any], Awaitable[Any | None]],
+        request_model: type[RequestT],
+        dedup_key: Callable[[RequestT], str],
+        handler: Callable[[RequestT, structlog.BoundLogger], Awaitable[ResultT | None]],
         result_subject: str | None = None,
-        log_context: Callable[[Any], dict[str, Any]] | None = None,
+        log_context: Callable[[RequestT], dict[str, Any]] | None = None,
     ) -> None:
         """Generic NATS handler with dedup, processing, and error handling."""
         try:
