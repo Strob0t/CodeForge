@@ -21,7 +21,7 @@ services:
       - codeforge
 
   playwright-mcp:
-    image: mcp/playwright:v1.0.14
+    image: mcp/playwright:latest
     container_name: codeforge-playwright
     logging: *default-logging
     profiles:
@@ -47,7 +47,7 @@ services:
       - "--allowed-hosts"
       - "*"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8001/mcp').catch(() => process.exit(1))"]
+      test: [ "CMD", "node", "-e", "fetch('http://localhost:8001/mcp').catch(() => process.exit(1))" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -126,7 +126,7 @@ services:
         reservations:
           memory: 256M
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6281"]
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:6281" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -135,7 +135,7 @@ services:
       - codeforge
 
   litellm:
-    image: ghcr.io/berriai/litellm:v1.63.2
+    image: docker.litellm.ai/berriai/litellm:main-stable
     container_name: codeforge-litellm
     restart: unless-stopped
     logging: *default-logging
