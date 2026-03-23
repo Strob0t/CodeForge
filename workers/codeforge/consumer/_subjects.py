@@ -29,6 +29,9 @@ SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
 SUBJECT_TASK_CANCEL = "tasks.cancel"
 
+# Agent output (Python -> Go: per-line backend output for WS broadcast)
+SUBJECT_AGENT_OUTPUT = "agents.output"
+
 # Run subjects
 SUBJECT_RUN_START = "runs.start"
 

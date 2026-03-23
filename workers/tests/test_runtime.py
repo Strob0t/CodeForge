@@ -13,6 +13,7 @@ from codeforge.models import (
     ToolCallDecision,
 )
 from codeforge.runtime import (
+    SUBJECT_AGENT_OUTPUT,
     SUBJECT_RUN_COMPLETE,
     SUBJECT_RUN_HEARTBEAT,
     SUBJECT_RUN_OUTPUT,
@@ -223,17 +224,48 @@ async def test_complete_run(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
 
 
 async def test_send_output(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
-    """send_output should publish a streaming output line."""
+    """send_output should publish to runs.output and agents.output."""
     await runtime.send_output("Hello, world!", stream="stdout")
 
-    mock_js.publish.assert_called_once()
-    call_args = mock_js.publish.call_args
-    assert call_args.args[0] == SUBJECT_RUN_OUTPUT
-    data = json.loads(call_args.args[1])
+    # Two publishes: runs.output + agents.output (mirrored for WS broadcast).
+    assert mock_js.publish.call_count == 2
+
+    run_output_call = mock_js.publish.call_args_list[0]
+    assert run_output_call.args[0] == SUBJECT_RUN_OUTPUT
+    data = json.loads(run_output_call.args[1])
     assert data["run_id"] == "run-1"
     assert data["task_id"] == "task-1"
     assert data["line"] == "Hello, world!"
     assert data["stream"] == "stdout"
+
+    agent_output_call = mock_js.publish.call_args_list[1]
+    assert agent_output_call.args[0] == SUBJECT_AGENT_OUTPUT
+    agent_data = json.loads(agent_output_call.args[1])
+    assert agent_data["task_id"] == "task-1"
+    assert agent_data["line"] == "Hello, world!"
+    assert agent_data["stream"] == "stdout"
+    assert "timestamp" in agent_data
+
+
+async def test_publish_agent_output(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
+    """publish_agent_output should publish to agents.output with correct payload."""
+    await runtime.publish_agent_output("compiling main.go", stream="stderr")
+
+    mock_js.publish.assert_called_once()
+    call_args = mock_js.publish.call_args
+    assert call_args.args[0] == SUBJECT_AGENT_OUTPUT
+    data = json.loads(call_args.args[1])
+    assert data["task_id"] == "task-1"
+    assert data["line"] == "compiling main.go"
+    assert data["stream"] == "stderr"
+    assert "timestamp" in data
+
+
+async def test_publish_agent_output_failure_is_silent(runtime: RuntimeClient, mock_js: AsyncMock) -> None:
+    """publish_agent_output should not raise on publish failure."""
+    mock_js.publish.side_effect = Exception("NATS down")
+    # Should not raise -- error is logged and swallowed.
+    await runtime.publish_agent_output("test line")
 
 
 def test_run_start_message_parsing() -> None:
