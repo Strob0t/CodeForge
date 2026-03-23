@@ -205,9 +205,10 @@ class ConversationHistoryManager:
         for img in images:
             try:
                 base64.b64decode(img.data, validate=True)
-            except Exception:
+            except Exception as exc:
                 logger.warning(
-                    "skipping image with invalid base64 data",
+                    "skipping image with invalid base64 data: %s",
+                    exc,
                     extra={"image_id": getattr(img, "id", "unknown")},
                     exc_info=True,
                 )
@@ -362,8 +363,8 @@ class ConversationSummarizer:
 
         try:
             summary_text = await self._summarize_history(head)
-        except Exception:
-            logger.warning("conversation summarization failed, keeping original history", exc_info=True)
+        except Exception as exc:
+            logger.warning("conversation summarization failed, keeping original history", exc_info=True, error=str(exc))
             return history
 
         summary_msg = ConversationMessagePayload(

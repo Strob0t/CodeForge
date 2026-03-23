@@ -66,8 +66,8 @@ def _fetch_healthy_models(litellm_url: str, headers: dict[str, str]) -> set[str]
             if model:
                 healthy.add(model)
         return healthy
-    except Exception:
-        logger.warning("failed to fetch healthy models from LiteLLM", exc_info=True)
+    except Exception as exc:
+        logger.warning("failed to fetch healthy models from LiteLLM", exc_info=True, error=str(exc))
         return set()
 
 

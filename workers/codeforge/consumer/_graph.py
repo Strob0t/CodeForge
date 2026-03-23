@@ -79,9 +79,10 @@ class GraphHandlerMixin:
                 top_k=request.top_k,
                 db_url=self._db_url,
             )
-        except Exception:
+        except Exception as exc:
             # Publish error result so the Go waiter gets a response, then re-raise
             # so _handle_request performs the nak.
+            logger.error("graph search failed", error=str(exc))
             await self._publish_error(
                 GraphSearchResult(
                     project_id=request.project_id,

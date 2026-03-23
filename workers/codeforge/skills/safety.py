@@ -67,6 +67,6 @@ async def check_skill_safety(content: str, llm_client: LiteLLMClient) -> SafetyR
             safe=bool(data.get("safe", True)),
             risks=list(data.get("risks", [])),
         )
-    except Exception:
-        logger.error("Skill safety check failed, treating as UNSAFE (fail-closed)", exc_info=True)
+    except Exception as exc:
+        logger.error("Skill safety check failed, treating as UNSAFE (fail-closed)", exc_info=True, error=str(exc))
         return SafetyResult(safe=False, risks=["safety check unavailable - denied by fail-closed policy"])

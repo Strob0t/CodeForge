@@ -62,7 +62,8 @@ class ContextHandlerMixin:
 
         try:
             result = await reranker.rerank(entries=entries, query=request.query)
-        except Exception:
+        except Exception as exc:
+            logger.error("context rerank failed", error=str(exc))
             await self._publish_error(
                 ContextRerankResult(
                     request_id=request.request_id,

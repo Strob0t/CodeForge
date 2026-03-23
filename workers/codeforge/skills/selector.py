@@ -55,8 +55,8 @@ async def select_skills_for_task(
 
     try:
         return await _llm_select(skills, task_context, llm_client, max_skills)
-    except Exception:
-        logger.warning("LLM skill selection failed, falling back to BM25", exc_info=True)
+    except Exception as exc:
+        logger.warning("LLM skill selection failed, falling back to BM25", exc_info=True, error=str(exc))
         return _bm25_fallback(skills, task_context, max_skills)
 
 

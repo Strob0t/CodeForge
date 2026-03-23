@@ -8,7 +8,6 @@ Cheapest possible verifier: max_tokens=1.
 from __future__ import annotations
 
 import math
-from typing import Any
 
 import structlog
 
@@ -85,7 +84,7 @@ class LogprobVerifierEvaluator:
 
         return [EvalDimension(name="logprob_verification", score=score, details=details)]
 
-    async def _call_verifier(self, prompt: str) -> Any:
+    async def _call_verifier(self, prompt: str) -> object:
         """Call the verifier LLM. Isolated for testability."""
         import litellm
 
@@ -102,7 +101,7 @@ class LogprobVerifierEvaluator:
         )
 
 
-def _extract_score(response: Any) -> tuple[float, dict[str, str]]:
+def _extract_score(response: object) -> tuple[float, dict[str, str]]:
     """Extract P(YES) from logprobs, falling back to text parsing."""
     logprobs = getattr(response.choices[0], "logprobs", None)
     if logprobs is not None:
