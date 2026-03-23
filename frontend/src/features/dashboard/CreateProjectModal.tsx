@@ -100,6 +100,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
           config: buildAdvancedConfig(),
         });
         toast("success", t("dashboard.toast.created"));
+        // best-effort: workspace init runs in background, failure notified via toast
         api.projects.initWorkspace(created.id).catch((initErr) => {
           const initMsg = initErr instanceof Error ? initErr.message : "init workspace failed";
           toast("error", initMsg);

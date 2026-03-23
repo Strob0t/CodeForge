@@ -288,7 +288,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     const convId = activeConversation();
     if (!convId) return;
     void api.conversations.stop(convId).catch(() => {
-      // error handled by API layer
+      // best-effort: stop is fire-and-forget, errors handled by API layer
     });
   };
 

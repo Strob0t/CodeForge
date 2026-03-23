@@ -32,7 +32,7 @@ export default function CreateProjectStep(_props: StepProps): JSX.Element {
     // Auto-setup if repo URL was provided
     if (created.repo_url) {
       api.projects.setup(created.id).catch(() => {
-        // Setup runs in background; errors are non-blocking
+        // best-effort: setup runs in background, errors are non-blocking and logged server-side
       });
     }
   });
