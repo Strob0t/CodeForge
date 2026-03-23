@@ -217,7 +217,7 @@ func (s *A2AService) GetRemoteTask(ctx context.Context, remoteAgentID, taskID st
 	if getErr == nil {
 		dt.State = a2adomain.TaskState(string(sdkTask.Status.State))
 		dt.UpdatedAt = time.Now().UTC()
-		_ = s.store.UpdateA2ATask(ctx, dt)
+		logBestEffort(ctx, s.store.UpdateA2ATask(ctx, dt), "UpdateA2ATask", slog.String("task_id", taskID))
 	}
 
 	return sdkTask, nil
@@ -242,7 +242,7 @@ func (s *A2AService) CancelRemoteTask(ctx context.Context, remoteAgentID, taskID
 	if getErr == nil {
 		dt.State = a2adomain.TaskStateCanceled
 		dt.UpdatedAt = time.Now().UTC()
-		_ = s.store.UpdateA2ATask(ctx, dt)
+		logBestEffort(ctx, s.store.UpdateA2ATask(ctx, dt), "UpdateA2ATask", slog.String("task_id", taskID))
 	}
 
 	return nil

@@ -52,7 +52,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
 		// Terminate the run
-		_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model)
+		logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
 		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 			"status": string(run.StatusTimeout),
 			"reason": reason,
@@ -171,7 +171,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 
 	// Increment step count
 	newSteps := r.StepCount + 1
-	_ = s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut)
+	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
 }
@@ -307,7 +307,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	newCost := r.CostUSD + result.CostUSD
 	newTokensIn := r.TokensIn + result.TokensIn
 	newTokensOut := r.TokensOut + result.TokensOut
-	_ = s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut)
+	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
 	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
 	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
@@ -321,7 +321,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if newCost >= maxCost {
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
-			_ = s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, newCost, r.StepCount, newTokensIn, newTokensOut, r.Model)
+			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
 			s.cleanupRunState(r.ID)
 			s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 				"status": string(run.StatusTimeout),
@@ -338,8 +338,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				TokensIn:  newTokensIn,
 				TokensOut: newTokensOut,
 			})
-			_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-			_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 			if s.onRunComplete != nil {
 				s.onRunComplete(ctx, r.ID, run.StatusTimeout)
 			}
@@ -370,7 +370,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
 			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			_ = s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model)
+			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
 			s.stallTrackers.Delete(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
@@ -387,8 +387,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				TokensOut: newTokensOut,
 			})
 			// Set agent idle, task failed
-			_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-			_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 			return nil
 		}
 	}

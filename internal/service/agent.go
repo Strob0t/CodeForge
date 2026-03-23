@@ -93,8 +93,8 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	// Dispatch to backend (async via NATS)
 	if _, err := backend.Execute(ctx, t); err != nil {
 		// Revert agent status on failure
-		_ = s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle)
-		_ = s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending)
+		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
 		return fmt.Errorf("dispatch task: %w", err)
 	}
 
@@ -136,8 +136,8 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("stop task: %w", err)
 	}
 
-	_ = s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle)
-	_ = s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", taskID))
 
 	// Record event
 	s.appendEvent(ctx, event.TypeAgentError, agentID, taskID, ag.ProjectID, map[string]string{

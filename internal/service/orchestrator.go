@@ -179,16 +179,16 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 	for i := range p.Steps {
 		switch p.Steps[i].Status {
 		case plan.StepStatusPending:
-			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan cancelled")
+			logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan cancelled"), "UpdatePlanStepStatus", slog.String("step_id", p.Steps[i].ID))
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusSkipped)
 		case plan.StepStatusRunning:
 			if p.Steps[i].RunID != "" {
-				_ = s.runtime.CancelRun(ctx, p.Steps[i].RunID)
+				logBestEffort(ctx, s.runtime.CancelRun(ctx, p.Steps[i].RunID), "CancelRun", slog.String("run_id", p.Steps[i].RunID))
 			}
-			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusCancelled, "", "plan cancelled")
+			logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusCancelled, "", "plan cancelled"), "UpdatePlanStepStatus", slog.String("step_id", p.Steps[i].ID))
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusCancelled)
 		case plan.StepStatusWaitingApproval:
-			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusCancelled, "", "plan cancelled")
+			logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusCancelled, "", "plan cancelled"), "UpdatePlanStepStatus", slog.String("step_id", p.Steps[i].ID))
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusCancelled)
 		}
 	}

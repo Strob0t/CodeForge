@@ -79,13 +79,13 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 	if err := s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
-	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 
 	cancelPayload := struct {
 		RunID string `json:"run_id"`
 	}{RunID: runID}
-	_ = s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload)
+	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
 
 	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 		"status": string(run.StatusTimeout),
@@ -151,11 +151,11 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	if status == run.StatusFailed || status == run.StatusTimeout {
 		taskStatus = task.StatusFailed
 	}
-	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatus)
-	_ = s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD)
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatus), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
+	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
 
 	// Set agent back to idle
-	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 
 	// Accumulate agent identity stats (Phase 23C).
 	if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {

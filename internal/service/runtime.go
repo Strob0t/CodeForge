@@ -288,10 +288,10 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	// Mark agent as running
-	_ = s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning), "UpdateAgentStatus", slog.String("agent_id", req.AgentID))
 
 	// Mark task as running
-	_ = s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning)
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning), "UpdateTaskStatus", slog.String("task_id", req.TaskID))
 
 	// Start sandbox/hybrid container if applicable
 	if s.sandbox != nil {
@@ -492,14 +492,14 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	}
 
 	// Set agent idle
-	_ = s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle)
-	_ = s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusCancelled)
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 
 	// Notify worker via NATS
 	cancelPayload := struct {
 		RunID string `json:"run_id"`
 	}{RunID: runID}
-	_ = s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload)
+	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
 
 	// Record event
 	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{

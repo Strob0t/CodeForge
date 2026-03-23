@@ -91,7 +91,7 @@ func (s *SessionService) ForkConversation(ctx context.Context, conversationID st
 	}
 
 	// Mark old session as forked.
-	_ = s.store.UpdateSessionStatus(ctx, existing.ID, run.SessionStatusForked, "")
+	logBestEffort(ctx, s.store.UpdateSessionStatus(ctx, existing.ID, run.SessionStatusForked, ""), "UpdateSessionStatus", slog.String("session_id", existing.ID))
 
 	slog.Debug("conversation forked", "session_id", sess.ID, "parent", existing.ID)
 	return sess, nil

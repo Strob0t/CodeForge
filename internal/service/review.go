@@ -356,7 +356,7 @@ func (s *ReviewService) runCronCheck(ctx context.Context) {
 			}
 			// Touch updatedAt so we don't re-trigger.
 			p.UpdatedAt = now
-			_ = s.store.UpdateReviewPolicy(ctx, p)
+			logBestEffort(ctx, s.store.UpdateReviewPolicy(ctx, p), "UpdateReviewPolicy", slog.String("policy_id", p.ID))
 		}
 	}
 }

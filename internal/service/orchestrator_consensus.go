@@ -86,7 +86,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	r, err := s.runtime.StartRun(ctx, req)
 	if err != nil {
 		slog.Error("start step run", "step_id", stepID, "error", err)
-		_ = s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error())
+		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error()), "UpdatePlanStepStatus", slog.String("step_id", stepID))
 		s.broadcastStepStatus(ctx, p, step, plan.StepStatusFailed)
 		s.hub.BroadcastEvent(ctx, ws.AGUIStepFinished, ws.AGUIStepFinishedEvent{
 			RunID:  "",
@@ -96,7 +96,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		return
 	}
 
-	_ = s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, "")
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, ""), "UpdatePlanStepStatus", slog.String("step_id", stepID))
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
 	s.hub.BroadcastEvent(ctx, ws.AGUIStepStarted, ws.AGUIStepStartedEvent{
 		RunID:  r.ID,
@@ -192,7 +192,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	s.debateMu.Unlock()
 
 	// Mark the parent step as running while the debate executes.
-	_ = s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusRunning, "", "")
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusRunning, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusRunning)
 
 	// Broadcast debate started event.
@@ -215,7 +215,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	if err != nil {
 		slog.Error("start debate sub-plan", "debate_plan_id", debatePlan.ID, "error", err)
 		// Revert step to pending so it can be retried without debate.
-		_ = s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", "")
+		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
 		s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
 
 		s.debateMu.Lock()
@@ -312,7 +312,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	s.debateMu.Unlock()
 
 	// Reset the parent step to pending so advancePlan can dispatch the actual run.
-	_ = s.store.UpdatePlanStepStatus(ctx, ds.ParentStepID, plan.StepStatusPending, "", "")
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, ds.ParentStepID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", ds.ParentStepID))
 	s.broadcastStepStatus(ctx, parentPlan, parentStep, plan.StepStatusPending)
 
 	// Re-advance the parent plan to dispatch the original step.
@@ -338,7 +338,7 @@ func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.Executio
 func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPlan) {
 	for i := range p.Steps {
 		if p.Steps[i].Status == plan.StepStatusPending {
-			_ = s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan failed")
+			logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan failed"), "UpdatePlanStepStatus", slog.String("step_id", p.Steps[i].ID))
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusSkipped)
 		}
 	}
