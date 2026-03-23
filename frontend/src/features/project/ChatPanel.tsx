@@ -30,6 +30,8 @@ import { CanvasModal } from "../canvas/CanvasModal";
 import type { CanvasExports } from "../canvas/canvasTypes";
 import ChatInput from "../chat/ChatInput";
 import { type CommandContext, executeCommand } from "../chat/commandExecutor";
+import DiffSummaryModal from "../chat/DiffSummaryModal";
+import RewindTimeline from "../chat/RewindTimeline";
 import TokenBadge from "../chat/TokenBadge";
 import ChatHeader from "./ChatHeader";
 import ChatMessages from "./ChatMessages";
@@ -49,6 +51,8 @@ export default function ChatPanel(props: ChatPanelProps) {
   const { isRunActive } = useConversationRuns();
 
   const [canvasOpen, setCanvasOpen] = createSignal(false);
+  const [showDiffSummary, setShowDiffSummary] = createSignal(false);
+  const [showRewindTimeline, setShowRewindTimeline] = createSignal(false);
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
   const [conversations, { refetch: refetchConversations }] = createResource(
@@ -233,7 +237,13 @@ export default function ChatPanel(props: ChatPanelProps) {
             scrollToBottom();
             break;
           case "modal":
-            toast("info", `Action: ${result.action ?? "modal"}`);
+            if (result.action === "show_diff") {
+              setShowDiffSummary(true);
+            } else if (result.action === "show_rewind") {
+              setShowRewindTimeline(true);
+            } else {
+              toast("info", `Action: ${result.action ?? "modal"}`);
+            }
             break;
         }
       } catch {
@@ -315,6 +325,8 @@ export default function ChatPanel(props: ChatPanelProps) {
           runningCost={agui.runningCost}
           onStop={handleStop}
           sessionByConv={sessionByConv}
+          onShowRewindTimeline={() => setShowRewindTimeline(true)}
+          hasStepHistory={agui.stepHistory().length > 0}
         />
 
         <ChatMessages
@@ -337,6 +349,8 @@ export default function ChatPanel(props: ChatPanelProps) {
           commandOutput={agui.commandOutput}
           sending={sending}
           sendChatMessage={sendChatMessage}
+          sessionDiffs={agui.sessionDiffs}
+          onShowDiffSummary={() => setShowDiffSummary(true)}
           setContainerRef={(el) => {
             messagesContainerRef = el;
           }}
@@ -438,6 +452,36 @@ export default function ChatPanel(props: ChatPanelProps) {
           tokensUsed={agui.sessionTokensIn() + agui.sessionTokensOut()}
           tokensTotal={maxContextTokens()}
           visible={agui.sessionCostUsd() > 0 || agui.sessionSteps() > 0}
+        />
+
+        {/* Diff summary modal (triggered by /diff command or "View Changes" button) */}
+        <DiffSummaryModal
+          diffs={agui.sessionDiffs()}
+          visible={showDiffSummary()}
+          onClose={() => setShowDiffSummary(false)}
+        />
+
+        {/* Rewind timeline (triggered by /rewind command or "Timeline" button) */}
+        <RewindTimeline
+          conversationId={activeConversation() ?? ""}
+          steps={agui.stepHistory()}
+          visible={showRewindTimeline()}
+          onClose={() => setShowRewindTimeline(false)}
+          onRewind={(stepId) => {
+            const convId = activeConversation();
+            if (!convId) return;
+            setShowRewindTimeline(false);
+            void api.conversations
+              .rewind(convId, { to_event_id: stepId })
+              .then(() => {
+                refetchMessages();
+                refetchSession();
+                toast("success", t("session.rewindSuccess"));
+              })
+              .catch(() => {
+                toast("error", t("session.rewindFailed"));
+              });
+          }}
         />
 
         {/* Design Canvas modal */}

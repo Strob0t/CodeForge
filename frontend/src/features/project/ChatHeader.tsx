@@ -23,6 +23,8 @@ interface ChatHeaderProps {
   runningCost: () => number;
   onStop: () => void;
   sessionByConv: () => Map<string, Session>;
+  onShowRewindTimeline: () => void;
+  hasStepHistory: boolean;
 }
 
 export default function ChatHeader(props: ChatHeaderProps) {
@@ -180,6 +182,17 @@ export default function ChatHeader(props: ChatHeaderProps) {
               }}
             >
               {resumeLoading() ? "..." : t("session.resume")}
+            </Button>
+          </Show>
+          {/* Timeline button (visible when step history exists) */}
+          <Show when={props.hasStepHistory}>
+            <Button
+              variant="secondary"
+              size="sm"
+              class="text-xs px-2 py-0.5"
+              onClick={props.onShowRewindTimeline}
+            >
+              Timeline
             </Button>
           </Show>
           {/* Session History toggle */}

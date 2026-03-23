@@ -43,6 +43,29 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   // Command output display (for /help, /cost etc.)
   const [commandOutput, setCommandOutput] = createSignal<string | null>(null);
 
+  // Session-level diff accumulator: persists file diffs across tool calls for /diff command
+  interface SessionDiffEntry {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  }
+  const [sessionDiffs, setSessionDiffs] = createSignal<SessionDiffEntry[]>([]);
+
+  // Session-level step history accumulator: persists step events for /rewind timeline
+  interface StepHistoryEntry {
+    stepId: string;
+    name: string;
+    timestamp: string;
+    status: "running" | "completed" | "failed" | "cancelled" | "skipped";
+  }
+  const [stepHistory, setStepHistory] = createSignal<StepHistoryEntry[]>([]);
+
   // Agentic mode tracking: step counter and running cost
   const [stepCount, setStepCount] = createSignal(0);
   const [runningCost, setRunningCost] = createSignal(0);
@@ -129,6 +152,18 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
       if (typeof payload.cost_usd === "number") {
         setRunningCost((prev) => prev + (payload.cost_usd as number));
       }
+      // Accumulate file diffs for /diff summary
+      if (diff) {
+        setSessionDiffs((prev) => {
+          const idx = prev.findIndex((d) => d.path === diff.path);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = diff;
+            return next;
+          }
+          return [...prev, diff];
+        });
+      }
       // Derive rule-based action suggestions from tool result
       const tc = toolCalls().find((t) => t.callId === callId);
       if (tc) {
@@ -191,6 +226,11 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     const stepId = payload.step_id as string;
     const name = payload.name as string;
     setPlanSteps((prev) => [...prev, { stepId, name, status: "running" }]);
+    // Accumulate into persistent step history for /rewind timeline
+    setStepHistory((prev) => [
+      ...prev,
+      { stepId, name, status: "running", timestamp: new Date().toISOString() },
+    ]);
   });
 
   // When a plan step finishes, update its status
@@ -198,6 +238,8 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     const stepId = payload.step_id as string;
     const status = payload.status as PlanStepState["status"];
     setPlanSteps((prev) => prev.map((s) => (s.stepId === stepId ? { ...s, status } : s)));
+    // Update persistent step history
+    setStepHistory((prev) => prev.map((s) => (s.stepId === stepId ? { ...s, status } : s)));
   });
 
   // When the agent proposes a goal, add it to the proposal list for user approval
@@ -274,5 +316,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     sessionSteps,
     commandOutput,
     setCommandOutput,
+    sessionDiffs,
+    stepHistory,
   };
 }

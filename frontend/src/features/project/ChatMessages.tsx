@@ -34,6 +34,19 @@ interface ChatMessagesProps {
   stepCount: () => number;
   commandOutput: () => string | null;
   sending: () => boolean;
+  // Session diffs for "View Changes" button
+  sessionDiffs: () => {
+    path: string;
+    hunks: {
+      old_start: number;
+      old_lines: number;
+      new_start: number;
+      new_lines: number;
+      old_content: string;
+      new_content: string;
+    }[];
+  }[];
+  onShowDiffSummary: () => void;
   // Callbacks
   sendChatMessage: (content: string) => void;
   // Ref setter for scroll container
@@ -262,6 +275,20 @@ export default function ChatMessages(props: ChatMessagesProps) {
             }
           }}
         />
+      </Show>
+
+      {/* "View Changes" button: shown when agent is idle and session has file diffs */}
+      <Show when={!props.agentRunning() && props.sessionDiffs().length > 0}>
+        <div class="flex justify-start ml-2 mt-1">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-cf-sm border border-cf-border px-2.5 py-1 text-xs font-medium text-cf-text-secondary hover:bg-cf-bg-inset transition-colors"
+            onClick={() => props.onShowDiffSummary()}
+          >
+            View {props.sessionDiffs().length} file change
+            {props.sessionDiffs().length !== 1 ? "s" : ""}
+          </button>
+        </div>
       </Show>
 
       {/* Thinking indicator: shown when agent run is active but no text has streamed yet */}
