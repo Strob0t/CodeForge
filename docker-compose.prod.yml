@@ -32,6 +32,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-codeforge}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres_archive:/archive
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeforge}"]
       interval: 10s
@@ -49,6 +50,22 @@ services:
       - "max_connections=200"
       - "-c"
       - "log_line_prefix=%t [%p] %q%u@%d "
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/data/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/data/server.key"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "archive_mode=on"
+      - "-c"
+      - "archive_command=test ! -f /archive/%f && cp %p /archive/%f"
+      - "-c"
+      - "archive_timeout=300"
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -81,6 +98,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -96,7 +115,7 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -109,8 +128,6 @@ services:
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
       LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
-    ports:
-      - "${LITELLM_PORT:-4000}:4000"
     volumes:
       - ./litellm:/app/data:ro
     command: ["--config", "/app/data/config.yaml", "--port", "4000"]
@@ -123,6 +140,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -145,7 +164,7 @@ services:
       - "no-new-privileges:true"
     environment:
       CODEFORGE_PORT: "8080"
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=disable"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
       NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       LITELLM_BASE_URL: "http://litellm:4000"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
@@ -164,6 +183,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks:
+      - public
+      - internal
     deploy:
       resources:
         limits:
@@ -186,7 +208,7 @@ services:
       NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       LITELLM_BASE_URL: "http://litellm:4000"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=disable"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
     depends_on:
       nats:
         condition: service_healthy
@@ -198,6 +220,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -216,15 +240,17 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "${FRONTEND_PORT:-80}:80"
+      - "${FRONTEND_PORT:-80}:8080"
     depends_on:
       core:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080"]
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - public
     deploy:
       resources:
         limits:
@@ -234,4 +260,12 @@ services:
 
 volumes:
   postgres_data:
+  postgres_archive:
   nats_data:
+
+networks:
+  public:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
