@@ -227,9 +227,7 @@ class AgentLoopExecutor:
         self._experience_pool = experience_pool
 
     # MCP tool name keywords considered read-only and safe for weaker models.
-    _MCP_READONLY_KEYWORDS: ClassVar[frozenset[str]] = frozenset(
-        {"search", "list", "find", "get", "fetch_url"}
-    )
+    _MCP_READONLY_KEYWORDS: frozenset[str] = frozenset({"search", "list", "find", "get", "fetch_url"})
 
     @staticmethod
     def _filter_tools_for_capability(
