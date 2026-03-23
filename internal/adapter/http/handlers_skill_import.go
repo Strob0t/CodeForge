@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 )
 
 type importSkillRequest struct {
@@ -80,13 +81,13 @@ func (h *Handlers) ImportSkill(w http.ResponseWriter, r *http.Request) {
 
 // fetchURL retrieves content from a URL with a 15-second timeout and 1 MB size limit.
 func fetchURL(ctx context.Context, rawURL string) (content, contentType string, err error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody) //nolint:gosec // URL comes from authenticated admin user
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return "", "", fmt.Errorf("building request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(httpReq) //nolint:gosec // URL from authenticated admin user, validated above
+	client := &http.Client{Timeout: 15 * time.Second, Transport: netutil.SafeTransport()}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", "", fmt.Errorf("HTTP request failed: %w", err)
 	}

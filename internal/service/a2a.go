@@ -21,6 +21,7 @@ import (
 
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -340,7 +341,7 @@ func validateWebhookURL(rawURL string) error {
 
 	// For https URLs: resolve hostname to check for private IPs (SSRF prevention).
 	if ip := net.ParseIP(hostname); ip != nil {
-		if isPrivateIP(ip) {
+		if netutil.IsPrivateIP(ip) {
 			return fmt.Errorf("webhook url must not target private/reserved IP addresses")
 		}
 	} else {
@@ -348,7 +349,7 @@ func validateWebhookURL(rawURL string) error {
 		addrs, resolveErr := resolver.LookupHost(context.Background(), hostname)
 		if resolveErr == nil {
 			for _, addr := range addrs {
-				if ip := net.ParseIP(addr); ip != nil && isPrivateIP(ip) {
+				if ip := net.ParseIP(addr); ip != nil && netutil.IsPrivateIP(ip) {
 					return fmt.Errorf("webhook url hostname %q resolves to private IP", hostname)
 				}
 			}
@@ -356,12 +357,6 @@ func validateWebhookURL(rawURL string) error {
 	}
 
 	return nil
-}
-
-// isPrivateIP returns true if the IP is in a private, loopback, or reserved range.
-func isPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
 // ListPushConfigs returns all push configs for a task.
