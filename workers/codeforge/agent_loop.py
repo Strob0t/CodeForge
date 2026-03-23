@@ -184,6 +184,7 @@ class LoopConfig:
     mode_tools: frozenset[str] = field(default_factory=frozenset)  # Mode-declared extra tools
     top_p: float | None = None  # Sampling top_p (None = provider default)
     extra_body: dict[str, object] | None = None  # Extra LiteLLM payload params
+    selected_tools: list[str] | None = None  # Pre-selected tools from ToolRouter (overrides capability filter)
 
 
 @dataclass
@@ -234,28 +235,36 @@ class AgentLoopExecutor:
         tools_array: list[dict[str, object]],
         capability: CapabilityLevel,
         mode_tools: frozenset[str] | None = None,
+        selected_tools: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        """Filter tools based on model capability level.
+        """Filter tools based on model capability level and ToolRouter selection.
 
-        FULL capability returns all tools (no filtering).
-        For weaker models, only the allowlisted built-in tools plus any
-        mode-declared tools are kept. MCP tools with read-only semantics
-        (search, list, find, get) are also allowed; write MCP tools
-        (scrape, remove, cancel) are filtered out.
+        When *selected_tools* is provided (from ToolRouter), it takes
+        precedence as the primary allowlist.  Mode-declared tools are
+        always merged in.
+
+        Without *selected_tools*, falls back to the capability-level
+        allowlist in TOOLS_BY_CAPABILITY.
+
+        FULL capability with no selected_tools returns all tools (no filtering).
         """
-        allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
-        if not allowed:  # FULL capability = no filtering
-            return tools_array
-        # Merge mode-declared tools so they are always available.
-        if mode_tools:
-            allowed = allowed | mode_tools
+        if selected_tools is not None:
+            allowed: frozenset[str] = frozenset(selected_tools)
+            if mode_tools:
+                allowed = allowed | mode_tools
+        else:
+            allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
+            if not allowed:  # FULL capability = no filtering
+                return tools_array
+            if mode_tools:
+                allowed = allowed | mode_tools
 
         def _is_allowed(tool: dict[str, object]) -> bool:
             name = tool.get("function", {}).get("name", "")
             if name in allowed:
                 return True
-            # Allow read-only MCP tools for weaker models.
-            if name.startswith("mcp__"):
+            # Allow read-only MCP tools for weaker models (fallback when no selected_tools).
+            if selected_tools is None and name.startswith("mcp__"):
                 tool_action = name.rsplit("__", 1)[-1]  # e.g. "search_docs"
                 return any(kw in tool_action for kw in AgentLoopExecutor._MCP_READONLY_KEYWORDS)
             return False
@@ -460,9 +469,11 @@ class AgentLoopExecutor:
         plan_act = _init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
 
-        # Filter tools based on model capability level (M1).
+        # Filter tools based on model capability level (M1) and ToolRouter selection.
         cap_level = CapabilityLevel(cfg.capability_level) if cfg.capability_level else CapabilityLevel.FULL
-        tools_array = self._filter_tools_for_capability(tools_array, cap_level, cfg.mode_tools or None)
+        tools_array = self._filter_tools_for_capability(
+            tools_array, cap_level, cfg.mode_tools or None, cfg.selected_tools
+        )
 
         loop_start = time.monotonic()
 

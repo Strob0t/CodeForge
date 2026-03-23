@@ -152,3 +152,78 @@ class TestFilterToolsForCapability:
 
         result = AgentLoopExecutor._filter_tools_for_capability([], CapabilityLevel.PURE_COMPLETION)
         assert result == []
+
+    def test_selected_tools_overrides_capability(self, sample_tools: list[dict]) -> None:
+        """When selected_tools is provided, it takes precedence over capability filter."""
+        from codeforge.agent_loop import AgentLoopExecutor
+
+        # Pure completion normally filters edit_file, but selected_tools includes it.
+        result = AgentLoopExecutor._filter_tools_for_capability(
+            sample_tools,
+            CapabilityLevel.PURE_COMPLETION,
+            selected_tools=["read_file", "edit_file", "bash"],
+        )
+        names = {t["function"]["name"] for t in result}
+        assert names == {"read_file", "edit_file", "bash"}
+
+    def test_selected_tools_with_mode_tools(self, sample_tools: list[dict]) -> None:
+        """Mode tools are always merged even with selected_tools."""
+        from codeforge.agent_loop import AgentLoopExecutor
+
+        result = AgentLoopExecutor._filter_tools_for_capability(
+            sample_tools,
+            CapabilityLevel.PURE_COMPLETION,
+            mode_tools=frozenset({"create_skill"}),
+            selected_tools=["read_file", "bash"],
+        )
+        names = {t["function"]["name"] for t in result}
+        assert "create_skill" in names
+        assert "read_file" in names
+        assert "bash" in names
+
+    def test_selected_tools_empty_list_filters_all_except_mode(self, sample_tools: list[dict]) -> None:
+        """Empty selected_tools list means no base tools selected (only mode tools)."""
+        from codeforge.agent_loop import AgentLoopExecutor
+
+        result = AgentLoopExecutor._filter_tools_for_capability(
+            sample_tools,
+            CapabilityLevel.FULL,
+            mode_tools=frozenset({"bash"}),
+            selected_tools=[],
+        )
+        names = {t["function"]["name"] for t in result}
+        assert names == {"bash"}
+
+    def test_selected_tools_none_uses_capability(self, sample_tools: list[dict]) -> None:
+        """When selected_tools is None, falls back to capability-based filtering."""
+        from codeforge.agent_loop import AgentLoopExecutor
+
+        result = AgentLoopExecutor._filter_tools_for_capability(
+            sample_tools,
+            CapabilityLevel.PURE_COMPLETION,
+            selected_tools=None,
+        )
+        names = {t["function"]["name"] for t in result}
+        # Pure completion should exclude edit_file, create_skill, etc.
+        assert "edit_file" not in names
+        assert "create_skill" not in names
+        assert "read_file" in names
+
+    def test_selected_tools_with_mcp(self) -> None:
+        """MCP tools in selected_tools list are included."""
+        from codeforge.agent_loop import AgentLoopExecutor
+
+        tools = [
+            {"type": "function", "function": {"name": "read_file", "description": "", "parameters": {}}},
+            {"type": "function", "function": {"name": "mcp__docs__search_docs", "description": "", "parameters": {}}},
+            {"type": "function", "function": {"name": "mcp__docs__scrape_docs", "description": "", "parameters": {}}},
+        ]
+        result = AgentLoopExecutor._filter_tools_for_capability(
+            tools,
+            CapabilityLevel.PURE_COMPLETION,
+            selected_tools=["read_file", "mcp__docs__search_docs"],
+        )
+        names = {t["function"]["name"] for t in result}
+        assert "read_file" in names
+        assert "mcp__docs__search_docs" in names
+        assert "mcp__docs__scrape_docs" not in names
