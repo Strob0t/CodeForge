@@ -9,6 +9,25 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// ListPromptEvolutionVariants handles GET /api/v1/prompt-evolution/variants
+func (h *Handlers) ListPromptEvolutionVariants(w http.ResponseWriter, r *http.Request) {
+	if h.PromptEvolution == nil {
+		writeError(w, http.StatusServiceUnavailable, "prompt evolution not enabled")
+		return
+	}
+
+	modeID := r.URL.Query().Get("mode_id")
+	status := r.URL.Query().Get("status")
+
+	variants, err := h.PromptEvolution.ListVariants(r.Context(), modeID, status)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, variants)
+}
+
 // GetPromptEvolutionStatus handles GET /api/v1/prompt-evolution/status
 func (h *Handlers) GetPromptEvolutionStatus(w http.ResponseWriter, r *http.Request) {
 	if h.PromptEvolution == nil {

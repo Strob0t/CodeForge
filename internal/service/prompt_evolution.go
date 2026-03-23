@@ -16,6 +16,7 @@ type PromptEvolutionStore interface {
 	InsertVariant(ctx context.Context, v *prompt.PromptVariant) error
 	GetVariantByID(ctx context.Context, id string) (prompt.PromptVariant, error)
 	UpdatePromotionStatus(ctx context.Context, id string, status prompt.PromotionStatus) error
+	ListVariants(ctx context.Context, modeID, status string) ([]prompt.PromptVariant, error)
 }
 
 // PromptEvolutionService orchestrates the four-stage evolution loop:
@@ -242,6 +243,14 @@ func (s *PromptEvolutionService) RevertMode(ctx context.Context, tenantID, modeI
 	}
 	eventData, _ := json.Marshal(event)
 	return s.queue.Publish(ctx, mq.SubjectPromptEvolutionReverted, eventData)
+}
+
+// ListVariants returns all prompt variants for a tenant, optionally filtered by mode and status.
+func (s *PromptEvolutionService) ListVariants(ctx context.Context, modeID, status string) ([]prompt.PromptVariant, error) {
+	if s.store == nil {
+		return nil, fmt.Errorf("no store configured")
+	}
+	return s.store.ListVariants(ctx, modeID, status)
 }
 
 // GetStatus returns the current evolution configuration status.

@@ -227,6 +227,12 @@ class AgentLoopExecutor:
         self._experience_pool = experience_pool
 
     @staticmethod
+    # MCP tool name keywords considered read-only and safe for weaker models.
+    _MCP_READONLY_KEYWORDS: ClassVar[frozenset[str]] = frozenset(
+        {"search", "list", "find", "get", "fetch_url"}
+    )
+
+    @staticmethod
     def _filter_tools_for_capability(
         tools_array: list[dict[str, object]],
         capability: CapabilityLevel,
@@ -235,8 +241,10 @@ class AgentLoopExecutor:
         """Filter tools based on model capability level.
 
         FULL capability returns all tools (no filtering).
-        For weaker models, only the allowlisted tools plus any mode-declared
-        tools are kept.
+        For weaker models, only the allowlisted built-in tools plus any
+        mode-declared tools are kept. MCP tools with read-only semantics
+        (search, list, find, get) are also allowed; write MCP tools
+        (scrape, remove, cancel) are filtered out.
         """
         allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
         if not allowed:  # FULL capability = no filtering
@@ -244,7 +252,18 @@ class AgentLoopExecutor:
         # Merge mode-declared tools so they are always available.
         if mode_tools:
             allowed = allowed | mode_tools
-        return [t for t in tools_array if t.get("function", {}).get("name") in allowed]
+
+        def _is_allowed(tool: dict[str, object]) -> bool:
+            name = tool.get("function", {}).get("name", "")
+            if name in allowed:
+                return True
+            # Allow read-only MCP tools for weaker models.
+            if name.startswith("mcp__"):
+                tool_action = name.rsplit("__", 1)[-1]  # e.g. "search_docs"
+                return any(kw in tool_action for kw in AgentLoopExecutor._MCP_READONLY_KEYWORDS)
+            return False
+
+        return [t for t in tools_array if _is_allowed(t)]
 
     @staticmethod
     def _extract_user_prompt(messages: list[dict[str, object]]) -> str:

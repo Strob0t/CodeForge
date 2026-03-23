@@ -1369,6 +1369,35 @@ const de: Translations = {
   "a2a.pushConfigs.toast.created": "Push-Konfiguration erstellt.",
   "a2a.pushConfigs.toast.deleted": "Push-Konfiguration geloescht.",
   "app.nav.a2a": "A2A-Foederation",
+  // -- Prompt Evolution (Tabs + Evolution-UI) --------------------------------
+  "prompts.tabs.sections": "Sektionen",
+  "prompts.tabs.evolution": "Evolution",
+  "prompts.evolution.title": "Prompt-Evolution",
+  "prompts.evolution.status": "Evolutionsstatus",
+  "prompts.evolution.enabled": "Aktiviert",
+  "prompts.evolution.trigger": "Ausloeser",
+  "prompts.evolution.strategy": "Strategie",
+  "prompts.evolution.variants": "Varianten",
+  "prompts.evolution.empty": "Noch keine Varianten vorhanden",
+  "prompts.evolution.emptyDescription":
+    "Starten Sie eine Reflektion, um Prompt-Varianten zu erzeugen.",
+  "prompts.evolution.promote": "Befoerdern",
+  "prompts.evolution.revert": "Modus zuruecksetzen",
+  "prompts.evolution.triggerReflection": "Reflektion ausloesen",
+  "prompts.evolution.field.modeId": "Modus-ID",
+  "prompts.evolution.field.modelFamily": "Modellfamilie",
+  "prompts.evolution.field.currentPrompt": "Aktueller Prompt",
+  "prompts.evolution.confirm.promote":
+    "Diese Variante befoerdern? Sie ersetzt den aktuell aktiven Prompt fuer diesen Modus.",
+  "prompts.evolution.confirm.revert":
+    "Diesen Modus auf Basis-Prompts zuruecksetzen? Alle befoerderten Varianten werden archiviert.",
+  "prompts.evolution.promoted": "Variante erfolgreich befoerdert.",
+  "prompts.evolution.reverted": "Modus auf Basis-Prompts zurueckgesetzt.",
+  "prompts.evolution.reflectionTriggered":
+    "Reflektion ausgeloest. Varianten erscheinen nach der Verarbeitung.",
+  "prompts.evolution.error.promoteFailed": "Variante konnte nicht befoerdert werden.",
+  "prompts.evolution.error.revertFailed": "Modus konnte nicht zurueckgesetzt werden.",
+  "prompts.evolution.error.reflectFailed": "Reflektion konnte nicht ausgeloest werden.",
 
   // -- Benchmark Mode (Phase 20E) -------------------------------------------
   "app.nav.benchmarks": "Benchmarks",

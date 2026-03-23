@@ -17,18 +17,26 @@ if TYPE_CHECKING:
     from codeforge.tools._base import ToolDefinition
 
 
+_MAX_GUIDE_CHARS = 6000  # ~1500 tokens — prevent guide from eating the context budget
+
+
 def build_tool_usage_guide(registry: ToolRegistry, capability_level: CapabilityLevel) -> str:
     """Build a tool-usage guide string based on model capability level.
 
     Returns an empty string for full-capability models.
+    Truncates to ~1500 tokens to prevent context budget implosion.
     """
     if capability_level == CapabilityLevel.FULL:
         return ""
 
     if capability_level == CapabilityLevel.API_WITH_TOOLS:
-        return _build_concise_guide(registry)
+        guide = _build_concise_guide(registry)
+    else:
+        guide = _build_full_guide(registry)
 
-    return _build_full_guide(registry)
+    if len(guide) > _MAX_GUIDE_CHARS:
+        guide = guide[:_MAX_GUIDE_CHARS] + "\n\n[Tool guide truncated — see tool definitions for full details]"
+    return guide
 
 
 def _build_concise_guide(registry: ToolRegistry) -> str:
