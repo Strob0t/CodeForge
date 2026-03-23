@@ -3,6 +3,7 @@ package resilience
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -55,7 +56,7 @@ func (b *Breaker) Execute(fn func() error) error {
 
 	if err != nil {
 		b.onFailure()
-		return err
+		return fmt.Errorf("circuit breaker: %w", err)
 	}
 
 	b.onSuccess()

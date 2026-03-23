@@ -3,6 +3,7 @@ package user
 
 import (
 	"errors"
+	"fmt"
 	"net/mail"
 	"time"
 	"unicode"
@@ -78,7 +79,7 @@ func (r *CreateRequest) Validate() error {
 		return errors.New("password is required")
 	}
 	if err := ValidatePasswordComplexity(r.Password); err != nil {
-		return err
+		return fmt.Errorf("password complexity: %w", err)
 	}
 	if !ValidRoles[r.Role] {
 		return errors.New("invalid role: must be admin, editor, or viewer")
