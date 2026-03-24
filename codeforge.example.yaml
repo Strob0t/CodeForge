@@ -81,6 +81,17 @@ orchestrator:
 #   servers_dir: ""          # Directory with MCP server YAML definitions
 #   server_port: 3001        # Port for the built-in MCP server (default: 3001)
 
+# Language Server Protocol integration (Phase 15D)
+# Provides code intelligence (go-to-def, references, diagnostics) for agent conversations.
+# Requires language server binaries installed (gopls, pyright, typescript-language-server).
+lsp:
+  enabled: false           # Enable LSP integration
+  auto_start: true         # Auto-start servers on project setup
+  start_timeout: 30s       # Max time for server initialization
+  shutdown_timeout: 10s    # Graceful shutdown timeout
+  diagnostic_delay: 500ms  # Debounce delay for diagnostic broadcasts
+  max_diagnostics: 100     # Max diagnostics cached per file
+
 # Authentication & Authorization (Phase 10C)
 # When disabled (default), a default admin context is injected for all requests.
 # Enable and set jwt_secret for production use.
