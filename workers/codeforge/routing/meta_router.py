@@ -8,8 +8,9 @@ layer and only runs when Layers 1-2 cannot make a confident decision.
 from __future__ import annotations
 
 import json
-import logging
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codeforge.routing.models import (
     ComplexityTier,
@@ -21,7 +22,7 @@ from codeforge.routing.models import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(component="routing")
 
 # Prompt truncation limit for the meta-router.
 _MAX_PROMPT_CHARS = 500
@@ -97,7 +98,7 @@ class LLMMetaRouter:
         try:
             response = self._llm_call(router_model, classification_prompt)
         except Exception as exc:
-            logger.warning("Meta-router LLM call failed: %s", exc, exc_info=True)
+            logger.warning("meta-router LLM call failed", error=str(exc), exc_info=True)
             return None
 
         if response is None:
@@ -162,7 +163,7 @@ class LLMMetaRouter:
                 )
 
         except (json.JSONDecodeError, KeyError, TypeError):
-            logger.debug("Meta-router response not valid JSON: %s", response[:200])
+            logger.debug("meta-router response not valid JSON", response_preview=response[:200])
 
         # Final fallback: map complexity tier to tier category.
         tier_map = {
@@ -190,7 +191,7 @@ class LLMMetaRouter:
         """Map a tier name to the first available model from preference list."""
         preferences = _TIER_MODELS.get(tier.lower())
         if preferences is None:
-            logger.debug("Unrecognised tier %r — no preference list available", tier)
+            logger.debug("unrecognised tier, no preference list available", tier=tier)
             return None
         for model in preferences:
             if model in available_models:

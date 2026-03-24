@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 import pytest
 
 from codeforge.routing.key_filter import (
@@ -76,12 +74,13 @@ class TestFilterKeylessModels:
         result = filter_keyless_models(models)
         assert result == ["groq/llama-3.3-70b", "mistral/mistral-large", "groq/mixtral"]
 
-    def test_warning_logged_once_per_provider(self, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.WARNING):
-            filter_keyless_models(["openai/gpt-4o", "openai/gpt-4o-mini"])
-        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(warnings) == 1
-        assert "openai" in warnings[0].message
+    def test_warning_logged_once_per_provider(self, capsys: pytest.CaptureFixture[str]) -> None:
+        filter_keyless_models(["openai/gpt-4o", "openai/gpt-4o-mini"])
+        captured = capsys.readouterr()
+        # structlog writes to stdout; verify warning was emitted once for openai
+        warning_lines = [line for line in captured.out.splitlines() if "excluding models" in line]
+        assert len(warning_lines) == 1
+        assert "openai" in warning_lines[0]
 
     def test_github_copilot_with_token_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "ghu_test-token")

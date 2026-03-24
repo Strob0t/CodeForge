@@ -17,9 +17,10 @@ CODEFORGE_ROUTING_ENABLED=false when all providers are unhealthy.
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codeforge.config import get_settings
 from codeforge.routing.models import (
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
     from codeforge.routing.models import RoutingProfile
     from codeforge.routing.rate_tracker import RateLimitTracker
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(component="routing")
 
 # TTL for caching the effective (non-blocked) models list.
 _EFFECTIVE_MODELS_CACHE_TTL = get_settings().effective_models_cache_ttl
@@ -237,7 +238,7 @@ class HybridRouter:
 
         while primary is None and retries < max_retries:
             if time.monotonic() > deadline:
-                logger.warning("route_with_fallbacks: timeout after %.1fs", timeout)
+                logger.warning("route_with_fallbacks timeout", timeout_seconds=timeout)
                 break
             primary = self.route(prompt, max_cost=max_cost, profile=profile)
             retries += 1
@@ -256,7 +257,7 @@ class HybridRouter:
             )
 
         if time.monotonic() > deadline:
-            logger.warning("route_with_fallbacks: timeout reached, returning primary only")
+            logger.warning("route_with_fallbacks timeout reached, returning primary only")
             return RoutingPlan(primary=primary, fallbacks=())
 
         seen: set[str] = {primary.model}

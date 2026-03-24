@@ -6,9 +6,9 @@ the litellm.model_cost dictionary as the data source.
 
 from __future__ import annotations
 
-import logging
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(component="routing")
 
 
 def enrich_model_capabilities(model_name: str) -> dict[str, object]:
@@ -29,7 +29,7 @@ def enrich_model_capabilities(model_name: str) -> dict[str, object]:
     try:
         from litellm import model_cost  # type: ignore[import-untyped]
     except ImportError:
-        logger.debug("litellm not available for capability lookup")
+        logger.debug("litellm not available for capability lookup", model=model_name)
         return defaults
 
     # Try exact match first, then without provider prefix.

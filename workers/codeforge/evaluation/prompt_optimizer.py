@@ -9,10 +9,11 @@ Hybrid approach inspired by:
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import asdict, dataclass, field
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(component="evaluation")
 
 
 @dataclass
@@ -300,10 +301,10 @@ async def reflect_on_failures(
         data: dict[str, object] = json.loads(content)
     except (json.JSONDecodeError, AttributeError):
         # LLM returned non-JSON — fall back to sync analysis
-        logger.warning("LLM returned non-JSON for reflection, falling back to sync")
+        logger.warning("LLM returned non-JSON for reflection, falling back to sync", mode=mode_id)
         return reflect_on_failures_sync(failures, current_prompt, mode_id, model_family)
     except Exception as exc:
-        logger.warning("LLM call failed for reflection, falling back to sync", exc_info=exc)
+        logger.warning("LLM call failed for reflection, falling back to sync", error=str(exc), exc_info=True)
         return reflect_on_failures_sync(failures, current_prompt, mode_id, model_family)
 
     report = PromptAnalysisReport(
@@ -319,7 +320,7 @@ async def reflect_on_failures(
             try:
                 report.tactical_fixes.append(TacticalFix(**fix_data))
             except TypeError:
-                logger.debug("Skipping invalid tactical fix: %s", fix_data)
+                logger.debug("skipping invalid tactical fix", fix_data=fix_data)
 
     raw_principles = data.get("strategic_principles", [])
     if isinstance(raw_principles, list):
@@ -366,7 +367,7 @@ async def handle_reflect_request(
             llm_client=llm_client,
         )
     except Exception as exc:
-        logger.exception("reflect_on_failures failed", exc_info=exc)
+        logger.exception("reflect_on_failures failed", error=str(exc))
         # Publish error report so the Go side knows about the failure
         report = PromptAnalysisReport(
             mode=mode_id,
