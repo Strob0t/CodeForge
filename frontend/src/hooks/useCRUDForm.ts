@@ -47,8 +47,14 @@ export function useCRUDForm<TForm extends object, TDelete = unknown>(
   const [showForm, setShowForm] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const form = useFormState(defaults);
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  const del = useConfirmAction(onDelete ?? (async () => {}));
+  const del = useConfirmAction(
+    onDelete ??
+      (async () => {
+        if (import.meta.env.DEV) {
+          console.warn("useCRUDForm: onDelete called but no handler was provided");
+        }
+      }),
+  );
 
   const isEditing = () => editingId() !== null;
 
