@@ -1539,3 +1539,8 @@
 - [x] (2026-03-23) **A2APage:** Frontend for Phase 27 A2A v0.3.0 agent federation (remote agents, task history, AgentCard details) -- `frontend/src/features/a2a/A2APage.tsx`
 - [x] (2026-03-23) **RoutingStatsPage:** Live statistics for Phase 29 hybrid routing (model distribution, fallback events, MAB UCB1 scores) -- `frontend/src/features/routing/RoutingStatsPage.tsx`
 - [x] (2026-03-23) **Prompt Evolution:** LLM-driven prompt improvement pipeline -- reflect/mutate cycles via NATS. Files: `frontend/src/features/prompts/EvolutionTab.tsx`, `internal/service/prompt_evolution.go`, `workers/codeforge/consumer/_prompt_evolution.py`, migration 078
+
+#### Security Hardening -- Per-User Rate Limiting & Cookie Config (2026-03-24)
+
+- [x] (2026-03-24) **FIX-093:** Add `force_secure_cookies` config flag to `Server` struct -- unconditionally set `Secure=true` on cookies for TLS-terminating proxy deployments. Refactored `isSecureRequest` into `isSecureRequestWithConfig` + `isSecureCookie` method on Handlers. Files: `internal/config/config.go`, `internal/adapter/http/handlers_auth.go`, `internal/adapter/http/handlers.go`
+- [x] (2026-03-24) **FIX-096:** Add per-user rate limiting keyed on JWT user ID -- composite key `userID:IP` for authenticated requests, IP-only fallback for unauthenticated. Auth middleware injects user ID into context at all 5 auth paths. Files: `internal/middleware/ratelimit.go`, `internal/middleware/auth.go`
