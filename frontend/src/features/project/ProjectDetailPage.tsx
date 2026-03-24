@@ -113,6 +113,7 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
   const [pos, setPos] = createSignal({ top: 0, left: 0 });
   let containerRef: HTMLDivElement | undefined;
   let btnRef: HTMLButtonElement | undefined;
+  let dropdownRef: HTMLDivElement | undefined;
 
   const selectedLabel = () => {
     for (const g of PANEL_GROUPS) {
@@ -136,12 +137,18 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
     setOpen(!open());
   };
 
-  // Close on outside click
+  // Close on outside click (must check both button container and portal dropdown).
+  // Use "click" instead of "mousedown" to avoid racing with option button handlers.
   const onDocClick = (e: MouseEvent) => {
-    if (containerRef && !containerRef.contains(e.target as Node)) setOpen(false);
+    const target = e.target as Node;
+    if (containerRef?.contains(target)) return;
+    if (dropdownRef?.contains(target)) return;
+    // Also check by role attribute in case ref isn't assigned yet (Portal timing).
+    if ((target as HTMLElement).closest?.('[role="listbox"], [role="option"]')) return;
+    setOpen(false);
   };
-  onMount(() => document.addEventListener("mousedown", onDocClick));
-  onCleanup(() => document.removeEventListener("mousedown", onDocClick));
+  onMount(() => document.addEventListener("click", onDocClick));
+  onCleanup(() => document.removeEventListener("click", onDocClick));
 
   return (
     <div ref={containerRef} class="relative">
@@ -163,6 +170,7 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
       <Show when={open()}>
         <Portal>
           <div
+            ref={dropdownRef}
             role="listbox"
             style={{
               position: "fixed",
@@ -341,6 +349,7 @@ export default function ProjectDetailPage() {
     | "policy";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
+  const [switchToConversation, setSwitchToConversation] = createSignal<string | null>(null);
 
   // Unified navigation handler: "chat" switches mobile view, other tabs switch left panel
   function handleNavigate(target: string) {
@@ -660,7 +669,11 @@ export default function ProjectDetailPage() {
                         fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
                       >
                         <div class="flex-1 min-h-0">
-                          <GoalsPanel projectId={params.id} onNavigate={handleNavigate} />
+                          <GoalsPanel
+                            projectId={params.id}
+                            onNavigate={handleNavigate}
+                            onAIDiscoverStarted={(cid) => setSwitchToConversation(cid)}
+                          />
                         </div>
                       </ErrorBoundary>
                     </Show>
@@ -887,7 +900,11 @@ export default function ProjectDetailPage() {
                   <ErrorBoundary
                     fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
                   >
-                    <ChatPanel projectId={params.id} activeTab={leftTab()} />
+                    <ChatPanel
+                      projectId={params.id}
+                      activeTab={leftTab()}
+                      switchToConversation={switchToConversation}
+                    />
                   </ErrorBoundary>
                 </div>
               </Show>

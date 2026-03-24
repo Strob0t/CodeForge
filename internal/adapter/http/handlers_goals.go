@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -104,6 +105,13 @@ func (h *Handlers) DeleteProjectGoal(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
+	// Accept optional model override from request body.
+	var body struct {
+		Model string `json:"model"`
+	}
+	// Ignore parse errors — body is optional.
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
 	proj, err := h.Projects.Get(r.Context(), projectID)
 	if err != nil {
 		writeInternalError(w, err)
@@ -149,6 +157,9 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		"Start by exploring the codebase structure, then ask me targeted questions."
 
 	var agenticOpts []service.AgenticOption
+	if body.Model != "" {
+		agenticOpts = append(agenticOpts, service.WithModel(body.Model))
+	}
 	if len(contextEntries) > 0 {
 		agenticOpts = append(agenticOpts, service.WithContextEntries(contextEntries))
 	}

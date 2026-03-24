@@ -40,6 +40,8 @@ import { useChatAGUI } from "./useChatAGUI";
 interface ChatPanelProps {
   projectId: string;
   activeTab?: string;
+  /** External signal to switch to a specific conversation (e.g., from AI Discover). */
+  switchToConversation?: () => string | null;
 }
 
 export default function ChatPanel(props: ChatPanelProps) {
@@ -52,6 +54,16 @@ export default function ChatPanel(props: ChatPanelProps) {
   const [showRewindTimeline, setShowRewindTimeline] = createSignal(false);
 
   const [activeConversation, setActiveConversation] = createSignal<string | null>(null);
+
+  // Switch conversation when triggered externally (e.g., AI Discover).
+  createEffect(() => {
+    const cid = props.switchToConversation?.();
+    if (cid) {
+      setActiveConversation(cid);
+      refetchConversations();
+    }
+  });
+
   const [conversations, { refetch: refetchConversations }] = createResource(
     () => props.projectId,
     (pid) => api.conversations.list(pid),
