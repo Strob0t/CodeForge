@@ -1569,3 +1569,23 @@
   - `api/types.ts`: missing closing `}` for `QuarantineReviewRequest` interface
   - `ui/layout/NavIcons.tsx`: `MicroagentsIcon` missing `</svg>`, `);`, `}` — `RoutingIcon` function started inside it
   - `features/project/FilePanel.tsx`: `useFileTree()` called outside `FileTreeProvider` scope — wrapped component in provider
+
+#### Project Detail UX Improvements (2026-03-24)
+
+> UX test report: `docs/testing/2026-03-24-project-detail-ux-report.md`
+> UX testplan: `docs/testing/project-detail-ux-testplan.md`
+
+- [x] (2026-03-24) **Project Detail UX Test:** 37 features tested across 8 phases via Playwright-MCP. 35 PASS, 2 FAIL (Pull/Auto-Agent errors). Report: `docs/testing/2026-03-24-project-detail-ux-report.md`
+- [x] (2026-03-24) **FIX: Pull button** returns "internal server error" on local projects → now returns 400 with "no remote configured — add a remote with 'git remote add origin <url>'" (`internal/service/project.go`)
+- [x] (2026-03-24) **FIX: Auto-Agent** returns 404 when no roadmap exists → now returns 400 with "create a roadmap with features before starting auto-agent" (`internal/service/autoagent.go`)
+- [x] (2026-03-24) **FIX: Goal delete confirmation** — added `useConfirm` dialog before goal deletion to prevent accidental data loss (`features/project/GoalsPanel.tsx`)
+- [x] (2026-03-24) **Grouped Panel Selector** — replaced native `<select>` (SolidJS strips `<optgroup>`) with custom dropdown using Portal + inline styles. 4 groups (Planning/Execution/Intelligence/Governance), 14 panels with one-line descriptions (`features/project/ProjectDetailPage.tsx`)
+
+#### AI Pipeline E2E Test & Event-Flow Fixes (2026-03-24)
+
+- [x] (2026-03-24) **E2E AI Goal Discovery Test:** LLM reads codebase via `read_file`, proposes 3 goals via `propose_goal` tool (Add Math Ops, Testing, Documentation). Verified with `lm_studio/qwen/qwen3-30b-a3b`.
+- [x] (2026-03-24) **BUG: AI Discover without explicit model** selects weak model (`groq/llama-3.1-8b`) → produces empty responses. With explicit tool-capable model, works correctly.
+- [x] (2026-03-24) **FIX: Goal auto-persist broken** — `runtimeSvc.SetGoalService(goalSvc)` was never called in `main.go`, so `s.goalSvc == nil` and auto-persist was silently skipped. Added the missing wiring.
+- [x] (2026-03-24) **FIX: Trajectory event UUID error** — `AgentEvent.AgentID` and `TaskID` were empty strings for conversation-based runs, causing `invalid input syntax for type uuid` on INSERT. Fixed by using `RunID` as fallback (`internal/service/runtime.go`).
+- [ ] **AI Discover model selection** — Goal-researcher mode should enforce a tool-capable model or warn the user when the auto-selected model is too weak for tool use.
+- [ ] **GoalProposalCard in chat** — `propose_goal` events are broadcast via WebSocket but GoalProposalCards don't appear in the chat UI. The `agui.goal_proposal` event reaches the frontend but may not be matched to the correct conversation.

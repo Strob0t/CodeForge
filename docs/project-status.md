@@ -333,3 +333,16 @@ Five features merged on 2026-03-23:
 - `features/project/FilePanel.tsx`: `useFileTree()` called outside `FileTreeProvider` — wrapped in provider
 
 **S2 autonomous test run** (Build Your Own `cut` Tool): 18 tool calls, 12min execution, correct package structure, 1 git commit. Result: PARTIAL. Report: `docs/testing/2026-03-24-autonomous-goal-to-program-report.md`.
+
+### Project Detail UX Improvements (2026-03-24)
+
+**37 features tested, 35 PASS, 2 FAIL (fixed).** Pull button and Auto-Agent now return actionable error messages instead of 500/404. Goal delete has confirmation dialog. Panel selector replaced with grouped custom dropdown (Planning/Execution/Intelligence/Governance) with one-line descriptions per panel, rendered via SolidJS Portal for correct z-index layering.
+
+### AI Pipeline E2E Test & Event-Flow Fixes (2026-03-24)
+
+**End-to-end AI goal discovery verified.** LLM reads codebase (`read_file`), proposes goals (`propose_goal` × 3), goals auto-persist to DB. Two critical bugs fixed:
+
+1. **Goal auto-persist wiring missing** — `runtimeSvc.SetGoalService(goalSvc)` was never called in `main.go`. The trajectory event handler detected `agent.goal_proposed` events correctly but `s.goalSvc` was nil, silently skipping persistence.
+2. **Trajectory event UUID error** — `AgentEvent.AgentID`/`TaskID` were empty strings for conversation-based runs, causing PostgreSQL UUID parse errors. Fixed by using `RunID` as fallback.
+
+Remaining: GoalProposalCards don't render in chat UI (WebSocket event reaches frontend but isn't matched to conversation). AI Discover auto-selects weak models that can't use tools.
