@@ -1,18 +1,6 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { For, onMount, Show } from "solid-js";
 
-import { api } from "~/api/client";
-import type {
-  CreateMicroagentRequest,
-  CreateSkillRequest,
-  Microagent,
-  MicroagentType,
-  Project,
-  Skill,
-  UpdateMicroagentRequest,
-  UpdateSkillRequest,
-} from "~/api/types";
-import { useToast } from "~/components/Toast";
-import { useAsyncAction, useCRUDForm } from "~/hooks";
+import type { Microagent, MicroagentType, Project, Skill } from "~/api/types";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -32,11 +20,15 @@ import {
 } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
 
+import { useMicroagentsPage, useMicroagentsTab, useSkillsTab } from "./useMicroagentsPage";
+
 // ---------------------------------------------------------------------------
-// Tab type
+// Constants
 // ---------------------------------------------------------------------------
 
-type MicroagentsTab = "microagents" | "skills";
+const MICROAGENT_TYPES: MicroagentType[] = ["knowledge", "repo", "task"];
+const SKILL_TYPES = ["workflow", "pattern"] as const;
+const SKILL_STATUSES = ["draft", "active", "disabled"] as const;
 
 // ---------------------------------------------------------------------------
 // MicroagentsPage
@@ -47,21 +39,18 @@ export default function MicroagentsPage() {
     document.title = "Microagents & Skills - CodeForge";
   });
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = createSignal<MicroagentsTab>("microagents");
-  const [selectedProjectId, setSelectedProjectId] = createSignal("");
-
-  const [projects] = createResource(() => api.projects.list());
+  const page = useMicroagentsPage();
 
   return (
     <PageLayout title={t("microagents.title")} description={t("microagents.description")}>
       {/* Project selector */}
       <div class="mb-4">
         <Select
-          value={selectedProjectId()}
-          onChange={(e) => setSelectedProjectId(e.currentTarget.value)}
+          value={page.selectedProjectId()}
+          onChange={(e) => page.setSelectedProjectId(e.currentTarget.value)}
         >
           <option value="">{t("microagents.selectProject")}</option>
-          <For each={projects() ?? []}>
+          <For each={page.projects() ?? []}>
             {(p: Project) => <option value={p.id}>{p.name}</option>}
           </For>
         </Select>
@@ -73,11 +62,11 @@ export default function MicroagentsPage() {
           {(tab) => (
             <button
               class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                activeTab() === tab
+                page.activeTab() === tab
                   ? "border-cf-accent text-cf-accent"
                   : "border-transparent text-cf-text-muted hover:text-cf-text-primary"
               }`}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => page.setActiveTab(tab)}
             >
               {t(`microagents.tab.${tab}`)}
             </button>
@@ -85,15 +74,15 @@ export default function MicroagentsPage() {
         </For>
       </div>
 
-      <Show when={selectedProjectId()}>
-        <Show when={activeTab() === "microagents"}>
-          <MicroagentsTab projectId={selectedProjectId()} />
+      <Show when={page.selectedProjectId()}>
+        <Show when={page.activeTab() === "microagents"}>
+          <MicroagentsTabView projectId={page.selectedProjectId()} />
         </Show>
-        <Show when={activeTab() === "skills"}>
-          <SkillsTab projectId={selectedProjectId()} />
+        <Show when={page.activeTab() === "skills"}>
+          <SkillsTabView projectId={page.selectedProjectId()} />
         </Show>
       </Show>
-      <Show when={!selectedProjectId()}>
+      <Show when={!page.selectedProjectId()}>
         <EmptyState title={t("microagents.selectProjectFirst")} />
       </Show>
     </PageLayout>
@@ -101,94 +90,12 @@ export default function MicroagentsPage() {
 }
 
 // ---------------------------------------------------------------------------
-// MicroagentsTab
+// MicroagentsTabView
 // ---------------------------------------------------------------------------
 
-const MICROAGENT_TYPES: MicroagentType[] = ["knowledge", "repo", "task"];
-
-interface MicroagentFormState {
-  name: string;
-  type: MicroagentType;
-  trigger_pattern: string;
-  description: string;
-  prompt: string;
-  enabled: boolean;
-}
-
-const MA_FORM_DEFAULTS: MicroagentFormState = {
-  name: "",
-  type: "knowledge",
-  trigger_pattern: "",
-  description: "",
-  prompt: "",
-  enabled: true,
-};
-
-function MicroagentsTab(props: { projectId: string }) {
+function MicroagentsTabView(props: { projectId: string }) {
   const { t } = useI18n();
-  const { show: toast } = useToast();
-  const [microagents, { refetch }] = createResource(
-    () => props.projectId,
-    (pid) => api.microagents.list(pid),
-  );
-
-  const crud = useCRUDForm(MA_FORM_DEFAULTS, async (ma: Microagent) => {
-    await api.microagents.delete(ma.id);
-    toast("success", t("microagents.toast.deleted"));
-    refetch();
-  });
-
-  function handleEdit(ma: Microagent): void {
-    crud.startEdit(ma.id, {
-      name: ma.name,
-      type: ma.type,
-      trigger_pattern: ma.trigger_pattern,
-      description: ma.description,
-      prompt: ma.prompt,
-      enabled: ma.enabled,
-    });
-  }
-
-  const {
-    run: handleSubmit,
-    error,
-    clearError,
-  } = useAsyncAction(
-    async () => {
-      const name = crud.form.state.name.trim();
-      if (!name) return;
-      const eid = crud.editingId();
-      if (crud.isEditing() && eid) {
-        const data: UpdateMicroagentRequest = {
-          name,
-          trigger_pattern: crud.form.state.trigger_pattern,
-          description: crud.form.state.description,
-          prompt: crud.form.state.prompt,
-          enabled: crud.form.state.enabled,
-        };
-        await api.microagents.update(eid, data);
-        toast("success", t("microagents.toast.updated"));
-      } else {
-        const data: CreateMicroagentRequest = {
-          name,
-          type: crud.form.state.type,
-          trigger_pattern: crud.form.state.trigger_pattern,
-          description: crud.form.state.description,
-          prompt: crud.form.state.prompt,
-        };
-        await api.microagents.create(props.projectId, data);
-        toast("success", t("microagents.toast.created"));
-      }
-      crud.cancelForm();
-      refetch();
-    },
-    {
-      onError: (err) => {
-        const msg = err instanceof Error ? err.message : "Failed";
-        toast("error", msg);
-      },
-    },
-  );
+  const state = useMicroagentsTab(() => props.projectId);
 
   const maColumns: TableColumn<Microagent>[] = [
     {
@@ -236,14 +143,14 @@ function MicroagentsTab(props: { projectId: string }) {
       header: "",
       render: (ma) => (
         <div class="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => handleEdit(ma)}>
+          <Button variant="ghost" size="sm" onClick={() => state.handleEdit(ma)}>
             {t("common.edit")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             class="text-cf-danger-fg hover:text-cf-danger-fg"
-            onClick={() => crud.del.requestConfirm(ma)}
+            onClick={() => state.crud.del.requestConfirm(ma)}
           >
             {t("common.delete")}
           </Button>
@@ -256,39 +163,39 @@ function MicroagentsTab(props: { projectId: string }) {
     <>
       <div class="mb-4 flex justify-end">
         <Button
-          variant={crud.showForm() ? "secondary" : "primary"}
+          variant={state.crud.showForm() ? "secondary" : "primary"}
           onClick={() => {
-            if (crud.showForm()) {
-              crud.cancelForm();
-              clearError();
+            if (state.crud.showForm()) {
+              state.crud.cancelForm();
+              state.clearError();
             } else {
-              crud.startCreate();
+              state.crud.startCreate();
             }
           }}
         >
-          {crud.showForm() ? t("common.cancel") : t("microagents.create")}
+          {state.crud.showForm() ? t("common.cancel") : t("microagents.create")}
         </Button>
       </div>
 
-      <ErrorBanner error={error} onDismiss={clearError} />
+      <ErrorBanner error={state.error} onDismiss={state.clearError} />
 
-      <Show when={crud.showForm()}>
+      <Show when={state.crud.showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleSubmit();
+                void state.handleSubmit();
               }}
-              aria-label={crud.isEditing() ? t("common.edit") : t("microagents.create")}
+              aria-label={state.crud.isEditing() ? t("common.edit") : t("microagents.create")}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField label={t("microagents.form.name")} id="ma-name" required>
                   <Input
                     id="ma-name"
                     type="text"
-                    value={crud.form.state.name}
-                    onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
+                    value={state.crud.form.state.name}
+                    onInput={(e) => state.crud.form.setState("name", e.currentTarget.value)}
                     aria-required="true"
                   />
                 </FormField>
@@ -296,11 +203,11 @@ function MicroagentsTab(props: { projectId: string }) {
                 <FormField label={t("microagents.form.type")} id="ma-type" required>
                   <Select
                     id="ma-type"
-                    value={crud.form.state.type}
+                    value={state.crud.form.state.type}
                     onChange={(e) =>
-                      crud.form.setState("type", e.currentTarget.value as MicroagentType)
+                      state.crud.form.setState("type", e.currentTarget.value as MicroagentType)
                     }
-                    disabled={crud.isEditing()}
+                    disabled={state.crud.isEditing()}
                   >
                     <For each={MICROAGENT_TYPES}>{(tp) => <option value={tp}>{tp}</option>}</For>
                   </Select>
@@ -316,8 +223,10 @@ function MicroagentsTab(props: { projectId: string }) {
                   <Input
                     id="ma-trigger"
                     type="text"
-                    value={crud.form.state.trigger_pattern}
-                    onInput={(e) => crud.form.setState("trigger_pattern", e.currentTarget.value)}
+                    value={state.crud.form.state.trigger_pattern}
+                    onInput={(e) =>
+                      state.crud.form.setState("trigger_pattern", e.currentTarget.value)
+                    }
                     mono
                     aria-required="true"
                   />
@@ -330,8 +239,8 @@ function MicroagentsTab(props: { projectId: string }) {
                 >
                   <Textarea
                     id="ma-desc"
-                    value={crud.form.state.description}
-                    onInput={(e) => crud.form.setState("description", e.currentTarget.value)}
+                    value={state.crud.form.state.description}
+                    onInput={(e) => state.crud.form.setState("description", e.currentTarget.value)}
                     rows={2}
                   />
                 </FormField>
@@ -345,20 +254,20 @@ function MicroagentsTab(props: { projectId: string }) {
                 >
                   <Textarea
                     id="ma-prompt"
-                    value={crud.form.state.prompt}
-                    onInput={(e) => crud.form.setState("prompt", e.currentTarget.value)}
+                    value={state.crud.form.state.prompt}
+                    onInput={(e) => state.crud.form.setState("prompt", e.currentTarget.value)}
                     rows={6}
                     mono
                     aria-required="true"
                   />
                 </FormField>
 
-                <Show when={crud.isEditing()}>
+                <Show when={state.crud.isEditing()}>
                   <div class="flex items-center gap-3 sm:col-span-2">
                     <Checkbox
                       id="ma-enabled"
-                      checked={crud.form.state.enabled}
-                      onChange={(checked) => crud.form.setState("enabled", checked)}
+                      checked={state.crud.form.state.enabled}
+                      onChange={(checked) => state.crud.form.setState("enabled", checked)}
                     />
                     <label for="ma-enabled" class="text-sm font-medium text-cf-text-secondary">
                       {t("microagents.col.enabled")}
@@ -371,14 +280,14 @@ function MicroagentsTab(props: { projectId: string }) {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    crud.cancelForm();
-                    clearError();
+                    state.crud.cancelForm();
+                    state.clearError();
                   }}
                 >
                   {t("common.cancel")}
                 </Button>
                 <Button type="submit">
-                  {crud.isEditing() ? t("common.save") : t("microagents.create")}
+                  {state.crud.isEditing() ? t("common.save") : t("microagents.create")}
                 </Button>
               </div>
             </form>
@@ -386,168 +295,44 @@ function MicroagentsTab(props: { projectId: string }) {
         </Card>
       </Show>
 
-      <Show when={microagents.loading}>
+      <Show when={state.microagents.loading}>
         <LoadingState message={t("common.loading")} />
       </Show>
 
-      <Show when={!microagents.loading && !microagents.error}>
+      <Show when={!state.microagents.loading && !state.microagents.error}>
         <Show
-          when={(microagents() ?? []).length > 0}
+          when={(state.microagents() ?? []).length > 0}
           fallback={<EmptyState title={t("microagents.empty")} />}
         >
           <Table<Microagent>
             columns={maColumns}
-            data={microagents() ?? []}
+            data={state.microagents() ?? []}
             rowKey={(ma) => ma.id}
           />
         </Show>
       </Show>
 
       <ConfirmDialog
-        open={crud.del.target() !== null}
+        open={state.crud.del.target() !== null}
         title={t("common.delete")}
         message={t("microagents.toast.deleted")}
         variant="danger"
         confirmLabel={t("common.delete")}
         cancelLabel={t("common.cancel")}
-        onConfirm={() => void crud.del.confirm()}
-        onCancel={crud.del.cancel}
+        onConfirm={() => void state.crud.del.confirm()}
+        onCancel={state.crud.del.cancel}
       />
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SkillsTab
+// SkillsTabView
 // ---------------------------------------------------------------------------
 
-const SKILL_TYPES = ["workflow", "pattern"] as const;
-const SKILL_STATUSES = ["draft", "active", "disabled"] as const;
-
-interface SkillFormState {
-  name: string;
-  type: string;
-  description: string;
-  language: string;
-  content: string;
-  tags: string;
-  status: string;
-}
-
-const SK_FORM_DEFAULTS: SkillFormState = {
-  name: "",
-  type: "workflow",
-  description: "",
-  language: "",
-  content: "",
-  tags: "",
-  status: "draft",
-};
-
-function SkillsTab(props: { projectId: string }) {
+function SkillsTabView(props: { projectId: string }) {
   const { t } = useI18n();
-  const { show: toast } = useToast();
-  const [skills, { refetch }] = createResource(
-    () => props.projectId,
-    (pid) => api.skills.list(pid),
-  );
-
-  const crud = useCRUDForm(SK_FORM_DEFAULTS, async (sk: Skill) => {
-    await api.skills.delete(sk.id);
-    toast("success", t("skills.toast.deleted"));
-    refetch();
-  });
-
-  // Import state
-  const [showImport, setShowImport] = createSignal(false);
-  const [importUrl, setImportUrl] = createSignal("");
-
-  const {
-    run: handleImport,
-    loading: importing,
-    error: importError,
-    clearError: clearImportError,
-  } = useAsyncAction(
-    async () => {
-      await api.skills.import({
-        source_url: importUrl(),
-        project_id: props.projectId,
-      });
-      toast("success", t("skills.toast.imported"));
-      setShowImport(false);
-      setImportUrl("");
-      refetch();
-    },
-    {
-      onError: (err) => {
-        const msg = err instanceof Error ? err.message : "Import failed";
-        toast("error", msg);
-      },
-    },
-  );
-
-  function handleEdit(sk: Skill): void {
-    crud.startEdit(sk.id, {
-      name: sk.name,
-      type: sk.type,
-      description: sk.description,
-      language: sk.language,
-      content: sk.content,
-      tags: (sk.tags ?? []).join(", "),
-      status: sk.status,
-    });
-  }
-
-  function parseTags(raw: string): string[] {
-    return raw
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-
-  const {
-    run: handleSubmit,
-    error,
-    clearError,
-  } = useAsyncAction(
-    async () => {
-      const name = crud.form.state.name.trim();
-      if (!name) return;
-      const eid = crud.editingId();
-      if (crud.isEditing() && eid) {
-        const data: UpdateSkillRequest = {
-          name,
-          type: crud.form.state.type,
-          description: crud.form.state.description,
-          language: crud.form.state.language,
-          content: crud.form.state.content,
-          tags: parseTags(crud.form.state.tags),
-          status: crud.form.state.status,
-        };
-        await api.skills.update(eid, data);
-        toast("success", t("skills.toast.updated"));
-      } else {
-        const data: CreateSkillRequest = {
-          name,
-          type: crud.form.state.type,
-          description: crud.form.state.description,
-          language: crud.form.state.language,
-          content: crud.form.state.content,
-          tags: parseTags(crud.form.state.tags),
-        };
-        await api.skills.create(props.projectId, data);
-        toast("success", t("skills.toast.created"));
-      }
-      crud.cancelForm();
-      refetch();
-    },
-    {
-      onError: (err) => {
-        const msg = err instanceof Error ? err.message : "Failed";
-        toast("error", msg);
-      },
-    },
-  );
+  const state = useSkillsTab(() => props.projectId);
 
   const skColumns: TableColumn<Skill>[] = [
     {
@@ -611,14 +396,14 @@ function SkillsTab(props: { projectId: string }) {
       header: "",
       render: (sk) => (
         <div class="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => handleEdit(sk)}>
+          <Button variant="ghost" size="sm" onClick={() => state.handleEdit(sk)}>
             {t("common.edit")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             class="text-cf-danger-fg hover:text-cf-danger-fg"
-            onClick={() => crud.del.requestConfirm(sk)}
+            onClick={() => state.crud.del.requestConfirm(sk)}
           >
             {t("common.delete")}
           </Button>
@@ -630,35 +415,35 @@ function SkillsTab(props: { projectId: string }) {
   return (
     <>
       <div class="mb-4 flex items-center justify-end gap-2">
-        <Button variant="secondary" onClick={() => setShowImport((v) => !v)}>
-          {showImport() ? t("common.cancel") : t("skills.import")}
+        <Button variant="secondary" onClick={() => state.setShowImport((v) => !v)}>
+          {state.showImport() ? t("common.cancel") : t("skills.import")}
         </Button>
         <Button
-          variant={crud.showForm() ? "secondary" : "primary"}
+          variant={state.crud.showForm() ? "secondary" : "primary"}
           onClick={() => {
-            if (crud.showForm()) {
-              crud.cancelForm();
-              clearError();
+            if (state.crud.showForm()) {
+              state.crud.cancelForm();
+              state.clearError();
             } else {
-              crud.startCreate();
+              state.crud.startCreate();
             }
           }}
         >
-          {crud.showForm() ? t("common.cancel") : t("skills.create")}
+          {state.crud.showForm() ? t("common.cancel") : t("skills.create")}
         </Button>
       </div>
 
-      <ErrorBanner error={error} onDismiss={clearError} />
-      <ErrorBanner error={importError} onDismiss={clearImportError} />
+      <ErrorBanner error={state.error} onDismiss={state.clearError} />
+      <ErrorBanner error={state.importError} onDismiss={state.clearImportError} />
 
       {/* Import from URL */}
-      <Show when={showImport()}>
+      <Show when={state.showImport()}>
         <Card class="mb-6">
           <Card.Body>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleImport();
+                void state.handleImport();
               }}
               aria-label={t("skills.import")}
             >
@@ -671,8 +456,8 @@ function SkillsTab(props: { projectId: string }) {
                 <Input
                   id="sk-import-url"
                   type="url"
-                  value={importUrl()}
-                  onInput={(e) => setImportUrl(e.currentTarget.value)}
+                  value={state.importUrl()}
+                  onInput={(e) => state.setImportUrl(e.currentTarget.value)}
                   mono
                   aria-required="true"
                 />
@@ -681,19 +466,19 @@ function SkillsTab(props: { projectId: string }) {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setShowImport(false);
-                    setImportUrl("");
-                    clearImportError();
+                    state.setShowImport(false);
+                    state.setImportUrl("");
+                    state.clearImportError();
                   }}
                 >
                   {t("common.cancel")}
                 </Button>
                 <Button
                   type="submit"
-                  disabled={importing() || !importUrl().trim()}
-                  loading={importing()}
+                  disabled={state.importing() || !state.importUrl().trim()}
+                  loading={state.importing()}
                 >
-                  {importing() ? t("common.importing") : t("skills.import")}
+                  {state.importing() ? t("common.importing") : t("skills.import")}
                 </Button>
               </div>
             </form>
@@ -702,23 +487,23 @@ function SkillsTab(props: { projectId: string }) {
       </Show>
 
       {/* Create / Edit form */}
-      <Show when={crud.showForm()}>
+      <Show when={state.crud.showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleSubmit();
+                void state.handleSubmit();
               }}
-              aria-label={crud.isEditing() ? t("common.edit") : t("skills.create")}
+              aria-label={state.crud.isEditing() ? t("common.edit") : t("skills.create")}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField label={t("skills.form.name")} id="sk-name" required>
                   <Input
                     id="sk-name"
                     type="text"
-                    value={crud.form.state.name}
-                    onInput={(e) => crud.form.setState("name", e.currentTarget.value)}
+                    value={state.crud.form.state.name}
+                    onInput={(e) => state.crud.form.setState("name", e.currentTarget.value)}
                     aria-required="true"
                   />
                 </FormField>
@@ -726,8 +511,8 @@ function SkillsTab(props: { projectId: string }) {
                 <FormField label={t("skills.form.type")} id="sk-type">
                   <Select
                     id="sk-type"
-                    value={crud.form.state.type}
-                    onChange={(e) => crud.form.setState("type", e.currentTarget.value)}
+                    value={state.crud.form.state.type}
+                    onChange={(e) => state.crud.form.setState("type", e.currentTarget.value)}
                   >
                     <For each={[...SKILL_TYPES]}>{(tp) => <option value={tp}>{tp}</option>}</For>
                   </Select>
@@ -741,8 +526,8 @@ function SkillsTab(props: { projectId: string }) {
                 >
                   <Textarea
                     id="sk-desc"
-                    value={crud.form.state.description}
-                    onInput={(e) => crud.form.setState("description", e.currentTarget.value)}
+                    value={state.crud.form.state.description}
+                    onInput={(e) => state.crud.form.setState("description", e.currentTarget.value)}
                     rows={2}
                     aria-required="true"
                   />
@@ -752,8 +537,8 @@ function SkillsTab(props: { projectId: string }) {
                   <Input
                     id="sk-language"
                     type="text"
-                    value={crud.form.state.language}
-                    onInput={(e) => crud.form.setState("language", e.currentTarget.value)}
+                    value={state.crud.form.state.language}
+                    onInput={(e) => state.crud.form.setState("language", e.currentTarget.value)}
                     placeholder="python, go, typescript..."
                   />
                 </FormField>
@@ -766,8 +551,8 @@ function SkillsTab(props: { projectId: string }) {
                   <Input
                     id="sk-tags"
                     type="text"
-                    value={crud.form.state.tags}
-                    onInput={(e) => crud.form.setState("tags", e.currentTarget.value)}
+                    value={state.crud.form.state.tags}
+                    onInput={(e) => state.crud.form.setState("tags", e.currentTarget.value)}
                   />
                 </FormField>
 
@@ -780,20 +565,20 @@ function SkillsTab(props: { projectId: string }) {
                 >
                   <Textarea
                     id="sk-content"
-                    value={crud.form.state.content}
-                    onInput={(e) => crud.form.setState("content", e.currentTarget.value)}
+                    value={state.crud.form.state.content}
+                    onInput={(e) => state.crud.form.setState("content", e.currentTarget.value)}
                     rows={8}
                     mono
                     aria-required="true"
                   />
                 </FormField>
 
-                <Show when={crud.isEditing()}>
+                <Show when={state.crud.isEditing()}>
                   <FormField label={t("skills.form.status")} id="sk-status">
                     <Select
                       id="sk-status"
-                      value={crud.form.state.status}
-                      onChange={(e) => crud.form.setState("status", e.currentTarget.value)}
+                      value={state.crud.form.state.status}
+                      onChange={(e) => state.crud.form.setState("status", e.currentTarget.value)}
                     >
                       <For each={[...SKILL_STATUSES]}>
                         {(st) => <option value={st}>{st}</option>}
@@ -807,14 +592,14 @@ function SkillsTab(props: { projectId: string }) {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    crud.cancelForm();
-                    clearError();
+                    state.crud.cancelForm();
+                    state.clearError();
                   }}
                 >
                   {t("common.cancel")}
                 </Button>
                 <Button type="submit">
-                  {crud.isEditing() ? t("common.save") : t("skills.create")}
+                  {state.crud.isEditing() ? t("common.save") : t("skills.create")}
                 </Button>
               </div>
             </form>
@@ -822,28 +607,28 @@ function SkillsTab(props: { projectId: string }) {
         </Card>
       </Show>
 
-      <Show when={skills.loading}>
+      <Show when={state.skills.loading}>
         <LoadingState message={t("common.loading")} />
       </Show>
 
-      <Show when={!skills.loading && !skills.error}>
+      <Show when={!state.skills.loading && !state.skills.error}>
         <Show
-          when={(skills() ?? []).length > 0}
+          when={(state.skills() ?? []).length > 0}
           fallback={<EmptyState title={t("skills.empty")} />}
         >
-          <Table<Skill> columns={skColumns} data={skills() ?? []} rowKey={(sk) => sk.id} />
+          <Table<Skill> columns={skColumns} data={state.skills() ?? []} rowKey={(sk) => sk.id} />
         </Show>
       </Show>
 
       <ConfirmDialog
-        open={crud.del.target() !== null}
+        open={state.crud.del.target() !== null}
         title={t("common.delete")}
         message={t("skills.toast.deleted")}
         variant="danger"
         confirmLabel={t("common.delete")}
         cancelLabel={t("common.cancel")}
-        onConfirm={() => void crud.del.confirm()}
-        onCancel={crud.del.cancel}
+        onConfirm={() => void state.crud.del.confirm()}
+        onCancel={state.crud.del.cancel}
       />
     </>
   );

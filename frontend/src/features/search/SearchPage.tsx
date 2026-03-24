@@ -77,6 +77,7 @@ export default function SearchPage() {
       <div class="flex flex-col gap-3 sm:flex-row sm:items-start">
         <input
           type="text"
+          aria-label={t("search.placeholder")}
           value={query()}
           onInput={(e) => onInput(e.currentTarget.value)}
           placeholder={t("search.placeholder")}

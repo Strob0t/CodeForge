@@ -1,28 +1,19 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { For, Show } from "solid-js";
 
-import { api } from "~/api/client";
-import type {
-  EvaluationResult,
-  PermissionMode,
-  PermissionRule,
-  PolicyDecision,
-  PolicyProfile,
-  PolicyQualityGate,
-  PolicyToolCall,
-  TerminationCondition,
-} from "~/api/types";
-import { useConfirm } from "~/components/ConfirmProvider";
-import { useAsyncAction } from "~/hooks/useAsyncAction";
+import type { PermissionMode, PolicyDecision } from "~/api/types";
 import { useI18n } from "~/i18n";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select } from "~/ui";
-import { getErrorMessage } from "~/utils/getErrorMessage";
+
+import { usePolicyPanel } from "./usePolicyPanel";
+
+// ---------------------------------------------------------------------------
+// Constants & helpers (render-only)
+// ---------------------------------------------------------------------------
 
 interface PolicyPanelProps {
   projectId: string;
   onError: (msg: string) => void;
 }
-
-type View = "list" | "detail" | "editor" | "preview";
 
 const PRESET_NAMES = new Set([
   "plan-readonly",
@@ -42,224 +33,13 @@ function decisionVariant(decision: PolicyDecision): "success" | "danger" | "warn
   }
 }
 
-function emptyProfile(): PolicyProfile {
-  return {
-    name: "",
-    description: "",
-    mode: "default",
-    rules: [],
-    quality_gate: {
-      require_tests_pass: false,
-      require_lint_pass: false,
-      rollback_on_gate_fail: false,
-    },
-    termination: {},
-  };
-}
-
-function emptyRule(): PermissionRule {
-  return {
-    specifier: { tool: "" },
-    decision: "allow",
-  };
-}
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function PolicyPanel(props: PolicyPanelProps) {
   const { t } = useI18n();
-  const { confirm } = useConfirm();
-  const [view, setView] = createSignal<View>("list");
-  const [selectedName, setSelectedName] = createSignal<string | null>(null);
-  const [profiles, { refetch: refetchProfiles }] = createResource(() => api.policies.list());
-  const [selectedProfile, { refetch: refetchProfile }] = createResource(
-    () => selectedName(),
-    (name) => (name ? api.policies.get(name) : null),
-  );
-
-  const MODES = (): { value: PermissionMode; label: string }[] => [
-    { value: "default", label: t("policy.mode.default") },
-    { value: "acceptEdits", label: t("policy.mode.acceptEdits") },
-    { value: "plan", label: t("policy.mode.plan") },
-    { value: "delegate", label: t("policy.mode.delegate") },
-  ];
-
-  // Editor state
-  const [editProfile, setEditProfile] = createSignal<PolicyProfile>(emptyProfile());
-
-  // Evaluate tester state
-  const [evalTool, setEvalTool] = createSignal("");
-  const [evalCommand, setEvalCommand] = createSignal("");
-  const [evalPath, setEvalPath] = createSignal("");
-  const [evalResult, setEvalResult] = createSignal<EvaluationResult | null>(null);
-  const [evaluating, setEvaluating] = createSignal(false);
-
-  // Preview state (standalone from list view)
-  const [previewPolicy, setPreviewPolicy] = createSignal<string>("");
-  const [previewTool, setPreviewTool] = createSignal("");
-  const [previewCommand, setPreviewCommand] = createSignal("");
-  const [previewPath, setPreviewPath] = createSignal("");
-  const [previewResult, setPreviewResult] = createSignal<EvaluationResult | null>(null);
-  const [previewing, setPreviewing] = createSignal(false);
-
-  const handleSelect = (name: string) => {
-    setSelectedName(name);
-    setEvalResult(null);
-    setView("detail");
-    refetchProfile();
-  };
-
-  const handleNewPolicy = () => {
-    setEditProfile(emptyProfile());
-    setView("editor");
-  };
-
-  const handleClone = () => {
-    const p = selectedProfile();
-    if (!p) return;
-    setEditProfile({ ...p, name: p.name + "-copy" });
-    setView("editor");
-  };
-
-  const { run: handleSave, loading: saving } = useAsyncAction(
-    async () => {
-      const profile = editProfile();
-      if (!profile.name) {
-        props.onError(t("policy.toast.nameRequired"));
-        return;
-      }
-      props.onError("");
-      await api.policies.create(profile);
-      refetchProfiles();
-      setSelectedName(profile.name);
-      setView("detail");
-      refetchProfile();
-    },
-    {
-      onError: (err) => props.onError(getErrorMessage(err, t("policy.toast.saveFailed"))),
-    },
-  );
-
-  const handleDelete = async (name: string) => {
-    props.onError("");
-    const ok = await confirm({
-      title: t("common.delete"),
-      message: t("policy.confirm.delete"),
-      variant: "danger",
-      confirmLabel: t("common.delete"),
-    });
-    if (!ok) return;
-    try {
-      await api.policies.delete(name);
-      refetchProfiles();
-      if (selectedName() === name) {
-        setSelectedName(null);
-        setView("list");
-      }
-    } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("policy.toast.deleteFailed"));
-    }
-  };
-
-  const handleEvaluate = async () => {
-    const name = selectedName();
-    if (!name || !evalTool()) return;
-    setEvaluating(true);
-    setEvalResult(null);
-    try {
-      const call: PolicyToolCall = {
-        tool: evalTool(),
-        command: evalCommand() || undefined,
-        path: evalPath() || undefined,
-      };
-      const res = await api.policies.evaluate(name, call);
-      setEvalResult(res);
-    } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
-    } finally {
-      setEvaluating(false);
-    }
-  };
-
-  const handlePreview = async () => {
-    const name = previewPolicy();
-    if (!name || !previewTool()) return;
-    setPreviewing(true);
-    setPreviewResult(null);
-    try {
-      const call: PolicyToolCall = {
-        tool: previewTool(),
-        command: previewCommand() || undefined,
-        path: previewPath() || undefined,
-      };
-      const res = await api.policies.evaluate(name, call);
-      setPreviewResult(res);
-    } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
-    } finally {
-      setPreviewing(false);
-    }
-  };
-
-  const updateEditField = <K extends keyof PolicyProfile>(key: K, value: PolicyProfile[K]) => {
-    setEditProfile((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const updateTermination = <K extends keyof TerminationCondition>(
-    key: K,
-    value: TerminationCondition[K],
-  ) => {
-    setEditProfile((prev) => ({
-      ...prev,
-      termination: { ...prev.termination, [key]: value },
-    }));
-  };
-
-  const updateQualityGate = <K extends keyof PolicyQualityGate>(
-    key: K,
-    value: PolicyQualityGate[K],
-  ) => {
-    setEditProfile((prev) => ({
-      ...prev,
-      quality_gate: { ...prev.quality_gate, [key]: value },
-    }));
-  };
-
-  const addRule = () => {
-    setEditProfile((prev) => ({
-      ...prev,
-      rules: [...prev.rules, emptyRule()],
-    }));
-  };
-
-  const removeRule = (index: number) => {
-    setEditProfile((prev) => ({
-      ...prev,
-      rules: prev.rules.filter((_, i) => i !== index),
-    }));
-  };
-
-  const updateRule = (index: number, field: string, value: string) => {
-    setEditProfile((prev) => {
-      const rules = [...prev.rules];
-      const rule = { ...rules[index] };
-      if (field === "tool") {
-        rule.specifier = { ...rule.specifier, tool: value };
-      } else if (field === "sub_pattern") {
-        rule.specifier = { ...rule.specifier, sub_pattern: value || undefined };
-      } else if (field === "decision") {
-        rule.decision = value as PolicyDecision;
-      } else if (field === "path_allow") {
-        rule.path_allow = value ? value.split(",").map((s) => s.trim()) : undefined;
-      } else if (field === "path_deny") {
-        rule.path_deny = value ? value.split(",").map((s) => s.trim()) : undefined;
-      } else if (field === "command_allow") {
-        rule.command_allow = value ? value.split(",").map((s) => s.trim()) : undefined;
-      } else if (field === "command_deny") {
-        rule.command_deny = value ? value.split(",").map((s) => s.trim()) : undefined;
-      }
-      rules[index] = rule;
-      return { ...prev, rules };
-    });
-  };
+  const state = usePolicyPanel(props.onError);
 
   return (
     <Card>
@@ -267,30 +47,30 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-semibold">{t("policy.title")}</h3>
           <div class="flex gap-2">
-            <Show when={view() !== "list"}>
+            <Show when={state.view() !== "list"}>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => {
-                  setView("list");
-                  setSelectedName(null);
+                  state.setView("list");
+                  state.setSelectedName(null);
                 }}
               >
                 {t("policy.backToList")}
               </Button>
             </Show>
-            <Show when={view() === "list"}>
+            <Show when={state.view() === "list"}>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => {
-                  setPreviewResult(null);
-                  setView("preview");
+                  state.setPreviewResult(null);
+                  state.setView("preview");
                 }}
               >
                 {t("policy.preview.title")}
               </Button>
-              <Button variant="primary" size="sm" onClick={handleNewPolicy}>
+              <Button variant="primary" size="sm" onClick={state.handleNewPolicy}>
                 {t("policy.newPolicy")}
               </Button>
             </Show>
@@ -300,20 +80,20 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
       <Card.Body>
         {/* List View */}
-        <Show when={view() === "list"}>
-          <Show when={profiles.loading}>
+        <Show when={state.view() === "list"}>
+          <Show when={state.profiles.loading}>
             <p class="text-sm text-cf-text-muted">{t("common.loading")}</p>
           </Show>
-          <Show when={!profiles.loading && profiles()}>
+          <Show when={!state.profiles.loading && state.profiles()}>
             <div class="space-y-1">
-              <For each={profiles()?.profiles ?? []}>
+              <For each={state.profiles()?.profiles ?? []}>
                 {(name) => (
                   <div class="flex items-center justify-between rounded-cf-sm px-3 py-2 hover:bg-cf-bg-surface-alt">
                     <Button
                       variant="ghost"
                       size="sm"
                       class="flex items-center gap-2"
-                      onClick={() => handleSelect(name)}
+                      onClick={() => state.handleSelect(name)}
                     >
                       <span>{name}</span>
                       <Badge variant={PRESET_NAMES.has(name) ? "info" : "default"}>
@@ -324,7 +104,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(name)}
+                        onClick={() => state.handleDelete(name)}
                         aria-label={t("policy.deleteAria", { name })}
                         class="text-red-500 dark:text-red-400"
                       >
@@ -339,7 +119,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         </Show>
 
         {/* Detail View */}
-        <Show when={view() === "detail" && selectedProfile()}>
+        <Show when={state.view() === "detail" && state.selectedProfile()}>
           {(p) => (
             <div>
               <div class="mb-4">
@@ -516,33 +296,33 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 <div class="flex flex-wrap gap-2">
                   <Input
                     placeholder={t("policy.toolPlaceholder")}
-                    value={evalTool()}
-                    onInput={(e) => setEvalTool(e.currentTarget.value)}
+                    value={state.evalTool()}
+                    onInput={(e) => state.setEvalTool(e.currentTarget.value)}
                     aria-label="Tool name for evaluation"
                   />
                   <Input
                     placeholder={t("policy.commandPlaceholder")}
-                    value={evalCommand()}
-                    onInput={(e) => setEvalCommand(e.currentTarget.value)}
+                    value={state.evalCommand()}
+                    onInput={(e) => state.setEvalCommand(e.currentTarget.value)}
                     aria-label="Command for evaluation"
                   />
                   <Input
                     placeholder={t("policy.pathPlaceholder")}
-                    value={evalPath()}
-                    onInput={(e) => setEvalPath(e.currentTarget.value)}
+                    value={state.evalPath()}
+                    onInput={(e) => state.setEvalPath(e.currentTarget.value)}
                     aria-label="Path for evaluation"
                   />
                   <Button
                     variant="primary"
                     size="sm"
-                    onClick={handleEvaluate}
-                    disabled={evaluating() || !evalTool()}
-                    loading={evaluating()}
+                    onClick={state.handleEvaluate}
+                    disabled={state.evaluating() || !state.evalTool()}
+                    loading={state.evaluating()}
                   >
                     {t("policy.evaluate")}
                   </Button>
                 </div>
-                <Show when={evalResult()}>
+                <Show when={state.evalResult()}>
                   {(result) => (
                     <div class="mt-3 space-y-1 text-sm">
                       <div class="flex items-center gap-2">
@@ -580,7 +360,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
               {/* Clone button */}
               <div class="flex justify-end">
-                <Button variant="secondary" size="sm" onClick={handleClone}>
+                <Button variant="secondary" size="sm" onClick={state.handleClone}>
                   {t("policy.cloneEdit")}
                 </Button>
               </div>
@@ -589,7 +369,7 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         </Show>
 
         {/* Preview View */}
-        <Show when={view() === "preview"}>
+        <Show when={state.view() === "preview"}>
           <div class="space-y-4">
             <p class="text-sm text-cf-text-tertiary">{t("policy.preview.description")}</p>
 
@@ -597,14 +377,14 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               <FormField label={t("policy.title")} id="preview-policy">
                 <Select
                   id="preview-policy"
-                  value={previewPolicy()}
+                  value={state.previewPolicy()}
                   onChange={(e) => {
-                    setPreviewPolicy(e.currentTarget.value);
-                    setPreviewResult(null);
+                    state.setPreviewPolicy(e.currentTarget.value);
+                    state.setPreviewResult(null);
                   }}
                 >
                   <option value="">{t("policy.preview.selectPolicy")}</option>
-                  <For each={profiles()?.profiles ?? []}>
+                  <For each={state.profiles()?.profiles ?? []}>
                     {(name) => <option value={name}>{name}</option>}
                   </For>
                 </Select>
@@ -613,8 +393,8 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 <Input
                   id="preview-tool"
                   placeholder={t("policy.toolPlaceholder")}
-                  value={previewTool()}
-                  onInput={(e) => setPreviewTool(e.currentTarget.value)}
+                  value={state.previewTool()}
+                  onInput={(e) => state.setPreviewTool(e.currentTarget.value)}
                 />
               </FormField>
             </div>
@@ -624,16 +404,16 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 <Input
                   id="preview-command"
                   placeholder={t("policy.commandPlaceholder")}
-                  value={previewCommand()}
-                  onInput={(e) => setPreviewCommand(e.currentTarget.value)}
+                  value={state.previewCommand()}
+                  onInput={(e) => state.setPreviewCommand(e.currentTarget.value)}
                 />
               </FormField>
               <FormField label={t("policy.pathPlaceholder")} id="preview-path">
                 <Input
                   id="preview-path"
                   placeholder={t("policy.pathPlaceholder")}
-                  value={previewPath()}
-                  onInput={(e) => setPreviewPath(e.currentTarget.value)}
+                  value={state.previewPath()}
+                  onInput={(e) => state.setPreviewPath(e.currentTarget.value)}
                 />
               </FormField>
             </div>
@@ -641,14 +421,14 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             <Button
               variant="primary"
               size="sm"
-              onClick={handlePreview}
-              disabled={previewing() || !previewPolicy() || !previewTool()}
-              loading={previewing()}
+              onClick={state.handlePreview}
+              disabled={state.previewing() || !state.previewPolicy() || !state.previewTool()}
+              loading={state.previewing()}
             >
               {t("policy.evaluate")}
             </Button>
 
-            <Show when={previewResult()}>
+            <Show when={state.previewResult()}>
               {(result) => (
                 <div class="rounded-cf-md border border-cf-border bg-cf-bg-surface p-4">
                   <div class="mb-3 flex items-center gap-3">
@@ -676,15 +456,15 @@ export default function PolicyPanel(props: PolicyPanelProps) {
         </Show>
 
         {/* Editor View */}
-        <Show when={view() === "editor"}>
+        <Show when={state.view() === "editor"}>
           <div class="space-y-4">
             {/* Name & Description */}
             <div class="grid grid-cols-2 gap-3">
               <FormField label={t("policy.editor.name")} id="policy-name" required>
                 <Input
                   id="policy-name"
-                  value={editProfile().name}
-                  onInput={(e) => updateEditField("name", e.currentTarget.value)}
+                  value={state.editProfile().name}
+                  onInput={(e) => state.updateEditField("name", e.currentTarget.value)}
                   placeholder={t("policy.editor.namePlaceholder")}
                   aria-required="true"
                 />
@@ -692,18 +472,22 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               <FormField label={t("policy.editor.mode")} id="policy-mode">
                 <Select
                   id="policy-mode"
-                  value={editProfile().mode}
-                  onChange={(e) => updateEditField("mode", e.currentTarget.value as PermissionMode)}
+                  value={state.editProfile().mode}
+                  onChange={(e) =>
+                    state.updateEditField("mode", e.currentTarget.value as PermissionMode)
+                  }
                 >
-                  <For each={MODES()}>{(m) => <option value={m.value}>{m.label}</option>}</For>
+                  <For each={state.MODES()}>
+                    {(m) => <option value={m.value}>{m.label}</option>}
+                  </For>
                 </Select>
               </FormField>
             </div>
             <FormField label={t("policy.editor.description")} id="policy-description">
               <Input
                 id="policy-description"
-                value={editProfile().description || ""}
-                onInput={(e) => updateEditField("description", e.currentTarget.value)}
+                value={state.editProfile().description || ""}
+                onInput={(e) => state.updateEditField("description", e.currentTarget.value)}
                 placeholder={t("policy.editor.descriptionPlaceholder")}
               />
             </FormField>
@@ -715,18 +499,18 @@ export default function PolicyPanel(props: PolicyPanelProps) {
               </label>
               <div class="flex gap-4 text-sm">
                 <Checkbox
-                  checked={editProfile().quality_gate.require_tests_pass}
-                  onChange={(checked) => updateQualityGate("require_tests_pass", checked)}
+                  checked={state.editProfile().quality_gate.require_tests_pass}
+                  onChange={(checked) => state.updateQualityGate("require_tests_pass", checked)}
                   label={t("policy.tests")}
                 />
                 <Checkbox
-                  checked={editProfile().quality_gate.require_lint_pass}
-                  onChange={(checked) => updateQualityGate("require_lint_pass", checked)}
+                  checked={state.editProfile().quality_gate.require_lint_pass}
+                  onChange={(checked) => state.updateQualityGate("require_lint_pass", checked)}
                   label={t("policy.lint")}
                 />
                 <Checkbox
-                  checked={editProfile().quality_gate.rollback_on_gate_fail}
-                  onChange={(checked) => updateQualityGate("rollback_on_gate_fail", checked)}
+                  checked={state.editProfile().quality_gate.rollback_on_gate_fail}
+                  onChange={(checked) => state.updateQualityGate("rollback_on_gate_fail", checked)}
                   label={t("policy.rollback")}
                 />
               </div>
@@ -741,18 +525,21 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                 <FormField label={t("policy.editor.maxSteps")}>
                   <Input
                     type="number"
-                    value={editProfile().termination.max_steps ?? ""}
+                    value={state.editProfile().termination.max_steps ?? ""}
                     onInput={(e) =>
-                      updateTermination("max_steps", parseInt(e.currentTarget.value) || undefined)
+                      state.updateTermination(
+                        "max_steps",
+                        parseInt(e.currentTarget.value) || undefined,
+                      )
                     }
                   />
                 </FormField>
                 <FormField label={t("policy.editor.timeoutS")}>
                   <Input
                     type="number"
-                    value={editProfile().termination.timeout_seconds ?? ""}
+                    value={state.editProfile().termination.timeout_seconds ?? ""}
                     onInput={(e) =>
-                      updateTermination(
+                      state.updateTermination(
                         "timeout_seconds",
                         parseInt(e.currentTarget.value) || undefined,
                       )
@@ -763,9 +550,12 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   <Input
                     type="number"
                     step="0.01"
-                    value={editProfile().termination.max_cost ?? ""}
+                    value={state.editProfile().termination.max_cost ?? ""}
                     onInput={(e) =>
-                      updateTermination("max_cost", parseFloat(e.currentTarget.value) || undefined)
+                      state.updateTermination(
+                        "max_cost",
+                        parseFloat(e.currentTarget.value) || undefined,
+                      )
                     }
                   />
                 </FormField>
@@ -776,62 +566,73 @@ export default function PolicyPanel(props: PolicyPanelProps) {
             <div>
               <div class="mb-1 flex items-center justify-between">
                 <label class="text-xs font-medium text-cf-text-tertiary">{t("policy.rules")}</label>
-                <Button variant="secondary" size="sm" onClick={addRule}>
+                <Button variant="secondary" size="sm" onClick={state.addRule}>
                   {t("policy.editor.addRule")}
                 </Button>
               </div>
               <div class="space-y-2">
-                <For each={editProfile().rules}>
+                <For each={state.editProfile().rules}>
                   {(rule, i) => (
                     <div class="flex flex-wrap items-start gap-2 rounded-cf-sm border border-cf-border bg-cf-bg-inset p-2">
                       <Input
+                        aria-label="Tool pattern"
                         class="w-20"
                         placeholder={t("policy.editor.toolPlaceholder")}
                         value={rule.specifier.tool}
-                        onInput={(e) => updateRule(i(), "tool", e.currentTarget.value)}
+                        onInput={(e) => state.updateRule(i(), "tool", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Sub-pattern"
                         class="w-24"
                         placeholder={t("policy.editor.subPatternPlaceholder")}
                         value={rule.specifier.sub_pattern || ""}
-                        onInput={(e) => updateRule(i(), "sub_pattern", e.currentTarget.value)}
+                        onInput={(e) => state.updateRule(i(), "sub_pattern", e.currentTarget.value)}
                       />
                       <Select
+                        aria-label="Action"
                         value={rule.decision}
-                        onChange={(e) => updateRule(i(), "decision", e.currentTarget.value)}
+                        onChange={(e) => state.updateRule(i(), "decision", e.currentTarget.value)}
                       >
                         <option value="allow">{t("policy.decision.allow")}</option>
                         <option value="deny">{t("policy.decision.deny")}</option>
                         <option value="ask">{t("policy.decision.ask")}</option>
                       </Select>
                       <Input
+                        aria-label="Path allow pattern"
                         class="w-28"
                         placeholder={t("policy.editor.pathAllowPlaceholder")}
                         value={rule.path_allow?.join(", ") || ""}
-                        onInput={(e) => updateRule(i(), "path_allow", e.currentTarget.value)}
+                        onInput={(e) => state.updateRule(i(), "path_allow", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Path deny pattern"
                         class="w-28"
                         placeholder={t("policy.editor.pathDenyPlaceholder")}
                         value={rule.path_deny?.join(", ") || ""}
-                        onInput={(e) => updateRule(i(), "path_deny", e.currentTarget.value)}
+                        onInput={(e) => state.updateRule(i(), "path_deny", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Command allow pattern"
                         class="w-28"
                         placeholder={t("policy.editor.cmdAllowPlaceholder")}
                         value={rule.command_allow?.join(", ") || ""}
-                        onInput={(e) => updateRule(i(), "command_allow", e.currentTarget.value)}
+                        onInput={(e) =>
+                          state.updateRule(i(), "command_allow", e.currentTarget.value)
+                        }
                       />
                       <Input
+                        aria-label="Command deny pattern"
                         class="w-28"
                         placeholder={t("policy.editor.cmdDenyPlaceholder")}
                         value={rule.command_deny?.join(", ") || ""}
-                        onInput={(e) => updateRule(i(), "command_deny", e.currentTarget.value)}
+                        onInput={(e) =>
+                          state.updateRule(i(), "command_deny", e.currentTarget.value)
+                        }
                       />
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => removeRule(i())}
+                        onClick={() => state.removeRule(i())}
                         aria-label={t("policy.editor.removeRuleAria", { n: String(i() + 1) })}
                         class="text-red-500 dark:text-red-400"
                       >
@@ -845,15 +646,15 @@ export default function PolicyPanel(props: PolicyPanelProps) {
 
             {/* Actions */}
             <div class="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setView("list")}>
+              <Button variant="secondary" size="sm" onClick={() => state.setView("list")}>
                 {t("common.cancel")}
               </Button>
               <Button
                 variant="primary"
                 size="sm"
-                onClick={handleSave}
-                disabled={saving() || !editProfile().name}
-                loading={saving()}
+                onClick={state.handleSave}
+                disabled={state.saving() || !state.editProfile().name}
+                loading={state.saving()}
               >
                 {t("common.save")}
               </Button>

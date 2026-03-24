@@ -1582,6 +1582,9 @@ const en = {
   "goals.toast.deleted": "Goal deleted",
   "goals.toast.deleteFailed": "Failed to delete goal",
   "goals.toast.titleRequired": "Goal title is required",
+  "goals.kindLabel": "Goal kind",
+  "goals.titleLabel": "Goal title",
+  "goals.descriptionLabel": "Goal description",
 
   // -- Audit Trail ---------------------------------------------------------------
   "audit.title": "Audit Trail",

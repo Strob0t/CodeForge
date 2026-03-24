@@ -162,6 +162,7 @@ export default function GoalsPanel(props: Props) {
         <div class="relative z-20 mx-4 mb-3 p-3 border border-cf-border rounded-cf-sm bg-cf-bg-secondary space-y-2">
           <div class="flex gap-2">
             <select
+              aria-label={t("goals.kindLabel")}
               class="rounded-cf-sm border border-cf-border bg-cf-bg-primary text-cf-text-primary text-sm px-2 py-1"
               value={formKind()}
               onChange={(e) => setFormKind(e.target.value as GoalKind)}
@@ -170,6 +171,7 @@ export default function GoalsPanel(props: Props) {
             </select>
             <input
               type="text"
+              aria-label={t("goals.titleLabel")}
               class="flex-1 rounded-cf-sm border border-cf-border bg-cf-bg-primary text-cf-text-primary text-sm px-2 py-1"
               placeholder={t("goals.form.titlePlaceholder")}
               value={formTitle()}
@@ -177,6 +179,7 @@ export default function GoalsPanel(props: Props) {
             />
           </div>
           <textarea
+            aria-label={t("goals.descriptionLabel")}
             class="w-full rounded-cf-sm border border-cf-border bg-cf-bg-primary text-cf-text-primary text-sm px-2 py-1 min-h-[60px]"
             placeholder={t("goals.form.contentPlaceholder")}
             value={formContent()}

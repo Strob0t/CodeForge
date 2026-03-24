@@ -378,6 +378,7 @@ function InlineEditor(props: {
                   ref.select();
                 }, 0);
               }}
+              aria-label="Canvas text editing"
               value={text()}
               onInput={handleInput}
               onKeyDown={handleKeyDown}
