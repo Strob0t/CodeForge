@@ -3,10 +3,6 @@
 The TaskConsumer is composed from handler mixins — each mixin owns a
 related group of NATS message handlers.  The ``main()`` entry point
 at the bottom starts the consumer.
-
-TODO: FIX-092: Python codebase uses both stdlib ``logging`` and ``structlog``.
-Standardize on structlog throughout. Some modules (routing, evaluation) still
-use ``logging.getLogger()`` instead of ``structlog.get_logger()``.
 """
 
 from __future__ import annotations

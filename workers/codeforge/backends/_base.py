@@ -88,11 +88,11 @@ class BackendExecutor(Protocol):
 
 
 class StubBackendExecutor(ABC):
-    """Abstract base class for backend executors that are not yet implemented.
+    """Template base class for backends not yet implemented in CodeForge.
 
-    Provides default implementations for ``check_available()`` (CLI probe),
-    ``execute()`` (returns "not yet implemented"), and ``cancel()`` (no-op).
-    Subclasses must override ``info``.
+    Not currently subclassed by any production backend. Provides sensible
+    defaults for ``execute()`` (error message) and ``cancel()`` (no-op)
+    so new backend stubs can be added with minimal boilerplate.
     """
 
     @property
