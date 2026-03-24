@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type CanvasStore, createCanvasStore } from "../canvasState";
+import { type CanvasStore, createCanvasStore } from "./canvasState";
 
 // ---------------------------------------------------------------------------
 // We test the toolbar's keyboard shortcut logic and tool definitions

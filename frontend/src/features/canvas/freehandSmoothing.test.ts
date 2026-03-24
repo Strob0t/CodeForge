@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { catmullRomToSvgPath } from "../tools/smoothing";
+import { catmullRomToSvgPath } from "./tools/smoothing";
 
 // ---------------------------------------------------------------------------
 // catmullRomToSvgPath — Catmull-Rom spline to SVG cubic bezier path

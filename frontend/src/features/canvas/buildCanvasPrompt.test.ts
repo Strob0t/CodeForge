@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCanvasPrompt, modelSupportsVision } from "../buildCanvasPrompt";
+import { buildCanvasPrompt, modelSupportsVision } from "./buildCanvasPrompt";
 
 // ---------------------------------------------------------------------------
 // buildCanvasPrompt

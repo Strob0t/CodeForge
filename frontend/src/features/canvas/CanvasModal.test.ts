@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type CanvasStore, createCanvasStore } from "../canvasState";
-import type { CanvasExports } from "../canvasTypes";
+import { type CanvasStore, createCanvasStore } from "./canvasState";
+import type { CanvasExports } from "./canvasTypes";
 
 // ---------------------------------------------------------------------------
 // CanvasModal logic tests — exercise the store and export contract

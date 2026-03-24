@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { CanvasElement, ElementStyle } from "../canvasTypes";
-import type { CanvasJsonExport } from "../export/exportJson";
-import { exportJson } from "../export/exportJson";
+import type { CanvasElement, ElementStyle } from "./canvasTypes";
+import type { CanvasJsonExport } from "./export/exportJson";
+import { exportJson } from "./export/exportJson";
 
 // ---------------------------------------------------------------------------
 // Helpers

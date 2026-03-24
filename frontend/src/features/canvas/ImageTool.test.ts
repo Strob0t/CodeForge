@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type CanvasStore, createCanvasStore } from "../canvasState";
-import type { ImageData } from "../canvasTypes";
-import { createImageTool } from "../tools/ImageTool";
+import { type CanvasStore, createCanvasStore } from "./canvasState";
+import type { ImageData } from "./canvasTypes";
+import { createImageTool } from "./tools/ImageTool";
 
 // ---------------------------------------------------------------------------
 // Helpers

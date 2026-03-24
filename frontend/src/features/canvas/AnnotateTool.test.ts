@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { type CanvasStore, createCanvasStore } from "../canvasState";
-import type { AnnotationData } from "../canvasTypes";
-import { createAnnotateTool } from "../tools/AnnotateTool";
+import { type CanvasStore, createCanvasStore } from "./canvasState";
+import type { AnnotationData } from "./canvasTypes";
+import { createAnnotateTool } from "./tools/AnnotateTool";
 
 // ---------------------------------------------------------------------------
 // Helpers

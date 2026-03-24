@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { CanvasElement, ElementStyle } from "../canvasTypes";
-import { exportAscii } from "../export/exportAscii";
+import type { CanvasElement, ElementStyle } from "./canvasTypes";
+import { exportAscii } from "./export/exportAscii";
 
 // ---------------------------------------------------------------------------
 // Helpers

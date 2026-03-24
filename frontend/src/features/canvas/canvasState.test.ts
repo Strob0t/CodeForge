@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createCanvasStore } from "../canvasState";
-import type { CanvasElement, ElementStyle } from "../canvasTypes";
+import { createCanvasStore } from "./canvasState";
+import type { CanvasElement, ElementStyle } from "./canvasTypes";
 
 // ---------------------------------------------------------------------------
 // Helpers

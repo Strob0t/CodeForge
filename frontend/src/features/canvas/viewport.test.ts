@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { screenToSvgCoords } from "../DesignCanvas";
+import { screenToSvgCoords } from "./DesignCanvas";
 
 // ---------------------------------------------------------------------------
 // screenToSvgCoords — pure coordinate transform tests
