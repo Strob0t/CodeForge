@@ -12,7 +12,7 @@ import structlog
 
 from codeforge.config import get_settings
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
-from codeforge.models import ConversationRunCompleteMessage, ConversationRunStartMessage
+from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
-    from codeforge.models import AgentLoopResult, ContextEntry
+    from codeforge.models import ContextEntry
     from codeforge.routing.router import HybridRouter
 
 logger = structlog.get_logger()
@@ -378,7 +378,7 @@ class ConversationHandlerMixin:
                 routing,
             )
 
-            result = await self._execute_conversation_run(
+            result = await self._execute_with_timeout(
                 run_msg=run_msg,
                 messages=messages,
                 primary_model=primary_model,
@@ -386,6 +386,7 @@ class ConversationHandlerMixin:
                 runtime=runtime,
                 registry=registry,
                 fallback_models=fallback_models,
+                log=log,
             )
 
             await self._publish_completion(run_msg, result)
@@ -455,6 +456,41 @@ class ConversationHandlerMixin:
                 )
         except Exception as exc:
             logger.exception("failed to publish conversation error result", error=str(exc))
+
+    async def _execute_with_timeout(
+        self,
+        run_msg: ConversationRunStartMessage,
+        messages: list[dict],
+        primary_model: str,
+        routing: object,
+        runtime: RuntimeClient,
+        registry: object,
+        fallback_models: list[str],
+        log: structlog.stdlib.BoundLogger,
+    ) -> AgentLoopResult:
+        """Run _execute_conversation_run with a wall-clock timeout."""
+        timeout = int(os.getenv("CODEFORGE_CONVERSATION_TIMEOUT", "3600"))
+        try:
+            return await asyncio.wait_for(
+                self._execute_conversation_run(
+                    run_msg=run_msg,
+                    messages=messages,
+                    primary_model=primary_model,
+                    routing=routing,
+                    runtime=runtime,
+                    registry=registry,
+                    fallback_models=fallback_models,
+                ),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            log.warning("conversation run timed out", timeout=timeout)
+            return AgentLoopResult(
+                final_content="",
+                step_count=0,
+                model=primary_model,
+                error=f"Wall-clock timeout exceeded ({timeout}s)",
+            )
 
     async def _execute_conversation_run(
         self,
