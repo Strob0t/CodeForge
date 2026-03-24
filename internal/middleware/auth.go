@@ -76,6 +76,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 					Enabled:  true,
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, defaultUser)
+				ctx = withUserID(ctx, defaultUser.ID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -133,6 +134,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 					Enabled:  true,
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
+				ctx = withUserID(ctx, u.ID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -154,6 +156,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 						Enabled:  true,
 					}
 					ctx := context.WithValue(r.Context(), authUserCtxKey{}, svcUser)
+					ctx = withUserID(ctx, svcUser.ID)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
@@ -170,6 +173,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
 				ctx = context.WithValue(ctx, apiKeyCtxKey{}, key)
+				ctx = withUserID(ctx, u.ID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -210,6 +214,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 			}
 
 			ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
+			ctx = withUserID(ctx, u.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

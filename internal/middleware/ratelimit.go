@@ -10,13 +10,14 @@ import (
 	"time"
 )
 
-// RateLimiter is per-IP token bucket rate limiting middleware.
+// RateLimiter is per-key token bucket rate limiting middleware.
+// Keys are "userID:IP" for authenticated requests or just "IP" for unauthenticated ones.
 type RateLimiter struct {
 	mu         sync.Mutex
 	buckets    map[string]*bucket
 	rate       float64 // tokens per second
 	burst      int     // max tokens
-	maxBuckets int     // max tracked IPs (prevents memory exhaustion)
+	maxBuckets int     // max tracked keys (prevents memory exhaustion)
 }
 
 type bucket struct {
@@ -32,16 +33,18 @@ func NewRateLimiter(rate float64, burst int) *RateLimiter {
 		buckets:    make(map[string]*bucket),
 		rate:       rate,
 		burst:      burst,
-		maxBuckets: 100000, // 100k IPs max
+		maxBuckets: 100000, // 100k keys max
 	}
 }
 
-// Handler returns HTTP middleware that enforces per-IP rate limiting.
+// Handler returns HTTP middleware that enforces rate limiting.
+// For authenticated requests, the key is "userID:IP"; for unauthenticated
+// requests, the key is the client IP only.
 func (rl *RateLimiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := realIP(r)
+		key := rateLimitKey(r)
 
-		remaining, retryAfter, allowed := rl.allow(ip)
+		remaining, retryAfter, allowed := rl.allow(key)
 
 		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
 		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", time.Now().Add(time.Second).Unix()))
@@ -58,16 +61,18 @@ func (rl *RateLimiter) Handler(next http.Handler) http.Handler {
 	})
 }
 
-// allow checks whether a request from the given IP is allowed.
-// Returns remaining tokens, seconds until next token, and whether the request is allowed.
-func (rl *RateLimiter) allow(ip string) (remaining int, retryAfter float64, allowed bool) {
+// allow checks whether a request with the given key is allowed.
+// The key is typically "userID:IP" for authenticated requests or just "IP" for
+// unauthenticated ones. Returns remaining tokens, seconds until next token,
+// and whether the request is allowed.
+func (rl *RateLimiter) allow(key string) (remaining int, retryAfter float64, allowed bool) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	now := time.Now()
-	b, exists := rl.buckets[ip]
+	b, exists := rl.buckets[key]
 	if !exists {
-		// Prevent memory exhaustion: cap the number of tracked IPs
+		// Prevent memory exhaustion: cap the number of tracked keys
 		if len(rl.buckets) >= rl.maxBuckets {
 			return 0, 1.0 / rl.rate, false // reject when at capacity
 		}
@@ -76,7 +81,7 @@ func (rl *RateLimiter) allow(ip string) (remaining int, retryAfter float64, allo
 			updatedAt: now,
 			lastSeen:  now,
 		}
-		rl.buckets[ip] = b
+		rl.buckets[key] = b
 		return int(b.tokens), 0, true
 	}
 
@@ -131,21 +136,43 @@ func (rl *RateLimiter) cleanup(maxIdle time.Duration) {
 	}
 }
 
-// Len returns the number of tracked IP buckets (for metrics and testing).
+// Len returns the number of tracked rate limit buckets (for metrics and testing).
 func (rl *RateLimiter) Len() int {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	return len(rl.buckets)
 }
 
+type rateLimitUserKey struct{}
+
+// withUserID attaches a user ID to the context for rate limiting.
+// Used by auth middleware after JWT validation.
+func withUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, rateLimitUserKey{}, userID)
+}
+
+// userIDFromContext extracts the user ID from context, if present.
+func userIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(rateLimitUserKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// rateLimitKey returns a composite key: "userID:IP" if authenticated, "IP" otherwise.
+// This prevents a single compromised account from exhausting rate limits
+// for all users behind a shared IP (e.g., corporate NAT).
+func rateLimitKey(r *http.Request) string {
+	ip := realIP(r)
+	if userID := userIDFromContext(r.Context()); userID != "" {
+		return userID + ":" + ip
+	}
+	return ip
+}
+
 // realIP extracts the client IP from RemoteAddr.
 // Proxy headers (X-Forwarded-For, X-Real-Ip) are NOT trusted because
 // they can be spoofed by attackers to bypass rate limiting.
-//
-// TODO: FIX-096: Add per-user rate limiting for authenticated endpoints.
-// For authenticated requests, key on user ID (from JWT) in addition to IP.
-// This prevents a single compromised account from exhausting rate limits
-// for all users behind a shared IP (e.g., corporate NAT).
 func realIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
