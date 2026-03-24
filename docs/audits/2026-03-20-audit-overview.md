@@ -245,7 +245,7 @@ All 122 findings from all 10 audits, deduplicated and sorted by severity then sy
 | FIX-103 | LOW | Test Coverage | LOW-003 | E2E hardcoded localhost URLs -- **FIXED** (TODO added) | `frontend/e2e/*.spec.ts` |
 | FIX-104 | LOW | Frontend | LOW-001 | `console.warn` in production code -- **FIXED** | `frontend/src/features/benchmarks/BenchmarkPage.tsx:360` |
 | FIX-105 | LOW | Frontend | LOW-002 | ESLint disable comment density in ChatPanel -- **FIXED** (TODO added) | `frontend/src/features/project/ChatPanel.tsx` |
-| FIX-106 | LOW | Frontend | LOW-003 | Inline SVG duplication across features -- **FIXED** (TODO added) | Multiple frontend files |
+| FIX-106 | LOW | Frontend | LOW-003 | Inline SVG duplication across features -- **FIXED** (extracted to ChatIcons.tsx) | Multiple frontend files |
 | FIX-107 | LOW | Protocol | LOW-001 | MCP AuthMiddleware defined but never used -- **FIXED** | `internal/adapter/mcp/auth.go:11` |
 | FIX-108 | LOW | Protocol | LOW-002 | LSP `parseLocations` does not handle `LocationLink` -- **FIXED** | `internal/adapter/lsp/client.go:468` |
 | FIX-109 | LOW | Protocol | LOW-003 | A2A AgentCard hardcodes `Streaming=false` -- **FIXED** | `internal/adapter/a2a/agentcard.go:48` |

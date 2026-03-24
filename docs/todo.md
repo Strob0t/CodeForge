@@ -1539,3 +1539,10 @@
 - [x] (2026-03-23) **A2APage:** Frontend for Phase 27 A2A v0.3.0 agent federation (remote agents, task history, AgentCard details) -- `frontend/src/features/a2a/A2APage.tsx`
 - [x] (2026-03-23) **RoutingStatsPage:** Live statistics for Phase 29 hybrid routing (model distribution, fallback events, MAB UCB1 scores) -- `frontend/src/features/routing/RoutingStatsPage.tsx`
 - [x] (2026-03-23) **Prompt Evolution:** LLM-driven prompt improvement pipeline -- reflect/mutate cycles via NATS. Files: `frontend/src/features/prompts/EvolutionTab.tsx`, `internal/service/prompt_evolution.go`, `workers/codeforge/consumer/_prompt_evolution.py`, migration 078
+
+---
+
+#### Frontend Cleanup (2026-03-24)
+
+- [x] (2026-03-24) **FIX-106:** Extracted inline SVG icons from ChatPanel.tsx into `frontend/src/ui/icons/ChatIcons.tsx` (AttachIcon, CanvasIcon)
+- [x] (2026-03-24) **useCRUDForm fix:** Replaced silent `async () => {}` fallback with dev-mode console.warn in `frontend/src/hooks/useCRUDForm.ts`

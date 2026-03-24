@@ -43,7 +43,7 @@
 
 ### Feature #1: Project Dashboard
 - **MEDIUM** `internal/adapter/http/routes.go:31-46` -- Verb-based URL endpoints (`/detect-stack`, `/parse-repo-url`), inconsistent pagination envelopes, PUT instead of PATCH. TODOs FIX-061/063/095/098/100 documented. -- OPEN
-- **LOW** `frontend/src/features/project/ChatPanel.tsx:1` -- FIX-106: SVG icon duplication across components. -- OPEN
+- **LOW** `frontend/src/features/project/ChatPanel.tsx:1` -- FIX-106: SVG icon duplication across components. -- FIXED (2026-03-24)
 
 ### Feature #2: Roadmap / Feature-Map
 - **LOW** `internal/service/roadmap.go:56-86` -- Batch-load pattern avoids N+1 queries. -- FIXED
@@ -56,7 +56,7 @@
 - **MEDIUM** `internal/service/quarantine.go:35` -- TODO(F11-D3): Tenant context verification for project ownership incomplete. -- OPEN
 
 ### Feature #5: Chat Enhancements
-- **LOW** `frontend/src/features/project/ChatPanel.tsx:1` -- FIX-106: Inline SVG duplication. -- OPEN
+- **LOW** `frontend/src/features/project/ChatPanel.tsx:1` -- FIX-106: Inline SVG duplication. -- FIXED (2026-03-24)
 
 ### Feature #6: Visual Design Canvas
 - **HIGH** `internal/service/conversation.go:208+` -- `MessageImage.Validate()` is defined but never called in SendMessage handler. Images pass through without server-side size check. -- OPEN
