@@ -10,7 +10,6 @@ compatibility.
 
 from __future__ import annotations
 
-import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -19,9 +18,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+import structlog
+
 from codeforge.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(component="routing")
 
 _settings = get_settings()
 _DEFAULT_BLOCK_TTL = _settings.model_block_ttl
@@ -54,7 +55,7 @@ class ModelBlocklist:
         entry = BlockEntry(model=model, reason=reason, blocked_at=self._now(), ttl=ttl)
         with self._lock:
             self._blocked[model] = entry
-        logger.warning("model_blocklist: blocked %s for %.0fs (reason: %s)", model, ttl, reason)
+        logger.warning("model_blocklist blocked", model=model, ttl_seconds=ttl, reason=reason)
 
     def block_auth(self, model: str, reason: str = "") -> None:
         """Block a model for auth/billing failures (long TTL)."""
@@ -67,12 +68,7 @@ class ModelBlocklist:
         )
         with self._lock:
             self._blocked[model] = entry
-        logger.warning(
-            "model_blocklist: auth-blocked %s for %.0fs (reason: %s)",
-            model,
-            _AUTH_BLOCK_TTL,
-            reason,
-        )
+        logger.warning("model_blocklist auth-blocked", model=model, ttl_seconds=_AUTH_BLOCK_TTL, reason=reason)
 
     def is_blocked(self, model: str) -> bool:
         """Return True if *model* is currently blocked (not expired).

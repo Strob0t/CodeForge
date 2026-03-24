@@ -12,12 +12,13 @@ Inspired by:
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass, field
+
+import structlog
 
 from codeforge.evaluation.prompt_optimizer import TacticalFix
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(component="evaluation")
 
 # Length bounds: variant must be 50-300% of original length.
 _MIN_LENGTH_RATIO = 0.5
@@ -144,7 +145,7 @@ def mutate_prompt_sync(
 
     valid, reason = validate_variant(current_content, combined)
     if not valid:
-        logger.warning("sync variant failed validation: %s", reason)
+        logger.warning("sync variant failed validation", reason=reason)
 
     return PromptVariant(
         content=combined,
@@ -211,10 +212,7 @@ async def mutate_prompt(
 
     valid, reason = validate_variant(current_content, content)
     if not valid:
-        logger.warning(
-            "LLM variant failed validation (%s), falling back to sync mutation",
-            reason,
-        )
+        logger.warning("LLM variant failed validation, falling back to sync mutation", reason=reason)
         return mutate_prompt_sync(current_content, tactical_fixes, strategic_principles, mode_id)
 
     return PromptVariant(
@@ -284,7 +282,7 @@ async def handle_mutate_request(
             },
         }
     except Exception as exc:
-        logger.exception("prompt mutation failed: %s", str(exc))
+        logger.exception("prompt mutation failed", error=str(exc))
         result = {
             "status": "error",
             "mode_id": mode_id,

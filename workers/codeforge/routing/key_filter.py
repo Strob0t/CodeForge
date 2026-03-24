@@ -6,10 +6,11 @@ wrapper functions for backward compatibility.
 
 from __future__ import annotations
 
-import logging
 import os
 
-logger = logging.getLogger(__name__)
+import structlog
+
+logger = structlog.get_logger(component="routing")
 
 # Provider prefix -> environment variable that holds the API key.
 PROVIDER_KEY_MAP: dict[str, str] = {
@@ -89,9 +90,9 @@ class KeyFilter:
             elif provider not in self._warned_providers:
                 self._warned_providers.add(provider)
                 logger.warning(
-                    "Excluding %s models: env var %s is not set or empty",
-                    provider,
-                    PROVIDER_KEY_MAP.get(provider, "?"),
+                    "excluding models, env var not set or empty",
+                    provider=provider,
+                    env_var=PROVIDER_KEY_MAP.get(provider, "?"),
                 )
         return kept
 

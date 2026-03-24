@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 
 from codeforge.tools._base import ToolResult
 
-# FIX-089: Replace broad Any with specific callable types.
-# The decorated function is an async tool method with a fixed signature.
-ToolMethod = Callable[..., Coroutine[object, object, ToolResult]]
+# FIX-089: Specific callable type for async tool methods.
+# Matches the (self, arguments, workspace_path) -> ToolResult signature.
+ToolMethod = Callable[[object, dict[str, object], str], Awaitable[ToolResult]]
 
 
 def catch_os_error(
