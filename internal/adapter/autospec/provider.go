@@ -5,6 +5,7 @@ package autospec
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,11 @@ func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specpro
 			return nil
 		}
 
-		rel, _ := filepath.Rel(workspacePath, path)
+		rel, relErr := filepath.Rel(workspacePath, path)
+		if relErr != nil {
+			slog.Warn("failed to compute relative path", "workspace", workspacePath, "path", path, "error", relErr)
+			rel = filepath.Base(path)
+		}
 		title := extractTitle(path, rel)
 		specs = append(specs, specprovider.Spec{
 			Path:   rel,
