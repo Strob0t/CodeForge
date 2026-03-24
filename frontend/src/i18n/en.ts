@@ -1579,6 +1579,7 @@ const en = {
   "goals.toast.createFailed": "Failed to create goal",
   "goals.toast.updated": "Goal updated",
   "goals.toast.updateFailed": "Failed to update goal",
+  "goals.confirmDelete": "Are you sure you want to delete this goal? This action cannot be undone.",
   "goals.toast.deleted": "Goal deleted",
   "goals.toast.deleteFailed": "Failed to delete goal",
   "goals.toast.titleRequired": "Goal title is required",

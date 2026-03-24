@@ -2,6 +2,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateGoalRequest, GoalKind, ProjectGoal } from "~/api/types";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import { Badge, Button } from "~/ui";
@@ -118,7 +119,14 @@ export default function GoalsPanel(props: Props) {
     }
   };
 
+  const { confirm } = useConfirm();
+
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      message: t("goals.confirmDelete"),
+    });
+    if (!ok) return;
     try {
       await api.goals.delete(id);
       toast("info", t("goals.toast.deleted"));
