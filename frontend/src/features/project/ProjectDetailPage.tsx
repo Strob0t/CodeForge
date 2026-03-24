@@ -5,6 +5,7 @@ import {
   createSignal,
   ErrorBoundary,
   For,
+  onCleanup,
   onMount,
   Show,
 } from "solid-js";
@@ -52,6 +53,137 @@ import TaskPanel from "./TaskPanel";
 import TrajectoryPanel from "./TrajectoryPanel";
 import { useProjectDetail } from "./useProjectDetail";
 import WarRoom from "./WarRoom";
+
+// ---------------------------------------------------------------------------
+// Grouped Panel Selector (custom dropdown with optgroup-style headers + tooltips)
+// ---------------------------------------------------------------------------
+
+const PANEL_GROUPS = [
+  {
+    label: "Planning",
+    items: [
+      { value: "goals", label: "Goals", tip: "Define project goals and requirements" },
+      { value: "roadmap", label: "Roadmap", tip: "Milestones and feature breakdown" },
+      { value: "featuremap", label: "Feature Map", tip: "Visual feature board with drag-and-drop" },
+      { value: "tasks", label: "Tasks & Roadmap", tip: "Task list synced with external PM tools" },
+      { value: "plans", label: "Plans", tip: "Step-by-step execution plans for features" },
+    ],
+  },
+  {
+    label: "Execution",
+    items: [
+      { value: "warroom", label: "War Room", tip: "Live multi-agent coordination view" },
+      { value: "agents", label: "Agents & Runs", tip: "Agent configuration and run management" },
+      { value: "sessions", label: "Sessions", tip: "Agent session history and continuity" },
+      { value: "trajectory", label: "Trajectory", tip: "Step-by-step replay of agent actions" },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      {
+        value: "code",
+        label: "Code Intelligence",
+        tip: "Repo map, architecture graph, and LSP servers",
+      },
+      {
+        value: "retrieval",
+        label: "Retrieval",
+        tip: "Search simulator for agent context retrieval",
+      },
+      {
+        value: "boundaries",
+        label: "Boundaries",
+        tip: "Cross-layer boundary detection for contract review",
+      },
+    ],
+  },
+  {
+    label: "Governance",
+    items: [
+      { value: "policy", label: "Policy", tip: "Permission rules and policy presets" },
+      { value: "audit", label: "Audit Trail", tip: "Chronological log of all project actions" },
+    ],
+  },
+] as const;
+
+function PanelSelector(props: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = createSignal(false);
+  let containerRef: HTMLDivElement | undefined;
+
+  const selectedLabel = () => {
+    for (const g of PANEL_GROUPS) {
+      for (const item of g.items) {
+        if (item.value === props.value) return item.label;
+      }
+    }
+    return "More panels...";
+  };
+
+  const handleSelect = (value: string) => {
+    props.onChange(value);
+    setOpen(false);
+  };
+
+  // Close on outside click
+  const onDocClick = (e: MouseEvent) => {
+    if (containerRef && !containerRef.contains(e.target as Node)) setOpen(false);
+  };
+  onMount(() => document.addEventListener("mousedown", onDocClick));
+  onCleanup(() => document.removeEventListener("mousedown", onDocClick));
+
+  return (
+    <div ref={containerRef} class="relative">
+      <button
+        type="button"
+        class="h-8 rounded-md border border-cf-border bg-cf-bg px-2 pr-7 text-sm text-cf-text cursor-pointer focus:outline-none focus:ring-1 focus:ring-cf-accent text-left min-w-[140px]"
+        style={{
+          "background-image": `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+          "background-repeat": "no-repeat",
+          "background-position": "right 0.5rem center",
+        }}
+        onClick={() => setOpen(!open())}
+        aria-haspopup="listbox"
+        aria-expanded={open()}
+      >
+        {props.value ? selectedLabel() : "More panels..."}
+      </button>
+      <Show when={open()}>
+        <div
+          class="absolute left-0 top-full mt-1 z-50 min-w-[220px] max-h-[70vh] overflow-y-auto rounded-lg border border-cf-border bg-cf-bg shadow-cf-lg"
+          role="listbox"
+        >
+          <For each={PANEL_GROUPS}>
+            {(group) => (
+              <>
+                <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-cf-text-tertiary select-none">
+                  {group.label}
+                </div>
+                <For each={group.items}>
+                  {(item) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={props.value === item.value}
+                      class={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-cf-accent/10 flex flex-col gap-0 ${props.value === item.value ? "bg-cf-accent/15 text-cf-accent font-medium" : "text-cf-text"}`}
+                      onClick={() => handleSelect(item.value)}
+                      title={item.tip}
+                    >
+                      <span>{item.label}</span>
+                      <span class="text-[11px] text-cf-text-tertiary leading-tight">
+                        {item.tip}
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
 
 /** Fallback UI for sub-panel ErrorBoundary: shows an inline alert with retry */
 function PanelErrorFallback(props: { error: Error; reset: () => void }) {
@@ -457,37 +589,10 @@ export default function ProjectDetailPage() {
                             Files
                           </Button>
                         </Show>
-                        <select
-                          class="h-8 rounded-md border border-cf-border bg-cf-bg px-2 pr-7 text-sm text-cf-text appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-cf-accent"
-                          style={{
-                            "background-image": `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                            "background-repeat": "no-repeat",
-                            "background-position": "right 0.5rem center",
-                          }}
+                        <PanelSelector
                           value={leftTab() === "files" ? "" : leftTab()}
-                          onChange={(e) => {
-                            const val = e.currentTarget.value;
-                            if (val) setLeftTab(val as LeftTab);
-                          }}
-                        >
-                          <option value="" disabled>
-                            More panels...
-                          </option>
-                          <option value="goals">{t("goals.tab")}</option>
-                          <option value="roadmap">{t("detail.tab.roadmap")}</option>
-                          <option value="featuremap">{t("detail.tab.featuremap")}</option>
-                          <option value="warroom">War Room</option>
-                          <option value="sessions">{t("session.tab")}</option>
-                          <option value="trajectory">{t("detail.tab.trajectory")}</option>
-                          <option value="audit">{t("audit.title")}</option>
-                          <option value="boundaries">Boundaries</option>
-                          <option value="tasks">{t("detail.tab.tasks")}</option>
-                          <option value="plans">{t("detail.tab.plans")}</option>
-                          <option value="agents">{t("detail.tab.agents")}</option>
-                          <option value="code">{t("detail.tab.code")}</option>
-                          <option value="retrieval">{t("detail.tab.retrieval")}</option>
-                          <option value="policy">{t("detail.tab.policy")}</option>
-                        </select>
+                          onChange={(val) => setLeftTab(val as LeftTab)}
+                        />
                       </div>
                       <Button
                         variant="ghost"
