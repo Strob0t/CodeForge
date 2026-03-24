@@ -1,8 +1,10 @@
 # Production Docker Compose for CodeForge
 # Usage: docker compose -f docker-compose.prod.yml up -d
 #
-# Required environment variables (set in .env or export before running):
-#   POSTGRES_PASSWORD, LITELLM_MASTER_KEY, NATS_USER, NATS_PASS
+# Secret Management:
+#   1. Generate secrets: ./scripts/generate-secrets.sh ./secrets
+#   2. Or set env vars: POSTGRES_PASSWORD, LITELLM_MASTER_KEY, NATS_USER, NATS_PASS
+#   Services read from /run/secrets/ first, then fall back to env vars.
 
 x-logging: &default-logging
   driver: json-file
@@ -112,6 +114,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    secrets:
+      - litellm-master-key
+      - postgres-password
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
@@ -160,6 +165,11 @@ services:
       - ALL
     security_opt:
       - "no-new-privileges:true"
+    secrets:
+      - litellm-master-key
+      - postgres-password
+      - nats-user
+      - nats-pass
     environment:
       CODEFORGE_PORT: "8080"
       DATABASE_URL: "postgresql://${POSTGRES_USER:-codeforge}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-codeforge}?sslmode=require"
@@ -202,6 +212,11 @@ services:
       - ALL
     security_opt:
       - "no-new-privileges:true"
+    secrets:
+      - litellm-master-key
+      - postgres-password
+      - nats-user
+      - nats-pass
     environment:
       NATS_URL: "nats://${NATS_USER:?NATS_USER is required}:${NATS_PASS:?NATS_PASS is required}@nats:4222"
       LITELLM_BASE_URL: "http://litellm:4000"
@@ -255,6 +270,16 @@ services:
           memory: 256M
           cpus: "0.5"
     logging: *default-logging
+
+secrets:
+  litellm-master-key:
+    file: ${SECRETS_DIR:-./secrets}/litellm-master-key
+  postgres-password:
+    file: ${SECRETS_DIR:-./secrets}/postgres-password
+  nats-user:
+    file: ${SECRETS_DIR:-./secrets}/nats-user
+  nats-pass:
+    file: ${SECRETS_DIR:-./secrets}/nats-pass
 
 volumes:
   postgres_data:

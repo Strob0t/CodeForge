@@ -1,6 +1,9 @@
 # -- Worktrees ------------------------------------
 .worktrees/
 
+# -- Secrets (production, generated) ---------------
+secrets/
+
 # -- Dependencies ---------------------------------
 .venv/
 node_modules/

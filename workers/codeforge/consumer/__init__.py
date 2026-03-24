@@ -303,13 +303,18 @@ class TaskConsumer(
 
 async def main() -> None:
     """Entry point for running the consumer."""
+    from codeforge.secrets import get_secret
+
     settings = WorkerSettings()
     setup_logging(service=settings.log_service, level=settings.log_level)
+
+    # Docker Secrets override: prefer /run/secrets/* files, fall back to env/config.
+    litellm_key = get_secret("LITELLM_MASTER_KEY") or settings.litellm_api_key
 
     consumer = TaskConsumer(
         nats_url=settings.nats_url,
         litellm_url=settings.litellm_url,
-        litellm_key=settings.litellm_api_key,
+        litellm_key=litellm_key,
     )
 
     loop = asyncio.get_running_loop()

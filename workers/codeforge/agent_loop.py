@@ -62,6 +62,7 @@ STALL_ESCAPE_PROMPT = (
 )
 
 DEFAULT_MAX_ITERATIONS = 50
+MEMORY_THRESHOLD_MB = int(os.getenv("CODEFORGE_WORKER_MEMORY_THRESHOLD_MB", "3500"))
 
 
 class StallDetector:
@@ -229,6 +230,23 @@ class AgentLoopExecutor:
 
     # MCP tool name keywords considered read-only and safe for weaker models.
     _MCP_READONLY_KEYWORDS: frozenset[str] = frozenset({"search", "list", "find", "get", "fetch_url"})
+
+    @staticmethod
+    def _check_memory_pressure(state: _LoopState) -> bool:
+        """Check RSS and set state.error if threshold exceeded. Return True to abort."""
+        try:
+            import psutil
+
+            rss_mb = psutil.Process().memory_info().rss // (1024 * 1024)
+        except Exception:
+            return False
+        if rss_mb > MEMORY_THRESHOLD_MB:
+            state.error = f"Memory threshold exceeded ({rss_mb}MB > {MEMORY_THRESHOLD_MB}MB)"
+            logger.error(
+                "aborting run due to memory pressure", extra={"rss_mb": rss_mb, "threshold": MEMORY_THRESHOLD_MB}
+            )
+            return True
+        return False
 
     @staticmethod
     def _filter_tools_for_capability(
@@ -490,6 +508,10 @@ class AgentLoopExecutor:
             if await self._check_stall(stall_detector, messages, state):
                 break
 
+            # Memory pressure check between tool calls.
+            if self._check_memory_pressure(state):
+                break
+
             # Check mid-loop model switch before LLM call (C1).
             _check_model_switch(quality_tracker, cfg)
 
@@ -512,8 +534,7 @@ class AgentLoopExecutor:
             quality_tracker.end_iteration()
 
             # Check termination conditions.
-            if cfg.max_cost > 0 and state.total_cost >= cfg.max_cost:
-                logger.info("cost limit reached: %.4f >= %.4f", state.total_cost, cfg.max_cost)
+            if _cost_limit_reached(cfg, state):
                 break
         else:
             logger.warning("agent loop hit max iterations (%d)", cfg.max_iterations)
@@ -521,6 +542,16 @@ class AgentLoopExecutor:
 
         otel_metrics.loop_duration.record(time.monotonic() - loop_start)
 
+        return await self._finalize_run(cfg, state, messages, user_prompt)
+
+    async def _finalize_run(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        messages: list[dict[str, object]],
+        user_prompt: str,
+    ) -> AgentLoopResult:
+        """Post-loop: validate output schema, store experience, publish finish event."""
         # When an output_schema is specified and the loop produced final content,
         # validate/reparse it through the StructuredOutputParser.
         if cfg.output_schema and state.final_content and not state.error:
@@ -1531,6 +1562,14 @@ def _init_plan_act(cfg: LoopConfig, messages: list[dict[str, object]]) -> PlanAc
 
 
 _PLAN_ACT_MARKER = "\n\nYou are in "
+
+
+def _cost_limit_reached(cfg: LoopConfig, state: _LoopState) -> bool:
+    """Return True if the run's cost budget has been exhausted."""
+    if cfg.max_cost > 0 and state.total_cost >= cfg.max_cost:
+        logger.info("cost limit reached: %.4f >= %.4f", state.total_cost, cfg.max_cost)
+        return True
+    return False
 
 
 def _check_model_switch(quality_tracker: IterationQualityTracker, cfg: LoopConfig) -> None:
