@@ -22,11 +22,15 @@ func New(cfg config.Logging) (*slog.Logger, Closer, DroppedCounter) {
 		Level: level,
 	})
 
+	// Wrap with PII/secret redaction before any buffering so secrets
+	// never reach the output stream regardless of async mode.
+	redacted := NewRedactHandler(handler)
+
 	var closer Closer = nopCloser{}
 	var dropped DroppedCounter = nopDroppedCounter{}
-	var h slog.Handler = handler
+	var h slog.Handler = redacted
 	if cfg.Async {
-		async := NewAsyncHandler(handler, 10000, 4)
+		async := NewAsyncHandler(redacted, 10000, 4)
 		h = async
 		closer = async
 		dropped = async
