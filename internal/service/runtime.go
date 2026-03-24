@@ -691,7 +691,14 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			return fmt.Errorf("unmarshal trajectory event: %w", err)
 		}
 
+		// Use RunID as fallback for AgentID/TaskID when not available
+		// (conversation runs don't have separate agent/task IDs).
+		agentID := payload.RunID
+		taskID := payload.RunID
+
 		ev := &event.AgentEvent{
+			AgentID:   agentID,
+			TaskID:    taskID,
 			RunID:     payload.RunID,
 			ProjectID: payload.ProjectID,
 			Type:      event.Type(payload.EventType),

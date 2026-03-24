@@ -27,14 +27,14 @@ import (
 	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
-	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
 	cfmcp "github.com/Strob0t/CodeForge/internal/adapter/mcp"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
 	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
 	"github.com/Strob0t/CodeForge/internal/adapter/openhands"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
@@ -716,6 +716,7 @@ func run() error {
 	goalSvc := service.NewGoalDiscoveryService(store, osFS)
 	projectSvc.SetGoalDiscovery(goalSvc)
 	conversationSvc.SetGoalService(goalSvc)
+	runtimeSvc.SetGoalService(goalSvc)
 	// Wire goal service into prompt assembly sub-service (created earlier with nil goalSvc).
 	if conversationSvc.PromptService() != nil {
 		conversationSvc.PromptService().SetGoalService(goalSvc)
