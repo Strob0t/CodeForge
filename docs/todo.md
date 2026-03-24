@@ -1539,3 +1539,9 @@
 - [x] (2026-03-23) **A2APage:** Frontend for Phase 27 A2A v0.3.0 agent federation (remote agents, task history, AgentCard details) -- `frontend/src/features/a2a/A2APage.tsx`
 - [x] (2026-03-23) **RoutingStatsPage:** Live statistics for Phase 29 hybrid routing (model distribution, fallback events, MAB UCB1 scores) -- `frontend/src/features/routing/RoutingStatsPage.tsx`
 - [x] (2026-03-23) **Prompt Evolution:** LLM-driven prompt improvement pipeline -- reflect/mutate cycles via NATS. Files: `frontend/src/features/prompts/EvolutionTab.tsx`, `internal/service/prompt_evolution.go`, `workers/codeforge/consumer/_prompt_evolution.py`, migration 078
+
+---
+
+#### v2 API Migration Design (2026-03-24)
+
+- [x] (2026-03-24) v2 API migration design document (`docs/specs/v2-api-migration-design.md`) -- FIX-061/063/095/098/100
