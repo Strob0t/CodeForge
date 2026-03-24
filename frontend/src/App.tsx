@@ -178,6 +178,7 @@ function AppShell(props: {
                 </NavLink>
                 <NavLink href="/a2a" icon={<A2AIcon />} label={t("app.nav.a2a")}>
                   {t("app.nav.a2a")}
+                </NavLink>
                 <NavLink
                   href="/microagents"
                   icon={<MicroagentsIcon />}

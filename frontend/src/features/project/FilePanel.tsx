@@ -198,6 +198,14 @@ function TreeLoadingOverlay(): JSX.Element {
 // ---------------------------------------------------------------------------
 
 export default function FilePanel(props: FilePanelProps): JSX.Element {
+  return (
+    <FileTreeProvider>
+      <FilePanelInner {...props} />
+    </FileTreeProvider>
+  );
+}
+
+function FilePanelInner(props: FilePanelProps): JSX.Element {
   const { show: toast } = useToast();
 
   const { t } = useI18n();
@@ -582,43 +590,41 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
     <div class="flex h-full min-h-0" style={{ cursor: dragging() ? "col-resize" : undefined }}>
       {/* File Tree Sidebar (desktop/tablet) */}
       <Show when={!isMobile()}>
-        <FileTreeProvider>
-          <div
-            class="relative flex-shrink-0 border-r border-cf-border overflow-hidden flex flex-col bg-cf-bg-surface"
-            style={{ width: `${sidebarWidth()}px` }}
-          >
-            <TreeLoadingOverlay />
-            <SidebarHeader
-              projectId={props.projectId}
-              onCreateClick={() => setShowCreateModal(true)}
-              onUploadClick={() => uploadInputRef?.click()}
-            />
-            <input ref={uploadInputRef} type="file" class="hidden" onChange={handleUploadChange} />
-            <input
-              ref={ctxUploadInputRef}
-              type="file"
-              class="hidden"
-              onChange={handleCtxUploadChange}
-            />
-            <SearchInput />
-            <div class="flex-1 overflow-y-auto">
-              <FileTree
-                projectId={props.projectId}
-                onFileSelect={openFile}
-                selectedPath={activeTab() ?? undefined}
-                onContextMenu={handleContextMenu}
-              />
-            </div>
-          </div>
-          {/* Resize handle */}
-          <div
-            class="w-1 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/40 active:bg-cf-accent/60 transition-colors"
-            classList={{ "bg-cf-accent/60": dragging() }}
-            onMouseDown={onDragStart}
-            onDblClick={onDragDblClick}
-            title="Drag to resize, double-click to reset"
+        <div
+          class="relative flex-shrink-0 border-r border-cf-border overflow-hidden flex flex-col bg-cf-bg-surface"
+          style={{ width: `${sidebarWidth()}px` }}
+        >
+          <TreeLoadingOverlay />
+          <SidebarHeader
+            projectId={props.projectId}
+            onCreateClick={() => setShowCreateModal(true)}
+            onUploadClick={() => uploadInputRef?.click()}
           />
-        </FileTreeProvider>
+          <input ref={uploadInputRef} type="file" class="hidden" onChange={handleUploadChange} />
+          <input
+            ref={ctxUploadInputRef}
+            type="file"
+            class="hidden"
+            onChange={handleCtxUploadChange}
+          />
+          <SearchInput />
+          <div class="flex-1 overflow-y-auto">
+            <FileTree
+              projectId={props.projectId}
+              onFileSelect={openFile}
+              selectedPath={activeTab() ?? undefined}
+              onContextMenu={handleContextMenu}
+            />
+          </div>
+        </div>
+        {/* Resize handle */}
+        <div
+          class="w-1 flex-shrink-0 cursor-col-resize hover:bg-cf-accent/40 active:bg-cf-accent/60 transition-colors"
+          classList={{ "bg-cf-accent/60": dragging() }}
+          onMouseDown={onDragStart}
+          onDblClick={onDragDblClick}
+          title="Drag to resize, double-click to reset"
+        />
       </Show>
 
       {/* Mobile file tree */}
@@ -651,31 +657,29 @@ export default function FilePanel(props: FilePanelProps): JSX.Element {
         <Show when={fileDrawerOpen()}>
           <Backdrop onClick={() => setFileDrawerOpen(false)} class="bg-black/50" />
           <div class="fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r border-cf-border bg-cf-bg-surface shadow-cf-lg">
-            <FileTreeProvider>
-              <div class="flex items-center justify-between p-2 border-b border-cf-border">
-                <span class="text-sm font-medium px-2">{t("detail.tab.files")}</span>
-                <button
-                  type="button"
-                  class="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-cf-md text-cf-text-muted hover:bg-cf-bg-surface-alt"
-                  onClick={() => setFileDrawerOpen(false)}
-                >
-                  {"\u2715"}
-                </button>
-              </div>
-              <SidebarHeader projectId={props.projectId} />
-              <SearchInput />
-              <div class="flex-1 overflow-y-auto">
-                <FileTree
-                  projectId={props.projectId}
-                  onFileSelect={(path) => {
-                    openFile(path);
-                    setFileDrawerOpen(false);
-                  }}
-                  selectedPath={activeTab() ?? undefined}
-                  onContextMenu={handleContextMenu}
-                />
-              </div>
-            </FileTreeProvider>
+            <div class="flex items-center justify-between p-2 border-b border-cf-border">
+              <span class="text-sm font-medium px-2">{t("detail.tab.files")}</span>
+              <button
+                type="button"
+                class="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-cf-md text-cf-text-muted hover:bg-cf-bg-surface-alt"
+                onClick={() => setFileDrawerOpen(false)}
+              >
+                {"\u2715"}
+              </button>
+            </div>
+            <SidebarHeader projectId={props.projectId} />
+            <SearchInput />
+            <div class="flex-1 overflow-y-auto">
+              <FileTree
+                projectId={props.projectId}
+                onFileSelect={(path) => {
+                  openFile(path);
+                  setFileDrawerOpen(false);
+                }}
+                selectedPath={activeTab() ?? undefined}
+                onContextMenu={handleContextMenu}
+              />
+            </div>
           </div>
         </Show>
       </Show>

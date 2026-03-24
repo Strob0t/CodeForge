@@ -32,9 +32,8 @@ import {
   createTrajectoryResource,
 } from "./resources/misc";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
-import { createQuarantineResource } from "./resources/quarantine";
 import { createPromptEvolutionResource } from "./resources/promptEvolution";
->>>>>>> feat/frontend-prompt-evolution
+import { createQuarantineResource } from "./resources/quarantine";
 import { createRoadmapResource } from "./resources/roadmap";
 import { createRoutingResource } from "./resources/routing";
 import {

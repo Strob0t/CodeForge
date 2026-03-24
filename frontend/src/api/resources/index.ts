@@ -31,9 +31,8 @@ export {
   createTrajectoryResource,
 } from "./misc";
 export { createBatchResource, createProjectsResource } from "./projects";
-export { createQuarantineResource } from "./quarantine";
 export { createPromptEvolutionResource } from "./promptEvolution";
->>>>>>> feat/frontend-prompt-evolution
+export { createQuarantineResource } from "./quarantine";
 export { createRoadmapResource } from "./roadmap";
 export { createRoutingResource } from "./routing";
 export {

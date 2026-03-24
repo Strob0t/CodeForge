@@ -2213,6 +2213,8 @@ export interface QuarantineStats {
 export interface QuarantineReviewRequest {
   reviewed_by: string;
   note: string;
+}
+
 // --- Microagent types ---
 
 /** Microagent type (matches Go domain/microagent.Type) */
@@ -2350,7 +2352,7 @@ export interface PromptVariant {
   created_at: string;
   updated_at: string;
 }
->>>>>>> feat/frontend-prompt-evolution
+
 // --- Routing Stats types (Phase 29) ---
 
 /** Matches Go domain/routing.ModelPerformanceStats */
