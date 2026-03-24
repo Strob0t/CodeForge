@@ -15,7 +15,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/goal"
+	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
@@ -927,6 +930,628 @@ func TestStore_MessageCRUD(t *testing.T) {
 		}
 		if len(empty) != 0 {
 			t.Fatalf("expected 0 results for wrong project, got %d", len(empty))
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_RoadmapCRUD
+// --------------------------------------------------------------------------
+
+func TestStore_RoadmapCRUD(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "roadmap-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	t.Run("create_and_get_roadmap", func(t *testing.T) {
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID:   proj.ID,
+			Title:       "v1 Roadmap",
+			Description: "First release",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		if rm.ID == "" {
+			t.Fatal("CreateRoadmap returned empty ID")
+		}
+		if rm.Title != "v1 Roadmap" {
+			t.Fatalf("expected title 'v1 Roadmap', got %q", rm.Title)
+		}
+		if rm.Version != 1 {
+			t.Fatalf("expected version 1, got %d", rm.Version)
+		}
+		t.Cleanup(func() { _ = store.DeleteRoadmap(ctx, rm.ID) })
+
+		got, err := store.GetRoadmap(ctx, rm.ID)
+		if err != nil {
+			t.Fatalf("GetRoadmap: %v", err)
+		}
+		if got.Title != rm.Title {
+			t.Fatalf("expected title %q, got %q", rm.Title, got.Title)
+		}
+	})
+
+	t.Run("get_roadmap_by_project", func(t *testing.T) {
+		// Create a separate project + roadmap to avoid conflicts with other subtests.
+		p2, err := store.CreateProject(ctx, &project.CreateRequest{Name: "roadmap-byproj", Provider: "local"})
+		if err != nil {
+			t.Fatalf("CreateProject: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteProject(ctx, p2.ID) })
+
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID: p2.ID, Title: "ByProject Roadmap",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteRoadmap(ctx, rm.ID) })
+
+		got, err := store.GetRoadmapByProject(ctx, p2.ID)
+		if err != nil {
+			t.Fatalf("GetRoadmapByProject: %v", err)
+		}
+		if got.ID != rm.ID {
+			t.Fatalf("expected roadmap %s, got %s", rm.ID, got.ID)
+		}
+	})
+
+	t.Run("update_roadmap_with_optimistic_locking", func(t *testing.T) {
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID: proj.ID, Title: "to-update",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteRoadmap(ctx, rm.ID) })
+
+		rm.Title = "updated-title"
+		if err := store.UpdateRoadmap(ctx, rm); err != nil {
+			t.Fatalf("UpdateRoadmap: %v", err)
+		}
+		if rm.Version != 2 {
+			t.Fatalf("expected version 2 after update, got %d", rm.Version)
+		}
+
+		// Stale version should fail.
+		rm.Version = 1 // revert to stale
+		rm.Title = "stale-update"
+		err = store.UpdateRoadmap(ctx, rm)
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("expected ErrConflict for stale version, got %v", err)
+		}
+	})
+
+	t.Run("delete_roadmap", func(t *testing.T) {
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID: proj.ID, Title: "to-delete",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		if err := store.DeleteRoadmap(ctx, rm.ID); err != nil {
+			t.Fatalf("DeleteRoadmap: %v", err)
+		}
+		_, err = store.GetRoadmap(ctx, rm.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound after delete, got %v", err)
+		}
+	})
+
+	t.Run("milestone_crud", func(t *testing.T) {
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID: proj.ID, Title: "milestone-roadmap",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteRoadmap(ctx, rm.ID) })
+
+		ms, err := store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
+			RoadmapID: rm.ID, Title: "M1", Description: "First milestone",
+		})
+		if err != nil {
+			t.Fatalf("CreateMilestone: %v", err)
+		}
+		if ms.ID == "" {
+			t.Fatal("CreateMilestone returned empty ID")
+		}
+
+		list, err := store.ListMilestones(ctx, rm.ID)
+		if err != nil {
+			t.Fatalf("ListMilestones: %v", err)
+		}
+		if len(list) != 1 {
+			t.Fatalf("expected 1 milestone, got %d", len(list))
+		}
+		if list[0].Title != "M1" {
+			t.Fatalf("expected milestone title M1, got %q", list[0].Title)
+		}
+
+		// Update milestone.
+		ms.Title = "M1-updated"
+		if err := store.UpdateMilestone(ctx, ms); err != nil {
+			t.Fatalf("UpdateMilestone: %v", err)
+		}
+		got, err := store.GetMilestone(ctx, ms.ID)
+		if err != nil {
+			t.Fatalf("GetMilestone: %v", err)
+		}
+		if got.Title != "M1-updated" {
+			t.Fatalf("expected title M1-updated, got %q", got.Title)
+		}
+
+		// Delete milestone.
+		if err := store.DeleteMilestone(ctx, ms.ID); err != nil {
+			t.Fatalf("DeleteMilestone: %v", err)
+		}
+		_, err = store.GetMilestone(ctx, ms.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound after delete, got %v", err)
+		}
+	})
+
+	t.Run("feature_crud", func(t *testing.T) {
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID: proj.ID, Title: "feature-roadmap",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteRoadmap(ctx, rm.ID) })
+
+		ms, err := store.CreateMilestone(ctx, roadmap.CreateMilestoneRequest{
+			RoadmapID: rm.ID, Title: "F-Milestone",
+		})
+		if err != nil {
+			t.Fatalf("CreateMilestone: %v", err)
+		}
+
+		feat, err := store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+			MilestoneID: ms.ID,
+			Title:       "Feature-1",
+			Description: "First feature",
+			Labels:      []string{"backend", "api"},
+			SpecRef:     "spec/f1.yaml",
+		})
+		if err != nil {
+			t.Fatalf("CreateFeature: %v", err)
+		}
+		if feat.ID == "" {
+			t.Fatal("CreateFeature returned empty ID")
+		}
+		if feat.RoadmapID != rm.ID {
+			t.Fatalf("expected roadmap_id %s, got %s", rm.ID, feat.RoadmapID)
+		}
+
+		// List features by milestone.
+		list, err := store.ListFeatures(ctx, ms.ID)
+		if err != nil {
+			t.Fatalf("ListFeatures: %v", err)
+		}
+		if len(list) != 1 {
+			t.Fatalf("expected 1 feature, got %d", len(list))
+		}
+
+		// List features by roadmap.
+		listRM, err := store.ListFeaturesByRoadmap(ctx, rm.ID)
+		if err != nil {
+			t.Fatalf("ListFeaturesByRoadmap: %v", err)
+		}
+		if len(listRM) != 1 {
+			t.Fatalf("expected 1 feature, got %d", len(listRM))
+		}
+
+		// Update feature.
+		feat.Title = "Feature-1-updated"
+		feat.Status = roadmap.FeatureInProgress
+		if err := store.UpdateFeature(ctx, feat); err != nil {
+			t.Fatalf("UpdateFeature: %v", err)
+		}
+		got, err := store.GetFeature(ctx, feat.ID)
+		if err != nil {
+			t.Fatalf("GetFeature: %v", err)
+		}
+		if got.Title != "Feature-1-updated" {
+			t.Fatalf("expected title Feature-1-updated, got %q", got.Title)
+		}
+		if got.Status != roadmap.FeatureInProgress {
+			t.Fatalf("expected status in_progress, got %s", got.Status)
+		}
+
+		// Delete feature.
+		if err := store.DeleteFeature(ctx, feat.ID); err != nil {
+			t.Fatalf("DeleteFeature: %v", err)
+		}
+		_, err = store.GetFeature(ctx, feat.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound after delete, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant_isolation", func(t *testing.T) {
+		rm, err := store.CreateRoadmap(ctx, roadmap.CreateRoadmapRequest{
+			ProjectID: proj.ID, Title: "tenant-isolation-roadmap",
+		})
+		if err != nil {
+			t.Fatalf("CreateRoadmap: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteRoadmap(ctx, rm.ID) })
+
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+
+		_, err = store.GetRoadmap(otherCtx, rm.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_GoalCRUD
+// --------------------------------------------------------------------------
+
+func TestStore_GoalCRUD(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "goal-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	t.Run("create_and_get", func(t *testing.T) {
+		g := &goal.ProjectGoal{
+			ProjectID: proj.ID,
+			Kind:      goal.KindVision,
+			Title:     "Build the best CI",
+			Content:   "We want to build the best CI system.",
+			Source:    "manual",
+			Priority:  80,
+			Enabled:   true,
+		}
+		if err := store.CreateProjectGoal(ctx, g); err != nil {
+			t.Fatalf("CreateProjectGoal: %v", err)
+		}
+		if g.ID == "" {
+			t.Fatal("CreateProjectGoal did not set ID")
+		}
+		t.Cleanup(func() { _ = store.DeleteProjectGoal(ctx, g.ID) })
+
+		got, err := store.GetProjectGoal(ctx, g.ID)
+		if err != nil {
+			t.Fatalf("GetProjectGoal: %v", err)
+		}
+		if got.Title != "Build the best CI" {
+			t.Fatalf("expected title 'Build the best CI', got %q", got.Title)
+		}
+		if got.Kind != goal.KindVision {
+			t.Fatalf("expected kind vision, got %s", got.Kind)
+		}
+		if got.Priority != 80 {
+			t.Fatalf("expected priority 80, got %d", got.Priority)
+		}
+		if !got.Enabled {
+			t.Fatal("expected enabled=true")
+		}
+	})
+
+	t.Run("list_and_filter", func(t *testing.T) {
+		g1 := &goal.ProjectGoal{
+			ProjectID: proj.ID, Kind: goal.KindRequirement,
+			Title: "Goal-A", Content: "Req A", Priority: 90, Enabled: true,
+		}
+		g2 := &goal.ProjectGoal{
+			ProjectID: proj.ID, Kind: goal.KindConstraint,
+			Title: "Goal-B", Content: "Constraint B", Priority: 50, Enabled: false,
+		}
+		if err := store.CreateProjectGoal(ctx, g1); err != nil {
+			t.Fatalf("CreateProjectGoal g1: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteProjectGoal(ctx, g1.ID) })
+		if err := store.CreateProjectGoal(ctx, g2); err != nil {
+			t.Fatalf("CreateProjectGoal g2: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteProjectGoal(ctx, g2.ID) })
+
+		// ListProjectGoals returns all.
+		all, err := store.ListProjectGoals(ctx, proj.ID)
+		if err != nil {
+			t.Fatalf("ListProjectGoals: %v", err)
+		}
+		if len(all) < 2 {
+			t.Fatalf("expected at least 2 goals, got %d", len(all))
+		}
+
+		// ListEnabledGoals returns only enabled.
+		enabled, err := store.ListEnabledGoals(ctx, proj.ID)
+		if err != nil {
+			t.Fatalf("ListEnabledGoals: %v", err)
+		}
+		for _, eg := range enabled {
+			if !eg.Enabled {
+				t.Fatalf("ListEnabledGoals returned disabled goal %s", eg.ID)
+			}
+		}
+	})
+
+	t.Run("update", func(t *testing.T) {
+		g := &goal.ProjectGoal{
+			ProjectID: proj.ID, Kind: goal.KindState,
+			Title: "State Goal", Content: "Current state", Priority: 10, Enabled: true,
+		}
+		if err := store.CreateProjectGoal(ctx, g); err != nil {
+			t.Fatalf("CreateProjectGoal: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteProjectGoal(ctx, g.ID) })
+
+		g.Title = "Updated State Goal"
+		g.Priority = 99
+		if err := store.UpdateProjectGoal(ctx, g); err != nil {
+			t.Fatalf("UpdateProjectGoal: %v", err)
+		}
+
+		got, err := store.GetProjectGoal(ctx, g.ID)
+		if err != nil {
+			t.Fatalf("GetProjectGoal after update: %v", err)
+		}
+		if got.Title != "Updated State Goal" {
+			t.Fatalf("expected updated title, got %q", got.Title)
+		}
+		if got.Priority != 99 {
+			t.Fatalf("expected priority 99, got %d", got.Priority)
+		}
+	})
+
+	t.Run("delete_by_source", func(t *testing.T) {
+		g := &goal.ProjectGoal{
+			ProjectID: proj.ID, Kind: goal.KindContext,
+			Title: "From GSD", Content: "GSD goal", Source: "gsd", Priority: 10, Enabled: true,
+		}
+		if err := store.CreateProjectGoal(ctx, g); err != nil {
+			t.Fatalf("CreateProjectGoal: %v", err)
+		}
+
+		if err := store.DeleteProjectGoalsBySource(ctx, proj.ID, "gsd"); err != nil {
+			t.Fatalf("DeleteProjectGoalsBySource: %v", err)
+		}
+		_, err := store.GetProjectGoal(ctx, g.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound after delete by source, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant", func(t *testing.T) {
+		g := &goal.ProjectGoal{
+			ProjectID: proj.ID, Kind: goal.KindVision,
+			Title: "Tenant Goal", Content: "Isolated", Priority: 50, Enabled: true,
+		}
+		if err := store.CreateProjectGoal(ctx, g); err != nil {
+			t.Fatalf("CreateProjectGoal: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteProjectGoal(ctx, g.ID) })
+
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+		_, err := store.GetProjectGoal(otherCtx, g.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_MCPServerCRUD
+// --------------------------------------------------------------------------
+
+func TestStore_MCPServerCRUD(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "mcp-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	t.Run("create_get_list", func(t *testing.T) {
+		srv := &mcp.ServerDef{
+			ID:        uuid.New().String(),
+			Name:      "test-mcp-server",
+			Transport: mcp.TransportStdio,
+			Command:   "/usr/bin/test-server",
+			Args:      []string{"--port", "3001"},
+			Env:       map[string]string{"KEY": "val"},
+			Enabled:   true,
+			Status:    mcp.ServerStatusRegistered,
+		}
+		if err := store.CreateMCPServer(ctx, srv); err != nil {
+			t.Fatalf("CreateMCPServer: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteMCPServer(ctx, srv.ID) })
+
+		got, err := store.GetMCPServer(ctx, srv.ID)
+		if err != nil {
+			t.Fatalf("GetMCPServer: %v", err)
+		}
+		if got.Name != "test-mcp-server" {
+			t.Fatalf("expected name test-mcp-server, got %q", got.Name)
+		}
+		if got.Command != "/usr/bin/test-server" {
+			t.Fatalf("expected command, got %q", got.Command)
+		}
+		if len(got.Args) != 2 {
+			t.Fatalf("expected 2 args, got %d", len(got.Args))
+		}
+		if got.Env["KEY"] != "val" {
+			t.Fatalf("expected env KEY=val, got %v", got.Env)
+		}
+
+		list, err := store.ListMCPServers(ctx)
+		if err != nil {
+			t.Fatalf("ListMCPServers: %v", err)
+		}
+		found := false
+		for _, s := range list {
+			if s.ID == srv.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("ListMCPServers did not include created server")
+		}
+	})
+
+	t.Run("update_and_status", func(t *testing.T) {
+		srv := &mcp.ServerDef{
+			ID:        uuid.New().String(),
+			Name:      "update-mcp",
+			Transport: mcp.TransportSSE,
+			URL:       "http://localhost:3002",
+			Enabled:   true,
+			Status:    mcp.ServerStatusRegistered,
+		}
+		if err := store.CreateMCPServer(ctx, srv); err != nil {
+			t.Fatalf("CreateMCPServer: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteMCPServer(ctx, srv.ID) })
+
+		srv.Name = "updated-mcp"
+		if err := store.UpdateMCPServer(ctx, srv); err != nil {
+			t.Fatalf("UpdateMCPServer: %v", err)
+		}
+		got, err := store.GetMCPServer(ctx, srv.ID)
+		if err != nil {
+			t.Fatalf("GetMCPServer after update: %v", err)
+		}
+		if got.Name != "updated-mcp" {
+			t.Fatalf("expected name updated-mcp, got %q", got.Name)
+		}
+
+		// Update status.
+		if err := store.UpdateMCPServerStatus(ctx, srv.ID, mcp.ServerStatusConnected); err != nil {
+			t.Fatalf("UpdateMCPServerStatus: %v", err)
+		}
+		got, err = store.GetMCPServer(ctx, srv.ID)
+		if err != nil {
+			t.Fatalf("GetMCPServer after status update: %v", err)
+		}
+		if got.Status != mcp.ServerStatusConnected {
+			t.Fatalf("expected status connected, got %s", got.Status)
+		}
+	})
+
+	t.Run("assign_and_list_by_project", func(t *testing.T) {
+		srv := &mcp.ServerDef{
+			ID:        uuid.New().String(),
+			Name:      "project-mcp",
+			Transport: mcp.TransportStdio,
+			Command:   "/usr/bin/mcp",
+			Enabled:   true,
+			Status:    mcp.ServerStatusRegistered,
+		}
+		if err := store.CreateMCPServer(ctx, srv); err != nil {
+			t.Fatalf("CreateMCPServer: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteMCPServer(ctx, srv.ID) })
+
+		// Before assignment, list should be empty.
+		before, err := store.ListMCPServersByProject(ctx, proj.ID)
+		if err != nil {
+			t.Fatalf("ListMCPServersByProject before: %v", err)
+		}
+		beforeCount := len(before)
+
+		// Assign to project.
+		if err := store.AssignMCPServerToProject(ctx, proj.ID, srv.ID); err != nil {
+			t.Fatalf("AssignMCPServerToProject: %v", err)
+		}
+
+		// After assignment.
+		after, err := store.ListMCPServersByProject(ctx, proj.ID)
+		if err != nil {
+			t.Fatalf("ListMCPServersByProject after: %v", err)
+		}
+		if len(after) != beforeCount+1 {
+			t.Fatalf("expected %d servers after assign, got %d", beforeCount+1, len(after))
+		}
+
+		// Idempotent assign (ON CONFLICT DO NOTHING).
+		if err := store.AssignMCPServerToProject(ctx, proj.ID, srv.ID); err != nil {
+			t.Fatalf("AssignMCPServerToProject idempotent: %v", err)
+		}
+
+		// Unassign.
+		if err := store.UnassignMCPServerFromProject(ctx, proj.ID, srv.ID); err != nil {
+			t.Fatalf("UnassignMCPServerFromProject: %v", err)
+		}
+		afterUnassign, err := store.ListMCPServersByProject(ctx, proj.ID)
+		if err != nil {
+			t.Fatalf("ListMCPServersByProject after unassign: %v", err)
+		}
+		if len(afterUnassign) != beforeCount {
+			t.Fatalf("expected %d servers after unassign, got %d", beforeCount, len(afterUnassign))
+		}
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		srv := &mcp.ServerDef{
+			ID:        uuid.New().String(),
+			Name:      "to-delete-mcp",
+			Transport: mcp.TransportStdio,
+			Command:   "/usr/bin/del",
+			Enabled:   true,
+			Status:    mcp.ServerStatusRegistered,
+		}
+		if err := store.CreateMCPServer(ctx, srv); err != nil {
+			t.Fatalf("CreateMCPServer: %v", err)
+		}
+		if err := store.DeleteMCPServer(ctx, srv.ID); err != nil {
+			t.Fatalf("DeleteMCPServer: %v", err)
+		}
+		_, err := store.GetMCPServer(ctx, srv.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound after delete, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant", func(t *testing.T) {
+		srv := &mcp.ServerDef{
+			ID:        uuid.New().String(),
+			Name:      "tenant-isolated-mcp",
+			Transport: mcp.TransportStdio,
+			Command:   "/usr/bin/iso",
+			Enabled:   true,
+			Status:    mcp.ServerStatusRegistered,
+		}
+		if err := store.CreateMCPServer(ctx, srv); err != nil {
+			t.Fatalf("CreateMCPServer: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteMCPServer(ctx, srv.ID) })
+
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+		_, err := store.GetMCPServer(otherCtx, srv.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
 		}
 	})
 }
