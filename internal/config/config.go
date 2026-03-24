@@ -318,12 +318,13 @@ type Workspace struct {
 
 // Server holds HTTP server configuration.
 type Server struct {
-	Port              string        `yaml:"port"`
-	CORSOrigin        string        `yaml:"cors_origin"`
-	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout"`
-	ReadTimeout       time.Duration `yaml:"read_timeout"`
-	WriteTimeout      time.Duration `yaml:"write_timeout"`
-	IdleTimeout       time.Duration `yaml:"idle_timeout"`
+	Port               string        `yaml:"port"`
+	CORSOrigin         string        `yaml:"cors_origin"`
+	ReadHeaderTimeout  time.Duration `yaml:"read_header_timeout"`
+	ReadTimeout        time.Duration `yaml:"read_timeout"`
+	WriteTimeout       time.Duration `yaml:"write_timeout"`
+	IdleTimeout        time.Duration `yaml:"idle_timeout"`
+	ForceSecureCookies bool          `yaml:"force_secure_cookies"` // Unconditionally set Secure=true on cookies (default: false)
 }
 
 // Postgres holds PostgreSQL connection configuration.

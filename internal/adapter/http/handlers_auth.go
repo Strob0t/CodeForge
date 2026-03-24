@@ -14,21 +14,23 @@ import (
 
 const refreshCookieName = "codeforge_refresh"
 
-// isSecureRequest returns true when the request arrived over TLS or behind
-// a reverse proxy that set X-Forwarded-Proto: https. Refresh token cookies
-// must only set Secure=true when the client is using HTTPS; otherwise the
-// browser silently discards the cookie.
-//
-// FIX-093: In production behind a TLS-terminating reverse proxy, the proxy
-// MUST set X-Forwarded-Proto: https. If deploying without a reverse proxy,
-// TLS should be configured on the Go server directly (r.TLS != nil).
-// TODO: Consider adding a config flag (e.g., force_secure_cookies) to
-// unconditionally set Secure=true in hardened deployments.
-func isSecureRequest(r *http.Request) bool {
+// isSecureRequestWithConfig returns true when cookies should use the Secure flag.
+// If forceSecure is true, always returns true (for hardened deployments
+// behind TLS-terminating proxies that may not set X-Forwarded-Proto).
+func isSecureRequestWithConfig(r *http.Request, forceSecure bool) bool {
+	if forceSecure {
+		return true
+	}
 	if r.TLS != nil {
 		return true
 	}
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+// isSecureCookie returns true when cookies should use the Secure flag,
+// using the handler's ForceSecureCookies config.
+func (h *Handlers) isSecureCookie(r *http.Request) bool {
+	return isSecureRequestWithConfig(r, h.ForceSecureCookies)
 }
 
 // Login handles POST /api/v1/auth/login
@@ -52,7 +54,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		Value:    rawRefresh,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   h.isSecureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})
@@ -77,7 +79,7 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 			Value:    "",
 			Path:     "/api/v1/auth",
 			HttpOnly: true,
-			Secure:   isSecureRequest(r),
+			Secure:   h.isSecureCookie(r),
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
@@ -90,7 +92,7 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 		Value:    newRawRefresh,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   h.isSecureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})
@@ -131,7 +133,7 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   h.isSecureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
@@ -360,7 +362,7 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		Value:    rawRefresh,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   h.isSecureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(7 * 24 * time.Hour / time.Second),
 	})

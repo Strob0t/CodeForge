@@ -171,6 +171,109 @@ func TestRateLimiterStartCleanupStops(t *testing.T) {
 	cancel()
 }
 
+func TestRateLimiter_PerUserKey(t *testing.T) {
+	rl := NewRateLimiter(1, 1) // 1 req/s, burst 1
+
+	handler := rl.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// First request from user-A on IP 1.2.3.4 — should pass
+	r1 := httptest.NewRequest("GET", "/", http.NoBody)
+	r1.RemoteAddr = "1.2.3.4:1234"
+	r1 = r1.WithContext(withUserID(r1.Context(), "user-A"))
+	w1 := httptest.NewRecorder()
+	handler.ServeHTTP(w1, r1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first request: got %d, want 200", w1.Code)
+	}
+
+	// Second request from user-B on same IP — should pass (different user)
+	r2 := httptest.NewRequest("GET", "/", http.NoBody)
+	r2.RemoteAddr = "1.2.3.4:1234"
+	r2 = r2.WithContext(withUserID(r2.Context(), "user-B"))
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("different user same IP: got %d, want 200", w2.Code)
+	}
+
+	// Third request from user-A again on same IP — should be rate limited
+	r3 := httptest.NewRequest("GET", "/", http.NoBody)
+	r3.RemoteAddr = "1.2.3.4:1234"
+	r3 = r3.WithContext(withUserID(r3.Context(), "user-A"))
+	w3 := httptest.NewRecorder()
+	handler.ServeHTTP(w3, r3)
+	if w3.Code != http.StatusTooManyRequests {
+		t.Fatalf("repeat user-A: got %d, want 429", w3.Code)
+	}
+}
+
+func TestRateLimiter_UnauthenticatedFallsBackToIP(t *testing.T) {
+	rl := NewRateLimiter(1, 1) // 1 req/s, burst 1
+
+	handler := rl.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// First unauthenticated request from IP — should pass
+	r1 := httptest.NewRequest("GET", "/", http.NoBody)
+	r1.RemoteAddr = "5.6.7.8:5678"
+	w1 := httptest.NewRecorder()
+	handler.ServeHTTP(w1, r1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first unauth request: got %d, want 200", w1.Code)
+	}
+
+	// Second unauthenticated request from same IP — should be rate limited
+	r2 := httptest.NewRequest("GET", "/", http.NoBody)
+	r2.RemoteAddr = "5.6.7.8:5678"
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second unauth request: got %d, want 429", w2.Code)
+	}
+}
+
+func TestRateLimitKey(t *testing.T) {
+	tests := []struct {
+		name   string
+		ip     string
+		userID string
+		want   string
+	}{
+		{"unauthenticated", "10.0.0.1:1234", "", "10.0.0.1"},
+		{"authenticated", "10.0.0.1:1234", "user-123", "user-123:10.0.0.1"},
+		{"empty user ID", "10.0.0.1:1234", "", "10.0.0.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/", http.NoBody)
+			r.RemoteAddr = tt.ip
+			if tt.userID != "" {
+				r = r.WithContext(withUserID(r.Context(), tt.userID))
+			}
+			got := rateLimitKey(r)
+			if got != tt.want {
+				t.Errorf("rateLimitKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUserIDFromContext(t *testing.T) {
+	// Empty context returns empty string.
+	if got := userIDFromContext(httptest.NewRequest("GET", "/", http.NoBody).Context()); got != "" {
+		t.Errorf("empty context: got %q, want empty", got)
+	}
+
+	// Context with user ID returns it.
+	ctx := withUserID(httptest.NewRequest("GET", "/", http.NoBody).Context(), "test-user")
+	if got := userIDFromContext(ctx); got != "test-user" {
+		t.Errorf("with user ID: got %q, want %q", got, "test-user")
+	}
+}
+
 func BenchmarkRateLimiterAllow(b *testing.B) {
 	rl := NewRateLimiter(1000, 1000)
 	b.ResetTimer()
