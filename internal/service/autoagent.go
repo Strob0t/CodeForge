@@ -85,10 +85,13 @@ func (s *AutoAgentService) Start(ctx context.Context, projectID string) (*autoag
 	// Fetch pending features from the roadmap.
 	features, err := s.pendingFeatures(ctx, projectID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, fmt.Errorf("%w: create a roadmap with features before starting auto-agent", domain.ErrValidation)
+		}
 		return nil, fmt.Errorf("fetch pending features: %w", err)
 	}
 	if len(features) == 0 {
-		return nil, fmt.Errorf("no pending features found: %w", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: all roadmap features are already completed — add new features to continue", domain.ErrValidation)
 	}
 
 	aa := &autoagent.AutoAgent{

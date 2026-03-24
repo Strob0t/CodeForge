@@ -335,8 +335,9 @@ func (s *ProjectService) Pull(ctx context.Context, id string) error {
 		if strings.Contains(errMsg, "no remote") ||
 			strings.Contains(errMsg, "does not have a default remote") ||
 			strings.Contains(errMsg, "No remote repository specified") ||
-			strings.Contains(errMsg, "no such remote") {
-			return fmt.Errorf("%w: no remote configured for this project", domain.ErrValidation)
+			strings.Contains(errMsg, "no such remote") ||
+			strings.Contains(errMsg, "no tracking information") {
+			return fmt.Errorf("%w: no remote configured for this project — add a remote with 'git remote add origin <url>'", domain.ErrValidation)
 		}
 		return fmt.Errorf("git pull: %w", err)
 	}
