@@ -89,7 +89,7 @@ func newTestLSPService() *LSPService {
 		ShutdownTimeout: 5 * time.Second,
 		DiagnosticDelay: 100 * time.Millisecond,
 	}
-	return NewLSPService(cfg, &noopBroadcaster{}, &mockStore{})
+	return NewLSPService(cfg, &noopBroadcaster{}, &mockStore{}, nil)
 }
 
 // NOTE(FIX-032): TestStartServers_MultipleLanguages is skipped because it

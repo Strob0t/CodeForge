@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -1299,7 +1300,7 @@ func TestPersistGoalProposal_Success(t *testing.T) {
 	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
 
 	// Wire GoalDiscoveryService
-	goalSvc := service.NewGoalDiscoveryService(store)
+	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1373,7 +1374,7 @@ func TestPersistGoalProposal_InvalidKind(t *testing.T) {
 	runtimeCfg := config.Runtime{}
 	svc := service.NewRuntimeService(store, queue, bc, es, policySvc, &runtimeCfg)
 
-	goalSvc := service.NewGoalDiscoveryService(store)
+	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()

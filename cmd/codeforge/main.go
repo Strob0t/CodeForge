@@ -322,7 +322,7 @@ func run() error {
 	)
 
 	// --- Context Optimizer + Shared Context (Phase 5D) ---
-	contextOptSvc := service.NewContextOptimizerService(store, &cfg.Orchestrator, &cfg.Limits)
+	contextOptSvc := service.NewContextOptimizerService(store, osFS, &cfg.Orchestrator, &cfg.Limits)
 	sharedCtxSvc := service.NewSharedContextService(store, hub, queue)
 	runtimeSvc.SetContextOptimizer(contextOptSvc)
 	slog.Info("context optimizer and shared context initialized",
@@ -713,7 +713,7 @@ func run() error {
 	slog.Info("microagent service initialized")
 
 	// --- Goal Discovery Service (Phase 28) ---
-	goalSvc := service.NewGoalDiscoveryService(store)
+	goalSvc := service.NewGoalDiscoveryService(store, osFS)
 	projectSvc.SetGoalDiscovery(goalSvc)
 	conversationSvc.SetGoalService(goalSvc)
 	// Wire goal service into prompt assembly sub-service (created earlier with nil goalSvc).

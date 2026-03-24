@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -37,7 +38,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	pipelineSvc := service.NewPipelineService(modeSvc)
@@ -56,7 +57,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
-	filesSvc := service.NewFileService(store)
+	filesSvc := service.NewFileService(store, osfs.New())
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
 	microagentSvc := service.NewMicroagentService(store)
@@ -116,7 +117,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 		}(),
 		ActiveWork:      service.NewActiveWorkService(store, bc),
 		Routing:         service.NewRoutingService(store),
-		GoalDiscovery:   service.NewGoalDiscoveryService(store),
+		GoalDiscovery:   service.NewGoalDiscoveryService(store, osfs.New()),
 		PromptEvolution: evoSvc,
 		AppEnv:          os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
