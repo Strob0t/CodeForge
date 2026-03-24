@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
@@ -183,153 +184,53 @@ func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
 	s.heartbeats.Store(runID, t)
 }
 
-// StartRun creates a new run in the database and publishes a start message to NATS.
-func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*run.Run, error) {
-	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("validate start request: %w", err)
+// prepareSandbox creates and starts a sandbox or hybrid container for the run.
+// Returns nil if exec mode is mount or if no sandbox service is configured.
+func (s *RuntimeService) prepareSandbox(ctx context.Context, runID, projectID string, execMode run.ExecMode) error {
+	if s.sandbox == nil {
+		return nil
 	}
-
-	// Default exec mode
-	if req.ExecMode == "" {
-		req.ExecMode = run.ExecModeMount
-	}
-
-	// Default policy profile
-	profileName := req.PolicyProfile
-	if profileName == "" {
-		profileName = s.policy.DefaultProfile()
-	}
-
-	// Verify policy profile exists
-	profile, ok := s.policy.GetProfile(profileName)
-	if !ok {
-		return nil, fmt.Errorf("unknown policy profile %q", profileName)
-	}
-
-	// Verify agent exists
-	ag, err := s.store.GetAgent(ctx, req.AgentID)
-	if err != nil {
-		return nil, fmt.Errorf("get agent: %w", err)
-	}
-
-	// Resolve agent mode: explicit request > agent default > "coder" fallback
-	modeID := req.ModeID
-	if modeID == "" {
-		modeID = ag.ModeID
-	}
-	if modeID == "" {
-		modeID = "coder"
-	}
-	var resolvedMode *messagequeue.ModePayload
-	if s.modes != nil {
-		if m, mErr := s.modes.Get(modeID); mErr == nil {
-			_, sections := BuildModePrompt(m)
-			sections = PruneToFitBudget(sections, DefaultModePromptBudget)
-			assembledPrompt := AssembleSections(sections)
-			resolvedMode = &messagequeue.ModePayload{
-				ID:               m.ID,
-				PromptPrefix:     assembledPrompt,
-				Tools:            m.Tools,
-				DeniedTools:      m.DeniedTools,
-				DeniedActions:    m.DeniedActions,
-				RequiredArtifact: m.RequiredArtifact,
-				LLMScenario:      m.LLMScenario,
-			}
-		} else {
-			slog.Warn("mode not found, using default", "mode_id", modeID, "error", mErr)
+	switch execMode {
+	case run.ExecModeSandbox:
+		proj, projErr := s.store.GetProject(ctx, projectID)
+		if projErr != nil {
+			return fmt.Errorf("get project for sandbox: %w", projErr)
 		}
-	}
-
-	// Verify task exists
-	t, err := s.store.GetTask(ctx, req.TaskID)
-	if err != nil {
-		return nil, fmt.Errorf("get task: %w", err)
-	}
-
-	// Default deliver mode from config
-	deliverMode := req.DeliverMode
-	if deliverMode == "" && s.runtimeCfg.DefaultDeliverMode != "" {
-		deliverMode = run.DeliverMode(s.runtimeCfg.DefaultDeliverMode)
-	}
-
-	// Create run in DB
-	r := &run.Run{
-		TaskID:        req.TaskID,
-		AgentID:       req.AgentID,
-		ProjectID:     req.ProjectID,
-		TeamID:        req.TeamID,
-		ModeID:        modeID,
-		PolicyProfile: profileName,
-		ExecMode:      req.ExecMode,
-		DeliverMode:   deliverMode,
-		Status:        run.StatusPending,
-	}
-	if err := s.store.CreateRun(ctx, r); err != nil {
-		return nil, fmt.Errorf("create run: %w", err)
-	}
-
-	// Mark run as running
-	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, 0, 0, 0, 0); err != nil {
-		return nil, fmt.Errorf("update run status: %w", err)
-	}
-	r.Status = run.StatusRunning
-
-	// OTEL: start run span and record metric
-	_, runSpan := telemetry.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
-	s.runSpans.Store(r.ID, runSpan)
-	if s.metrics != nil {
-		s.metrics.RecordRunStarted(ctx, "project.id", r.ProjectID, "exec_mode", string(req.ExecMode))
-	}
-
-	// Mark agent as running
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning), "UpdateAgentStatus", slog.String("agent_id", req.AgentID))
-
-	// Mark task as running
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning), "UpdateTaskStatus", slog.String("task_id", req.TaskID))
-
-	// Start sandbox/hybrid container if applicable
-	if s.sandbox != nil {
-		switch req.ExecMode {
-		case run.ExecModeSandbox:
-			proj, projErr := s.store.GetProject(ctx, req.ProjectID)
-			if projErr != nil {
-				return nil, fmt.Errorf("get project for sandbox: %w", projErr)
-			}
-			if _, sbErr := s.sandbox.Create(ctx, r.ID, proj.WorkspacePath); sbErr != nil {
-				return nil, fmt.Errorf("sandbox create: %w", sbErr)
-			}
-			if sbErr := s.sandbox.Start(ctx, r.ID); sbErr != nil {
-				_ = s.sandbox.Remove(ctx, r.ID)
-				return nil, fmt.Errorf("sandbox start: %w", sbErr)
-			}
-			slog.Info("sandbox started", "run_id", r.ID)
-
-		case run.ExecModeHybrid:
-			proj, projErr := s.store.GetProject(ctx, req.ProjectID)
-			if projErr != nil {
-				return nil, fmt.Errorf("get project for hybrid: %w", projErr)
-			}
-			if _, sbErr := s.sandbox.CreateHybrid(ctx, r.ID, proj.WorkspacePath); sbErr != nil {
-				return nil, fmt.Errorf("hybrid create: %w", sbErr)
-			}
-			if sbErr := s.sandbox.Start(ctx, r.ID); sbErr != nil {
-				_ = s.sandbox.Remove(ctx, r.ID)
-				return nil, fmt.Errorf("hybrid start: %w", sbErr)
-			}
-			slog.Info("hybrid container started", "run_id", r.ID)
+		if _, sbErr := s.sandbox.Create(ctx, runID, proj.WorkspacePath); sbErr != nil {
+			return fmt.Errorf("sandbox create: %w", sbErr)
 		}
-	}
-
-	// Create stall tracker if policy enables stall detection
-	if profile.Termination.StallDetection {
-		threshold := profile.Termination.StallThreshold
-		if threshold <= 0 {
-			threshold = s.runtimeCfg.StallThreshold
+		if sbErr := s.sandbox.Start(ctx, runID); sbErr != nil {
+			_ = s.sandbox.Remove(ctx, runID)
+			return fmt.Errorf("sandbox start: %w", sbErr)
 		}
-		s.stallTrackers.Store(r.ID, run.NewStallTracker(threshold, s.runtimeCfg.StallMaxRetries))
-	}
+		slog.Info("sandbox started", "run_id", runID)
 
-	// Publish run start to NATS
+	case run.ExecModeHybrid:
+		proj, projErr := s.store.GetProject(ctx, projectID)
+		if projErr != nil {
+			return fmt.Errorf("get project for hybrid: %w", projErr)
+		}
+		if _, sbErr := s.sandbox.CreateHybrid(ctx, runID, proj.WorkspacePath); sbErr != nil {
+			return fmt.Errorf("hybrid create: %w", sbErr)
+		}
+		if sbErr := s.sandbox.Start(ctx, runID); sbErr != nil {
+			_ = s.sandbox.Remove(ctx, runID)
+			return fmt.Errorf("hybrid start: %w", sbErr)
+		}
+		slog.Info("hybrid container started", "run_id", runID)
+	}
+	return nil
+}
+
+// buildRunPayload assembles the NATS run start payload including context pack,
+// MCP servers, and microagent prompts.
+func (s *RuntimeService) buildRunPayload(
+	ctx context.Context,
+	r *run.Run, t *task.Task, ag *agent.Agent,
+	profileName string, profile *policy.PolicyProfile,
+	resolvedMode *messagequeue.ModePayload, modeID string,
+	deliverMode run.DeliverMode,
+) messagequeue.RunStartPayload {
 	payload := messagequeue.RunStartPayload{
 		RunID:         r.ID,
 		TaskID:        t.ID,
@@ -338,7 +239,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		TenantID:      tenantctx.FromContext(ctx),
 		Prompt:        t.Prompt,
 		PolicyProfile: profileName,
-		ExecMode:      string(req.ExecMode),
+		ExecMode:      string(r.ExecMode),
 		DeliverMode:   string(deliverMode),
 		Mode:          resolvedMode,
 		Config:        ag.Config,
@@ -352,7 +253,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Build context pack if context optimizer is available.
 	if s.contextOpt != nil {
-		pack, packErr := s.contextOpt.BuildContextPack(ctx, req.TaskID, req.ProjectID, req.TeamID)
+		pack, packErr := s.contextOpt.BuildContextPack(ctx, r.TaskID, r.ProjectID, r.TeamID)
 		if packErr != nil {
 			slog.Warn("context pack build failed", "run_id", r.ID, "error", packErr)
 		} else if pack != nil && len(pack.Entries) > 0 {
@@ -362,7 +263,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Resolve MCP server definitions for this run.
 	if s.mcpSvc != nil {
-		defs := s.mcpSvc.ResolveForRun(req.ProjectID, modeID)
+		defs := s.mcpSvc.ResolveForRun(r.ProjectID, modeID)
 		for i := range defs {
 			d := &defs[i]
 			payload.MCPServers = append(payload.MCPServers, messagequeue.MCPServerDefPayload{
@@ -382,7 +283,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Match microagents based on task prompt (trigger patterns).
 	if s.microagentSvc != nil {
-		matched, maErr := s.microagentSvc.Match(ctx, req.ProjectID, t.Prompt)
+		matched, maErr := s.microagentSvc.Match(ctx, r.ProjectID, t.Prompt)
 		if maErr != nil {
 			slog.Warn("microagent match failed", "run_id", r.ID, "error", maErr)
 		} else if len(matched) > 0 {
@@ -392,6 +293,124 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 			slog.Info("microagents matched", "run_id", r.ID, "count", len(matched))
 		}
 	}
+
+	return payload
+}
+
+// resolveRunMode resolves the mode for a run: explicit > agent default > "coder".
+func (s *RuntimeService) resolveRunMode(modeID string, ag *agent.Agent) (string, *messagequeue.ModePayload) {
+	if modeID == "" {
+		modeID = ag.ModeID
+	}
+	if modeID == "" {
+		modeID = "coder"
+	}
+	if s.modes == nil {
+		return modeID, nil
+	}
+	m, mErr := s.modes.Get(modeID)
+	if mErr != nil {
+		slog.Warn("mode not found, using default", "mode_id", modeID, "error", mErr)
+		return modeID, nil
+	}
+	_, sections := BuildModePrompt(m)
+	sections = PruneToFitBudget(sections, DefaultModePromptBudget)
+	assembledPrompt := AssembleSections(sections)
+	return modeID, &messagequeue.ModePayload{
+		ID:               m.ID,
+		PromptPrefix:     assembledPrompt,
+		Tools:            m.Tools,
+		DeniedTools:      m.DeniedTools,
+		DeniedActions:    m.DeniedActions,
+		RequiredArtifact: m.RequiredArtifact,
+		LLMScenario:      m.LLMScenario,
+	}
+}
+
+// StartRun creates a new run in the database and publishes a start message to NATS.
+func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*run.Run, error) {
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("validate start request: %w", err)
+	}
+
+	if req.ExecMode == "" {
+		req.ExecMode = run.ExecModeMount
+	}
+
+	// Resolve and validate policy profile.
+	profileName := req.PolicyProfile
+	if profileName == "" {
+		profileName = s.policy.DefaultProfile()
+	}
+	profile, ok := s.policy.GetProfile(profileName)
+	if !ok {
+		return nil, fmt.Errorf("unknown policy profile %q", profileName)
+	}
+
+	ag, err := s.store.GetAgent(ctx, req.AgentID)
+	if err != nil {
+		return nil, fmt.Errorf("get agent: %w", err)
+	}
+
+	modeID, resolvedMode := s.resolveRunMode(req.ModeID, ag)
+
+	t, err := s.store.GetTask(ctx, req.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("get task: %w", err)
+	}
+
+	deliverMode := req.DeliverMode
+	if deliverMode == "" && s.runtimeCfg.DefaultDeliverMode != "" {
+		deliverMode = run.DeliverMode(s.runtimeCfg.DefaultDeliverMode)
+	}
+
+	// Create run in DB.
+	r := &run.Run{
+		TaskID:        req.TaskID,
+		AgentID:       req.AgentID,
+		ProjectID:     req.ProjectID,
+		TeamID:        req.TeamID,
+		ModeID:        modeID,
+		PolicyProfile: profileName,
+		ExecMode:      req.ExecMode,
+		DeliverMode:   deliverMode,
+		Status:        run.StatusPending,
+	}
+	if err := s.store.CreateRun(ctx, r); err != nil {
+		return nil, fmt.Errorf("create run: %w", err)
+	}
+
+	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, 0, 0, 0, 0); err != nil {
+		return nil, fmt.Errorf("update run status: %w", err)
+	}
+	r.Status = run.StatusRunning
+
+	// OTEL: start run span and record metric.
+	_, runSpan := telemetry.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
+	s.runSpans.Store(r.ID, runSpan)
+	if s.metrics != nil {
+		s.metrics.RecordRunStarted(ctx, "project.id", r.ProjectID, "exec_mode", string(req.ExecMode))
+	}
+
+	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning), "UpdateAgentStatus", slog.String("agent_id", req.AgentID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning), "UpdateTaskStatus", slog.String("task_id", req.TaskID))
+
+	// Start sandbox/hybrid container if applicable.
+	if err := s.prepareSandbox(ctx, r.ID, req.ProjectID, req.ExecMode); err != nil {
+		return nil, err
+	}
+
+	// Create stall tracker if policy enables stall detection.
+	if profile.Termination.StallDetection {
+		threshold := profile.Termination.StallThreshold
+		if threshold <= 0 {
+			threshold = s.runtimeCfg.StallThreshold
+		}
+		s.stallTrackers.Store(r.ID, run.NewStallTracker(threshold, s.runtimeCfg.StallMaxRetries))
+	}
+
+	// Build and publish NATS payload.
+	payload := s.buildRunPayload(ctx, r, t, ag, profileName, &profile, resolvedMode, modeID, deliverMode)
 
 	// Quarantine gate: check if message should be held for review.
 	if s.quarantine != nil {
@@ -413,7 +432,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		return nil, fmt.Errorf("publish run start: %w", err)
 	}
 
-	// Record event
+	// Record event.
 	s.appendRunEvent(ctx, event.TypeRunStarted, r, map[string]string{
 		"policy_profile": profileName,
 		"exec_mode":      string(req.ExecMode),
@@ -421,7 +440,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		"mode_id":        modeID,
 	})
 
-	// Broadcast WS
+	// Broadcast WS.
 	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
@@ -429,13 +448,12 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		Status:    string(r.Status),
 	})
 
-	// Broadcast AG-UI run_started alongside native event
 	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     r.ID,
 		AgentName: ag.Name,
 	})
 
-	// Start context-level timeout goroutine
+	// Start context-level timeout goroutine.
 	if profile.Termination.TimeoutSeconds > 0 {
 		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
 		timeoutCtx, timeoutCancel := context.WithCancel(context.Background())
@@ -445,7 +463,6 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 			defer timer.Stop()
 			select {
 			case <-timer.C:
-				// Check if run is still active before cancelling
 				rr, err := s.store.GetRun(context.Background(), runID)
 				if err != nil || rr.Status != run.StatusRunning {
 					return
@@ -458,7 +475,6 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		}(r.ID, timeoutDur)
 	}
 
-	// Audit trail
 	s.appendAudit(ctx, r, "run.started", fmt.Sprintf("Run started with policy %s, exec_mode %s, agent %s, mode %s", profileName, req.ExecMode, ag.Name, modeID))
 
 	slog.Info("run started", "run_id", r.ID, "task_id", r.TaskID, "policy", profileName)
