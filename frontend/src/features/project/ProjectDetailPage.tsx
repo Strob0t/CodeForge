@@ -9,6 +9,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 
 import { api } from "~/api/client";
 import {
@@ -109,7 +110,9 @@ const PANEL_GROUPS = [
 
 function PanelSelector(props: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = createSignal(false);
+  const [pos, setPos] = createSignal({ top: 0, left: 0 });
   let containerRef: HTMLDivElement | undefined;
+  let btnRef: HTMLButtonElement | undefined;
 
   const selectedLabel = () => {
     for (const g of PANEL_GROUPS) {
@@ -125,6 +128,14 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
     setOpen(false);
   };
 
+  const toggleOpen = () => {
+    if (!open() && btnRef) {
+      const rect = btnRef.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setOpen(!open());
+  };
+
   // Close on outside click
   const onDocClick = (e: MouseEvent) => {
     if (containerRef && !containerRef.contains(e.target as Node)) setOpen(false);
@@ -135,6 +146,7 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
   return (
     <div ref={containerRef} class="relative">
       <button
+        ref={btnRef}
         type="button"
         class="h-8 rounded-md border border-cf-border bg-cf-bg px-2 pr-7 text-sm text-cf-text cursor-pointer focus:outline-none focus:ring-1 focus:ring-cf-accent text-left min-w-[140px]"
         style={{
@@ -142,44 +154,59 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
           "background-repeat": "no-repeat",
           "background-position": "right 0.5rem center",
         }}
-        onClick={() => setOpen(!open())}
+        onClick={toggleOpen}
         aria-haspopup="listbox"
         aria-expanded={open()}
       >
         {props.value ? selectedLabel() : "More panels..."}
       </button>
       <Show when={open()}>
-        <div
-          class="absolute left-0 top-full mt-1 z-50 min-w-[220px] max-h-[70vh] overflow-y-auto rounded-lg border border-cf-border bg-cf-bg shadow-cf-lg"
-          role="listbox"
-        >
-          <For each={PANEL_GROUPS}>
-            {(group) => (
-              <>
-                <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-cf-text-tertiary select-none">
-                  {group.label}
-                </div>
-                <For each={group.items}>
-                  {(item) => (
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={props.value === item.value}
-                      class={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-cf-accent/10 flex flex-col gap-0 ${props.value === item.value ? "bg-cf-accent/15 text-cf-accent font-medium" : "text-cf-text"}`}
-                      onClick={() => handleSelect(item.value)}
-                      title={item.tip}
-                    >
-                      <span>{item.label}</span>
-                      <span class="text-[11px] text-cf-text-tertiary leading-tight">
-                        {item.tip}
-                      </span>
-                    </button>
-                  )}
-                </For>
-              </>
-            )}
-          </For>
-        </div>
+        <Portal>
+          <div
+            role="listbox"
+            style={{
+              position: "fixed",
+              "z-index": "99999",
+              top: `${pos().top}px`,
+              left: `${pos().left}px`,
+              "min-width": "260px",
+              "max-height": "70vh",
+              "overflow-y": "auto",
+              "border-radius": "0.5rem",
+              border: "1px solid var(--cf-border)",
+              "background-color": "var(--cf-bg-surface)",
+              "box-shadow": "0 10px 25px rgba(0,0,0,0.15)",
+              padding: "0.25rem 0",
+            }}
+          >
+            <For each={PANEL_GROUPS}>
+              {(group) => (
+                <>
+                  <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-cf-text-tertiary select-none">
+                    {group.label}
+                  </div>
+                  <For each={group.items}>
+                    {(item) => (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={props.value === item.value}
+                        class={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-cf-accent/10 flex flex-col gap-0 ${props.value === item.value ? "bg-cf-accent/15 text-cf-accent font-medium" : "text-cf-text"}`}
+                        onClick={() => handleSelect(item.value)}
+                        title={item.tip}
+                      >
+                        <span>{item.label}</span>
+                        <span class="text-[11px] text-cf-text-tertiary leading-tight">
+                          {item.tip}
+                        </span>
+                      </button>
+                    )}
+                  </For>
+                </>
+              )}
+            </For>
+          </div>
+        </Portal>
       </Show>
     </div>
   );
