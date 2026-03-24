@@ -743,3 +743,190 @@ func TestStore_GetConversation(t *testing.T) {
 		}
 	})
 }
+
+// --------------------------------------------------------------------------
+// TestStore_MessageCRUD
+// --------------------------------------------------------------------------
+
+func TestStore_MessageCRUD(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	// Create project + conversation as prerequisites.
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "msg-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	conv, err := store.CreateConversation(ctx, &conversation.Conversation{
+		ProjectID: proj.ID,
+		Title:     "msg-test-conversation",
+		Mode:      "coder",
+		Model:     "openai/gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	t.Run("create_and_list_messages", func(t *testing.T) {
+		// Create two messages.
+		msg1, err := store.CreateMessage(ctx, &conversation.Message{
+			ConversationID: conv.ID,
+			Role:           "user",
+			Content:        "Hello, world!",
+		})
+		if err != nil {
+			t.Fatalf("CreateMessage user: %v", err)
+		}
+		if msg1.ID == "" {
+			t.Fatal("CreateMessage returned empty ID")
+		}
+		if msg1.Role != "user" {
+			t.Fatalf("expected role user, got %q", msg1.Role)
+		}
+		if msg1.Content != "Hello, world!" {
+			t.Fatalf("expected content 'Hello, world!', got %q", msg1.Content)
+		}
+
+		msg2, err := store.CreateMessage(ctx, &conversation.Message{
+			ConversationID: conv.ID,
+			Role:           "assistant",
+			Content:        "Hi there!",
+			TokensIn:       100,
+			TokensOut:      50,
+			Model:          "openai/gpt-4o",
+		})
+		if err != nil {
+			t.Fatalf("CreateMessage assistant: %v", err)
+		}
+		if msg2.TokensIn != 100 {
+			t.Fatalf("expected tokens_in 100, got %d", msg2.TokensIn)
+		}
+
+		// List and verify ordering.
+		msgs, err := store.ListMessages(ctx, conv.ID)
+		if err != nil {
+			t.Fatalf("ListMessages: %v", err)
+		}
+		if len(msgs) < 2 {
+			t.Fatalf("expected at least 2 messages, got %d", len(msgs))
+		}
+
+		// Messages should be in chronological order (ASC).
+		found := 0
+		for i := range msgs {
+			if msgs[i].ID == msg1.ID {
+				found++
+			}
+			if msgs[i].ID == msg2.ID {
+				found++
+			}
+		}
+		if found != 2 {
+			t.Fatal("ListMessages did not return both created messages")
+		}
+	})
+
+	t.Run("list_empty_conversation", func(t *testing.T) {
+		emptyConv, err := store.CreateConversation(ctx, &conversation.Conversation{
+			ProjectID: proj.ID,
+			Title:     "empty-conversation",
+		})
+		if err != nil {
+			t.Fatalf("CreateConversation: %v", err)
+		}
+		msgs, err := store.ListMessages(ctx, emptyConv.ID)
+		if err != nil {
+			t.Fatalf("ListMessages empty: %v", err)
+		}
+		if len(msgs) != 0 {
+			t.Fatalf("expected 0 messages for empty conversation, got %d", len(msgs))
+		}
+	})
+
+	t.Run("wrong_tenant_returns_empty", func(t *testing.T) {
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+
+		msgs, err := store.ListMessages(otherCtx, conv.ID)
+		if err != nil {
+			t.Fatalf("ListMessages wrong tenant: %v", err)
+		}
+		if len(msgs) != 0 {
+			t.Fatalf("expected 0 messages for wrong tenant, got %d", len(msgs))
+		}
+	})
+
+	t.Run("create_message_nonexistent_conversation", func(t *testing.T) {
+		_, err := store.CreateMessage(ctx, &conversation.Message{
+			ConversationID: uuid.New().String(),
+			Role:           "user",
+			Content:        "orphan message",
+		})
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for nonexistent conversation, got %v", err)
+		}
+	})
+
+	t.Run("search_messages_by_content", func(t *testing.T) {
+		// Create a message with distinctive content for search.
+		searchConv, err := store.CreateConversation(ctx, &conversation.Conversation{
+			ProjectID: proj.ID,
+			Title:     "search-conversation",
+		})
+		if err != nil {
+			t.Fatalf("CreateConversation for search: %v", err)
+		}
+		searchTerm := "xylophone-" + uuid.New().String()[:8]
+		_, err = store.CreateMessage(ctx, &conversation.Message{
+			ConversationID: searchConv.ID,
+			Role:           "user",
+			Content:        "I need to implement a " + searchTerm + " feature",
+		})
+		if err != nil {
+			t.Fatalf("CreateMessage for search: %v", err)
+		}
+
+		// Search across tenant.
+		results, err := store.SearchConversationMessages(ctx, searchTerm, nil, 10)
+		if err != nil {
+			t.Fatalf("SearchConversationMessages: %v", err)
+		}
+		if len(results) == 0 {
+			t.Fatal("SearchConversationMessages returned 0 results, expected at least 1")
+		}
+
+		foundSearch := false
+		for _, r := range results {
+			if r.ConversationID == searchConv.ID {
+				foundSearch = true
+				break
+			}
+		}
+		if !foundSearch {
+			t.Fatal("search did not find message in the target conversation")
+		}
+
+		// Search filtered by project ID.
+		filtered, err := store.SearchConversationMessages(ctx, searchTerm, []string{proj.ID}, 10)
+		if err != nil {
+			t.Fatalf("SearchConversationMessages with project filter: %v", err)
+		}
+		if len(filtered) == 0 {
+			t.Fatal("SearchConversationMessages with project filter returned 0 results")
+		}
+
+		// Search with wrong project should return 0 results.
+		empty, err := store.SearchConversationMessages(ctx, searchTerm, []string{uuid.New().String()}, 10)
+		if err != nil {
+			t.Fatalf("SearchConversationMessages wrong project: %v", err)
+		}
+		if len(empty) != 0 {
+			t.Fatalf("expected 0 results for wrong project, got %d", len(empty))
+		}
+	})
+}
