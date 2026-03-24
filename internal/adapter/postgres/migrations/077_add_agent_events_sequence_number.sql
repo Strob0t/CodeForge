@@ -1,10 +1,10 @@
 -- +goose Up
 -- Add monotonic sequence number for trajectory event ordering and dedup.
 
-ALTER TABLE agent_events ADD COLUMN sequence_number BIGINT;
+ALTER TABLE agent_events ADD COLUMN IF NOT EXISTS sequence_number BIGINT;
 
 -- Create a sequence for monotonic numbering.
-CREATE SEQUENCE agent_events_seq_number_seq;
+CREATE SEQUENCE IF NOT EXISTS agent_events_seq_number_seq;
 
 -- Backfill existing rows with monotonic values.
 UPDATE agent_events SET sequence_number = nextval('agent_events_seq_number_seq');
