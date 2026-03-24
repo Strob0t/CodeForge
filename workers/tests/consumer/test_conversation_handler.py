@@ -104,12 +104,16 @@ class TestHandleConversationRun:
             return fake_result
 
         with (
-            patch.object(handler, "_build_system_prompt", new_callable=AsyncMock, return_value=("prompt", [])),
-            patch.object(handler, "_wire_skill_tools"),
-            patch.object(handler, "_register_handoff_tool"),
-            patch.object(handler, "_register_propose_goal_tool"),
-            patch.object(handler, "_get_hybrid_router", new_callable=AsyncMock, return_value=None),
-            patch.object(handler, "_build_fallback_chain", new_callable=AsyncMock, return_value=[]),
+            patch(
+                "codeforge.consumer._conversation.build_system_prompt",
+                new_callable=AsyncMock,
+                return_value=("prompt", []),
+            ),
+            patch("codeforge.consumer._conversation.wire_skill_tools"),
+            patch("codeforge.consumer._conversation.register_handoff_tool"),
+            patch("codeforge.consumer._conversation.register_propose_goal_tool"),
+            patch("codeforge.consumer._conversation.get_hybrid_router", new_callable=AsyncMock, return_value=None),
+            patch("codeforge.consumer._conversation.build_fallback_chain", new_callable=AsyncMock, return_value=[]),
             patch.object(handler, "_execute_conversation_run", side_effect=fake_execute),
             patch.object(handler, "_publish_completion", new_callable=AsyncMock),
             patch("codeforge.consumer._conversation.RuntimeClient") as mock_runtime_cls,
@@ -337,30 +341,29 @@ class TestPublishCompletion:
 
 
 class TestBuildSystemPrompt:
-    """Tests for _build_system_prompt assembly."""
+    """Tests for build_system_prompt assembly (now a standalone function)."""
 
     @pytest.mark.asyncio
     async def test_returns_nonempty_string(self) -> None:
-        """_build_system_prompt should return a non-empty system prompt string."""
-        handler = _make_handler()
+        """build_system_prompt should return a non-empty system prompt string."""
         run_msg = _make_valid_run_start()
         registry = MagicMock()
         log = MagicMock()
 
         with (
-            patch.object(handler, "_inject_skills", new_callable=AsyncMock, return_value=("base prompt", [])),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_framework_skills",
-                return_value="base prompt",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_skills",
+                new_callable=AsyncMock,
+                return_value=("base prompt", []),
             ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_tool_guide",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
                 return_value="base prompt with guide",
             ),
         ):
-            prompt, _skills = await handler._build_system_prompt(run_msg, registry, log)
+            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+
+            prompt, _skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
@@ -368,31 +371,25 @@ class TestBuildSystemPrompt:
     @pytest.mark.asyncio
     async def test_includes_microagent_prompts(self) -> None:
         """When microagent_prompts are present, they should be injected."""
-        handler = _make_handler()
         run_msg = _make_valid_run_start()
         run_msg.microagent_prompts = ["Do X carefully", "Always check Y"]
         registry = MagicMock()
         log = MagicMock()
 
         with (
-            patch.object(
-                handler,
-                "_inject_skills",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 side_effect=lambda prompt, *a, **kw: (prompt, []),
             ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_framework_skills",
-                side_effect=lambda prompt, *a, **kw: prompt,
-            ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_tool_guide",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
                 side_effect=lambda prompt, *a, **kw: prompt,
             ),
         ):
-            prompt, _ = await handler._build_system_prompt(run_msg, registry, log)
+            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+
+            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
         assert "Microagent Instructions" in prompt
         assert "Do X carefully" in prompt
@@ -401,39 +398,32 @@ class TestBuildSystemPrompt:
     @pytest.mark.asyncio
     async def test_includes_reminders(self) -> None:
         """When reminders are present, they should be injected."""
-        handler = _make_handler()
         run_msg = _make_valid_run_start()
         run_msg.reminders = ["Remember to commit"]
         registry = MagicMock()
         log = MagicMock()
 
         with (
-            patch.object(
-                handler,
-                "_inject_skills",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 side_effect=lambda prompt, *a, **kw: (prompt, []),
             ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_framework_skills",
-                side_effect=lambda prompt, *a, **kw: prompt,
-            ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_tool_guide",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
                 side_effect=lambda prompt, *a, **kw: prompt,
             ),
         ):
-            prompt, _ = await handler._build_system_prompt(run_msg, registry, log)
+            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+
+            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
         assert "System Reminders" in prompt
         assert "Remember to commit" in prompt
 
     @pytest.mark.asyncio
     async def test_returns_loaded_skills(self) -> None:
-        """_build_system_prompt should return loaded skills from _inject_skills."""
-        handler = _make_handler()
+        """build_system_prompt should return loaded skills from inject_skills."""
         run_msg = _make_valid_run_start()
         registry = MagicMock()
         log = MagicMock()
@@ -441,24 +431,19 @@ class TestBuildSystemPrompt:
         fake_skills = [MagicMock(name="skill-1"), MagicMock(name="skill-2")]
 
         with (
-            patch.object(
-                handler,
-                "_inject_skills",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 return_value=("prompt with skills", fake_skills),
             ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_framework_skills",
-                side_effect=lambda prompt, *a, **kw: prompt,
-            ),
-            patch.object(
-                ConversationHandlerMixin,
-                "_inject_tool_guide",
+            patch(
+                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
                 side_effect=lambda prompt, *a, **kw: prompt,
             ),
         ):
-            _, skills = await handler._build_system_prompt(run_msg, registry, log)
+            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+
+            _, skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
         assert skills == fake_skills
         assert len(skills) == 2
