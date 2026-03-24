@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 )
@@ -22,7 +24,7 @@ func TestDetectGSD(t *testing.T) {
 	writeFile(t, filepath.Join(planDir, "REQUIREMENTS.md"), "# Requirements\n- Feature A\n- Feature B")
 	writeFile(t, filepath.Join(planDir, "STATE.md"), "# Current State\nPhase 2 in progress.")
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 3 {
 		t.Fatalf("expected 3 goals, got %d", len(goals))
@@ -44,7 +46,7 @@ func TestDetectReadme(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "README.md"), "# My Project\n\nThis is the vision.\n\n## Setup\nInstall stuff.")
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 1 {
 		t.Fatalf("expected 1 goal, got %d", len(goals))
@@ -65,7 +67,7 @@ func TestDetectClaudeMd(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "CLAUDE.md"), "# Claude Instructions\nAlways use Go.")
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 1 {
 		t.Fatalf("expected 1 goal, got %d", len(goals))
@@ -81,7 +83,7 @@ func TestDetectClaudeMd(t *testing.T) {
 func TestDetectEmpty(t *testing.T) {
 	dir := t.TempDir()
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 0 {
 		t.Fatalf("expected 0 goals from empty workspace, got %d", len(goals))
@@ -111,7 +113,7 @@ func TestDetectMixed(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(docsDir, "architecture.md"), "# Architecture\nHexagonal pattern.")
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 4 {
 		t.Fatalf("expected 4 goals, got %d: %v", len(goals), goalSources(goals))
@@ -131,7 +133,7 @@ func TestLargeFileSkip(t *testing.T) {
 	large := strings.Repeat("x", 52*1024)
 	writeFile(t, filepath.Join(dir, "CLAUDE.md"), large)
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 0 {
 		t.Fatalf("expected 0 goals for large file, got %d", len(goals))
@@ -209,7 +211,7 @@ func TestDetectGSDContextFiles(t *testing.T) {
 	writeFile(t, filepath.Join(planDir, "01-CONTEXT.md"), "# Phase 1 Context")
 	writeFile(t, filepath.Join(planDir, "02-CONTEXT.md"), "# Phase 2 Context")
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 2 {
 		t.Fatalf("expected 2 goals, got %d", len(goals))
@@ -228,7 +230,7 @@ func TestDetectCursorrules(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".cursorrules"), "Always format code.")
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 1 {
 		t.Fatalf("expected 1 goal, got %d", len(goals))
@@ -247,7 +249,7 @@ func TestDetectedGoal_NoProjectIDOrTenantID(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "CLAUDE.md"), "# Rules\nAlways use Go.")
 
-	detected := detectGoalFiles(dir)
+	detected := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(detected) != 1 {
 		t.Fatalf("expected 1 detected goal, got %d", len(detected))
@@ -318,7 +320,7 @@ func TestBinaryFileSkip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	goals := detectGoalFiles(dir)
+	goals := testGoalSvc().detectGoalFiles(context.Background(), dir)
 
 	if len(goals) != 0 {
 		t.Fatalf("expected 0 goals for binary file, got %d", len(goals))
@@ -420,6 +422,11 @@ func TestTruncateUTF8(t *testing.T) {
 }
 
 // --- helpers ---
+
+// testGoalSvc creates a GoalDiscoveryService with a real OS filesystem and no database.
+func testGoalSvc() *GoalDiscoveryService {
+	return &GoalDiscoveryService{fs: osfs.New()}
+}
 
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()

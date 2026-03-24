@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/filesystem"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -24,6 +24,7 @@ import (
 // trimming to token budgets, and injecting shared context from team collaboration.
 type ContextOptimizerService struct {
 	store         database.Store
+	fs            filesystem.Provider
 	orchCfg       *config.Orchestrator
 	limits        *config.Limits
 	retrieval     *RetrievalService
@@ -40,9 +41,10 @@ type ContextOptimizerService struct {
 }
 
 // NewContextOptimizerService creates a ContextOptimizerService.
-func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator, limits *config.Limits) *ContextOptimizerService {
+func NewContextOptimizerService(store database.Store, fs filesystem.Provider, orchCfg *config.Orchestrator, limits *config.Limits) *ContextOptimizerService {
 	return &ContextOptimizerService{
 		store:        store,
+		fs:           fs,
 		orchCfg:      orchCfg,
 		limits:       limits,
 		rerankWaiter: newSyncWaiter[messagequeue.ContextRerankResultPayload]("context-rerank"),
@@ -214,7 +216,7 @@ func (s *ContextOptimizerService) assembleAndPack(
 	// Workspace scan goroutine.
 	go func() {
 		if workspacePath != "" {
-			scanCh <- scanResult{entries: s.scanWorkspaceFiles(workspacePath, prompt)}
+			scanCh <- scanResult{entries: s.scanWorkspaceFiles(ctx, workspacePath, prompt)}
 		} else {
 			scanCh <- scanResult{}
 		}
@@ -541,7 +543,7 @@ func (s *ContextOptimizerService) fetchKnowledgeBaseEntries(
 
 			// Fallback: read content directly from the KB file (truncated).
 			if kb.ContentPath != "" {
-				content, readErr := os.ReadFile(kb.ContentPath) //nolint:gosec // G304: path from admin-configured KB
+				content, readErr := s.fs.ReadFile(ctx, kb.ContentPath)
 				if readErr == nil && len(content) > 0 {
 					text := string(content)
 					const maxKBTokens = 2048
@@ -658,11 +660,11 @@ func (s *ContextOptimizerService) StartSubscribers(ctx context.Context) ([]func(
 }
 
 // scanWorkspaceFiles reads workspace files and scores them against the task prompt.
-func (s *ContextOptimizerService) scanWorkspaceFiles(workspacePath, taskPrompt string) []cfcontext.ContextEntry {
+func (s *ContextOptimizerService) scanWorkspaceFiles(ctx context.Context, workspacePath, taskPrompt string) []cfcontext.ContextEntry {
 	maxFiles := s.limits.MaxFiles
 	maxFileSize := int64(s.limits.MaxFileSize)
 
-	entries, err := os.ReadDir(workspacePath)
+	entries, err := s.fs.ReadDir(ctx, workspacePath)
 	if err != nil {
 		slog.Warn("cannot read workspace", "path", workspacePath, "error", err)
 		return nil
@@ -683,7 +685,7 @@ func (s *ContextOptimizerService) scanWorkspaceFiles(workspacePath, taskPrompt s
 		if e.IsDir() {
 			// Scan one level deep.
 			subPath := filepath.Join(workspacePath, name)
-			subEntries, err := os.ReadDir(subPath)
+			subEntries, err := s.fs.ReadDir(ctx, subPath)
 			if err != nil {
 				continue
 			}
@@ -694,14 +696,14 @@ func (s *ContextOptimizerService) scanWorkspaceFiles(workspacePath, taskPrompt s
 				if se.IsDir() || strings.HasPrefix(se.Name(), ".") {
 					continue
 				}
-				entry := s.readAndScore(filepath.Join(subPath, se.Name()), name+"/"+se.Name(), taskPrompt, maxFileSize)
+				entry := s.readAndScore(ctx, filepath.Join(subPath, se.Name()), name+"/"+se.Name(), taskPrompt, maxFileSize)
 				if entry != nil {
 					result = append(result, *entry)
 					fileCount++
 				}
 			}
 		} else {
-			entry := s.readAndScore(filepath.Join(workspacePath, name), name, taskPrompt, maxFileSize)
+			entry := s.readAndScore(ctx, filepath.Join(workspacePath, name), name, taskPrompt, maxFileSize)
 			if entry != nil {
 				result = append(result, *entry)
 				fileCount++
@@ -713,13 +715,13 @@ func (s *ContextOptimizerService) scanWorkspaceFiles(workspacePath, taskPrompt s
 }
 
 // readAndScore reads a file and returns a ContextEntry with relevance scoring.
-func (s *ContextOptimizerService) readAndScore(absPath, relPath, taskPrompt string, maxSize int64) *cfcontext.ContextEntry {
-	info, err := os.Stat(absPath)
+func (s *ContextOptimizerService) readAndScore(ctx context.Context, absPath, relPath, taskPrompt string, maxSize int64) *cfcontext.ContextEntry {
+	info, err := s.fs.Stat(ctx, absPath)
 	if err != nil || info.Size() > maxSize || info.Size() == 0 {
 		return nil
 	}
 
-	content, err := os.ReadFile(absPath) //nolint:gosec // G304: path constructed from validated project root
+	content, err := s.fs.ReadFile(ctx, absPath)
 	if err != nil {
 		return nil
 	}

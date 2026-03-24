@@ -27,9 +27,11 @@ import (
 	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	cfmcp "github.com/Strob0t/CodeForge/internal/adapter/mcp"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
 	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
 	"github.com/Strob0t/CodeForge/internal/adapter/openhands"
@@ -42,6 +44,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/crypto"
+	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
@@ -51,6 +54,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	lspPort "github.com/Strob0t/CodeForge/internal/port/lsp"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
@@ -202,6 +206,7 @@ func run() error {
 	hub := ws.NewHub(cfg.Server.CORSOrigin, middleware.TenantIDFromContext)
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
+	osFS := osfs.New()
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
@@ -317,7 +322,7 @@ func run() error {
 	)
 
 	// --- Context Optimizer + Shared Context (Phase 5D) ---
-	contextOptSvc := service.NewContextOptimizerService(store, &cfg.Orchestrator, &cfg.Limits)
+	contextOptSvc := service.NewContextOptimizerService(store, osFS, &cfg.Orchestrator, &cfg.Limits)
 	sharedCtxSvc := service.NewSharedContextService(store, hub, queue)
 	runtimeSvc.SetContextOptimizer(contextOptSvc)
 	slog.Info("context optimizer and shared context initialized",
@@ -368,7 +373,11 @@ func run() error {
 	// --- LSP Service ---
 	var lspSvc *service.LSPService
 	if cfg.LSP.Enabled {
-		lspSvc = service.NewLSPService(&cfg.LSP, hub, store)
+		lspCfg := &cfg.LSP
+		lspFactory := func(language string, serverCfg lspDomain.LanguageServerConfig, workspacePath string) lspPort.Client {
+			return lspAdapter.NewClient(language, serverCfg, lspCfg, workspacePath)
+		}
+		lspSvc = service.NewLSPService(lspCfg, hub, store, lspFactory)
 		contextOptSvc.SetLSP(lspSvc)
 		slog.Info("lsp service initialized")
 	}
@@ -704,7 +713,7 @@ func run() error {
 	slog.Info("microagent service initialized")
 
 	// --- Goal Discovery Service (Phase 28) ---
-	goalSvc := service.NewGoalDiscoveryService(store)
+	goalSvc := service.NewGoalDiscoveryService(store, osFS)
 	projectSvc.SetGoalDiscovery(goalSvc)
 	conversationSvc.SetGoalService(goalSvc)
 	// Wire goal service into prompt assembly sub-service (created earlier with nil goalSvc).
@@ -720,7 +729,7 @@ func run() error {
 	slog.Info("skill service initialized")
 
 	// --- File Service ---
-	fileSvc := service.NewFileService(store)
+	fileSvc := service.NewFileService(store, osFS)
 	slog.Info("file service initialized")
 
 	// --- Feedback Providers (Phase 22D) ---

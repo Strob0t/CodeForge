@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/filesystem"
 )
 
 // FileEntry represents a file or directory in a project workspace.
@@ -33,11 +34,12 @@ type FileContent struct {
 // FileService provides file operations scoped to project workspaces.
 type FileService struct {
 	store database.Store
+	fs    filesystem.Provider
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(store database.Store) *FileService {
-	return &FileService{store: store}
+func NewFileService(store database.Store, fs filesystem.Provider) *FileService {
+	return &FileService{store: store, fs: fs}
 }
 
 // ListDirectory lists files and directories at the given path within a project workspace.
@@ -47,7 +49,7 @@ func (s *FileService) ListDirectory(ctx context.Context, projectID, relPath stri
 		return nil, err
 	}
 
-	info, err := os.Stat(absPath)
+	info, err := s.fs.Stat(ctx, absPath)
 	if err != nil {
 		return nil, fmt.Errorf("path does not exist: %w", err)
 	}
@@ -55,7 +57,7 @@ func (s *FileService) ListDirectory(ctx context.Context, projectID, relPath stri
 		return nil, fmt.Errorf("path is not a directory: %s", relPath)
 	}
 
-	entries, err := os.ReadDir(absPath)
+	entries, err := s.fs.ReadDir(ctx, absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read directory: %w", err)
 	}
@@ -90,7 +92,7 @@ func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries
 	}
 
 	result := make([]FileEntry, 0, 256)
-	err = filepath.WalkDir(absPath, func(path string, d fs.DirEntry, walkErr error) error {
+	err = s.fs.WalkDir(ctx, absPath, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip unreadable entries
 		}
@@ -132,7 +134,7 @@ func (s *FileService) ReadFile(ctx context.Context, projectID, relPath string) (
 		return nil, err
 	}
 
-	info, err := os.Stat(absPath)
+	info, err := s.fs.Stat(ctx, absPath)
 	if err != nil {
 		return nil, fmt.Errorf("file does not exist: %w", err)
 	}
@@ -146,7 +148,7 @@ func (s *FileService) ReadFile(ctx context.Context, projectID, relPath string) (
 		return nil, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), maxFileSize)
 	}
 
-	data, err := os.ReadFile(absPath) //nolint:gosec // path validated by resolveProjectPath
+	data, err := s.fs.ReadFile(ctx, absPath)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
@@ -169,11 +171,11 @@ func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content
 
 	// Ensure parent directory exists
 	dir := filepath.Dir(absPath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := s.fs.MkdirAll(ctx, dir, 0o750); err != nil {
 		return fmt.Errorf("create parent directory: %w", err)
 	}
 
-	if err := os.WriteFile(absPath, []byte(content), fs.FileMode(0o644)); err != nil {
+	if err := s.fs.WriteFile(ctx, absPath, []byte(content), fs.FileMode(0o644)); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 
@@ -187,11 +189,11 @@ func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string)
 		return err
 	}
 
-	if _, statErr := os.Stat(absPath); statErr != nil {
+	if _, statErr := s.fs.Stat(ctx, absPath); statErr != nil {
 		return fmt.Errorf("path does not exist: %w", statErr)
 	}
 
-	if err := os.RemoveAll(absPath); err != nil {
+	if err := s.fs.RemoveAll(ctx, absPath); err != nil {
 		return fmt.Errorf("delete failed: %w", err)
 	}
 	return nil
@@ -208,16 +210,16 @@ func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, new
 		return fmt.Errorf("resolve new path: %w", err)
 	}
 
-	if _, statErr := os.Stat(oldAbs); statErr != nil {
+	if _, statErr := s.fs.Stat(ctx, oldAbs); statErr != nil {
 		return fmt.Errorf("source does not exist: %w", statErr)
 	}
 
 	// Ensure parent directory of destination exists
-	if mkErr := os.MkdirAll(filepath.Dir(newAbs), 0o750); mkErr != nil {
+	if mkErr := s.fs.MkdirAll(ctx, filepath.Dir(newAbs), 0o750); mkErr != nil {
 		return fmt.Errorf("create parent directory: %w", mkErr)
 	}
 
-	if err := os.Rename(oldAbs, newAbs); err != nil {
+	if err := s.fs.Rename(ctx, oldAbs, newAbs); err != nil {
 		return fmt.Errorf("rename failed: %w", err)
 	}
 	return nil

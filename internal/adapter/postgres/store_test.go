@@ -14,7 +14,10 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
@@ -484,6 +487,259 @@ func TestStore_TokenRevocation(t *testing.T) {
 		}
 		if !revoked {
 			t.Fatal("expected non-expired token to survive purge")
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_GetRun (top-1 most-called: 61 callers)
+// --------------------------------------------------------------------------
+
+func TestStore_GetRun(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	// Create prerequisites: project, task, agent.
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "run-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	tsk, err := store.CreateTask(ctx, task.CreateRequest{
+		ProjectID: proj.ID, Title: "test-task", Prompt: "do something",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	ag, err := store.CreateAgent(ctx, proj.ID, "test-agent", "aider", nil, nil)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteAgent(ctx, ag.ID) })
+
+	// Create a run.
+	r := &run.Run{
+		TaskID:    tsk.ID,
+		AgentID:   ag.ID,
+		ProjectID: proj.ID,
+		Status:    run.StatusRunning,
+		ExecMode:  run.ExecModeMount,
+	}
+	if err := store.CreateRun(ctx, r); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	t.Run("existing_run", func(t *testing.T) {
+		got, err := store.GetRun(ctx, r.ID)
+		if err != nil {
+			t.Fatalf("GetRun: %v", err)
+		}
+		if got.ID != r.ID {
+			t.Fatalf("expected ID %s, got %s", r.ID, got.ID)
+		}
+		if got.Status != run.StatusRunning {
+			t.Fatalf("expected status running, got %s", got.Status)
+		}
+		if got.ProjectID != proj.ID {
+			t.Fatalf("expected project %s, got %s", proj.ID, got.ProjectID)
+		}
+	})
+
+	t.Run("nonexistent_run", func(t *testing.T) {
+		_, err := store.GetRun(ctx, uuid.New().String())
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant", func(t *testing.T) {
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+		_, err := store.GetRun(otherCtx, r.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_GetAgent (top-3 most-called: 18 callers)
+// --------------------------------------------------------------------------
+
+func TestStore_GetAgent(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "agent-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	ag, err := store.CreateAgent(ctx, proj.ID, "test-agent", "openhands",
+		map[string]string{"key": "val"}, nil)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteAgent(ctx, ag.ID) })
+
+	t.Run("existing_agent", func(t *testing.T) {
+		got, err := store.GetAgent(ctx, ag.ID)
+		if err != nil {
+			t.Fatalf("GetAgent: %v", err)
+		}
+		if got.Name != "test-agent" {
+			t.Fatalf("expected name test-agent, got %q", got.Name)
+		}
+		if got.Backend != "openhands" {
+			t.Fatalf("expected backend openhands, got %q", got.Backend)
+		}
+		if got.Config["key"] != "val" {
+			t.Fatalf("expected config key=val, got %v", got.Config)
+		}
+	})
+
+	t.Run("nonexistent_agent", func(t *testing.T) {
+		_, err := store.GetAgent(ctx, uuid.New().String())
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant", func(t *testing.T) {
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+		_, err := store.GetAgent(otherCtx, ag.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_GetTask (top-4 most-called: 11 callers)
+// --------------------------------------------------------------------------
+
+func TestStore_GetTask(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "task-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	tsk, err := store.CreateTask(ctx, task.CreateRequest{
+		ProjectID: proj.ID, Title: "test-task", Prompt: "implement feature X",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	t.Run("existing_task", func(t *testing.T) {
+		got, err := store.GetTask(ctx, tsk.ID)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		if got.Title != "test-task" {
+			t.Fatalf("expected title test-task, got %q", got.Title)
+		}
+		if got.Prompt != "implement feature X" {
+			t.Fatalf("expected prompt, got %q", got.Prompt)
+		}
+		if got.Status != task.StatusPending {
+			t.Fatalf("expected status pending, got %s", got.Status)
+		}
+	})
+
+	t.Run("nonexistent_task", func(t *testing.T) {
+		_, err := store.GetTask(ctx, uuid.New().String())
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant", func(t *testing.T) {
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+		_, err := store.GetTask(otherCtx, tsk.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
+		}
+	})
+}
+
+// --------------------------------------------------------------------------
+// TestStore_GetConversation (top-5 most-called: 11 callers)
+// --------------------------------------------------------------------------
+
+func TestStore_GetConversation(t *testing.T) {
+	store := setupStore(t)
+	tenantID := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenantID)
+
+	proj, err := store.CreateProject(ctx, &project.CreateRequest{
+		Name: "conv-test-project", Provider: "local",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	t.Cleanup(func() { _ = store.DeleteProject(ctx, proj.ID) })
+
+	conv, err := store.CreateConversation(ctx, &conversation.Conversation{
+		ProjectID: proj.ID,
+		Title:     "test-conversation",
+		Mode:      "coder",
+		Model:     "openai/gpt-4o",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	t.Run("existing_conversation", func(t *testing.T) {
+		got, err := store.GetConversation(ctx, conv.ID)
+		if err != nil {
+			t.Fatalf("GetConversation: %v", err)
+		}
+		if got.Title != "test-conversation" {
+			t.Fatalf("expected title test-conversation, got %q", got.Title)
+		}
+		if got.Mode != "coder" {
+			t.Fatalf("expected mode coder, got %q", got.Mode)
+		}
+		if got.Model != "openai/gpt-4o" {
+			t.Fatalf("expected model openai/gpt-4o, got %q", got.Model)
+		}
+		if got.ProjectID != proj.ID {
+			t.Fatalf("expected project %s, got %s", proj.ID, got.ProjectID)
+		}
+	})
+
+	t.Run("nonexistent_conversation", func(t *testing.T) {
+		_, err := store.GetConversation(ctx, uuid.New().String())
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("wrong_tenant", func(t *testing.T) {
+		otherTenantID := createTestTenant(t, store)
+		otherCtx := ctxWithTenant(t, otherTenantID)
+		_, err := store.GetConversation(otherCtx, conv.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected ErrNotFound for wrong tenant, got %v", err)
 		}
 	})
 }

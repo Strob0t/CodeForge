@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 )
 
@@ -91,7 +92,7 @@ func newTestFileService(wsDir string) *FileService {
 			WorkspacePath: wsDir,
 		}},
 	}
-	return NewFileService(store)
+	return NewFileService(store, osfs.New())
 }
 
 func TestListDirectory_NonexistentPath(t *testing.T) {

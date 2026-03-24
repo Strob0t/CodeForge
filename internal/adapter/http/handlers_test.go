@@ -59,6 +59,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -1623,7 +1624,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	pipelineSvc := service.NewPipelineService(modeSvc)
@@ -1642,7 +1643,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
-	filesSvc := service.NewFileService(store)
+	filesSvc := service.NewFileService(store, osfs.New())
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
 	microagentSvc := service.NewMicroagentService(store)
@@ -1697,7 +1698,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		}(),
 		ActiveWork:    service.NewActiveWorkService(store, bc),
 		Routing:       service.NewRoutingService(store),
-		GoalDiscovery: service.NewGoalDiscoveryService(store),
+		GoalDiscovery: service.NewGoalDiscoveryService(store, osfs.New()),
 		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
@@ -1746,7 +1747,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	pipelineSvc := service.NewPipelineService(modeSvc)
@@ -1765,7 +1766,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
-	filesSvc := service.NewFileService(store)
+	filesSvc := service.NewFileService(store, osfs.New())
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
 	microagentSvc := service.NewMicroagentService(store)
@@ -1820,7 +1821,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		}(),
 		ActiveWork:    service.NewActiveWorkService(store, bc),
 		Routing:       service.NewRoutingService(store),
-		GoalDiscovery: service.NewGoalDiscoveryService(store),
+		GoalDiscovery: service.NewGoalDiscoveryService(store, osfs.New()),
 		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
@@ -2716,7 +2717,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)
@@ -2774,7 +2775,7 @@ func TestIndexProject(t *testing.T) {
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	repoMapSvc := service.NewRepoMapService(store, queue, bc, orchCfg)

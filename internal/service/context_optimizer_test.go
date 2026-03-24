@@ -12,6 +12,7 @@ import (
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -31,7 +32,7 @@ func TestBuildContextPack_WithMatchingFiles(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "")
 	if err != nil {
@@ -84,7 +85,7 @@ func TestBuildContextPack_WithSharedContext(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "team-1")
 	if err != nil {
@@ -130,7 +131,7 @@ func TestBuildContextPack_RespectsTokenBudget(t *testing.T) {
 
 	// Set a very tight budget: only room for ~50 tokens of context.
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 100, PromptReserve: 50}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "")
 	if err != nil {
@@ -153,7 +154,7 @@ func TestBuildContextPack_EmptyWorkspace(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 4096, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	pack, err := svc.BuildContextPack(context.Background(), "task-1", "proj-1", "")
 	if err != nil {
@@ -238,7 +239,7 @@ func setupRetrievalContextTest(t *testing.T, subAgentEnabled bool) (
 		EmbeddingModel: "text-embedding-3-small",
 	})
 
-	ctxSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	ctxSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 	ctxSvc.SetRetrieval(retrievalSvc)
 
 	return ctxSvc, retrievalSvc, q
@@ -395,7 +396,7 @@ func TestBuildConversationContext_BasicAssembly(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "Implement authentication handler", "",
 		service.ConversationContextOpts{Budget: 2048, PromptReserve: 512})
@@ -425,7 +426,7 @@ func TestBuildConversationContext_EmptyWorkspace(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 4096, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "do something", "",
 		service.ConversationContextOpts{Budget: 2048, PromptReserve: 512})
@@ -453,7 +454,7 @@ func TestBuildConversationContext_BudgetRespected(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "work with big and small package", "",
 		service.ConversationContextOpts{Budget: 100, PromptReserve: 50})
@@ -481,7 +482,7 @@ func TestBuildConversationContext_NilServices(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 	// No retrieval, LSP, or goals services wired — should still work gracefully.
 
 	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "do something", "",
@@ -506,7 +507,7 @@ func TestBuildConversationContext_DefaultBudget(t *testing.T) {
 	}
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	svc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	svc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 
 	// Zero budget/reserve should fall back to defaults (2048/512).
 	entries, err := svc.BuildConversationContext(context.Background(), "proj-1", "implement main", "",
