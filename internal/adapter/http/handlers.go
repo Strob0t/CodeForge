@@ -97,4 +97,5 @@ type Handlers struct {
 	Boundaries       *service.BoundaryService
 	ReviewTrigger    *service.ReviewTriggerService
 	PromptEvolution  *service.PromptEvolutionService
+	GDPR             *service.GDPRService
 }

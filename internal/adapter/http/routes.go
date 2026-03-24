@@ -523,6 +523,9 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 			r.With(audit("update", "user")).Put("/{id}", h.UpdateUserHandler)
 			r.With(audit("delete", "user")).Delete("/{id}", h.DeleteUserHandler)
 			r.With(audit("force_password_change", "user")).Post("/{id}/force-password-change", h.AdminForcePasswordChange)
+			// GDPR endpoints (Article 17: erasure, Article 20: portability)
+			r.Post("/{id}/export", h.ExportUserData)
+			r.With(audit("delete", "user_data")).Delete("/{id}/data", h.DeleteUserData)
 		})
 
 		// Commands (slash commands for chat)
