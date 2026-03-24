@@ -320,3 +320,16 @@ Five features merged on 2026-03-23:
 **RoutingStatsPage** (`frontend/src/features/routing/RoutingStatsPage.tsx`): Live statistics for the Phase 29 hybrid routing system. Displays model selection distribution, fallback events, provider availability, and MAB UCB1 scores.
 
 **Prompt Evolution** (`frontend/src/features/prompts/EvolutionTab.tsx`, `internal/service/prompt_evolution.go`, `workers/codeforge/consumer/_prompt_evolution.py`, migration 078): LLM-driven prompt improvement pipeline. Go service orchestrates reflect/mutate cycles via NATS; Python worker executes LLM calls for reflection and mutation; frontend EvolutionTab shows evolution history and allows triggering new cycles.
+
+### Playwright-MCP Frontend Testing & Bugfixes (2026-03-24)
+
+**Comprehensive frontend testing** using Playwright-MCP browser automation across 20/22 routes. Each route tested with real interactions (form fills, button clicks, tab switches, CRUD operations, theme/locale toggles).
+
+**7 bugs found and fixed:**
+- `App.tsx`: missing `</NavLink>` closing tag for A2A nav link
+- `api/client.ts`, `api/resources/index.ts`, `api/types.ts`: 3 leftover merge conflict markers from `feat/frontend-prompt-evolution`
+- `api/types.ts`: missing closing `}` for `QuarantineReviewRequest` interface
+- `ui/layout/NavIcons.tsx`: `MicroagentsIcon` SVG not closed — `RoutingIcon` started inside it
+- `features/project/FilePanel.tsx`: `useFileTree()` called outside `FileTreeProvider` — wrapped in provider
+
+**S2 autonomous test run** (Build Your Own `cut` Tool): 18 tool calls, 12min execution, correct package structure, 1 git commit. Result: PARTIAL. Report: `docs/testing/2026-03-24-autonomous-goal-to-program-report.md`.

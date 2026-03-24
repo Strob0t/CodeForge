@@ -1556,3 +1556,16 @@
 #### v2 API Migration Design (2026-03-24)
 
 - [x] (2026-03-24) v2 API migration design document (`docs/specs/v2-api-migration-design.md`) -- FIX-061/063/095/098/100
+
+#### Playwright-MCP Frontend Testing & Bugfixes (2026-03-24)
+
+> Full test report: `docs/testing/2026-03-24-autonomous-goal-to-program-report.md`
+
+- [x] (2026-03-24) **S2 Autonomous Test Run:** Executed S2 (Medium — Build Your Own `cut` Tool) via agentic chat with `lm_studio/qwen/qwen3-30b-a3b`. 18 tool calls, 1 git commit, package structure correct. Result: PARTIAL (file read scope bug in agent output). Report: `docs/testing/2026-03-24-autonomous-goal-to-program-report.md`
+- [x] (2026-03-24) **FIX: migration 077** — `CREATE SEQUENCE agent_events_seq_number_seq` fails on restart after partial migration. Added `IF NOT EXISTS` to both `ADD COLUMN` and `CREATE SEQUENCE`. File: `internal/adapter/postgres/migrations/077_add_agent_events_sequence_number.sql`
+- [x] (2026-03-24) **Playwright-MCP full frontend test** — tested 20/22 routes with real browser interactions (login, CRUD, forms, tabs, theme, locale). Found and fixed 7 bugs:
+  - `App.tsx`: missing `</NavLink>` closing tag for A2A nav link
+  - `api/client.ts`, `api/resources/index.ts`, `api/types.ts`: 3 leftover merge conflict markers (`>>>>>>> feat/frontend-prompt-evolution`)
+  - `api/types.ts`: missing closing `}` for `QuarantineReviewRequest` interface
+  - `ui/layout/NavIcons.tsx`: `MicroagentsIcon` missing `</svg>`, `);`, `}` — `RoutingIcon` function started inside it
+  - `features/project/FilePanel.tsx`: `useFileTree()` called outside `FileTreeProvider` scope — wrapped component in provider
