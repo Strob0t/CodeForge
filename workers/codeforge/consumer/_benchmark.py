@@ -16,22 +16,22 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.config import get_settings
+from codeforge.consumer._benchmark_gemmas import (
+    build_embed_fn,
+    compute_routing_report,
+    compute_summary,
+)
+from codeforge.consumer._benchmark_runners import (
+    run_agent_benchmark,
+    run_simple_benchmark,
+    run_tool_use_benchmark,
+)
 from codeforge.consumer._subjects import (
     HEADER_REQUEST_ID,
     SUBJECT_BENCHMARK_RUN_RESULT,
     SUBJECT_BENCHMARK_TASK_PROGRESS,
     SUBJECT_BENCHMARK_TASK_STARTED,
     SUBJECT_EVAL_GEMMAS_RESULT,
-)
-from codeforge.consumer.benchmark_gemmas import (
-    build_embed_fn,
-    compute_routing_report,
-    compute_summary,
-)
-from codeforge.consumer.benchmark_runners import (
-    run_agent_benchmark,
-    run_simple_benchmark,
-    run_tool_use_benchmark,
 )
 from codeforge.models import GemmasEvalRequest, GemmasEvalResult
 
@@ -489,7 +489,7 @@ class BenchmarkHandlerMixin:
         if req.model != "auto":
             return self._llm
         try:
-            from codeforge.consumer.conversation_routing import get_hybrid_router
+            from codeforge.consumer._conversation_routing import get_hybrid_router
 
             router = await get_hybrid_router(self._litellm_url, self._litellm_key)
             if router is not None:

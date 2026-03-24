@@ -10,18 +10,18 @@ from typing import TYPE_CHECKING, ClassVar
 
 import structlog
 
-from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
-from codeforge.consumer.conversation_prompt_builder import build_system_prompt
-from codeforge.consumer.conversation_routing import (
+from codeforge.consumer._conversation_prompt_builder import build_system_prompt
+from codeforge.consumer._conversation_routing import (
     build_fallback_chain,
     get_available_models,
     get_hybrid_router,
 )
-from codeforge.consumer.conversation_skill_integration import (
+from codeforge.consumer._conversation_skill_integration import (
     register_handoff_tool,
     register_propose_goal_tool,
     wire_skill_tools,
 )
+from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.models import ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.runtime import RuntimeClient
 

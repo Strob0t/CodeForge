@@ -175,7 +175,7 @@ async def run_with_optional_rollout(
     hybrid_pipeline: object = None,
 ) -> list:
     """Wrap runner in MultiRolloutRunner when rollout_count > 1."""
-    from codeforge.consumer.benchmark_gemmas import convert_result, convert_rollout_outcome
+    from codeforge.consumer._benchmark_gemmas import convert_result, convert_rollout_outcome
     from codeforge.models import BenchmarkRunRequest
 
     if isinstance(req, BenchmarkRunRequest) and req.rollout_count > 1:

@@ -352,16 +352,16 @@ class TestBuildSystemPrompt:
 
         with (
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_skills",
+                "codeforge.consumer._conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 return_value=("base prompt", []),
             ),
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
+                "codeforge.consumer._conversation_prompt_builder.inject_tool_guide",
                 return_value="base prompt with guide",
             ),
         ):
-            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+            from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
             prompt, _skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
@@ -378,16 +378,16 @@ class TestBuildSystemPrompt:
 
         with (
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_skills",
+                "codeforge.consumer._conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 side_effect=lambda prompt, *a, **kw: (prompt, []),
             ),
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
+                "codeforge.consumer._conversation_prompt_builder.inject_tool_guide",
                 side_effect=lambda prompt, *a, **kw: prompt,
             ),
         ):
-            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+            from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
             prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
@@ -405,16 +405,16 @@ class TestBuildSystemPrompt:
 
         with (
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_skills",
+                "codeforge.consumer._conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 side_effect=lambda prompt, *a, **kw: (prompt, []),
             ),
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
+                "codeforge.consumer._conversation_prompt_builder.inject_tool_guide",
                 side_effect=lambda prompt, *a, **kw: prompt,
             ),
         ):
-            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+            from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
             prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
@@ -432,16 +432,16 @@ class TestBuildSystemPrompt:
 
         with (
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_skills",
+                "codeforge.consumer._conversation_prompt_builder.inject_skills",
                 new_callable=AsyncMock,
                 return_value=("prompt with skills", fake_skills),
             ),
             patch(
-                "codeforge.consumer.conversation_prompt_builder.inject_tool_guide",
+                "codeforge.consumer._conversation_prompt_builder.inject_tool_guide",
                 side_effect=lambda prompt, *a, **kw: prompt,
             ),
         ):
-            from codeforge.consumer.conversation_prompt_builder import build_system_prompt
+            from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
             _, skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
 
