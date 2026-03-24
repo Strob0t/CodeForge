@@ -266,6 +266,120 @@ func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project
 	return profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate
 }
 
+// resolveFullAutoGate checks whether the full-auto gate should redirect
+// to goal_researcher mode. Returns true if the redirect was performed.
+func (s *ConversationService) resolveFullAutoGate(ctx context.Context, proj *project.Project, conversationID, content, model string) (redirected bool, err error) {
+	if !s.isFullAutoProject(ctx, proj) || s.goalSvc == nil {
+		return false, nil
+	}
+
+	goals, _ := s.goalSvc.ListEnabled(ctx, proj.ID)
+	if len(goals) > 0 {
+		return false, nil
+	}
+
+	hasOpenFeatures := false
+	if rm, rmErr := s.db.GetRoadmapByProject(ctx, proj.ID); rmErr == nil && rm != nil {
+		for i := range rm.Milestones {
+			for j := range rm.Milestones[i].Features {
+				if rm.Milestones[i].Features[j].Status != roadmap.FeatureDone && rm.Milestones[i].Features[j].Status != roadmap.FeatureCancelled {
+					hasOpenFeatures = true
+					break
+				}
+			}
+			if hasOpenFeatures {
+				break
+			}
+		}
+	}
+
+	if hasOpenFeatures {
+		return false, nil
+	}
+
+	slog.Info("full-auto gate: no goals or open features, redirecting to goal_researcher",
+		"project_id", proj.ID,
+		"conversation_id", conversationID,
+	)
+	return true, s.SendMessageAgenticWithMode(ctx, conversationID, content, "goal_researcher", WithModel(model))
+}
+
+// resolveModelAndMode resolves the LLM model and agent mode for a conversation run.
+// modeID is the preferred mode; if empty, conv.Mode or "coder" is used.
+func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMode string) (model string, resolvedMode *messagequeue.ModePayload, autonomy int, err error) {
+	model = explicitModel
+	if model == "" {
+		model = s.resolveModel()
+	}
+	if model == "" {
+		return "", nil, 0, fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
+	}
+
+	if s.modeSvc != nil {
+		if modeID == "" {
+			modeID = convMode
+		}
+		if modeID == "" {
+			modeID = "coder"
+		}
+		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
+			autonomy = m.Autonomy
+			resolvedMode = &messagequeue.ModePayload{
+				ID:               m.ID,
+				LLMScenario:      m.LLMScenario,
+				Tools:            m.Tools,
+				DeniedTools:      m.DeniedTools,
+				ModelAdaptations: m.ModelAdaptations,
+			}
+		}
+	}
+	return model, resolvedMode, autonomy, nil
+}
+
+// buildMCPDefinitions builds the MCP server definition payloads for a project.
+func (s *ConversationService) buildMCPDefinitions(projectID string) []messagequeue.MCPServerDefPayload {
+	if s.mcpSvc == nil {
+		return nil
+	}
+	servers := s.mcpSvc.ResolveForRun(projectID, "")
+	defs := make([]messagequeue.MCPServerDefPayload, 0, len(servers))
+	for i := range servers {
+		defs = append(defs, messagequeue.MCPServerDefPayload{
+			ID:        servers[i].ID,
+			Name:      servers[i].Name,
+			Transport: string(servers[i].Transport),
+			Command:   servers[i].Command,
+			Args:      servers[i].Args,
+			URL:       servers[i].URL,
+			Env:       servers[i].Env,
+			Enabled:   servers[i].Enabled,
+		})
+	}
+	return defs
+}
+
+// matchMicroagents matches microagent trigger patterns against a user message
+// and returns the collected prompt strings.
+func (s *ConversationService) matchMicroagents(ctx context.Context, projectID, content, conversationID string) []string {
+	if s.microagentSvc == nil {
+		return nil
+	}
+	matched, maErr := s.microagentSvc.Match(ctx, projectID, content)
+	if maErr != nil {
+		slog.Warn("microagent match failed", "conversation_id", conversationID, "error", maErr)
+		return nil
+	}
+	if len(matched) == 0 {
+		return nil
+	}
+	prompts := make([]string, 0, len(matched))
+	for i := range matched {
+		prompts = append(prompts, matched[i].Prompt)
+	}
+	slog.Info("microagents matched for conversation", "conversation_id", conversationID, "count", len(matched))
+	return prompts
+}
+
 // SendMessageAgentic stores the user message and dispatches an agentic run to the
 // Python worker via NATS. Streaming results arrive asynchronously via WebSocket.
 // The method returns immediately after dispatch.
@@ -282,41 +396,14 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	// Fetch project early so the full-auto gate can inspect it before storing
-	// the user message (SendMessageAgenticWithMode stores its own copy).
 	proj, err := s.db.GetProject(ctx, conv.ProjectID)
 	if err != nil {
 		return fmt.Errorf("get project: %w", err)
 	}
 
-	// Full-auto gate: if no goals or open roadmap features exist, redirect to
-	// goal_researcher mode so the agent collaborates with the user on goals first.
-	if s.isFullAutoProject(ctx, proj) && s.goalSvc != nil {
-		goals, _ := s.goalSvc.ListEnabled(ctx, proj.ID)
-		hasOpenGoals := len(goals) > 0
-
-		hasOpenFeatures := false
-		if rm, rmErr := s.db.GetRoadmapByProject(ctx, proj.ID); rmErr == nil && rm != nil {
-			for i := range rm.Milestones {
-				for j := range rm.Milestones[i].Features {
-					if rm.Milestones[i].Features[j].Status != roadmap.FeatureDone && rm.Milestones[i].Features[j].Status != roadmap.FeatureCancelled {
-						hasOpenFeatures = true
-						break
-					}
-				}
-				if hasOpenFeatures {
-					break
-				}
-			}
-		}
-
-		if !hasOpenGoals && !hasOpenFeatures {
-			slog.Info("full-auto gate: no goals or open features, redirecting to goal_researcher",
-				"project_id", proj.ID,
-				"conversation_id", conversationID,
-			)
-			return s.SendMessageAgenticWithMode(ctx, conversationID, req.Content, "goal_researcher", WithModel(req.Model))
-		}
+	// Full-auto gate: redirect to goal_researcher if no goals/features exist.
+	if redirected, gateErr := s.resolveFullAutoGate(ctx, proj, conversationID, req.Content, req.Model); redirected || gateErr != nil {
+		return gateErr
 	}
 
 	// Store user message.
@@ -329,7 +416,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return fmt.Errorf("store user message: %w", err)
 	}
 
-	// Load full conversation history (including tool_calls and tool results).
+	// Load full conversation history.
 	history, err := s.db.ListMessages(ctx, conversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
@@ -348,46 +435,16 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		}
 	}
 
-	// Build system prompt.
 	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
-
-	// Convert history to protocol messages.
 	protoMessages := s.historyToPayload(history)
 
-	// Resolve model: explicit request override takes priority over config cascade.
-	model := req.Model
-	if model == "" {
-		model = s.resolveModel()
-	}
-	if model == "" {
-		return fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
+	// Resolve model and mode.
+	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
+	if modeErr != nil {
+		return modeErr
 	}
 
-	// Resolve mode for scenario-based LLM routing.
-	// Priority: explicit request > stored conversation mode > default "coder".
-	var modeAutonomy int
-	var resolvedMode *messagequeue.ModePayload
-	if s.modeSvc != nil {
-		modeID := req.Mode
-		if modeID == "" {
-			modeID = conv.Mode
-		}
-		if modeID == "" {
-			modeID = "coder"
-		}
-		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
-			modeAutonomy = m.Autonomy
-			resolvedMode = &messagequeue.ModePayload{
-				ID:               m.ID,
-				LLMScenario:      m.LLMScenario,
-				Tools:            m.Tools,
-				DeniedTools:      m.DeniedTools,
-				ModelAdaptations: m.ModelAdaptations,
-			}
-		}
-	}
-
-	// Resolve policy profile using the mode's autonomy level.
+	// Resolve policy profile.
 	policyProfile := ""
 	if s.policySvc != nil {
 		modePolicy := ""
@@ -397,7 +454,6 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
 	}
 
-	// Inject model-family prompt adaptation from mode config.
 	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
 
 	// Termination config.
@@ -409,50 +465,12 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		termination.MaxSteps = s.agentCfg.MaxLoopIterations
 	}
 
-	// MCP servers.
-	var mcpDefs []messagequeue.MCPServerDefPayload
-	if s.mcpSvc != nil {
-		servers := s.mcpSvc.ResolveForRun(proj.ID, "")
-		for i := range servers {
-			mcpDefs = append(mcpDefs, messagequeue.MCPServerDefPayload{
-				ID:        servers[i].ID,
-				Name:      servers[i].Name,
-				Transport: string(servers[i].Transport),
-				Command:   servers[i].Command,
-				Args:      servers[i].Args,
-				URL:       servers[i].URL,
-				Env:       servers[i].Env,
-				Enabled:   servers[i].Enabled,
-			})
-		}
-	}
-
 	// RunID matches conversationID for tool-call policy lookups.
-	// A separate unique dedup key prevents NATS from dropping follow-up messages.
 	runID := conversationID
 	dedupKey := "conv-start-" + uuid.New().String()
 
-	// Match microagents against the user message (Phase 22C).
-	var microagentPrompts []string
-	if s.microagentSvc != nil {
-		matched, maErr := s.microagentSvc.Match(ctx, proj.ID, req.Content)
-		if maErr != nil {
-			slog.Warn("microagent match failed", "conversation_id", conversationID, "error", maErr)
-		} else if len(matched) > 0 {
-			for i := range matched {
-				microagentPrompts = append(microagentPrompts, matched[i].Prompt)
-			}
-			slog.Info("microagents matched for conversation", "conversation_id", conversationID, "count", len(matched))
-		}
-	}
-
-	// Build context entries for the conversation run.
 	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, req.Content, conversationID, protoMessages)
-
-	// Resolve per-user provider API key (if configured).
 	providerAPIKey := s.resolveProviderAPIKey(ctx, req.UserID, model)
-
-	// Evaluate system reminders.
 	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
 
 	// Resolve rollout count (only for autonomy >= 4, capped at 8).
@@ -473,8 +491,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		WorkspacePath:      proj.WorkspacePath,
 		Mode:               resolvedMode,
 		Termination:        termination,
-		MCPServers:         mcpDefs,
-		MicroagentPrompts:  microagentPrompts,
+		MCPServers:         s.buildMCPDefinitions(proj.ID),
+		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, req.Content, conversationID),
 		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:            contextEntries,
 		Agentic:            true,
@@ -492,14 +510,12 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return fmt.Errorf("marshal conversation run start: %w", err)
 	}
 
-	// Broadcast run started via WebSocket.
 	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     runID,
 		ThreadID:  conversationID,
 		AgentName: "agent",
 	})
 
-	// Publish to NATS for the Python worker (with dedup to prevent duplicate runs).
 	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
 		s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 			RunID:  runID,
@@ -574,7 +590,6 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		return fmt.Errorf("store user message: %w", err)
 	}
 
-	// Load history.
 	history, err := s.db.ListMessages(ctx, conversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
@@ -607,29 +622,10 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		o(&applied)
 	}
 
-	// Resolve model: explicit option override takes priority over config cascade.
-	model := applied.model
-	if model == "" {
-		model = s.resolveModel()
-	}
-	if model == "" {
-		return fmt.Errorf("no LLM model configured")
-	}
-
-	// Resolve the requested mode.
-	var modeAutonomy int
-	var resolvedMode *messagequeue.ModePayload
-	if s.modeSvc != nil {
-		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
-			modeAutonomy = m.Autonomy
-			resolvedMode = &messagequeue.ModePayload{
-				ID:               m.ID,
-				LLMScenario:      m.LLMScenario,
-				Tools:            m.Tools,
-				DeniedTools:      m.DeniedTools,
-				ModelAdaptations: m.ModelAdaptations,
-			}
-		}
+	// Resolve model and mode using shared helper.
+	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(applied.model, modeID, "")
+	if modeErr != nil {
+		return modeErr
 	}
 
 	// Resolve policy profile using the mode's autonomy level.
@@ -642,7 +638,6 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
 	}
 
-	// Inject model-family prompt adaptation from mode config.
 	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
 
 	termination := messagequeue.TerminationPayload{
@@ -653,47 +648,12 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		termination.MaxSteps = s.agentCfg.MaxLoopIterations
 	}
 
-	// MCP servers.
-	var mcpDefs []messagequeue.MCPServerDefPayload
-	if s.mcpSvc != nil {
-		servers := s.mcpSvc.ResolveForRun(proj.ID, "")
-		for i := range servers {
-			mcpDefs = append(mcpDefs, messagequeue.MCPServerDefPayload{
-				ID:        servers[i].ID,
-				Name:      servers[i].Name,
-				Transport: string(servers[i].Transport),
-				Command:   servers[i].Command,
-				Args:      servers[i].Args,
-				URL:       servers[i].URL,
-				Env:       servers[i].Env,
-				Enabled:   servers[i].Enabled,
-			})
-		}
-	}
-
-	// Match microagents against the user message.
-	var microagentPrompts []string
-	if s.microagentSvc != nil {
-		matched, maErr := s.microagentSvc.Match(ctx, proj.ID, content)
-		if maErr != nil {
-			slog.Warn("microagent match failed", "conversation_id", conversationID, "error", maErr)
-		} else if len(matched) > 0 {
-			for i := range matched {
-				microagentPrompts = append(microagentPrompts, matched[i].Prompt)
-			}
-			slog.Info("microagents matched for conversation", "conversation_id", conversationID, "count", len(matched))
-		}
-	}
-
-	// Build context entries for the conversation run.
+	// Build context entries + merge extra from functional options.
 	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
-
-	// Merge extra context entries from functional options.
 	if len(applied.extraContext) > 0 {
 		contextEntries = append(contextEntries, applied.extraContext...)
 	}
 
-	// Evaluate system reminders.
 	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
 
 	runID := conversationID
@@ -709,8 +669,8 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		WorkspacePath:      proj.WorkspacePath,
 		Mode:               resolvedMode,
 		Termination:        termination,
-		MCPServers:         mcpDefs,
-		MicroagentPrompts:  microagentPrompts,
+		MCPServers:         s.buildMCPDefinitions(proj.ID),
+		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, content, conversationID),
 		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:            contextEntries,
 		Agentic:            true,
