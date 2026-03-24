@@ -925,6 +925,26 @@ See `.env.example` for all configurable values.
 | CEREBRAS_API_KEY            | (optional)                               | Cerebras API Key                 |
 | CHUTES_API_KEY              | (optional)                               | Chutes API Key                   |
 | GITHUB_TOKEN                | (optional)                               | GitHub personal access token     |
+| CODEFORGE_CONVERSATION_TIMEOUT | 3600                                  | Max wall-clock seconds per conversation run |
+| CODEFORGE_WORKER_MEMORY_THRESHOLD_MB | 3500                            | Worker RSS abort threshold (MB)  |
+| DOCKER_SECRETS_DIR          | /run/secrets                              | Docker Secrets directory override |
+
+### Secret Management
+
+In development, secrets are loaded from environment variables (`.env` file).
+In production, Docker Secrets files at `/run/secrets/` take priority.
+
+Both Go (`internal/secrets/provider.go`) and Python (`workers/codeforge/secrets.py`)
+implement the same fallback: file first, then env var.
+
+To generate production secrets:
+
+```bash
+./scripts/generate-secrets.sh ./secrets
+docker compose -f docker-compose.prod.yml up -d
+```
+
+See `docs/SECURITY.md` for the full secret management policy.
 
 ### Distributed Tracing (OpenTelemetry)
 
