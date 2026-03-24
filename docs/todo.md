@@ -1552,3 +1552,7 @@
 
 - [x] (2026-03-24) **FIX-093:** Add `force_secure_cookies` config flag to `Server` struct -- unconditionally set `Secure=true` on cookies for TLS-terminating proxy deployments. Refactored `isSecureRequest` into `isSecureRequestWithConfig` + `isSecureCookie` method on Handlers. Files: `internal/config/config.go`, `internal/adapter/http/handlers_auth.go`, `internal/adapter/http/handlers.go`
 - [x] (2026-03-24) **FIX-096:** Add per-user rate limiting keyed on JWT user ID -- composite key `userID:IP` for authenticated requests, IP-only fallback for unauthenticated. Auth middleware injects user ID into context at all 5 auth paths. Files: `internal/middleware/ratelimit.go`, `internal/middleware/auth.go`
+
+#### v2 API Migration Design (2026-03-24)
+
+- [x] (2026-03-24) v2 API migration design document (`docs/specs/v2-api-migration-design.md`) -- FIX-061/063/095/098/100
