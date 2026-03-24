@@ -200,7 +200,7 @@ function PanelSelector(props: { value: string; onChange: (v: string) => void }) 
                         role="option"
                         aria-selected={props.value === item.value}
                         class={`w-full text-left px-3 py-1.5 text-sm cursor-pointer hover:bg-cf-accent/10 flex flex-col gap-0 ${props.value === item.value ? "bg-cf-accent/15 text-cf-accent font-medium" : "text-cf-text"}`}
-                        onClick={() => handleSelect(item.value)}
+                        on:click={() => handleSelect(item.value)}
                         title={item.tip}
                       >
                         <span>{item.label}</span>
