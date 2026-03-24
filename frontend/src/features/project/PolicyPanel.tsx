@@ -785,18 +785,21 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                   {(rule, i) => (
                     <div class="flex flex-wrap items-start gap-2 rounded-cf-sm border border-cf-border bg-cf-bg-inset p-2">
                       <Input
+                        aria-label="Tool pattern"
                         class="w-20"
                         placeholder={t("policy.editor.toolPlaceholder")}
                         value={rule.specifier.tool}
                         onInput={(e) => updateRule(i(), "tool", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Sub-pattern"
                         class="w-24"
                         placeholder={t("policy.editor.subPatternPlaceholder")}
                         value={rule.specifier.sub_pattern || ""}
                         onInput={(e) => updateRule(i(), "sub_pattern", e.currentTarget.value)}
                       />
                       <Select
+                        aria-label="Action"
                         value={rule.decision}
                         onChange={(e) => updateRule(i(), "decision", e.currentTarget.value)}
                       >
@@ -805,24 +808,28 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                         <option value="ask">{t("policy.decision.ask")}</option>
                       </Select>
                       <Input
+                        aria-label="Path allow pattern"
                         class="w-28"
                         placeholder={t("policy.editor.pathAllowPlaceholder")}
                         value={rule.path_allow?.join(", ") || ""}
                         onInput={(e) => updateRule(i(), "path_allow", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Path deny pattern"
                         class="w-28"
                         placeholder={t("policy.editor.pathDenyPlaceholder")}
                         value={rule.path_deny?.join(", ") || ""}
                         onInput={(e) => updateRule(i(), "path_deny", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Command allow pattern"
                         class="w-28"
                         placeholder={t("policy.editor.cmdAllowPlaceholder")}
                         value={rule.command_allow?.join(", ") || ""}
                         onInput={(e) => updateRule(i(), "command_allow", e.currentTarget.value)}
                       />
                       <Input
+                        aria-label="Command deny pattern"
                         class="w-28"
                         placeholder={t("policy.editor.cmdDenyPlaceholder")}
                         value={rule.command_deny?.join(", ") || ""}

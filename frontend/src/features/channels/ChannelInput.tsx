@@ -37,6 +37,7 @@ const ChannelInput: Component<ChannelInputProps> = (props) => {
     <div class="flex items-end gap-2 border-t border-cf-border bg-cf-bg-surface px-4 py-3">
       <textarea
         rows={1}
+        aria-label="Channel message"
         class="flex-1 resize-none rounded-cf-md border border-cf-border bg-cf-bg-surface-alt px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent focus:outline-none"
         placeholder={props.placeholder ?? "Type a message..."}
         value={text()}

@@ -292,6 +292,7 @@ const ChatInput: Component<ChatInputProps> = (props) => {
       <div class="relative">
         <textarea
           ref={textareaRef}
+          aria-label="Chat message"
           class="flex-1 w-full rounded-cf-md border border-cf-border bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder-cf-text-muted focus:border-cf-accent focus:ring-1 focus:ring-cf-accent resize-none"
           rows={2}
           placeholder={props.placeholder}

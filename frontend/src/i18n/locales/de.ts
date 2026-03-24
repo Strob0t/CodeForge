@@ -1591,6 +1591,9 @@ const de: Translations = {
   "goals.toast.deleted": "Ziel geloescht",
   "goals.toast.deleteFailed": "Ziel konnte nicht geloescht werden",
   "goals.toast.titleRequired": "Zieltitel ist erforderlich",
+  "goals.kindLabel": "Zielart",
+  "goals.titleLabel": "Zieltitel",
+  "goals.descriptionLabel": "Zielbeschreibung",
 
   // -- Pruefprotokoll (Audit Trail) ----------------------------------------------
   "audit.title": "Pruefprotokoll",
