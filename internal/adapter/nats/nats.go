@@ -13,6 +13,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -202,7 +204,16 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 // monitorConsumer periodically checks that the named consumer still exists.
 // If the consumer has been deleted externally (e.g. NATS purge), it logs a
 // warning and attempts to recreate the consumer and restart consumption.
+// When the consumer is healthy, the pending message count is recorded as
+// an OTEL gauge metric for alerting on consumer lag.
 func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream.ConsumerConfig, handler messagequeue.Handler) {
+	meter := otel.Meter("codeforge.nats")
+	pendingGauge, gaugeErr := meter.Int64Gauge("nats.consumer.pending",
+		metric.WithDescription("Number of pending messages for NATS consumer"))
+	if gaugeErr != nil {
+		slog.Warn("failed to create nats.consumer.pending gauge", "error", gaugeErr)
+	}
+
 	ticker := time.NewTicker(consumerHealthInterval)
 	defer ticker.Stop()
 
@@ -211,8 +222,15 @@ func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, err := q.js.Consumer(ctx, streamName, name)
+			cons, err := q.js.Consumer(ctx, streamName, name)
 			if err == nil {
+				// Record consumer lag metric when healthy.
+				if pendingGauge != nil {
+					if info, infoErr := cons.Info(ctx); infoErr == nil {
+						pendingGauge.Record(ctx, int64(info.NumPending),
+							metric.WithAttributes(attribute.String("consumer", name)))
+					}
+				}
 				continue
 			}
 
