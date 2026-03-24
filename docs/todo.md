@@ -97,6 +97,7 @@
 #### Phase 15 -- Protocol Integrations (MCP + LSP) (COMPLETED)
 - [x] MCP client in Python Workers (McpWorkbench with BM25 tool recommendation)
 - [x] MCP server in Go Core (mcp-go SDK, 4 tools, 2 resources), server registry with DB persistence
+- [x] (2026-03-24) MCP parameterized resource templates: `codeforge://projects/{id}`, `codeforge://projects/{id}/costs`
 - [x] LSP code intelligence with per-language server lifecycle, tool routing with policy integration
 
 #### Phase 16 -- Frontend Design System Rework (COMPLETED)
