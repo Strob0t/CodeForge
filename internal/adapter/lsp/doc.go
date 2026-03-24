@@ -1,12 +1,12 @@
 // Package lsp implements the Language Server Protocol client adapter.
 //
-// FIX-075: This adapter is fully implemented but NOT yet wired into the
-// application lifecycle (main.go / server setup). It will be activated
-// when per-project LSP integration is added in a future phase.
+// This adapter is fully implemented and wired into the application lifecycle
+// (cmd/codeforge/main.go). It is conditionally enabled via config.LSP.Enabled.
 //
-// DO NOT DELETE this package — the implementation is complete and tested
-// (see client_test.go). Wiring it up requires:
-//   - LSP server lifecycle management per project language
-//   - Configuration for language server paths/commands
-//   - Integration with the conversation loop for code intelligence
+// Supported language servers (internal/domain/lsp/language.go):
+//   - Go: gopls serve
+//   - Python: pyright-langserver --stdio
+//   - TypeScript/JavaScript: typescript-language-server --stdio
+//
+// See also: internal/service/lsp.go (service layer), internal/port/lsp/ (port interfaces)
 package lsp
