@@ -351,6 +351,7 @@ export default function ChatPanel(props: ChatPanelProps) {
           toolCalls={agui.toolCalls}
           planSteps={agui.planSteps}
           goalProposals={agui.goalProposals}
+          roadmapProposals={agui.roadmapProposals}
           permissionRequests={agui.permissionRequests}
           resolvedPermissions={agui.resolvedPermissions}
           setResolvedPermissions={agui.setResolvedPermissions}

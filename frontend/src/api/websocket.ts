@@ -56,7 +56,8 @@ export type AGUIEventType =
   | "agui.step_finished"
   | "agui.goal_proposal"
   | "agui.permission_request"
-  | "agui.action_suggestion";
+  | "agui.action_suggestion"
+  | "agui.roadmap_proposal";
 
 export interface AGUIRunStarted {
   run_id: string;
@@ -139,6 +140,19 @@ export interface AGUIActionSuggestion {
   action: string; // "send_message", "run_tool", "navigate"
   value: string;
 }
+export interface AGUIRoadmapProposal {
+  run_id: string;
+  proposal_id: string;
+  action: "create_milestone" | "create_step";
+  milestone_title: string;
+  milestone_description?: string;
+  milestone_sort_order?: number;
+  step_title?: string;
+  step_description?: string;
+  step_sort_order?: number;
+  step_complexity?: "trivial" | "simple" | "medium" | "complex";
+  step_model_tier?: "weak" | "mid" | "strong";
+}
 
 /** Discriminated map from AG-UI event type to its typed payload. */
 export interface AGUIEventMap {
@@ -153,6 +167,7 @@ export interface AGUIEventMap {
   "agui.goal_proposal": AGUIGoalProposal;
   "agui.permission_request": AGUIPermissionRequest;
   "agui.action_suggestion": AGUIActionSuggestion;
+  "agui.roadmap_proposal": AGUIRoadmapProposal;
 }
 
 function buildWSURL(): string {

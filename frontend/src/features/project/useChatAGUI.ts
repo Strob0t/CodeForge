@@ -5,7 +5,12 @@ import { useWebSocket } from "~/components/WebSocketProvider";
 
 import type { ActionRule } from "./actionRules";
 import { deriveActions } from "./actionRules";
-import type { ChatAGUIState, PlanStepState, ToolCallState } from "./chatPanelTypes";
+import type {
+  ChatAGUIState,
+  PlanStepState,
+  RoadmapProposalState,
+  ToolCallState,
+} from "./chatPanelTypes";
 
 interface UseChatAGUIOptions {
   activeConversation: () => string | null;
@@ -32,6 +37,9 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
 
   // Goal proposals from AG-UI events (rendered inline as approval cards)
   const [goalProposals, setGoalProposals] = createSignal<AGUIGoalProposal[]>([]);
+
+  // Roadmap proposals from AG-UI events (rendered inline as approval cards)
+  const [roadmapProposals, setRoadmapProposals] = createSignal<RoadmapProposalState[]>([]);
 
   // Permission requests from AG-UI events (HITL approval cards)
   const [permissionRequests, setPermissionRequests] = createSignal<AGUIPermissionRequest[]>([]);
@@ -91,6 +99,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
         setStepCount(0);
         setRunningCost(0);
         setGoalProposals([]);
+        setRoadmapProposals([]);
         setActionSuggestions([]);
       });
     }
@@ -251,6 +260,29 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     }
   });
 
+  // When the agent proposes a roadmap change, add it to the proposal list for user approval
+
+  const cleanupRoadmapProposal = onAGUIEvent("agui.roadmap_proposal", (ev) => {
+    if (ev.run_id !== opts.activeConversation()) return;
+    setRoadmapProposals((prev) => [
+      ...prev,
+      {
+        proposalId: ev.proposal_id,
+        action: ev.action,
+        milestoneTitle: ev.milestone_title,
+        milestoneDescription: ev.milestone_description,
+        stepTitle: ev.step_title,
+        stepDescription: ev.step_description,
+        stepComplexity: ev.step_complexity,
+        stepModelTier: ev.step_model_tier,
+        status: "pending" as const,
+      },
+    ]);
+    opts.scrollToBottom();
+  });
+
+  // When the agent proposes a roadmap change, add it to the proposal list for user approval
+
   // When the agent requests permission (HITL), show an approval card
 
   const cleanupPermissionRequest = onAGUIEvent("agui.permission_request", (payload) => {
@@ -282,6 +314,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     cleanupStepStarted();
     cleanupStepFinished();
     cleanupGoalProposal();
+    cleanupRoadmapProposal();
     cleanupPermissionRequest();
     cleanupActionSuggestion();
   });
@@ -295,6 +328,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     toolCalls,
     planSteps,
     goalProposals,
+    roadmapProposals,
     permissionRequests,
     resolvedPermissions,
     setResolvedPermissions: (fn: (prev: Set<string>) => Set<string>) =>
