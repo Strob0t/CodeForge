@@ -1,11 +1,12 @@
-import { createSignal } from "solid-js";
-import { For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import { For } from "solid-js";
 
 import type { FeatureStatus, RoadmapFeature } from "~/api/types";
 import { featureStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge } from "~/ui";
 
+import PanelChatLink from "../PanelChatLink";
 import { encodeDragPayload, FEATURE_MIME } from "./featuremap-dnd";
 
 interface FeatureCardProps {
@@ -14,6 +15,7 @@ interface FeatureCardProps {
   milestoneId: string;
   onStatusToggle: (featureId: string, currentStatus: FeatureStatus) => void;
   onEdit: (feature: RoadmapFeature) => void;
+  onSendChatMessage?: (msg: string) => void;
 }
 
 export default function FeatureCard(props: FeatureCardProps) {
@@ -86,6 +88,14 @@ export default function FeatureCard(props: FeatureCardProps) {
         </div>
 
         <div class="flex items-center gap-1 flex-shrink-0">
+          <Show when={props.onSendChatMessage}>
+            <PanelChatLink
+              type="feature"
+              id={props.feature.id}
+              title={props.feature.title}
+              onDiscuss={(msg) => props.onSendChatMessage?.(msg)}
+            />
+          </Show>
           <Show when={(props.feature.labels ?? []).length > 0}>
             <For each={props.feature.labels}>
               {(label) => <Badge variant="default">{label}</Badge>}
