@@ -784,6 +784,39 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			}
 		}
 
+		// Roadmap proposal events get a dedicated AG-UI broadcast.
+		if payload.EventType == "agent.roadmap_proposed" {
+			var proposal struct {
+				Data struct {
+					ProposalID           string `json:"proposal_id"`
+					Action               string `json:"action"`
+					MilestoneTitle       string `json:"milestone_title"`
+					MilestoneDescription string `json:"milestone_description"`
+					MilestoneSortOrder   int    `json:"milestone_sort_order"`
+					StepTitle            string `json:"step_title"`
+					StepDescription      string `json:"step_description"`
+					StepSortOrder        int    `json:"step_sort_order"`
+					StepComplexity       string `json:"step_complexity"`
+					StepModelTier        string `json:"step_model_tier"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(data, &proposal); err == nil {
+				s.hub.BroadcastEvent(msgCtx, event.AGUIRoadmapProposal, event.AGUIRoadmapProposalEvent{
+					RunID:                payload.RunID,
+					ProposalID:           proposal.Data.ProposalID,
+					Action:               proposal.Data.Action,
+					MilestoneTitle:       proposal.Data.MilestoneTitle,
+					MilestoneDescription: proposal.Data.MilestoneDescription,
+					MilestoneSortOrder:   proposal.Data.MilestoneSortOrder,
+					StepTitle:            proposal.Data.StepTitle,
+					StepDescription:      proposal.Data.StepDescription,
+					StepSortOrder:        proposal.Data.StepSortOrder,
+					StepComplexity:       proposal.Data.StepComplexity,
+					StepModelTier:        proposal.Data.StepModelTier,
+				})
+			}
+		}
+
 		return nil
 	})
 	if err != nil {
