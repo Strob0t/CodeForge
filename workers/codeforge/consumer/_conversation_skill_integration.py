@@ -104,3 +104,10 @@ def register_propose_roadmap_tool(registry: object, runtime: object) -> None:
     from codeforge.tools.propose_roadmap import PROPOSE_ROADMAP_DEFINITION, ProposeRoadmapExecutor
 
     registry.register(PROPOSE_ROADMAP_DEFINITION, ProposeRoadmapExecutor(runtime))
+
+
+def register_spawn_subagent_tool(registry: object, runtime: object) -> None:
+    """Register the spawn_subagent tool for sub-agent delegation."""
+    from codeforge.tools.spawn_subagent import SPAWN_SUBAGENT_DEFINITION, SpawnSubagentExecutor
+
+    registry.register(SPAWN_SUBAGENT_DEFINITION, SpawnSubagentExecutor(runtime))
