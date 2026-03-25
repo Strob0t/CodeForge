@@ -33,6 +33,7 @@ import AutoAgentButton from "./AutoAgentButton";
 import BoundariesPanel from "./BoundariesPanel";
 import ChatPanel from "./ChatPanel";
 import CompactSettingsPopover from "./CompactSettingsPopover";
+import ConsolidatedPlanView from "./ConsolidatedPlanView";
 import CostBreakdown from "./CostBreakdown";
 import FeatureMapPanel from "./FeatureMapPanel";
 import FilePanel from "./FilePanel";
@@ -61,49 +62,17 @@ import WarRoom from "./WarRoom";
 
 const PANEL_GROUPS = [
   {
-    label: "Planning",
+    label: "Workflow",
     items: [
-      { value: "goals", label: "Goals", tip: "Define project goals and requirements" },
-      { value: "roadmap", label: "Roadmap", tip: "Milestones and feature breakdown" },
-      { value: "featuremap", label: "Feature Map", tip: "Visual feature board with drag-and-drop" },
-      { value: "tasks", label: "Tasks & Roadmap", tip: "Task list synced with external PM tools" },
-      { value: "plans", label: "Plans", tip: "Step-by-step execution plans for features" },
+      { value: "plan", label: "Plan", tip: "Goals, Roadmap & Features" },
+      { value: "execute", label: "Execute", tip: "War Room, Runs & Trajectory" },
     ],
   },
   {
-    label: "Execution",
+    label: "Tools",
     items: [
-      { value: "warroom", label: "War Room", tip: "Live multi-agent coordination view" },
-      { value: "agents", label: "Agents & Runs", tip: "Agent configuration and run management" },
-      { value: "sessions", label: "Sessions", tip: "Agent session history and continuity" },
-      { value: "trajectory", label: "Trajectory", tip: "Step-by-step replay of agent actions" },
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
-      {
-        value: "code",
-        label: "Code Intelligence",
-        tip: "Repo map, architecture graph, and LSP servers",
-      },
-      {
-        value: "retrieval",
-        label: "Retrieval",
-        tip: "Search simulator for agent context retrieval",
-      },
-      {
-        value: "boundaries",
-        label: "Boundaries",
-        tip: "Cross-layer boundary detection for contract review",
-      },
-    ],
-  },
-  {
-    label: "Governance",
-    items: [
-      { value: "policy", label: "Policy", tip: "Permission rules and policy presets" },
-      { value: "audit", label: "Audit Trail", tip: "Chronological log of all project actions" },
+      { value: "code", label: "Code", tip: "Files, RepoMap & Search" },
+      { value: "govern", label: "Govern", tip: "Policy & Audit" },
     ],
   },
 ] as const;
@@ -332,6 +301,9 @@ export default function ProjectDetailPage() {
 
   // Left panel tab
   type LeftTab =
+    | "plan"
+    | "execute"
+    | "govern"
     | "roadmap"
     | "featuremap"
     | "files"
@@ -350,6 +322,15 @@ export default function ProjectDetailPage() {
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
   const [switchToConversation, setSwitchToConversation] = createSignal<string | null>(null);
+
+  // Prefill message for deep-link from panels to chat input
+  const [prefillMessage, setPrefillMessage] = createSignal("");
+
+  const handleSendChatMessage = (msg: string) => {
+    setPrefillMessage(msg);
+    // On mobile, switch to chat view
+    if (isMobile()) setMobileView("chat");
+  };
 
   // Unified navigation handler: "chat" switches mobile view, other tabs switch left panel
   function handleNavigate(target: string) {
@@ -601,7 +582,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 overflow-hidden ${["featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 overflow-hidden ${["plan", "execute", "govern", "featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -673,6 +654,7 @@ export default function ProjectDetailPage() {
                             projectId={params.id}
                             onNavigate={handleNavigate}
                             onAIDiscoverStarted={(cid) => setSwitchToConversation(cid)}
+                            onSendChatMessage={handleSendChatMessage}
                           />
                         </div>
                       </ErrorBoundary>
@@ -686,6 +668,7 @@ export default function ProjectDetailPage() {
                             projectId={params.id}
                             onError={setError}
                             onNavigate={handleNavigate}
+                            onSendChatMessage={handleSendChatMessage}
                           />
                         </div>
                       </ErrorBoundary>
@@ -699,7 +682,54 @@ export default function ProjectDetailPage() {
                             projectId={params.id}
                             onError={setError}
                             onNavigate={handleNavigate}
+                            onSendChatMessage={handleSendChatMessage}
                           />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "plan"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0">
+                          <ConsolidatedPlanView
+                            projectId={params.id}
+                            onSendChatMessage={handleSendChatMessage}
+                            onAIDiscoverStarted={(cid) => setSwitchToConversation(cid)}
+                            onNavigate={handleNavigate}
+                            onError={setError}
+                          />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "execute"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
+                          <WarRoom projectId={params.id} onNavigate={handleNavigate} />
+                          <RunPanel
+                            projectId={params.id}
+                            tasks={tasks() ?? []}
+                            agents={agents() ?? []}
+                            onError={setError}
+                          />
+                          <TrajectoryTabContent
+                            projectId={params.id}
+                            selectedRunId={selectedRunId()}
+                            onSelectRun={setSelectedRunId}
+                            onNavigate={handleNavigate}
+                          />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "govern"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
+                          <PolicyPanel projectId={params.id} onError={setError} />
+                          <AuditTable projectId={params.id} />
                         </div>
                       </ErrorBoundary>
                     </Show>
@@ -904,6 +934,7 @@ export default function ProjectDetailPage() {
                       projectId={params.id}
                       activeTab={leftTab()}
                       switchToConversation={switchToConversation}
+                      prefillMessage={prefillMessage()}
                     />
                   </ErrorBoundary>
                 </div>

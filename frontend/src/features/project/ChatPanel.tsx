@@ -38,6 +38,8 @@ import SessionFooter from "./SessionFooter";
 import { useChatAGUI } from "./useChatAGUI";
 
 interface ChatPanelProps {
+  /** Prefill the chat input with a message (e.g., from panel deep-links). */
+  prefillMessage?: string;
   projectId: string;
   activeTab?: string;
   /** External signal to switch to a specific conversation (e.g., from AI Discover). */
@@ -100,6 +102,14 @@ export default function ChatPanel(props: ChatPanelProps) {
   const maxContextTokens = () => agentConfig()?.max_context_tokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
 
   const [input, setInput] = createSignal("");
+
+  // Prefill input when triggered by panel deep-links.
+  createEffect(() => {
+    const msg = props.prefillMessage;
+    if (msg) {
+      setInput(msg);
+    }
+  });
   const [sending, setSending] = createSignal(false);
   const [attaching, setAttaching] = createSignal(false);
   // eslint-disable-next-line prefer-const -- SolidJS ref requires let
