@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 PROPOSE_GOAL_DEFINITION = ToolDefinition(
     name="propose_goal",
     description=(
-        "Propose a project goal for user review. The goal is NOT created "
-        "until the user approves it in the UI. Use this after understanding "
-        "the project through exploration and interview."
+        "Propose a project goal for user review. Use this PROACTIVELY whenever "
+        "you detect a goal, requirement, constraint, or context in the user's "
+        "message. Do NOT wait for explicit instructions."
     ),
     parameters={
         "type": "object",
@@ -50,8 +50,9 @@ PROPOSE_GOAL_DEFINITION = ToolDefinition(
         "required": ["action", "kind", "title", "content"],
     },
     when_to_use=(
-        "Use this tool to propose a project goal after exploring the codebase "
-        "and interviewing the user. The user must approve before the goal is saved."
+        "Use this tool whenever you detect goal-like intent in the conversation: "
+        "vision statements, requirements, constraints, current state, or context. "
+        "Propose goals one at a time as you detect them. The user will approve or reject."
     ),
     output_format="Confirmation that the goal was proposed for user review.",
     common_mistakes=[
