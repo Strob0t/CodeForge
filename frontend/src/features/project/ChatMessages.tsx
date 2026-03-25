@@ -254,43 +254,6 @@ export default function ChatMessages(props: ChatMessagesProps) {
         </div>
       </Show>
 
-      {/* Roadmap proposals from AG-UI events -- inline approval cards */}
-      <Show when={props.roadmapProposals().length > 0}>
-        <div class="flex justify-start">
-          <div class="max-w-[90%] sm:max-w-[75%] w-full">
-            <For each={props.roadmapProposals()}>
-              {(proposal) => (
-                <RoadmapProposalCard
-                  proposal={{
-                    run_id: props.activeConversation() ?? "",
-                    proposal_id: proposal.proposalId,
-                    action: proposal.action,
-                    milestone_title: proposal.milestoneTitle,
-                    milestone_description: proposal.milestoneDescription,
-                    step_title: proposal.stepTitle,
-                    step_description: proposal.stepDescription,
-                    step_complexity: proposal.stepComplexity as
-                      | "trivial"
-                      | "simple"
-                      | "medium"
-                      | "complex"
-                      | undefined,
-                    step_model_tier: proposal.stepModelTier as
-                      | "weak"
-                      | "mid"
-                      | "strong"
-                      | undefined,
-                  }}
-                  projectId={props.projectId}
-                  onApprove={(title) => props.sendChatMessage(`[Roadmap approved: ${title}]`)}
-                  onReject={(title) => props.sendChatMessage(`[Roadmap rejected: ${title}]`)}
-                />
-              )}
-            </For>
-          </div>
-        </div>
-      </Show>
-
       {/* Permission request cards from AG-UI events (HITL approval) */}
       <For
         each={props

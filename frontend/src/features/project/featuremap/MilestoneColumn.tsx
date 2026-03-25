@@ -7,6 +7,7 @@ import { getVariant, roadmapStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { Badge, Button } from "~/ui";
 
+import PanelChatLink from "../PanelChatLink";
 import FeatureCard from "./FeatureCard";
 import FeatureCardForm from "./FeatureCardForm";
 import { decodeDragPayload, FEATURE_MIME } from "./featuremap-dnd";
@@ -15,6 +16,7 @@ interface MilestoneColumnProps {
   milestone: Milestone;
   onFeatureDropped: (featureId: string, targetMilestoneId: string, targetIndex: number) => void;
   onRefetch: () => void;
+  onSendChatMessage?: (msg: string) => void;
 }
 
 export default function MilestoneColumn(props: MilestoneColumnProps) {
@@ -109,6 +111,15 @@ export default function MilestoneColumn(props: MilestoneColumnProps) {
           <Badge variant={getVariant(roadmapStatusVariant, props.milestone.status)} pill>
             {props.milestone.status}
           </Badge>
+          <Show when={props.onSendChatMessage}>
+            <PanelChatLink
+              type="milestone"
+              id={props.milestone.id}
+              title={props.milestone.title}
+              context={props.milestone.description?.substring(0, 200)}
+              onDiscuss={(msg) => props.onSendChatMessage?.(msg)}
+            />
+          </Show>
         </div>
         <span class="text-xs text-cf-text-muted flex-shrink-0">{features().length}</span>
       </div>
@@ -153,6 +164,7 @@ export default function MilestoneColumn(props: MilestoneColumnProps) {
                     milestoneId={props.milestone.id}
                     onStatusToggle={handleStatusToggle}
                     onEdit={handleEditFeature}
+                    onSendChatMessage={props.onSendChatMessage}
                   />
                 </div>
               </Show>
