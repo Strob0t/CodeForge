@@ -1,9 +1,10 @@
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateGoalRequest, GoalKind, ProjectGoal } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import { Badge, Button } from "~/ui";
 
@@ -37,6 +38,7 @@ const KIND_COLORS: Record<GoalKind, "success" | "info" | "warning" | "neutral" |
 export default function GoalsPanel(props: Props) {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { onAGUIEvent } = useWebSocket();
 
   const [goals, { refetch }] = createResource(
     () => props.projectId,
@@ -48,6 +50,12 @@ export default function GoalsPanel(props: Props) {
       }
     },
   );
+
+  // Refetch goals when an agent run finishes (goals may have been auto-persisted).
+  const cleanupRunFinished = onAGUIEvent("agui.run_finished", () => {
+    refetch();
+  });
+  onCleanup(() => cleanupRunFinished());
 
   const [detecting, setDetecting] = createSignal(false);
   const [aiDiscovering, setAiDiscovering] = createSignal(false);
