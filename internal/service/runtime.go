@@ -817,6 +817,32 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 			}
 		}
 
+		// Sub-agent spawn requests trigger a new conversation.
+		if payload.EventType == "agent.subagent_requested" {
+			var req struct {
+				Data struct {
+					SubagentID string `json:"subagent_id"`
+					Role       string `json:"role"`
+					Task       string `json:"task"`
+					Context    string `json:"context"`
+					ModelTier  string `json:"model_tier"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(data, &req); err == nil {
+				slog.Info("sub-agent requested",
+					"role", req.Data.Role,
+					"subagent_id", req.Data.SubagentID,
+					"project_id", payload.ProjectID,
+				)
+				// Sub-agent spawning will be handled in a follow-up.
+				// For now, broadcast a text message to inform the user.
+				s.hub.BroadcastEvent(msgCtx, event.AGUITextMessage, event.AGUITextMessageEvent{
+					RunID:   payload.RunID,
+					Content: fmt.Sprintf("[Sub-agent %s-%s requested: %s]", req.Data.Role, req.Data.SubagentID, req.Data.Task),
+				})
+			}
+		}
+
 		return nil
 	})
 	if err != nil {
