@@ -97,3 +97,10 @@ def register_propose_goal_tool(registry: object, runtime: object) -> None:
     from codeforge.tools.propose_goal import PROPOSE_GOAL_DEFINITION, ProposeGoalExecutor
 
     registry.register(PROPOSE_GOAL_DEFINITION, ProposeGoalExecutor(runtime))
+
+
+def register_propose_roadmap_tool(registry: object, runtime: object) -> None:
+    """Register the propose_roadmap tool for agent-driven roadmap proposals."""
+    from codeforge.tools.propose_roadmap import PROPOSE_ROADMAP_DEFINITION, ProposeRoadmapExecutor
+
+    registry.register(PROPOSE_ROADMAP_DEFINITION, ProposeRoadmapExecutor(runtime))
