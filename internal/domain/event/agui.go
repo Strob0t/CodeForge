@@ -89,6 +89,9 @@ const AGUIGoalProposal = "agui.goal_proposal"
 // AGUIActionSuggestion event type constant.
 const AGUIActionSuggestion = "agui.action_suggestion"
 
+// AGUIRoadmapProposal event type constant.
+const AGUIRoadmapProposal = "agui.roadmap_proposal"
+
 // AGUIPermissionRequestEvent signals that a tool call requires user approval.
 type AGUIPermissionRequestEvent struct {
 	RunID   string `json:"run_id"`
@@ -116,4 +119,19 @@ type AGUIGoalProposalEvent struct {
 	Content    string `json:"content"`
 	Priority   int    `json:"priority"`
 	GoalID     string `json:"goal_id,omitempty"`
+}
+
+// AGUIRoadmapProposalEvent carries a proposed milestone or work step.
+type AGUIRoadmapProposalEvent struct {
+	RunID                string `json:"run_id"`
+	ProposalID           string `json:"proposal_id"`
+	Action               string `json:"action"` // "create_milestone", "create_step"
+	MilestoneTitle       string `json:"milestone_title"`
+	MilestoneDescription string `json:"milestone_description,omitempty"`
+	MilestoneSortOrder   int    `json:"milestone_sort_order,omitempty"`
+	StepTitle            string `json:"step_title,omitempty"`
+	StepDescription      string `json:"step_description,omitempty"`
+	StepSortOrder        int    `json:"step_sort_order,omitempty"`
+	StepComplexity       string `json:"step_complexity,omitempty"` // trivial, simple, medium, complex
+	StepModelTier        string `json:"step_model_tier,omitempty"` // weak, mid, strong
 }
