@@ -2,6 +2,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // SpecDetector is an optional interface for detecting and importing roadmap specs
@@ -28,12 +31,36 @@ type SpecDetector interface {
 	DetectAndImport(ctx context.Context, projectID string) (detected bool, importErr error)
 }
 
+// RepoMapIndexer generates repository maps for a project.
+type RepoMapIndexer interface {
+	RequestGeneration(ctx context.Context, projectID string, activeFiles []string) error
+}
+
+// RetrievalIndexer builds retrieval indexes for a project workspace.
+type RetrievalIndexer interface {
+	RequestIndex(ctx context.Context, projectID, workspacePath, embeddingModel string) error
+}
+
+// GraphBuilder builds code graphs for a project workspace.
+type GraphBuilder interface {
+	RequestBuild(ctx context.Context, projectID, workspacePath string) error
+}
+
+// ReviewTriggerer triggers review/boundary analysis for a project.
+type ReviewTriggerer interface {
+	TriggerReview(ctx context.Context, projectID, commitSHA, source string) (bool, error)
+}
+
 // ProjectService handles project business logic.
 type ProjectService struct {
-	store         database.Store
-	workspaceRoot string
-	specDetector  SpecDetector
-	goalDiscovery *GoalDiscoveryService
+	store           database.Store
+	workspaceRoot   string
+	specDetector    SpecDetector
+	goalDiscovery   *GoalDiscoveryService
+	repoMap         RepoMapIndexer
+	retrieval       RetrievalIndexer
+	graph           GraphBuilder
+	reviewTriggerer ReviewTriggerer
 }
 
 // NewProjectService creates a new ProjectService.
@@ -55,6 +82,67 @@ func (s *ProjectService) SetSpecDetector(sd SpecDetector) {
 // SetGoalDiscovery sets the optional goal discovery service for automated setup.
 func (s *ProjectService) SetGoalDiscovery(svc *GoalDiscoveryService) {
 	s.goalDiscovery = svc
+}
+
+// SetRepoMapIndexer sets the optional repo-map indexer for auto-indexing.
+func (s *ProjectService) SetRepoMapIndexer(r RepoMapIndexer) {
+	s.repoMap = r
+}
+
+// SetRetrievalIndexer sets the optional retrieval indexer for auto-indexing.
+func (s *ProjectService) SetRetrievalIndexer(r RetrievalIndexer) {
+	s.retrieval = r
+}
+
+// SetGraphBuilder sets the optional graph builder for auto-indexing.
+func (s *ProjectService) SetGraphBuilder(g GraphBuilder) {
+	s.graph = g
+}
+
+// SetReviewTriggerer sets the optional review triggerer for auto-indexing.
+func (s *ProjectService) SetReviewTriggerer(rt ReviewTriggerer) {
+	s.reviewTriggerer = rt
+}
+
+// AutoIndex triggers background indexing for all context sources.
+// Called after clone, adopt, or setup to ensure agents get full context.
+// Each index build is independent -- failures are logged but do not block.
+func (s *ProjectService) AutoIndex(tenantID, projectID, workspacePath string) {
+	if s.repoMap != nil {
+		go func() {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := s.repoMap.RequestGeneration(ctx, projectID, nil); err != nil {
+				slog.Error("auto repomap generation failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+
+	if s.retrieval != nil {
+		go func() {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := s.retrieval.RequestIndex(ctx, projectID, workspacePath, ""); err != nil {
+				slog.Error("auto retrieval index failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+
+	if s.graph != nil {
+		go func() {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if err := s.graph.RequestBuild(ctx, projectID, workspacePath); err != nil {
+				slog.Error("auto graph build failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
+
+	if s.reviewTriggerer != nil {
+		go func() {
+			ctx := tenantctx.WithTenant(context.Background(), tenantID)
+			if _, err := s.reviewTriggerer.TriggerReview(ctx, projectID, "", "auto-index"); err != nil {
+				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
+			}
+		}()
+	}
 }
 
 // resolveGitProvider creates a git provider for the given project.
@@ -785,4 +873,56 @@ func fetchJSON(ctx context.Context, url string, dest any) error {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+// ListRemoteBranches queries a remote repository for its branch names.
+// It validates the URL (scheme allowlist, host present) and runs git ls-remote.
+func (s *ProjectService) ListRemoteBranches(ctx context.Context, repoURL string) ([]string, error) {
+	if repoURL == "" {
+		return nil, fmt.Errorf("list remote branches: url is required")
+	}
+
+	parsed, err := url.Parse(repoURL)
+	if err != nil || parsed.Host == "" {
+		return nil, fmt.Errorf("list remote branches: invalid repository URL")
+	}
+	switch parsed.Scheme {
+	case "https", "http", "git", "ssh":
+		// allowed
+	default:
+		return nil, fmt.Errorf("list remote branches: unsupported URL scheme: only https, http, git, ssh are allowed")
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL validated: parsed URL with scheme allowlist.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		slog.Warn("git ls-remote failed", "url", repoURL, "error", err, "stderr", stderr.String())
+		return nil, fmt.Errorf("list remote branches: git ls-remote failed: %w", err)
+	}
+
+	var branches []string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: <sha>\trefs/heads/<branch-name>
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		ref := parts[1]
+		branch := strings.TrimPrefix(ref, "refs/heads/")
+		if branch != ref {
+			branches = append(branches, branch)
+		}
+	}
+
+	return branches, nil
 }

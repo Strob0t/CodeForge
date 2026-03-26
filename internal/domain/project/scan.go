@@ -2,33 +2,27 @@ package project
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 // maxManifestRead is the maximum bytes to read from a manifest file for framework detection.
 const maxManifestRead = 64 * 1024
 
-// ScanWorkspace scans a directory for language manifests and returns detection results.
+// ScanWorkspaceFS scans a filesystem for language manifests and returns detection results.
 // Only top-level entries are checked (no recursive walk).
-func ScanWorkspace(path string) (*StackDetectionResult, error) {
-	info, err := os.Stat(path) //nolint:gosec // path comes from trusted workspace config or explicit user request
-	if err != nil {
-		return nil, fmt.Errorf("scan workspace: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("scan workspace: %s is not a directory", path)
-	}
-
-	entries, err := os.ReadDir(path)
+// The scannedPath parameter is used for the result metadata only.
+func ScanWorkspaceFS(fsys fs.FS, scannedPath string) (*StackDetectionResult, error) {
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, fmt.Errorf("scan workspace: read dir: %w", err)
 	}
 
 	// Collect which manifests exist per language.
-	langManifests := make(map[string][]string)  // language → list of manifest filenames
-	manifestContents := make(map[string]string) // filename → file content (cached for framework detection)
+	langManifests := make(map[string][]string)  // language -> list of manifest filenames
+	manifestContents := make(map[string]string) // filename -> file content (cached for framework detection)
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -42,7 +36,7 @@ func ScanWorkspace(path string) (*StackDetectionResult, error) {
 
 		// Read content for framework detection (lazy, capped at maxManifestRead).
 		if _, cached := manifestContents[entry.Name()]; !cached {
-			content := readFileCapped(filepath.Join(path, entry.Name()), maxManifestRead)
+			content := readFileCappedFS(fsys, entry.Name(), maxManifestRead)
 			manifestContents[entry.Name()] = content
 		}
 	}
@@ -88,8 +82,22 @@ func ScanWorkspace(path string) (*StackDetectionResult, error) {
 	return &StackDetectionResult{
 		Languages:       languages,
 		Recommendations: recs,
-		ScannedPath:     path,
+		ScannedPath:     scannedPath,
 	}, nil
+}
+
+// ScanWorkspace scans a directory on disk for language manifests and returns detection results.
+// Only top-level entries are checked (no recursive walk).
+func ScanWorkspace(path string) (*StackDetectionResult, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("scan workspace: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("scan workspace: %s is not a directory", path)
+	}
+
+	return ScanWorkspaceFS(os.DirFS(path), path)
 }
 
 // manifestConfidence returns a confidence score based on the number of manifests found.
@@ -126,16 +134,19 @@ func detectFrameworks(lang string, contents map[string]string) []string {
 	return frameworks
 }
 
-// readFileCapped reads up to maxBytes from a file, returning the content as a string.
-// Returns empty string on any error.
-func readFileCapped(path string, maxBytes int) string {
-	f, err := os.Open(path) //nolint:gosec // path is constructed from workspace dir + known manifest filenames
+// readFileCappedFS reads up to maxBytes from a file in the given filesystem,
+// returning the content as a string. Returns empty string on any error.
+func readFileCappedFS(fsys fs.FS, name string, maxBytes int) string {
+	f, err := fsys.Open(name)
 	if err != nil {
 		return ""
 	}
 	defer func() { _ = f.Close() }()
 
 	buf := make([]byte, maxBytes)
-	n, _ := f.Read(buf)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return ""
+	}
 	return string(buf[:n])
 }
