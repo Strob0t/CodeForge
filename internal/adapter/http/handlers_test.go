@@ -18,6 +18,7 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -59,7 +60,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -1717,12 +1717,11 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
-					ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
 						ID:   "test-admin",
 						Name: "Test Admin",
 						Role: user.RoleAdmin,
-					})
-					r = r.WithContext(ctx)
+					}))
 				}
 			}
 			next.ServeHTTP(w, r)
@@ -1838,12 +1837,11 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
-					ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
 						ID:   "test-admin",
 						Name: "Test Admin",
 						Role: user.RoleAdmin,
-					})
-					r = r.WithContext(ctx)
+					}))
 				}
 			}
 			next.ServeHTTP(w, r)
@@ -1860,12 +1858,11 @@ func newTestRouterWithBackendHealth(bhSvc *service.BackendHealthService) chi.Rou
 	rr := chi.NewRouter()
 	rr.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+			next.ServeHTTP(w, r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
 				ID:   "test-admin",
 				Name: "Test Admin",
 				Role: user.RoleAdmin,
-			})
-			next.ServeHTTP(w, r.WithContext(ctx))
+			})))
 		})
 	})
 	h := &cfhttp.Handlers{

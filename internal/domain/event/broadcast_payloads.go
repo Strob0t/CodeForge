@@ -346,6 +346,31 @@ type TrajectoryEventPayload struct {
 	TokensOut      int64   `json:"tokens_out,omitempty"`
 }
 
+// QuarantineAlertEvent is broadcast when a message is quarantined for admin review.
+type QuarantineAlertEvent struct {
+	ID        string   `json:"id"`
+	ProjectID string   `json:"project_id"`
+	Subject   string   `json:"subject"`
+	RiskScore float64  `json:"risk_score"`
+	Factors   []string `json:"factors"`
+}
+
+// QuarantineResolvedEvent is broadcast when a quarantined message is approved or rejected.
+type QuarantineResolvedEvent struct {
+	ID         string `json:"id"`
+	ProjectID  string `json:"project_id"`
+	Action     string `json:"action"` // "approved" or "rejected"
+	ReviewedBy string `json:"reviewed_by"`
+}
+
+// PMSyncEvent is broadcast when a project management sync completes.
+type PMSyncEvent struct {
+	ProjectID string `json:"project_id"`
+	Provider  string `json:"provider"`
+	Created   int    `json:"created"`
+	Updated   int    `json:"updated"`
+}
+
 // ChannelMessageEvent is broadcast when a new message is posted in a channel.
 type ChannelMessageEvent struct {
 	ChannelID string          `json:"channel_id"`

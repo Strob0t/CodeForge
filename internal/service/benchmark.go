@@ -514,9 +514,15 @@ func sortLeaderboard(entries []benchmark.LeaderboardEntry) {
 	}
 }
 
-func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
+// ParseScores unmarshals a JSON-encoded score map. Returns an empty map on any error.
+func ParseScores(raw json.RawMessage) map[string]float64 {
 	scores := make(map[string]float64)
-	_ = json.Unmarshal(r.Scores, &scores) //nolint:errcheck // best effort
+	_ = json.Unmarshal(raw, &scores) //nolint:errcheck // best effort
+	return scores
+}
+
+func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
+	scores := ParseScores(r.Scores)
 
 	return benchmark.TrainingEntry{
 		RolloutID:   r.RolloutID,

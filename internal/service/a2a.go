@@ -384,6 +384,13 @@ func (s *A2AService) DeletePushConfig(ctx context.Context, id string) error {
 	return s.store.DeleteA2APushConfig(ctx, id)
 }
 
+// a2aPushPayload is the JSON structure sent to push notification webhooks.
+type a2aPushPayload struct {
+	TaskID    string          `json:"task_id"`
+	State     string          `json:"state"`
+	Artifacts json.RawMessage `json:"artifacts"`
+}
+
 // DispatchPushNotifications sends webhook POST to all push configs for a task.
 func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID string) {
 	configs, err := s.store.ListA2APushConfigs(ctx, taskID)
@@ -397,10 +404,10 @@ func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID strin
 		return
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"task_id":   task.ID,
-		"state":     string(task.State),
-		"artifacts": json.RawMessage(task.Artifacts),
+	payload, err := json.Marshal(a2aPushPayload{
+		TaskID:    task.ID,
+		State:     string(task.State),
+		Artifacts: task.Artifacts,
 	})
 	if err != nil {
 		slog.Warn("push dispatch: marshal payload", "task_id", taskID, "error", err)

@@ -100,12 +100,12 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 	}
 
 	// Broadcast alert to admin UI.
-	s.hub.BroadcastEvent(ctx, event.EventQuarantineAlert, map[string]any{
-		"id":         msg.ID,
-		"project_id": projectID,
-		"subject":    subject,
-		"risk_score": score,
-		"factors":    factors,
+	s.hub.BroadcastEvent(ctx, event.EventQuarantineAlert, event.QuarantineAlertEvent{
+		ID:        msg.ID,
+		ProjectID: projectID,
+		Subject:   subject,
+		RiskScore: score,
+		Factors:   factors,
 	})
 
 	slog.Info("message quarantined",
@@ -132,11 +132,11 @@ func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note st
 		return fmt.Errorf("replay quarantined message: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, map[string]any{
-		"id":          id,
-		"project_id":  msg.ProjectID,
-		"action":      "approved",
-		"reviewed_by": reviewedBy,
+	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, event.QuarantineResolvedEvent{
+		ID:         id,
+		ProjectID:  msg.ProjectID,
+		Action:     "approved",
+		ReviewedBy: reviewedBy,
 	})
 
 	slog.Info("quarantined message approved and replayed",
@@ -158,11 +158,11 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 		return fmt.Errorf("update quarantine status: %w", err)
 	}
 
-	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, map[string]any{
-		"id":          id,
-		"project_id":  msg.ProjectID,
-		"action":      "rejected",
-		"reviewed_by": reviewedBy,
+	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, event.QuarantineResolvedEvent{
+		ID:         id,
+		ProjectID:  msg.ProjectID,
+		Action:     "rejected",
+		ReviewedBy: reviewedBy,
 	})
 
 	slog.Info("quarantined message rejected",

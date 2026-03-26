@@ -1,7 +1,6 @@
 package http_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,10 +13,10 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -135,12 +134,11 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
-					ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
 						ID:   "test-admin",
 						Name: "Test Admin",
 						Role: user.RoleAdmin,
-					})
-					r = r.WithContext(ctx)
+					}))
 				}
 			}
 			next.ServeHTTP(w, r)

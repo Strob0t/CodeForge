@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // --- Suite CRUD (Phase 26) ---
@@ -369,8 +370,7 @@ func (h *Handlers) AnalyzeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	}
 	failed := 0
 	for i := range results {
-		var scores map[string]float64
-		_ = json.Unmarshal(results[i].Scores, &scores)
+		scores := service.ParseScores(results[i].Scores)
 		if len(scores) == 0 {
 			failed++
 			continue
@@ -387,15 +387,27 @@ func (h *Handlers) AnalyzeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	if len(results) > 0 {
 		failureRate = float64(failed) / float64(len(results))
 	}
-	report := map[string]any{
-		"run_id":               id,
-		"mode":                 "coder",
-		"model_family":         benchmark.ModelFamily(run.Model),
-		"total_tasks":          len(results),
-		"failed_tasks":         failed,
-		"failure_rate":         failureRate,
-		"tactical_fixes":       []any{},
-		"strategic_principles": []string{},
+	report := benchmarkFailureReport{
+		RunID:               id,
+		Mode:                "coder",
+		ModelFamily:         benchmark.ModelFamily(run.Model),
+		TotalTasks:          len(results),
+		FailedTasks:         failed,
+		FailureRate:         failureRate,
+		TacticalFixes:       []string{},
+		StrategicPrinciples: []string{},
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// benchmarkFailureReport is the JSON response for GET /benchmarks/runs/{id}/failure-report.
+type benchmarkFailureReport struct {
+	RunID               string   `json:"run_id"`
+	Mode                string   `json:"mode"`
+	ModelFamily         string   `json:"model_family"`
+	TotalTasks          int      `json:"total_tasks"`
+	FailedTasks         int      `json:"failed_tasks"`
+	FailureRate         float64  `json:"failure_rate"`
+	TacticalFixes       []string `json:"tactical_fixes"`
+	StrategicPrinciples []string `json:"strategic_principles"`
 }

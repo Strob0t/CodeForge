@@ -86,17 +86,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 		"status": string(run.StatusTimeout),
 		"reason": reason,
 	})
-	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-		RunID:     r.ID,
-		TaskID:    r.TaskID,
-		ProjectID: r.ProjectID,
-		Status:    string(run.StatusTimeout),
-		StepCount: r.StepCount,
-		CostUSD:   r.CostUSD,
-		TokensIn:  r.TokensIn,
-		TokensOut: r.TokensOut,
-		Model:     r.Model,
-	})
+	s.broadcastRunStatus(ctx, r, run.StatusTimeout)
 
 	if s.onRunComplete != nil {
 		s.onRunComplete(ctx, r.ID, run.StatusTimeout)
@@ -163,17 +153,13 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	})
 
 	// Broadcast WS
-	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-		RunID:     r.ID,
-		TaskID:    r.TaskID,
-		ProjectID: r.ProjectID,
-		Status:    string(status),
-		StepCount: payload.StepCount,
-		CostUSD:   payload.CostUSD,
-		TokensIn:  payload.TokensIn,
-		TokensOut: payload.TokensOut,
-		Model:     payload.Model,
-	})
+	finalRun := *r
+	finalRun.StepCount = payload.StepCount
+	finalRun.CostUSD = payload.CostUSD
+	finalRun.TokensIn = payload.TokensIn
+	finalRun.TokensOut = payload.TokensOut
+	finalRun.Model = payload.Model
+	s.broadcastRunStatus(ctx, &finalRun, status)
 	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
 		AgentID:   r.AgentID,
 		ProjectID: r.ProjectID,
@@ -426,6 +412,23 @@ func (s *RuntimeService) appendRunEventWithTokens(ctx context.Context, evType ev
 	if err := s.events.Append(ctx, &ev); err != nil {
 		slog.Error("failed to append run event", "type", evType, "run_id", r.ID, "error", err)
 	}
+}
+
+// broadcastRunStatus broadcasts a RunStatusEvent to all connected clients.
+// Centralizes the 8+ occurrences of this pattern across runtime_execution.go,
+// runtime.go, and runtime_lifecycle.go.
+func (s *RuntimeService) broadcastRunStatus(ctx context.Context, r *run.Run, status run.Status) {
+	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
+		RunID:     r.ID,
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(status),
+		StepCount: r.StepCount,
+		CostUSD:   r.CostUSD,
+		TokensIn:  r.TokensIn,
+		TokensOut: r.TokensOut,
+		Model:     r.Model,
+	})
 }
 
 // appendAudit records an entry in the audit trail table for compliance and debugging.

@@ -55,17 +55,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 			"status": string(run.StatusTimeout),
 			"reason": reason,
 		})
-		s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-			RunID:     r.ID,
-			TaskID:    r.TaskID,
-			ProjectID: r.ProjectID,
-			Status:    string(run.StatusTimeout),
-			StepCount: r.StepCount,
-			CostUSD:   r.CostUSD,
-			TokensIn:  r.TokensIn,
-			TokensOut: r.TokensOut,
-			Model:     r.Model,
-		})
+		s.broadcastRunStatus(ctx, r, run.StatusTimeout)
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
 
@@ -323,16 +313,12 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"reason": reason,
 			})
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-				RunID:     r.ID,
-				TaskID:    r.TaskID,
-				ProjectID: r.ProjectID,
-				Status:    string(run.StatusTimeout),
-				StepCount: r.StepCount,
-				CostUSD:   newCost,
-				TokensIn:  newTokensIn,
-				TokensOut: newTokensOut,
-			})
+			// Use a temporary copy with updated cost/tokens for the broadcast.
+			budgetRun := *r
+			budgetRun.CostUSD = newCost
+			budgetRun.TokensIn = newTokensIn
+			budgetRun.TokensOut = newTokensOut
+			s.broadcastRunStatus(ctx, &budgetRun, run.StatusTimeout)
 			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 			if s.onRunComplete != nil {
@@ -371,16 +357,12 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-				RunID:     r.ID,
-				TaskID:    r.TaskID,
-				ProjectID: r.ProjectID,
-				Status:    string(run.StatusFailed),
-				StepCount: r.StepCount,
-				CostUSD:   newCost,
-				TokensIn:  newTokensIn,
-				TokensOut: newTokensOut,
-			})
+			// Use a temporary copy with updated cost/tokens for the broadcast.
+			stallRun := *r
+			stallRun.CostUSD = newCost
+			stallRun.TokensIn = newTokensIn
+			stallRun.TokensOut = newTokensOut
+			s.broadcastRunStatus(ctx, &stallRun, run.StatusFailed)
 			// Set agent idle, task failed
 			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
@@ -529,17 +511,14 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			ProjectID: r.ProjectID,
 			Status:    "started",
 		})
-		s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-			RunID:     r.ID,
-			TaskID:    r.TaskID,
-			ProjectID: r.ProjectID,
-			Status:    string(run.StatusQualityGate),
-			StepCount: payload.StepCount,
-			CostUSD:   payload.CostUSD,
-			TokensIn:  payload.TokensIn,
-			TokensOut: payload.TokensOut,
-			Model:     payload.Model,
-		})
+		// Use a temporary copy with payload values for the broadcast.
+		gateRun := *r
+		gateRun.StepCount = payload.StepCount
+		gateRun.CostUSD = payload.CostUSD
+		gateRun.TokensIn = payload.TokensIn
+		gateRun.TokensOut = payload.TokensOut
+		gateRun.Model = payload.Model
+		s.broadcastRunStatus(ctx, &gateRun, run.StatusQualityGate)
 
 		slog.Info("quality gate triggered", "run_id", r.ID)
 		return nil // Wait for quality gate result

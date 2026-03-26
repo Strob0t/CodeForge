@@ -214,7 +214,8 @@ func (s *AutoAgentService) runLoop(ctx context.Context, projectID string, featur
 	aa.Error = errMsg
 	aa.CurrentFeatureID = ""
 	aa.ConversationID = ""
-	_ = s.db.UpdateAutoAgentStatus(ctx, projectID, finalStatus, errMsg)
+	logBestEffort(ctx, s.db.UpdateAutoAgentStatus(ctx, projectID, finalStatus, errMsg),
+		"UpdateAutoAgentStatus", slog.String("project_id", projectID))
 	s.broadcastStatus(ctx, aa)
 
 	slog.Info("auto-agent completed",

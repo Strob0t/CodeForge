@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
@@ -57,11 +58,11 @@ func (s *PMWebhookService) triggerPullSync(ctx context.Context, provider, projec
 	)
 
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, "pm.sync", map[string]any{
-			"project_id": proj.ID,
-			"provider":   provider,
-			"created":    result.Created,
-			"updated":    result.Updated,
+		s.hub.BroadcastEvent(ctx, "pm.sync", event.PMSyncEvent{
+			ProjectID: proj.ID,
+			Provider:  provider,
+			Created:   result.Created,
+			Updated:   result.Updated,
 		})
 	}
 }

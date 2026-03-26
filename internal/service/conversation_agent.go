@@ -22,6 +22,15 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// reminderTemplateData holds the data passed to Go text/template for reminder entries.
+type reminderTemplateData struct {
+	TurnCount       int
+	BudgetPercent   float64
+	BudgetUsed      string
+	BudgetLimit     string
+	StallIterations int
+}
+
 // buildSessionMeta extracts session operation metadata (resume/fork/rewind) from a Session's
 // Metadata JSON field and returns a SessionMetaPayload for the NATS payload. Returns nil
 // if there is no meaningful session operation context.
@@ -159,12 +168,12 @@ func (s *ConversationService) evaluateReminders(
 	budgetPct, budgetUsed, budgetLimit := s.computeBudget(ctx, conversationID)
 
 	// Build reminder template data from current state.
-	data := map[string]any{
-		"TurnCount":       len(history),
-		"BudgetPercent":   budgetPct,
-		"BudgetUsed":      budgetUsed,
-		"BudgetLimit":     budgetLimit,
-		"StallIterations": countStallIterations(history),
+	data := reminderTemplateData{
+		TurnCount:       len(history),
+		BudgetPercent:   budgetPct,
+		BudgetUsed:      budgetUsed,
+		BudgetLimit:     budgetLimit,
+		StallIterations: countStallIterations(history),
 	}
 
 	var result []string
@@ -380,6 +389,197 @@ func (s *ConversationService) matchMicroagents(ctx context.Context, projectID, c
 	return prompts
 }
 
+// AgenticOption configures optional behaviour for agentic run dispatch.
+type AgenticOption func(*agenticOpts)
+
+type agenticOpts struct {
+	model          string
+	extraContext   []messagequeue.ContextEntryPayload
+	dedupKey       string
+	providerAPIKey string
+	rolloutCount   int
+	recordMetrics  bool
+	agentName      string // WS broadcast agent name ("agent" default, or modeID)
+}
+
+// WithModel overrides the default model resolution for the agentic run.
+// This preserves the caller's explicit model choice through mode redirects.
+func WithModel(model string) AgenticOption {
+	return func(o *agenticOpts) {
+		o.model = model
+	}
+}
+
+// WithContextEntries appends additional context entries to the NATS payload.
+// These are merged with the automatically built conversation context entries.
+func WithContextEntries(entries []messagequeue.ContextEntryPayload) AgenticOption {
+	return func(o *agenticOpts) {
+		o.extraContext = append(o.extraContext, entries...)
+	}
+}
+
+// dispatchAgenticRun is the shared core for SendMessageAgentic and SendMessageAgenticWithMode.
+// It stores the user message, builds the NATS payload, and publishes the conversation run start.
+func (s *ConversationService) dispatchAgenticRun(
+	ctx context.Context,
+	conv *conversation.Conversation,
+	content, modeID string,
+	opts *agenticOpts,
+) error {
+	conversationID := conv.ID
+
+	// Store user message.
+	userMsg := &conversation.Message{
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        content,
+	}
+	if _, err := s.db.CreateMessage(ctx, userMsg); err != nil {
+		return fmt.Errorf("store user message: %w", err)
+	}
+
+	// Load full conversation history.
+	history, err := s.db.ListMessages(ctx, conversationID)
+	if err != nil {
+		return fmt.Errorf("list messages: %w", err)
+	}
+
+	proj, err := s.db.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+
+	// Ensure a session exists for this conversation.
+	var sessionID string
+	var sessionMeta *messagequeue.SessionMetaPayload
+	if s.sessionSvc != nil {
+		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
+		if sessErr != nil {
+			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
+		} else {
+			sessionID = sess.ID
+			sessionMeta = buildSessionMeta(sess)
+		}
+	}
+
+	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
+	protoMessages := s.historyToPayload(history)
+
+	// Resolve model and mode.
+	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(opts.model, modeID, conv.Mode)
+	if modeErr != nil {
+		return modeErr
+	}
+
+	// Resolve policy profile.
+	policyProfile := ""
+	if s.policySvc != nil {
+		modePolicy := ""
+		if modeAutonomy > 0 {
+			modePolicy = policyForAutonomy(modeAutonomy)
+		}
+		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
+	}
+
+	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
+
+	// Termination config.
+	termination := messagequeue.TerminationPayload{
+		MaxSteps:       50,
+		TimeoutSeconds: 600,
+	}
+	if s.agentCfg != nil && s.agentCfg.MaxLoopIterations > 0 {
+		termination.MaxSteps = s.agentCfg.MaxLoopIterations
+	}
+
+	// Build context entries + merge extra from functional options.
+	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
+	if len(opts.extraContext) > 0 {
+		contextEntries = append(contextEntries, opts.extraContext...)
+	}
+
+	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+
+	// Resolve rollout count (only for autonomy >= 4, capped at 8).
+	rolloutCount := opts.rolloutCount
+	if rolloutCount <= 0 {
+		rolloutCount = 1
+	}
+
+	runID := conversationID
+	payload := messagequeue.ConversationRunStartPayload{
+		RunID:              runID,
+		ConversationID:     conversationID,
+		SessionID:          sessionID,
+		ProjectID:          proj.ID,
+		Messages:           protoMessages,
+		SystemPrompt:       systemPrompt,
+		Model:              model,
+		PolicyProfile:      policyProfile,
+		WorkspacePath:      proj.WorkspacePath,
+		Mode:               resolvedMode,
+		Termination:        termination,
+		MCPServers:         s.buildMCPDefinitions(proj.ID),
+		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, content, conversationID),
+		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
+		Context:            contextEntries,
+		Agentic:            true,
+		PlanActEnabled:     modeAutonomy >= 4,
+		ProviderAPIKey:     opts.providerAPIKey,
+		TenantID:           tenantctx.FromContext(ctx),
+		SessionMeta:        sessionMeta,
+		Reminders:          reminders,
+		RolloutCount:       rolloutCount,
+		SummarizeThreshold: s.summarizeThreshold(),
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal conversation run start: %w", err)
+	}
+
+	agentName := opts.agentName
+	if agentName == "" {
+		agentName = "agent"
+	}
+	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
+		RunID:     runID,
+		ThreadID:  conversationID,
+		AgentName: agentName,
+	})
+
+	// Publish with dedup key when provided, plain publish otherwise.
+	if opts.dedupKey != "" {
+		if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, opts.dedupKey); err != nil {
+			s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
+				RunID:  runID,
+				Status: "failed",
+				Error:  err.Error(),
+			})
+			return fmt.Errorf("publish conversation run start: %w", err)
+		}
+	} else {
+		if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunStart, data); err != nil {
+			return fmt.Errorf("publish conversation run start: %w", err)
+		}
+	}
+
+	if opts.recordMetrics && s.metrics != nil {
+		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)
+	}
+
+	slog.Info("conversation agentic run dispatched",
+		"run_id", runID,
+		"conversation_id", conversationID,
+		"session_id", sessionID,
+		"project_id", proj.ID,
+		"mode", modeID,
+		"model", model,
+	)
+
+	return nil
+}
+
 // SendMessageAgentic stores the user message and dispatches an agentic run to the
 // Python worker via NATS. Streaming results arrive asynchronously via WebSocket.
 // The method returns immediately after dispatch.
@@ -406,162 +606,24 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		return gateErr
 	}
 
-	// Store user message.
-	userMsg := &conversation.Message{
-		ConversationID: conversationID,
-		Role:           "user",
-		Content:        req.Content,
-	}
-	if _, err = s.db.CreateMessage(ctx, userMsg); err != nil {
-		return fmt.Errorf("store user message: %w", err)
-	}
-
-	// Load full conversation history.
-	history, err := s.db.ListMessages(ctx, conversationID)
-	if err != nil {
-		return fmt.Errorf("list messages: %w", err)
-	}
-
-	// Ensure a session exists for this conversation.
-	var sessionID string
-	var sessionMeta *messagequeue.SessionMetaPayload
-	if s.sessionSvc != nil {
-		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
-		if sessErr != nil {
-			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
-		} else {
-			sessionID = sess.ID
-			sessionMeta = buildSessionMeta(sess)
-		}
-	}
-
-	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
-	protoMessages := s.historyToPayload(history)
-
-	// Resolve model and mode.
-	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
-	if modeErr != nil {
-		return modeErr
-	}
-
-	// Resolve policy profile.
-	policyProfile := ""
-	if s.policySvc != nil {
-		modePolicy := ""
-		if modeAutonomy > 0 {
-			modePolicy = policyForAutonomy(modeAutonomy)
-		}
-		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
-	}
-
-	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
-
-	// Termination config.
-	termination := messagequeue.TerminationPayload{
-		MaxSteps:       50,
-		TimeoutSeconds: 600,
-	}
-	if s.agentCfg != nil && s.agentCfg.MaxLoopIterations > 0 {
-		termination.MaxSteps = s.agentCfg.MaxLoopIterations
-	}
-
-	// RunID matches conversationID for tool-call policy lookups.
-	runID := conversationID
-	dedupKey := "conv-start-" + uuid.New().String()
-
-	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, req.Content, conversationID, protoMessages)
-	providerAPIKey := s.resolveProviderAPIKey(ctx, req.UserID, model)
-	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
-
-	// Resolve rollout count (only for autonomy >= 4, capped at 8).
+	// Resolve rollout count (only for autonomy >= 4).
 	rolloutCount := 1
-	if s.agentCfg != nil && s.agentCfg.ConversationRolloutCount > 1 && modeAutonomy >= 4 {
-		rolloutCount = min(s.agentCfg.ConversationRolloutCount, 8)
+	if s.agentCfg != nil && s.agentCfg.ConversationRolloutCount > 1 {
+		model, _, modeAutonomy, _ := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
+		_ = model
+		if modeAutonomy >= 4 {
+			rolloutCount = min(s.agentCfg.ConversationRolloutCount, 8)
+		}
 	}
 
-	payload := messagequeue.ConversationRunStartPayload{
-		RunID:              runID,
-		ConversationID:     conversationID,
-		SessionID:          sessionID,
-		ProjectID:          proj.ID,
-		Messages:           protoMessages,
-		SystemPrompt:       systemPrompt,
-		Model:              model,
-		PolicyProfile:      policyProfile,
-		WorkspacePath:      proj.WorkspacePath,
-		Mode:               resolvedMode,
-		Termination:        termination,
-		MCPServers:         s.buildMCPDefinitions(proj.ID),
-		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, req.Content, conversationID),
-		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
-		Context:            contextEntries,
-		Agentic:            true,
-		PlanActEnabled:     modeAutonomy >= 4,
-		ProviderAPIKey:     providerAPIKey,
-		TenantID:           tenantctx.FromContext(ctx),
-		SessionMeta:        sessionMeta,
-		Reminders:          reminders,
-		RolloutCount:       rolloutCount,
-		SummarizeThreshold: s.summarizeThreshold(),
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal conversation run start: %w", err)
-	}
-
-	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
-		RunID:     runID,
-		ThreadID:  conversationID,
-		AgentName: "agent",
+	return s.dispatchAgenticRun(ctx, conv, req.Content, req.Mode, &agenticOpts{
+		model:          req.Model,
+		dedupKey:       "conv-start-" + uuid.New().String(),
+		providerAPIKey: s.resolveProviderAPIKey(ctx, req.UserID, req.Model),
+		rolloutCount:   rolloutCount,
+		recordMetrics:  true,
+		agentName:      "agent",
 	})
-
-	if err := s.queue.PublishWithDedup(ctx, messagequeue.SubjectConversationRunStart, data, dedupKey); err != nil {
-		s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
-			RunID:  runID,
-			Status: "failed",
-			Error:  err.Error(),
-		})
-		return fmt.Errorf("publish conversation run start: %w", err)
-	}
-
-	if s.metrics != nil {
-		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)
-	}
-
-	slog.Info("conversation agentic run dispatched",
-		"run_id", runID,
-		"conversation_id", conversationID,
-		"session_id", sessionID,
-		"project_id", proj.ID,
-		"model", model,
-	)
-
-	return nil
-}
-
-// AgenticOption configures optional behaviour for SendMessageAgenticWithMode.
-type AgenticOption func(*agenticOpts)
-
-type agenticOpts struct {
-	model        string
-	extraContext []messagequeue.ContextEntryPayload
-}
-
-// WithModel overrides the default model resolution for the agentic run.
-// This preserves the caller's explicit model choice through mode redirects.
-func WithModel(model string) AgenticOption {
-	return func(o *agenticOpts) {
-		o.model = model
-	}
-}
-
-// WithContextEntries appends additional context entries to the NATS payload.
-// These are merged with the automatically built conversation context entries.
-func WithContextEntries(entries []messagequeue.ContextEntryPayload) AgenticOption {
-	return func(o *agenticOpts) {
-		o.extraContext = append(o.extraContext, entries...)
-	}
 }
 
 // SendMessageAgenticWithMode is like SendMessageAgentic but accepts a mode ID override
@@ -580,132 +642,14 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	// Store user message.
-	userMsg := &conversation.Message{
-		ConversationID: conversationID,
-		Role:           "user",
-		Content:        content,
-	}
-	if _, err := s.db.CreateMessage(ctx, userMsg); err != nil {
-		return fmt.Errorf("store user message: %w", err)
-	}
-
-	history, err := s.db.ListMessages(ctx, conversationID)
-	if err != nil {
-		return fmt.Errorf("list messages: %w", err)
-	}
-
-	proj, err := s.db.GetProject(ctx, conv.ProjectID)
-	if err != nil {
-		return fmt.Errorf("get project: %w", err)
-	}
-
-	// Ensure a session exists for this conversation.
-	var sessionID string
-	var sessionMeta *messagequeue.SessionMetaPayload
-	if s.sessionSvc != nil {
-		sess, sessErr := s.sessionSvc.EnsureConversationSession(ctx, proj.ID, conversationID)
-		if sessErr != nil {
-			slog.Warn("failed to ensure conversation session", "conversation_id", conversationID, "error", sessErr)
-		} else {
-			sessionID = sess.ID
-			sessionMeta = buildSessionMeta(sess)
-		}
-	}
-
-	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
-	protoMessages := s.historyToPayload(history)
-
-	// Apply functional options early so the model override is available.
+	// Apply functional options.
 	var applied agenticOpts
 	for _, o := range opts {
 		o(&applied)
 	}
+	applied.agentName = modeID
 
-	// Resolve model and mode using shared helper.
-	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(applied.model, modeID, "")
-	if modeErr != nil {
-		return modeErr
-	}
-
-	// Resolve policy profile using the mode's autonomy level.
-	policyProfile := ""
-	if s.policySvc != nil {
-		modePolicy := ""
-		if modeAutonomy > 0 {
-			modePolicy = policyForAutonomy(modeAutonomy)
-		}
-		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
-	}
-
-	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
-
-	termination := messagequeue.TerminationPayload{
-		MaxSteps:       50,
-		TimeoutSeconds: 600,
-	}
-	if s.agentCfg != nil && s.agentCfg.MaxLoopIterations > 0 {
-		termination.MaxSteps = s.agentCfg.MaxLoopIterations
-	}
-
-	// Build context entries + merge extra from functional options.
-	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
-	if len(applied.extraContext) > 0 {
-		contextEntries = append(contextEntries, applied.extraContext...)
-	}
-
-	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
-
-	runID := conversationID
-	payload := messagequeue.ConversationRunStartPayload{
-		RunID:              runID,
-		ConversationID:     conversationID,
-		SessionID:          sessionID,
-		ProjectID:          proj.ID,
-		Messages:           protoMessages,
-		SystemPrompt:       systemPrompt,
-		Model:              model,
-		PolicyProfile:      policyProfile,
-		WorkspacePath:      proj.WorkspacePath,
-		Mode:               resolvedMode,
-		Termination:        termination,
-		MCPServers:         s.buildMCPDefinitions(proj.ID),
-		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, content, conversationID),
-		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
-		Context:            contextEntries,
-		Agentic:            true,
-		PlanActEnabled:     modeAutonomy >= 4,
-		TenantID:           tenantctx.FromContext(ctx),
-		SessionMeta:        sessionMeta,
-		Reminders:          reminders,
-		SummarizeThreshold: s.summarizeThreshold(),
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal conversation run start: %w", err)
-	}
-
-	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
-		RunID:     runID,
-		ThreadID:  conversationID,
-		AgentName: modeID,
-	})
-
-	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunStart, data); err != nil {
-		return fmt.Errorf("publish conversation run start: %w", err)
-	}
-
-	slog.Info("conversation agentic run dispatched (mode override)",
-		"run_id", runID,
-		"conversation_id", conversationID,
-		"session_id", sessionID,
-		"project_id", proj.ID,
-		"mode", modeID,
-		"model", model,
-	)
-
-	return nil
+	return s.dispatchAgenticRun(ctx, conv, content, modeID, &applied)
 }
 
 // HandleConversationRunComplete processes the completion message from the Python worker.

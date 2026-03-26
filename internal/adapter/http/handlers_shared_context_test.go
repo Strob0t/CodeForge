@@ -64,12 +64,11 @@ func newSharedCtxTestRouter(store *sharedCtxMockStore) chi.Router {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), &user.User{
+			next.ServeHTTP(w, r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
 				ID:   "test-admin",
 				Name: "Test Admin",
 				Role: user.RoleAdmin,
-			})
-			next.ServeHTTP(w, r.WithContext(ctx))
+			})))
 		})
 	})
 
