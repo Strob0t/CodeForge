@@ -22,7 +22,7 @@ from codeforge.consumer._conversation_skill_integration import (
     wire_skill_tools,
 )
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
-from codeforge.models import ConversationRunCompleteMessage, ConversationRunStartMessage
+from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
-    from codeforge.models import AgentLoopResult, ContextEntry
+    from codeforge.models import ContextEntry
 
 logger = structlog.get_logger()
 
@@ -210,7 +210,7 @@ class ConversationHandlerMixin:
             messages.append({"role": "system", "content": note})
             log.info("injected session context note", operation=op)
 
-    async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
+    async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:  # noqa: C901
         """Process a conversation run: agentic loop with tool calling."""
         from codeforge.history import ConversationHistoryManager, HistoryConfig
         from codeforge.mcp_workbench import McpWorkbench
@@ -374,6 +374,7 @@ class ConversationHandlerMixin:
             tokens_out=result.total_tokens_out,
             step_count=result.step_count,
             model=result.model,
+            tenant_id=run_msg.tenant_id,
         )
         stamped = self._stamp_trust(complete_msg.model_dump())
         await self._js.publish(
@@ -393,6 +394,7 @@ class ConversationHandlerMixin:
                     session_id=run_msg.session_id,
                     status="failed",
                     error="internal worker error",
+                    tenant_id=run_msg.tenant_id,
                 )
                 await self._js.publish(
                     SUBJECT_CONVERSATION_RUN_COMPLETE,

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -248,12 +249,20 @@ func (s *Store) DeleteRemoteAgent(ctx context.Context, id string) error {
 
 func (s *Store) CreateA2APushConfig(ctx context.Context, taskID, url, token string) (string, error) {
 	var id string
+	// Use INSERT...FROM subquery to verify the task belongs to the calling tenant
+	// before inserting the push config. Returns no rows if the task does not exist
+	// or belongs to a different tenant.
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO a2a_push_configs (task_id, url, token, created_at)
-		VALUES ($1,$2,$3,$4) RETURNING id`,
-		taskID, url, token, time.Now().UTC(),
+		SELECT $1, $2, $3, $4
+		FROM a2a_tasks WHERE id = $1 AND tenant_id = $5
+		RETURNING id`,
+		taskID, url, token, time.Now().UTC(), tenantFromCtx(ctx),
 	).Scan(&id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("create push config: task %s not found: %w", taskID, domain.ErrNotFound)
+		}
 		return "", fmt.Errorf("create push config: %w", err)
 	}
 	return id, nil

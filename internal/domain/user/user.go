@@ -192,6 +192,7 @@ type RefreshToken struct {
 type PasswordResetToken struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`
+	TenantID  string    `json:"tenant_id"`
 	TokenHash string    `json:"-"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Used      bool      `json:"used"`

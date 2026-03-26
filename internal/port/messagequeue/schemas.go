@@ -466,6 +466,7 @@ type ConversationRunCompletePayload struct {
 	TokensOut        int64                        `json:"tokens_out"`
 	StepCount        int                          `json:"step_count"`
 	Model            string                       `json:"model"`
+	TenantID         string                       `json:"tenant_id,omitempty"` // Tenant isolation for background jobs
 }
 
 // ConversationCompactCompletePayload is the schema for conversation.compact.complete messages.

@@ -211,6 +211,7 @@ func sampleConversationRunCompletePayload() mq.ConversationRunCompletePayload {
 		TokensOut:        1200,
 		StepCount:        7,
 		Model:            "anthropic/claude-sonnet-4-20250514",
+		TenantID:         "550e8400-e29b-41d4-a716-446655440099",
 	}
 }
 

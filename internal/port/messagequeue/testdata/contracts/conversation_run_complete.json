@@ -26,5 +26,6 @@
   "tokens_in": 2500,
   "tokens_out": 1200,
   "step_count": 7,
-  "model": "anthropic/claude-sonnet-4-20250514"
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440099"
 }

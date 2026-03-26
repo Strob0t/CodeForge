@@ -4,6 +4,9 @@
   "token_count": 256,
   "file_count": 15,
   "symbol_count": 42,
-  "languages": ["go", "python"],
+  "languages": [
+    "go",
+    "python"
+  ],
   "error": ""
 }

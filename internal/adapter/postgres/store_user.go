@@ -90,9 +90,9 @@ func (s *Store) DeleteUser(ctx context.Context, id string) error {
 
 func (s *Store) CreatePasswordResetToken(ctx context.Context, token *user.PasswordResetToken) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
-		token.ID, token.UserID, token.TokenHash, token.ExpiresAt, token.Used, token.CreatedAt,
+		INSERT INTO password_reset_tokens (id, user_id, tenant_id, token_hash, expires_at, used, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		token.ID, token.UserID, tenantFromCtx(ctx), token.TokenHash, token.ExpiresAt, token.Used, token.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("create password reset token: %w", err)
@@ -102,11 +102,11 @@ func (s *Store) CreatePasswordResetToken(ctx context.Context, token *user.Passwo
 
 func (s *Store) GetPasswordResetTokenByHash(ctx context.Context, tokenHash string) (*user.PasswordResetToken, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, user_id, token_hash, expires_at, used, created_at
-		FROM password_reset_tokens WHERE token_hash = $1`, tokenHash)
+		SELECT id, user_id, tenant_id, token_hash, expires_at, used, created_at
+		FROM password_reset_tokens WHERE token_hash = $1 AND tenant_id = $2`, tokenHash, tenantFromCtx(ctx))
 
 	var t user.PasswordResetToken
-	err := row.Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.Used, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.UserID, &t.TenantID, &t.TokenHash, &t.ExpiresAt, &t.Used, &t.CreatedAt)
 	if err != nil {
 		return nil, notFoundWrap(err, "get password reset token")
 	}
@@ -114,12 +114,12 @@ func (s *Store) GetPasswordResetTokenByHash(ctx context.Context, tokenHash strin
 }
 
 func (s *Store) MarkPasswordResetTokenUsed(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE password_reset_tokens SET used = true WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx, `UPDATE password_reset_tokens SET used = true WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "mark password reset token %s", id)
 }
 
 func (s *Store) DeleteExpiredPasswordResetTokens(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM password_reset_tokens WHERE expires_at < now() OR used = true`)
+	tag, err := s.pool.Exec(ctx, `DELETE FROM password_reset_tokens WHERE (expires_at < now() OR used = true) AND tenant_id = $1`, tenantFromCtx(ctx))
 	if err != nil {
 		return 0, fmt.Errorf("delete expired password reset tokens: %w", err)
 	}

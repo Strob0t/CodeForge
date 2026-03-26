@@ -199,24 +199,28 @@ func (s *Store) CreateToolMessages(ctx context.Context, conversationID string, m
 		return nil
 	}
 
+	tid := tenantFromCtx(ctx)
 	batch := &pgx.Batch{}
 	for i := range msgs {
 		var toolCallsJSON []byte
 		if len(msgs[i].ToolCalls) > 0 {
 			toolCallsJSON = []byte(msgs[i].ToolCalls)
 		}
+		// Use INSERT...FROM subquery pattern (same as CreateMessage) to verify
+		// the conversation belongs to the calling tenant before inserting.
 		// Use ON CONFLICT DO NOTHING for messages with a tool_call_id to
 		// prevent duplicates from NATS redeliveries.  Assistant messages
 		// (which have tool_calls JSON but no tool_call_id) always insert.
 		query := `INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+			 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
+			 FROM conversations WHERE id = $1 AND tenant_id = $10`
 		if msgs[i].ToolCallID != "" {
 			query += ` ON CONFLICT (conversation_id, tool_call_id) WHERE tool_call_id IS NOT NULL AND tool_call_id != '' DO NOTHING`
 		}
 		batch.Queue(
 			query,
 			conversationID, msgs[i].Role, msgs[i].Content, toolCallsJSON,
-			msgs[i].ToolCallID, msgs[i].ToolName, msgs[i].TokensIn, msgs[i].TokensOut, msgs[i].Model,
+			msgs[i].ToolCallID, msgs[i].ToolName, msgs[i].TokensIn, msgs[i].TokensOut, msgs[i].Model, tid,
 		)
 	}
 

@@ -515,6 +515,7 @@ class ConversationRunCompleteMessage(BaseModel):
     tokens_out: int = 0
     step_count: int = 0
     model: str = ""
+    tenant_id: str = ""
 
 
 class AgentLoopResult(BaseModel):

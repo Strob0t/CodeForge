@@ -11,5 +11,7 @@
       "confidence": 0.85
     }
   ],
-  "strategic_principles": ["Handle errors explicitly"]
+  "strategic_principles": [
+    "Handle errors explicitly"
+  ]
 }

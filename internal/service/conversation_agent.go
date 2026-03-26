@@ -721,6 +721,11 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	// No application-level dedup here — RunID equals ConversationID, so a map-based
 	// guard would block legitimate follow-up completions in the same conversation.
 
+	// Inject tenant context from NATS payload (background consumer has no tenant).
+	if payload.TenantID != "" {
+		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
+	}
+
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,
 		"conversation_id", payload.ConversationID,
