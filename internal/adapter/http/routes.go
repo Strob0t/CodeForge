@@ -97,8 +97,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 			_, _ = fmt.Fprintf(w, `{"repository":"https://github.com/Strob0t/CodeForge","version":"%s","git_sha":"%s","license":"AGPL-3.0-or-later"}`, version.Version, version.GitSHA)
 		})
 
-		mountProjectRoutes(r, h)
-		mountConversationRoutes(r, h)
+		mountProjectRoutes(r, h, audit)
+		mountConversationRoutes(r, h, audit)
 		mountRunRoutes(r, h)
 		mountOrchestrationRoutes(r, h, audit)
 		mountLLMRoutes(r, h)
@@ -133,7 +133,7 @@ func mountWebhookRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 }
 
 // mountProjectRoutes registers project CRUD, workspace, git, file, agent, and task endpoints.
-func mountProjectRoutes(r chi.Router, h *Handlers) {
+func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// Projects
 	r.Get("/projects", h.Project.ListProjects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.Project.CreateProject)
@@ -173,12 +173,15 @@ func mountProjectRoutes(r chi.Router, h *Handlers) {
 
 	// Git operations (nested under projects)
 	r.Get("/projects/{id}/git/status", h.Project.ProjectGitStatus)
-	r.Post("/projects/{id}/git/pull", h.Project.PullProject)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/git/pull", h.Project.PullProject)
 	r.Get("/projects/{id}/git/branches", h.Project.ListProjectBranches)
-	r.Post("/projects/{id}/git/checkout", h.Project.CheckoutBranch)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/git/checkout", h.Project.CheckoutBranch)
 
 	// Agents (nested under projects)
-	r.Post("/projects/{id}/agents", h.Agent.CreateAgent)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/agents", h.Agent.CreateAgent)
 	r.Get("/projects/{id}/agents", h.Agent.ListAgents)
 
 	// Agents (direct access)
@@ -213,11 +216,14 @@ func mountProjectRoutes(r chi.Router, h *Handlers) {
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/tasks/{id}/claim", h.Task.ClaimTask)
 
 	// Branch Protection Rules (nested under projects + direct access)
-	r.Post("/projects/{id}/branch-rules", h.CreateBranchProtectionRule)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "branch_rule")).
+		Post("/projects/{id}/branch-rules", h.CreateBranchProtectionRule)
 	r.Get("/projects/{id}/branch-rules", h.ListBranchProtectionRules)
 	r.Get("/branch-rules/{id}", h.GetBranchProtectionRule)
-	r.Put("/branch-rules/{id}", h.UpdateBranchProtectionRule)
-	r.Delete("/branch-rules/{id}", h.DeleteBranchProtectionRule)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("update", "branch_rule")).
+		Put("/branch-rules/{id}", h.UpdateBranchProtectionRule)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "branch_rule")).
+		Delete("/branch-rules/{id}", h.DeleteBranchProtectionRule)
 
 	// Parse repo URL
 	r.Post("/parse-repo-url", h.Project.ParseRepoURL)
@@ -236,30 +242,41 @@ func mountProjectRoutes(r chi.Router, h *Handlers) {
 }
 
 // mountConversationRoutes registers conversation and channel-related endpoints.
-func mountConversationRoutes(r chi.Router, h *Handlers) {
+func mountConversationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Post("/projects/{id}/conversations", h.CreateConversation)
 	r.Get("/projects/{id}/conversations", h.ListConversations)
 	r.Get("/conversations/{id}", h.GetConversation)
-	r.Delete("/conversations/{id}", h.DeleteConversation)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Delete("/conversations/{id}", h.DeleteConversation)
 	r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 	r.Post("/conversations/{id}/messages", h.SendConversationMessage)
-	r.Post("/conversations/{id}/stop", h.StopConversation)
-	r.Post("/conversations/{id}/bypass-approvals", h.BypassConversationApprovals)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/stop", h.StopConversation)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("bypass_approvals", "conversation")).
+		Post("/conversations/{id}/bypass-approvals", h.BypassConversationApprovals)
 	r.Get("/conversations/{id}/session", h.GetConversationSession)
-	r.Post("/conversations/{id}/fork", h.ForkConversation)
-	r.Post("/conversations/{id}/rewind", h.RewindConversation)
-	r.Post("/conversations/{id}/compact", h.CompactConversation)
-	r.Post("/conversations/{id}/clear", h.ClearConversation)
-	r.Post("/conversations/{id}/mode", h.SetConversationMode)
-	r.Post("/conversations/{id}/model", h.SetConversationModel)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/fork", h.ForkConversation)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/rewind", h.RewindConversation)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/compact", h.CompactConversation)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/clear", h.ClearConversation)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/mode", h.SetConversationMode)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/conversations/{id}/model", h.SetConversationModel)
 
 	// Commands (slash commands for chat)
 	r.Get("/commands", h.ListCommands)
 
 	// Prompt Sections
 	r.Get("/prompt-sections", h.ListPromptSections)
-	r.Put("/prompt-sections", h.UpsertPromptSection)
-	r.Delete("/prompt-sections/{id}", h.DeletePromptSection)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Put("/prompt-sections", h.UpsertPromptSection)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Delete("/prompt-sections/{id}", h.DeletePromptSection)
 	r.Post("/prompt-sections/preview", h.PreviewPromptSections)
 }
 
@@ -280,8 +297,10 @@ func mountRunRoutes(r chi.Router, h *Handlers) {
 		Post("/runs/{id}/approve-partial", h.ApproveRunPartial)
 
 	// HITL (Human-in-the-Loop) Approval
-	r.Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
-	r.Post("/runs/{id}/revert/{callId}", h.RevertToolCall)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/runs/{id}/revert/{callId}", h.RevertToolCall)
 
 	// Trajectory (nested under runs)
 	r.Get("/runs/{id}/trajectory", h.GetTrajectory)
@@ -316,7 +335,8 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// Policy profiles
 	r.Get("/policies", h.Policy.ListPolicyProfiles)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "policy")).Post("/policies", h.Policy.CreatePolicyProfile)
-	r.Post("/policies/allow-always", h.Policy.AllowAlwaysPolicy)
+	r.With(middleware.RequireRole(user.RoleAdmin)).
+		Post("/policies/allow-always", h.Policy.AllowAlwaysPolicy)
 	r.Get("/policies/{name}", h.Policy.GetPolicyProfile)
 	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "policy")).Delete("/policies/{name}", h.Policy.DeletePolicyProfile)
 	r.Post("/policies/{name}/evaluate", h.Policy.EvaluatePolicy)
@@ -374,8 +394,10 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	}
 
 	// Auto-Agent (PR3.3)
-	r.Post("/projects/{id}/auto-agent/start", h.StartAutoAgent)
-	r.Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/auto-agent/start", h.StartAutoAgent)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/auto-agent/stop", h.StopAutoAgent)
 	r.Get("/projects/{id}/auto-agent/status", h.GetAutoAgentStatus)
 
 	// Routing (Phase 29)
@@ -454,11 +476,15 @@ func mountReviewRoutes(r chi.Router, h *Handlers) {
 
 	// Review Policies & Reviews (Phase 12I)
 	r.Get("/projects/{id}/review-policies", h.ListReviewPolicies)
-	r.Post("/projects/{id}/review-policies", h.CreateReviewPolicy)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/review-policies", h.CreateReviewPolicy)
 	r.Get("/review-policies/{id}", h.GetReviewPolicy)
-	r.Put("/review-policies/{id}", h.UpdateReviewPolicy)
-	r.Delete("/review-policies/{id}", h.DeleteReviewPolicy)
-	r.Post("/review-policies/{id}/trigger", h.TriggerReview)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Put("/review-policies/{id}", h.UpdateReviewPolicy)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Delete("/review-policies/{id}", h.DeleteReviewPolicy)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/review-policies/{id}/trigger", h.TriggerReview)
 	r.Get("/projects/{id}/reviews", h.ListReviews)
 	r.Get("/reviews/{id}", h.GetReviewHandler)
 }
@@ -589,12 +615,16 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	}
 
 	// Auth (authenticated)
-	r.Post("/auth/logout", h.Logout)
+	r.With(audit("logout", "auth")).
+		Post("/auth/logout", h.Logout)
 	r.Get("/auth/me", h.GetCurrentUser)
-	r.Post("/auth/change-password", h.ChangePassword)
-	r.Post("/auth/api-keys", h.CreateAPIKeyHandler)
+	r.With(audit("change_password", "auth")).
+		Post("/auth/change-password", h.ChangePassword)
+	r.With(audit("create", "api_key")).
+		Post("/auth/api-keys", h.CreateAPIKeyHandler)
 	r.Get("/auth/api-keys", h.ListAPIKeysHandler)
-	r.Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)
+	r.With(audit("delete", "api_key")).
+		Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)
 
 	// Subscription Providers (OAuth device flow connect)
 	r.Get("/auth/providers", h.ListSubscriptionProviders)
@@ -661,12 +691,16 @@ func mountDevToolRoutes(r chi.Router, h *Handlers) {
 func mountChannelRoutes(r chi.Router, h *Handlers) {
 	r.Route("/channels", func(r chi.Router) {
 		r.Get("/", h.ListChannels)
-		r.Post("/", h.CreateChannel)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/", h.CreateChannel)
 		r.Get("/{id}", h.GetChannel)
-		r.Delete("/{id}", h.DeleteChannel)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Delete("/{id}", h.DeleteChannel)
 		r.Get("/{id}/messages", h.ListChannelMessages)
-		r.Post("/{id}/messages", h.SendChannelMessage)
-		r.Post("/{id}/messages/{mid}/thread", h.SendThreadReply)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/{id}/messages", h.SendChannelMessage)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/{id}/messages/{mid}/thread", h.SendThreadReply)
 		r.Put("/{id}/members/{uid}", h.UpdateMemberNotify)
 		r.Post("/{id}/webhook", h.WebhookMessage)
 	})
@@ -678,11 +712,14 @@ func mountA2ARoutes(r chi.Router, h *Handlers) {
 		return
 	}
 	r.Route("/a2a", func(r chi.Router) {
-		r.Post("/agents", h.RegisterRemoteAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/agents", h.RegisterRemoteAgent)
 		r.Get("/agents", h.ListRemoteAgents)
-		r.Delete("/agents/{id}", h.DeleteRemoteAgent)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Delete("/agents/{id}", h.DeleteRemoteAgent)
 		r.Post("/agents/{id}/discover", h.DiscoverRemoteAgent)
-		r.Post("/agents/{id}/send", h.SendA2ATask)
+		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+			Post("/agents/{id}/send", h.SendA2ATask)
 		r.Get("/tasks", h.ListA2ATasks)
 		r.Get("/tasks/{id}", h.GetA2ATask)
 		r.Post("/tasks/{id}/cancel", h.CancelA2ATask)
@@ -702,12 +739,15 @@ func mountGoalRoutes(r chi.Router, h *Handlers) {
 		return
 	}
 	r.Get("/projects/{id}/goals", h.ListProjectGoals)
-	r.Post("/projects/{id}/goals", h.CreateProjectGoal)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Post("/projects/{id}/goals", h.CreateProjectGoal)
 	r.Post("/projects/{id}/goals/detect", h.DetectProjectGoals)
 	r.Post("/projects/{id}/goals/ai-discover", h.AIDiscoverProjectGoals)
 	r.Get("/goals/{id}", h.GetProjectGoal)
-	r.Put("/goals/{id}", h.UpdateProjectGoal)
-	r.Delete("/goals/{id}", h.DeleteProjectGoal)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Put("/goals/{id}", h.UpdateProjectGoal)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Delete("/goals/{id}", h.DeleteProjectGoal)
 }
 
 // mountQuarantineRoutes registers quarantine management endpoints (admin only).
