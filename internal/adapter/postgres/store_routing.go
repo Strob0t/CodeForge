@@ -103,8 +103,9 @@ func (s *Store) UpsertRoutingStats(ctx context.Context, st *routing.ModelPerform
 	).Scan(&st.ID, &st.CreatedAt, &st.UpdatedAt)
 }
 
-// AggregateRoutingOutcomes computes aggregate statistics from routing outcomes
-// and upserts them into model_performance_stats.
+// AggregateRoutingOutcomes computes aggregate statistics across ALL tenants.
+// This is intentionally cross-tenant (GROUP BY tenant_id ensures per-tenant output).
+// Must only be called from system-level background jobs, never from HTTP handlers.
 func (s *Store) AggregateRoutingOutcomes(ctx context.Context) error {
 	const q = `
 		INSERT INTO model_performance_stats

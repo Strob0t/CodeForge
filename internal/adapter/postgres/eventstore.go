@@ -108,11 +108,11 @@ func scanEvent(scanner interface{ Scan(dest ...any) error }, ev *event.AgentEven
 	)
 }
 
-// LoadByTask returns all events for the given task, ordered by version ascending.
+// LoadByTask returns events for the given task, ordered by version ascending (capped at 10000).
 func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM agent_events WHERE task_id = $1 AND tenant_id = $2 ORDER BY version ASC`, eventColumns), taskID, tid)
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE task_id = $1 AND tenant_id = $2 ORDER BY version ASC LIMIT 10000`, eventColumns), taskID, tid)
 	if err != nil {
 		return nil, fmt.Errorf("load events by task %s: %w", taskID, err)
 	}
@@ -123,11 +123,11 @@ func (s *EventStore) LoadByTask(ctx context.Context, taskID string) ([]event.Age
 	})
 }
 
-// LoadByAgent returns all events for the given agent, ordered by version ascending.
+// LoadByAgent returns events for the given agent, ordered by version ascending (capped at 10000).
 func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM agent_events WHERE agent_id = $1 AND tenant_id = $2 ORDER BY version ASC`, eventColumns), agentID, tid)
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE agent_id = $1 AND tenant_id = $2 ORDER BY version ASC LIMIT 10000`, eventColumns), agentID, tid)
 	if err != nil {
 		return nil, fmt.Errorf("load events by agent %s: %w", agentID, err)
 	}
@@ -138,11 +138,11 @@ func (s *EventStore) LoadByAgent(ctx context.Context, agentID string) ([]event.A
 	})
 }
 
-// LoadByRun returns all events for the given run, ordered by version ascending.
+// LoadByRun returns events for the given run, ordered by version ascending (capped at 10000).
 func (s *EventStore) LoadByRun(ctx context.Context, runID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM agent_events WHERE run_id = $1 AND tenant_id = $2 ORDER BY version ASC`, eventColumns), runID, tid)
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE run_id = $1 AND tenant_id = $2 ORDER BY version ASC LIMIT 10000`, eventColumns), runID, tid)
 	if err != nil {
 		return nil, fmt.Errorf("load events by run %s: %w", runID, err)
 	}
@@ -306,8 +306,9 @@ func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, to
 		qb.addCondition("version <= (SELECT version FROM agent_events WHERE id = $%d)", toEventID)
 	}
 
+	limitIdx := qb.addLimit(10000)
 	query := fmt.Sprintf(
-		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC`, eventColumns, qb.where())
+		`SELECT %s FROM agent_events WHERE %s ORDER BY version ASC LIMIT $%d`, eventColumns, qb.where(), limitIdx)
 
 	rows, err := s.pool.Query(ctx, query, qb.args...)
 	if err != nil {
@@ -320,11 +321,11 @@ func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, to
 	})
 }
 
-// ListCheckpoints returns events of type tool_result for a run, which serve as checkpoints.
+// ListCheckpoints returns events of type tool_result for a run, which serve as checkpoints (capped at 10000).
 func (s *EventStore) ListCheckpoints(ctx context.Context, runID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
 	rows, err := s.pool.Query(ctx,
-		fmt.Sprintf(`SELECT %s FROM agent_events WHERE run_id = $1 AND tenant_id = $2 AND event_type = $3 ORDER BY version ASC`, eventColumns),
+		fmt.Sprintf(`SELECT %s FROM agent_events WHERE run_id = $1 AND tenant_id = $2 AND event_type = $3 ORDER BY version ASC LIMIT 10000`, eventColumns),
 		runID, tid, string(event.TypeToolResult))
 	if err != nil {
 		return nil, fmt.Errorf("list checkpoints: %w", err)

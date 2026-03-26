@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -156,8 +157,10 @@ func (ph *ProjectHandlers) CloneProject(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Branch string `json:"branch"`
 	}
-	// Ignore decode errors — body is optional for backward compatibility.
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	// Body is optional for backward compatibility.
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "CloneProject", "error", err)
+	}
 
 	p, err := ph.Projects.Clone(r.Context(), id, tenantID, body.Branch)
 	if err != nil {
@@ -229,7 +232,9 @@ func (ph *ProjectHandlers) SetupProject(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		Branch string `json:"branch"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "SetupProject", "error", err)
+	}
 
 	result, err := ph.Projects.SetupProject(r.Context(), id, tenantID, body.Branch)
 	if err != nil {

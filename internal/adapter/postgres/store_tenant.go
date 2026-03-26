@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
@@ -22,7 +23,9 @@ func (s *Store) CreateTenant(ctx context.Context, req tenant.CreateRequest) (*te
 	if err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
-	_ = unmarshalJSONField(settingsJSON, &t.Settings, "settings")
+	if err := unmarshalJSONField(settingsJSON, &t.Settings, "settings"); err != nil {
+		slog.Warn("failed to unmarshal tenant settings", "tenant_id", t.ID, "error", err)
+	}
 	return &t, nil
 }
 
@@ -36,7 +39,9 @@ func (s *Store) GetTenant(ctx context.Context, id string) (*tenant.Tenant, error
 	if err != nil {
 		return nil, notFoundWrap(err, "get tenant %s", id)
 	}
-	_ = unmarshalJSONField(settingsJSON, &t.Settings, "settings")
+	if err := unmarshalJSONField(settingsJSON, &t.Settings, "settings"); err != nil {
+		slog.Warn("failed to unmarshal tenant settings", "tenant_id", t.ID, "error", err)
+	}
 	return &t, nil
 }
 
@@ -53,7 +58,9 @@ func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 		if err := r.Scan(&t.ID, &t.Name, &t.Slug, &t.Enabled, &settingsJSON, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return t, err
 		}
-		_ = unmarshalJSONField(settingsJSON, &t.Settings, "settings")
+		if err := unmarshalJSONField(settingsJSON, &t.Settings, "settings"); err != nil {
+			slog.Warn("failed to unmarshal tenant settings", "tenant_id", t.ID, "error", err)
+		}
 		return t, nil
 	})
 }

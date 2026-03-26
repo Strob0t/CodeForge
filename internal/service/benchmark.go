@@ -517,7 +517,9 @@ func sortLeaderboard(entries []benchmark.LeaderboardEntry) {
 // ParseScores unmarshals a JSON-encoded score map. Returns an empty map on any error.
 func ParseScores(raw json.RawMessage) map[string]float64 {
 	scores := make(map[string]float64)
-	_ = json.Unmarshal(raw, &scores) //nolint:errcheck // best effort
+	if err := json.Unmarshal(raw, &scores); err != nil {
+		slog.Warn("failed to unmarshal benchmark scores", "error", err)
+	}
 	return scores
 }
 

@@ -43,7 +43,7 @@ func (h *Handlers) ProjectCostByModel(w http.ResponseWriter, r *http.Request) {
 // ProjectCostTimeSeries handles GET /api/v1/projects/{id}/costs/daily
 func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	days := queryParamInt(r, "days", 30)
+	days := queryParamIntClamped(r, "days", 30, 500)
 	series, err := h.Cost.TimeSeries(r.Context(), projectID, days)
 	if err != nil {
 		writeDomainError(w, err, "project not found")
@@ -55,7 +55,7 @@ func (h *Handlers) ProjectCostTimeSeries(w http.ResponseWriter, r *http.Request)
 // ProjectRecentRuns handles GET /api/v1/projects/{id}/costs/runs
 func (h *Handlers) ProjectRecentRuns(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
-	limit := queryParamInt(r, "limit", 20)
+	limit := queryParamIntClamped(r, "limit", 20, 500)
 	runs, err := h.Cost.RecentRuns(r.Context(), projectID, limit)
 	if err != nil {
 		writeDomainError(w, err, "project not found")

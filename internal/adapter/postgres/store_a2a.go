@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -147,7 +148,9 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 		}
 		t.State = a2adomain.TaskState(state)
 		t.Direction = a2adomain.Direction(direction)
-		_ = unmarshalJSONField(metaJSON, &t.Metadata, "metadata")
+		if err := unmarshalJSONField(metaJSON, &t.Metadata, "metadata"); err != nil {
+			slog.Warn("failed to unmarshal a2a task metadata", "task_id", t.ID, "error", err)
+		}
 		return t, nil
 	})
 	if err != nil {
@@ -203,8 +206,10 @@ func (s *Store) ListRemoteAgents(ctx context.Context, _ string, enabledOnly bool
 	if enabledOnly {
 		query += fmt.Sprintf(" AND enabled=$%d", idx)
 		args = append(args, true)
+		idx++
 	}
-	query += " ORDER BY created_at DESC"
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", idx)
+	args = append(args, DefaultListLimit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
