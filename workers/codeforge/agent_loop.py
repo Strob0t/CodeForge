@@ -15,7 +15,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
@@ -56,8 +56,10 @@ from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
-    from codeforge.llm import LiteLLMClient
+    from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
     from codeforge.memory.experience import ExperiencePool
+    from codeforge.models import ToolCallDecision
+    from codeforge.plan_act import PlanActController
     from codeforge.routing.models import RoutingConfig, RoutingMetadata
     from codeforge.runtime import RuntimeClient
     from codeforge.tools import ToolRegistry
@@ -65,6 +67,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _tracer = tracing_manager.get_tracer()
+
+
+# ---------------------------------------------------------------------------
+# F-QUA-008: Typed iteration outcomes
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class IterationStop:
+    """LLM returned final content (no tool calls). Loop should end."""
+
+    kind: Literal["stop"] = "stop"
+
+
+@dataclass(frozen=True, slots=True)
+class IterationContinue:
+    """Tool calls processed. Loop should continue."""
+
+    kind: Literal["continue"] = "continue"
+
+
+@dataclass(frozen=True, slots=True)
+class IterationError:
+    """An error occurred. Loop should end with error."""
+
+    message: str
+    kind: Literal["error"] = "error"
+
+
+IterationOutcome = IterationStop | IterationContinue | IterationError
 
 MEMORY_THRESHOLD_MB = int(os.getenv("CODEFORGE_WORKER_MEMORY_THRESHOLD_MB", "3500"))
 
@@ -353,10 +385,14 @@ class AgentLoopExecutor:
             result = await self._do_llm_iteration(
                 cfg, tools_array, messages, state, iteration, plan_act=plan_act, error_tracker=error_tracker
             )
-            if result is not None:
-                if isinstance(result, str):
-                    state.error = result
-                break
+            match result:
+                case IterationStop():
+                    break
+                case IterationError(message=msg):
+                    state.error = msg
+                    break
+                case IterationContinue():
+                    pass
 
             self._record_tool_calls_for_stall(state, stall_detector)
             quality_tracker.end_iteration()
@@ -491,12 +527,22 @@ class AgentLoopExecutor:
             stall_detector.record_escape()
         return False
 
-    async def _do_llm_iteration(self, cfg, tools_array, messages, state, iteration, plan_act=None, error_tracker=None):
-        """Run one LLM iteration. Returns True on stop, error string on failure, None to continue."""
+    async def _do_llm_iteration(
+        self,
+        cfg: LoopConfig,
+        tools_array: list[dict[str, object]],
+        messages: list[dict[str, object]],
+        state: _LoopState,
+        iteration: int,
+        *,
+        plan_act: PlanActController | None = None,
+        error_tracker: ToolErrorTracker | None = None,
+    ) -> IterationOutcome:
+        """Run one LLM iteration. Returns typed IterationOutcome."""
         llm_decision = await self._runtime.request_tool_call(tool="LLM", command="chat_completion")
         if llm_decision.decision != "allow":
             logger.warning("LLM call denied by policy: %s", llm_decision.reason)
-            return f"LLM call denied: {llm_decision.reason}"
+            return IterationError(f"LLM call denied: {llm_decision.reason}")
 
         tracer = trace.get_tracer("codeforge")
         model_name = cfg.model or resolve_model()
@@ -533,13 +579,15 @@ class AgentLoopExecutor:
             except LLMError as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
-                return await self._handle_llm_error(cfg, state, exc, iteration)
+                err = await self._handle_llm_error(cfg, state, exc, iteration)
+                return IterationError(err) if err else IterationContinue()
             except Exception as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
                 logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
                 wrapped = LLMError(status_code=500, model=model_name, body=str(exc))
-                return await self._handle_llm_error(cfg, state, wrapped, iteration)
+                err = await self._handle_llm_error(cfg, state, wrapped, iteration)
+                return IterationError(err) if err else IterationContinue()
             llm_span.set_attribute("gen_ai.usage.input_tokens", response.tokens_in)
             llm_span.set_attribute("gen_ai.usage.output_tokens", response.tokens_out)
             if response.model:
@@ -558,8 +606,17 @@ class AgentLoopExecutor:
         )
 
     async def _process_llm_response(
-        self, cfg, state, response, llm_decision, full_text, messages, plan_act=None, error_tracker=None
-    ):
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        response: ChatCompletionResponse,
+        llm_decision: ToolCallDecision,
+        full_text: str,
+        messages: list[dict[str, object]],
+        *,
+        plan_act: PlanActController | None = None,
+        error_tracker: ToolErrorTracker | None = None,
+    ) -> IterationOutcome:
         """Process LLM response: update state, report results, execute tool calls."""
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
         state.total_cost += cost
@@ -610,7 +667,7 @@ class AgentLoopExecutor:
 
         if not response.tool_calls:
             state.final_content = response.content
-            return True
+            return IterationStop()
 
         assistant_msg = build_assistant_message(response)
         state.tool_messages.append(assistant_msg)
@@ -643,11 +700,11 @@ class AgentLoopExecutor:
                 for remaining_tc in response.tool_calls[i + 1 :]:
                     self._append_tool_result(remaining_tc, "Cancelled", messages, state)
                 break
-        return None
+        return IterationContinue()
 
     async def _publish_tool_trajectory_event(
         self,
-        tc: object,
+        tc: ToolCallPart,
         result_text: str,
         success: bool,
         elapsed_ms: float,
@@ -670,7 +727,15 @@ class AgentLoopExecutor:
         except Exception as exc:
             logger.debug("failed to publish tool_called trajectory event: %s", exc)
 
-    async def _execute_tool_call(self, tc, messages, state, quality_tracker=None, error_tracker=None):
+    async def _execute_tool_call(
+        self,
+        tc: ToolCallPart,
+        messages: list[dict[str, object]],
+        state: _LoopState,
+        *,
+        quality_tracker: IterationQualityTracker | None = None,
+        error_tracker: ToolErrorTracker | None = None,
+    ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
         decision = await self._runtime.request_tool_call(
