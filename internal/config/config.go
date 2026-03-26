@@ -182,17 +182,17 @@ type Agent struct {
 
 // Auth holds authentication and authorization configuration.
 type Auth struct {
-	Enabled                     bool          `yaml:"enabled"`                        // Enable auth (default: true)
-	JWTSecret                   string        `yaml:"jwt_secret" json:"-"`            // HMAC-SHA256 signing key
-	AccessTokenExpiry           time.Duration `yaml:"access_token_expiry"`            // Access token lifetime (default: 15m)
-	RefreshTokenExpiry          time.Duration `yaml:"refresh_token_expiry"`           // Refresh token lifetime (default: 168h / 7d)
-	BcryptCost                  int           `yaml:"bcrypt_cost"`                    // Bcrypt work factor (default: 12)
-	DefaultAdminEmail           string        `yaml:"default_admin_email"`            // Seed admin email (default: admin@localhost)
-	DefaultAdminPass            string        `yaml:"default_admin_pass"`             // Seed admin password (default: empty)
-	AutoGenerateInitialPassword bool          `yaml:"auto_generate_initial_password"` // Generate random password to file (GitLab-style)
-	InitialPasswordFile         string        `yaml:"initial_password_file"`          // Path for generated password (default: data/initial_admin_password)
-	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`          // Setup wizard timeout in minutes (default: 5)
-	LLMKeyEncryptionSecret      string        `yaml:"llm_key_encryption_secret"`      // Separate encryption key for LLM user keys (falls back to JWTSecret)
+	Enabled                     bool          `yaml:"enabled"`                            // Enable auth (default: true)
+	JWTSecret                   string        `yaml:"jwt_secret" json:"-"`                // HMAC-SHA256 signing key
+	AccessTokenExpiry           time.Duration `yaml:"access_token_expiry"`                // Access token lifetime (default: 15m)
+	RefreshTokenExpiry          time.Duration `yaml:"refresh_token_expiry"`               // Refresh token lifetime (default: 168h / 7d)
+	BcryptCost                  int           `yaml:"bcrypt_cost"`                        // Bcrypt work factor (default: 12)
+	DefaultAdminEmail           string        `yaml:"default_admin_email"`                // Seed admin email (default: admin@localhost)
+	DefaultAdminPass            string        `yaml:"default_admin_pass"`                 // Seed admin password (default: empty)
+	AutoGenerateInitialPassword bool          `yaml:"auto_generate_initial_password"`     // Generate random password to file (GitLab-style)
+	InitialPasswordFile         string        `yaml:"initial_password_file"`              // Path for generated password (default: data/initial_admin_password)
+	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`              // Setup wizard timeout in minutes (default: 5)
+	LLMKeyEncryptionSecret      string        `yaml:"llm_key_encryption_secret" json:"-"` // Separate encryption key for LLM user keys (falls back to JWTSecret)
 }
 
 // Webhook holds VCS/PM webhook verification configuration.
@@ -335,6 +335,8 @@ type Server struct {
 	WriteTimeout       time.Duration `yaml:"write_timeout"`
 	IdleTimeout        time.Duration `yaml:"idle_timeout"`
 	ForceSecureCookies bool          `yaml:"force_secure_cookies"` // Unconditionally set Secure=true on cookies (default: false)
+	TLSCertFile        string        `yaml:"tls_cert_file"`        // Path to TLS certificate file (PEM). Empty = plain HTTP.
+	TLSKeyFile         string        `yaml:"tls_key_file"`         // Path to TLS private key file (PEM). Empty = plain HTTP.
 }
 
 // Postgres holds PostgreSQL connection configuration.
@@ -554,14 +556,14 @@ func Defaults() Config {
 			Enabled:     false,
 			Endpoint:    "localhost:4317",
 			ServiceName: "codeforge-core",
-			Insecure:    true,
+			Insecure:    false,
 			SampleRate:  1.0,
 		},
 		A2A: A2A{
 			Enabled:   false,
 			Transport: "jsonrpc",
 			MaxTasks:  100,
-			AllowOpen: true,
+			AllowOpen: false,
 		},
 		AGUI: AGUI{Enabled: false},
 		MCP: MCP{
@@ -579,7 +581,7 @@ func Defaults() Config {
 		},
 		Auth: Auth{
 			Enabled:             true,
-			JWTSecret:           "codeforge-dev-jwt-secret-change-in-production", // development default; MUST be overridden in production
+			JWTSecret:           "", // auto-generated on first boot if not set via CODEFORGE_AUTH_JWT_SECRET
 			AccessTokenExpiry:   15 * time.Minute,
 			RefreshTokenExpiry:  7 * 24 * time.Hour,
 			BcryptCost:          12,

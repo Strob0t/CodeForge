@@ -5,12 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
+
+	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
 )
 
 // DefaultConfigFile is the path checked for YAML configuration.
@@ -90,6 +94,10 @@ func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
 	loadEnv(&cfg)
 	applyCLI(&cfg, flags)
 
+	if err := ensureSecrets(&cfg); err != nil {
+		return nil, "", fmt.Errorf("config secrets: %w", err)
+	}
+
 	if err := validate(&cfg); err != nil {
 		return nil, "", fmt.Errorf("config validate: %w", err)
 	}
@@ -107,6 +115,10 @@ func LoadFrom(yamlPath string) (*Config, error) {
 	}
 
 	loadEnv(&cfg)
+
+	if err := ensureSecrets(&cfg); err != nil {
+		return nil, fmt.Errorf("config secrets: %w", err)
+	}
 
 	if err := validate(&cfg); err != nil {
 		return nil, fmt.Errorf("config validate: %w", err)
@@ -383,7 +395,7 @@ func validate(cfg *Config) error {
 		return errors.New("auth.jwt_secret is required when auth.enabled is true")
 	}
 
-	// Auth validation: reject default JWT secret in all non-development environments.
+	// Auth validation: reject well-known default secrets (blocklist).
 	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" {
 		if cfg.AppEnv != "development" {
 			return errors.New("default JWT secret is only allowed when APP_ENV=development -- set CODEFORGE_AUTH_JWT_SECRET to a unique secret (>= 32 chars)")
@@ -394,6 +406,13 @@ func validate(cfg *Config) error {
 	// Auth validation: enforce minimum JWT secret length when auth is enabled.
 	if cfg.Auth.Enabled && len(cfg.Auth.JWTSecret) < 32 {
 		return fmt.Errorf("auth.jwt_secret must be at least 32 characters when auth is enabled (got %d) -- set CODEFORGE_AUTH_JWT_SECRET", len(cfg.Auth.JWTSecret))
+	}
+
+	// Auth validation: entropy-based rejection for production (Shannon entropy >= 3.0 bits/char).
+	if cfg.Auth.Enabled && cfg.AppEnv != "development" {
+		if isLowEntropySecret(cfg.Auth.JWTSecret) {
+			return errors.New("auth.jwt_secret has insufficient entropy -- use a cryptographically random value (>= 32 chars, >= 3.0 bits/char entropy)")
+		}
 	}
 
 	// Auth validation: enforce minimum bcrypt cost for security.
@@ -419,6 +438,41 @@ func validate(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// ensureSecrets auto-generates missing secrets on first boot.
+// Called AFTER env var loading but BEFORE validation so that
+// auto-generated values pass the entropy check.
+func ensureSecrets(cfg *Config) error {
+	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {
+		token, err := cfcrypto.GenerateRandomToken()
+		if err != nil {
+			return fmt.Errorf("generate JWT secret: %w", err)
+		}
+		cfg.Auth.JWTSecret = token
+		slog.Info("auto-generated JWT secret (set CODEFORGE_AUTH_JWT_SECRET for persistence)")
+	}
+	return nil
+}
+
+// isLowEntropySecret checks if a string has insufficient entropy for cryptographic use.
+// Returns true when the secret is shorter than 32 characters or has less than
+// 3.0 bits of Shannon entropy per character.
+func isLowEntropySecret(s string) bool {
+	if len(s) < 32 {
+		return true
+	}
+	freq := make(map[rune]float64)
+	for _, c := range s {
+		freq[c]++
+	}
+	length := float64(utf8.RuneCountInString(s))
+	var entropy float64
+	for _, count := range freq {
+		p := count / length
+		entropy -= p * math.Log2(p)
+	}
+	return entropy < 3.0
 }
 
 func setString(dst *string, key string) {

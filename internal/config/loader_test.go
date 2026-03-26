@@ -153,14 +153,17 @@ func TestValidateRequired(t *testing.T) {
 
 func TestValidateDefaults(t *testing.T) {
 	cfg := Defaults()
-	// Defaults use the dev JWT secret, which requires APP_ENV=development.
 	cfg.AppEnv = "development"
+	// Default JWT secret is now empty; ensureSecrets auto-generates one.
+	if err := ensureSecrets(&cfg); err != nil {
+		t.Fatalf("ensureSecrets failed: %v", err)
+	}
 	if err := validate(&cfg); err != nil {
 		t.Errorf("defaults should validate in development, got %v", err)
 	}
 }
 
-func TestValidate_JWTSecretDefaultRejectedInNonDev(t *testing.T) {
+func TestValidate_EmptyJWTSecretRejected(t *testing.T) {
 	tests := []struct {
 		name   string
 		appEnv string
@@ -168,19 +171,34 @@ func TestValidate_JWTSecretDefaultRejectedInNonDev(t *testing.T) {
 		{"empty env", ""},
 		{"staging", "staging"},
 		{"production", "production"},
+		{"development", "development"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Defaults()
 			cfg.AppEnv = tt.appEnv
+			// Skip ensureSecrets to test that validate rejects empty secret.
 			err := validate(&cfg)
 			if err == nil {
-				t.Fatal("expected error for default JWT secret in non-development env")
+				t.Fatal("expected error for empty JWT secret")
 			}
-			if !strings.Contains(err.Error(), "default JWT secret") {
-				t.Errorf("expected JWT secret error, got: %v", err)
+			if !strings.Contains(err.Error(), "jwt_secret is required") {
+				t.Errorf("expected jwt_secret required error, got: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidate_LowEntropyJWTSecretRejectedInProd(t *testing.T) {
+	cfg := Defaults()
+	cfg.AppEnv = "production"
+	cfg.Auth.JWTSecret = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 34 chars, but very low entropy
+	err := validate(&cfg)
+	if err == nil {
+		t.Fatal("expected error for low-entropy JWT secret in production")
+	}
+	if !strings.Contains(err.Error(), "insufficient entropy") {
+		t.Errorf("expected entropy error, got: %v", err)
 	}
 }
 
@@ -220,6 +238,10 @@ func TestValidate_AdminPasswordAllowedInDev(t *testing.T) {
 	cfg := Defaults()
 	cfg.AppEnv = "development"
 	cfg.Auth.DefaultAdminPass = "changeme123"
+	// Provide a valid JWT secret so we can test the admin password path.
+	if err := ensureSecrets(&cfg); err != nil {
+		t.Fatalf("ensureSecrets failed: %v", err)
+	}
 	err := validate(&cfg)
 	if err != nil {
 		t.Errorf("default admin password should be allowed in development, got: %v", err)
@@ -614,5 +636,55 @@ server:
 	}
 	if cfg.Server.Port != "5555" {
 		t.Errorf("expected port 5555 from custom YAML, got %s", cfg.Server.Port)
+	}
+}
+
+func TestEnsureSecrets_AutoGeneratesJWT(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Auth.JWTSecret != "" {
+		t.Fatal("expected empty default JWT secret")
+	}
+	if err := ensureSecrets(&cfg); err != nil {
+		t.Fatalf("ensureSecrets failed: %v", err)
+	}
+	if cfg.Auth.JWTSecret == "" {
+		t.Error("expected auto-generated JWT secret, got empty")
+	}
+	if len(cfg.Auth.JWTSecret) < 64 {
+		t.Errorf("expected at least 64 hex chars from 32-byte token, got %d", len(cfg.Auth.JWTSecret))
+	}
+}
+
+func TestEnsureSecrets_PreservesExplicit(t *testing.T) {
+	cfg := Defaults()
+	explicit := "my-explicitly-set-secret-that-should-not-change"
+	cfg.Auth.JWTSecret = explicit
+	if err := ensureSecrets(&cfg); err != nil {
+		t.Fatalf("ensureSecrets failed: %v", err)
+	}
+	if cfg.Auth.JWTSecret != explicit {
+		t.Errorf("ensureSecrets overwrote explicit secret: got %q", cfg.Auth.JWTSecret)
+	}
+}
+
+func TestIsLowEntropySecret(t *testing.T) {
+	tests := []struct {
+		name    string
+		secret  string
+		wantLow bool
+	}{
+		{"too short", "abc", true},
+		{"31 chars", "abcdefghijklmnopqrstuvwxyz12345", true},
+		{"all same char", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true},
+		{"hex token 64 chars", "a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890", false},
+		{"alphanumeric random", "Xk9mL2pR7wQn4tFvB8jC3hGdE5sAyU0z", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isLowEntropySecret(tt.secret)
+			if got != tt.wantLow {
+				t.Errorf("isLowEntropySecret(%q) = %v, want %v", tt.secret, got, tt.wantLow)
+			}
+		})
 	}
 }
