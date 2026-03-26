@@ -16,6 +16,7 @@ import type {
 import { StepProgress } from "~/components/StepProgress";
 import { getVariant, planStatusVariant, stepStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, Checkbox, FormField, Input, Select, Textarea } from "~/ui";
 import { ModelCombobox } from "~/ui/composites/ModelCombobox";
 
@@ -94,7 +95,7 @@ export default function PlanPanel(props: PlanPanelProps) {
       setDecomposeResult(plan);
       refetch();
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("plan.toast.decomposeFailed"));
+      props.onError(extractErrorMessage(e, t("plan.toast.decomposeFailed")));
     } finally {
       setDecomposing(false);
     }
@@ -179,7 +180,7 @@ export default function PlanPanel(props: PlanPanelProps) {
       refetch();
       resetForm();
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("plan.toast.createFailed"));
+      props.onError(extractErrorMessage(e, t("plan.toast.createFailed")));
     } finally {
       setCreating(false);
     }
@@ -206,7 +207,7 @@ export default function PlanPanel(props: PlanPanelProps) {
         setSelectedPlanId(planId);
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("plan.toast.startFailed"));
+      props.onError(extractErrorMessage(e, t("plan.toast.startFailed")));
     }
   };
 
@@ -219,7 +220,7 @@ export default function PlanPanel(props: PlanPanelProps) {
         setSelectedPlanId(planId);
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("plan.toast.cancelFailed"));
+      props.onError(extractErrorMessage(e, t("plan.toast.cancelFailed")));
     }
   };
 
@@ -245,7 +246,7 @@ export default function PlanPanel(props: PlanPanelProps) {
         routed: decision.needs_review && decision.confidence < 0.7,
       });
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("plan.review.evaluate"));
+      props.onError(extractErrorMessage(e, t("plan.review.evaluate")));
     }
   };
 

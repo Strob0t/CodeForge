@@ -3,6 +3,7 @@ import { createResource, createSignal, Show } from "solid-js";
 import { api, FetchError } from "~/api/client";
 import type { BenchmarkResult } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Button, Card, FormField, Input, ModelCombobox, Section, Textarea } from "~/ui";
 
 export default function DevToolsSection() {
@@ -36,7 +37,7 @@ export default function DevToolsSection() {
       if (err instanceof FetchError && err.status === 403) {
         setBenchError(t("settings.benchmark.devModeRequired"));
       } else {
-        setBenchError(err instanceof Error ? err.message : "Benchmark failed");
+        setBenchError(extractErrorMessage(err, "Benchmark failed"));
       }
     } finally {
       setBenchRunning(false);

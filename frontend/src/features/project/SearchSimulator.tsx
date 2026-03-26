@@ -3,6 +3,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { GraphSearchHit, RetrievalSearchHit } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Badge, Button, Card, Checkbox, FormField, Input } from "~/ui";
 
 interface SearchSimulatorProps {
@@ -102,7 +103,7 @@ export default function SearchSimulator(props: SearchSimulatorProps) {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("simulator.error"));
+      setError(extractErrorMessage(err, t("simulator.error")));
     } finally {
       setSearching(false);
     }

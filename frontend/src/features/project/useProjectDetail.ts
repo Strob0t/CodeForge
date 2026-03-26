@@ -5,6 +5,7 @@ import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 
 import type { OutputLine } from "./LiveOutput";
 import type { AgentTerminal } from "./MultiTerminal";
@@ -201,7 +202,7 @@ export function useProjectDetail(projectId: () => string) {
       refetchBranches();
       toast("success", t("detail.toast.cloned"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.cloneFailed");
+      const msg = extractErrorMessage(e, t("detail.toast.cloneFailed"));
       setError(msg);
       toast("error", msg);
     } finally {
@@ -217,7 +218,7 @@ export function useProjectDetail(projectId: () => string) {
       refetchGitStatus();
       toast("success", t("detail.toast.pulled"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("detail.toast.pullFailed");
+      const msg = extractErrorMessage(e, t("detail.toast.pullFailed"));
       setError(msg);
       toast("error", msg);
     } finally {

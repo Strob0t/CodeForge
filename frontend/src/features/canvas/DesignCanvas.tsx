@@ -460,6 +460,7 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
   const [isPanning, setIsPanning] = createSignal(false);
   const [isSpaceHeld, setIsSpaceHeld] = createSignal(false);
   const [panStart, setPanStart] = createSignal<{ x: number; y: number } | null>(null);
+  const [announcement, setAnnouncement] = createSignal("");
 
   // Observe container size via ResizeObserver
   onMount(() => {
@@ -600,6 +601,50 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
     props.activeTool?.onDblClick?.(e);
   }
 
+  // Keyboard accessibility handler for the SVG canvas
+  function onCanvasKeyDown(e: KeyboardEvent): void {
+    const elements = sortedElements();
+    if (elements.length === 0) return;
+
+    const selected = props.store.state.selectedIds;
+
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (selected.length > 0) {
+        e.preventDefault();
+        const count = selected.length;
+        for (const id of [...selected]) {
+          props.store.removeElement(id);
+        }
+        setAnnouncement(`Deleted ${count} element${count > 1 ? "s" : ""}`);
+      }
+      return;
+    }
+
+    if (e.key === "Escape") {
+      if (selected.length > 0) {
+        e.preventDefault();
+        props.store.deselectAll();
+        setAnnouncement("Selection cleared");
+      }
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const currentId = selected.length === 1 ? selected[0] : null;
+      const currentIdx = currentId ? elements.findIndex((el) => el.id === currentId) : -1;
+      const nextIdx = e.shiftKey
+        ? currentIdx <= 0
+          ? elements.length - 1
+          : currentIdx - 1
+        : (currentIdx + 1) % elements.length;
+      const next = elements[nextIdx];
+      props.store.deselectAll();
+      props.store.selectElement(next.id);
+      setAnnouncement(`Selected ${next.type} element ${nextIdx + 1} of ${elements.length}`);
+    }
+  }
+
   return (
     <div
       ref={containerRef}
@@ -608,6 +653,9 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
     >
       <svg
         ref={svgRef}
+        tabIndex={0}
+        role="application"
+        aria-label="Design canvas"
         viewBox={viewBox()}
         width="100%"
         height="100%"
@@ -617,6 +665,7 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onDblClick={onDblClick}
+        onKeyDown={onCanvasKeyDown}
       >
         {/* Arrowhead marker for annotations */}
         <defs>
@@ -645,6 +694,9 @@ export function DesignCanvas(props: DesignCanvasProps): JSX.Element {
         <InlineEditor store={props.store} svgRef={svgRef} />
         <NodeOverlay store={props.store} />
       </svg>
+      <div aria-live="polite" class="sr-only">
+        {announcement()}
+      </div>
     </div>
   );
 }

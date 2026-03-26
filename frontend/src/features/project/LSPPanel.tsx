@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { LSPServerInfo } from "~/api/types";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Badge, Button, StatusDot } from "~/ui";
 
 interface LSPPanelProps {
@@ -31,7 +32,7 @@ export default function LSPPanel(props: LSPPanelProps) {
       await api.lsp.start(props.projectId);
       setTimeout(() => refetch(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start LSP servers");
+      setError(extractErrorMessage(e, "Failed to start LSP servers"));
     } finally {
       setStarting(false);
     }
@@ -44,7 +45,7 @@ export default function LSPPanel(props: LSPPanelProps) {
       await api.lsp.stop(props.projectId);
       setTimeout(() => refetch(), 1000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to stop LSP servers");
+      setError(extractErrorMessage(e, "Failed to stop LSP servers"));
     } finally {
       setStopping(false);
     }

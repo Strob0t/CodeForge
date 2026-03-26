@@ -1,6 +1,8 @@
 import type { Accessor } from "solid-js";
 import { createSignal } from "solid-js";
 
+import { extractErrorMessage } from "~/lib/errorUtils";
+
 interface AsyncActionOptions {
   /** Called when the action throws. Defaults to extracting error.message. */
   onError?: (err: unknown) => void;
@@ -37,7 +39,7 @@ export function useAsyncAction<TArgs extends unknown[], TResult>(
       const result = await action(...args);
       return result;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = extractErrorMessage(err, String(err));
       setError(msg);
       options?.onError?.(err);
       return undefined;

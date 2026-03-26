@@ -5,6 +5,7 @@ import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useFormState } from "~/hooks/useFormState";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Button, ErrorBanner, FormField, Input, Modal, Select, Tabs, Textarea } from "~/ui";
 
 const AUTONOMY_LEVELS = [
@@ -102,14 +103,14 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
         toast("success", t("dashboard.toast.created"));
         // best-effort: workspace init runs in background, failure notified via toast
         api.projects.initWorkspace(created.id).catch((initErr) => {
-          const initMsg = initErr instanceof Error ? initErr.message : "init workspace failed";
+          const initMsg = extractErrorMessage(initErr, "init workspace failed");
           toast("error", initMsg);
         });
         toast("info", t("dashboard.toast.setupStarted"));
         resetFormState();
         props.onCreated();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
+        const msg = extractErrorMessage(err, t("dashboard.toast.createFailed"));
         setError(msg);
         toast("error", msg);
       }
@@ -137,7 +138,7 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
         resetFormState();
         props.onCreated();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
+        const msg = extractErrorMessage(err, t("dashboard.toast.createFailed"));
         setError(msg);
         toast("error", msg);
       }
@@ -168,14 +169,14 @@ export function CreateProjectModal(props: CreateProjectModalProps) {
         try {
           await api.projects.setup(created.id, branch);
         } catch (setupErr) {
-          const setupMsg = setupErr instanceof Error ? setupErr.message : "setup failed";
+          const setupMsg = extractErrorMessage(setupErr, "setup failed");
           toast("error", setupMsg);
         }
       }
       resetFormState();
       props.onCreated();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("dashboard.toast.createFailed");
+      const msg = extractErrorMessage(err, t("dashboard.toast.createFailed"));
       setError(msg);
       toast("error", msg);
     }

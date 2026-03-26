@@ -11,6 +11,7 @@ import type {
 import { useToast } from "~/components/Toast";
 import { featureStatusVariant, getVariant, roadmapStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, ConfirmDialog, Input, Select } from "~/ui";
 
 import DragList, { type DragHandleProps } from "./DragList";
@@ -73,7 +74,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       refetch();
       toast("success", t("roadmap.toast.created"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.createFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.createFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -95,7 +96,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
         toast("warning", t("roadmap.toast.notDetected"));
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.detectFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.detectFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -108,7 +109,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       const view = await api.roadmap.ai(props.projectId, "markdown");
       setAiPreview(view.content);
     } catch (e) {
-      props.onError(e instanceof Error ? e.message : t("roadmap.toast.aiFailed"));
+      props.onError(extractErrorMessage(e, t("roadmap.toast.aiFailed")));
     }
   };
 
@@ -121,7 +122,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       refetch();
       toast("success", t("roadmap.toast.milestoneCreated"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.milestoneFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.milestoneFailed"));
       props.onError(msg);
       toast("error", msg);
     }
@@ -136,7 +137,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       refetch();
       toast("success", t("roadmap.toast.featureCreated"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.featureFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.featureFailed"));
       props.onError(msg);
       toast("error", msg);
     }
@@ -148,7 +149,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       refetch();
       toast("success", t("roadmap.toast.deleted"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.deleteFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.deleteFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -165,7 +166,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       refetch();
       toast("success", t("roadmap.toast.specsImported"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.importSpecsFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.importSpecsFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -188,7 +189,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       refetch();
       toast("success", t("roadmap.toast.pmImported"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.importPMFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.importPMFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -202,7 +203,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
       await api.roadmap.syncToFile(props.projectId);
       toast("success", t("roadmap.toast.synced"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("roadmap.toast.syncFailed");
+      const msg = extractErrorMessage(e, t("roadmap.toast.syncFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -462,7 +463,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     }
                     refetch();
                   } catch (e) {
-                    toast("error", e instanceof Error ? e.message : "Reorder failed");
+                    toast("error", extractErrorMessage(e, "Reorder failed"));
                   }
                 })();
               }}
@@ -511,10 +512,7 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                                   });
                                   refetch();
                                 } catch (e) {
-                                  toast(
-                                    "error",
-                                    e instanceof Error ? e.message : "Status update failed",
-                                  );
+                                  toast("error", extractErrorMessage(e, "Status update failed"));
                                 }
                               }}
                             >

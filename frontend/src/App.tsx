@@ -30,6 +30,7 @@ import { OnboardingWizard } from "~/features/onboarding/OnboardingWizard";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
 import { CodeForgeLogo } from "~/ui/icons/CodeForgeLogo";
@@ -57,7 +58,7 @@ import { updateTabBadge } from "~/utils/tabBadge";
 
 function ErrorFallback(props: { error: unknown; reset: () => void }): JSX.Element {
   const { t } = useI18n();
-  const message = () => (props.error instanceof Error ? props.error.message : String(props.error));
+  const message = () => extractErrorMessage(props.error, String(props.error));
 
   return (
     <div class="flex h-screen items-center justify-center bg-cf-bg-primary" role="alert">

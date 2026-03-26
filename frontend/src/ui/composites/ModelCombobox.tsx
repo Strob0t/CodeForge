@@ -186,7 +186,7 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
         aria-autocomplete="list"
         autocomplete="off"
         class={
-          "block w-full rounded-cf border border-cf-border bg-cf-bg-surface px-3 py-1.5 text-sm text-cf-text-primary placeholder:text-cf-text-muted focus:border-cf-accent focus:outline-none focus:ring-1 focus:ring-cf-accent" +
+          "block w-full rounded-cf border border-cf-border bg-cf-bg-surface px-3 py-1.5 text-sm text-cf-text-primary placeholder:text-cf-text-muted focus-visible:border-cf-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-cf-accent" +
           (props.class ? " " + props.class : "")
         }
       />

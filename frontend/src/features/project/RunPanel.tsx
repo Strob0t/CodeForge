@@ -6,6 +6,7 @@ import { StepProgress } from "~/components/StepProgress";
 import { useToast } from "~/components/Toast";
 import { getVariant, runStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, Select } from "~/ui";
 
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -83,7 +84,7 @@ export default function RunPanel(props: RunPanelProps) {
       refetchRuns();
       toast("success", t("run.toast.started"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("run.toast.startFailed");
+      const msg = extractErrorMessage(e, t("run.toast.startFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -100,7 +101,7 @@ export default function RunPanel(props: RunPanelProps) {
       refetchRuns();
       toast("success", t("run.toast.cancelled"));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("run.toast.cancelFailed");
+      const msg = extractErrorMessage(e, t("run.toast.cancelFailed"));
       props.onError(msg);
       toast("error", msg);
     }

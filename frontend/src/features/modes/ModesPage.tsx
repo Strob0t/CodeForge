@@ -7,6 +7,7 @@ import { useToast } from "~/components/Toast";
 import { COMMON_DENIED_ACTIONS } from "~/config/domain-constants";
 import { useAsyncAction, useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Alert,
   Badge,
@@ -148,7 +149,7 @@ export function ModesContent() {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : t("modes.toast.deleteFailed");
+        const msg = extractErrorMessage(err, t("modes.toast.deleteFailed"));
         toast("error", msg);
       },
     },

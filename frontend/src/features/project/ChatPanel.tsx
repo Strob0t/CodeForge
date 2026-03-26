@@ -19,6 +19,7 @@ import type {
 import { useConversationRuns } from "~/components/ConversationRunProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Button } from "~/ui";
 import { AttachIcon, CanvasIcon } from "~/ui/icons/ChatIcons";
 
@@ -120,7 +121,7 @@ export default function ChatPanel(props: ChatPanelProps) {
         const ref = `[Attached: ${file.name}]\n`;
         setInput((prev) => ref + prev);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = extractErrorMessage(err, String(err));
         toast("error", t("chat.attachFailed") + ": " + msg);
       } finally {
         setAttaching(false);

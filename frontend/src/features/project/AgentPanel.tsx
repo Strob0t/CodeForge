@@ -6,6 +6,7 @@ import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { agentStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, FormField, Input, Select } from "~/ui";
 
 interface AgentPanelProps {
@@ -41,7 +42,7 @@ export default function AgentPanel(props: AgentPanelProps) {
       refetch();
       toast("success", t("agent.toast.created"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("agent.toast.createFailed");
+      const msg = extractErrorMessage(err, t("agent.toast.createFailed"));
       props.onError(msg);
       toast("error", msg);
     }
@@ -60,7 +61,7 @@ export default function AgentPanel(props: AgentPanelProps) {
       refetch();
       toast("success", t("agent.toast.deleted"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("agent.toast.deleteFailed");
+      const msg = extractErrorMessage(err, t("agent.toast.deleteFailed"));
       props.onError(msg);
       toast("error", msg);
     }
@@ -73,7 +74,7 @@ export default function AgentPanel(props: AgentPanelProps) {
       refetch();
       toast("success", t("agent.toast.dispatched"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("agent.toast.dispatchFailed");
+      const msg = extractErrorMessage(err, t("agent.toast.dispatchFailed"));
       props.onError(msg);
       toast("error", msg);
     } finally {
@@ -87,7 +88,7 @@ export default function AgentPanel(props: AgentPanelProps) {
       refetch();
       toast("success", t("agent.toast.stopped"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("agent.toast.stopFailed");
+      const msg = extractErrorMessage(err, t("agent.toast.stopFailed"));
       props.onError(msg);
       toast("error", msg);
     }

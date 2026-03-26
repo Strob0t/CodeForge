@@ -2,6 +2,7 @@ import { createMemo, createResource, For, type JSX, onMount, Show } from "solid-
 
 import { api } from "~/api/client";
 import type { FileEntry } from "~/api/types";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { fileIconUrl } from "~/lib/file-icon";
 import { Button } from "~/ui";
 
@@ -375,8 +376,7 @@ export default function FileTree(props: FileTreeProps): JSX.Element {
           >
             <Show when={rootEntries.error}>
               <p class="text-xs text-red-400 p-2">
-                Failed to load files:{" "}
-                {rootEntries.error instanceof Error ? rootEntries.error.message : "Unknown error"}
+                Failed to load files: {extractErrorMessage(rootEntries.error, "Unknown error")}
               </p>
             </Show>
             <Show

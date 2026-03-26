@@ -5,6 +5,7 @@ import type { Project, ProjectHealth } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Button, EmptyState, GridLayout, LoadingState, PageLayout } from "~/ui";
 
 import ActivityTimeline from "./ActivityTimeline";
@@ -61,7 +62,7 @@ export default function DashboardPage() {
       await refetch();
       toast("success", t("dashboard.toast.deleted"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("dashboard.toast.deleteFailed");
+      const msg = extractErrorMessage(err, t("dashboard.toast.deleteFailed"));
       toast("error", msg);
     }
   }
