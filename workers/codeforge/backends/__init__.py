@@ -1,5 +1,6 @@
 """Backend executor framework for agent backends."""
 
+from codeforge.backends._cli_base import CLIBackendExecutor, ExecutorConfig
 from codeforge.backends.aider import AiderExecutor
 from codeforge.backends.goose import GooseExecutor
 from codeforge.backends.opencode import OpenCodeExecutor
@@ -24,6 +25,8 @@ def build_default_router() -> BackendRouter:
 __all__ = [
     "AiderExecutor",
     "BackendRouter",
+    "CLIBackendExecutor",
+    "ExecutorConfig",
     "GooseExecutor",
     "OpenCodeExecutor",
     "OpenHandsExecutor",

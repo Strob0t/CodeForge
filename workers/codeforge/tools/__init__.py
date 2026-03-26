@@ -7,6 +7,7 @@ tools under the ``mcp__{server}__{tool}`` namespace.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
@@ -90,6 +91,10 @@ class ToolRegistry:
     def get_definitions(self) -> list[ToolDefinition]:
         """Return all registered tool definitions (sorted by name)."""
         return [defn for defn, _ in sorted(self._tools.values(), key=lambda t: t[0].name)]
+
+    def iter_executors(self) -> Iterator[tuple[ToolDefinition, ToolExecutor]]:
+        """Iterate over all (definition, executor) pairs."""
+        yield from self._tools.values()
 
 
 class _McpToolProxy:

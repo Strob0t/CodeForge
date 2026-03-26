@@ -11,7 +11,7 @@ TODO (FIX-066 to FIX-070): Missing test coverage for the following modules:
   - codeforge/consumer/_conversation.py (ConversationHandlerMixin: routing, fallback chain)
   - codeforge/routing/router.py (HybridRouter: cascade routing, rate limiting)
   - codeforge/routing/reward.py (compute_reward: edge cases, config variations)
-  - codeforge/agent_loop.py (_compute_rollout_score, _should_early_stop, MultiRolloutExecutor)
+  - codeforge/quality_tracking.py (compute_rollout_score, should_early_stop)
   - codeforge/plan_act.py (plan/act mode switching, plan validation)
   See audit report for full list. Add tests incrementally.
 """

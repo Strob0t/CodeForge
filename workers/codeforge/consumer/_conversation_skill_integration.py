@@ -18,7 +18,7 @@ def wire_skill_tools(
     from codeforge.tools.create_skill import CreateSkillTool
     from codeforge.tools.search_skills import SearchSkillsTool
 
-    for _defn, executor in registry._tools.values():  # type: ignore[attr-defined]
+    for _defn, executor in registry.iter_executors():
         if isinstance(executor, SearchSkillsTool):
             executor.set_skills(skills)
             log.debug("search_skills tool populated", skill_count=len(skills))
