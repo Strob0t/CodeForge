@@ -2455,3 +2455,18 @@ func (m *runtimeMockStore) InsertAuditEntry(_ context.Context, _ *database.Audit
 func (m *runtimeMockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
+func (m *runtimeMockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *runtimeMockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *runtimeMockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *runtimeMockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}

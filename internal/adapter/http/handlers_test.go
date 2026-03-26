@@ -3487,6 +3487,21 @@ func (m *mockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) 
 func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
+func (m *mockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {
 	tests := []struct {

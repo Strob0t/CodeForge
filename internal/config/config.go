@@ -105,7 +105,17 @@ type Config struct {
 	Routing      Routing      `yaml:"routing"`
 	Ollama       Ollama       `yaml:"ollama"`
 	Plane        Plane        `yaml:"plane"`
+	Retention    Retention    `yaml:"retention"`
 	EnvFile      string       `yaml:"env_file"` // Path to .env file for OAuth device flow
+}
+
+// Retention holds data retention policy durations (GDPR Article 5(1)(e)).
+// Zero duration means no automatic cleanup for that category.
+type Retention struct {
+	Sessions      time.Duration `yaml:"sessions"`      // Max age for sessions (default: 30 days)
+	Conversations time.Duration `yaml:"conversations"` // Max age for conversations + messages (default: 365 days)
+	CostRecords   time.Duration `yaml:"cost_records"`  // Max age for run cost records (default: 365 days)
+	AuditEntries  time.Duration `yaml:"audit_entries"` // Max age for audit log entries (default: 730 days / 2 years)
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).
@@ -614,6 +624,12 @@ func Defaults() Config {
 		},
 		Routing: Routing{
 			Enabled: true,
+		},
+		Retention: Retention{
+			Sessions:      30 * 24 * time.Hour,  // 30 days
+			Conversations: 365 * 24 * time.Hour, // 1 year
+			CostRecords:   365 * 24 * time.Hour, // 1 year
+			AuditEntries:  730 * 24 * time.Hour, // 2 years
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,

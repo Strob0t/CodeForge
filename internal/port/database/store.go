@@ -440,6 +440,13 @@ type Store interface {
 	// Audit Log
 	InsertAuditEntry(ctx context.Context, e *AuditEntry) error
 	ListAuditEntries(ctx context.Context, action string, limit, offset int) ([]AuditEntry, error)
+	ListAuditEntriesByAdmin(ctx context.Context, adminID string, limit int) ([]AuditEntry, error)
+
+	// Data Retention (GDPR Article 5(1)(e))
+	DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }
 
 // A2ATaskFilter defines filters for listing A2A tasks.
