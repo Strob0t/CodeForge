@@ -1,0 +1,8 @@
+# Grype configuration for container image scanning.
+# Add accepted risk exceptions here as needed.
+# See: https://github.com/anchore/grype#specifying-matches-to-ignore
+
+ignore: []
+#  - vulnerability: CVE-XXXX-XXXXX
+#    package:
+#      name: some-package
