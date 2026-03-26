@@ -64,21 +64,21 @@ type ConversationService struct {
 	hub             broadcast.Broadcaster
 	queue           messagequeue.Queue
 	model           string // default model name for LiteLLM
-	modelRegistry   *ModelRegistry
-	modeSvc         *ModeService
-	mcpSvc          *MCPService
-	policySvc       *PolicyService
-	microagentSvc   *MicroagentService
-	goalSvc         *GoalDiscoveryService
-	sessionSvc      *SessionService
+	modelRegistry   convModelResolver
+	modeSvc         convModeProvider
+	mcpSvc          convMCPResolver
+	policySvc       convPolicyEvaluator
+	microagentSvc   convMicroagentMatcher
+	goalSvc         convGoalProvider
+	sessionSvc      convSessionProvider
 	agentCfg        *config.Agent
 	routingCfg      *config.Routing
 	appEnv          string
 	metrics         cfmetrics.Recorder
-	contextOpt      *ContextOptimizerService
-	llmKeySvc       *LLMKeyService
+	contextOpt      convContextOptimizer
+	llmKeySvc       convLLMKeyResolver
 	promptAssembler *PromptAssembler
-	scoreCollector  *PromptScoreCollector
+	scoreCollector  convScoreRecorder
 	events          eventstore.Store
 
 	// Sub-services for decomposed responsibilities.
@@ -96,7 +96,7 @@ func NewConversationService(
 	db database.Store,
 	hub broadcast.Broadcaster,
 	defaultModel string,
-	modeSvc *ModeService,
+	modeSvc convModeProvider,
 ) *ConversationService {
 	return &ConversationService{
 		db:                db,
@@ -114,22 +114,22 @@ func (s *ConversationService) SetQueue(q messagequeue.Queue) { s.queue = q }
 func (s *ConversationService) SetAgentConfig(cfg *config.Agent) { s.agentCfg = cfg }
 
 // SetMCPService configures MCP server resolution for agentic runs.
-func (s *ConversationService) SetMCPService(mcp *MCPService) { s.mcpSvc = mcp }
+func (s *ConversationService) SetMCPService(mcp convMCPResolver) { s.mcpSvc = mcp }
 
 // SetPolicyService configures policy evaluation for agentic runs.
-func (s *ConversationService) SetPolicyService(p *PolicyService) { s.policySvc = p }
+func (s *ConversationService) SetPolicyService(p convPolicyEvaluator) { s.policySvc = p }
 
 // SetModelRegistry configures dynamic model selection from the registry.
-func (s *ConversationService) SetModelRegistry(r *ModelRegistry) { s.modelRegistry = r }
+func (s *ConversationService) SetModelRegistry(r convModelResolver) { s.modelRegistry = r }
 
 // SetMicroagentService configures microagent matching for agentic runs.
-func (s *ConversationService) SetMicroagentService(svc *MicroagentService) { s.microagentSvc = svc }
+func (s *ConversationService) SetMicroagentService(svc convMicroagentMatcher) { s.microagentSvc = svc }
 
 // SetMetrics sets the OTEL metrics collector.
 func (s *ConversationService) SetMetrics(m cfmetrics.Recorder) { s.metrics = m }
 
 // SetGoalService wires the goal discovery service for system prompt injection.
-func (s *ConversationService) SetGoalService(svc *GoalDiscoveryService) { s.goalSvc = svc }
+func (s *ConversationService) SetGoalService(svc convGoalProvider) { s.goalSvc = svc }
 
 // SetRoutingConfig configures intelligent model routing for conversation runs.
 func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingCfg = cfg }
@@ -138,19 +138,19 @@ func (s *ConversationService) SetRoutingConfig(cfg *config.Routing) { s.routingC
 func (s *ConversationService) SetAppEnv(env string) { s.appEnv = env }
 
 // SetContextOptimizer configures the context optimizer for conversation context injection.
-func (s *ConversationService) SetContextOptimizer(opt *ContextOptimizerService) { s.contextOpt = opt }
+func (s *ConversationService) SetContextOptimizer(opt convContextOptimizer) { s.contextOpt = opt }
 
 // SetSessionService configures the session service for conversation session tracking.
-func (s *ConversationService) SetSessionService(svc *SessionService) { s.sessionSvc = svc }
+func (s *ConversationService) SetSessionService(svc convSessionProvider) { s.sessionSvc = svc }
 
 // SetLLMKeyService configures per-user LLM key resolution for conversation runs.
-func (s *ConversationService) SetLLMKeyService(svc *LLMKeyService) { s.llmKeySvc = svc }
+func (s *ConversationService) SetLLMKeyService(svc convLLMKeyResolver) { s.llmKeySvc = svc }
 
 // SetPromptAssembler configures the modular prompt assembler for system prompt generation.
 func (s *ConversationService) SetPromptAssembler(a *PromptAssembler) { s.promptAssembler = a }
 
 // SetPromptScoreCollector configures automatic score recording on run completion.
-func (s *ConversationService) SetPromptScoreCollector(sc *PromptScoreCollector) {
+func (s *ConversationService) SetPromptScoreCollector(sc convScoreRecorder) {
 	s.scoreCollector = sc
 }
 
