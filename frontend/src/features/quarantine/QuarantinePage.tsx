@@ -5,6 +5,7 @@ import type { Project, QuarantineMessage, QuarantineStats, QuarantineStatus } fr
 import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Badge,
   Button,
@@ -254,9 +255,7 @@ export default function QuarantinePage() {
         <LoadingState message={t("common.loading")} />
       </Show>
       <Show when={messages.error}>
-        <ErrorBanner
-          error={messages.error instanceof Error ? messages.error.message : String(messages.error)}
-        />
+        <ErrorBanner error={extractErrorMessage(messages.error, String(messages.error))} />
       </Show>
 
       {/* Messages table */}

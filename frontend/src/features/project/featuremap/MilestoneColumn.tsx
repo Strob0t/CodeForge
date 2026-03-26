@@ -5,6 +5,7 @@ import type { FeatureStatus, Milestone, RoadmapFeature } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { getVariant, roadmapStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button } from "~/ui";
 
 import FeatureCard from "./FeatureCard";
@@ -88,7 +89,7 @@ export default function MilestoneColumn(props: MilestoneColumnProps) {
       toast("success", t("featuremap.statusToggled"));
       props.onRefetch();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("featuremap.updateFailed");
+      const msg = extractErrorMessage(e, t("featuremap.updateFailed"));
       toast("error", msg);
     }
   };

@@ -6,6 +6,7 @@ import { useToast } from "~/components/Toast";
 import { MCP_TRANSPORTS } from "~/config/domain-constants";
 import { useAsyncAction, useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Alert,
   Badge,
@@ -235,7 +236,7 @@ export default function MCPServersPage() {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : t("mcp.toast.createFailed");
+        const msg = extractErrorMessage(err, t("mcp.toast.createFailed"));
         toast("error", msg);
       },
     },

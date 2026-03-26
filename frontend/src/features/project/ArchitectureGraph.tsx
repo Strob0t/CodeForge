@@ -3,6 +3,7 @@ import { createEffect, createResource, createSignal, For, on, onCleanup, Show } 
 import { api } from "~/api/client";
 import type { GraphNodeKind, GraphSearchHit, GraphStatus } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Badge, Button, Card, Input } from "~/ui";
 
 interface ArchitectureGraphProps {
@@ -219,7 +220,7 @@ export default function ArchitectureGraph(props: ArchitectureGraphProps) {
         setEdges(e);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("archGraph.error"));
+      setError(extractErrorMessage(err, t("archGraph.error")));
     } finally {
       setSearching(false);
     }

@@ -13,6 +13,7 @@ import type {
 import { useToast } from "~/components/Toast";
 import { useAsyncAction, useCRUDForm } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,7 +140,7 @@ export function useMicroagentsTab(projectId: () => string) {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : "Failed";
+        const msg = extractErrorMessage(err, "Failed");
         toast("error", msg);
       },
     },
@@ -196,7 +197,7 @@ export function useSkillsTab(projectId: () => string) {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : "Import failed";
+        const msg = extractErrorMessage(err, "Import failed");
         toast("error", msg);
       },
     },
@@ -252,7 +253,7 @@ export function useSkillsTab(projectId: () => string) {
     },
     {
       onError: (err) => {
-        const msg = err instanceof Error ? err.message : "Failed";
+        const msg = extractErrorMessage(err, "Failed");
         toast("error", msg);
       },
     },

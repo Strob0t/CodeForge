@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { Project } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Button, ErrorBanner, FormField, Input, Modal, Textarea } from "~/ui";
 
 export interface EditProjectModalProps {
@@ -50,7 +51,7 @@ export function EditProjectModal(props: EditProjectModalProps) {
       toast("success", t("dashboard.toast.updated"));
       props.onUpdated();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("dashboard.toast.updateFailed");
+      const msg = extractErrorMessage(err, t("dashboard.toast.updateFailed"));
       setError(msg);
       toast("error", msg);
     }

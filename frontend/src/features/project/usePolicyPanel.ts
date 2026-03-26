@@ -14,6 +14,7 @@ import type {
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 // ---------------------------------------------------------------------------
@@ -148,7 +149,7 @@ export function usePolicyPanel(onError: (msg: string) => void) {
         setView("list");
       }
     } catch (e) {
-      onError(e instanceof Error ? e.message : t("policy.toast.deleteFailed"));
+      onError(extractErrorMessage(e, t("policy.toast.deleteFailed")));
     }
   };
 
@@ -166,7 +167,7 @@ export function usePolicyPanel(onError: (msg: string) => void) {
       const res = await api.policies.evaluate(name, call);
       setEvalResult(res);
     } catch (e) {
-      onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
+      onError(extractErrorMessage(e, t("policy.toast.evalFailed")));
     } finally {
       setEvaluating(false);
     }
@@ -186,7 +187,7 @@ export function usePolicyPanel(onError: (msg: string) => void) {
       const res = await api.policies.evaluate(name, call);
       setPreviewResult(res);
     } catch (e) {
-      onError(e instanceof Error ? e.message : t("policy.toast.evalFailed"));
+      onError(extractErrorMessage(e, t("policy.toast.evalFailed")));
     } finally {
       setPreviewing(false);
     }

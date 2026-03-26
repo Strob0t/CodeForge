@@ -6,6 +6,7 @@ import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { fileIconUrl } from "~/lib/file-icon";
 import { Backdrop, Button, FormField, Input, Modal, Spinner, Textarea } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
@@ -288,7 +289,7 @@ function FilePanelInner(props: FilePanelProps): JSX.Element {
       ]);
       setActiveTab(file.path);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("files.openFailed");
+      const msg = extractErrorMessage(e, t("files.openFailed"));
       toast("error", msg);
     }
   }

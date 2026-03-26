@@ -3,6 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "~/api/client";
 import type { RepoMap } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Badge, Button, Card } from "~/ui";
 
 interface RepoMapPanelProps {
@@ -36,7 +37,7 @@ export default function RepoMapPanel(props: RepoMapPanelProps) {
       // Refetch after a short delay to pick up the result
       setTimeout(() => refetch(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("repomap.toast.generateFailed"));
+      setError(extractErrorMessage(e, t("repomap.toast.generateFailed")));
     } finally {
       setGenerating(false);
     }

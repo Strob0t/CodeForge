@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { CreateTaskRequest, Task, TaskStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, FormField, Input, Textarea } from "~/ui";
 
 interface TaskPanelProps {
@@ -52,7 +53,7 @@ export default function TaskPanel(props: TaskPanelProps) {
       props.onRefetch();
       toast("success", t("task.toast.created"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t("task.toast.createFailed");
+      const msg = extractErrorMessage(err, t("task.toast.createFailed"));
       props.onError(msg);
       toast("error", msg);
     }

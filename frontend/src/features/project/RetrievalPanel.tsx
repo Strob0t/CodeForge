@@ -8,6 +8,7 @@ import type {
   SubAgentSearchResult,
 } from "~/api/types";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Alert, Badge, Button, Card, Input } from "~/ui";
 
 interface RetrievalPanelProps {
@@ -71,7 +72,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       props.onStatusUpdate?.("building");
       setTimeout(() => refetch(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("retrieval.toast.buildFailed"));
+      setError(extractErrorMessage(e, t("retrieval.toast.buildFailed")));
     } finally {
       setBuilding(false);
     }
@@ -85,7 +86,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
       props.onStatusUpdate?.("building");
       setTimeout(() => refetchGraph(), 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("retrieval.toast.graphFailed"));
+      setError(extractErrorMessage(e, t("retrieval.toast.graphFailed")));
     } finally {
       setBuildingGraph(false);
     }
@@ -121,7 +122,7 @@ export default function RetrievalPanel(props: RetrievalPanelProps) {
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("retrieval.toast.searchFailed"));
+      setError(extractErrorMessage(err, t("retrieval.toast.searchFailed")));
     } finally {
       setSearching(false);
     }

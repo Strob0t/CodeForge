@@ -5,6 +5,7 @@ import type { FileContent, FileEntry } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks/useAsyncAction";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 // ---------------------------------------------------------------------------
@@ -70,7 +71,7 @@ export function useFilePanel(projectId: () => string) {
       ]);
       setActiveTab(file.path);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : t("files.openFailed");
+      const msg = extractErrorMessage(e, t("files.openFailed"));
       toast("error", msg);
     }
   }
