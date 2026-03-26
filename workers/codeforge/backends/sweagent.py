@@ -1,28 +1,19 @@
-"""SWE-agent backend executor -- subprocess wrapper."""
+"""SWE-agent backend executor -- CLI subprocess wrapper."""
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import os
-from typing import Any
-
-from codeforge.backends._base import BackendInfo, ConfigField, OutputCallback, TaskResult, parse_extra_args
-from codeforge.config import resolve_backend_path
+from codeforge.backends._base import BackendInfo, ConfigField, parse_extra_args
+from codeforge.backends._cli_base import CLIBackendExecutor, ExecutorConfig
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
-from codeforge.subprocess_utils import check_cli_available, graceful_terminate
-
-logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 
 
-class SweagentExecutor:
+class SweagentExecutor(CLIBackendExecutor):
     """Execute tasks using the SWE-agent CLI."""
 
     def __init__(self, cli_path: str | None = None) -> None:
-        self._cli_path = resolve_backend_path(cli_path, "CODEFORGE_SWEAGENT_PATH", "sweagent")
-        self._processes: dict[str, asyncio.subprocess.Process] = {}
+        super().__init__(cli_path, "CODEFORGE_SWEAGENT_PATH", "sweagent")
 
     @property
     def info(self) -> BackendInfo:
@@ -41,23 +32,7 @@ class SweagentExecutor:
             ),
         )
 
-    async def check_available(self) -> bool:
-        return await check_cli_available(self._cli_path)
-
-    async def execute(
-        self,
-        task_id: str,
-        prompt: str,
-        workspace_path: str,
-        config: dict[str, Any] | None = None,
-        on_output: OutputCallback | None = None,
-    ) -> TaskResult:
-        """Run sweagent with the given prompt in the workspace directory."""
-        config = config or {}
-        timeout = config.get("timeout", _DEFAULT_TIMEOUT)
-        cwd = config.get("working_dir_override") or workspace_path
-        extra_env: dict[str, str] = config.get("extra_env") or {}
-
+    def _build_command(self, prompt: str, config: ExecutorConfig) -> list[str]:
         cmd = [self._cli_path, "run", "--problem_statement", prompt]
 
         model = config.get("model")
@@ -65,64 +40,4 @@ class SweagentExecutor:
             cmd.extend(["--agent.model.name", model])
 
         cmd.extend(parse_extra_args(config))
-
-        logger.info("sweagent exec task=%s cmd=%s cwd=%s", task_id, cmd[:4], cwd)
-
-        merged_env = {**os.environ, **extra_env} if extra_env else None
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                cwd=cwd or None,
-                env=merged_env,
-            )
-        except OSError as exc:
-            return TaskResult(status="failed", error=f"Failed to start sweagent: {exc}")
-
-        self._processes[task_id] = proc
-        output_lines: list[str] = []
-
-        try:
-            stdout = proc.stdout
-            if stdout is None:
-                return TaskResult(status="failed", error="Failed to capture sweagent stdout")
-            while True:
-                try:
-                    line_bytes = await asyncio.wait_for(stdout.readline(), timeout=timeout)
-                except TimeoutError:
-                    await graceful_terminate(proc)
-                    return TaskResult(
-                        status="failed",
-                        output="\n".join(output_lines),
-                        error=f"SWE-agent timed out after {timeout}s",
-                    )
-
-                if not line_bytes:
-                    break
-
-                line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
-                output_lines.append(line)
-
-                if on_output is not None:
-                    await on_output(line)
-
-            await proc.wait()
-
-            output = "\n".join(output_lines)
-            if proc.returncode == 0:
-                return TaskResult(status="completed", output=output)
-            return TaskResult(
-                status="failed",
-                output=output,
-                error=f"SWE-agent exited with code {proc.returncode}",
-            )
-        finally:
-            self._processes.pop(task_id, None)
-
-    async def cancel(self, task_id: str) -> None:
-        proc = self._processes.get(task_id)
-        if proc is not None and proc.returncode is None:
-            await graceful_terminate(proc)
-            logger.info("sweagent process terminated for task %s", task_id)
+        return cmd

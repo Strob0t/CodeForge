@@ -119,7 +119,7 @@ class TestMultiRollout:
             patch("os.path.isdir", return_value=True),
             patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
             patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._select_best_rollout", return_value=0),
+            patch("codeforge.agent_loop.select_best_rollout", return_value=0),
         ):
             result = await rollout_exec.execute(messages=[{"role": "user", "content": "test"}], config=MagicMock())
 
@@ -160,7 +160,7 @@ class TestMultiRollout:
             patch("os.path.isdir", return_value=True),
             patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
             patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._select_best_rollout", return_value=0),
+            patch("codeforge.agent_loop.select_best_rollout", return_value=0),
         ):
             await rollout_exec.execute(messages=[], config=cfg)
 
@@ -178,7 +178,7 @@ class TestBestRolloutSelection:
     @pytest.mark.asyncio
     async def test_highest_score_selected(self) -> None:
         """3 rollouts with scores [0.3, 0.9, 0.6] -> rollout 1 selected."""
-        from codeforge.agent_loop import _select_best_rollout
+        from codeforge.quality_tracking import select_best_rollout
 
         results = [
             MagicMock(final_content="a", error="", total_cost=0.01),
@@ -186,20 +186,20 @@ class TestBestRolloutSelection:
             MagicMock(final_content="c", error="", total_cost=0.01),
         ]
         scores = [0.3, 0.9, 0.6]
-        idx = _select_best_rollout(results, scores)
+        idx = select_best_rollout(results, scores)
         assert idx == 1
 
     @pytest.mark.asyncio
     async def test_error_rollout_not_selected(self) -> None:
         """Rollout with error is deprioritized even with high score."""
-        from codeforge.agent_loop import _select_best_rollout
+        from codeforge.quality_tracking import select_best_rollout
 
         results = [
             MagicMock(final_content="a", error="failed", total_cost=0.01),
             MagicMock(final_content="b", error="", total_cost=0.01),
         ]
         scores = [1.0, 0.5]
-        idx = _select_best_rollout(results, scores)
+        idx = select_best_rollout(results, scores)
         assert idx == 1  # error rollout excluded
 
 
@@ -213,35 +213,35 @@ class TestEarlyStopping:
 
     def test_early_stop_on_agreement(self) -> None:
         """3 identical rollouts out of 8 -> should_stop returns True."""
-        from codeforge.agent_loop import _should_early_stop
+        from codeforge.quality_tracking import should_early_stop
 
         outputs = ["same output", "same output", "same output"]
         exit_codes = [0, 0, 0]
-        assert _should_early_stop(outputs, exit_codes, total_rollouts=8) is True
+        assert should_early_stop(outputs, exit_codes, total_rollouts=8) is True
 
     def test_no_early_stop_low_similarity(self) -> None:
         """3 rollouts with different outputs -> should_stop returns False."""
-        from codeforge.agent_loop import _should_early_stop
+        from codeforge.quality_tracking import should_early_stop
 
         outputs = ["output A is very different", "output B is completely unique", "output C has nothing in common"]
         exit_codes = [0, 0, 0]
-        assert _should_early_stop(outputs, exit_codes, total_rollouts=8) is False
+        assert should_early_stop(outputs, exit_codes, total_rollouts=8) is False
 
     def test_no_early_stop_with_error(self) -> None:
         """3 identical but one has exit_code != 0 -> no early stop."""
-        from codeforge.agent_loop import _should_early_stop
+        from codeforge.quality_tracking import should_early_stop
 
         outputs = ["same", "same", "same"]
         exit_codes = [0, 0, 1]
-        assert _should_early_stop(outputs, exit_codes, total_rollouts=8) is False
+        assert should_early_stop(outputs, exit_codes, total_rollouts=8) is False
 
     def test_no_early_stop_few_rollouts(self) -> None:
         """rollout_count <= 3 -> never early stop."""
-        from codeforge.agent_loop import _should_early_stop
+        from codeforge.quality_tracking import should_early_stop
 
         outputs = ["same", "same", "same"]
         exit_codes = [0, 0, 0]
-        assert _should_early_stop(outputs, exit_codes, total_rollouts=3) is False
+        assert should_early_stop(outputs, exit_codes, total_rollouts=3) is False
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ class TestCostAggregation:
             patch("os.path.isdir", return_value=True),
             patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
             patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._select_best_rollout", return_value=0),
+            patch("codeforge.agent_loop.select_best_rollout", return_value=0),
         ):
             result = await rollout_exec.execute(messages=[], config=LoopConfig())
 

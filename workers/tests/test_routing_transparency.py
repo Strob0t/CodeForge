@@ -365,11 +365,13 @@ class TestRoutingMetadataTrajectoryEvent:
 
 
 class TestModelSwitchTrajectoryEvent:
-    """Verify that _check_model_switch publishes a trajectory event."""
+    """Verify that check_model_switch publishes a trajectory event."""
 
     def test_check_model_switch_bumps_tier_and_logs(self) -> None:
-        """_check_model_switch should bump complexity_tier on cfg when quality is low."""
-        from codeforge.agent_loop import IterationQualityTracker, LoopConfig, _check_model_switch
+        """check_model_switch should bump complexity_tier on cfg when quality is low."""
+        from codeforge.agent_loop import LoopConfig
+        from codeforge.loop_helpers import check_model_switch
+        from codeforge.quality_tracking import IterationQualityTracker
 
         tracker = IterationQualityTracker()
         cfg = LoopConfig(
@@ -386,13 +388,15 @@ class TestModelSwitchTrajectoryEvent:
             tracker.end_iteration()
 
         assert tracker.should_switch() is True
-        _check_model_switch(tracker, cfg)
+        check_model_switch(tracker, cfg)
         assert cfg.complexity_tier == "medium"
         assert tracker.switch_count == 1
 
     def test_check_model_switch_noop_without_routing_layer(self) -> None:
-        """_check_model_switch does nothing when routing_layer is empty."""
-        from codeforge.agent_loop import IterationQualityTracker, LoopConfig, _check_model_switch
+        """check_model_switch does nothing when routing_layer is empty."""
+        from codeforge.agent_loop import LoopConfig
+        from codeforge.loop_helpers import check_model_switch
+        from codeforge.quality_tracking import IterationQualityTracker
 
         tracker = IterationQualityTracker()
         cfg = LoopConfig(model="fake-model", routing_layer="", complexity_tier="simple")
@@ -404,7 +408,7 @@ class TestModelSwitchTrajectoryEvent:
             tracker.end_iteration()
 
         assert tracker.should_switch() is True
-        _check_model_switch(tracker, cfg)
+        check_model_switch(tracker, cfg)
         # No switch because routing_layer is empty.
         assert cfg.complexity_tier == "simple"
         assert tracker.switch_count == 0

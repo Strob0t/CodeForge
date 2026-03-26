@@ -12,7 +12,7 @@ import pytest
 
 
 class TestPayloadToDict:
-    """_payload_to_dict must always include 'content' for role:tool messages."""
+    """payload_to_dict must always include 'content' for role:tool messages."""
 
     def _make_tool_msg(self, content: str, tool_call_id: str = "tc_1", name: str = "bash"):
         from codeforge.models import ConversationMessagePayload
@@ -26,20 +26,20 @@ class TestPayloadToDict:
 
     def test_tool_message_with_content(self):
         """Tool message with non-empty content should include it."""
-        from codeforge.agent_loop import _payload_to_dict
+        from codeforge.loop_helpers import payload_to_dict
 
         msg = self._make_tool_msg(content="file created successfully")
-        d = _payload_to_dict(msg)
+        d = payload_to_dict(msg)
         assert d["role"] == "tool"
         assert d["content"] == "file created successfully"
         assert d["tool_call_id"] == "tc_1"
 
     def test_tool_message_with_empty_content(self):
         """Tool message with empty content MUST still include 'content' key."""
-        from codeforge.agent_loop import _payload_to_dict
+        from codeforge.loop_helpers import payload_to_dict
 
         msg = self._make_tool_msg(content="")
-        d = _payload_to_dict(msg)
+        d = payload_to_dict(msg)
         assert d["role"] == "tool"
         assert "content" in d, "content key must be present even when empty"
         assert d["content"] == ""
@@ -59,20 +59,20 @@ class TestPayloadToDict:
             tool_call_id="tc_1",
             name="bash",
         )
-        from codeforge.agent_loop import _payload_to_dict
+        from codeforge.loop_helpers import payload_to_dict
 
-        d = _payload_to_dict(msg)
+        d = payload_to_dict(msg)
         assert d["role"] == "tool"
         assert "content" in d, "content key must be present for tool messages"
         assert d["content"] == ""
 
     def test_non_tool_message_without_content_omits_key(self):
         """Non-tool messages (user, assistant) may omit 'content' when empty."""
-        from codeforge.agent_loop import _payload_to_dict
+        from codeforge.loop_helpers import payload_to_dict
         from codeforge.models import ConversationMessagePayload
 
         msg = ConversationMessagePayload(role="assistant", content="")
-        d = _payload_to_dict(msg)
+        d = payload_to_dict(msg)
         # For non-tool roles, omitting empty content is acceptable
         assert d["role"] == "assistant"
 

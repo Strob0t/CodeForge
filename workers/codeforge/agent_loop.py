@@ -68,22 +68,6 @@ _tracer = tracing_manager.get_tracer()
 
 MEMORY_THRESHOLD_MB = int(os.getenv("CODEFORGE_WORKER_MEMORY_THRESHOLD_MB", "3500"))
 
-# Re-export for backward compatibility (used by _benchmark.py and other consumers).
-_ToolErrorTracker = ToolErrorTracker
-_build_tool_result_text = build_tool_result_text
-_build_correction_hint = build_correction_hint
-_build_assistant_message = build_assistant_message
-_build_tool_result_message = build_tool_result_message
-_payload_to_dict = payload_to_dict
-_init_plan_act = init_plan_act
-_check_model_switch = check_model_switch
-_check_plan_act_transition = check_plan_act_transition
-_append_system_suffix = update_system_suffix  # backward compat alias
-_resolve_schema = resolve_schema
-_compute_rollout_score = compute_rollout_score
-_select_best_rollout = select_best_rollout
-_should_early_stop = should_early_stop
-
 DEFAULT_MAX_ITERATIONS = 50
 
 
@@ -331,7 +315,7 @@ class AgentLoopExecutor:
         return None
 
     @_tracer.trace_agent("agent_loop")
-    async def run(self, messages: list[dict[str, object]], config: LoopConfig | None = None) -> AgentLoopResult:
+    async def run(self, messages: list[dict[str, object]], config: LoopConfig | None = None) -> AgentLoopResult:  # noqa: C901
         """Execute the agentic loop until the LLM stops or limits are hit."""
         cfg = config or LoopConfig()
         quality_tracker = IterationQualityTracker()
@@ -661,6 +645,31 @@ class AgentLoopExecutor:
                 break
         return None
 
+    async def _publish_tool_trajectory_event(
+        self,
+        tc: object,
+        result_text: str,
+        success: bool,
+        elapsed_ms: float,
+        step: int,
+    ) -> None:
+        """Publish a trajectory event for a tool call (fire-and-forget)."""
+        try:
+            await self._runtime.publish_trajectory_event(
+                {
+                    "event_type": "agent.tool_called",
+                    "tool_name": tc.name,
+                    "input": (tc.arguments or "")[:500],
+                    "output": result_text[:500],
+                    "success": success,
+                    "duration_ms": round(elapsed_ms, 1) if elapsed_ms else 0,
+                    "step": step,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
+        except Exception as exc:
+            logger.debug("failed to publish tool_called trajectory event: %s", exc)
+
     async def _execute_tool_call(self, tc, messages, state, quality_tracker=None, error_tracker=None):
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
@@ -674,21 +683,7 @@ class AgentLoopExecutor:
             await self._runtime.report_tool_result(
                 call_id=decision.call_id, tool=tc.name, success=False, error=result_text
             )
-            try:
-                await self._runtime.publish_trajectory_event(
-                    {
-                        "event_type": "agent.tool_called",
-                        "tool_name": tc.name,
-                        "input": (tc.arguments or "")[:500],
-                        "output": result_text[:500],
-                        "success": False,
-                        "duration_ms": 0,
-                        "step": state.step_count,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            except Exception as exc:
-                logger.debug("failed to publish tool_called trajectory event: %s", exc)
+            await self._publish_tool_trajectory_event(tc, result_text, False, 0, state.step_count)
             return
 
         tracer = trace.get_tracer("codeforge")
@@ -709,21 +704,7 @@ class AgentLoopExecutor:
                     call_id=decision.call_id, tool=tc.name, success=False, error=result_text
                 )
                 elapsed_ms = (time.monotonic() - tool_start) * 1000
-                try:
-                    await self._runtime.publish_trajectory_event(
-                        {
-                            "event_type": "agent.tool_called",
-                            "tool_name": tc.name,
-                            "input": (tc.arguments or "")[:500],
-                            "output": result_text[:500],
-                            "success": False,
-                            "duration_ms": round(elapsed_ms, 1),
-                            "step": state.step_count,
-                            "timestamp": datetime.now(UTC).isoformat(),
-                        }
-                    )
-                except Exception as traj_exc:
-                    logger.debug("failed to publish tool_called trajectory event: %s", traj_exc)
+                await self._publish_tool_trajectory_event(tc, result_text, False, elapsed_ms, state.step_count)
                 return
 
             result_text = build_tool_result_text(result, tc.name, error_tracker)
@@ -740,21 +721,7 @@ class AgentLoopExecutor:
             )
             elapsed_ms = (time.monotonic() - tool_start) * 1000
             otel_metrics.tool_duration.record(elapsed_ms / 1000)
-            try:
-                await self._runtime.publish_trajectory_event(
-                    {
-                        "event_type": "agent.tool_called",
-                        "tool_name": tc.name,
-                        "input": (tc.arguments or "")[:500],
-                        "output": result_text[:500],
-                        "success": result.success,
-                        "duration_ms": round(elapsed_ms, 1),
-                        "step": state.step_count,
-                        "timestamp": datetime.now(UTC).isoformat(),
-                    }
-                )
-            except Exception as exc:
-                logger.debug("failed to publish tool_called trajectory event: %s", exc)
+            await self._publish_tool_trajectory_event(tc, result_text, result.success, elapsed_ms, state.step_count)
 
             qt = quality_tracker or (state.quality_tracker if state else None)
             if qt is not None:
