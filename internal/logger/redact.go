@@ -9,7 +9,12 @@ import (
 // sensitivePatterns matches common secret and PII formats in log output.
 var sensitivePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(sk-[a-zA-Z0-9_-]{20,})`),            // API keys (OpenAI, LiteLLM)
+	regexp.MustCompile(`(?i)(sk-ant-[a-zA-Z0-9_-]{20,})`),        // Anthropic API keys
 	regexp.MustCompile(`(?i)(ghp_[a-zA-Z0-9]{36})`),              // GitHub personal access tokens
+	regexp.MustCompile(`(?i)(github_pat_[a-zA-Z0-9_]{36,})`),     // GitHub fine-grained PATs
+	regexp.MustCompile(`(?i)(gsk_[a-zA-Z0-9]{20,})`),             // Groq API keys
+	regexp.MustCompile(`(?i)(hf_[a-zA-Z0-9]{20,})`),              // HuggingFace tokens
+	regexp.MustCompile(`(?i)(AIza[a-zA-Z0-9_-]{30,})`),           // Google API keys
 	regexp.MustCompile(`(?i)(password|passwd|secret)=\S+`),       // key=value secrets
 	regexp.MustCompile(`(?i)([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+)`), // Email addresses
 }

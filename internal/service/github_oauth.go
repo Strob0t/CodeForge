@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -97,7 +98,7 @@ func (s *GitHubOAuthService) HandleCallback(ctx context.Context, code, statePara
 	}
 
 	// Encrypt the access token for storage.
-	encrypted, err := vcsaccount.Encrypt([]byte(token.AccessToken), s.encKey)
+	encrypted, err := crypto.Encrypt([]byte(token.AccessToken), s.encKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt token: %w", err)
 	}

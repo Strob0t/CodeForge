@@ -813,21 +813,23 @@ func ScoreFileRelevance(taskPrompt, filePath, fileContent string) int {
 	return normalized
 }
 
+// stopWords contains common English stop words filtered out during keyword extraction.
+// Declared at package level to avoid re-allocating the map on every call.
+var stopWords = map[string]bool{
+	"the": true, "a": true, "an": true, "is": true, "are": true, "was": true,
+	"were": true, "be": true, "been": true, "being": true, "have": true,
+	"has": true, "had": true, "do": true, "does": true, "did": true,
+	"will": true, "would": true, "could": true, "should": true, "may": true,
+	"might": true, "shall": true, "can": true, "to": true, "of": true,
+	"in": true, "for": true, "on": true, "with": true, "at": true,
+	"by": true, "from": true, "as": true, "into": true, "through": true,
+	"and": true, "or": true, "but": true, "not": true, "no": true,
+	"if": true, "then": true, "else": true, "when": true, "up": true,
+	"out": true, "that": true, "this": true, "it": true, "its": true,
+}
+
 // extractKeywords splits text into lowercase words, filtering out short and common words.
 func extractKeywords(text string) []string {
-	stopWords := map[string]bool{
-		"the": true, "a": true, "an": true, "is": true, "are": true, "was": true,
-		"were": true, "be": true, "been": true, "being": true, "have": true,
-		"has": true, "had": true, "do": true, "does": true, "did": true,
-		"will": true, "would": true, "could": true, "should": true, "may": true,
-		"might": true, "shall": true, "can": true, "to": true, "of": true,
-		"in": true, "for": true, "on": true, "with": true, "at": true,
-		"by": true, "from": true, "as": true, "into": true, "through": true,
-		"and": true, "or": true, "but": true, "not": true, "no": true,
-		"if": true, "then": true, "else": true, "when": true, "up": true,
-		"out": true, "that": true, "this": true, "it": true, "its": true,
-	}
-
 	words := strings.Fields(strings.ToLower(text))
 	var keywords []string
 	seen := make(map[string]bool)
