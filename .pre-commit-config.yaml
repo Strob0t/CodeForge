@@ -28,7 +28,7 @@ repos:
 
   # -- Go -----------------------------------------------------
   - repo: https://github.com/TekWizely/pre-commit-golang
-    rev: v1.0.0-rc.1
+    rev: v1.0.0-rc.1  # TODO: update to stable v1.0.0 when released
     hooks:
       # Format
       - id: go-fmt

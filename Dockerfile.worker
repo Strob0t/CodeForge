@@ -40,14 +40,16 @@ RUN groupadd -r codeforge && useradd -r -g codeforge codeforge
 WORKDIR /app
 
 COPY --from=build /app/.venv /app/.venv
-COPY --from=build /app /app
+COPY --from=build /app/workers /app/workers
+COPY --from=build /app/VERSION /app/VERSION
+COPY --from=build /app/pyproject.toml /app/pyproject.toml
 
 ENV PATH="/app/.venv/bin:$PATH"
 
 USER codeforge
 
 # FIX-112: Verify the worker module is importable as a basic health check.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD python -c "import codeforge" || exit 1
 
 ENTRYPOINT ["python", "-m", "codeforge.consumer"]
