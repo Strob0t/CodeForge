@@ -1,7 +1,6 @@
 package middleware_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,7 +61,7 @@ func TestRequireRole_WrongRole_Returns403(t *testing.T) {
 	// Inject user into context before RBAC check.
 	injectUser := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), viewerUser)
+			ctx := middleware.ContextWithTestUser(r.Context(), viewerUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -93,7 +92,7 @@ func TestRequireRole_EditorAllowedForEditorRoute(t *testing.T) {
 
 	injectUser := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := context.WithValue(r.Context(), middleware.AuthUserCtxKeyForTest(), editorUser)
+			ctx := middleware.ContextWithTestUser(r.Context(), editorUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -232,8 +232,8 @@ func APIKeyFromContext(ctx context.Context) *user.APIKey {
 	return key
 }
 
-// AuthUserCtxKeyForTest returns the context key used for storing the auth user.
-// Exported only for use in tests that need to inject a user into the context.
-func AuthUserCtxKeyForTest() any {
-	return authUserCtxKey{}
+// ContextWithTestUser returns a context with the given user injected, matching
+// the key used by the Auth middleware. Use only in tests.
+func ContextWithTestUser(ctx context.Context, u *user.User) context.Context {
+	return context.WithValue(ctx, authUserCtxKey{}, u)
 }

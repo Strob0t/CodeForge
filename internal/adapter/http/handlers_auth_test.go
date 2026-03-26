@@ -2,7 +2,6 @@ package http_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -21,8 +20,7 @@ const validPassword = "TestPass123"
 
 // withUserContext injects a user into the request context, matching the key used by middleware.Auth.
 func withUserContext(req *http.Request, u *user.User) *http.Request {
-	ctx := context.WithValue(req.Context(), middleware.AuthUserCtxKeyForTest(), u)
-	return req.WithContext(ctx)
+	return req.WithContext(middleware.ContextWithTestUser(req.Context(), u))
 }
 
 // httpSetupAdmin performs the initial setup flow against the test router, returning

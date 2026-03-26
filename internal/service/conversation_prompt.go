@@ -253,12 +253,12 @@ func (s *PromptAssemblyService) EvaluateReminders(
 
 	budgetPct, budgetUsed, budgetLimit := s.ComputeBudget(ctx, conversationID)
 
-	data := map[string]any{
-		"TurnCount":       len(history),
-		"BudgetPercent":   budgetPct,
-		"BudgetUsed":      budgetUsed,
-		"BudgetLimit":     budgetLimit,
-		"StallIterations": countStallIterations(history),
+	data := reminderTemplateData{
+		TurnCount:       len(history),
+		BudgetPercent:   budgetPct,
+		BudgetUsed:      budgetUsed,
+		BudgetLimit:     budgetLimit,
+		StallIterations: countStallIterations(history),
 	}
 
 	var result []string

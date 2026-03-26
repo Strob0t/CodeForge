@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -298,8 +297,7 @@ func (a *BenchmarkResultAggregator) ExportRLVRDataset(ctx context.Context, runID
 
 	entries := make([]benchmark.RLVREntry, 0, len(results))
 	for i := range results {
-		scores := make(map[string]float64)
-		_ = json.Unmarshal(results[i].Scores, &scores) //nolint:errcheck // best effort
+		scores := ParseScores(results[i].Scores)
 
 		entries = append(entries, benchmark.RLVREntry{
 			Prompt:   results[i].TaskName,

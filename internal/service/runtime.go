@@ -441,12 +441,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	})
 
 	// Broadcast WS.
-	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-		RunID:     r.ID,
-		TaskID:    r.TaskID,
-		ProjectID: r.ProjectID,
-		Status:    string(r.Status),
-	})
+	s.broadcastRunStatus(ctx, r, r.Status)
 
 	s.hub.BroadcastEvent(ctx, event.AGUIRunStarted, event.AGUIRunStartedEvent{
 		RunID:     r.ID,
@@ -518,17 +513,7 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	})
 
 	// Broadcast WS
-	s.hub.BroadcastEvent(ctx, event.EventRunStatus, event.RunStatusEvent{
-		RunID:     r.ID,
-		TaskID:    r.TaskID,
-		ProjectID: r.ProjectID,
-		Status:    string(run.StatusCancelled),
-		StepCount: r.StepCount,
-		CostUSD:   r.CostUSD,
-		TokensIn:  r.TokensIn,
-		TokensOut: r.TokensOut,
-		Model:     r.Model,
-	})
+	s.broadcastRunStatus(ctx, r, run.StatusCancelled)
 
 	// Clean up checkpoints
 	if s.checkpoint != nil {
