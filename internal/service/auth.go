@@ -124,7 +124,7 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 		if u.FailedAttempts >= user.MaxFailedAttempts {
 			u.LockedUntil = time.Now().Add(user.LockoutDuration)
 			slog.Warn("account locked due to failed login attempts",
-				"email", u.Email, "attempts", u.FailedAttempts)
+				"user_id", u.ID, "attempts", u.FailedAttempts)
 		}
 		if updateErr := s.store.UpdateUser(ctx, u); updateErr != nil {
 			slog.Error("failed to update user lockout state", "error", updateErr)
@@ -315,14 +315,12 @@ func (s *AuthService) BootstrapAdmin(ctx context.Context, tenantID string) error
 		}
 
 		slog.Warn("initial admin password written to file — change it on first login",
-			"file", s.cfg.InitialPasswordFile,
-			"email", s.cfg.DefaultAdminEmail)
+			"file", s.cfg.InitialPasswordFile)
 		return nil
 	}
 
 	// Path 3: no password configured — wait for setup wizard
-	slog.Info("no admin password configured, waiting for setup wizard",
-		"email", s.cfg.DefaultAdminEmail)
+	slog.Info("no admin password configured, waiting for setup wizard")
 	return nil
 }
 
@@ -344,7 +342,7 @@ func (s *AuthService) createAdminWithPassword(ctx context.Context, tenantID, pas
 		return fmt.Errorf("set must_change_password: %w", err)
 	}
 
-	slog.Info("bootstrapped admin user", "email", s.cfg.DefaultAdminEmail)
+	slog.Info("bootstrapped admin user", "user_id", u.ID)
 	return nil
 }
 
@@ -371,7 +369,7 @@ func (s *AuthService) syncAdminPassword(ctx context.Context, tenantID string) er
 		return fmt.Errorf("sync admin password: %w", err)
 	}
 
-	slog.Info("admin password synced from env var", "email", s.cfg.DefaultAdminEmail)
+	slog.Info("admin password synced from env var", "user_id", u.ID)
 	return nil
 }
 
@@ -406,7 +404,7 @@ func (s *AuthService) AdminResetPassword(ctx context.Context, email, tenantID, n
 		slog.Warn("failed to invalidate sessions after admin password reset", "user_id", u.ID, "error", err)
 	}
 
-	slog.Info("admin password reset completed", "email", email)
+	slog.Info("admin password reset completed", "user_id", u.ID)
 	return nil
 }
 

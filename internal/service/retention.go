@@ -7,6 +7,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // retentionBatchSize limits the number of rows deleted per batch to avoid
@@ -25,16 +26,39 @@ func NewRetentionService(store database.Store, cfg config.Retention) *RetentionS
 	return &RetentionService{store: store, config: cfg}
 }
 
-// RunCleanup deletes expired records across all retention categories.
+// RunCleanup deletes expired records across all retention categories for every tenant.
 // Each category is processed independently so a failure in one does not
 // block the others. Deletions are batched (LIMIT 1000) to avoid long locks.
 func (s *RetentionService) RunCleanup(ctx context.Context) error {
-	now := time.Now().UTC()
+	tenants, err := s.store.ListTenants(ctx)
+	if err != nil {
+		slog.Error("retention: failed to list tenants", "error", err)
+		// Fall back to default tenant so cleanup still runs for single-tenant deployments.
+		tenants = nil
+	}
 
-	s.cleanupSessions(ctx, now)
-	s.cleanupConversations(ctx, now)
-	s.cleanupRuns(ctx, now)
-	s.cleanupAuditEntries(ctx, now)
+	// Build list of tenant IDs to iterate. Always include the default tenant
+	// in case data exists outside explicitly-created tenants.
+	tenantIDs := make([]string, 0, len(tenants)+1)
+	seen := make(map[string]struct{}, len(tenants)+1)
+	for i := range tenants {
+		if _, ok := seen[tenants[i].ID]; !ok {
+			tenantIDs = append(tenantIDs, tenants[i].ID)
+			seen[tenants[i].ID] = struct{}{}
+		}
+	}
+	if _, ok := seen[tenantctx.DefaultTenantID]; !ok {
+		tenantIDs = append(tenantIDs, tenantctx.DefaultTenantID)
+	}
+
+	now := time.Now().UTC()
+	for _, tid := range tenantIDs {
+		tctx := tenantctx.WithTenant(ctx, tid)
+		s.cleanupSessions(tctx, now)
+		s.cleanupConversations(tctx, now)
+		s.cleanupRuns(tctx, now)
+		s.cleanupAuditEntries(tctx, now)
+	}
 
 	return nil
 }
