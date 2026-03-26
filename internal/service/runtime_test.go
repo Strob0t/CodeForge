@@ -601,7 +601,8 @@ func (m *runtimeMockStore) UpdateSessionStatus(_ context.Context, _ string, _ ru
 
 // --- User/Auth stubs (satisfy interface) ---
 
-func (m *runtimeMockStore) CreateUser(_ context.Context, _ *user.User) error { return nil }
+func (m *runtimeMockStore) CreateUser(_ context.Context, _ *user.User) error      { return nil }
+func (m *runtimeMockStore) CreateFirstUser(_ context.Context, _ *user.User) error { return nil }
 func (m *runtimeMockStore) GetUser(_ context.Context, _ string) (*user.User, error) {
 	return nil, domain.ErrNotFound
 }

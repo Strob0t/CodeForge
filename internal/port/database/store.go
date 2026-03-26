@@ -178,6 +178,9 @@ type Store interface {
 
 	// Users
 	CreateUser(ctx context.Context, u *user.User) error
+	// CreateFirstUser atomically creates a user only if no users exist for the tenant.
+	// Returns domain.ErrConflict if any user already exists (setup already done).
+	CreateFirstUser(ctx context.Context, u *user.User) error
 	GetUser(ctx context.Context, id string) (*user.User, error)
 	GetUserByEmail(ctx context.Context, email, tenantID string) (*user.User, error)
 	ListUsers(ctx context.Context, tenantID string) ([]user.User, error)

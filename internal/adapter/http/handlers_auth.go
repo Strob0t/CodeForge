@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
@@ -311,18 +313,6 @@ type initialSetupRequest struct {
 func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.TenantIDFromContext(r.Context())
 
-	// Check if setup is still needed.
-	status, err := h.Auth.GetSetupStatus(r.Context(), tenantID)
-	if err != nil {
-		slog.Error("setup status check failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
-	}
-	if !status.NeedsSetup {
-		writeError(w, http.StatusConflict, "system is already initialized")
-		return
-	}
-
 	req, ok := readJSON[initialSetupRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
@@ -333,8 +323,9 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create admin user.
-	_, err = h.Auth.Register(r.Context(), &user.CreateRequest{
+	// Atomically create admin user only if no users exist for this tenant.
+	// This eliminates the TOCTOU race between GetSetupStatus and Register (CWE-367).
+	_, err := h.Auth.RegisterFirstUser(r.Context(), &user.CreateRequest{
 		Email:    req.Email,
 		Name:     req.Name,
 		Password: req.Password,
@@ -342,6 +333,11 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	})
 	if err != nil {
+		// If the atomic insert detected existing users, report conflict.
+		if errors.Is(err, domain.ErrConflict) {
+			writeError(w, http.StatusConflict, "system is already initialized")
+			return
+		}
 		writeDomainError(w, err, "setup failed")
 		return
 	}

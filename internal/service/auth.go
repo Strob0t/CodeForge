@@ -48,6 +48,17 @@ func (s *AuthService) APIKeys() *APIKeyManager { return s.apiKeys }
 // Register creates a new user with a bcrypt-hashed password.
 // If the requested role is empty or not in the valid set, it defaults to viewer.
 func (s *AuthService) Register(ctx context.Context, req *user.CreateRequest) (*user.User, error) {
+	return s.register(ctx, req, false)
+}
+
+// RegisterFirstUser atomically creates a user only if no users exist for the tenant.
+// Returns domain.ErrConflict if any user already exists (setup already done).
+func (s *AuthService) RegisterFirstUser(ctx context.Context, req *user.CreateRequest) (*user.User, error) {
+	return s.register(ctx, req, true)
+}
+
+// register is the shared implementation for Register and RegisterFirstUser.
+func (s *AuthService) register(ctx context.Context, req *user.CreateRequest, firstOnly bool) (*user.User, error) {
 	if req.Role == "" {
 		req.Role = user.RoleViewer
 	}
@@ -71,8 +82,14 @@ func (s *AuthService) Register(ctx context.Context, req *user.CreateRequest) (*u
 		Enabled:      true,
 	}
 
-	if err := s.store.CreateUser(ctx, u); err != nil {
-		return nil, fmt.Errorf("create user: %w", err)
+	if firstOnly {
+		if err := s.store.CreateFirstUser(ctx, u); err != nil {
+			return nil, fmt.Errorf("create first user: %w", err)
+		}
+	} else {
+		if err := s.store.CreateUser(ctx, u); err != nil {
+			return nil, fmt.Errorf("create user: %w", err)
+		}
 	}
 	return u, nil
 }
