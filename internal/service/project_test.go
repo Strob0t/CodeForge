@@ -478,6 +478,10 @@ func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
 	return nil
 }
 
+func (m *mockStore) CreateFirstUser(ctx context.Context, u *user.User) error {
+	return m.CreateUser(ctx, u)
+}
+
 func (m *mockStore) GetUser(_ context.Context, id string) (*user.User, error) {
 	for i := range m.users {
 		if m.users[i].ID == id {

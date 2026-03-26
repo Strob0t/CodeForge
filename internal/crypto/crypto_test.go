@@ -72,15 +72,26 @@ func TestGenerateRandomPassword(t *testing.T) {
 		t.Fatalf("expected 24 chars, got %d: %q", len(pw), pw)
 	}
 
-	// First char uppercase, second lowercase, third digit.
-	if pw[0] < 'A' || pw[0] > 'Z' {
-		t.Fatalf("first char should be uppercase, got %q", string(pw[0]))
+	// Must contain at least one of each character class (positions are random).
+	hasUpper, hasLower, hasDigit := false, false, false
+	for _, c := range pw {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		}
 	}
-	if pw[1] < 'a' || pw[1] > 'z' {
-		t.Fatalf("second char should be lowercase, got %q", string(pw[1]))
+	if !hasUpper {
+		t.Fatalf("password should contain at least one uppercase letter: %q", pw)
 	}
-	if pw[2] < '0' || pw[2] > '9' {
-		t.Fatalf("third char should be digit, got %q", string(pw[2]))
+	if !hasLower {
+		t.Fatalf("password should contain at least one lowercase letter: %q", pw)
+	}
+	if !hasDigit {
+		t.Fatalf("password should contain at least one digit: %q", pw)
 	}
 }
 

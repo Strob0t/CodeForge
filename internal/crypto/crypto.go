@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 )
 
 // GenerateRequestID returns a 16-byte random hex string (32 chars).
@@ -34,20 +35,40 @@ func GenerateRandomToken() (string, error) {
 
 // GenerateRandomPassword creates a random password of the given length
 // containing uppercase, lowercase, and digits.
+// Uses crypto/rand.Int for uniform distribution (no modular bias).
 func GenerateRandomPassword(length int) (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+	const (
+		charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+		upper   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		lower   = "abcdefghijklmnopqrstuvwxyz"
+		digits  = "0123456789"
+	)
+	charsetLen := big.NewInt(int64(len(charset)))
+
+	result := make([]byte, length)
+	for i := range result {
+		idx, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", fmt.Errorf("generate random index: %w", err)
+		}
+		result[i] = charset[idx.Int64()]
 	}
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+
+	// Ensure at least one of each required character class at random positions.
+	classes := []string{upper, lower, digits}
+	for _, class := range classes {
+		pos, err := rand.Int(rand.Reader, big.NewInt(int64(length)))
+		if err != nil {
+			return "", fmt.Errorf("generate random position: %w", err)
+		}
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(class))))
+		if err != nil {
+			return "", fmt.Errorf("generate random class char: %w", err)
+		}
+		result[pos.Int64()] = class[idx.Int64()]
 	}
-	// Ensure at least one of each required character class
-	b[0] = 'A' + b[0]%26 // uppercase
-	b[1] = 'a' + b[1]%26 // lowercase
-	b[2] = '0' + b[2]%10 // digit
-	return string(b), nil
+
+	return string(result), nil
 }
 
 // HashSHA256 returns the hex-encoded SHA-256 hash of the given string.

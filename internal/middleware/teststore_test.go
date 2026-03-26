@@ -63,6 +63,10 @@ func (s *testStore) CreateUser(_ context.Context, u *user.User) error {
 	return nil
 }
 
+func (s *testStore) CreateFirstUser(ctx context.Context, u *user.User) error {
+	return s.CreateUser(ctx, u)
+}
+
 func (s *testStore) GetUser(_ context.Context, id string) (*user.User, error) {
 	for i := range s.users {
 		if s.users[i].ID == id {

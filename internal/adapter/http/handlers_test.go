@@ -18,6 +18,7 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -59,7 +60,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -750,6 +750,13 @@ func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
 	u.UpdatedAt = now
 	m.users = append(m.users, *u)
 	return nil
+}
+
+func (m *mockStore) CreateFirstUser(_ context.Context, u *user.User) error {
+	if len(m.users) > 0 {
+		return domain.ErrConflict
+	}
+	return m.CreateUser(context.Background(), u)
 }
 
 func (m *mockStore) GetUser(_ context.Context, id string) (*user.User, error) {

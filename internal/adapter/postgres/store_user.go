@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
@@ -24,6 +25,45 @@ func (s *Store) CreateUser(ctx context.Context, u *user.User) error {
 		return fmt.Errorf("create user: %w", err)
 	}
 	return nil
+}
+
+// CreateFirstUser atomically creates a user only if no users exist for the tenant.
+// Uses a PostgreSQL advisory lock to prevent concurrent setup race conditions (CWE-367).
+// Returns domain.ErrConflict if any user already exists.
+func (s *Store) CreateFirstUser(ctx context.Context, u *user.User) error {
+	now := time.Now().UTC()
+	u.CreatedAt = now
+	u.UpdatedAt = now
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback on defer is best-effort
+
+	// Advisory lock scoped to transaction prevents concurrent setup attempts.
+	// The lock key 0x436F6465466F7267 is derived from "CodeForg" in ASCII hex.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(4846791580151137143)"); err != nil {
+		return fmt.Errorf("advisory lock: %w", err)
+	}
+
+	var count int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM users WHERE tenant_id = $1", u.TenantID).Scan(&count); err != nil {
+		return fmt.Errorf("count users: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("create first user: %w", domain.ErrConflict)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		u.ID, u.Email, u.Name, u.PasswordHash, u.Role, u.TenantID, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, u.CreatedAt, u.UpdatedAt,
+	); err != nil {
+		return fmt.Errorf("create first user: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 // GetUser retrieves a user by ID. This is intentionally cross-tenant because
