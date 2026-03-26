@@ -176,7 +176,7 @@ jobs:
         with:
           image: "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:sha-${{ github.sha }}"
           fail-build: true
-          severity-cutoff: critical
+          severity-cutoff: high
           output-format: sarif
 
       - name: Upload SARIF to GitHub Security
