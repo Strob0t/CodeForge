@@ -490,6 +490,13 @@ func run() error {
 	reviewApprovalSvc := service.NewReviewApprovalService(queue, hub)
 	slog.Info("boundary and review trigger services initialized")
 
+	// Wire auto-index dependencies into ProjectService so it can
+	// trigger background indexing without going through the HTTP layer.
+	projectSvc.SetRepoMapIndexer(repoMapSvc)
+	projectSvc.SetRetrievalIndexer(retrievalSvc)
+	projectSvc.SetGraphBuilder(graphSvc)
+	projectSvc.SetReviewTriggerer(reviewTriggerSvc)
+
 	// --- GEMMAS Evaluation Hook (Phase 20G) ---
 	evalSvc := service.NewEvaluationService(store, eventStore, queue)
 	orchSvc.AddOnPlanComplete(evalSvc.HandlePlanComplete)
@@ -786,12 +793,8 @@ func run() error {
 	handlers := &cfhttp.Handlers{
 		// Domain-specific handler groups
 		Project: &cfhttp.ProjectHandlers{
-			Projects:      projectSvc,
-			RepoMap:       repoMapSvc,
-			Retrieval:     retrievalSvc,
-			Graph:         graphSvc,
-			ReviewTrigger: reviewTriggerSvc,
-			Limits:        &cfg.Limits,
+			Projects: projectSvc,
+			Limits:   &cfg.Limits,
 		},
 		Agent: &cfhttp.AgentHandlers{
 			Agents: agentSvc,

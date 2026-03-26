@@ -1,16 +1,10 @@
 package http
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
-	"net/url"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -19,18 +13,13 @@ import (
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/service"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // ProjectHandlers groups HTTP handlers for project CRUD, git operations,
 // workspace management, and stack detection.
 type ProjectHandlers struct {
-	Projects      *service.ProjectService
-	RepoMap       *service.RepoMapService
-	Retrieval     *service.RetrievalService
-	Graph         *service.GraphService
-	ReviewTrigger *service.ReviewTriggerService
-	Limits        *config.Limits
+	Projects *service.ProjectService
+	Limits   *config.Limits
 }
 
 // ListProjects handles GET /api/v1/projects
@@ -153,47 +142,9 @@ func (ph *ProjectHandlers) FetchRepoInfo(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, info)
 }
 
-// autoIndexProject triggers background indexing for all context sources.
-// Called after clone, adopt, or setup to ensure agents get full context.
-// Each index build is independent — failures are logged but don't block.
-// The tenantID is extracted from the caller's context before spawning goroutines,
-// because context.Background() would lose tenant isolation.
+// autoIndexProject delegates background indexing to the ProjectService.
 func (ph *ProjectHandlers) autoIndexProject(tenantID, projectID, workspacePath string) {
-	if ph.RepoMap != nil {
-		go func() {
-			ctx := tenantctx.WithTenant(context.Background(), tenantID)
-			if err := ph.RepoMap.RequestGeneration(ctx, projectID, nil); err != nil {
-				slog.Error("auto repomap generation failed", "project_id", projectID, "error", err)
-			}
-		}()
-	}
-
-	if ph.Retrieval != nil {
-		go func() {
-			ctx := tenantctx.WithTenant(context.Background(), tenantID)
-			if err := ph.Retrieval.RequestIndex(ctx, projectID, workspacePath, ""); err != nil {
-				slog.Error("auto retrieval index failed", "project_id", projectID, "error", err)
-			}
-		}()
-	}
-
-	if ph.Graph != nil {
-		go func() {
-			ctx := tenantctx.WithTenant(context.Background(), tenantID)
-			if err := ph.Graph.RequestBuild(ctx, projectID, workspacePath); err != nil {
-				slog.Error("auto graph build failed", "project_id", projectID, "error", err)
-			}
-		}()
-	}
-
-	if ph.ReviewTrigger != nil {
-		go func() {
-			ctx := tenantctx.WithTenant(context.Background(), tenantID)
-			if _, err := ph.ReviewTrigger.TriggerReview(ctx, projectID, "", "auto-index"); err != nil {
-				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
-			}
-		}()
-	}
+	ph.Projects.AutoIndex(tenantID, projectID, workspacePath)
 }
 
 // CloneProject handles POST /api/v1/projects/{id}/clone
@@ -397,7 +348,7 @@ func (ph *ProjectHandlers) CheckoutBranch(w http.ResponseWriter, r *http.Request
 }
 
 // ListRemoteBranches handles GET /api/v1/projects/remote-branches?url=<repo-url>
-// It runs `git ls-remote --heads <url>` and returns the branch names.
+// Delegates to ProjectService.ListRemoteBranches for URL validation and git operations.
 func (ph *ProjectHandlers) ListRemoteBranches(w http.ResponseWriter, r *http.Request) {
 	repoURL := r.URL.Query().Get("url")
 	if repoURL == "" {
@@ -405,50 +356,18 @@ func (ph *ProjectHandlers) ListRemoteBranches(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Validate URL: require a parsed host and an allowed scheme.
-	parsed, urlErr := url.Parse(repoURL)
-	if urlErr != nil || parsed.Host == "" {
-		writeError(w, http.StatusBadRequest, "invalid repository URL")
-		return
-	}
-	switch parsed.Scheme {
-	case "https", "http", "git", "ssh":
-		// allowed
-	default:
-		writeError(w, http.StatusBadRequest, "unsupported URL scheme: only https, http, git, ssh are allowed")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL validated: parsed URL with scheme allowlist.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		slog.Warn("git ls-remote failed", "url", repoURL, "error", err, "stderr", stderr.String())
+	branches, err := ph.Projects.ListRemoteBranches(r.Context(), repoURL)
+	if err != nil {
+		// Distinguish validation errors from git failures.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid repository URL") ||
+			strings.Contains(errMsg, "unsupported URL scheme") ||
+			strings.Contains(errMsg, "url is required") {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
 		writeError(w, http.StatusBadGateway, "failed to list remote branches")
 		return
-	}
-
-	var branches []string
-	for _, line := range strings.Split(stdout.String(), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Format: <sha>\trefs/heads/<branch-name>
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		ref := parts[1]
-		branch := strings.TrimPrefix(ref, "refs/heads/")
-		if branch != ref {
-			branches = append(branches, branch)
-		}
 	}
 
 	if branches == nil {
