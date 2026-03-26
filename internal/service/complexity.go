@@ -106,13 +106,13 @@ func scoreCodePresence(prompt string) float64 {
 		score += 0.4
 	}
 	extCount := len(reFileExtensions.FindAllString(prompt, -1))
-	score += min64(0.3, float64(extCount)*0.1)
+	score += min(0.3, float64(extCount)*0.1)
 	if reImportPatterns.MatchString(prompt) {
 		score += 0.15
 	}
 	kwCount := len(reCodeKeywords.FindAllString(prompt, -1))
-	score += min64(0.15, float64(kwCount)*0.05)
-	return min64(1.0, score)
+	score += min(0.15, float64(kwCount)*0.05)
+	return min(1.0, score)
 }
 
 var reReasoning = regexp.MustCompile(`(?i)\b(analy[sz]e|compare|trade[- ]?off|design|evaluate|pros and cons|which is better|should [iI]|why|explain the difference|consider|weigh|assess|critique|justify|what are the advantages|disadvantages|implications)\b`)
@@ -230,11 +230,4 @@ func scoreOutputComplexity(prompt string) float64 {
 	default:
 		return 1.0
 	}
-}
-
-func min64(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }
