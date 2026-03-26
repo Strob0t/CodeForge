@@ -17,15 +17,13 @@ from dataclasses import dataclass, field
 import structlog
 
 from codeforge.evaluation.prompt_optimizer import TacticalFix
+from codeforge.nats_subjects import SUBJECT_PROMPT_EVOLUTION_MUTATE_COMPLETE
 
 logger = structlog.get_logger(component="evaluation")
 
 # Length bounds: variant must be 50-300% of original length.
 _MIN_LENGTH_RATIO = 0.5
 _MAX_LENGTH_RATIO = 3.0
-
-# NATS subject for mutation results.
-SUBJECT_MUTATE_COMPLETE = "prompt.evolution.mutate.complete"
 
 _MUTATION_PROMPT = """\
 You are a prompt engineering expert. Rewrite the following agent prompt to incorporate \
@@ -290,6 +288,6 @@ async def handle_mutate_request(
         }
 
     await nats_client.publish(  # type: ignore[union-attr]
-        SUBJECT_MUTATE_COMPLETE,
+        SUBJECT_PROMPT_EVOLUTION_MUTATE_COMPLETE,
         json.dumps(result).encode(),
     )

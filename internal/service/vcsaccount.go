@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -18,7 +19,7 @@ type VCSAccountService struct {
 }
 
 // NewVCSAccountService creates a new VCSAccountService.
-// The encryptionKey should be derived from the JWT secret using vcsaccount.DeriveKey.
+// The encryptionKey should be derived from the JWT secret using crypto.DeriveKey.
 func NewVCSAccountService(s database.Store, encryptionKey []byte) *VCSAccountService {
 	return &VCSAccountService{db: s, key: encryptionKey}
 }
@@ -58,7 +59,7 @@ func (s *VCSAccountService) Create(ctx context.Context, req *vcsaccount.CreateRe
 		return nil, fmt.Errorf("invalid auth_method %q: must be token, ssh, or oauth", authMethod)
 	}
 
-	encrypted, err := vcsaccount.Encrypt([]byte(req.Token), s.key)
+	encrypted, err := crypto.Encrypt([]byte(req.Token), s.key)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt token: %w", err)
 	}
@@ -99,7 +100,7 @@ func (s *VCSAccountService) Test(ctx context.Context, id string) error {
 		return fmt.Errorf("get vcs account: %w", err)
 	}
 
-	token, err := vcsaccount.Decrypt(a.EncryptedToken, s.key)
+	token, err := crypto.Decrypt(a.EncryptedToken, s.key)
 	if err != nil {
 		return fmt.Errorf("decrypt token: %w", err)
 	}

@@ -21,23 +21,22 @@ from nats.js.api import ConsumerConfig, DeliverPolicy
 from codeforge.constants import NATS_RESPONSE_TIMEOUT_SECONDS
 from codeforge.metrics import ExecutionMetrics
 from codeforge.models import RunCompleteMessage, ToolCallDecision
+from codeforge.nats_subjects import (
+    SUBJECT_AGENT_OUTPUT,
+    SUBJECT_RUN_CANCEL,
+    SUBJECT_RUN_COMPLETE,
+    SUBJECT_RUN_HEARTBEAT,
+    SUBJECT_RUN_OUTPUT,
+    SUBJECT_TOOLCALL_REQUEST,
+    SUBJECT_TOOLCALL_RESPONSE,
+    SUBJECT_TOOLCALL_RESULT,
+    SUBJECT_TRAJECTORY_EVENT,
+)
 
 if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
 
     from codeforge.models import TerminationConfig
-
-# NATS subjects for the run protocol
-SUBJECT_TOOLCALL_REQUEST = "runs.toolcall.request"
-SUBJECT_TOOLCALL_RESPONSE = "runs.toolcall.response"
-SUBJECT_TOOLCALL_RESULT = "runs.toolcall.result"
-SUBJECT_RUN_COMPLETE = "runs.complete"
-SUBJECT_RUN_OUTPUT = "runs.output"
-SUBJECT_RUN_CANCEL = "runs.cancel"
-SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
-SUBJECT_RUN_HEARTBEAT = "runs.heartbeat"
-SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
-SUBJECT_AGENT_OUTPUT = "agents.output"
 
 RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
 

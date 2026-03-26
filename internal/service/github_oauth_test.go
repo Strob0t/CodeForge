@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -103,7 +104,7 @@ func TestGitHubOAuth_HandleCallback_Success(t *testing.T) {
 	defer tokenSrv.Close()
 
 	store := newOAuthMockStore()
-	encKey := vcsaccount.DeriveKey("test-jwt-secret")
+	encKey := crypto.DeriveKey("test-jwt-secret")
 	svc := service.NewGitHubOAuthService(service.GitHubOAuthConfig{
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
@@ -146,7 +147,7 @@ func TestGitHubOAuth_HandleCallback_Success(t *testing.T) {
 	if len(account.EncryptedToken) == 0 {
 		t.Error("encrypted token should not be empty")
 	}
-	decrypted, err := vcsaccount.Decrypt(account.EncryptedToken, encKey)
+	decrypted, err := crypto.Decrypt(account.EncryptedToken, encKey)
 	if err != nil {
 		t.Fatalf("decrypt token: %v", err)
 	}

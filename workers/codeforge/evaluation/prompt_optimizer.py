@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass, field
 
 import structlog
 
+from codeforge.nats_subjects import SUBJECT_PROMPT_EVOLUTION_REFLECT_COMPLETE
+
 logger = structlog.get_logger(component="evaluation")
 
 
@@ -337,8 +339,6 @@ async def reflect_on_failures(
 # NATS handler
 # ---------------------------------------------------------------------------
 
-SUBJECT_REFLECT_COMPLETE = "prompt.evolution.reflect.complete"
-
 
 async def handle_reflect_request(
     payload: dict[str, object],
@@ -378,4 +378,4 @@ async def handle_reflect_request(
         )
 
     result_payload = json.dumps(asdict(report)).encode()
-    await nats_client.publish(SUBJECT_REFLECT_COMPLETE, result_payload)  # type: ignore[union-attr]
+    await nats_client.publish(SUBJECT_PROMPT_EVOLUTION_REFLECT_COMPLETE, result_payload)  # type: ignore[union-attr]

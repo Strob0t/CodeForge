@@ -50,7 +50,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
-	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
@@ -524,7 +523,7 @@ func run() error {
 	settingsSvc := service.NewSettingsService(store)
 
 	// --- VCS Account Service ---
-	vcsKey := vcsaccount.DeriveKey(cfg.Auth.JWTSecret)
+	vcsKey := crypto.DeriveKey(cfg.Auth.JWTSecret)
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
 	// --- LLM Key Service ---
