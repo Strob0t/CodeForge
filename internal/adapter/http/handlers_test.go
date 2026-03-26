@@ -18,6 +18,7 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -59,7 +60,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -3482,6 +3482,21 @@ func (m *mockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) 
 }
 func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
+}
+func (m *mockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
 }
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {

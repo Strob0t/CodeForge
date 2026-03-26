@@ -839,3 +839,18 @@ func (s *testStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) 
 func (s *testStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
+func (s *testStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
+	return nil, nil
+}
+func (s *testStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (s *testStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (s *testStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
+func (s *testStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}

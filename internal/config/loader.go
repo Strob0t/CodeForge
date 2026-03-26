@@ -347,6 +347,12 @@ func loadEnv(cfg *Config) {
 	// Plane
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
 
+	// Retention
+	setDuration(&cfg.Retention.Sessions, "CODEFORGE_RETENTION_SESSIONS")
+	setDuration(&cfg.Retention.Conversations, "CODEFORGE_RETENTION_CONVERSATIONS")
+	setDuration(&cfg.Retention.CostRecords, "CODEFORGE_RETENTION_COST_RECORDS")
+	setDuration(&cfg.Retention.AuditEntries, "CODEFORGE_RETENTION_AUDIT_ENTRIES")
+
 	// Env file override
 	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
 }

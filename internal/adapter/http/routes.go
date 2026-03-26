@@ -100,6 +100,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 			_, _ = fmt.Fprintf(w, `{"version":"%s","git_sha":"%s"}`, version.Version, version.GitSHA)
 		})
 
+		// AGPL-3.0 source notice (Section 13 — Corresponding Source for network use)
+		r.Get("/source", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"repository":"https://github.com/Strob0t/CodeForge","version":"%s","git_sha":"%s","license":"AGPL-3.0-or-later"}`, version.Version, version.GitSHA)
+		})
+
 		// Projects
 		r.Get("/projects", h.Project.ListProjects)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.Project.CreateProject)
@@ -524,7 +530,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 			r.With(audit("delete", "user")).Delete("/{id}", h.DeleteUserHandler)
 			r.With(audit("force_password_change", "user")).Post("/{id}/force-password-change", h.AdminForcePasswordChange)
 			// GDPR endpoints (Article 17: erasure, Article 20: portability)
-			r.Post("/{id}/export", h.ExportUserData)
+			r.With(audit("export", "user_data")).Post("/{id}/export", h.ExportUserData)
 			r.With(audit("delete", "user_data")).Delete("/{id}/data", h.DeleteUserData)
 		})
 

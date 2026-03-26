@@ -7,7 +7,8 @@ info:
     Full spec will be generated from routes.go in a later iteration.
   version: "0.8.0"
   license:
-    name: Proprietary
+    name: AGPL-3.0-or-later
+    url: https://www.gnu.org/licenses/agpl-3.0.html
 
 servers:
   - url: http://localhost:8080/api/v1

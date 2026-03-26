@@ -70,3 +70,31 @@ func (s *Store) ListAuditEntries(ctx context.Context, action string, limit, offs
 		return e, nil
 	})
 }
+
+// ListAuditEntriesByAdmin returns audit log entries for a specific admin user,
+// scoped to the current tenant. Used for GDPR data export (Article 20).
+func (s *Store) ListAuditEntriesByAdmin(ctx context.Context, adminID string, limit int) ([]database.AuditEntry, error) {
+	tid := tenantFromCtx(ctx)
+
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, tenant_id, admin_id, admin_email, action, resource,
+		        COALESCE(resource_id, ''), COALESCE(details::text, ''), COALESCE(host(ip_address), ''), created_at
+		 FROM audit_log WHERE tenant_id = $1 AND admin_id = $2
+		 ORDER BY created_at DESC LIMIT $3`,
+		tid, adminID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list audit entries by admin: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (database.AuditEntry, error) {
+		var e database.AuditEntry
+		var detailsStr string
+		if err := r.Scan(&e.ID, &e.TenantID, &e.AdminID, &e.AdminEmail, &e.Action,
+			&e.Resource, &e.ResourceID, &detailsStr, &e.IPAddress, &e.CreatedAt); err != nil {
+			return e, err
+		}
+		if detailsStr != "" {
+			e.Details = []byte(detailsStr)
+		}
+		return e, nil
+	})
+}
