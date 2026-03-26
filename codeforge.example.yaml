@@ -5,6 +5,8 @@
 server:
   port: "8080"
   cors_origin: "http://localhost:3000"
+  tls_cert_file: ""    # Path to TLS certificate file (PEM). Leave empty for plain HTTP.
+  tls_key_file: ""     # Path to TLS private key file (PEM). Leave empty for plain HTTP.
 
 postgres:
   dsn: "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=prefer"
@@ -19,7 +21,7 @@ nats:
 
 litellm:
   url: "http://localhost:4000"
-  master_key: ""
+  master_key: ""       # Required. Set via LITELLM_MASTER_KEY env var.
   # Scenario-based routing is handled by LiteLLM's tag-based routing.
   # Configure model tags in litellm/config.yaml under litellm_params.tags.
   # Supported scenarios: default, background, think, longContext, review, plan
@@ -97,12 +99,12 @@ lsp:
 # Set to false only for local development without authentication.
 auth:
   enabled: true                       # Enable JWT authentication (default: true)
-  jwt_secret: ""                      # HMAC-SHA256 signing key (required when enabled)
+  jwt_secret: ""                      # Required. Set via CODEFORGE_AUTH_JWT_SECRET env var or auto-generated on first boot.
   access_token_expiry: "15m"          # Access token lifetime (default: 15m)
   refresh_token_expiry: "168h"        # Refresh token lifetime (default: 7 days)
   bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 4)
   default_admin_email: "admin@localhost"  # Seed admin email on first start
-  default_admin_pass: "changeme123"       # Seed admin password (change immediately)
+  default_admin_pass: ""                  # Leave empty: setup wizard or auto_generate_initial_password will handle this.
 
 # Benchmark evaluation system (dev-only, Phase 20 + 26)
 # Three benchmark types: simple (prompt/response), tool-use (with tools), agent (full workspace).
@@ -111,6 +113,12 @@ auth:
 # benchmark:
 #   datasets_dir: "configs/benchmarks"   # Directory with benchmark dataset YAML files
 #   dashboard_port: 0                    # AgentNeo dashboard port (0 = disabled)
+
+# OpenTelemetry tracing & metrics
+# otel:
+#   enabled: false              # Enable OTEL tracing + metrics (default: false)
+#   endpoint: "localhost:4317"  # OTLP gRPC endpoint
+#   insecure: false             # Use insecure gRPC connection (default: false -- use TLS in production)
 
 # A2A Protocol (Agent-to-Agent v0.3.0, Phase 27)
 # Enables inter-agent communication via the Linux Foundation A2A standard.
@@ -122,7 +130,7 @@ auth:
 #   api_keys: []                  # Allowed API keys for inbound A2A requests (empty = open)
 #   transport: "jsonrpc"          # Transport protocol: "jsonrpc" (default) or "rest"
 #   max_tasks: 100                # Max concurrent A2A tasks (default: 100)
-#   allow_open: true              # Allow unauthenticated AgentCard discovery (default: true)
+#   allow_open: false             # Allow unauthenticated AgentCard discovery (default: false for security)
 
 # Intelligent Model Routing (Phase 29)
 # Three-layer cascade: ComplexityAnalyzer -> MAB (UCB1) -> LLM Meta-Router
