@@ -33,14 +33,14 @@ type RuntimeService struct {
 	queue               messagequeue.Queue
 	hub                 broadcast.Broadcaster
 	events              eventstore.Store
-	policy              *PolicyService
-	modes               *ModeService
-	deliver             *DeliverService
-	contextOpt          *ContextOptimizerService
-	checkpoint          *CheckpointService
-	sandbox             *SandboxService
-	mcpSvc              *MCPService
-	microagentSvc       *MicroagentService
+	policy              runtimePolicyEvaluator
+	modes               runtimeModeProvider
+	deliver             runtimeDeliverer
+	contextOpt          runtimeContextOptimizer
+	checkpoint          runtimeCheckpointer
+	sandbox             runtimeSandboxManager
+	mcpSvc              runtimeMCPResolver
+	microagentSvc       runtimeMicroagentMatcher
 	onRunComplete       func(ctx context.Context, runID string, status run.Status)
 	runtimeCfg          *config.Runtime
 	stallTrackers       sync.Map // map[runID]*run.StallTracker
@@ -50,12 +50,12 @@ type RuntimeService struct {
 	pendingApprovals    sync.Map // map["runID:callID"]chan string — HITL approval channels
 	cancelledConvRuns   sync.Map // map[conversationID]bool — cancelled conversation runs (fast reject)
 	bypassedConvRuns    sync.Map // map[conversationID]bool — conversations with "bypass all permissions"
-	quarantine          *QuarantineService
+	quarantine          runtimeQuarantineEvaluator
 	feedbackProvidersMu sync.RWMutex
 	feedbackProviders   []feedbackPort.Provider
 	metrics             cfmetrics.Recorder
 	runSpans            sync.Map // map[runID]trace.Span
-	goalSvc             *GoalDiscoveryService
+	goalSvc             runtimeGoalCreator
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -64,7 +64,7 @@ func NewRuntimeService(
 	queue messagequeue.Queue,
 	hub broadcast.Broadcaster,
 	events eventstore.Store,
-	policySvc *PolicyService,
+	policySvc runtimePolicyEvaluator,
 	runtimeCfg *config.Runtime,
 ) *RuntimeService {
 	return &RuntimeService{
@@ -78,12 +78,12 @@ func NewRuntimeService(
 }
 
 // SetDeliverService sets the delivery service for post-run delivery.
-func (s *RuntimeService) SetDeliverService(d *DeliverService) {
+func (s *RuntimeService) SetDeliverService(d runtimeDeliverer) {
 	s.deliver = d
 }
 
 // SetContextOptimizer sets the context optimizer for building context packs before runs.
-func (s *RuntimeService) SetContextOptimizer(co *ContextOptimizerService) {
+func (s *RuntimeService) SetContextOptimizer(co runtimeContextOptimizer) {
 	s.contextOpt = co
 }
 
@@ -123,32 +123,32 @@ func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
 }
 
 // SetCheckpointService sets the checkpoint service for shadow git commits.
-func (s *RuntimeService) SetCheckpointService(cp *CheckpointService) {
+func (s *RuntimeService) SetCheckpointService(cp runtimeCheckpointer) {
 	s.checkpoint = cp
 }
 
 // SetSandboxService sets the sandbox service for containerized execution.
-func (s *RuntimeService) SetSandboxService(sb *SandboxService) {
+func (s *RuntimeService) SetSandboxService(sb runtimeSandboxManager) {
 	s.sandbox = sb
 }
 
 // SetModeService sets the mode service for resolving agent modes during run start.
-func (s *RuntimeService) SetModeService(m *ModeService) {
+func (s *RuntimeService) SetModeService(m runtimeModeProvider) {
 	s.modes = m
 }
 
 // SetMCPService sets the MCP service for resolving MCP server definitions during run start.
-func (s *RuntimeService) SetMCPService(svc *MCPService) {
+func (s *RuntimeService) SetMCPService(svc runtimeMCPResolver) {
 	s.mcpSvc = svc
 }
 
 // SetMicroagentService sets the microagent service for matching trigger-based prompts.
-func (s *RuntimeService) SetMicroagentService(svc *MicroagentService) {
+func (s *RuntimeService) SetMicroagentService(svc runtimeMicroagentMatcher) {
 	s.microagentSvc = svc
 }
 
 // SetQuarantineService sets the quarantine service for pre-dispatch message filtering.
-func (s *RuntimeService) SetQuarantineService(q *QuarantineService) {
+func (s *RuntimeService) SetQuarantineService(q runtimeQuarantineEvaluator) {
 	s.quarantine = q
 }
 
@@ -158,7 +158,7 @@ func (s *RuntimeService) SetMetrics(m cfmetrics.Recorder) {
 }
 
 // SetGoalService sets the goal discovery service for auto-persisting agent-proposed goals.
-func (s *RuntimeService) SetGoalService(svc *GoalDiscoveryService) {
+func (s *RuntimeService) SetGoalService(svc runtimeGoalCreator) {
 	s.goalSvc = svc
 }
 
