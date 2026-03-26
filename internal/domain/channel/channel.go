@@ -46,6 +46,7 @@ type Channel struct {
 	Name        string      `json:"name"`
 	Type        ChannelType `json:"type"`
 	Description string      `json:"description"`
+	WebhookKey  string      `json:"webhook_key,omitempty"`
 	CreatedBy   string      `json:"created_by,omitempty"`
 	CreatedAt   time.Time   `json:"created_at"`
 }

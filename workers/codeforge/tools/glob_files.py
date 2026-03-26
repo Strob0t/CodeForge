@@ -69,7 +69,7 @@ class GlobFilesTool(ToolExecutor):
             resolved = m.resolve()
             if not resolved.is_file():
                 continue
-            if not str(resolved).startswith(str(workspace)):
+            if not resolved.is_relative_to(workspace):
                 continue
             rel_paths.append(str(resolved.relative_to(workspace)))
 

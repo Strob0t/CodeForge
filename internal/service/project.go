@@ -20,6 +20,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
@@ -288,6 +289,14 @@ func (s *ProjectService) Adopt(ctx context.Context, id, path string) (*project.P
 		return nil, fmt.Errorf("adopt: resolve path: %w", err)
 	}
 
+	// Restrict adoption to within the workspace root.
+	if s.workspaceRoot != "" {
+		wsRoot, _ := filepath.Abs(s.workspaceRoot)
+		if !strings.HasPrefix(absPath, wsRoot+string(filepath.Separator)) && absPath != wsRoot {
+			return nil, fmt.Errorf("path must be within workspace root %s", wsRoot)
+		}
+	}
+
 	info, err := os.Stat(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("adopt: directory does not exist: %w", err)
@@ -489,6 +498,14 @@ func (s *ProjectService) DetectStackByPath(_ context.Context, path string) (*pro
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("detect stack: resolve path: %w", err)
+	}
+
+	// Restrict to workspace root to prevent filesystem probing.
+	if s.workspaceRoot != "" {
+		wsRoot, _ := filepath.Abs(s.workspaceRoot)
+		if !strings.HasPrefix(absPath, wsRoot+string(filepath.Separator)) && absPath != wsRoot {
+			return nil, fmt.Errorf("detect stack: path must be within workspace root %s", wsRoot)
+		}
 	}
 
 	info, err := os.Stat(absPath)
@@ -698,7 +715,7 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 }
 
 // repoInfoClient is the shared HTTP client for repo info API calls.
-var repoInfoClient = &http.Client{Timeout: 10 * time.Second}
+var repoInfoClient = &http.Client{Timeout: 10 * time.Second, Transport: netutil.SafeTransport()}
 
 // FetchRepoInfo queries the hosting platform's public API to retrieve
 // repository metadata (name, description, default branch, language, etc.).

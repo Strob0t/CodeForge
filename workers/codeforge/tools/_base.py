@@ -65,7 +65,7 @@ def resolve_safe_path(
     workspace = Path(workspace_path).resolve()
     target = (workspace / relative_path).resolve()
 
-    if not str(target).startswith(str(workspace)):
+    if not target.is_relative_to(workspace):
         return Path(), ToolResult(output="", error="path traversal blocked", success=False)
 
     if must_exist and not target.exists():

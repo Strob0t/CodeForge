@@ -1,6 +1,7 @@
 package http
 
 import (
+	"crypto/hmac"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -133,6 +134,17 @@ func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 	webhookKey := r.Header.Get("X-Webhook-Key")
 	if webhookKey == "" {
 		writeError(w, http.StatusUnauthorized, "X-Webhook-Key header is required")
+		return
+	}
+
+	// Validate the webhook key against the channel's stored key.
+	ch, err := h.Channels.Get(r.Context(), channelID)
+	if err != nil {
+		writeDomainError(w, err, "channel not found")
+		return
+	}
+	if !hmac.Equal([]byte(webhookKey), []byte(ch.WebhookKey)) {
+		writeError(w, http.StatusForbidden, "invalid webhook key")
 		return
 	}
 

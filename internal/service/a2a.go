@@ -422,7 +422,7 @@ func (s *A2AService) DispatchPushNotifications(ctx context.Context, taskID strin
 // sendWebhook POSTs a payload to a webhook URL with optional Bearer token, HMAC signature, and retry.
 func (s *A2AService) sendWebhook(webhookURL, token string, payload []byte) {
 	const maxRetries = 3
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second, Transport: netutil.SafeTransport()}
 	ctx := context.Background()
 
 	for attempt := range maxRetries {
