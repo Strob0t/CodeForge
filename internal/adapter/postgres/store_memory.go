@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
@@ -52,7 +53,9 @@ func (s *Store) ListMemories(ctx context.Context, projectID string) ([]memory.Me
 		); err != nil {
 			return m, err
 		}
-		_ = unmarshalJSONField(metadata, &m.Metadata, "metadata")
+		if err := unmarshalJSONField(metadata, &m.Metadata, "metadata"); err != nil {
+			slog.Warn("failed to unmarshal memory metadata", "memory_id", m.ID, "error", err)
+		}
 		return m, nil
 	})
 }

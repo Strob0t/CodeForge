@@ -107,7 +107,9 @@ func (h *Handlers) StartLSP(w http.ResponseWriter, r *http.Request) {
 		Languages []string `json:"languages"`
 	}
 	// Body is optional — auto-detect if empty.
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "StartLSP", "error", err)
+	}
 
 	if err := h.LSP.StartServers(r.Context(), projectID, proj.WorkspacePath, body.Languages); err != nil {
 		writeInternalError(w, err)

@@ -58,7 +58,7 @@ func (h *Handlers) DeleteChannel(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ListChannelMessages(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 	cursor := r.URL.Query().Get("cursor")
-	limit := queryParamInt(r, "limit", 50)
+	limit := queryParamIntClamped(r, "limit", 50, 500)
 
 	messages, err := h.Channels.ListMessages(r.Context(), channelID, cursor, limit)
 	if err != nil {

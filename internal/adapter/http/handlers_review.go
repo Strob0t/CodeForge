@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -57,7 +58,10 @@ func (h *Handlers) TriggerReviewRefactor(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		CommitSHA string `json:"commit_sha"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body) // optional body
+	// Body is optional — log but do not reject on parse errors.
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "TriggerReviewRefactor", "error", err)
+	}
 
 	if h.ReviewTrigger == nil {
 		writeError(w, http.StatusServiceUnavailable, "review trigger service not configured")

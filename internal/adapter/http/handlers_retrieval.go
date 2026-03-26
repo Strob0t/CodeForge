@@ -30,7 +30,9 @@ func (h *Handlers) GenerateRepoMap(w http.ResponseWriter, r *http.Request) {
 	}
 	// Body is optional; empty body is fine.
 	r.Body = http.MaxBytesReader(w, r.Body, h.Limits.MaxRequestBodySize)
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "GenerateRepoMap", "error", err)
+	}
 
 	if err := h.RepoMap.RequestGeneration(r.Context(), projectID, req.ActiveFiles); err != nil {
 		writeDomainError(w, err, "project not found")
@@ -50,7 +52,9 @@ func (h *Handlers) IndexProject(w http.ResponseWriter, r *http.Request) {
 	}
 	// Body is optional; empty body is fine.
 	r.Body = http.MaxBytesReader(w, r.Body, h.Limits.MaxRequestBodySize)
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "IndexProject", "error", err)
+	}
 
 	if err := h.Retrieval.RequestIndex(r.Context(), projectID, "", req.EmbeddingModel); err != nil {
 		writeDomainError(w, err, "project not found")

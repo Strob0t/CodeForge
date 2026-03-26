@@ -52,6 +52,23 @@ func queryParamInt(r *http.Request, name string, defaultVal int) int {
 	return n
 }
 
+// queryParamIntClamped parses an integer query parameter with a positive-value
+// constraint and an upper bound. Values above maxVal are clamped to maxVal.
+func queryParamIntClamped(r *http.Request, name string, defaultVal, maxVal int) int { //nolint:unparam // maxVal is 500 today but callers may diverge
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return defaultVal
+	}
+	if n > maxVal {
+		return maxVal
+	}
+	return n
+}
+
 // requireField writes a 400 error and returns false when value is empty.
 func requireField(w http.ResponseWriter, value, fieldName string) bool {
 	if value == "" {

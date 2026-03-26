@@ -31,7 +31,7 @@ func (h *Handlers) ProjectHealth(w http.ResponseWriter, r *http.Request) {
 
 // DashboardRunOutcomes handles GET /api/v1/dashboard/charts/run-outcomes
 func (h *Handlers) DashboardRunOutcomes(w http.ResponseWriter, r *http.Request) {
-	days := queryParamInt(r, "days", 7)
+	days := queryParamIntClamped(r, "days", 7, 500)
 	outcomes, err := h.Dashboard.RunOutcomes(r.Context(), days)
 	if err != nil {
 		writeInternalError(w, err)
@@ -84,7 +84,7 @@ func (h *Handlers) DashboardCostByProject(w http.ResponseWriter, r *http.Request
 
 // DashboardCostTrend handles GET /api/v1/dashboard/charts/cost-trend
 func (h *Handlers) DashboardCostTrend(w http.ResponseWriter, r *http.Request) {
-	days := queryParamInt(r, "days", 30)
+	days := queryParamIntClamped(r, "days", 30, 500)
 	trend, err := h.Dashboard.CostTrend(r.Context(), days)
 	if err != nil {
 		writeInternalError(w, err)

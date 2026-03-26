@@ -66,10 +66,10 @@ func (s *Store) GetBenchmarkRun(ctx context.Context, id string) (*benchmark.Run,
 	return &r, nil
 }
 
-// ListBenchmarkRuns returns all benchmark runs ordered by creation time.
+// ListBenchmarkRuns returns benchmark runs ordered by creation time (capped at DefaultListLimit).
 func (s *Store) ListBenchmarkRuns(ctx context.Context) ([]benchmark.Run, error) {
-	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs WHERE tenant_id = $1 ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q, tenantFromCtx(ctx))
+	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2`
+	rows, err := s.pool.Query(ctx, q, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark runs: %w", err)
 	}
@@ -107,6 +107,7 @@ func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter *benchmark
 	if filter.Status != "" {
 		conditions = append(conditions, fmt.Sprintf("status = $%d", idx))
 		args = append(args, string(filter.Status))
+		idx++
 	}
 
 	q := `SELECT ` + benchmarkRunColumns + ` FROM benchmark_runs`
@@ -123,6 +124,10 @@ func (s *Store) ListBenchmarkRunsFiltered(ctx context.Context, filter *benchmark
 	default:
 		q += " ORDER BY created_at DESC"
 	}
+
+	// Always cap result set to prevent unbounded queries.
+	q += fmt.Sprintf(" LIMIT $%d", idx)
+	args = append(args, DefaultListLimit)
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -194,9 +199,9 @@ func (s *Store) CreateBenchmarkResult(ctx context.Context, res *benchmark.Result
 	return nil
 }
 
-// ListBenchmarkResults returns all results for a given benchmark run.
+// ListBenchmarkResults returns results for a given benchmark run (capped at 1000).
 func (s *Store) ListBenchmarkResults(ctx context.Context, runID string) ([]benchmark.Result, error) {
-	q := `SELECT ` + benchmarkResultColumns + ` FROM benchmark_results WHERE run_id = $1 AND tenant_id = $2 ORDER BY task_id`
+	q := `SELECT ` + benchmarkResultColumns + ` FROM benchmark_results WHERE run_id = $1 AND tenant_id = $2 ORDER BY task_id LIMIT 1000`
 	rows, err := s.pool.Query(ctx, q, runID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark results: %w", err)

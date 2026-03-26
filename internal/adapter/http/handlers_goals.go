@@ -109,8 +109,10 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Model string `json:"model"`
 	}
-	// Ignore parse errors — body is optional.
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	// Body is optional — log but do not reject on parse errors.
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		slog.Debug("optional body parse skipped", "handler", "AIDiscoverProjectGoals", "error", err)
+	}
 
 	proj, err := h.Projects.Get(r.Context(), projectID)
 	if err != nil {

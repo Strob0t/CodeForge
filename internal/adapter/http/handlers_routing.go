@@ -32,7 +32,7 @@ func (h *Handlers) HandleRefreshRoutingStats(w http.ResponseWriter, r *http.Requ
 
 // HandleListRoutingOutcomes handles GET /api/v1/routing/outcomes
 func (h *Handlers) HandleListRoutingOutcomes(w http.ResponseWriter, r *http.Request) {
-	limit := queryParamInt(r, "limit", 50)
+	limit := queryParamIntClamped(r, "limit", 50, 500)
 
 	outcomes, err := h.Routing.ListOutcomes(r.Context(), limit)
 	if err != nil {

@@ -116,7 +116,7 @@ func (h *Handlers) GlobalAuditTrail(w http.ResponseWriter, r *http.Request) {
 		Action: r.URL.Query().Get("action"),
 	}
 	cursor := r.URL.Query().Get("cursor")
-	limit := queryParamInt(r, "limit", 50)
+	limit := queryParamIntClamped(r, "limit", 50, 500)
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {
@@ -134,7 +134,7 @@ func (h *Handlers) ProjectAuditTrail(w http.ResponseWriter, r *http.Request) {
 		Action:    r.URL.Query().Get("action"),
 	}
 	cursor := r.URL.Query().Get("cursor")
-	limit := queryParamInt(r, "limit", 50)
+	limit := queryParamIntClamped(r, "limit", 50, 500)
 
 	page, err := h.Replay.AuditTrail(r.Context(), &filter, cursor, limit)
 	if err != nil {
