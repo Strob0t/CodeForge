@@ -6,8 +6,14 @@ import (
 )
 
 func TestDeriveKey_Deterministic(t *testing.T) {
-	k1 := DeriveKey("my-secret")
-	k2 := DeriveKey("my-secret")
+	k1, err := DeriveKey("my-secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	k2, err := DeriveKey("my-secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	if len(k1) != 32 {
 		t.Fatalf("expected 32-byte key, got %d", len(k1))
 	}
@@ -19,8 +25,14 @@ func TestDeriveKey_Deterministic(t *testing.T) {
 }
 
 func TestDeriveKey_DifferentInputs(t *testing.T) {
-	k1 := DeriveKey("secret-a")
-	k2 := DeriveKey("secret-b")
+	k1, err := DeriveKey("secret-a", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	k2, err := DeriveKey("secret-b", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	same := true
 	for i := range k1 {
 		if k1[i] != k2[i] {
@@ -34,7 +46,10 @@ func TestDeriveKey_DifferentInputs(t *testing.T) {
 }
 
 func TestEncryptDecrypt_RoundTrip(t *testing.T) {
-	key := DeriveKey("test-jwt-secret")
+	key, err := DeriveKey("test-jwt-secret", nil, "codeforge/vcsaccount/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	plaintext := []byte("ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
 	ct, err := Encrypt(plaintext, key)
@@ -58,8 +73,14 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 }
 
 func TestDecrypt_WrongKey(t *testing.T) {
-	key1 := DeriveKey("secret-1")
-	key2 := DeriveKey("secret-2")
+	key1, err := DeriveKey("secret-1", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	key2, err := DeriveKey("secret-2", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 
 	ct, err := Encrypt([]byte("token"), key1)
 	if err != nil {
@@ -73,15 +94,21 @@ func TestDecrypt_WrongKey(t *testing.T) {
 }
 
 func TestDecrypt_TooShort(t *testing.T) {
-	key := DeriveKey("secret")
-	_, err := Decrypt([]byte("short"), key)
+	key, err := DeriveKey("secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	_, err = Decrypt([]byte("short"), key)
 	if err == nil {
 		t.Fatal("expected error for short ciphertext")
 	}
 }
 
 func TestEncrypt_UniqueCiphertexts(t *testing.T) {
-	key := DeriveKey("secret")
+	key, err := DeriveKey("secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	plaintext := []byte("same-token")
 
 	ct1, err := Encrypt(plaintext, key)
@@ -97,5 +124,16 @@ func TestEncrypt_UniqueCiphertexts(t *testing.T) {
 	// Due to random nonce, ciphertexts must differ
 	if bytes.Equal(ct1, ct2) {
 		t.Fatal("encrypting same plaintext twice should produce different ciphertexts")
+	}
+}
+
+func TestDeriveKeyLegacy_Deterministic(t *testing.T) {
+	k1 := DeriveKeyLegacy("my-secret")
+	k2 := DeriveKeyLegacy("my-secret")
+	if len(k1) != 32 {
+		t.Fatalf("expected 32-byte key, got %d", len(k1))
+	}
+	if !bytes.Equal(k1, k2) {
+		t.Fatal("same input must produce same key")
 	}
 }

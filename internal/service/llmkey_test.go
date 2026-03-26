@@ -62,7 +62,10 @@ func (m *llmKeyMockStore) DeleteLLMKey(_ context.Context, id, userID string) err
 
 func newTestLLMKeyService() (*LLMKeyService, *llmKeyMockStore) {
 	store := &llmKeyMockStore{}
-	key := crypto.DeriveKey("test-jwt-secret")
+	key, err := crypto.DeriveKey("test-jwt-secret", nil, "codeforge/llmkey/v1")
+	if err != nil {
+		panic("DeriveKey failed in test setup: " + err.Error())
+	}
 	svc := NewLLMKeyService(store, key)
 	return svc, store
 }

@@ -434,7 +434,7 @@ func Defaults() Config {
 			IdleTimeout:       120 * time.Second,
 		},
 		Postgres: Postgres{
-			DSN:             "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable",
+			DSN:             "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=prefer",
 			MaxConns:        50,
 			MinConns:        10,
 			MaxConnLifetime: 30 * time.Minute,

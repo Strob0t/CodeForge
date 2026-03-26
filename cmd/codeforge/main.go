@@ -524,7 +524,10 @@ func run() error {
 	settingsSvc := service.NewSettingsService(store)
 
 	// --- VCS Account Service ---
-	vcsKey := vcsaccount.DeriveKey(cfg.Auth.JWTSecret)
+	vcsKey, err := vcsaccount.DeriveKey(cfg.Auth.JWTSecret, nil, "codeforge/vcsaccount/v1")
+	if err != nil {
+		return fmt.Errorf("derive vcs encryption key: %w", err)
+	}
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
 	// --- LLM Key Service ---
@@ -535,7 +538,10 @@ func run() error {
 			slog.Warn("LLM key encryption using JWT secret - set AUTH_LLM_KEY_ENCRYPTION_SECRET for production")
 		}
 	}
-	llmKeyEncKey := crypto.DeriveKey(llmKeySecret)
+	llmKeyEncKey, err := crypto.DeriveKey(llmKeySecret, nil, "codeforge/llmkey/v1")
+	if err != nil {
+		return fmt.Errorf("derive llm key encryption key: %w", err)
+	}
 	llmKeySvc := service.NewLLMKeyService(store, llmKeyEncKey)
 
 	// --- MCP Service (Phase 15C) ---

@@ -6,8 +6,14 @@ import (
 )
 
 func TestDeriveKey_Deterministic(t *testing.T) {
-	k1 := DeriveKey("my-secret")
-	k2 := DeriveKey("my-secret")
+	k1, err := DeriveKey("my-secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	k2, err := DeriveKey("my-secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	if len(k1) != 32 {
 		t.Fatalf("expected 32-byte key, got %d", len(k1))
 	}
@@ -17,15 +23,75 @@ func TestDeriveKey_Deterministic(t *testing.T) {
 }
 
 func TestDeriveKey_DifferentInputs(t *testing.T) {
-	k1 := DeriveKey("secret-a")
-	k2 := DeriveKey("secret-b")
+	k1, err := DeriveKey("secret-a", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	k2, err := DeriveKey("secret-b", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	if bytes.Equal(k1, k2) {
 		t.Fatal("different inputs must produce different keys")
 	}
 }
 
+func TestDeriveKey_DifferentInfo(t *testing.T) {
+	k1, err := DeriveKey("same-secret", nil, "codeforge/llmkey/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	k2, err := DeriveKey("same-secret", nil, "codeforge/vcsaccount/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	if bytes.Equal(k1, k2) {
+		t.Fatal("different info strings must produce different keys (domain separation)")
+	}
+}
+
+func TestDeriveKey_WithSalt(t *testing.T) {
+	salt := []byte("random-salt-value")
+	k1, err := DeriveKey("secret", salt, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	k2, err := DeriveKey("secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	if bytes.Equal(k1, k2) {
+		t.Fatal("different salts must produce different keys")
+	}
+}
+
+func TestDeriveKeyLegacy_Deterministic(t *testing.T) {
+	k1 := DeriveKeyLegacy("my-secret")
+	k2 := DeriveKeyLegacy("my-secret")
+	if len(k1) != 32 {
+		t.Fatalf("expected 32-byte key, got %d", len(k1))
+	}
+	if !bytes.Equal(k1, k2) {
+		t.Fatal("same input must produce same key")
+	}
+}
+
+func TestDeriveKey_DiffersFromLegacy(t *testing.T) {
+	hkdfKey, err := DeriveKey("my-secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	legacyKey := DeriveKeyLegacy("my-secret")
+	if bytes.Equal(hkdfKey, legacyKey) {
+		t.Fatal("HKDF key must differ from legacy SHA-256 key")
+	}
+}
+
 func TestEncryptDecrypt_RoundTrip(t *testing.T) {
-	key := DeriveKey("test-jwt-secret")
+	key, err := DeriveKey("test-jwt-secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	plaintext := []byte("sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
 	ct, err := Encrypt(plaintext, key)
@@ -46,8 +112,14 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 }
 
 func TestDecrypt_WrongKey(t *testing.T) {
-	key1 := DeriveKey("secret-1")
-	key2 := DeriveKey("secret-2")
+	key1, err := DeriveKey("secret-1", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
+	key2, err := DeriveKey("secret-2", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 
 	ct, err := Encrypt([]byte("token"), key1)
 	if err != nil {
@@ -59,14 +131,20 @@ func TestDecrypt_WrongKey(t *testing.T) {
 }
 
 func TestDecrypt_TooShort(t *testing.T) {
-	key := DeriveKey("secret")
+	key, err := DeriveKey("secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	if _, err := Decrypt([]byte("short"), key); err == nil {
 		t.Fatal("expected error for short ciphertext")
 	}
 }
 
 func TestEncrypt_UniqueCiphertexts(t *testing.T) {
-	key := DeriveKey("secret")
+	key, err := DeriveKey("secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	plaintext := []byte("same-token")
 
 	ct1, err := Encrypt(plaintext, key)
@@ -83,7 +161,10 @@ func TestEncrypt_UniqueCiphertexts(t *testing.T) {
 }
 
 func TestEncryptDecrypt_EmptyPlaintext(t *testing.T) {
-	key := DeriveKey("secret")
+	key, err := DeriveKey("secret", nil, "test/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	ct, err := Encrypt([]byte{}, key)
 	if err != nil {
 		t.Fatalf("Encrypt empty: %v", err)

@@ -103,7 +103,10 @@ func TestGitHubOAuth_HandleCallback_Success(t *testing.T) {
 	defer tokenSrv.Close()
 
 	store := newOAuthMockStore()
-	encKey := vcsaccount.DeriveKey("test-jwt-secret")
+	encKey, err := vcsaccount.DeriveKey("test-jwt-secret", nil, "codeforge/vcsaccount/v1")
+	if err != nil {
+		t.Fatalf("DeriveKey: %v", err)
+	}
 	svc := service.NewGitHubOAuthService(service.GitHubOAuthConfig{
 		ClientID:     "test-client-id",
 		ClientSecret: "test-client-secret",
