@@ -555,227 +555,37 @@ func (s *RuntimeService) ListRunsByTask(ctx context.Context, taskID string) ([]r
 }
 
 // StartSubscribers subscribes to all run-related NATS subjects.
+// Each handler is a named method on RuntimeService (see runtime_subscribers.go).
 // Returns cancel functions for each subscription.
 func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error) {
+	type sub struct {
+		subject string
+		handler func(context.Context, []byte) error
+		label   string
+	}
+
+	subs := []sub{
+		{messagequeue.SubjectRunToolCallRequest, s.handleToolCallRequest, "tool call request"},
+		{messagequeue.SubjectRunToolCallResult, s.handleToolCallResult, "tool call result"},
+		{messagequeue.SubjectRunComplete, s.handleRunComplete, "run complete"},
+		{messagequeue.SubjectQualityGateResult, s.handleQualityGateResult, "quality gate result"},
+		{messagequeue.SubjectRunHeartbeat, s.handleHeartbeat, "heartbeat"},
+		{messagequeue.SubjectRunOutput, s.handleRunOutput, "run output"},
+		{messagequeue.SubjectTrajectoryEvent, s.handleTrajectoryEvent, "trajectory events"},
+	}
+
 	var cancels []func()
-
-	// Tool call requests from workers
-	cancel, err := s.queue.Subscribe(ctx, messagequeue.SubjectRunToolCallRequest, func(msgCtx context.Context, _ string, data []byte) error {
-		var req messagequeue.ToolCallRequestPayload
-		if err := json.Unmarshal(data, &req); err != nil {
-			return fmt.Errorf("unmarshal tool call request: %w", err)
-		}
-		return s.HandleToolCallRequest(msgCtx, &req)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("subscribe tool call request: %w", err)
-	}
-	cancels = append(cancels, cancel)
-
-	// Tool call results from workers
-	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectRunToolCallResult, func(msgCtx context.Context, _ string, data []byte) error {
-		var result messagequeue.ToolCallResultPayload
-		if err := json.Unmarshal(data, &result); err != nil {
-			return fmt.Errorf("unmarshal tool call result: %w", err)
-		}
-		return s.HandleToolCallResult(msgCtx, &result)
-	})
-	if err != nil {
-		cancelAll(cancels)
-		return nil, fmt.Errorf("subscribe tool call result: %w", err)
-	}
-	cancels = append(cancels, cancel)
-
-	// Run completion from workers
-	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectRunComplete, func(msgCtx context.Context, _ string, data []byte) error {
-		var payload messagequeue.RunCompletePayload
-		if err := json.Unmarshal(data, &payload); err != nil {
-			return fmt.Errorf("unmarshal run complete: %w", err)
-		}
-		return s.HandleRunComplete(msgCtx, &payload)
-	})
-	if err != nil {
-		cancelAll(cancels)
-		return nil, fmt.Errorf("subscribe run complete: %w", err)
-	}
-	cancels = append(cancels, cancel)
-
-	// Quality gate results from workers
-	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectQualityGateResult, func(msgCtx context.Context, _ string, data []byte) error {
-		var result messagequeue.QualityGateResultPayload
-		if err := json.Unmarshal(data, &result); err != nil {
-			return fmt.Errorf("unmarshal quality gate result: %w", err)
-		}
-		return s.HandleQualityGateResult(msgCtx, &result)
-	})
-	if err != nil {
-		cancelAll(cancels)
-		return nil, fmt.Errorf("subscribe quality gate result: %w", err)
-	}
-	cancels = append(cancels, cancel)
-
-	// Heartbeat from workers (Phase 3C)
-	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectRunHeartbeat, func(_ context.Context, _ string, data []byte) error {
-		var hb messagequeue.RunHeartbeatPayload
-		if err := json.Unmarshal(data, &hb); err != nil {
-			return fmt.Errorf("unmarshal heartbeat: %w", err)
-		}
-		s.heartbeats.Store(hb.RunID, time.Now())
-		return nil
-	})
-	if err != nil {
-		cancelAll(cancels)
-		return nil, fmt.Errorf("subscribe heartbeat: %w", err)
-	}
-	cancels = append(cancels, cancel)
-
-	// Streaming output from workers
-	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectRunOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output messagequeue.RunOutputPayload
-		if err := json.Unmarshal(data, &output); err != nil {
-			return fmt.Errorf("unmarshal run output: %w", err)
-		}
-		s.hub.BroadcastEvent(msgCtx, event.EventTaskOutput, event.TaskOutputEvent{
-			TaskID: output.TaskID,
-			Line:   output.Line,
-			Stream: output.Stream,
+	for _, entry := range subs {
+		handler := entry.handler // capture for closure
+		cancel, err := s.queue.Subscribe(ctx, entry.subject, func(msgCtx context.Context, _ string, data []byte) error {
+			return handler(msgCtx, data)
 		})
-		// Also emit AG-UI text_message for agentic conversation streaming.
-		if output.Line != "" && output.Stream != "stderr" {
-			s.hub.BroadcastEvent(msgCtx, event.AGUITextMessage, event.AGUITextMessageEvent{
-				RunID:   output.TaskID,
-				Role:    "assistant",
-				Content: output.Line,
-			})
+		if err != nil {
+			cancelAll(cancels)
+			return nil, fmt.Errorf("subscribe %s: %w", entry.label, err)
 		}
-		return nil
-	})
-	if err != nil {
-		cancelAll(cancels)
-		return nil, fmt.Errorf("subscribe run output: %w", err)
+		cancels = append(cancels, cancel)
 	}
-	cancels = append(cancels, cancel)
-
-	// Trajectory events from Python workers
-	cancel, err = s.queue.Subscribe(ctx, messagequeue.SubjectTrajectoryEvent, func(msgCtx context.Context, _ string, data []byte) error {
-		var payload struct {
-			EventType string  `json:"event_type"`
-			RunID     string  `json:"run_id"`
-			ProjectID string  `json:"project_id"`
-			ToolName  string  `json:"tool_name,omitempty"`
-			Model     string  `json:"model,omitempty"`
-			Input     string  `json:"input,omitempty"`
-			Output    string  `json:"output,omitempty"`
-			Success   *bool   `json:"success,omitempty"`
-			Step      int     `json:"step,omitempty"`
-			TokensIn  int64   `json:"tokens_in,omitempty"`
-			TokensOut int64   `json:"tokens_out,omitempty"`
-			CostUSD   float64 `json:"cost_usd,omitempty"`
-		}
-		if err := json.Unmarshal(data, &payload); err != nil {
-			return fmt.Errorf("unmarshal trajectory event: %w", err)
-		}
-
-		// Use RunID as fallback for AgentID/TaskID when not available
-		// (conversation runs don't have separate agent/task IDs).
-		agentID := payload.RunID
-		taskID := payload.RunID
-
-		ev := &event.AgentEvent{
-			AgentID:   agentID,
-			TaskID:    taskID,
-			RunID:     payload.RunID,
-			ProjectID: payload.ProjectID,
-			Type:      event.Type(payload.EventType),
-			Payload:   data,
-			ToolName:  payload.ToolName,
-			Model:     payload.Model,
-			TokensIn:  payload.TokensIn,
-			TokensOut: payload.TokensOut,
-			CostUSD:   payload.CostUSD,
-		}
-
-		if err := s.events.Append(msgCtx, ev); err != nil {
-			slog.Error("failed to persist trajectory event", "run_id", payload.RunID, "type", payload.EventType, "error", err)
-			return nil // Log and continue, don't fail the subscription
-		}
-
-		s.hub.BroadcastEvent(msgCtx, event.EventTrajectoryEvent, event.TrajectoryEventPayload{
-			RunID:          payload.RunID,
-			ProjectID:      payload.ProjectID,
-			EventType:      payload.EventType,
-			SequenceNumber: ev.SequenceNumber,
-			ToolName:       payload.ToolName,
-			Model:          payload.Model,
-			Input:          payload.Input,
-			Output:         payload.Output,
-			Success:        payload.Success,
-			Step:           payload.Step,
-			CostUSD:        payload.CostUSD,
-			TokensIn:       payload.TokensIn,
-			TokensOut:      payload.TokensOut,
-		})
-
-		// Action suggestion events get a dedicated AG-UI broadcast.
-		if payload.EventType == "agent.action_suggestion" {
-			var suggestion struct {
-				Label  string `json:"label"`
-				Action string `json:"action"`
-				Value  string `json:"value"`
-			}
-			if err := json.Unmarshal(data, &suggestion); err == nil {
-				s.hub.BroadcastEvent(msgCtx, event.AGUIActionSuggestion, event.AGUIActionSuggestionEvent{
-					RunID:  payload.RunID,
-					Label:  suggestion.Label,
-					Action: suggestion.Action,
-					Value:  suggestion.Value,
-				})
-			}
-		}
-
-		// Goal proposal events get a dedicated AG-UI broadcast.
-		if payload.EventType == "agent.goal_proposed" {
-			var proposal struct {
-				Data struct {
-					ProposalID string `json:"proposal_id"`
-					Action     string `json:"action"`
-					Kind       string `json:"kind"`
-					Title      string `json:"title"`
-					Content    string `json:"content"`
-					Priority   int    `json:"priority"`
-					GoalID     string `json:"goal_id"`
-				} `json:"data"`
-			}
-			if err := json.Unmarshal(data, &proposal); err == nil {
-				s.hub.BroadcastEvent(msgCtx, event.AGUIGoalProposal, event.AGUIGoalProposalEvent{
-					RunID:      payload.RunID,
-					ProposalID: proposal.Data.ProposalID,
-					Action:     proposal.Data.Action,
-					Kind:       proposal.Data.Kind,
-					Title:      proposal.Data.Title,
-					Content:    proposal.Data.Content,
-					Priority:   proposal.Data.Priority,
-					GoalID:     proposal.Data.GoalID,
-				})
-
-				// Auto-persist goal proposals with action "create" to the database.
-				if s.goalSvc != nil && proposal.Data.Action == "create" {
-					if createErr := s.PersistGoalProposal(msgCtx, payload.ProjectID, proposal.Data.Kind, proposal.Data.Title, proposal.Data.Content, proposal.Data.Priority); createErr != nil {
-						slog.Warn("auto-persist goal failed", "project_id", payload.ProjectID, "title", proposal.Data.Title, "error", createErr)
-					} else {
-						slog.Info("goal auto-persisted", "project_id", payload.ProjectID, "title", proposal.Data.Title, "kind", proposal.Data.Kind)
-					}
-				}
-			}
-		}
-
-		return nil
-	})
-	if err != nil {
-		cancelAll(cancels)
-		return nil, fmt.Errorf("subscribe trajectory events: %w", err)
-	}
-	cancels = append(cancels, cancel)
 
 	return cancels, nil
 }
