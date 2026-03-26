@@ -626,6 +626,10 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	r.With(audit("delete", "api_key")).
 		Delete("/auth/api-keys/{id}", h.DeleteAPIKeyHandler)
 
+	// GDPR self-service (authenticated, no admin required — Art. 15, 17, 20)
+	r.Get("/me/export", h.ExportMyData)
+	r.With(audit("delete", "my_data")).Delete("/me/data", h.DeleteMyData)
+
 	// Subscription Providers (OAuth device flow connect)
 	r.Get("/auth/providers", h.ListSubscriptionProviders)
 	r.Post("/auth/providers/{provider}/connect", h.StartProviderConnect)
