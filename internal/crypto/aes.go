@@ -3,6 +3,7 @@ package crypto //nolint:revive // intentional package name for encryption utilit
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -12,9 +13,24 @@ import (
 
 const nonceSize = 12 // standard GCM nonce length
 
-// DeriveKey derives a 32-byte AES-256 key from a JWT secret using SHA-256.
-func DeriveKey(jwtSecret string) []byte {
-	h := sha256.Sum256([]byte(jwtSecret))
+// DeriveKey derives a 32-byte AES-256 key using HKDF (RFC 5869) with SHA-256.
+//
+// Parameters:
+//   - secret: the input keying material (e.g. JWT secret or dedicated encryption key)
+//   - salt: optional salt for HKDF Extract; nil uses a zero-filled salt per RFC 5869
+//   - info: domain separation string (e.g. "codeforge/llmkey/v1")
+//
+// Returns a 32-byte key suitable for AES-256-GCM, or an error if derivation fails.
+func DeriveKey(secret string, salt []byte, info string) ([]byte, error) {
+	return hkdf.Key(sha256.New, []byte(secret), salt, info, 32)
+}
+
+// DeriveKeyLegacy derives a 32-byte AES-256 key from a secret using plain SHA-256.
+// This function exists only to decrypt data encrypted before the HKDF migration.
+//
+// Deprecated: use DeriveKey (HKDF) for all new encryption.
+func DeriveKeyLegacy(secret string) []byte {
+	h := sha256.Sum256([]byte(secret))
 	return h[:]
 }
 

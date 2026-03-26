@@ -377,9 +377,17 @@ func validate(cfg *Config) error {
 		return errors.New("auth.jwt_secret is required when auth.enabled is true")
 	}
 
-	// Auth validation: reject default JWT secret in production.
-	if cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" && cfg.AppEnv == "production" {
-		return errors.New("FATAL: default JWT secret detected in production -- set CODEFORGE_AUTH_JWT_SECRET environment variable")
+	// Auth validation: reject default JWT secret in all non-development environments.
+	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" {
+		if cfg.AppEnv != "development" {
+			return errors.New("default JWT secret is only allowed when APP_ENV=development -- set CODEFORGE_AUTH_JWT_SECRET to a unique secret (>= 32 chars)")
+		}
+		slog.Warn("using default JWT secret -- acceptable only for local development")
+	}
+
+	// Auth validation: enforce minimum JWT secret length when auth is enabled.
+	if cfg.Auth.Enabled && len(cfg.Auth.JWTSecret) < 32 {
+		return fmt.Errorf("auth.jwt_secret must be at least 32 characters when auth is enabled (got %d) -- set CODEFORGE_AUTH_JWT_SECRET", len(cfg.Auth.JWTSecret))
 	}
 
 	// Auth validation: enforce minimum bcrypt cost for security.
@@ -387,12 +395,21 @@ func validate(cfg *Config) error {
 		return errors.New("auth.bcrypt_cost must be >= 10")
 	}
 
-	// Auth validation: warn about default admin password in production.
+	// Auth validation: reject well-known default admin passwords in non-development environments.
 	if cfg.Auth.Enabled {
-		p := cfg.Auth.DefaultAdminPass
-		if p == "changeme123" || p == "Changeme123" || p == "CHANGE_ME_ON_FIRST_BOOT" {
-			slog.Warn("auth.default_admin_pass is set to a well-known default; change it before production use")
+		p := strings.ToLower(cfg.Auth.DefaultAdminPass)
+		isDefaultPassword := p == "changeme123" || p == "admin" || p == "password" || p == "change_me_on_first_boot"
+		if isDefaultPassword {
+			if cfg.AppEnv != "development" {
+				return fmt.Errorf("auth.default_admin_pass is a well-known default (%q) -- set CODEFORGE_AUTH_ADMIN_PASS to a strong password or enable auto_generate_initial_password", cfg.Auth.DefaultAdminPass)
+			}
+			slog.Warn("auth.default_admin_pass is set to a well-known default -- acceptable only for local development")
 		}
+	}
+
+	// PostgreSQL validation: reject sslmode=disable in production.
+	if cfg.AppEnv == "production" && strings.Contains(cfg.Postgres.DSN, "sslmode=disable") {
+		return errors.New("postgres.dsn must not use sslmode=disable in production -- use sslmode=require or sslmode=verify-full")
 	}
 
 	return nil

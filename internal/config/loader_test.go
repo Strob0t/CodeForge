@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -152,8 +153,101 @@ func TestValidateRequired(t *testing.T) {
 
 func TestValidateDefaults(t *testing.T) {
 	cfg := Defaults()
+	// Defaults use the dev JWT secret, which requires APP_ENV=development.
+	cfg.AppEnv = "development"
 	if err := validate(&cfg); err != nil {
-		t.Errorf("defaults should validate, got %v", err)
+		t.Errorf("defaults should validate in development, got %v", err)
+	}
+}
+
+func TestValidate_JWTSecretDefaultRejectedInNonDev(t *testing.T) {
+	tests := []struct {
+		name   string
+		appEnv string
+	}{
+		{"empty env", ""},
+		{"staging", "staging"},
+		{"production", "production"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.AppEnv = tt.appEnv
+			err := validate(&cfg)
+			if err == nil {
+				t.Fatal("expected error for default JWT secret in non-development env")
+			}
+			if !strings.Contains(err.Error(), "default JWT secret") {
+				t.Errorf("expected JWT secret error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_JWTSecretMinLength(t *testing.T) {
+	cfg := Defaults()
+	cfg.AppEnv = "production"
+	cfg.Auth.JWTSecret = "too-short" // 9 chars, below 32
+	err := validate(&cfg)
+	if err == nil {
+		t.Fatal("expected error for short JWT secret")
+	}
+	if !strings.Contains(err.Error(), "at least 32 characters") {
+		t.Errorf("expected length error, got: %v", err)
+	}
+}
+
+func TestValidate_AdminPasswordRejectedInNonDev(t *testing.T) {
+	passwords := []string{"changeme123", "Changeme123", "admin", "password", "CHANGE_ME_ON_FIRST_BOOT"}
+	for _, pw := range passwords {
+		t.Run(pw, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.AppEnv = "staging"
+			cfg.Auth.JWTSecret = "this-is-a-long-enough-secret-for-production-use-ok"
+			cfg.Auth.DefaultAdminPass = pw
+			err := validate(&cfg)
+			if err == nil {
+				t.Fatalf("expected error for default admin password %q in non-dev", pw)
+			}
+			if !strings.Contains(err.Error(), "well-known default") {
+				t.Errorf("expected admin password error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_AdminPasswordAllowedInDev(t *testing.T) {
+	cfg := Defaults()
+	cfg.AppEnv = "development"
+	cfg.Auth.DefaultAdminPass = "changeme123"
+	err := validate(&cfg)
+	if err != nil {
+		t.Errorf("default admin password should be allowed in development, got: %v", err)
+	}
+}
+
+func TestValidate_PostgresSSLDisableRejectedInProduction(t *testing.T) {
+	cfg := Defaults()
+	cfg.AppEnv = "production"
+	cfg.Auth.JWTSecret = "this-is-a-long-enough-secret-for-production-use-ok"
+	cfg.Postgres.DSN = "postgres://user:pass@host:5432/db?sslmode=disable"
+	err := validate(&cfg)
+	if err == nil {
+		t.Fatal("expected error for sslmode=disable in production")
+	}
+	if !strings.Contains(err.Error(), "sslmode=disable") {
+		t.Errorf("expected sslmode error, got: %v", err)
+	}
+}
+
+func TestValidate_PostgresSSLPreferAllowedInProduction(t *testing.T) {
+	cfg := Defaults()
+	cfg.AppEnv = "production"
+	cfg.Auth.JWTSecret = "this-is-a-long-enough-secret-for-production-use-ok"
+	// Default DSN already uses sslmode=prefer
+	err := validate(&cfg)
+	if err != nil {
+		t.Errorf("sslmode=prefer should be allowed in production, got: %v", err)
 	}
 }
 
@@ -402,6 +496,7 @@ func TestApplyCLINilFlags(t *testing.T) {
 
 func TestCLIOverridesEnv(t *testing.T) {
 	// CLI flags must win over ENV.
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 	t.Setenv("CODEFORGE_PORT", "7070")
 	t.Setenv("CODEFORGE_LOG_LEVEL", "warn")
 
@@ -434,6 +529,7 @@ server:
 		t.Fatal(err)
 	}
 
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 	t.Setenv("CODEFORGE_CONFIG_FILE", yamlPath)
 
 	// No CLI flag for config path — env var should be used.
@@ -470,6 +566,7 @@ func TestCLIConfigOverridesEnvConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 	t.Setenv("CODEFORGE_CONFIG_FILE", envPath)
 
 	flags, err := ParseFlags([]string{"--config", cliPath})
@@ -491,6 +588,7 @@ func TestCLIConfigOverridesEnvConfig(t *testing.T) {
 }
 
 func TestLoadWithCLICustomConfig(t *testing.T) {
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "custom.yaml")
 	content := `

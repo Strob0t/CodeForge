@@ -22,6 +22,7 @@ logging:
 		t.Fatal(err)
 	}
 
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 	t.Setenv("CODEFORGE_PORT", "7070")
 	t.Setenv("CODEFORGE_LOG_LEVEL", "warn")
 
@@ -48,6 +49,8 @@ logging:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 
 	cfg, err := LoadFrom(yamlPath)
 	if err != nil {
@@ -79,6 +82,7 @@ func TestLoadFrom_EnvInvalidValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 	t.Setenv("CODEFORGE_PG_MAX_CONNS", "notanumber")
 	t.Setenv("CODEFORGE_BREAKER_TIMEOUT", "invalid-duration")
 	t.Setenv("CODEFORGE_RATE_RPS", "abc")
@@ -101,6 +105,8 @@ func TestLoadFrom_EnvInvalidValues(t *testing.T) {
 
 func TestLoadFrom_MissingYAMLFile(t *testing.T) {
 	// Non-existent YAML => pure defaults, no error.
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
+
 	cfg, err := LoadFrom("/nonexistent/path/to/config.yaml")
 	if err != nil {
 		t.Fatalf("missing YAML should not error, got %v", err)
@@ -156,6 +162,8 @@ orchestrator:
 		t.Fatal(err)
 	}
 
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
+
 	cfg, err := LoadFrom(yamlPath)
 	if err != nil {
 		t.Fatalf("LoadFrom: %v", err)
@@ -179,6 +187,8 @@ orchestrator:
 func TestReload_UpdatesFields(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "cfg.yaml")
+
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 
 	// Initial config
 	if err := os.WriteFile(yamlPath, []byte(`
@@ -231,6 +241,8 @@ func TestReload_ValidationFails_PreservesOld(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "cfg.yaml")
 
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
+
 	// Valid initial config
 	if err := os.WriteFile(yamlPath, []byte(`
 server:
@@ -274,6 +286,8 @@ server:
 func TestReload_EnvOverridesYAML(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "cfg.yaml")
+
+	t.Setenv("APP_ENV", "development") // required for default JWT secret
 
 	if err := os.WriteFile(yamlPath, []byte(`
 logging:

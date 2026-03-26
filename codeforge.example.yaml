@@ -7,7 +7,7 @@ server:
   cors_origin: "http://localhost:3000"
 
 postgres:
-  dsn: "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"
+  dsn: "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=prefer"
   max_conns: 15
   min_conns: 2
   max_conn_lifetime: "1h"
@@ -93,10 +93,10 @@ lsp:
   max_diagnostics: 100     # Max diagnostics cached per file
 
 # Authentication & Authorization (Phase 10C)
-# When disabled (default), a default admin context is injected for all requests.
-# Enable and set jwt_secret for production use.
+# When disabled, a default admin context is injected for all requests.
+# Set to false only for local development without authentication.
 auth:
-  enabled: false                      # Enable JWT authentication (default: false)
+  enabled: true                       # Enable JWT authentication (default: true)
   jwt_secret: ""                      # HMAC-SHA256 signing key (required when enabled)
   access_token_expiry: "15m"          # Access token lifetime (default: 15m)
   refresh_token_expiry: "168h"        # Refresh token lifetime (default: 7 days)
