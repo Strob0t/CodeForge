@@ -9,6 +9,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -153,7 +154,8 @@ func testProviderConnection(ctx context.Context, provider, serverURL, token stri
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // apiURL is constructed from validated provider switch, not user input
+	safeClient := &http.Client{Timeout: 10 * time.Second, Transport: netutil.SafeTransport()}
+	resp, err := safeClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
