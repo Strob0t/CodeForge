@@ -1,11 +1,8 @@
 package http
 
 import (
-	"encoding/csv"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -167,32 +164,25 @@ func (h *Handlers) ExportBenchmarkResults(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "run id is required")
 		return
 	}
+
+	format := strings.ToLower(r.URL.Query().Get("format"))
+	if format == "csv" {
+		data, err := h.Benchmarks.ExportResultsCSV(r.Context(), id)
+		if err != nil {
+			writeDomainError(w, err, "benchmark results not found")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=\"results.csv\"")
+		_, _ = w.Write(data) //nolint:gosec // CSV attachment download, not rendered as HTML
+		return
+	}
+
 	results, err := h.Benchmarks.ListResults(r.Context(), id)
 	if err != nil {
 		writeDomainError(w, err, "benchmark results not found")
 		return
 	}
-
-	format := strings.ToLower(r.URL.Query().Get("format"))
-	if format == "csv" {
-		w.Header().Set("Content-Type", "text/csv")
-		w.Header().Set("Content-Disposition", "attachment; filename=\"results.csv\"")
-		csvWriter := csv.NewWriter(w)
-		_ = csvWriter.Write([]string{"task_id", "task_name", "cost_usd", "tokens_in", "tokens_out", "duration_ms"})
-		for i := range results {
-			_ = csvWriter.Write([]string{
-				results[i].TaskID,
-				results[i].TaskName,
-				fmt.Sprintf("%.6f", results[i].CostUSD),
-				strconv.FormatInt(results[i].TokensIn, 10),
-				strconv.FormatInt(results[i].TokensOut, 10),
-				strconv.FormatInt(results[i].DurationMs, 10),
-			})
-		}
-		csvWriter.Flush()
-		return
-	}
-
 	writeJSON(w, http.StatusOK, results)
 }
 

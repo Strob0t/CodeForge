@@ -1,10 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -133,6 +136,33 @@ func (s *BenchmarkService) DeleteRun(ctx context.Context, id string) error {
 // ListResults delegates to BenchmarkResultAggregator.
 func (s *BenchmarkService) ListResults(ctx context.Context, runID string) ([]benchmark.Result, error) {
 	return s.Results.ListResults(ctx, runID)
+}
+
+// ExportResultsCSV renders benchmark results as CSV bytes.
+func (s *BenchmarkService) ExportResultsCSV(ctx context.Context, runID string) ([]byte, error) {
+	results, err := s.Results.ListResults(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+	_ = w.Write([]string{"task_id", "task_name", "cost_usd", "tokens_in", "tokens_out", "duration_ms"})
+	for i := range results {
+		_ = w.Write([]string{
+			results[i].TaskID,
+			results[i].TaskName,
+			fmt.Sprintf("%.6f", results[i].CostUSD),
+			strconv.FormatInt(results[i].TokensIn, 10),
+			strconv.FormatInt(results[i].TokensOut, 10),
+			strconv.FormatInt(results[i].DurationMs, 10),
+		})
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, fmt.Errorf("write csv: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
 // Compare delegates to BenchmarkResultAggregator.

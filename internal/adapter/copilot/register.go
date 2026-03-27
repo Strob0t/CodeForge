@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 // RegisterWithLiteLLM registers the Copilot model with LiteLLM using the
 // exchanged bearer token. The model is registered as "copilot/gpt-4" which
 // routes through GitHub's Copilot API.
-func RegisterWithLiteLLM(ctx context.Context, llm *litellm.Client, bearerToken string) error {
-	req := litellm.AddModelRequest{
+func RegisterWithLiteLLM(ctx context.Context, admin llm.ModelAdmin, bearerToken string) error {
+	req := llm.AddModelRequest{
 		ModelName: "copilot/gpt-4",
 		LiteLLMParams: map[string]any{
 			"model":               "openai/gpt-4",
@@ -22,7 +22,7 @@ func RegisterWithLiteLLM(ctx context.Context, llm *litellm.Client, bearerToken s
 		},
 	}
 
-	if err := llm.AddModel(ctx, req); err != nil {
+	if err := admin.AddModel(ctx, req); err != nil {
 		return fmt.Errorf("register copilot model with litellm: %w", err)
 	}
 

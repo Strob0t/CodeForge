@@ -129,69 +129,10 @@ func (h *Handlers) EvaluateStep(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetPlanGraph(w http.ResponseWriter, r *http.Request) {
 	planID := chi.URLParam(r, "id")
 
-	p, err := h.Orchestrator.GetPlan(r.Context(), planID)
+	graph, err := h.Orchestrator.GetPlanGraph(r.Context(), planID)
 	if err != nil {
 		writeDomainError(w, err, "plan not found")
 		return
-	}
-
-	type GraphNode struct {
-		ID        string   `json:"id"`
-		TaskID    string   `json:"task_id"`
-		AgentID   string   `json:"agent_id"`
-		ModeID    string   `json:"mode_id,omitempty"`
-		Status    string   `json:"status"`
-		RunID     string   `json:"run_id,omitempty"`
-		Round     int      `json:"round"`
-		Error     string   `json:"error,omitempty"`
-		DependsOn []string `json:"depends_on,omitempty"`
-	}
-
-	type GraphEdge struct {
-		From     string `json:"from"`
-		To       string `json:"to"`
-		Protocol string `json:"protocol"`
-	}
-
-	type PlanGraph struct {
-		PlanID   string      `json:"plan_id"`
-		Name     string      `json:"name"`
-		Protocol string      `json:"protocol"`
-		Status   string      `json:"status"`
-		Nodes    []GraphNode `json:"nodes"`
-		Edges    []GraphEdge `json:"edges"`
-	}
-
-	graph := PlanGraph{
-		PlanID:   p.ID,
-		Name:     p.Name,
-		Protocol: string(p.Protocol),
-		Status:   string(p.Status),
-		Nodes:    make([]GraphNode, 0, len(p.Steps)),
-		Edges:    make([]GraphEdge, 0),
-	}
-
-	for i := range p.Steps {
-		step := &p.Steps[i]
-		graph.Nodes = append(graph.Nodes, GraphNode{
-			ID:        step.ID,
-			TaskID:    step.TaskID,
-			AgentID:   step.AgentID,
-			ModeID:    step.ModeID,
-			Status:    string(step.Status),
-			RunID:     step.RunID,
-			Round:     step.Round,
-			Error:     step.Error,
-			DependsOn: step.DependsOn,
-		})
-
-		for _, dep := range step.DependsOn {
-			graph.Edges = append(graph.Edges, GraphEdge{
-				From:     dep,
-				To:       step.ID,
-				Protocol: string(p.Protocol),
-			})
-		}
 	}
 
 	writeJSON(w, http.StatusOK, graph)

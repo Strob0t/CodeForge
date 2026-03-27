@@ -161,6 +161,15 @@ func (s *OrchestratorService) GetPlan(ctx context.Context, id string) (*plan.Exe
 	return s.store.GetPlan(ctx, id)
 }
 
+// GetPlanGraph retrieves a plan and returns it as a frontend-friendly DAG.
+func (s *OrchestratorService) GetPlanGraph(ctx context.Context, planID string) (*plan.Graph, error) {
+	p, err := s.store.GetPlan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	return p.BuildGraph(), nil
+}
+
 // ListPlans returns all plans for a project.
 func (s *OrchestratorService) ListPlans(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error) {
 	return s.store.ListPlansByProject(ctx, projectID)
