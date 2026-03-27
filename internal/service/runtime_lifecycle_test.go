@@ -129,7 +129,7 @@ func TestCheckTermination(t *testing.T) {
 			},
 			runtimeCfg: &config.Runtime{HeartbeatTimeout: 30 * time.Second},
 			setupHB: func(svc *RuntimeService) {
-				svc.heartbeats.Store("run-hb-trigger", time.Now().Add(-2*time.Minute))
+				svc.state.SetHeartbeat("run-hb-trigger", time.Now().Add(-2*time.Minute))
 			},
 			wantContain: "heartbeat",
 		},
@@ -141,7 +141,7 @@ func TestCheckTermination(t *testing.T) {
 			},
 			runtimeCfg: &config.Runtime{HeartbeatTimeout: 30 * time.Second},
 			setupHB: func(svc *RuntimeService) {
-				svc.heartbeats.Store("run-hb-recent", time.Now())
+				svc.state.SetHeartbeat("run-hb-recent", time.Now())
 			},
 			wantEmpty: true,
 		},
@@ -153,7 +153,7 @@ func TestCheckTermination(t *testing.T) {
 			},
 			runtimeCfg: &config.Runtime{HeartbeatTimeout: 0},
 			setupHB: func(svc *RuntimeService) {
-				svc.heartbeats.Store("run-hb-disabled", time.Now().Add(-10*time.Minute))
+				svc.state.SetHeartbeat("run-hb-disabled", time.Now().Add(-10*time.Minute))
 			},
 			wantEmpty: true,
 		},
@@ -239,7 +239,7 @@ func TestCheckTermination(t *testing.T) {
 			if cfg == nil {
 				cfg = &config.Runtime{}
 			}
-			svc := &RuntimeService{runtimeCfg: cfg}
+			svc := &RuntimeService{runtimeCfg: cfg, state: NewRunStateManager()}
 
 			if tt.setupHB != nil {
 				tt.setupHB(svc)
@@ -369,6 +369,7 @@ func TestCancelRunWithReason(t *testing.T) {
 				hub:        bc,
 				events:     es,
 				runtimeCfg: &config.Runtime{},
+				state:      NewRunStateManager(),
 			}
 
 			err := svc.cancelRunWithReason(context.Background(), tt.runID, tt.reason)
@@ -452,6 +453,7 @@ func TestCancelRunWithReason_CallsOnRunComplete(t *testing.T) {
 		hub:        bc,
 		events:     es,
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 		onRunComplete: func(_ context.Context, runID string, status run.Status) {
 			callbackRunID = runID
 			callbackStatus = status
@@ -673,6 +675,7 @@ func TestFinalizeRun(t *testing.T) {
 				hub:        bc,
 				events:     es,
 				runtimeCfg: &config.Runtime{},
+				state:      NewRunStateManager(),
 				onRunComplete: func(_ context.Context, runID string, status run.Status) {
 					callbackFired = true
 					callbackRunID = runID
@@ -781,6 +784,7 @@ func TestFinalizeRun_NoCallback(t *testing.T) {
 		hub:        &internalMockBroadcaster{},
 		events:     &mockEventStore{},
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 		// onRunComplete intentionally nil
 	}
 
@@ -812,14 +816,15 @@ func TestFinalizeRun_CleansUpRunState(t *testing.T) {
 		hub:        &internalMockBroadcaster{},
 		events:     &mockEventStore{},
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	// Pre-populate state that should be cleaned.
-	svc.heartbeats.Store(r.ID, time.Now())
-	svc.budgetAlerts.Store(r.ID+":80", true)
-	svc.budgetAlerts.Store(r.ID+":90", true)
+	svc.state.SetHeartbeat(r.ID, time.Now())
+	svc.state.StoreBudgetAlert(r.ID + ":80")
+	svc.state.StoreBudgetAlert(r.ID + ":90")
 	ch := make(chan string, 1)
-	svc.pendingApprovals.Store(r.ID+":call-x", ch)
+	svc.state.SetPendingApproval(r.ID+":call-x", ch)
 
 	payload := &messagequeue.RunCompletePayload{
 		RunID:  r.ID,
@@ -831,16 +836,18 @@ func TestFinalizeRun_CleansUpRunState(t *testing.T) {
 	}
 
 	// Verify cleanup happened.
-	if _, ok := svc.heartbeats.Load(r.ID); ok {
+	if _, ok := svc.state.GetHeartbeat(r.ID); ok {
 		t.Error("heartbeat not cleaned up after finalize")
 	}
-	if _, ok := svc.budgetAlerts.Load(r.ID + ":80"); ok {
+	if alreadySent := svc.state.StoreBudgetAlert(r.ID + ":80"); alreadySent {
 		t.Error("budget alert 80% not cleaned up after finalize")
 	}
-	if _, ok := svc.budgetAlerts.Load(r.ID + ":90"); ok {
+	svc.state.DeleteBudgetAlert(r.ID + ":80")
+	if alreadySent := svc.state.StoreBudgetAlert(r.ID + ":90"); alreadySent {
 		t.Error("budget alert 90% not cleaned up after finalize")
 	}
-	if _, ok := svc.pendingApprovals.Load(r.ID + ":call-x"); ok {
+	svc.state.DeleteBudgetAlert(r.ID + ":90")
+	if _, ok := svc.state.LoadAndDeletePendingApproval(r.ID + ":call-x"); ok {
 		t.Error("pending approval not cleaned up after finalize")
 	}
 }
@@ -875,6 +882,7 @@ func TestFinalizeRun_AGUIStatusMapping(t *testing.T) {
 				hub:        bc,
 				events:     &mockEventStore{},
 				runtimeCfg: &config.Runtime{},
+				state:      NewRunStateManager(),
 			}
 
 			payload := &messagequeue.RunCompletePayload{RunID: r.ID, Status: string(tt.status)}

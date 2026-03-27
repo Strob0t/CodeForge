@@ -30,8 +30,8 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 
 	ch := make(chan string, 1)
 	key := approvalKey(runID, callID)
-	s.pendingApprovals.Store(key, ch)
-	defer s.pendingApprovals.Delete(key)
+	s.state.SetPendingApproval(key, ch)
+	defer s.state.DeletePendingApproval(key)
 
 	// Broadcast permission request to connected WebSocket clients.
 	s.hub.BroadcastEvent(ctx, event.AGUIPermissionRequest, event.AGUIPermissionRequestEvent{
@@ -107,12 +107,8 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 // a pending tool call. Returns true if a pending approval was found and resolved.
 func (s *RuntimeService) ResolveApproval(runID, callID, decision string) bool {
 	key := approvalKey(runID, callID)
-	val, ok := s.pendingApprovals.LoadAndDelete(key)
+	ch, ok := s.state.LoadAndDeletePendingApproval(key)
 	if !ok {
-		return false
-	}
-	ch, _ := val.(chan string)
-	if ch == nil {
 		return false
 	}
 	select {

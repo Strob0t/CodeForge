@@ -64,6 +64,7 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 func TestCheckTermination_BudgetExceeded(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 	r := &run.Run{
 		ID:        "run-budget",
@@ -88,6 +89,7 @@ func TestCheckTermination_BudgetExceeded(t *testing.T) {
 func TestCheckTermination_NoTermination(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 	r := &run.Run{
 		ID:        "run-ok",
@@ -111,6 +113,7 @@ func TestCheckTermination_NoTermination(t *testing.T) {
 func TestCheckTermination_CombinedLimits(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	// Steps OK, cost exceeded => should terminate on cost.
@@ -139,11 +142,12 @@ func TestCheckTermination_CombinedLimits(t *testing.T) {
 func TestMarkConversationRunCancelled(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	svc.MarkConversationRunCancelled("conv-1")
 
-	if _, ok := svc.cancelledConvRuns.Load("conv-1"); !ok {
+	if !svc.state.IsConversationCancelled("conv-1") {
 		t.Error("expected conv-1 to be marked as cancelled")
 	}
 }
@@ -151,6 +155,7 @@ func TestMarkConversationRunCancelled(t *testing.T) {
 func TestBypassConversationApprovals(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	if svc.IsConversationBypassed("conv-1") {

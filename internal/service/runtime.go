@@ -29,32 +29,26 @@ import (
 // RuntimeService orchestrates the step-by-step execution protocol between
 // Go (control plane) and Python (execution plane).
 type RuntimeService struct {
-	store               database.Store
-	queue               messagequeue.Queue
-	hub                 broadcast.Broadcaster
-	events              eventstore.Store
-	policy              runtimePolicyEvaluator
-	modes               runtimeModeProvider
-	deliver             runtimeDeliverer
-	contextOpt          runtimeContextOptimizer
-	checkpoint          runtimeCheckpointer
-	sandbox             runtimeSandboxManager
-	mcpSvc              runtimeMCPResolver
-	microagentSvc       runtimeMicroagentMatcher
-	onRunComplete       func(ctx context.Context, runID string, status run.Status)
-	runtimeCfg          *config.Runtime
-	stallTrackers       sync.Map // map[runID]*run.StallTracker
-	heartbeats          sync.Map // map[runID]time.Time — last heartbeat timestamp
-	runTimeouts         sync.Map // map[runID]context.CancelFunc — context-level timeout cancel
-	budgetAlerts        sync.Map // map["runID:threshold"]bool — dedup budget alerts
-	pendingApprovals    sync.Map // map["runID:callID"]chan string — HITL approval channels
-	cancelledConvRuns   sync.Map // map[conversationID]bool — cancelled conversation runs (fast reject)
-	bypassedConvRuns    sync.Map // map[conversationID]bool — conversations with "bypass all permissions"
-	quarantine          runtimeQuarantineEvaluator
+	store         database.Store
+	queue         messagequeue.Queue
+	hub           broadcast.Broadcaster
+	events        eventstore.Store
+	policy        runtimePolicyEvaluator
+	modes         runtimeModeProvider
+	deliver       runtimeDeliverer
+	contextOpt    runtimeContextOptimizer
+	checkpoint    runtimeCheckpointer
+	sandbox       runtimeSandboxManager
+	mcpSvc        runtimeMCPResolver
+	microagentSvc runtimeMicroagentMatcher
+	onRunComplete func(ctx context.Context, runID string, status run.Status)
+	runtimeCfg    *config.Runtime
+	state         *RunStateManager
+	quarantine    runtimeQuarantineEvaluator
+
 	feedbackProvidersMu sync.RWMutex
 	feedbackProviders   []feedbackPort.Provider
 	metrics             cfmetrics.Recorder
-	runSpans            sync.Map // map[runID]trace.Span
 	goalSvc             runtimeGoalCreator
 }
 
@@ -74,6 +68,7 @@ func NewRuntimeService(
 		events:     events,
 		policy:     policySvc,
 		runtimeCfg: runtimeCfg,
+		state:      NewRunStateManager(),
 	}
 }
 
@@ -97,7 +92,7 @@ func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.S
 // cancelled so that subsequent tool-call requests are rejected immediately
 // without waiting for policy evaluation.
 func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
-	s.cancelledConvRuns.Store(conversationID, true)
+	s.state.SetCancelledConversation(conversationID)
 	s.cleanupRunState(conversationID)
 	slog.Info("conversation run marked cancelled", "conversation_id", conversationID)
 }
@@ -106,14 +101,13 @@ func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
 // BypassConversationApprovals marks a conversation so all future tool-call
 // requests are auto-approved without HITL wait.
 func (s *RuntimeService) BypassConversationApprovals(conversationID string) {
-	s.bypassedConvRuns.Store(conversationID, true)
+	s.state.SetBypassedConversation(conversationID)
 	slog.Info("conversation approvals bypassed", "conversation_id", conversationID)
 }
 
 // IsConversationBypassed returns true if the conversation has "bypass all" enabled.
 func (s *RuntimeService) IsConversationBypassed(conversationID string) bool {
-	_, ok := s.bypassedConvRuns.Load(conversationID)
-	return ok
+	return s.state.IsConversationBypassed(conversationID)
 }
 
 func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
@@ -181,7 +175,7 @@ func (s *RuntimeService) PersistGoalProposal(ctx context.Context, projectID, kin
 
 // SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
 func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
-	s.heartbeats.Store(runID, t)
+	s.state.SetHeartbeat(runID, t)
 }
 
 // prepareSandbox creates and starts a sandbox or hybrid container for the run.
@@ -387,7 +381,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// OTEL: start run span and record metric.
 	_, runSpan := telemetry.StartRunSpan(ctx, r.ID, r.TaskID, r.ProjectID)
-	s.runSpans.Store(r.ID, runSpan)
+	s.state.SetRunSpan(r.ID, runSpan)
 	if s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "project.id", r.ProjectID, "exec_mode", string(req.ExecMode))
 	}
@@ -406,7 +400,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		if threshold <= 0 {
 			threshold = s.runtimeCfg.StallThreshold
 		}
-		s.stallTrackers.Store(r.ID, run.NewStallTracker(threshold, s.runtimeCfg.StallMaxRetries))
+		s.state.SetStallTracker(r.ID, run.NewStallTracker(threshold, s.runtimeCfg.StallMaxRetries))
 	}
 
 	// Build and publish NATS payload.
@@ -452,8 +446,8 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	if profile.Termination.TimeoutSeconds > 0 {
 		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
 		timeoutCtx, timeoutCancel := context.WithCancel(context.Background())
-		s.runTimeouts.Store(r.ID, timeoutCancel)
-		go func(runID string, timeout time.Duration) { //nolint:gosec // G118: timeout goroutine outlives request; cancel stored in s.runTimeouts
+		s.state.SetRunTimeout(r.ID, timeoutCancel)
+		go func(runID string, timeout time.Duration) { //nolint:gosec // G118: timeout goroutine outlives request; cancel stored in s.state
 			timer := time.NewTimer(timeout)
 			defer timer.Stop()
 			select {

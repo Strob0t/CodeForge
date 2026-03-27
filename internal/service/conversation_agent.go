@@ -216,12 +216,8 @@ func (s *ConversationService) computeBudget(ctx context.Context, conversationID 
 	return pct, fmt.Sprintf("$%.4f", costUsed), fmt.Sprintf("$%.2f", costLimit)
 }
 
-// progressToolsConv are tools that indicate meaningful work in conversations.
-var progressToolsConv = map[string]bool{
-	"Edit":  true,
-	"Write": true,
-	"Bash":  true,
-}
+// progressToolsConv references the canonical progress tools from the run package.
+var progressToolsConv = run.ProgressTools
 
 // countStallIterations counts consecutive non-progress tool results at the tail
 // of the message history. A "progress" tool is Edit, Write, or Bash. Non-tool

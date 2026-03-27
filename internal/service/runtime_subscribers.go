@@ -57,7 +57,7 @@ func (s *RuntimeService) handleHeartbeat(_ context.Context, data []byte) error {
 	if err := json.Unmarshal(data, &hb); err != nil {
 		return fmt.Errorf("unmarshal heartbeat: %w", err)
 	}
-	s.heartbeats.Store(hb.RunID, time.Now())
+	s.state.SetHeartbeat(hb.RunID, time.Now())
 	return nil
 }
 

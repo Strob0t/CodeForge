@@ -2,8 +2,8 @@ package run
 
 import "hash/fnv"
 
-// progressTools are tools that indicate meaningful work when successful.
-var progressTools = map[string]bool{
+// ProgressTools are tools that indicate meaningful work when successful.
+var ProgressTools = map[string]bool{
 	"Edit":  true,
 	"Write": true,
 	"Bash":  true,
@@ -52,7 +52,7 @@ func (s *StallTracker) RetryCount() int {
 func (s *StallTracker) RecordStep(tool string, success bool, output string) bool {
 	h := hashOutput(output)
 
-	isProgress := progressTools[tool] && success
+	isProgress := ProgressTools[tool] && success
 	isRepeated := s.isRepeatedOutput(h)
 
 	if isProgress && !isRepeated {

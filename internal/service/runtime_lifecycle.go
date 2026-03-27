@@ -9,7 +9,6 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -23,30 +22,7 @@ import (
 )
 
 func (s *RuntimeService) cleanupRunState(runID string) {
-	s.heartbeats.Delete(runID)
-	s.stallTrackers.Delete(runID)
-	if cancel, ok := s.runTimeouts.LoadAndDelete(runID); ok {
-		cancel.(context.CancelFunc)()
-	}
-	if span, ok := s.runSpans.LoadAndDelete(runID); ok {
-		span.(trace.Span).End()
-	}
-	// Clean up budget alert dedup entries (prevents memory leak on cancelled runs).
-	s.budgetAlerts.Delete(fmt.Sprintf("%s:80", runID))
-	s.budgetAlerts.Delete(fmt.Sprintf("%s:90", runID))
-	// Clean up any pending HITL approval channels (unblocks waiting goroutines).
-	s.pendingApprovals.Range(func(key, value any) bool {
-		if k, ok := key.(string); ok && len(k) > len(runID) && k[:len(runID)] == runID && k[len(runID)] == ':' {
-			if ch, ok := value.(chan string); ok {
-				select {
-				case ch <- "deny":
-				default:
-				}
-			}
-			s.pendingApprovals.Delete(key)
-		}
-		return true
-	})
+	s.state.CleanupRun(runID)
 }
 
 // cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).
@@ -60,8 +36,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 	}
 
 	// OTEL: annotate run span before cleanup ends it
-	if span, ok := s.runSpans.Load(runID); ok {
-		sp := span.(trace.Span)
+	if sp, ok := s.state.GetRunSpan(runID); ok {
 		sp.SetAttributes(attribute.String("cancel.reason", reason))
 		sp.SetStatus(codes.Error, reason)
 	}
@@ -97,8 +72,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 // finalizeRun completes the run lifecycle: update DB, task, agent, broadcast events.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
 	// OTEL: annotate run span before cleanup ends it
-	if span, ok := s.runSpans.Load(r.ID); ok {
-		sp := span.(trace.Span)
+	if sp, ok := s.state.GetRunSpan(r.ID); ok {
 		sp.SetAttributes(
 			attribute.String("status", string(status)),
 			attribute.Int64("steps", int64(payload.StepCount)),
@@ -340,8 +314,8 @@ func (s *RuntimeService) checkTermination(r *run.Run, profile *policy.PolicyProf
 
 	// Check heartbeat timeout
 	if s.runtimeCfg.HeartbeatTimeout > 0 {
-		if lastHB, ok := s.heartbeats.Load(r.ID); ok {
-			if time.Since(lastHB.(time.Time)) > s.runtimeCfg.HeartbeatTimeout {
+		if lastHB, ok := s.state.GetHeartbeat(r.ID); ok {
+			if time.Since(lastHB) > s.runtimeCfg.HeartbeatTimeout {
 				return "heartbeat timeout (worker unresponsive)"
 			}
 		}
@@ -412,6 +386,26 @@ func (s *RuntimeService) appendRunEventWithTokens(ctx context.Context, evType ev
 	if err := s.events.Append(ctx, &ev); err != nil {
 		slog.Error("failed to append run event", "type", evType, "run_id", r.ID, "error", err)
 	}
+}
+
+// broadcastToolCallStatus broadcasts a ToolCallStatusEvent to all connected WebSocket clients.
+// The decision parameter is optional (empty for "result" phase).
+func (s *RuntimeService) broadcastToolCallStatus(ctx context.Context, runID, callID, tool, phase, decision string) {
+	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
+		RunID:    runID,
+		CallID:   callID,
+		Tool:     tool,
+		Decision: decision,
+		Phase:    phase,
+	})
+}
+
+// decisionPhase maps a policy decision to the corresponding broadcast phase string.
+func decisionPhase(d policy.Decision) string {
+	if d == policy.DecisionAllow {
+		return "approved"
+	}
+	return "denied"
 }
 
 // broadcastRunStatus broadcasts a RunStatusEvent to all connected clients.

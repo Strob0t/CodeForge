@@ -141,6 +141,7 @@ func TestToContextEntryPayloads_Empty(t *testing.T) {
 func TestCheckTermination_NoLimits(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	profile := &policy.PolicyProfile{
@@ -162,6 +163,7 @@ func TestCheckTermination_NoLimits(t *testing.T) {
 func TestCheckTermination_AbsoluteTimeout(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	profile := &policy.PolicyProfile{
@@ -185,6 +187,7 @@ func TestCheckTermination_AbsoluteTimeout(t *testing.T) {
 func TestCheckTermination_MaxSteps(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	profile := &policy.PolicyProfile{
@@ -221,6 +224,7 @@ func TestCheckTermination_MaxSteps(t *testing.T) {
 func TestCheckTermination_MaxCost(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	profile := &policy.PolicyProfile{
@@ -257,6 +261,7 @@ func TestCheckTermination_MaxCost(t *testing.T) {
 func TestCheckTermination_Timeout(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	profile := &policy.PolicyProfile{
@@ -285,6 +290,7 @@ func TestCheckTermination_HeartbeatTimeout(t *testing.T) {
 		runtimeCfg: &config.Runtime{
 			HeartbeatTimeout: 30 * time.Second,
 		},
+		state: NewRunStateManager(),
 	}
 
 	profile := &policy.PolicyProfile{}
@@ -297,14 +303,14 @@ func TestCheckTermination_HeartbeatTimeout(t *testing.T) {
 	}
 
 	// Old heartbeat — should trigger
-	svc.heartbeats.Store("run-hb", time.Now().Add(-2*time.Minute))
+	svc.state.SetHeartbeat("run-hb", time.Now().Add(-2*time.Minute))
 	reason = svc.checkTermination(r, profile)
 	if reason == "" {
 		t.Error("expected heartbeat timeout termination for old heartbeat")
 	}
 
 	// Recent heartbeat — should not trigger
-	svc.heartbeats.Store("run-hb", time.Now())
+	svc.state.SetHeartbeat("run-hb", time.Now())
 	reason = svc.checkTermination(r, profile)
 	if reason != "" {
 		t.Errorf("expected no heartbeat timeout for recent heartbeat, got %q", reason)
@@ -314,50 +320,56 @@ func TestCheckTermination_HeartbeatTimeout(t *testing.T) {
 func TestCleanupRunState_AllFields(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	runID := "run-cleanup-all"
 
 	// Populate all fields that cleanupRunState should clean
-	svc.heartbeats.Store(runID, time.Now())
-	svc.stallTrackers.Store(runID, run.NewStallTracker(5, 2))
+	svc.state.SetHeartbeat(runID, time.Now())
+	svc.state.SetStallTracker(runID, run.NewStallTracker(5, 2))
 
 	cancelCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
-	svc.runTimeouts.Store(runID, context.CancelFunc(func() {
+	svc.state.SetRunTimeout(runID, context.CancelFunc(func() {
 		cancelCalled = true
 		cancel()
 	}))
-	svc.budgetAlerts.Store(runID+":80", true)
-	svc.budgetAlerts.Store(runID+":90", true)
+	svc.state.StoreBudgetAlert(runID + ":80")
+	svc.state.StoreBudgetAlert(runID + ":90")
 
 	// Add a pending approval channel
 	ch := make(chan string, 1)
-	svc.pendingApprovals.Store(runID+":call-1", ch)
+	svc.state.SetPendingApproval(runID+":call-1", ch)
 
 	svc.cleanupRunState(runID)
 
 	// Verify all cleaned
-	if _, ok := svc.heartbeats.Load(runID); ok {
+	if _, ok := svc.state.GetHeartbeat(runID); ok {
 		t.Error("heartbeat not cleaned")
 	}
-	if _, ok := svc.stallTrackers.Load(runID); ok {
+	if _, ok := svc.state.GetStallTracker(runID); ok {
 		t.Error("stall tracker not cleaned")
 	}
-	if _, ok := svc.runTimeouts.Load(runID); ok {
+	if _, ok := svc.state.LoadAndDeleteRunTimeout(runID); ok {
 		t.Error("run timeout not cleaned")
 	}
 	if !cancelCalled {
 		t.Error("timeout cancel function not called")
 	}
-	if _, ok := svc.budgetAlerts.Load(runID + ":80"); ok {
+	if alreadySent := svc.state.StoreBudgetAlert(runID + ":80"); alreadySent {
 		t.Error("budget alert 80 not cleaned")
 	}
-	if _, ok := svc.budgetAlerts.Load(runID + ":90"); ok {
+	if alreadySent := svc.state.StoreBudgetAlert(runID + ":90"); alreadySent {
 		t.Error("budget alert 90 not cleaned")
 	}
-	if _, ok := svc.pendingApprovals.Load(runID + ":call-1"); ok {
+	// Clean up the alerts we just stored for the check above.
+	svc.state.DeleteBudgetAlert(runID + ":80")
+	svc.state.DeleteBudgetAlert(runID + ":90")
+
+	// Pending approval should have been cleaned by CleanupRun.
+	if _, ok := svc.state.LoadAndDeletePendingApproval(runID + ":call-1"); ok {
 		t.Error("pending approval not cleaned")
 	}
 
@@ -375,29 +387,30 @@ func TestCleanupRunState_AllFields(t *testing.T) {
 func TestCleanupRunState_OtherRunsUnaffected(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	// Set up state for two runs
-	svc.heartbeats.Store("run-a", time.Now())
-	svc.heartbeats.Store("run-b", time.Now())
-	svc.budgetAlerts.Store("run-a:80", true)
-	svc.budgetAlerts.Store("run-b:80", true)
+	svc.state.SetHeartbeat("run-a", time.Now())
+	svc.state.SetHeartbeat("run-b", time.Now())
+	svc.state.StoreBudgetAlert("run-a:80")
+	svc.state.StoreBudgetAlert("run-b:80")
 	ch := make(chan string, 1)
-	svc.pendingApprovals.Store("run-a:call-1", ch)
+	svc.state.SetPendingApproval("run-a:call-1", ch)
 	chB := make(chan string, 1)
-	svc.pendingApprovals.Store("run-b:call-1", chB)
+	svc.state.SetPendingApproval("run-b:call-1", chB)
 
 	// Clean up only run-a
 	svc.cleanupRunState("run-a")
 
 	// run-b should be unaffected
-	if _, ok := svc.heartbeats.Load("run-b"); !ok {
+	if _, ok := svc.state.GetHeartbeat("run-b"); !ok {
 		t.Error("run-b heartbeat should not be cleaned")
 	}
-	if _, ok := svc.budgetAlerts.Load("run-b:80"); !ok {
+	if alreadySent := svc.state.StoreBudgetAlert("run-b:80"); !alreadySent {
 		t.Error("run-b budget alert should not be cleaned")
 	}
-	if _, ok := svc.pendingApprovals.Load("run-b:call-1"); !ok {
+	if _, ok := svc.state.LoadAndDeletePendingApproval("run-b:call-1"); !ok {
 		t.Error("run-b pending approval should not be cleaned")
 	}
 }
@@ -454,6 +467,7 @@ func TestSendToolCallResponse_BasicPath(t *testing.T) {
 	svc := &RuntimeService{
 		queue:      queue,
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	err := svc.sendToolCallResponse(context.Background(), "run-1", "call-1", "allow", "")
@@ -487,6 +501,7 @@ func TestWaitForApproval_DefaultTimeout(t *testing.T) {
 	svc := &RuntimeService{
 		hub:        bc,
 		runtimeCfg: &config.Runtime{ApprovalTimeoutSeconds: 0}, // 0 = use default 60s
+		state:      NewRunStateManager(),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -508,6 +523,7 @@ func TestWaitForApproval_ResolveBeforeTimeout(t *testing.T) {
 	svc := &RuntimeService{
 		hub:        bc,
 		runtimeCfg: &config.Runtime{ApprovalTimeoutSeconds: 30},
+		state:      NewRunStateManager(),
 	}
 
 	resultCh := make(chan policy.Decision, 1)
@@ -611,6 +627,7 @@ func TestTrajectoryEvent_RoadmapProposed_BroadcastsAGUI(t *testing.T) {
 		queue:      queue,
 		events:     es,
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	cancels, err := svc.StartSubscribers(context.Background())

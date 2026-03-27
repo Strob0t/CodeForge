@@ -43,14 +43,16 @@ func TestRuntimeLifecycle_SourceQuality(t *testing.T) {
 	})
 
 	t.Run("BudgetAlertCleanup", func(t *testing.T) {
-		if !strings.Contains(content, "budgetAlerts.Delete") {
-			t.Error("cleanupRunState should clean up budget alert entries to prevent memory leaks")
+		// cleanupRunState delegates to state.CleanupRun which handles budget alert cleanup.
+		if !strings.Contains(content, "CleanupRun") {
+			t.Error("cleanupRunState should delegate to state.CleanupRun for resource cleanup")
 		}
 	})
 
 	t.Run("ApprovalChannelCleanup", func(t *testing.T) {
-		if !strings.Contains(content, "pendingApprovals") {
-			t.Error("cleanupRunState should clean up pending approval channels")
+		// cleanupRunState delegates to state.CleanupRun which handles approval channel cleanup.
+		if !strings.Contains(content, "CleanupRun") {
+			t.Error("cleanupRunState should delegate to state.CleanupRun for approval channel cleanup")
 		}
 	})
 }
@@ -92,55 +94,58 @@ func (s *lifecycleTestStore) UpdateRunStatus(_ context.Context, _ string, _ run.
 func TestCleanupRunState_ReleasesAllResources(t *testing.T) {
 	svc := &RuntimeService{
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	runID := "run-lifecycle-cleanup"
 
 	// Populate all resource types.
-	svc.heartbeats.Store(runID, time.Now())
-	svc.stallTrackers.Store(runID, run.NewStallTracker(5, 2))
+	svc.state.SetHeartbeat(runID, time.Now())
+	svc.state.SetStallTracker(runID, run.NewStallTracker(5, 2))
 
 	cancelCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
-	svc.runTimeouts.Store(runID, context.CancelFunc(func() {
+	svc.state.SetRunTimeout(runID, context.CancelFunc(func() {
 		cancelCalled = true
 		cancel()
 	}))
-	svc.budgetAlerts.Store(runID+":80", true)
-	svc.budgetAlerts.Store(runID+":90", true)
+	svc.state.StoreBudgetAlert(runID + ":80")
+	svc.state.StoreBudgetAlert(runID + ":90")
 
 	// Add pending approval channels.
 	ch1 := make(chan string, 1)
 	ch2 := make(chan string, 1)
-	svc.pendingApprovals.Store(runID+":call-a", ch1)
-	svc.pendingApprovals.Store(runID+":call-b", ch2)
+	svc.state.SetPendingApproval(runID+":call-a", ch1)
+	svc.state.SetPendingApproval(runID+":call-b", ch2)
 
 	svc.cleanupRunState(runID)
 
 	// Verify all resources cleaned.
-	if _, ok := svc.heartbeats.Load(runID); ok {
+	if _, ok := svc.state.GetHeartbeat(runID); ok {
 		t.Error("heartbeat not cleaned up")
 	}
-	if _, ok := svc.stallTrackers.Load(runID); ok {
+	if _, ok := svc.state.GetStallTracker(runID); ok {
 		t.Error("stall tracker not cleaned up")
 	}
-	if _, ok := svc.runTimeouts.Load(runID); ok {
+	if _, ok := svc.state.LoadAndDeleteRunTimeout(runID); ok {
 		t.Error("run timeout cancel not cleaned up")
 	}
 	if !cancelCalled {
 		t.Error("timeout cancel function not called")
 	}
-	if _, ok := svc.budgetAlerts.Load(runID + ":80"); ok {
+	if alreadySent := svc.state.StoreBudgetAlert(runID + ":80"); alreadySent {
 		t.Error("budget alert 80% not cleaned up")
 	}
-	if _, ok := svc.budgetAlerts.Load(runID + ":90"); ok {
+	svc.state.DeleteBudgetAlert(runID + ":80")
+	if alreadySent := svc.state.StoreBudgetAlert(runID + ":90"); alreadySent {
 		t.Error("budget alert 90% not cleaned up")
 	}
-	if _, ok := svc.pendingApprovals.Load(runID + ":call-a"); ok {
+	svc.state.DeleteBudgetAlert(runID + ":90")
+	if _, ok := svc.state.LoadAndDeletePendingApproval(runID + ":call-a"); ok {
 		t.Error("pending approval call-a not cleaned up")
 	}
-	if _, ok := svc.pendingApprovals.Load(runID + ":call-b"); ok {
+	if _, ok := svc.state.LoadAndDeletePendingApproval(runID + ":call-b"); ok {
 		t.Error("pending approval call-b not cleaned up")
 	}
 
@@ -178,6 +183,7 @@ func TestCancelRunWithReason_UpdatesStatus(t *testing.T) {
 		hub:        bc,
 		events:     es,
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	err := svc.cancelRunWithReason(context.Background(), "run-cancel", "test timeout")
@@ -223,6 +229,7 @@ func TestCancelRunWithReason_AlreadyCompleted(t *testing.T) {
 	svc := &RuntimeService{
 		store:      store,
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	// Should not error for already-completed runs.
@@ -242,6 +249,7 @@ func TestCancelRunWithReason_NotFound(t *testing.T) {
 	svc := &RuntimeService{
 		store:      store,
 		runtimeCfg: &config.Runtime{},
+		state:      NewRunStateManager(),
 	}
 
 	err := svc.cancelRunWithReason(context.Background(), "nonexistent", "test")

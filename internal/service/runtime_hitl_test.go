@@ -37,6 +37,7 @@ func newHITLTestService(approvalTimeoutSec int) (*RuntimeService, *hitlMockBroad
 	svc := &RuntimeService{
 		hub:        bc,
 		runtimeCfg: cfg,
+		state:      NewRunStateManager(),
 	}
 	return svc, bc
 }
@@ -235,7 +236,7 @@ func TestHITL_PendingApprovalCleanedUpAfterResolve(t *testing.T) {
 
 	// The deferred Delete in waitForApproval should have cleaned up the map.
 	key := approvalKey(runID, callID)
-	if _, loaded := svc.pendingApprovals.Load(key); loaded {
+	if _, loaded := svc.state.LoadAndDeletePendingApproval(key); loaded {
 		t.Error("expected pendingApprovals entry to be cleaned up, but it still exists")
 	}
 }

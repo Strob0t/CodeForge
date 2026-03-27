@@ -116,17 +116,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	})
 
 	// Broadcast WS
-	phase := "approved"
-	if decision != policy.DecisionAllow {
-		phase = "denied"
-	}
-	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
-		RunID:    r.ID,
-		CallID:   req.CallID,
-		Tool:     req.Tool,
-		Decision: string(decision),
-		Phase:    phase,
-	})
+	s.broadcastToolCallStatus(ctx, r.ID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
 	// Broadcast AG-UI tool_call alongside native event
 	s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
@@ -176,7 +166,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	}()
 
 	// Fast-reject: if this conversation run was cancelled, deny immediately.
-	if _, cancelled := s.cancelledConvRuns.Load(req.RunID); cancelled {
+	if s.state.IsConversationCancelled(req.RunID) {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run cancelled")
 	}
 
@@ -263,17 +253,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	}
 
 	// Broadcast WS tool call status.
-	phase := "approved"
-	if decision != policy.DecisionAllow {
-		phase = "denied"
-	}
-	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
-		RunID:    req.RunID,
-		CallID:   req.CallID,
-		Tool:     req.Tool,
-		Decision: string(decision),
-		Phase:    phase,
-	})
+	s.broadcastToolCallStatus(ctx, req.RunID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
 }
@@ -330,7 +310,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		for _, threshold := range []float64{80, 90} {
 			if pct >= threshold {
 				alertKey := fmt.Sprintf("%s:%d", r.ID, int(threshold))
-				if _, alreadySent := s.budgetAlerts.LoadOrStore(alertKey, true); !alreadySent {
+				if alreadySent := s.state.StoreBudgetAlert(alertKey); !alreadySent {
 					s.hub.BroadcastEvent(ctx, event.EventBudgetAlert, event.BudgetAlertEvent{
 						RunID:      r.ID,
 						TaskID:     r.TaskID,
@@ -346,13 +326,12 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	}
 
 	// Check stall detection
-	if tracker, ok := s.stallTrackers.Load(r.ID); ok {
-		st := tracker.(*run.StallTracker)
+	if st, ok := s.state.GetStallTracker(r.ID); ok {
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
 			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
 			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
-			s.stallTrackers.Delete(r.ID)
+			s.state.DeleteStallTracker(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
@@ -379,12 +358,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
 
 	// Broadcast WS with token data
-	s.hub.BroadcastEvent(ctx, event.EventToolCallStatus, event.ToolCallStatusEvent{
-		RunID:  r.ID,
-		CallID: result.CallID,
-		Tool:   result.Tool,
-		Phase:  "result",
-	})
+	s.broadcastToolCallStatus(ctx, r.ID, result.CallID, result.Tool, "result", "")
 
 	// Broadcast AG-UI tool_result alongside native event
 	toolResultErr := ""
