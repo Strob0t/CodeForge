@@ -67,14 +67,12 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 		return nil, fmt.Errorf("parse github push: %w", err)
 	}
 
-	branch := extractBranchFromRef(raw.Ref)
-
 	ev := &webhook.VCSPushEvent{
 		VCSEvent: webhook.VCSEvent{
 			Type:       webhook.VCSEventPush,
 			Provider:   "github",
 			Repository: raw.Repository.FullName,
-			Branch:     branch,
+			Branch:     extractBranchFromRef(raw.Ref),
 			Sender:     raw.Sender.Login,
 			CommitHash: raw.After,
 		},
@@ -93,19 +91,8 @@ func (s *VCSWebhookService) HandleGitHubPush(ctx context.Context, data []byte) (
 			Removed:  c.Removed,
 		})
 	}
-	ev.FileCount = countFiles(ev.Commits)
 
-	slog.Info("github push event", "repo", ev.Repository, "branch", branch, "commits", len(ev.Commits))
-
-	s.hub.BroadcastEvent(ctx, event.EventVCSPush, ev)
-
-	// Trigger review checks on push events.
-	if s.review != nil && s.store != nil {
-		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
-			_ = s.review.HandlePush(ctx, projectID, branch, len(ev.Commits))
-		}
-	}
-
+	s.processPushEvent(ctx, ev)
 	return ev, nil
 }
 
@@ -134,14 +121,12 @@ func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (
 		return nil, fmt.Errorf("parse gitlab push: %w", err)
 	}
 
-	branch := extractBranchFromRef(raw.Ref)
-
 	ev := &webhook.VCSPushEvent{
 		VCSEvent: webhook.VCSEvent{
 			Type:       webhook.VCSEventPush,
 			Provider:   "gitlab",
 			Repository: raw.Project.PathWithNamespace,
-			Branch:     branch,
+			Branch:     extractBranchFromRef(raw.Ref),
 			Sender:     raw.UserUsername,
 			CommitHash: raw.After,
 		},
@@ -159,20 +144,36 @@ func (s *VCSWebhookService) HandleGitLabPush(ctx context.Context, data []byte) (
 			Removed:  c.Removed,
 		})
 	}
+
+	s.processPushEvent(ctx, ev)
+	return ev, nil
+}
+
+// processPushEvent handles the shared post-parse logic for push events:
+// file counting, logging, broadcasting, and triggering review checks.
+func (s *VCSWebhookService) processPushEvent(ctx context.Context, ev *webhook.VCSPushEvent) {
 	ev.FileCount = countFiles(ev.Commits)
 
-	slog.Info("gitlab push event", "repo", ev.Repository, "branch", branch, "commits", len(ev.Commits))
+	slog.Info("VCS push received",
+		"provider", ev.Provider,
+		"repo", ev.Repository,
+		"branch", ev.Branch,
+		"commits", len(ev.Commits),
+	)
 
 	s.hub.BroadcastEvent(ctx, event.EventVCSPush, ev)
 
-	// Trigger review checks on push events.
 	if s.review != nil && s.store != nil {
 		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
-			_ = s.review.HandlePush(ctx, projectID, branch, len(ev.Commits))
+			if pushErr := s.review.HandlePush(ctx, projectID, ev.Branch, len(ev.Commits)); pushErr != nil {
+				slog.Warn("review trigger failed",
+					"project_id", projectID,
+					"branch", ev.Branch,
+					"error", pushErr,
+				)
+			}
 		}
 	}
-
-	return ev, nil
 }
 
 // HandleGitHubPullRequest processes a GitHub pull_request webhook payload.
@@ -226,7 +227,13 @@ func (s *VCSWebhookService) HandleGitHubPullRequest(ctx context.Context, data []
 	// Trigger pre-merge review checks on PR open/synchronize.
 	if s.review != nil && s.store != nil && (ev.Action == "opened" || ev.Action == "synchronize") {
 		if projectID, err := s.resolveProject(ctx, ev.Repository); err == nil {
-			_, _ = s.review.HandlePreMerge(ctx, projectID, ev.BaseBranch)
+			if _, prErr := s.review.HandlePreMerge(ctx, projectID, ev.BaseBranch); prErr != nil {
+				slog.Warn("pre-merge review trigger failed",
+					"project_id", projectID,
+					"base_branch", ev.BaseBranch,
+					"error", prErr,
+				)
+			}
 		}
 	}
 

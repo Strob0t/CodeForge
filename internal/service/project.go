@@ -554,42 +554,25 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 	switch {
 	case p.WorkspacePath != "":
 		result.Cloned = true
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "clone",
-			Status: "skipped",
-		})
+		result.RecordStepMsg("clone", "skipped", "")
 	case p.RepoURL == "":
 		inited, initErr := s.InitWorkspace(ctx, id, tenantID)
 		if initErr != nil {
 			slog.Warn("setup: init workspace failed", "project_id", id, "error", initErr)
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "init-workspace",
-				Status: "failed",
-				Error:  initErr.Error(),
-			})
+			result.RecordStep("init-workspace", "failed", initErr)
 		} else {
 			p = inited
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "init-workspace",
-				Status: "completed",
-			})
+			result.RecordStep("init-workspace", "completed", nil)
 		}
 	default:
 		cloned, cloneErr := s.Clone(ctx, id, tenantID, branch)
 		if cloneErr != nil {
 			slog.Warn("setup: clone failed", "project_id", id, "error", cloneErr)
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "clone",
-				Status: "failed",
-				Error:  cloneErr.Error(),
-			})
+			result.RecordStep("clone", "failed", cloneErr)
 		} else {
 			result.Cloned = true
 			p = cloned
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "clone",
-				Status: "completed",
-			})
+			result.RecordStep("clone", "completed", nil)
 		}
 	}
 
@@ -598,18 +581,11 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 		stack, stackErr := project.ScanWorkspace(p.WorkspacePath)
 		if stackErr != nil {
 			slog.Warn("setup: stack detection failed", "project_id", id, "error", stackErr)
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "detect_stack",
-				Status: "failed",
-				Error:  stackErr.Error(),
-			})
+			result.RecordStep("detect_stack", "failed", stackErr)
 		} else {
 			result.StackDetected = true
 			result.Stack = stack
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "detect_stack",
-				Status: "completed",
-			})
+			result.RecordStep("detect_stack", "completed", nil)
 
 			// Persist detected languages to project config for onboarding pipeline.
 			if len(stack.Languages) > 0 {
@@ -627,11 +603,7 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 			}
 		}
 	} else {
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "detect_stack",
-			Status: "skipped",
-			Error:  "no workspace available",
-		})
+		result.RecordStepMsg("detect_stack", "skipped", "no workspace available")
 	}
 
 	// Step 3: Detect and import specs (requires workspace + spec detector).
@@ -641,36 +613,17 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 		switch {
 		case importErr != nil:
 			slog.Warn("setup: spec import failed", "project_id", id, "error", importErr)
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "import_specs",
-				Status: "failed",
-				Error:  importErr.Error(),
-			})
+			result.RecordStep("import_specs", "failed", importErr)
 		case detected:
 			result.SpecsDetected = true
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "import_specs",
-				Status: "completed",
-			})
+			result.RecordStep("import_specs", "completed", nil)
 		default:
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "import_specs",
-				Status: "skipped",
-				Error:  "no specs found",
-			})
+			result.RecordStepMsg("import_specs", "skipped", "no specs found")
 		}
 	case s.specDetector == nil:
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "import_specs",
-			Status: "skipped",
-			Error:  "spec detector not configured",
-		})
+		result.RecordStepMsg("import_specs", "skipped", "spec detector not configured")
 	default:
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "import_specs",
-			Status: "skipped",
-			Error:  "no workspace available",
-		})
+		result.RecordStepMsg("import_specs", "skipped", "no workspace available")
 	}
 
 	// Step 4: Discover project goals (requires workspace + goal discovery service).
@@ -680,35 +633,16 @@ func (s *ProjectService) SetupProject(ctx context.Context, id, tenantID, branch 
 		switch {
 		case goalErr != nil:
 			slog.Warn("setup: goal discovery failed", "project_id", id, "error", goalErr)
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "discover_goals",
-				Status: "failed",
-				Error:  goalErr.Error(),
-			})
+			result.RecordStep("discover_goals", "failed", goalErr)
 		case goalResult.GoalsCreated > 0:
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "discover_goals",
-				Status: "completed",
-			})
+			result.RecordStep("discover_goals", "completed", nil)
 		default:
-			result.Steps = append(result.Steps, project.SetupStep{
-				Name:   "discover_goals",
-				Status: "skipped",
-				Error:  "no goal files found",
-			})
+			result.RecordStepMsg("discover_goals", "skipped", "no goal files found")
 		}
 	case s.goalDiscovery == nil:
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "discover_goals",
-			Status: "skipped",
-			Error:  "goal discovery not configured",
-		})
+		result.RecordStepMsg("discover_goals", "skipped", "goal discovery not configured")
 	default:
-		result.Steps = append(result.Steps, project.SetupStep{
-			Name:   "discover_goals",
-			Status: "skipped",
-			Error:  "no workspace available",
-		})
+		result.RecordStepMsg("discover_goals", "skipped", "no workspace available")
 	}
 
 	return result, nil

@@ -61,6 +61,24 @@ type SetupStep struct {
 	Error  string `json:"error,omitempty"`
 }
 
+// RecordStep appends a step with the given name, status, and optional error.
+func (r *SetupResult) RecordStep(name, status string, err error) {
+	step := SetupStep{Name: name, Status: status}
+	if err != nil {
+		step.Error = err.Error()
+	}
+	r.Steps = append(r.Steps, step)
+}
+
+// RecordStepMsg appends a step with the given name, status, and literal message.
+func (r *SetupResult) RecordStepMsg(name, status, msg string) {
+	step := SetupStep{Name: name, Status: status}
+	if msg != "" {
+		step.Error = msg
+	}
+	r.Steps = append(r.Steps, step)
+}
+
 // WorkspaceInfo holds health and status information about a project's workspace.
 type WorkspaceInfo struct {
 	Exists         bool      `json:"exists"`
