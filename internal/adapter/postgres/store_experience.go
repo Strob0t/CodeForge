@@ -49,9 +49,10 @@ func (s *Store) ListExperienceEntries(ctx context.Context, projectID string) ([]
 		       result_status, run_id, confidence, hit_count, created_at, last_used_at
 		FROM experience_entries
 		WHERE project_id = $1 AND tenant_id = $2
-		ORDER BY last_used_at DESC`
+		ORDER BY last_used_at DESC
+		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx))
+	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list experience entries: %w", err)
 	}

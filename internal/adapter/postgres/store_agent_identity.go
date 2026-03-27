@@ -69,15 +69,17 @@ func (s *Store) ListAgentInbox(ctx context.Context, agentID string, unreadOnly b
 			SELECT id, agent_id, from_agent, content, priority, read, created_at
 			FROM agent_inbox
 			WHERE agent_id = $1 AND read = false AND tenant_id = $2
-			ORDER BY priority DESC, created_at ASC`
-		args = []any{agentID, tid}
+			ORDER BY priority DESC, created_at ASC
+			LIMIT $3`
+		args = []any{agentID, tid, DefaultListLimit}
 	} else {
 		q = `
 			SELECT id, agent_id, from_agent, content, priority, read, created_at
 			FROM agent_inbox
 			WHERE agent_id = $1 AND tenant_id = $2
-			ORDER BY priority DESC, created_at ASC`
-		args = []any{agentID, tid}
+			ORDER BY priority DESC, created_at ASC
+			LIMIT $3`
+		args = []any{agentID, tid, DefaultListLimit}
 	}
 
 	rows, err := s.pool.Query(ctx, q, args...)

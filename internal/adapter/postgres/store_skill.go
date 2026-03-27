@@ -59,9 +59,10 @@ func (s *Store) ListSkills(ctx context.Context, projectID string) ([]skill.Skill
 		       status, usage_count, enabled, created_at
 		FROM skills
 		WHERE (project_id = $1 OR project_id = '') AND tenant_id = $2
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx))
+	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list skills: %w", err)
 	}
@@ -123,9 +124,10 @@ func (s *Store) ListActiveSkills(ctx context.Context, projectID string) ([]skill
 		       status, usage_count, enabled, created_at
 		FROM skills
 		WHERE (project_id = $1 OR project_id = '') AND tenant_id = $2 AND status = 'active'
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx))
+	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list active skills: %w", err)
 	}

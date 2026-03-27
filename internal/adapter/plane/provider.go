@@ -10,11 +10,14 @@ import (
 	"net/http"
 	neturl "net/url"
 	"strings"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
 const providerName = "plane"
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // Provider implements pmprovider.Provider for Plane.so via the REST API.
 type Provider struct {
@@ -41,7 +44,7 @@ func newProvider(config map[string]string) (*Provider, error) {
 	return &Provider{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiToken:   token,
-		httpClient: &http.Client{},
+		httpClient: httpClient,
 	}, nil
 }
 

@@ -100,7 +100,8 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, er
 	// should never expose credential data to the API layer.
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, email, name, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
-		FROM users WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
+		FROM users WHERE tenant_id = $1 ORDER BY created_at
+		LIMIT $2`, tenantID, DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}

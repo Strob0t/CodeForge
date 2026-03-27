@@ -24,6 +24,8 @@ var validVariants = map[string]bool{
 
 const providerName = "gitea"
 
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 // Provider implements pmprovider.Provider for Gitea/Forgejo Issues via their REST API.
 type Provider struct {
 	baseURL    string
@@ -39,7 +41,7 @@ func NewProvider(baseURL, token string) *Provider {
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		token:      token,
 		variant:    "gitea",
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 	}
 }
 
@@ -58,7 +60,7 @@ func NewProviderFromConfig(cfg map[string]string) (*Provider, error) {
 		baseURL:    strings.TrimSuffix(cfg["base_url"], "/"),
 		token:      cfg["token"],
 		variant:    variant,
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 	}, nil
 }
 

@@ -47,9 +47,10 @@ func (s *Store) ListMicroagents(ctx context.Context, projectID string) ([]microa
 		SELECT id, tenant_id, project_id, name, type, trigger_pattern, description, prompt, enabled, created_at, updated_at
 		FROM microagents
 		WHERE (project_id = $1 OR project_id = '') AND tenant_id = $2
-		ORDER BY created_at ASC`
+		ORDER BY created_at ASC
+		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx))
+	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list microagents: %w", err)
 	}
