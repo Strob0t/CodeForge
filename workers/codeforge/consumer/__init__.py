@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import nats
@@ -83,6 +84,10 @@ if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
 
 logger = structlog.get_logger()
+
+# Sentinel file touched when NATS connection is active and message loops
+# are running.  The worker healthcheck script checks for this file.
+_HEALTHY_SENTINEL = Path("/tmp/codeforge-worker-healthy")  # noqa: S108
 
 # Consumer error backoff config (from centralized WorkerSettings)
 _MAX_CONSECUTIVE_ERRORS = get_settings().consumer_max_errors
@@ -194,6 +199,11 @@ class TaskConsumer(
             logger.info("subscribed", subject=subject, durable=name)
             loops.append(self._message_loop(sub, handler, subject))
 
+        # Signal to the Docker healthcheck that the worker is connected and
+        # all subscriptions are active.
+        _HEALTHY_SENTINEL.touch()
+        logger.info("healthcheck sentinel created", path=str(_HEALTHY_SENTINEL))
+
         await asyncio.gather(*loops)
 
     async def _ensure_pull_consumer(self, name: str, subject: str) -> nats.js.client.JetStreamContext.PullSubscription:
@@ -281,6 +291,10 @@ class TaskConsumer(
         """Gracefully shut down: drain with timeout and close."""
         self._running = False
         logger.info("stopping consumer")
+
+        # Remove healthcheck sentinel so Docker marks the container unhealthy
+        # during shutdown.
+        _HEALTHY_SENTINEL.unlink(missing_ok=True)
 
         await self._llm.close()
         await self._retriever.close()
