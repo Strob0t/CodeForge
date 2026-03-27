@@ -426,7 +426,8 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
     location.pathname === "/change-password" ||
     location.pathname === "/setup" ||
     location.pathname === "/forgot-password" ||
-    location.pathname === "/reset-password";
+    location.pathname === "/reset-password" ||
+    location.pathname === "/privacy";
 
   const isKnownRoute = (): boolean =>
     isPublicPage() ||
