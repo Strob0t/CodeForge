@@ -18,6 +18,7 @@ import CostDashboardPage from "./features/costs/CostDashboardPage.tsx";
 import DashboardPage from "./features/dashboard/DashboardPage.tsx";
 import DesignSystemPage from "./features/dev/DesignSystemPage.tsx";
 import KnowledgePage from "./features/knowledge/KnowledgePage.tsx";
+import PrivacyPolicy from "./features/legal/PrivacyPolicy.tsx";
 import AIConfigPage from "./features/llm/AIConfigPage.tsx";
 import MCPServersPage from "./features/mcp/MCPServersPage.tsx";
 import MicroagentsPage from "./features/microagents/MicroagentsPage.tsx";
@@ -42,6 +43,7 @@ render(
       <Route path="/setup" component={SetupPage} />
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
+      <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/" component={DashboardPage} />
       <Route path="/projects" component={DashboardPage} />
       <Route path="/projects/:id" component={ProjectDetailPage} />

@@ -74,6 +74,14 @@ export default function LoginPage(): JSX.Element {
           >
             {t("auth.forgotPassword")}
           </a>
+
+          <p class="text-xs text-cf-text-muted mt-4 text-center">
+            By signing in, you agree to our{" "}
+            <a href="/privacy" class="text-cf-accent hover:underline">
+              Privacy Policy
+            </a>
+            .
+          </p>
         </Card.Body>
       </Card>
     </div>
