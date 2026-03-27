@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
+import httpx
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
@@ -25,9 +26,6 @@ from codeforge.llm import LLMError, classify_error_type, is_fallback_eligible
 from codeforge.loop_helpers import (
     ToolErrorTracker,
     build_assistant_message,
-    build_correction_hint,
-    build_tool_result_message,
-    build_tool_result_text,
     check_model_switch,
     check_plan_act_transition,
     init_plan_act,
@@ -51,12 +49,13 @@ from codeforge.quality_tracking import (
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
 from codeforge.stall_detection import STALL_ESCAPE_PROMPT, StallDetector
+from codeforge.tool_executor import ToolExecutor
 from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
-    from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
+    from codeforge.llm import ChatCompletionResponse, LiteLLMClient
     from codeforge.memory.experience import ExperiencePool
     from codeforge.models import ToolCallDecision
     from codeforge.plan_act import PlanActController
@@ -162,6 +161,7 @@ class AgentLoopExecutor:
         self._runtime = runtime
         self._workspace = workspace_path
         self._experience_pool = experience_pool
+        self._tool_executor = ToolExecutor(tool_registry, runtime, workspace_path)
 
     _MCP_READONLY_KEYWORDS: frozenset[str] = frozenset({"search", "list", "find", "get", "fetch_url"})
 
@@ -233,7 +233,7 @@ class AgentLoopExecutor:
             event["reason"] = f"Routed via {cfg.routing_layer} layer"
         try:
             await self._runtime.publish_trajectory_event(event)
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, OSError) as exc:
             logger.debug("failed to publish routing_decision trajectory event: %s", exc)
 
     @staticmethod
@@ -419,7 +419,7 @@ class AgentLoopExecutor:
                     result_status="completed",
                     run_id=self._runtime.run_id,
                 )
-            except Exception as exc:
+            except (ConnectionError, TimeoutError, OSError, ValueError) as exc:
                 logger.warning("experience pool store failed: %s", exc)
 
         try:
@@ -436,7 +436,7 @@ class AgentLoopExecutor:
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, OSError) as exc:
             logger.debug("failed to publish finished trajectory event: %s", exc)
 
         return AgentLoopResult(
@@ -517,7 +517,7 @@ class AgentLoopExecutor:
                         "timestamp": datetime.now(UTC).isoformat(),
                     }
                 )
-            except Exception as exc:
+            except (ConnectionError, TimeoutError, OSError) as exc:
                 logger.debug("failed to publish stall_detected trajectory event: %s", exc)
             return True
 
@@ -581,7 +581,9 @@ class AgentLoopExecutor:
                 llm_span.record_exception(exc)
                 err = await self._handle_llm_error(cfg, state, exc, iteration)
                 return IterationError(err) if err else IterationContinue()
-            except Exception as exc:
+            except asyncio.CancelledError:
+                raise
+            except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
                 logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
@@ -647,7 +649,7 @@ class AgentLoopExecutor:
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
             )
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, OSError) as exc:
             logger.debug("failed to publish step_done trajectory event: %s", exc)
 
         if cfg.routing_layer:
@@ -680,7 +682,7 @@ class AgentLoopExecutor:
                     plan_act.transition_to_act()
                     logger.info("plan/act: transitioned to act phase via tool call")
                     update_system_suffix(messages, plan_act.get_system_suffix())
-                    self._append_tool_result(
+                    self._tool_executor.append_result(
                         tc, "Transitioned to ACT phase. All tools are now available.", messages, state
                     )
                     continue
@@ -690,120 +692,17 @@ class AgentLoopExecutor:
                         "Only read-only tools (read_file, search_files, glob_files, list_directory) are allowed. "
                         "Call 'transition_to_act' when your plan is ready."
                     )
-                    self._append_tool_result(tc, blocked_msg, messages, state)
+                    self._tool_executor.append_result(tc, blocked_msg, messages, state)
                     continue
 
-            await self._execute_tool_call(
+            await self._tool_executor.execute(
                 tc, messages, state, quality_tracker=state.quality_tracker, error_tracker=error_tracker
             )
             if self._runtime.is_cancelled:
                 for remaining_tc in response.tool_calls[i + 1 :]:
-                    self._append_tool_result(remaining_tc, "Cancelled", messages, state)
+                    self._tool_executor.append_result(remaining_tc, "Cancelled", messages, state)
                 break
         return IterationContinue()
-
-    async def _publish_tool_trajectory_event(
-        self,
-        tc: ToolCallPart,
-        result_text: str,
-        success: bool,
-        elapsed_ms: float,
-        step: int,
-    ) -> None:
-        """Publish a trajectory event for a tool call (fire-and-forget)."""
-        try:
-            await self._runtime.publish_trajectory_event(
-                {
-                    "event_type": "agent.tool_called",
-                    "tool_name": tc.name,
-                    "input": (tc.arguments or "")[:500],
-                    "output": result_text[:500],
-                    "success": success,
-                    "duration_ms": round(elapsed_ms, 1) if elapsed_ms else 0,
-                    "step": step,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
-            )
-        except Exception as exc:
-            logger.debug("failed to publish tool_called trajectory event: %s", exc)
-
-    async def _execute_tool_call(
-        self,
-        tc: ToolCallPart,
-        messages: list[dict[str, object]],
-        state: _LoopState,
-        *,
-        quality_tracker: IterationQualityTracker | None = None,
-        error_tracker: ToolErrorTracker | None = None,
-    ) -> None:
-        """Execute a single tool call with policy check and error handling."""
-        arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
-        decision = await self._runtime.request_tool_call(
-            tool=tc.name, command=tc.arguments[:200] if tc.arguments else ""
-        )
-
-        if decision.decision != "allow":
-            result_text = f"Permission denied: {decision.reason}"
-            self._append_tool_result(tc, result_text, messages, state)
-            await self._runtime.report_tool_result(
-                call_id=decision.call_id, tool=tc.name, success=False, error=result_text
-            )
-            await self._publish_tool_trajectory_event(tc, result_text, False, 0, state.step_count)
-            return
-
-        tracer = trace.get_tracer("codeforge")
-        tool_start = time.monotonic()
-        with tracer.start_as_current_span(f"tool.execute:{tc.name}", attributes={"tool.name": tc.name}) as tool_span:
-            try:
-                result = await self._tools.execute(tc.name, arguments, self._workspace)
-            except Exception as exc:
-                tool_span.set_status(StatusCode.ERROR, str(exc))
-                tool_span.record_exception(exc)
-                logger.exception("tool %s execution error", tc.name)
-                result_text = f"Error executing {tc.name}: {exc}"
-                correction = build_correction_hint(tc.name, str(exc))
-                if correction:
-                    result_text = f"{result_text}\n\n{correction}"
-                self._append_tool_result(tc, result_text, messages, state)
-                await self._runtime.report_tool_result(
-                    call_id=decision.call_id, tool=tc.name, success=False, error=result_text
-                )
-                elapsed_ms = (time.monotonic() - tool_start) * 1000
-                await self._publish_tool_trajectory_event(tc, result_text, False, elapsed_ms, state.step_count)
-                return
-
-            result_text = build_tool_result_text(result, tc.name, error_tracker)
-            if not result.success:
-                tool_span.set_status(StatusCode.ERROR, result.error or "Tool returned an error")
-            self._append_tool_result(tc, result_text, messages, state)
-            await self._runtime.report_tool_result(
-                call_id=decision.call_id,
-                tool=tc.name,
-                success=result.success,
-                output=result.output[:500] if result.output else "",
-                error=result.error,
-                diff=result.diff,
-            )
-            elapsed_ms = (time.monotonic() - tool_start) * 1000
-            otel_metrics.tool_duration.record(elapsed_ms / 1000)
-            await self._publish_tool_trajectory_event(tc, result_text, result.success, elapsed_ms, state.step_count)
-
-            qt = quality_tracker or (state.quality_tracker if state else None)
-            if qt is not None:
-                qt.record(tool_success=result.success, output_length=len(result_text))
-
-            if result.success and tc.name in ("edit_file", "write_file"):
-                try:
-                    await self._runtime.publish_trajectory_event(
-                        {
-                            "event_type": "agent.action_suggestion",
-                            "label": "Run tests",
-                            "action": "send_message",
-                            "value": "Run the test suite to verify the changes",
-                        }
-                    )
-                except Exception as exc:
-                    logger.debug("failed to publish action_suggestion event: %s", exc)
 
     @staticmethod
     def _record_tool_calls_for_stall(state: _LoopState, stall_detector: StallDetector) -> None:
@@ -817,55 +716,39 @@ class AgentLoopExecutor:
                     stall_detector.record(tc.function.name, args)
                 break
 
-    @staticmethod
-    def _append_tool_result(tc, content, messages, state) -> None:
-        """Build and append a tool result message to state and messages."""
-        msg = build_tool_result_message(tc, content)
-        state.tool_messages.append(msg)
-        messages.append(payload_to_dict(msg))
-
 
 # ---------------------------------------------------------------------------
 # A4 -- Inference-Time Scaling
 # ---------------------------------------------------------------------------
 
 
-async def _snapshot_workspace(workspace_path: str, rollout_id: int) -> None:
-    """Snapshot workspace state via git stash."""
+async def _run_git(workspace_path: str, *args: str) -> None:
+    """Run a git sub-command and raise on non-zero exit.
+
+    Uses create_subprocess_exec (no shell) to avoid injection risks.
+    """
     proc = await asyncio.create_subprocess_exec(
         "git",
-        "stash",
-        "push",
-        "-m",
-        f"rollout-{rollout_id}",
-        "--include-untracked",
+        *args,
         cwd=workspace_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    await proc.communicate()
+    _, stderr = await proc.communicate()
+    if proc.returncode:
+        cmd = " ".join(args)
+        raise RuntimeError(f"git {cmd} failed (exit {proc.returncode}): {stderr.decode()}")
+
+
+async def _snapshot_workspace(workspace_path: str, rollout_id: int) -> None:
+    """Snapshot workspace state via git stash."""
+    await _run_git(workspace_path, "stash", "push", "-m", f"rollout-{rollout_id}", "--include-untracked")
 
 
 async def _restore_workspace(workspace_path: str) -> None:
     """Restore workspace state via git checkout + clean."""
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "checkout",
-        ".",
-        cwd=workspace_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "clean",
-        "-fd",
-        cwd=workspace_path,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
+    await _run_git(workspace_path, "checkout", ".")
+    await _run_git(workspace_path, "clean", "-fd")
 
 
 _MAX_ROLLOUT_COUNT = 8
@@ -963,7 +846,7 @@ class ConversationRolloutExecutor:
                     "early_stopped": early_stopped,
                 }
             )
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, OSError) as exc:
             logger.warning("failed to publish rollout trajectory event: %s", exc)
 
 
@@ -981,8 +864,6 @@ async def _record_routing_outcome(
     routing_config: RoutingConfig | None = None,
 ) -> None:
     """Post a routing outcome to Go Core for MAB learning. Fire-and-forget."""
-    import httpx
-
     from codeforge.config import get_settings
     from codeforge.routing.models import RoutingConfig
     from codeforge.routing.reward import compute_reward
@@ -1018,7 +899,7 @@ async def _record_routing_outcome(
                     headers=headers,
                 )
             return
-        except Exception as exc:
+        except (httpx.HTTPError, OSError, TimeoutError) as exc:
             if attempt == 0:
                 await asyncio.sleep(1)
                 continue
