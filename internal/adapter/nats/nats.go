@@ -72,23 +72,77 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	// Ensure the stream exists with subjects matching our topic patterns.
 	// Duplicates enables JetStream message deduplication via Nats-Msg-Id header.
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:        streamName,
-		Subjects:    []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>", "prompt.>"},
-		Duplicates:  2 * time.Minute,
-		Retention:   jetstream.LimitsPolicy,
-		Storage:     jetstream.FileStorage,
-		MaxAge:      30 * 24 * time.Hour,     // 30 days
-		MaxBytes:    10 * 1024 * 1024 * 1024, // 10 GB safety cap
-		Discard:     jetstream.DiscardOld,
-		Compression: jetstream.S2Compression,
+		Name:         streamName,
+		Subjects:     []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>", "prompt.>"},
+		Duplicates:   2 * time.Minute,
+		Retention:    jetstream.LimitsPolicy,
+		Storage:      jetstream.FileStorage,
+		MaxAge:       30 * 24 * time.Hour,     // 30 days
+		MaxBytes:     10 * 1024 * 1024 * 1024, // 10 GB safety cap
+		MaxMsgs:      5_000_000,
+		MaxMsgSize:   4 * 1024 * 1024, // 4 MB per message
+		MaxConsumers: 200,
+		Discard:      jetstream.DiscardOld,
+		Compression:  jetstream.S2Compression,
 	})
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("jetstream stream create: %w", err)
 	}
 
+	q := &Queue{nc: nc, js: js}
+	q.startDLQMonitor(ctx)
+
 	slog.Info("nats connected", "url", url, "stream", streamName)
-	return &Queue{nc: nc, js: js}, nil
+	return q, nil
+}
+
+// startDLQMonitor creates a consumer that subscribes to all dead-letter subjects
+// and logs warnings so operators can detect and investigate poisoned messages.
+// DLQ subjects are formed by appending ".dlq" to the original subject, so they
+// can be 4-6 tokens deep depending on the original subject depth.
+func (q *Queue) startDLQMonitor(ctx context.Context) {
+	const dlqConsumerName = "codeforge-go-dlq-monitor"
+
+	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
+		Name:          dlqConsumerName,
+		Durable:       dlqConsumerName,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		DeliverGroup:  "codeforge-go",
+		AckWait:       30 * time.Second,
+		MaxAckPending: 50,
+		FilterSubjects: []string{
+			"*.*.dlq",       // 2-token originals (e.g. tasks.agent.dlq)
+			"*.*.*.dlq",     // 3-token originals (e.g. runs.run.start.dlq)
+			"*.*.*.*.dlq",   // 4-token originals (e.g. conversation.run.start.dlq)
+			"*.*.*.*.*.dlq", // 5-token originals (e.g. prompt.evolution.reflect.complete.dlq)
+		},
+		InactiveThreshold: 5 * time.Minute,
+	})
+	if err != nil {
+		slog.Error("failed to create DLQ monitor consumer", "error", err)
+		return
+	}
+
+	_, consumeErr := consumer.Consume(func(msg jetstream.Msg) {
+		var reqID string
+		if hdrs := msg.Headers(); hdrs != nil {
+			reqID = hdrs.Get(headerRequestID)
+		}
+		slog.Warn("message dead-lettered",
+			"subject", msg.Subject(),
+			"request_id", reqID,
+			"data_bytes", len(msg.Data()),
+		)
+		if ackErr := msg.Ack(); ackErr != nil {
+			slog.Error("dlq monitor ack failed", "error", ackErr)
+		}
+	})
+	if consumeErr != nil {
+		slog.Error("failed to start DLQ monitor consumer", "error", consumeErr)
+		return
+	}
+	slog.Info("DLQ monitor started", "consumer", dlqConsumerName)
 }
 
 // SetBreaker attaches a circuit breaker to the publish path.

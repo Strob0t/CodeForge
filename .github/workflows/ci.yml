@@ -33,27 +33,18 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      nats:
-        image: nats:2-alpine
-        # FIX-113: NATS needs --jetstream and -m 8222 for full integration tests.
-        # GHA services don't support `command`, so tests that need JetStream
-        # should use the smoke test job (which starts NATS via docker compose)
-        # or a step-based `docker run` with explicit command args.
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "wget -q --spider http://localhost:8222/healthz || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     env:
-      DATABASE_URL: postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable
+      DATABASE_URL: postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=prefer
       NATS_URL: nats://localhost:4222
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Start NATS with JetStream
+        run: |
+          docker run -d --name nats-test -p 4222:4222 -p 8222:8222 \
+            nats:latest --jetstream --store_dir /data -m 8222
+          sleep 2
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -209,28 +200,23 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      nats:
-        image: nats:2-alpine
-        # FIX-113: Same JetStream limitation as test-go NATS service above.
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "wget -q --spider http://localhost:8222/healthz || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     env:
       SMOKE_SKIP_LLM: "true"
       SMOKE_SKIP_LITELLM: "true"
       SMOKE_BASE_URL: "http://localhost:8080"
       APP_ENV: development
-      DATABASE_URL: "postgres://codeforge:codeforge@localhost:5432/codeforge?sslmode=disable"
+      DATABASE_URL: "postgres://codeforge:codeforge@localhost:5432/codeforge?sslmode=prefer"
       NATS_URL: "nats://localhost:4222"
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Start NATS with JetStream
+        run: |
+          docker run -d --name nats-test -p 4222:4222 -p 8222:8222 \
+            nats:latest --jetstream --store_dir /data -m 8222
+          sleep 2
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
