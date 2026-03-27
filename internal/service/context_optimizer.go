@@ -15,6 +15,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/filesystem"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -511,64 +512,77 @@ func (s *ContextOptimizerService) fetchKnowledgeBaseEntries(
 		}
 		for j := range kbs {
 			kb := &kbs[j]
-			if seen[kb.ID] {
+			if seen[kb.ID] || kb.Status != "indexed" {
 				continue
 			}
 			seen[kb.ID] = true
 
-			if kb.Status != "indexed" {
-				continue
-			}
-
-			// Try retrieval search using the "kb:<id>" namespace.
-			if s.retrieval != nil {
-				kbProjectID := "kb:" + kb.ID
-				if info := s.retrieval.GetIndexStatus(kbProjectID); info != nil && info.Status == "ready" {
-					result, rErr := s.retrieval.SearchSync(ctx, kbProjectID, userMessage,
-						3, s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
-					if rErr == nil && len(result.Results) > 0 {
-						for _, hit := range result.Results {
-							entries = append(entries, cfcontext.ContextEntry{
-								Kind:     cfcontext.EntryKnowledge,
-								Path:     kb.Name,
-								Content:  hit.Content,
-								Tokens:   cfcontext.EstimateTokens(hit.Content),
-								Priority: 75,
-							})
-						}
-						continue
-					}
-				}
-			}
-
-			// Fallback: read content directly from the KB file (truncated).
-			if kb.ContentPath != "" {
-				content, readErr := s.fs.ReadFile(ctx, kb.ContentPath)
-				if readErr == nil && len(content) > 0 {
-					text := string(content)
-					const maxKBTokens = 2048
-					tokens := cfcontext.EstimateTokens(text)
-					if tokens > maxKBTokens {
-						// Truncate to roughly maxKBTokens worth of characters.
-						maxChars := maxKBTokens * 4
-						if maxChars < len(text) {
-							text = text[:maxChars]
-						}
-						tokens = maxKBTokens
-					}
-					entries = append(entries, cfcontext.ContextEntry{
-						Kind:     cfcontext.EntryKnowledge,
-						Path:     kb.Name,
-						Content:  text,
-						Tokens:   tokens,
-						Priority: 75,
-					})
-				}
-			}
+			kbEntries := s.processKnowledgeBase(ctx, kb, userMessage)
+			entries = append(entries, kbEntries...)
 		}
 	}
 
 	return entries, nil
+}
+
+// processKnowledgeBase fetches context entries from a single indexed knowledge base.
+// It tries retrieval search first and falls back to reading the KB file directly.
+func (s *ContextOptimizerService) processKnowledgeBase(
+	ctx context.Context,
+	kb *knowledgebase.KnowledgeBase,
+	userMessage string,
+) []cfcontext.ContextEntry {
+	// Try retrieval search using the "kb:<id>" namespace.
+	if s.retrieval != nil {
+		kbProjectID := "kb:" + kb.ID
+		if info := s.retrieval.GetIndexStatus(kbProjectID); info != nil && info.Status == "ready" {
+			result, rErr := s.retrieval.SearchSync(ctx, kbProjectID, userMessage,
+				3, s.orchCfg.RetrievalBM25Weight, s.orchCfg.RetrievalSemanticWeight)
+			if rErr == nil && len(result.Results) > 0 {
+				entries := make([]cfcontext.ContextEntry, 0, len(result.Results))
+				for _, hit := range result.Results {
+					entries = append(entries, cfcontext.ContextEntry{
+						Kind:     cfcontext.EntryKnowledge,
+						Path:     kb.Name,
+						Content:  hit.Content,
+						Tokens:   cfcontext.EstimateTokens(hit.Content),
+						Priority: 75,
+					})
+				}
+				return entries
+			}
+		}
+	}
+
+	// Fallback: read content directly from the KB file (truncated).
+	if kb.ContentPath == "" {
+		return nil
+	}
+
+	content, readErr := s.fs.ReadFile(ctx, kb.ContentPath)
+	if readErr != nil || len(content) == 0 {
+		return nil
+	}
+
+	text := string(content)
+	const maxKBTokens = 2048
+	tokens := cfcontext.EstimateTokens(text)
+	if tokens > maxKBTokens {
+		// Truncate to roughly maxKBTokens worth of characters.
+		maxChars := maxKBTokens * 4
+		if maxChars < len(text) {
+			text = text[:maxChars]
+		}
+		tokens = maxKBTokens
+	}
+
+	return []cfcontext.ContextEntry{{
+		Kind:     cfcontext.EntryKnowledge,
+		Path:     kb.Name,
+		Content:  text,
+		Tokens:   tokens,
+		Priority: 75,
+	}}
 }
 
 // ---------------------------------------------------------------------------

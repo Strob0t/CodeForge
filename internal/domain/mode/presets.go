@@ -1,6 +1,9 @@
 package mode
 
-// BuiltinModes returns all built-in agent mode presets.
+// BuiltinModes returns the default modes shipped with CodeForge.
+// TODO(ARCH-010): Migrate to embedded YAML files for easier editing and reduced merge conflicts.
+// The function structure intentionally mirrors the YAML format for eventual migration.
+//
 // Note: Mode-specific prompt content has been migrated to YAML files in
 // internal/service/prompts/modes/. The commonRules content is in
 // internal/service/prompts/behavior/. PromptPrefix is empty for all
