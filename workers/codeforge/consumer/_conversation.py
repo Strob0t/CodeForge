@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 import uuid
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import structlog
 
@@ -35,6 +35,26 @@ if TYPE_CHECKING:
     from codeforge.models import ContextEntry
 
 logger = structlog.get_logger()
+
+
+class RoutingResult(Protocol):
+    """Protocol for the routing result object passed to conversation handlers."""
+
+    model: str
+    temperature: float
+    tags: list[str]
+    routing_layer: str
+    complexity_tier: str
+    task_type: str
+
+
+class ToolRegistryLike(Protocol):
+    """Protocol for the tool registry passed to conversation handlers."""
+
+    tool_names: list[str]
+
+    def merge_mcp_tools(self, workbench: object) -> None: ...
+
 
 # --- Framework detection helpers for proactive docs prefetch ---
 
@@ -413,9 +433,9 @@ class ConversationHandlerMixin:
         run_msg: ConversationRunStartMessage,
         messages: list[dict],
         primary_model: str,
-        routing: object,
+        routing: RoutingResult,
         runtime: RuntimeClient,
-        registry: object,
+        registry: ToolRegistryLike,
         fallback_models: list[str],
     ) -> AgentLoopResult:
         """Dispatch to simple chat, Claude Code, or LiteLLM agentic loop."""
@@ -469,9 +489,9 @@ class ConversationHandlerMixin:
         run_msg: ConversationRunStartMessage,
         messages: list[dict],
         primary_model: str,
-        routing: object,
+        routing: RoutingResult,
         runtime: RuntimeClient,
-        registry: object,
+        registry: ToolRegistryLike,
         fallback_models: list[str],
     ) -> AgentLoopResult:
         """Run the LiteLLM-based agentic loop with optional multi-rollout."""
@@ -538,7 +558,7 @@ class ConversationHandlerMixin:
         run_msg: ConversationRunStartMessage,
         messages: list[dict],
         model: str,
-        routing: object,
+        routing: RoutingResult,
         runtime: RuntimeClient,
         fallback_models: list[str] | None = None,
     ) -> AgentLoopResult:
