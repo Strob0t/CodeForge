@@ -2476,3 +2476,20 @@ func (m *runtimeMockStore) AnonymizeAuditLogForUser(_ context.Context, _ string)
 func (m *runtimeMockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+
+// Consent stubs (GDPR)
+func (m *runtimeMockStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (m *runtimeMockStore) RecordConsent(_ context.Context, _ *database.ConsentRecord) error {
+	return nil
+}
+func (m *runtimeMockStore) ListUserConsents(_ context.Context, _ string) ([]database.ConsentRecord, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPurpose, error) {
+	return nil, nil
+}
+func (m *runtimeMockStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
+	return nil, nil
+}

@@ -76,9 +76,10 @@ func (s *Store) ListAuditEntries(ctx context.Context, action string, limit, offs
 // specific admin user. Called before user deletion per GDPR Art. 17 / ADR-009.
 // The audit trail entries (action, resource, timestamps) are preserved.
 func (s *Store) AnonymizeAuditLogForUser(ctx context.Context, adminID string) (int64, error) {
+	tid := tenantFromCtx(ctx)
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE audit_log SET admin_email = NULL, ip_address = NULL WHERE admin_id = $1`,
-		adminID)
+		`UPDATE audit_log SET admin_email = NULL, ip_address = NULL WHERE admin_id = $1 AND tenant_id = $2`,
+		adminID, tid)
 	if err != nil {
 		return 0, fmt.Errorf("anonymize audit log for user: %w", err)
 	}
@@ -88,6 +89,8 @@ func (s *Store) AnonymizeAuditLogForUser(ctx context.Context, adminID string) (i
 // AnonymizeExpiredIPAddresses nulls ip_address on audit entries older than
 // the given cutoff. IP addresses are personal data per CJEU C-582/14 (Breyer).
 // Recommended retention: 180 days per CNIL traceability guidance.
+// NOTE: This is a cross-tenant system maintenance job — intentionally not tenant-scoped.
+// It runs under system context and affects all tenants uniformly.
 func (s *Store) AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE audit_log SET ip_address = NULL

@@ -44,4 +44,5 @@ type Store interface {
 	ChannelStore
 	BoundaryStore
 	AuditStore
+	ConsentStore
 }

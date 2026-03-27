@@ -3509,6 +3509,21 @@ func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, 
 	return 0, nil
 }
 
+// Consent stubs (GDPR)
+func (m *mockStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) RecordConsent(_ context.Context, _ *database.ConsentRecord) error { return nil }
+func (m *mockStore) ListUserConsents(_ context.Context, _ string) ([]database.ConsentRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPurpose, error) {
+	return nil, nil
+}
+func (m *mockStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
+	return nil, nil
+}
+
 func TestListRemoteBranches_URLValidation(t *testing.T) {
 	tests := []struct {
 		name       string

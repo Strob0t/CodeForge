@@ -864,3 +864,18 @@ func (s *testStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64
 func (s *testStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+
+// Consent stubs (GDPR)
+func (s *testStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (s *testStore) RecordConsent(_ context.Context, _ *database.ConsentRecord) error { return nil }
+func (s *testStore) ListUserConsents(_ context.Context, _ string) ([]database.ConsentRecord, error) {
+	return nil, nil
+}
+func (s *testStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPurpose, error) {
+	return nil, nil
+}
+func (s *testStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
+	return nil, nil
+}
