@@ -928,6 +928,12 @@ See `.env.example` for all configurable values.
 | CODEFORGE_CONVERSATION_TIMEOUT | 3600                                  | Max wall-clock seconds per conversation run |
 | CODEFORGE_WORKER_MEMORY_THRESHOLD_MB | 3500                            | Worker RSS abort threshold (MB)  |
 | DOCKER_SECRETS_DIR          | /run/secrets                              | Docker Secrets directory override |
+| DEEPEVAL_TELEMETRY_OPT_OUT  | (unset)                                  | Set to `YES` to disable deepeval telemetry |
+
+**Note on deepeval telemetry:** The `deepeval` Python dependency (used by the benchmark
+evaluation system) sends anonymous usage telemetry by default. In deployment and CI
+environments, set `DEEPEVAL_TELEMETRY_OPT_OUT=YES` to disable this. Add it to your
+`.env` file or Docker Compose environment block.
 
 ### Secret Management
 

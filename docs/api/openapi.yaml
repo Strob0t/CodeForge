@@ -40,6 +40,18 @@ tags:
     description: Cost tracking and aggregation
   - name: GDPR
     description: GDPR data export and deletion
+  - name: Modes
+    description: Agent specialization modes (architect, coder, reviewer, etc.)
+  - name: MCP
+    description: MCP (Model Context Protocol) server management
+  - name: Channels
+    description: Real-time collaboration channels and threads
+  - name: Benchmarks
+    description: Benchmark suites, runs, and evaluation (dev-mode only)
+  - name: Knowledge Bases
+    description: Knowledge base management and indexing
+  - name: Policies
+    description: Policy profiles for agent tool-call permissions
 
 paths:
   # -----------------------------------------------
@@ -1175,6 +1187,942 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # -----------------------------------------------
+  # Conversations (additional)
+  # -----------------------------------------------
+  /conversations/{id}/stop:
+    post:
+      tags: [Conversations]
+      summary: Stop an active conversation run
+      description: Cancels the currently running agent loop for this conversation.
+      operationId: stopConversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      responses:
+        "200":
+          description: Conversation stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "stopped"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conversations/{id}/fork:
+    post:
+      tags: [Conversations]
+      summary: Fork a conversation at a specific point
+      description: Creates a copy of the conversation for branching exploration.
+      operationId: forkConversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      responses:
+        "201":
+          description: Forked conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conversations/{id}/compact:
+    post:
+      tags: [Conversations]
+      summary: Compact conversation history
+      description: |
+        Triggers context compaction to reduce token usage while preserving
+        essential information. Useful when approaching context window limits.
+      operationId: compactConversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      responses:
+        "200":
+          description: Conversation compacted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "compacted"
+                  messages_before:
+                    type: integer
+                  messages_after:
+                    type: integer
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Modes
+  # -----------------------------------------------
+  /modes:
+    get:
+      tags: [Modes]
+      summary: List all available agent modes
+      description: |
+        Returns built-in and custom modes. Each mode defines tools, LLM,
+        autonomy level, and prompt for a specific agent role.
+      operationId: listModes
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Mode list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Mode"
+    post:
+      tags: [Modes]
+      summary: Create a custom agent mode
+      description: Requires admin or editor role.
+      operationId: createMode
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModeRequest"
+      responses:
+        "201":
+          description: Mode created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mode"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /modes/{id}:
+    get:
+      tags: [Modes]
+      summary: Get a mode by ID
+      operationId: getMode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Mode identifier (slug)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Mode details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mode"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Modes]
+      summary: Update a custom mode
+      operationId: updateMode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModeRequest"
+      responses:
+        "200":
+          description: Mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mode"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Modes]
+      summary: Delete a custom mode (admin only)
+      operationId: deleteMode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Mode deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # MCP Servers
+  # -----------------------------------------------
+  /mcp/servers:
+    get:
+      tags: [MCP]
+      summary: List registered MCP servers
+      description: Returns all MCP servers in the registry.
+      operationId: listMCPServers
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: MCP server list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MCPServer"
+    post:
+      tags: [MCP]
+      summary: Register a new MCP server
+      description: Adds an MCP server to the registry. Requires admin or editor role.
+      operationId: createMCPServer
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMCPServerRequest"
+      responses:
+        "201":
+          description: MCP server registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPServer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /mcp/servers/{id}:
+    get:
+      tags: [MCP]
+      summary: Get an MCP server by ID
+      operationId: getMCPServer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: MCP server details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPServer"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [MCP]
+      summary: Update an MCP server
+      operationId: updateMCPServer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMCPServerRequest"
+      responses:
+        "200":
+          description: MCP server updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPServer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [MCP]
+      summary: Delete an MCP server
+      operationId: deleteMCPServer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: MCP server deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /mcp/servers/{id}/tools:
+    get:
+      tags: [MCP]
+      summary: List tools exposed by an MCP server
+      operationId: listMCPServerTools
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Tool list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    input_schema:
+                      type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Channels
+  # -----------------------------------------------
+  /channels:
+    get:
+      tags: [Channels]
+      summary: List real-time channels
+      operationId: listChannels
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Channel list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Channel"
+    post:
+      tags: [Channels]
+      summary: Create a new channel
+      description: Requires admin or editor role.
+      operationId: createChannel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                project_id:
+                  type: string
+                  format: uuid
+                  description: Optional project to associate the channel with
+      responses:
+        "201":
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /channels/{id}:
+    get:
+      tags: [Channels]
+      summary: Get a channel by ID
+      operationId: getChannel
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Channel details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Channels]
+      summary: Delete a channel
+      operationId: deleteChannel
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Channel deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /channels/{id}/messages:
+    get:
+      tags: [Channels]
+      summary: List messages in a channel
+      operationId: listChannelMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Channel message list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    channel_id:
+                      type: string
+                      format: uuid
+                    user_id:
+                      type: string
+                      format: uuid
+                    content:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Channels]
+      summary: Send a message to a channel
+      operationId: sendChannelMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  content:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Policies
+  # -----------------------------------------------
+  /policies:
+    get:
+      tags: [Policies]
+      summary: List policy profiles
+      description: Returns all policy profiles (built-in presets and custom).
+      operationId: listPolicyProfiles
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Policy profile list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PolicyProfile"
+    post:
+      tags: [Policies]
+      summary: Create a custom policy profile
+      description: Requires admin or editor role.
+      operationId: createPolicyProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, rules]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                rules:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      pattern:
+                        type: string
+                        description: Glob pattern matching tool calls
+                      effect:
+                        type: string
+                        enum: [allow, deny, ask]
+      responses:
+        "201":
+          description: Policy profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # -----------------------------------------------
+  # Benchmarks (dev-mode only)
+  # -----------------------------------------------
+  /benchmarks/suites:
+    get:
+      tags: [Benchmarks]
+      summary: List benchmark suites
+      description: Returns all benchmark suites. Requires APP_ENV=development.
+      operationId: listBenchmarkSuites
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Benchmark suite list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BenchmarkSuite"
+        "403":
+          description: Not in development mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Benchmarks]
+      summary: Create a benchmark suite
+      description: Requires APP_ENV=development.
+      operationId: createBenchmarkSuite
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:
+                  type: string
+                type:
+                  type: string
+                  description: Suite type (e.g., deepeval, functional_test, sparc)
+                provider_name:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Suite created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkSuite"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Not in development mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /benchmarks/runs:
+    post:
+      tags: [Benchmarks]
+      summary: Start a benchmark run
+      description: Creates and starts a benchmark run for the given suite. Requires APP_ENV=development.
+      operationId: createBenchmarkRun
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [suite_id]
+              properties:
+                suite_id:
+                  type: string
+                  format: uuid
+                model:
+                  type: string
+                  description: LLM model to evaluate
+                config:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Run started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          description: Not in development mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /benchmarks/runs/{id}:
+    get:
+      tags: [Benchmarks]
+      summary: Get benchmark run details
+      operationId: getBenchmarkRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Benchmark run details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BenchmarkRun"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Knowledge Bases
+  # -----------------------------------------------
+  /knowledge-bases:
+    get:
+      tags: [Knowledge Bases]
+      summary: List all knowledge bases
+      operationId: listKnowledgeBases
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Knowledge base list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeBase"
+    post:
+      tags: [Knowledge Bases]
+      summary: Create a knowledge base
+      operationId: createKnowledgeBase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                source_type:
+                  type: string
+                  description: Source type (url, directory, document)
+                source_uri:
+                  type: string
+      responses:
+        "201":
+          description: Knowledge base created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /knowledge-bases/{id}:
+    get:
+      tags: [Knowledge Bases]
+      summary: Get a knowledge base by ID
+      operationId: getKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge base details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Knowledge Bases]
+      summary: Delete a knowledge base
+      operationId: deleteKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Knowledge base deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /knowledge-bases/{id}/index:
+    post:
+      tags: [Knowledge Bases]
+      summary: Trigger indexing of a knowledge base
+      description: Starts or refreshes the retrieval index for this knowledge base.
+      operationId: indexKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Indexing started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "indexing"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Search
+  # -----------------------------------------------
+  /search/conversations:
+    post:
+      tags: [Conversations]
+      summary: Full-text search across conversations
+      description: |
+        Searches conversation messages using PostgreSQL FTS with GIN index
+        and ts_rank scoring.
+      operationId: searchConversations
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  description: Search query string
+                project_id:
+                  type: string
+                  format: uuid
+                  description: Optional project filter
+                limit:
+                  type: integer
+                  default: 20
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversation_id:
+                          type: string
+                          format: uuid
+                        message_id:
+                          type: string
+                          format: uuid
+                        content:
+                          type: string
+                        rank:
+                          type: number
+                          format: double
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # -----------------------------------------------
+  # Conversations: bypass-approvals
+  # -----------------------------------------------
+  /conversations/{id}/bypass-approvals:
+    post:
+      tags: [Conversations]
+      summary: Bypass all pending HITL approvals for a conversation
+      description: |
+        Auto-approves all pending and future tool call requests for this
+        conversation. Admin only. Useful for headless/CI mode.
+      operationId: bypassConversationApprovals
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      responses:
+        "200":
+          description: Approvals bypassed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "bypassed"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1546,3 +2494,241 @@ components:
               created_at:
                 type: string
                 format: date-time
+
+    Mode:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Mode slug (e.g., coder, reviewer, architect)
+        name:
+          type: string
+        description:
+          type: string
+        tools:
+          type: array
+          items:
+            type: string
+          description: Allowed tool names for this mode
+        denied_tools:
+          type: array
+          items:
+            type: string
+          description: Explicitly denied tool names
+        llm_model:
+          type: string
+          description: Preferred LLM model for this mode
+        autonomy_level:
+          type: integer
+          minimum: 1
+          maximum: 5
+        system_prompt:
+          type: string
+        built_in:
+          type: boolean
+          description: Whether this is a built-in mode (cannot be deleted)
+
+    CreateModeRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Mode slug (unique identifier)
+        name:
+          type: string
+        description:
+          type: string
+        tools:
+          type: array
+          items:
+            type: string
+        denied_tools:
+          type: array
+          items:
+            type: string
+        llm_model:
+          type: string
+        autonomy_level:
+          type: integer
+          minimum: 1
+          maximum: 5
+        system_prompt:
+          type: string
+
+    MCPServer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        command:
+          type: string
+          description: Command to start the MCP server
+        args:
+          type: array
+          items:
+            type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        transport:
+          type: string
+          enum: [stdio, http]
+        url:
+          type: string
+          description: HTTP URL (for http transport)
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateMCPServerRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        command:
+          type: string
+        args:
+          type: array
+          items:
+            type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        transport:
+          type: string
+          enum: [stdio, http]
+        url:
+          type: string
+        enabled:
+          type: boolean
+          default: true
+
+    Channel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        member_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    PolicyProfile:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        rules:
+          type: array
+          items:
+            type: object
+            properties:
+              pattern:
+                type: string
+              effect:
+                type: string
+                enum: [allow, deny, ask]
+        built_in:
+          type: boolean
+
+    BenchmarkSuite:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          type: string
+        provider_name:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    BenchmarkRun:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        suite_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        total_cases:
+          type: integer
+        passed_cases:
+          type: integer
+        cost_usd:
+          type: number
+          format: double
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    KnowledgeBase:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        source_type:
+          type: string
+        source_uri:
+          type: string
+        index_status:
+          type: string
+          enum: [none, indexing, indexed, error]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

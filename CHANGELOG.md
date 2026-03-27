@@ -7,6 +7,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-27
+
 ### Added
 - Self-service GDPR endpoints: `/me/export` (GET) and `/me/data` (DELETE) for user data portability and erasure without admin role (Art. 15, 17, 20)
 - Entropy-based JWT secret validation in production (rejects secrets with < 3.0 bits/char Shannon entropy)
