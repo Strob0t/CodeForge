@@ -8,13 +8,19 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
+// costStore defines the database operations needed by CostService.
+// Consumer-defined interface following ISP (ADR-014).
+type costStore interface {
+	database.CostStore
+}
+
 // CostService provides cost and token aggregation queries.
 type CostService struct {
-	store database.Store
+	store costStore
 }
 
 // NewCostService creates a new CostService.
-func NewCostService(store database.Store) *CostService {
+func NewCostService(store costStore) *CostService {
 	return &CostService{store: store}
 }
 

@@ -52,9 +52,15 @@ type ReviewTriggerer interface {
 	TriggerReview(ctx context.Context, projectID, commitSHA, source string) (bool, error)
 }
 
+// projectStore defines the database operations needed by ProjectService.
+// Consumer-defined interface following ISP (ADR-014).
+type projectStore interface {
+	database.ProjectStore
+}
+
 // ProjectService handles project business logic.
 type ProjectService struct {
-	store           database.Store
+	store           projectStore
 	workspaceRoot   string
 	specDetector    SpecDetector
 	goalDiscovery   *GoalDiscoveryService
@@ -67,7 +73,7 @@ type ProjectService struct {
 // NewProjectService creates a new ProjectService.
 // workspaceRoot is resolved to an absolute path so that all downstream paths
 // (NATS payloads, tool execution) are independent of the working directory.
-func NewProjectService(store database.Store, workspaceRoot string) *ProjectService {
+func NewProjectService(store projectStore, workspaceRoot string) *ProjectService {
 	absRoot, err := filepath.Abs(workspaceRoot)
 	if err != nil {
 		absRoot = workspaceRoot

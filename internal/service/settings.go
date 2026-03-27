@@ -9,13 +9,19 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
+// settingsStore defines the database operations needed by SettingsService.
+// Consumer-defined interface following ISP (ADR-014).
+type settingsStore interface {
+	database.SettingsStore
+}
+
 // SettingsService provides CRUD operations for application settings.
 type SettingsService struct {
-	store database.Store
+	store settingsStore
 }
 
 // NewSettingsService creates a new SettingsService.
-func NewSettingsService(store database.Store) *SettingsService {
+func NewSettingsService(store settingsStore) *SettingsService {
 	return &SettingsService{store: store}
 }
 

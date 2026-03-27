@@ -8,13 +8,19 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
+// dashboardStore defines the database operations needed by DashboardService.
+// Consumer-defined interface following ISP (ADR-014).
+type dashboardStore interface {
+	database.DashboardStore
+}
+
 // DashboardService provides aggregated dashboard data.
 type DashboardService struct {
-	store database.Store
+	store dashboardStore
 }
 
 // NewDashboardService creates a new DashboardService.
-func NewDashboardService(store database.Store) *DashboardService {
+func NewDashboardService(store dashboardStore) *DashboardService {
 	return &DashboardService{store: store}
 }
 

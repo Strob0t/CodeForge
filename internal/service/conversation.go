@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
@@ -58,9 +59,20 @@ type CompletionResult struct {
 	CostUSD float64
 }
 
+// convStore defines the database operations needed by ConversationService.
+// Consumer-defined interface following ISP (ADR-014).
+// Composes the sub-interfaces actually used: ConversationStore for conversation
+// CRUD, ProjectStore for project lookup during agentic runs, and a single method
+// from RoadmapStore for the full-auto goal gate.
+type convStore interface {
+	database.ConversationStore
+	database.ProjectStore
+	GetRoadmapByProject(ctx context.Context, projectID string) (*roadmap.Roadmap, error)
+}
+
 // ConversationService manages conversations and LLM interactions.
 type ConversationService struct {
-	db              database.Store
+	db              convStore
 	hub             broadcast.Broadcaster
 	queue           messagequeue.Queue
 	model           string // default model name for LiteLLM
@@ -93,7 +105,7 @@ type ConversationService struct {
 
 // NewConversationService creates a new ConversationService.
 func NewConversationService(
-	db database.Store,
+	db convStore,
 	hub broadcast.Broadcaster,
 	defaultModel string,
 	modeSvc convModeProvider,
