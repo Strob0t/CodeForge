@@ -81,6 +81,8 @@ TOOLS_BY_CAPABILITY: dict[CapabilityLevel, frozenset[str]] = {
             "glob_files",
             "list_directory",
             "propose_goal",
+            "propose_roadmap",
+            "spawn_subagent",
             "handoff",
             "transition_to_act",
         }
@@ -92,6 +94,7 @@ TOOLS_BY_CAPABILITY: dict[CapabilityLevel, frozenset[str]] = {
             "bash",
             "search_files",
             "propose_goal",
+            "propose_roadmap",
             "transition_to_act",
         }
     ),

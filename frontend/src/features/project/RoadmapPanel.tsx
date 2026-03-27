@@ -15,11 +15,13 @@ import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, ConfirmDialog, Input, Select } from "~/ui";
 
 import DragList, { type DragHandleProps } from "./DragList";
+import PanelChatLink from "./PanelChatLink";
 
 interface RoadmapPanelProps {
   projectId: string;
   onError: (msg: string) => void;
   onNavigate?: (target: string) => void;
+  onSendChatMessage?: (msg: string) => void;
 }
 
 export default function RoadmapPanel(props: RoadmapPanelProps) {
@@ -360,6 +362,11 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
               <p class="mb-3 text-sm text-cf-text-tertiary">{rm().description}</p>
             </Show>
 
+            <p class="text-xs text-cf-text-tertiary mb-2">
+              Roadmap is generated from your goals via chat. Drag to reorder, click Discuss to
+              refine.
+            </p>
+
             {/* AI Preview */}
             <Show when={aiPreview()}>
               <div class="mb-4 rounded-cf-sm border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/30">
@@ -481,6 +488,13 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                     <Badge variant={getVariant(roadmapStatusVariant, m.status)} pill>
                       {m.status}
                     </Badge>
+                    <PanelChatLink
+                      type="milestone"
+                      id={m.id}
+                      title={m.title}
+                      context={m.description?.substring(0, 200)}
+                      onDiscuss={(msg) => props.onSendChatMessage?.(msg)}
+                    />
                   </div>
 
                   <Show when={m.description}>
@@ -525,6 +539,12 @@ export default function RoadmapPanel(props: RoadmapPanelProps) {
                             </span>
                           </div>
                           <div class="flex items-center gap-1">
+                            <PanelChatLink
+                              type="roadmap-step"
+                              id={f.id}
+                              title={f.title}
+                              onDiscuss={(msg) => props.onSendChatMessage?.(msg)}
+                            />
                             <Show when={(f.labels ?? []).length > 0}>
                               <For each={f.labels}>
                                 {(label) => <Badge variant="default">{label}</Badge>}

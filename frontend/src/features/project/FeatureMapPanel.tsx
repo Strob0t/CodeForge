@@ -10,8 +10,9 @@ import MilestoneForm from "./featuremap/MilestoneForm";
 
 interface FeatureMapPanelProps {
   projectId: string;
-  onError: (msg: string) => void;
+  onError?: (msg: string) => void;
   onNavigate?: (target: string) => void;
+  onSendChatMessage?: (msg: string) => void;
 }
 
 export default function FeatureMapPanel(props: FeatureMapPanelProps) {
@@ -78,7 +79,7 @@ export default function FeatureMapPanel(props: FeatureMapPanelProps) {
             ? t("featuremap.moveFailed")
             : t("featuremap.reorderFailed");
       toast("error", msg);
-      props.onError(msg);
+      props.onError?.(msg);
     }
   };
 
@@ -106,6 +107,7 @@ export default function FeatureMapPanel(props: FeatureMapPanelProps) {
                 milestone={milestone}
                 onFeatureDropped={handleFeatureDropped}
                 onRefetch={refetch}
+                onSendChatMessage={props.onSendChatMessage}
               />
             )}
           </For>

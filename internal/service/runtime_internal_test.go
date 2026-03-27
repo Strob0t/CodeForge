@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -9,8 +10,10 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -527,5 +530,181 @@ func TestWaitForApproval_ResolveBeforeTimeout(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("waitForApproval did not unblock")
+	}
+}
+
+// --- Handler-capturing mock queue for trajectory tests ---
+
+type handlerCapturingQueue struct {
+	internalMockQueue
+	handlerMu sync.Mutex
+	handlers  map[string]messagequeue.Handler
+}
+
+func newHandlerCapturingQueue() *handlerCapturingQueue {
+	return &handlerCapturingQueue{
+		handlers: make(map[string]messagequeue.Handler),
+	}
+}
+
+func (q *handlerCapturingQueue) Subscribe(_ context.Context, subject string, handler messagequeue.Handler) (func(), error) {
+	q.handlerMu.Lock()
+	defer q.handlerMu.Unlock()
+	q.handlers[subject] = handler
+	return func() {}, nil
+}
+
+func (q *handlerCapturingQueue) getHandler(subject string) (messagequeue.Handler, bool) {
+	q.handlerMu.Lock()
+	defer q.handlerMu.Unlock()
+	h, ok := q.handlers[subject]
+	return h, ok
+}
+
+// --- Minimal event store mock for trajectory tests ---
+
+type trajectoryMockEventStore struct{}
+
+func (m *trajectoryMockEventStore) Append(_ context.Context, _ *event.AgentEvent) error {
+	return nil
+}
+func (m *trajectoryMockEventStore) LoadByTask(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *trajectoryMockEventStore) LoadByAgent(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *trajectoryMockEventStore) LoadByRun(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *trajectoryMockEventStore) LoadTrajectory(_ context.Context, _ string, _ eventstore.TrajectoryFilter, _ string, _ int) (*eventstore.TrajectoryPage, error) {
+	return &eventstore.TrajectoryPage{}, nil
+}
+func (m *trajectoryMockEventStore) TrajectoryStats(_ context.Context, _ string) (*eventstore.TrajectorySummary, error) {
+	return &eventstore.TrajectorySummary{}, nil
+}
+func (m *trajectoryMockEventStore) LoadEventsRange(_ context.Context, _, _, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *trajectoryMockEventStore) ListCheckpoints(_ context.Context, _ string) ([]event.AgentEvent, error) {
+	return nil, nil
+}
+func (m *trajectoryMockEventStore) AppendAudit(_ context.Context, _ *event.AuditEntry) error {
+	return nil
+}
+func (m *trajectoryMockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilter, _ string, _ int) (*event.AuditPage, error) {
+	return nil, nil
+}
+
+// TestTrajectoryEvent_RoadmapProposed_BroadcastsAGUI verifies that an
+// agent.roadmap_proposed trajectory event is broadcast as an agui.roadmap_proposal
+// WebSocket event with all fields correctly populated.
+func TestTrajectoryEvent_RoadmapProposed_BroadcastsAGUI(t *testing.T) {
+	t.Parallel()
+
+	bc := &internalMockBroadcaster{}
+	queue := newHandlerCapturingQueue()
+	es := &trajectoryMockEventStore{}
+
+	svc := &RuntimeService{
+		hub:        bc,
+		queue:      queue,
+		events:     es,
+		runtimeCfg: &config.Runtime{},
+	}
+
+	cancels, err := svc.StartSubscribers(context.Background())
+	if err != nil {
+		t.Fatalf("StartSubscribers: %v", err)
+	}
+	defer func() {
+		for _, c := range cancels {
+			c()
+		}
+	}()
+
+	handler, ok := queue.getHandler(messagequeue.SubjectTrajectoryEvent)
+	if !ok {
+		t.Fatal("no handler registered for trajectory event subject")
+	}
+
+	// Build a roadmap_proposed trajectory event payload.
+	payload := map[string]any{
+		"event_type": "agent.roadmap_proposed",
+		"run_id":     "run-roadmap-1",
+		"project_id": "proj-1",
+		"data": map[string]any{
+			"proposal_id":           "prop-rm-1",
+			"action":                "create_milestone",
+			"milestone_title":       "Authentication",
+			"milestone_description": "Implement OAuth2 login",
+			"milestone_sort_order":  1,
+			"step_title":            "Add JWT middleware",
+			"step_description":      "Validate tokens on protected routes",
+			"step_sort_order":       2,
+			"step_complexity":       "medium",
+			"step_model_tier":       "strong",
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	if err := handler(context.Background(), messagequeue.SubjectTrajectoryEvent, data); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	// Verify broadcasts: expect the generic trajectory event + the AGUI roadmap proposal.
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	var found bool
+	for _, ev := range bc.events {
+		if ev.eventType != event.AGUIRoadmapProposal {
+			continue
+		}
+		found = true
+		rp, ok := ev.data.(event.AGUIRoadmapProposalEvent)
+		if !ok {
+			t.Fatalf("expected AGUIRoadmapProposalEvent, got %T", ev.data)
+		}
+		if rp.RunID != "run-roadmap-1" {
+			t.Errorf("RunID = %q, want %q", rp.RunID, "run-roadmap-1")
+		}
+		if rp.ProposalID != "prop-rm-1" {
+			t.Errorf("ProposalID = %q, want %q", rp.ProposalID, "prop-rm-1")
+		}
+		if rp.Action != "create_milestone" {
+			t.Errorf("Action = %q, want %q", rp.Action, "create_milestone")
+		}
+		if rp.MilestoneTitle != "Authentication" {
+			t.Errorf("MilestoneTitle = %q, want %q", rp.MilestoneTitle, "Authentication")
+		}
+		if rp.MilestoneDescription != "Implement OAuth2 login" {
+			t.Errorf("MilestoneDescription = %q, want %q", rp.MilestoneDescription, "Implement OAuth2 login")
+		}
+		if rp.MilestoneSortOrder != 1 {
+			t.Errorf("MilestoneSortOrder = %d, want %d", rp.MilestoneSortOrder, 1)
+		}
+		if rp.StepTitle != "Add JWT middleware" {
+			t.Errorf("StepTitle = %q, want %q", rp.StepTitle, "Add JWT middleware")
+		}
+		if rp.StepDescription != "Validate tokens on protected routes" {
+			t.Errorf("StepDescription = %q, want %q", rp.StepDescription, "Validate tokens on protected routes")
+		}
+		if rp.StepSortOrder != 2 {
+			t.Errorf("StepSortOrder = %d, want %d", rp.StepSortOrder, 2)
+		}
+		if rp.StepComplexity != "medium" {
+			t.Errorf("StepComplexity = %q, want %q", rp.StepComplexity, "medium")
+		}
+		if rp.StepModelTier != "strong" {
+			t.Errorf("StepModelTier = %q, want %q", rp.StepModelTier, "strong")
+		}
+		break
+	}
+	if !found {
+		t.Error("expected agui.roadmap_proposal broadcast event, but none found")
 	}
 }

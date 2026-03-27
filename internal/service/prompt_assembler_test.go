@@ -1062,6 +1062,64 @@ func TestBuildSystemPrompt_ModularAssembler(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_IncludesChatFirstOrchestration(t *testing.T) {
+	t.Parallel()
+
+	lib, err := NewPromptLibraryService(promptsFS, "prompts")
+	if err != nil {
+		t.Fatalf("failed to load prompt library: %v", err)
+	}
+
+	// Verify the entry exists in the library by ID.
+	entry := lib.GetEntry("behavior.chat_first_orchestration")
+	if entry == nil {
+		t.Fatal("behavior.chat_first_orchestration entry not found in embedded library")
+	}
+	if entry.Category != prompt.CategoryBehavior {
+		t.Errorf("expected category %q, got %q", prompt.CategoryBehavior, entry.Category)
+	}
+
+	// Use the same AssemblyContext as BuildSystemPrompt (coder, autonomy 3, agentic).
+	assembler := NewPromptAssembler(lib, 0)
+	asmCtx := prompt.AssemblyContext{
+		ModeID:   "coder",
+		Autonomy: 3,
+		Env:      "development",
+		Agentic:  true,
+	}
+	result := assembler.Assemble(asmCtx, nil)
+	if result == "" {
+		t.Fatal("expected non-empty assembled prompt")
+	}
+
+	// Verify key strings from the orchestrator prompt are present.
+	requiredStrings := []struct {
+		needle string
+		desc   string
+	}{
+		{"Goal Extraction", "section 1 heading"},
+		{"propose_goal", "propose_goal tool reference"},
+		{"Roadmap Generation", "section 2 heading"},
+		{"propose_roadmap", "propose_roadmap tool reference"},
+		{"Atomic Step Design", "section 6 heading"},
+		{"spawn_subagent", "spawn_subagent tool reference"},
+		{"Proactive Suggestions", "section 4 heading"},
+		{"Confidence-Based Escalation", "section 7 heading"},
+	}
+	for _, tc := range requiredStrings {
+		if !strings.Contains(result, tc.needle) {
+			t.Errorf("assembled prompt missing %q (%s)", tc.needle, tc.desc)
+		}
+	}
+
+	// Verify it also appears for a zero-condition context (empty conditions = always match).
+	minimalCtx := prompt.AssemblyContext{}
+	minimalResult := assembler.Assemble(minimalCtx, nil)
+	if !strings.Contains(minimalResult, "Goal Extraction") {
+		t.Error("chat-first orchestration should match unconditionally (conditions: {}), but missing for empty context")
+	}
+}
+
 func TestAssemble_AutonomyLevels_ProduceDifferentOutput(t *testing.T) {
 	t.Parallel()
 

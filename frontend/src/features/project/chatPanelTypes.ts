@@ -2,6 +2,18 @@ import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 
 import type { ActionRule } from "./actionRules";
 
+export interface RoadmapProposalState {
+  proposalId: string;
+  action: "create_milestone" | "create_step";
+  milestoneTitle: string;
+  milestoneDescription?: string;
+  stepTitle?: string;
+  stepDescription?: string;
+  stepComplexity?: string;
+  stepModelTier?: string;
+  status: "pending" | "approved" | "rejected";
+}
+
 export interface ToolCallState {
   callId: string;
   name: string;
@@ -37,6 +49,7 @@ export interface ChatAGUIState {
   toolCalls: () => ToolCallState[];
   planSteps: () => PlanStepState[];
   goalProposals: () => AGUIGoalProposal[];
+  roadmapProposals: () => RoadmapProposalState[];
   permissionRequests: () => AGUIPermissionRequest[];
   resolvedPermissions: () => Set<string>;
   setResolvedPermissions: (fn: (prev: Set<string>) => Set<string>) => void;

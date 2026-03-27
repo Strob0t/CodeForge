@@ -1,16 +1,20 @@
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateGoalRequest, GoalKind, ProjectGoal } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import { Badge, Button } from "~/ui";
+
+import PanelChatLink from "./PanelChatLink";
 
 interface Props {
   projectId: string;
   onAIDiscoverStarted?: (conversationId: string) => void;
   onNavigate?: (target: string) => void;
+  onSendChatMessage?: (msg: string) => void;
 }
 
 const KIND_ORDER: GoalKind[] = ["vision", "requirement", "constraint", "state", "context"];
@@ -34,6 +38,7 @@ const KIND_COLORS: Record<GoalKind, "success" | "info" | "warning" | "neutral" |
 export default function GoalsPanel(props: Props) {
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { onAGUIEvent } = useWebSocket();
 
   const [goals, { refetch }] = createResource(
     () => props.projectId,
@@ -45,6 +50,12 @@ export default function GoalsPanel(props: Props) {
       }
     },
   );
+
+  // Refetch goals when an agent run finishes (goals may have been auto-persisted).
+  const cleanupRunFinished = onAGUIEvent("agui.run_finished", () => {
+    refetch();
+  });
+  onCleanup(() => cleanupRunFinished());
 
   const [detecting, setDetecting] = createSignal(false);
   const [aiDiscovering, setAiDiscovering] = createSignal(false);
@@ -203,6 +214,9 @@ export default function GoalsPanel(props: Props) {
 
       {/* Goals List */}
       <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-4 relative z-10">
+        <p class="text-xs text-cf-text-tertiary mb-2">
+          Goals are extracted automatically from your chat conversation.
+        </p>
         <Show
           when={(goals() ?? []).length > 0}
           fallback={
@@ -258,6 +272,13 @@ export default function GoalsPanel(props: Props) {
                                 </Show>
                               </div>
                               <div class="flex items-center gap-1 flex-shrink-0">
+                                <PanelChatLink
+                                  type="goal"
+                                  id={goal.id}
+                                  title={goal.title}
+                                  context={goal.content?.substring(0, 200)}
+                                  onDiscuss={(msg) => props.onSendChatMessage?.(msg)}
+                                />
                                 <Button
                                   variant="secondary"
                                   size="xs"

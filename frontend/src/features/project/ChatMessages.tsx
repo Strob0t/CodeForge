@@ -7,11 +7,12 @@ import { Badge, StreamingCursor, TypingIndicator } from "~/ui";
 
 import ActionBar from "./ActionBar";
 import type { ActionRule } from "./actionRules";
-import type { PlanStepState, ToolCallState } from "./chatPanelTypes";
+import type { PlanStepState, RoadmapProposalState, ToolCallState } from "./chatPanelTypes";
 import GoalProposalCard from "./GoalProposalCard";
 import Markdown from "./Markdown";
 import MessageBadge from "./MessageBadge";
 import PermissionRequestCard from "./PermissionRequestCard";
+import RoadmapProposalCard from "./RoadmapProposalCard";
 import ToolCallCard from "./ToolCallCard";
 
 interface ChatMessagesProps {
@@ -26,6 +27,7 @@ interface ChatMessagesProps {
   toolCalls: () => ToolCallState[];
   planSteps: () => PlanStepState[];
   goalProposals: () => AGUIGoalProposal[];
+  roadmapProposals: () => RoadmapProposalState[];
   permissionRequests: () => AGUIPermissionRequest[];
   resolvedPermissions: () => Set<string>;
   setResolvedPermissions: (fn: (prev: Set<string>) => Set<string>) => void;
@@ -208,6 +210,43 @@ export default function ChatMessages(props: ChatMessagesProps) {
                   projectId={props.projectId}
                   onApprove={(title) => props.sendChatMessage(`[Goal approved: ${title}]`)}
                   onReject={(title) => props.sendChatMessage(`[Goal rejected: ${title}]`)}
+                />
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
+
+      {/* Roadmap proposals from AG-UI events -- inline approval cards */}
+      <Show when={props.roadmapProposals().length > 0}>
+        <div class="flex justify-start">
+          <div class="max-w-[90%] sm:max-w-[75%] w-full">
+            <For each={props.roadmapProposals()}>
+              {(proposal) => (
+                <RoadmapProposalCard
+                  proposal={{
+                    run_id: props.activeConversation() ?? "",
+                    proposal_id: proposal.proposalId,
+                    action: proposal.action,
+                    milestone_title: proposal.milestoneTitle,
+                    milestone_description: proposal.milestoneDescription,
+                    step_title: proposal.stepTitle,
+                    step_description: proposal.stepDescription,
+                    step_complexity: proposal.stepComplexity as
+                      | "trivial"
+                      | "simple"
+                      | "medium"
+                      | "complex"
+                      | undefined,
+                    step_model_tier: proposal.stepModelTier as
+                      | "weak"
+                      | "mid"
+                      | "strong"
+                      | undefined,
+                  }}
+                  projectId={props.projectId}
+                  onApprove={(title) => props.sendChatMessage(`[Roadmap approved: ${title}]`)}
+                  onReject={(title) => props.sendChatMessage(`[Roadmap rejected: ${title}]`)}
                 />
               )}
             </For>

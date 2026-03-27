@@ -1,6 +1,5 @@
 import { createSignal, Show } from "solid-js";
 
-import { api } from "~/api/client";
 import type { GoalKind } from "~/api/types";
 import type { AGUIGoalProposal } from "~/api/websocket";
 import { useI18n } from "~/i18n";
@@ -36,23 +35,13 @@ const CONTENT_PREVIEW_LIMIT = 500;
 export default function GoalProposalCard(props: Props) {
   const { t } = useI18n();
   const [status, setStatus] = createSignal<"pending" | "approved" | "rejected">("pending");
-  const [saving, setSaving] = createSignal(false);
 
-  const handleApprove = async (): Promise<void> => {
-    setSaving(true);
-    try {
-      await api.goals.create(props.projectId, {
-        kind: props.proposal.kind,
-        title: props.proposal.title,
-        content: props.proposal.content,
-        priority: props.proposal.priority,
-        source: "agent",
-      });
-      setStatus("approved");
-      props.onApprove(props.proposal.title);
-    } catch {
-      setSaving(false);
-    }
+  const handleApprove = (): void => {
+    // Goal is already auto-persisted by the Go backend when the agent
+    // calls propose_goal. Approve just updates the UI status and sends
+    // a confirmation message back to the chat.
+    setStatus("approved");
+    props.onApprove(props.proposal.title);
   };
 
   const handleReject = (): void => {
@@ -109,14 +98,8 @@ export default function GoalProposalCard(props: Props) {
         }
       >
         <div class="flex items-center gap-2">
-          <Button
-            variant="primary"
-            size="xs"
-            loading={saving()}
-            disabled={saving()}
-            onClick={handleApprove}
-          >
-            {saving() ? t("common.saving") : t("common.approve")}
+          <Button variant="primary" size="xs" onClick={handleApprove}>
+            {t("common.approve")}
           </Button>
           <Button variant="secondary" size="xs" onClick={handleReject}>
             {t("common.reject")}
