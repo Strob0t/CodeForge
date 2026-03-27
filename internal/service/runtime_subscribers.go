@@ -154,6 +154,10 @@ func (s *RuntimeService) handleTrajectoryEvent(ctx context.Context, data []byte)
 		s.handleTrajectoryActionSuggestion(ctx, payload.RunID, data)
 	case "agent.goal_proposed":
 		s.handleTrajectoryGoalProposed(ctx, payload.RunID, payload.ProjectID, data)
+	case "agent.roadmap_proposed":
+		s.handleTrajectoryRoadmapProposed(ctx, payload.RunID, data)
+	case "agent.subagent_requested":
+		s.handleTrajectorySubagentRequested(ctx, payload.RunID, payload.ProjectID, data)
 	}
 
 	return nil
@@ -213,4 +217,66 @@ func (s *RuntimeService) handleTrajectoryGoalProposed(ctx context.Context, runID
 			slog.Info("goal auto-persisted", "project_id", projectID, "title", proposal.Data.Title, "kind", proposal.Data.Kind)
 		}
 	}
+}
+
+// handleTrajectoryRoadmapProposed broadcasts an AG-UI roadmap proposal event.
+func (s *RuntimeService) handleTrajectoryRoadmapProposed(ctx context.Context, runID string, data []byte) {
+	var proposal struct {
+		Data struct {
+			ProposalID           string `json:"proposal_id"`
+			Action               string `json:"action"`
+			MilestoneTitle       string `json:"milestone_title"`
+			MilestoneDescription string `json:"milestone_description"`
+			MilestoneSortOrder   int    `json:"milestone_sort_order"`
+			StepTitle            string `json:"step_title"`
+			StepDescription      string `json:"step_description"`
+			StepSortOrder        int    `json:"step_sort_order"`
+			StepComplexity       string `json:"step_complexity"`
+			StepModelTier        string `json:"step_model_tier"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &proposal); err != nil {
+		return
+	}
+
+	s.hub.BroadcastEvent(ctx, event.AGUIRoadmapProposal, event.AGUIRoadmapProposalEvent{
+		RunID:                runID,
+		ProposalID:           proposal.Data.ProposalID,
+		Action:               proposal.Data.Action,
+		MilestoneTitle:       proposal.Data.MilestoneTitle,
+		MilestoneDescription: proposal.Data.MilestoneDescription,
+		MilestoneSortOrder:   proposal.Data.MilestoneSortOrder,
+		StepTitle:            proposal.Data.StepTitle,
+		StepDescription:      proposal.Data.StepDescription,
+		StepSortOrder:        proposal.Data.StepSortOrder,
+		StepComplexity:       proposal.Data.StepComplexity,
+		StepModelTier:        proposal.Data.StepModelTier,
+	})
+}
+
+// handleTrajectorySubagentRequested broadcasts an AG-UI text message informing
+// about a sub-agent spawn request.
+func (s *RuntimeService) handleTrajectorySubagentRequested(ctx context.Context, runID, projectID string, data []byte) {
+	var req struct {
+		Data struct {
+			SubagentID string `json:"subagent_id"`
+			Role       string `json:"role"`
+			Task       string `json:"task"`
+			Context    string `json:"context"`
+			ModelTier  string `json:"model_tier"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		return
+	}
+
+	slog.Info("sub-agent requested",
+		"role", req.Data.Role,
+		"subagent_id", req.Data.SubagentID,
+		"project_id", projectID,
+	)
+	s.hub.BroadcastEvent(ctx, event.AGUITextMessage, event.AGUITextMessageEvent{
+		RunID:   runID,
+		Content: fmt.Sprintf("[Sub-agent %s-%s requested: %s]", req.Data.Role, req.Data.SubagentID, req.Data.Task),
+	})
 }
