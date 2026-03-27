@@ -1516,20 +1516,28 @@
 - [x] (2026-03-23) **F-033 (MEDIUM):** Handler struct concrete types -- `Handlers.LiteLLM *litellm.Client` replaced with `Handlers.LLM llm.Provider`, `Handlers.Copilot *copilot.Client` replaced with `Handlers.TokenExchanger tokenexchange.Exchanger`
 - [x] (2026-03-23) **F-034 (MEDIUM):** Event types in adapter layer -- moved to `internal/domain/event/` (55 event constants + 49 payload structs)
 
-**Remaining Findings (not yet addressed):**
-- [ ] **F-001 (CRITICAL):** Rotate all exposed API keys in `.env` and `data/.env`
-- [ ] **F-003 (CRITICAL):** Remove hardcoded JWT secret from `codeforge.yaml`, generate via `openssl rand -hex 32`
-- [ ] **F-004 (HIGH):** Configure TLS in production stack (Traefik ACME/Let's Encrypt, PostgreSQL `sslmode=require`)
-- [ ] **F-006 (HIGH):** Decompose `database.Store` god interface (~290 methods) into domain-specific repositories
-- [ ] **F-007 (HIGH):** Decompose `Handlers` struct (69 fields, 353 methods) into domain-specific handler groups
-- [ ] **F-009 (HIGH):** Fix safety check fail-open pattern in `workers/codeforge/skills/safety.py` -- change to fail-closed
-- [ ] **F-011 (HIGH):** Refactor `RuntimeService.StartRun` (282 lines, 12 responsibilities) into helper methods
-- [ ] **F-012 (HIGH):** Split `RuntimeService` god object (41 methods, 2051 LOC) into focused services
-- [ ] **F-013 (HIGH):** Wrap A2A SDK types in port interfaces (anti-corruption layer)
-- [ ] **F-014 (HIGH):** Move direct HTTP calls from service layer to adapter layer via `port/httpclient/` interface
-- [ ] **F-015 (HIGH):** Redact PII (user email) from INFO-level production logs (GDPR Art. 5(1)(c))
-- [ ] **F-016 (HIGH):** Implement GDPR data deletion (`DELETE /users/me`) and export (`GET /users/me/export`) endpoints
-- [ ] **F-017 to F-055:** 24 MEDIUM + 10 LOW findings -- see audit report for full details
+**Remaining Findings — Remediation Work Plans (2026-03-27):**
+
+> Re-audit: `docs/audits/2026-03-27-universal-audit-report.md` (45 findings)
+> Work plans: `docs/plans/2026-03-27-audit-remediation-workplans.md` (10 worktrees)
+
+**Tier 1 — CRITICAL (parallel):**
+- [ ] **WT-1 `fix/config-secrets`:** F-001/F-003/F-012/F-013/F-018 — `json:"-"` on 10 config fields, JWT blocklist, clear codeforge.yaml secrets, sslmode staging rejection
+- [ ] **WT-2 `fix/nats-trajectory-duplicate`:** F-002 — remove duplicate trajectory subscription, add missing `roadmap_proposed`/`subagent_requested` handlers
+
+**Tier 2 — HIGH (parallel after Tier 1):**
+- [ ] **WT-3 `fix/gdpr-compliance`:** F-008/F-025/F-026/F-027 — audit log anonymization (ADR-009), GDPR service tests, IP retention 180d
+- [ ] **WT-4 `fix/error-handling`:** F-007/F-020 — dashboard swallowed errors (logBestEffort), dead model resolution
+- [ ] **WT-5 `refactor/hexagonal-handlers`:** F-005/F-015/F-016 — extract AllowAlways to PolicyService, filesystem via ports
+- [ ] **WT-6 `test/auth-token`:** F-009 — 11 auth token lifecycle tests (concurrent refresh, reuse detection)
+- [ ] **WT-7 `fix/frontend-compliance`:** F-010/F-036/F-041 — AGPL source link, form aria-labels, centralized API client
+
+**Tier 3 — MEDIUM (after WT-5):**
+- [ ] **WT-8 `fix/infra-hardening`:** F-004/F-014/F-031/F-040 — JetStream retention limits, Prometheus alerts, backup encryption
+- [ ] **WT-9 `refactor/type-safety`:** F-019/F-021/F-022/F-037/F-038/F-039 — Python Protocols, Go response structs, flatten nesting
+
+**Tier 4 — BACKLOG (after WT-2):**
+- [ ] **WT-10 `refactor/god-objects`:** F-006/F-017 — Store ISP decomposition, RuntimeService/ConversationService split
 
 ---
 
