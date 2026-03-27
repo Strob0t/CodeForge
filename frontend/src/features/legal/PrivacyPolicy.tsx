@@ -32,36 +32,74 @@ export default function PrivacyPolicy(): JSX.Element {
         </section>
 
         <section class="mb-6">
+          <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Data Protection Officer</h2>
+          <p class="text-sm text-cf-text-secondary">
+            Contact the instance operator's Data Protection Officer for privacy inquiries.
+            Self-hosted operators should configure DPO contact details in the instance settings.
+          </p>
+        </section>
+
+        <section class="mb-6">
           <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Purpose &amp; Legal Basis</h2>
-          <p class="text-sm text-cf-text-secondary">
-            We process your data to provide the CodeForge service (GDPR Art. 6(1)(b) -- contract
-            performance) and to maintain system security (GDPR Art. 6(1)(f) -- legitimate interest).
-          </p>
+          <ul class="list-inside list-disc space-y-1 text-sm text-cf-text-secondary">
+            <li>
+              Service delivery (account, projects, conversations) -- GDPR Art. 6(1)(b) contract
+            </li>
+            <li>
+              External LLM processing (prompts sent to providers) -- GDPR Art. 6(1)(a) consent
+            </li>
+            <li>
+              System security (audit logs, rate limiting) -- GDPR Art. 6(1)(f) legitimate interest
+            </li>
+            <li>Cost tracking and billing -- GDPR Art. 6(1)(b) contract</li>
+          </ul>
         </section>
 
         <section class="mb-6">
-          <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Third-Party Services</h2>
-          <p class="text-sm text-cf-text-secondary">
-            When using AI features, prompts and code snippets may be sent to third-party LLM
-            providers (e.g., OpenAI, Anthropic) as configured by the instance operator. Local models
-            process data entirely on-premises.
+          <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Subprocessors</h2>
+          <p class="mb-2 text-sm text-cf-text-secondary">
+            When external LLM providers are configured, user prompts and code context may be
+            transmitted to these subprocessors. Local models process data entirely on-premises.
           </p>
-        </section>
-
-        <section class="mb-6">
-          <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Your Rights</h2>
-          <p class="text-sm text-cf-text-secondary">
-            Under GDPR, you have the right to access, rectify, erase, restrict processing, and port
-            your data. Contact the instance operator to exercise these rights.
+          <ul class="list-inside list-disc space-y-1 text-sm text-cf-text-secondary">
+            <li>OpenAI (Microsoft) -- LLM inference, US (EU DPA + SCCs)</li>
+            <li>Anthropic -- LLM inference, US (EU DPA + SCCs)</li>
+            <li>Google (Vertex AI) -- LLM inference, EU (Frankfurt)</li>
+            <li>Ollama / LM Studio -- local inference, no data transfer</li>
+          </ul>
+          <p class="mt-2 text-xs text-cf-text-muted">
+            Active providers depend on instance configuration. Consent is required before external
+            processing (see consent settings).
           </p>
         </section>
 
         <section class="mb-6">
           <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Data Retention</h2>
-          <p class="text-sm text-cf-text-secondary">
-            Data is retained for the duration of your account. Upon account deletion, personal data
-            is removed in accordance with the operator's retention policy.
-          </p>
+          <ul class="list-inside list-disc space-y-1 text-sm text-cf-text-secondary">
+            <li>Account data -- lifetime of account + 30 days after deletion</li>
+            <li>Conversations -- 90 days after last activity (configurable)</li>
+            <li>Audit log entries -- 2 years (action/resource preserved, PII anonymized)</li>
+            <li>IP addresses in audit logs -- 180 days (per CNIL guidance)</li>
+            <li>Cost/usage data -- 7 years (tax/accounting requirements)</li>
+            <li>Consent records -- indefinite (proof-of-consent per GDPR Art. 7(1))</li>
+          </ul>
+        </section>
+
+        <section class="mb-6">
+          <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Your Rights</h2>
+          <ul class="list-inside list-disc space-y-1 text-sm text-cf-text-secondary">
+            <li>
+              Right of access (Art. 15) -- export your data via Settings &gt; Privacy &gt; Export
+            </li>
+            <li>Right to rectification (Art. 16) -- update your profile in Settings</li>
+            <li>
+              Right to erasure (Art. 17) -- delete your account via Settings &gt; Privacy &gt;
+              Delete
+            </li>
+            <li>Right to data portability (Art. 20) -- JSON export of all your data</li>
+            <li>Right to object (Art. 21) -- withdraw consent for external LLM processing</li>
+            <li>Right to lodge a complaint with a supervisory authority (Art. 77)</li>
+          </ul>
         </section>
 
         <div class="mt-8 text-center">
