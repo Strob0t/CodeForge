@@ -53,13 +53,21 @@ func CORS(allowedOrigin, appEnv string) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Tenant-ID, X-Idempotency-Key")
-			// Wildcard origin + credentials is rejected by browsers (spec violation).
-			if allowedOrigin != "*" {
+			origin := r.Header.Get("Origin")
+
+			// Only set CORS headers when the request Origin matches the configured allowed origin.
+			// This prevents reflecting CORS headers to unknown origins (CWE-942).
+			if allowedOrigin == "*" {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else if origin != "" && origin == allowedOrigin {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
+
+			// Always set Vary: Origin to prevent cache poisoning.
+			w.Header().Add("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Tenant-ID, X-Idempotency-Key")
 
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
