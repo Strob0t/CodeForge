@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from codeforge._validators import coerce_none_to_list
+from codeforge._validators import clamp_top_k, coerce_none_to_list
 from codeforge.mcp_models import MCPServerDef  # noqa: TC001 — Pydantic needs at runtime
 
 
@@ -250,7 +250,7 @@ class RetrievalSearchRequest(BaseModel):
     @field_validator("top_k")
     @classmethod
     def _clamp_top_k(cls, v: int) -> int:
-        return max(1, min(v, 500))
+        return clamp_top_k(v)
 
 
 class RetrievalSearchHit(BaseModel):
@@ -297,7 +297,7 @@ class SubAgentSearchRequest(BaseModel):
     @field_validator("top_k")
     @classmethod
     def _clamp_top_k(cls, v: int) -> int:
-        return max(1, min(v, 500))
+        return clamp_top_k(v)
 
     @field_validator("max_queries")
     @classmethod
