@@ -484,8 +484,12 @@ func (h *Handlers) IssueWSTicket(w http.ResponseWriter, r *http.Request) {
 
 	ticket := h.WSTickets.Issue(u.ID, tenantID)
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ticket":     ticket,
-		"expires_in": 30,
+	type wsTicketResponse struct {
+		Ticket    string `json:"ticket"`
+		ExpiresIn int    `json:"expires_in"`
+	}
+	writeJSON(w, http.StatusOK, wsTicketResponse{
+		Ticket:    ticket,
+		ExpiresIn: 30,
 	})
 }

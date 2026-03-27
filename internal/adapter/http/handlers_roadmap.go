@@ -455,12 +455,19 @@ func (h *Handlers) GetTrajectory(w http.ResponseWriter, r *http.Request) {
 		stats = &eventstore.TrajectorySummary{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"events":   page.Events,
-		"cursor":   page.Cursor,
-		"has_more": page.HasMore,
-		"total":    page.Total,
-		"stats":    stats,
+	type trajectoryResponse struct {
+		Events  []event.AgentEvent            `json:"events"`
+		Cursor  string                        `json:"cursor"`
+		HasMore bool                          `json:"has_more"`
+		Total   int                           `json:"total"`
+		Stats   *eventstore.TrajectorySummary `json:"stats"`
+	}
+	writeJSON(w, http.StatusOK, trajectoryResponse{
+		Events:  page.Events,
+		Cursor:  page.Cursor,
+		HasMore: page.HasMore,
+		Total:   page.Total,
+		Stats:   stats,
 	})
 }
 

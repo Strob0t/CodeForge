@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // --- Retrieval Scope Handlers ---
@@ -141,9 +142,13 @@ func (h *Handlers) SearchScope(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "scope search failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"results": hits,
-		"count":   len(hits),
+	type scopeSearchResponse struct {
+		Results []messagequeue.RetrievalSearchHitPayload `json:"results"`
+		Count   int                                      `json:"count"`
+	}
+	writeJSON(w, http.StatusOK, scopeSearchResponse{
+		Results: hits,
+		Count:   len(hits),
 	})
 }
 
@@ -182,8 +187,12 @@ func (h *Handlers) SearchScopeGraph(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "scope graph search failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"results": hits,
-		"count":   len(hits),
+	type scopeGraphSearchResponse struct {
+		Results []messagequeue.GraphSearchHitPayload `json:"results"`
+		Count   int                                  `json:"count"`
+	}
+	writeJSON(w, http.StatusOK, scopeGraphSearchResponse{
+		Results: hits,
+		Count:   len(hits),
 	})
 }

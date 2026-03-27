@@ -66,8 +66,12 @@ func (h *Handlers) HandleSeedFromBenchmarks(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":           "ok",
-		"outcomes_created": count,
+	type seedBenchmarksResponse struct {
+		Status          string `json:"status"`
+		OutcomesCreated int    `json:"outcomes_created"`
+	}
+	writeJSON(w, http.StatusOK, seedBenchmarksResponse{
+		Status:          "ok",
+		OutcomesCreated: count,
 	})
 }

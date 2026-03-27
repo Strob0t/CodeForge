@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // CheckBackendHealth handles GET /api/v1/backends/health.
@@ -24,7 +26,10 @@ func (h *Handlers) CheckBackendHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"backends": backends,
+	type backendsHealthResponse struct {
+		Backends []service.BackendHealthEntry `json:"backends"`
+	}
+	writeJSON(w, http.StatusOK, backendsHealthResponse{
+		Backends: backends,
 	})
 }

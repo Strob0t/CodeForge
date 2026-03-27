@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // ListSubscriptionProviders handles GET /api/v1/auth/providers
@@ -14,7 +16,10 @@ func (h *Handlers) ListSubscriptionProviders(w http.ResponseWriter, _ *http.Requ
 	}
 
 	providers := h.Subscription.ListProviders()
-	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
+	type listProvidersResponse struct {
+		Providers []service.ProviderInfo `json:"providers"`
+	}
+	writeJSON(w, http.StatusOK, listProvidersResponse{Providers: providers})
 }
 
 // StartProviderConnect handles POST /api/v1/auth/providers/{provider}/connect

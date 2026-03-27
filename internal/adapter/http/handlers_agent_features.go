@@ -75,12 +75,19 @@ func (h *Handlers) BenchmarkPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"content":    resp.Content,
-		"model":      resp.Model,
-		"tokens_in":  resp.TokensIn,
-		"tokens_out": resp.TokensOut,
-		"latency_ms": latencyMs,
+	type benchmarkPromptResponse struct {
+		Content   string `json:"content"`
+		Model     string `json:"model"`
+		TokensIn  int    `json:"tokens_in"`
+		TokensOut int    `json:"tokens_out"`
+		LatencyMs int64  `json:"latency_ms"`
+	}
+	writeJSON(w, http.StatusOK, benchmarkPromptResponse{
+		Content:   resp.Content,
+		Model:     resp.Model,
+		TokensIn:  resp.TokensIn,
+		TokensOut: resp.TokensOut,
+		LatencyMs: latencyMs,
 	})
 }
 

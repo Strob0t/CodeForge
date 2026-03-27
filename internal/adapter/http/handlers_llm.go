@@ -100,10 +100,15 @@ func (h *Handlers) DiscoverLLMModels(w http.ResponseWriter, r *http.Request) {
 		models = []llm.DiscoveredModel{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"models":     models,
-		"count":      len(models),
-		"ollama_url": h.OllamaBaseURL,
+	type discoverModelsResponse struct {
+		Models    []llm.DiscoveredModel `json:"models"`
+		Count     int                   `json:"count"`
+		OllamaURL string                `json:"ollama_url"`
+	}
+	writeJSON(w, http.StatusOK, discoverModelsResponse{
+		Models:    models,
+		Count:     len(models),
+		OllamaURL: h.OllamaBaseURL,
 	})
 }
 
