@@ -609,8 +609,10 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Resolve rollout count (only for autonomy >= 4).
 	rolloutCount := 1
 	if s.agentCfg != nil && s.agentCfg.ConversationRolloutCount > 1 {
-		model, _, modeAutonomy, _ := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
-		_ = model
+		_, _, modeAutonomy, resolveErr := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
+		if resolveErr != nil {
+			slog.Warn("rollout mode resolution failed, using default autonomy", "error", resolveErr)
+		}
 		if modeAutonomy >= 4 {
 			rolloutCount = min(s.agentCfg.ConversationRolloutCount, 8)
 		}

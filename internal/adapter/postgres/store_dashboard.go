@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -81,14 +82,19 @@ func (s *Store) DashboardStats(ctx context.Context) (*dashboard.DashboardStats, 
 		ds.ErrorRate24h = float64(failedRecent) / float64(totalRecent) * 100
 	}
 
-	// Active runs + agents (separate queries for real-time counts)
-	_ = s.pool.QueryRow(ctx,
+	// Active runs + agents (separate queries for real-time counts).
+	// Non-fatal: log errors but return zero-valued counts rather than failing the entire dashboard.
+	if err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM runs WHERE tenant_id = $1 AND status = 'running'`, tid,
-	).Scan(&ds.ActiveRuns)
+	).Scan(&ds.ActiveRuns); err != nil {
+		slog.Warn("dashboard: failed to count active runs", "tenant_id", tid, "error", err)
+	}
 
-	_ = s.pool.QueryRow(ctx,
+	if err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM agents WHERE tenant_id = $1 AND status = 'running'`, tid,
-	).Scan(&ds.ActiveAgents)
+	).Scan(&ds.ActiveAgents); err != nil {
+		slog.Warn("dashboard: failed to count active agents", "tenant_id", tid, "error", err)
+	}
 
 	return &ds, nil
 }
@@ -127,31 +133,39 @@ func (s *Store) ProjectHealth(ctx context.Context, projectID string) (*dashboard
 		return nil, fmt.Errorf("project health runs: %w", err)
 	}
 
-	// Tasks
-	_ = s.pool.QueryRow(ctx, `
+	// Tasks — non-fatal, log and continue with zero values.
+	if err := s.pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
 			COUNT(*)
 		FROM tasks WHERE project_id = $1 AND tenant_id = $2
-	`, projectID, tid).Scan(&tasksCompleted, &tasksTotal)
+	`, projectID, tid).Scan(&tasksCompleted, &tasksTotal); err != nil {
+		slog.Warn("project health: failed to count tasks", "project_id", projectID, "error", err)
+	}
 
-	// Active agents + running tasks
-	_ = s.pool.QueryRow(ctx,
+	// Active agents + running tasks — non-fatal.
+	if err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM agents WHERE project_id = $1 AND tenant_id = $2 AND status = 'running'`,
 		projectID, tid,
-	).Scan(&activeAgents)
+	).Scan(&activeAgents); err != nil {
+		slog.Warn("project health: failed to count active agents", "project_id", projectID, "error", err)
+	}
 
-	_ = s.pool.QueryRow(ctx,
+	if err := s.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM tasks WHERE project_id = $1 AND tenant_id = $2 AND status = 'running'`,
 		projectID, tid,
-	).Scan(&runningTasks)
+	).Scan(&runningTasks); err != nil {
+		slog.Warn("project health: failed to count running tasks", "project_id", projectID, "error", err)
+	}
 
-	// Last activity (most recent run)
-	_ = s.pool.QueryRow(ctx, `
+	// Last activity (most recent run) — non-fatal.
+	if err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(status, ''), completed_at
 		FROM runs WHERE project_id = $1 AND tenant_id = $2
 		ORDER BY created_at DESC LIMIT 1
-	`, projectID, tid).Scan(&lastActivity, &lastActivityAt)
+	`, projectID, tid).Scan(&lastActivity, &lastActivityAt); err != nil {
+		slog.Warn("project health: failed to get last activity", "project_id", projectID, "error", err)
+	}
 
 	// Sparkline: daily costs last 7 days
 	sparkRows, err := s.pool.Query(ctx, `
