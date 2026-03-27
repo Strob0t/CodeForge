@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -69,6 +70,34 @@ func (s *Store) ListAuditEntries(ctx context.Context, action string, limit, offs
 		}
 		return e, nil
 	})
+}
+
+// AnonymizeAuditLogForUser nulls PII fields (admin_email, ip_address) for a
+// specific admin user. Called before user deletion per GDPR Art. 17 / ADR-009.
+// The audit trail entries (action, resource, timestamps) are preserved.
+func (s *Store) AnonymizeAuditLogForUser(ctx context.Context, adminID string) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE audit_log SET admin_email = NULL, ip_address = NULL WHERE admin_id = $1`,
+		adminID)
+	if err != nil {
+		return 0, fmt.Errorf("anonymize audit log for user: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// AnonymizeExpiredIPAddresses nulls ip_address on audit entries older than
+// the given cutoff. IP addresses are personal data per CJEU C-582/14 (Breyer).
+// Recommended retention: 180 days per CNIL traceability guidance.
+func (s *Store) AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE audit_log SET ip_address = NULL
+		 WHERE ip_address IS NOT NULL AND created_at < $1
+		 LIMIT $2`,
+		before, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("anonymize expired ip addresses: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ListAuditEntriesByAdmin returns audit log entries for a specific admin user,

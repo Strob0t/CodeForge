@@ -139,10 +139,22 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 	}, nil
 }
 
-// DeleteUserData removes all personal data for the given user via cascade
-// deletion (GDPR Article 17 — Right to Erasure). The database FK constraints
-// with ON DELETE CASCADE handle dependent rows automatically.
+// DeleteUserData removes all personal data for the given user (GDPR Article 17
+// — Right to Erasure). Audit log entries are anonymized (PII nulled) before
+// user deletion to preserve the audit trail per ADR-009. The database FK
+// constraints with ON DELETE CASCADE handle dependent rows automatically.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
+	// Anonymize audit log entries before deletion so the audit trail is
+	// preserved without PII (admin_email and ip_address set to NULL).
+	// This implements the ADR-009 requirement: "Audit log entries are
+	// anonymized (user ID replaced with a tombstone value) rather than
+	// deleted, preserving the security audit trail while removing PII."
+	anonymized, err := s.store.AnonymizeAuditLogForUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("anonymize audit log: %w", err)
+	}
+	slog.Info("gdpr: audit log anonymized", "user_id", userID, "entries_anonymized", anonymized)
+
 	if err := s.store.DeleteUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user data: %w", err)
 	}

@@ -2470,3 +2470,9 @@ func (m *runtimeMockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ i
 func (m *runtimeMockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+func (m *runtimeMockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+func (m *runtimeMockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}

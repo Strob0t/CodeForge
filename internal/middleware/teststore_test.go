@@ -858,3 +858,9 @@ func (s *testStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (in
 func (s *testStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+func (s *testStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+func (s *testStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}

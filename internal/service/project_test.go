@@ -1443,6 +1443,12 @@ func (m *mockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (in
 func (m *mockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
+func (m *mockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+	return 0, nil
+}
 
 // --- InitWorkspace tests ---
 

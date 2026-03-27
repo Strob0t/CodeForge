@@ -11,4 +11,6 @@ type AuditStore interface {
 	ListAuditEntries(ctx context.Context, action string, limit, offset int) ([]AuditEntry, error)
 	ListAuditEntriesByAdmin(ctx context.Context, adminID string, limit int) ([]AuditEntry, error)
 	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	AnonymizeAuditLogForUser(ctx context.Context, adminID string) (int64, error)
+	AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }
