@@ -29,6 +29,15 @@ pg_dump \
 # Verify dump is valid by listing its TOC
 pg_restore --list "$BACKUP_DIR/$FILENAME" > /dev/null
 
+# Optional GPG encryption (set BACKUP_ENCRYPTION_KEY_FILE to enable)
+if [ -n "${BACKUP_ENCRYPTION_KEY_FILE:-}" ]; then
+  gpg --symmetric --batch --yes --passphrase-file "$BACKUP_ENCRYPTION_KEY_FILE" \
+      --output "$BACKUP_DIR/$FILENAME.gpg" "$BACKUP_DIR/$FILENAME"
+  rm "$BACKUP_DIR/$FILENAME"
+  FILENAME="$FILENAME.gpg"
+  echo "Backup encrypted with GPG"
+fi
+
 SIZE="$(du -h "$BACKUP_DIR/$FILENAME" | cut -f1)"
 echo "Backup complete: $BACKUP_DIR/$FILENAME ($SIZE)"
 

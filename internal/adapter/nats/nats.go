@@ -72,9 +72,15 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	// Ensure the stream exists with subjects matching our topic patterns.
 	// Duplicates enables JetStream message deduplication via Nats-Msg-Id header.
 	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:       streamName,
-		Subjects:   []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>", "prompt.>"},
-		Duplicates: 2 * time.Minute,
+		Name:        streamName,
+		Subjects:    []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>", "prompt.>"},
+		Duplicates:  2 * time.Minute,
+		Retention:   jetstream.LimitsPolicy,
+		Storage:     jetstream.FileStorage,
+		MaxAge:      30 * 24 * time.Hour,     // 30 days
+		MaxBytes:    10 * 1024 * 1024 * 1024, // 10 GB safety cap
+		Discard:     jetstream.DiscardOld,
+		Compression: jetstream.S2Compression,
 	})
 	if err != nil {
 		nc.Close()

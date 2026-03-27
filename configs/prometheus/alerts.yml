@@ -24,3 +24,64 @@ groups:
           severity: critical
         annotations:
           summary: "Health check failing for {{ $labels.instance }}"
+
+      - alert: HighHTTPErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+          / sum(rate(http_requests_total[5m])) by (service) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 5xx error rate above 5% for {{ $labels.service }}"
+
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 latency above 2s for {{ $labels.service }}"
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"^(fuse.*|tmpfs|cifs|nfs)"}
+          / node_filesystem_size_bytes < 0.10)
+          and node_filesystem_readonly == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space below 10% on {{ $labels.mountpoint }}"
+
+      - alert: DiskFillPrediction
+        expr: |
+          predict_linear(
+            node_filesystem_avail_bytes{fstype!~"^(fuse.*|tmpfs|cifs|nfs)"}[3h],
+            86400
+          ) <= 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk predicted to fill within 24h on {{ $labels.mountpoint }}"
+
+      - alert: SSLCertExpiringSoon
+        expr: |
+          (probe_ssl_earliest_cert_expiry - time()) / 86400 < 20
+          and (probe_ssl_earliest_cert_expiry - time()) / 86400 > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL cert for {{ $labels.instance }} expires in {{ $value | humanize }} days"
+
+      - alert: NATSStreamStorageHigh
+        expr: nats_stream_bytes > 8589934592
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NATS stream {{ $labels.stream }} storage above 8GB (80% of 10GB cap)"

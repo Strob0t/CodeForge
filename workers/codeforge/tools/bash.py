@@ -67,9 +67,11 @@ def _truncate(text: str) -> str:
 def _check_dangerous_command(command: str) -> str | None:
     """Defense-in-depth check for dangerous commands.
 
-    The Go policy engine is the primary defense; this is a secondary
-    blocklist at the Python layer to catch catastrophic commands that
-    should never be executed regardless of policy configuration.
+    SECONDARY DEFENSE ONLY -- trivially bypassable via shell expansion,
+    flag reordering, or interpreter wrapping. The Go policy engine
+    (internal/service/policy.go) is the PRIMARY security boundary.
+    This blocklist catches only the most obvious destructive commands
+    as a defense-in-depth measure.
 
     Returns an error message if the command is blocked, None otherwise.
     """
