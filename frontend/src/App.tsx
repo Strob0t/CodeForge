@@ -301,6 +301,16 @@ function AppShell(props: {
                   </div>
                 </Show>
               </Show>
+              <div class="mt-2 text-center">
+                <a
+                  href="https://github.com/Strob0t/CodeForge"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-[10px] text-cf-text-muted hover:text-cf-text-secondary transition-colors"
+                >
+                  AGPL-3.0 Source
+                </a>
+              </div>
             </Sidebar.Footer>
           </Sidebar>
 

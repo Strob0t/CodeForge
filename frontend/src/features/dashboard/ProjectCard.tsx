@@ -42,6 +42,7 @@ export default function ProjectCard(props: ProjectCardProps) {
                 checked={props.selected}
                 onChange={() => props.onToggleSelect?.(props.project.id)}
                 class="h-4 w-4 rounded border-cf-border text-cf-accent accent-cf-accent"
+                aria-label={`Select ${props.project.name}`}
               />
             </Show>
             <Show when={props.health}>
