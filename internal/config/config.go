@@ -71,8 +71,8 @@ func (h *ConfigHolder) Reload() error {
 
 // Config holds all runtime configuration for the CodeForge core service.
 type Config struct {
-	AppEnv       string       `yaml:"app_env"`      // Application environment: "development" | "production" (default: "")
-	InternalKey  string       `yaml:"internal_key"` // Shared secret for Python worker <-> Go Core API calls
+	AppEnv       string       `yaml:"app_env"`               // Application environment: "development" | "production" (default: "")
+	InternalKey  string       `yaml:"internal_key" json:"-"` // Shared secret for Python worker <-> Go Core API calls
 	Server       Server       `yaml:"server"`
 	Postgres     Postgres     `yaml:"postgres"`
 	NATS         NATS         `yaml:"nats"`
@@ -161,7 +161,7 @@ type Ollama struct {
 
 // Plane holds Plane.so project management integration configuration.
 type Plane struct {
-	APIToken string `yaml:"api_token"` // Plane.so API token for PM sync
+	APIToken string `yaml:"api_token" json:"-"` // Plane.so API token for PM sync
 }
 
 // Agent holds agentic conversation loop configuration.
@@ -197,20 +197,20 @@ type Auth struct {
 
 // Webhook holds VCS/PM webhook verification configuration.
 type Webhook struct {
-	GitHubSecret string `yaml:"github_secret"` // HMAC-SHA256 secret for GitHub webhooks
-	GitLabToken  string `yaml:"gitlab_token"`  // Static token for GitLab webhooks
-	PlaneSecret  string `yaml:"plane_secret"`  // HMAC secret for Plane.so webhooks
+	GitHubSecret string `yaml:"github_secret" json:"-"` // HMAC-SHA256 secret for GitHub webhooks
+	GitLabToken  string `yaml:"gitlab_token" json:"-"`  // Static token for GitLab webhooks
+	PlaneSecret  string `yaml:"plane_secret" json:"-"`  // HMAC secret for Plane.so webhooks
 }
 
 // Notification holds notification provider configuration.
 type Notification struct {
-	SlackWebhookURL   string   `yaml:"slack_webhook_url"`   // Slack incoming webhook URL
-	DiscordWebhookURL string   `yaml:"discord_webhook_url"` // Discord webhook URL
-	EnabledEvents     []string `yaml:"enabled_events"`      // Event filter (empty = all events)
-	SMTPHost          string   `yaml:"smtp_host"`           // SMTP server host for email feedback
-	SMTPPort          int      `yaml:"smtp_port"`           // SMTP server port (default: 587)
-	SMTPFrom          string   `yaml:"smtp_from"`           // Sender email address
-	SMTPPassword      string   `yaml:"smtp_password"`       // SMTP authentication password
+	SlackWebhookURL   string   `yaml:"slack_webhook_url"`      // Slack incoming webhook URL
+	DiscordWebhookURL string   `yaml:"discord_webhook_url"`    // Discord webhook URL
+	EnabledEvents     []string `yaml:"enabled_events"`         // Event filter (empty = all events)
+	SMTPHost          string   `yaml:"smtp_host"`              // SMTP server host for email feedback
+	SMTPPort          int      `yaml:"smtp_port"`              // SMTP server port (default: 587)
+	SMTPFrom          string   `yaml:"smtp_from"`              // Sender email address
+	SMTPPassword      string   `yaml:"smtp_password" json:"-"` // SMTP authentication password
 }
 
 // Copilot holds GitHub Copilot token exchange configuration.
@@ -221,9 +221,9 @@ type Copilot struct {
 
 // GitHub holds GitHub OAuth integration configuration.
 type GitHub struct {
-	ClientID     string `yaml:"client_id"`     // OAuth client ID for GitHub device flow
-	ClientSecret string `yaml:"client_secret"` // OAuth client secret for GitHub device flow
-	CallbackURL  string `yaml:"callback_url"`  // OAuth callback URL for GitHub device flow
+	ClientID     string `yaml:"client_id"`              // OAuth client ID for GitHub device flow
+	ClientSecret string `yaml:"client_secret" json:"-"` // OAuth client secret for GitHub device flow
+	CallbackURL  string `yaml:"callback_url"`           // OAuth callback URL for GitHub device flow
 }
 
 // Experience holds experience pool configuration.
@@ -357,7 +357,7 @@ type NATS struct {
 // LiteLLM holds LiteLLM proxy configuration.
 type LiteLLM struct {
 	URL                string        `yaml:"url"`
-	MasterKey          string        `yaml:"master_key"`
+	MasterKey          string        `yaml:"master_key" json:"-"`
 	ConversationModel  string        `yaml:"conversation_model"`   // Model for chat conversations (default: resolved at init)
 	HealthPollInterval time.Duration `yaml:"health_poll_interval"` // Model health poll interval (default: 60s)
 }
@@ -402,13 +402,13 @@ type OTEL struct {
 
 // A2A holds Agent-to-Agent protocol configuration.
 type A2A struct {
-	Enabled   bool     `yaml:"enabled"`    // Enable A2A endpoints (default: false)
-	BaseURL   string   `yaml:"base_url"`   // Public URL for AgentCard (default: auto-detect from Server.Port)
-	APIKeys   []string `yaml:"api_keys"`   // Allowed API keys for incoming A2A requests (empty = open)
-	Transport string   `yaml:"transport"`  // "jsonrpc" (default) | "rest"
-	MaxTasks  int      `yaml:"max_tasks"`  // Max concurrent A2A tasks (default: 100)
-	AllowOpen bool     `yaml:"allow_open"` // Allow unauthenticated AgentCard discovery (default: true)
-	Streaming bool     `yaml:"streaming"`  // FIX-109: Advertise streaming capability in AgentCard (default: false)
+	Enabled   bool     `yaml:"enabled"`           // Enable A2A endpoints (default: false)
+	BaseURL   string   `yaml:"base_url"`          // Public URL for AgentCard (default: auto-detect from Server.Port)
+	APIKeys   []string `yaml:"api_keys" json:"-"` // Allowed API keys for incoming A2A requests (empty = open)
+	Transport string   `yaml:"transport"`         // "jsonrpc" (default) | "rest"
+	MaxTasks  int      `yaml:"max_tasks"`         // Max concurrent A2A tasks (default: 100)
+	AllowOpen bool     `yaml:"allow_open"`        // Allow unauthenticated AgentCard discovery (default: true)
+	Streaming bool     `yaml:"streaming"`         // FIX-109: Advertise streaming capability in AgentCard (default: false)
 }
 
 // AGUI holds AG-UI (Agent-User Interaction) protocol configuration.
@@ -418,10 +418,10 @@ type AGUI struct {
 
 // MCP holds Model Context Protocol integration configuration.
 type MCP struct {
-	Enabled    bool   `yaml:"enabled"`     // Enable MCP integration (default: false)
-	ServersDir string `yaml:"servers_dir"` // Directory with MCP server YAML definitions
-	ServerPort int    `yaml:"server_port"` // Port for the built-in MCP server (default: 3001)
-	APIKey     string `yaml:"api_key"`     // API key for MCP server authentication (empty = unauthenticated)
+	Enabled    bool   `yaml:"enabled"`          // Enable MCP integration (default: false)
+	ServersDir string `yaml:"servers_dir"`      // Directory with MCP server YAML definitions
+	ServerPort int    `yaml:"server_port"`      // Port for the built-in MCP server (default: 3001)
+	APIKey     string `yaml:"api_key" json:"-"` // API key for MCP server authentication (empty = unauthenticated)
 }
 
 // LSP holds Language Server Protocol integration configuration.

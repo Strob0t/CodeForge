@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -684,6 +685,120 @@ func TestIsLowEntropySecret(t *testing.T) {
 			got := isLowEntropySecret(tt.secret)
 			if got != tt.wantLow {
 				t.Errorf("isLowEntropySecret(%q) = %v, want %v", tt.secret, got, tt.wantLow)
+			}
+		})
+	}
+}
+
+func TestSensitiveFieldsExcludedFromJSON(t *testing.T) {
+	cfg := Defaults()
+	cfg.InternalKey = "test-internal-key"
+	cfg.Auth.JWTSecret = "test-jwt-secret-that-is-long-enough"
+	cfg.Auth.LLMKeyEncryptionSecret = "test-llm-enc-secret"
+	cfg.LiteLLM.MasterKey = "test-master-key"
+	cfg.Webhook.GitHubSecret = "test-github-secret"
+	cfg.Webhook.GitLabToken = "test-gitlab-token"
+	cfg.Webhook.PlaneSecret = "test-plane-secret"
+	cfg.Notification.SMTPPassword = "test-smtp-pass"
+	cfg.GitHub.ClientSecret = "test-client-secret"
+	cfg.Plane.APIToken = "test-plane-token"
+	cfg.A2A.APIKeys = []string{"test-a2a-key"}
+	cfg.MCP.APIKey = "test-mcp-key"
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	jsonStr := string(data)
+
+	sensitiveValues := []struct {
+		field string
+		value string
+	}{
+		{"InternalKey", "test-internal-key"},
+		{"JWTSecret", "test-jwt-secret-that-is-long-enough"},
+		{"LLMKeyEncryptionSecret", "test-llm-enc-secret"},
+		{"MasterKey", "test-master-key"},
+		{"GitHubSecret", "test-github-secret"},
+		{"GitLabToken", "test-gitlab-token"},
+		{"PlaneSecret", "test-plane-secret"},
+		{"SMTPPassword", "test-smtp-pass"},
+		{"ClientSecret", "test-client-secret"},
+		{"APIToken (Plane)", "test-plane-token"},
+		{"APIKeys (A2A)", "test-a2a-key"},
+		{"APIKey (MCP)", "test-mcp-key"},
+	}
+
+	for _, sv := range sensitiveValues {
+		if strings.Contains(jsonStr, sv.value) {
+			t.Errorf("sensitive field %s value %q leaked in JSON output", sv.field, sv.value)
+		}
+	}
+}
+
+func TestBlockedJWTSecrets(t *testing.T) {
+	blocked := []string{
+		"codeforge-dev-jwt-secret-change-in-production",
+		"e2e-test-secret-key-minimum-32-bytes-long",
+	}
+
+	for _, secret := range blocked {
+		t.Run(secret[:20]+"...", func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Auth.Enabled = true
+			cfg.Auth.JWTSecret = secret
+			cfg.AppEnv = "staging"
+			cfg.Postgres.DSN = "postgres://u:p@localhost:5432/db?sslmode=require"
+
+			err := validate(&cfg)
+			if err == nil {
+				t.Errorf("expected error for blocked secret %q in staging, got nil", secret)
+			}
+		})
+	}
+
+	// Verify blocked secrets are allowed in development
+	t.Run("allowed in development", func(t *testing.T) {
+		cfg := Defaults()
+		cfg.Auth.Enabled = true
+		cfg.Auth.JWTSecret = "e2e-test-secret-key-minimum-32-bytes-long"
+		cfg.AppEnv = "development"
+		cfg.Postgres.DSN = "postgres://u:p@localhost:5432/db?sslmode=disable"
+
+		err := validate(&cfg)
+		if err != nil {
+			t.Errorf("expected no error for blocked secret in development, got: %v", err)
+		}
+	})
+}
+
+func TestSSLModeRejectedInStaging(t *testing.T) {
+	tests := []struct {
+		name    string
+		appEnv  string
+		dsn     string
+		wantErr bool
+	}{
+		{"staging + sslmode=disable", "staging", "postgres://u:p@localhost:5432/db?sslmode=disable", true},
+		{"production + sslmode=disable", "production", "postgres://u:p@localhost:5432/db?sslmode=disable", true},
+		{"development + sslmode=disable", "development", "postgres://u:p@localhost:5432/db?sslmode=disable", false},
+		{"staging + sslmode=require", "staging", "postgres://u:p@localhost:5432/db?sslmode=require", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Auth.Enabled = true
+			cfg.Auth.JWTSecret = "Xk9mL2pR7wQn4tFvB8jC3hGdE5sAyU0zABCDEFGH"
+			cfg.AppEnv = tt.appEnv
+			cfg.Postgres.DSN = tt.dsn
+
+			err := validate(&cfg)
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error for %s, got nil", tt.name)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error for %s: %v", tt.name, err)
 			}
 		})
 	}

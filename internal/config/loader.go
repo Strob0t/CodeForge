@@ -395,12 +395,25 @@ func validate(cfg *Config) error {
 		return errors.New("auth.jwt_secret is required when auth.enabled is true")
 	}
 
-	// Auth validation: reject well-known default secrets (blocklist).
-	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "codeforge-dev-jwt-secret-change-in-production" {
-		if cfg.AppEnv != "development" {
-			return errors.New("default JWT secret is only allowed when APP_ENV=development -- set CODEFORGE_AUTH_JWT_SECRET to a unique secret (>= 32 chars)")
+	// Auth validation: reject well-known default/test secrets (blocklist).
+	blockedSecrets := []string{
+		"codeforge-dev-jwt-secret-change-in-production",
+		"e2e-test-secret-key-minimum-32-bytes-long",
+		"changeme",
+		"secret",
+		"password",
+		"test-secret",
+	}
+	if cfg.Auth.Enabled {
+		for _, blocked := range blockedSecrets {
+			if cfg.Auth.JWTSecret == blocked {
+				if cfg.AppEnv != "development" {
+					return fmt.Errorf("blocked JWT secret %q is only allowed when APP_ENV=development -- set CODEFORGE_AUTH_JWT_SECRET to a unique secret (>= 32 chars)", blocked)
+				}
+				slog.Warn("using blocked JWT secret -- acceptable only for local development", "secret_prefix", blocked[:8]+"...")
+				break
+			}
 		}
-		slog.Warn("using default JWT secret -- acceptable only for local development")
 	}
 
 	// Auth validation: enforce minimum JWT secret length when auth is enabled.
@@ -432,9 +445,9 @@ func validate(cfg *Config) error {
 		}
 	}
 
-	// PostgreSQL validation: reject sslmode=disable in production.
-	if cfg.AppEnv == "production" && strings.Contains(cfg.Postgres.DSN, "sslmode=disable") {
-		return errors.New("postgres.dsn must not use sslmode=disable in production -- use sslmode=require or sslmode=verify-full")
+	// PostgreSQL validation: reject sslmode=disable in non-development environments.
+	if cfg.AppEnv != "development" && cfg.AppEnv != "" && strings.Contains(cfg.Postgres.DSN, "sslmode=disable") {
+		return fmt.Errorf("postgres.dsn must not use sslmode=disable when APP_ENV=%s -- use sslmode=require or sslmode=verify-full", cfg.AppEnv)
 	}
 
 	return nil
