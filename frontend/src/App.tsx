@@ -301,15 +301,17 @@ function AppShell(props: {
                   </div>
                 </Show>
               </Show>
-              <div class="mt-2 text-center">
+              <div class="mt-2 text-center text-[10px] text-cf-text-muted leading-tight">
+                <span>&copy; 2024-2026 CodeForge | </span>
                 <a
                   href="https://github.com/Strob0t/CodeForge"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-[10px] text-cf-text-muted hover:text-cf-text-secondary transition-colors"
+                  class="hover:text-cf-text-secondary transition-colors"
                 >
-                  AGPL-3.0 Source
+                  AGPL-3.0
                 </a>
+                <span> | No Warranty</span>
               </div>
             </Sidebar.Footer>
           </Sidebar>
@@ -360,6 +362,7 @@ function AppShell(props: {
             </header>
             <main
               id="main-content"
+              tabIndex={-1}
               class="flex-1 min-h-0 overflow-hidden p-3 sm:p-4 lg:p-6"
               style={{ "padding-bottom": "max(0.75rem, var(--cf-safe-bottom))" }}
             >

@@ -1,3 +1,5 @@
+import { logError } from "~/lib/errorUtils";
+
 const STORAGE_PREFIX = "codeforge:freq:";
 
 interface FrequencyTracker {
@@ -17,7 +19,8 @@ function loadData(storageKey: string): Record<string, number> {
       return {};
     }
     return parsed as Record<string, number>;
-  } catch {
+  } catch (err) {
+    logError("useFrequencyTracker.loadData", err);
     return {};
   }
 }
@@ -25,8 +28,8 @@ function loadData(storageKey: string): Record<string, number> {
 function saveData(storageKey: string, data: Record<string, number>): void {
   try {
     localStorage.setItem(storageKey, JSON.stringify(data));
-  } catch {
-    // Storage full or unavailable — silently ignore
+  } catch (err) {
+    logError("useFrequencyTracker.saveData", err);
   }
 }
 

@@ -4,6 +4,7 @@ import { api } from "~/api/client";
 import type { CreateVCSAccountRequest, VCSAccount, VCSProvider } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { logError } from "~/lib/errorUtils";
 import { Badge, Button, ConfirmDialog, FormField, Input, Section, Select } from "~/ui";
 
 function providerBadgeVariant(provider: string) {
@@ -75,7 +76,8 @@ export default function VCSSection() {
       setVcsServerUrl("");
       refetchVCS();
       toast("success", t("settings.vcs.created"));
-    } catch {
+    } catch (err) {
+      logError("VCSSection.handleCreateVCS", err);
       toast("error", t("settings.vcs.createFailed"));
     }
   };
@@ -85,7 +87,8 @@ export default function VCSSection() {
       await api.vcsAccounts.delete(id);
       refetchVCS();
       toast("success", t("settings.vcs.deleted"));
-    } catch {
+    } catch (err) {
+      logError("VCSSection.handleDeleteVCS", err);
       toast("error", t("settings.vcs.deleteFailed"));
     } finally {
       setVcsDeleteId(null);
@@ -97,7 +100,8 @@ export default function VCSSection() {
     try {
       await api.vcsAccounts.test(id);
       toast("success", t("settings.vcs.testSuccess"));
-    } catch {
+    } catch (err) {
+      logError("VCSSection.handleTestVCS", err);
       toast("error", t("settings.vcs.testFailed"));
     } finally {
       setTestingId(null);
@@ -163,7 +167,8 @@ export default function VCSSection() {
                   try {
                     const { url } = await api.auth.githubOAuth();
                     window.location.href = url;
-                  } catch {
+                  } catch (err) {
+                    logError("VCSSection.githubOAuth", err);
                     toast("error", t("settings.vcs.oauthFailed"));
                   }
                 })();

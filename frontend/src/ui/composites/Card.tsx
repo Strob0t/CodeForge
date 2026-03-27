@@ -1,5 +1,6 @@
 import { type JSX, splitProps } from "solid-js";
 
+import { clickable } from "~/utils/a11y";
 import { cx } from "~/utils/cx";
 
 // ---------------------------------------------------------------------------
@@ -18,9 +19,10 @@ function CardRoot(props: CardProps): JSX.Element {
     <div
       class={cx(
         "rounded-cf-lg border border-cf-border bg-cf-bg-surface shadow-cf-sm hover:-translate-y-0.5 transition-transform duration-200",
+        local.onClick && "cursor-pointer",
         local.class,
       )}
-      onClick={(e: MouseEvent) => local.onClick?.(e)}
+      {...(local.onClick ? clickable((e) => local.onClick?.(e as MouseEvent)) : {})}
     >
       {local.children}
     </div>

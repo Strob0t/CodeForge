@@ -1,4 +1,5 @@
 import { MAX_RETRIES, RETRY_BASE_MS, RETRYABLE_STATUSES } from "~/config/constants";
+import { logError } from "~/lib/errorUtils";
 
 import { getCached, invalidateCache, processQueue, queueAction, setCached } from "./cache";
 import type { ApiError } from "./types";
@@ -69,7 +70,8 @@ async function executeRequest<T>(path: string, init?: RequestInit): Promise<T> {
     let body: ApiError;
     try {
       body = (await res.json()) as ApiError;
-    } catch {
+    } catch (err) {
+      logError("api.parseErrorBody", err);
       body = { error: `HTTP ${res.status} ${res.statusText || "Error"}` };
     }
     throw new FetchError(res.status, body);

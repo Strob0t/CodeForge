@@ -1,6 +1,7 @@
 import { createSignal, onCleanup } from "solid-js";
 
 import { getAccessToken } from "~/api/client";
+import { logError } from "~/lib/errorUtils";
 
 export interface WSMessage {
   type: string;
@@ -30,8 +31,8 @@ export function parseWSMessage(data: unknown): WSMessage | null {
             : {},
       };
     }
-  } catch {
-    // Malformed JSON
+  } catch (err) {
+    logError("ws.parseWSMessage", err);
   }
   return null;
 }
