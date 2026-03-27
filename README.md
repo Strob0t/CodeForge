@@ -117,7 +117,7 @@ poetry run python -m codeforge.consumer &                    # AI workers
 cd frontend && npm run dev                                   # UI on :3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) -- default login: `admin@localhost` / `Changeme123`
+Open [http://localhost:3000](http://localhost:3000) -- credentials are configured during initial setup (see [Dev Setup](docs/dev-setup.md))
 
 ### Production
 

@@ -15,10 +15,10 @@
     "ghcr.io/devcontainers/features/git:1": {}
   },
   "remoteEnv": {
-    "DATABASE_URL": "postgres://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge?sslmode=disable",
+    "DATABASE_URL": "postgres://codeforge:codeforge_dev@codeforge-postgres:5432/codeforge?sslmode=prefer",
     "NATS_URL": "nats://codeforge-nats:4222",
     "LITELLM_URL": "http://codeforge-litellm:4000",
-    "LITELLM_MASTER_KEY": "sk-codeforge-dev"
+    "LITELLM_MASTER_KEY": "${localEnv:LITELLM_MASTER_KEY}"
   },
   "forwardPorts": [3000, 4000, 4222, 5173, 5432, 6280, 8001, 8080, 8222],
   "portsAttributes": {
