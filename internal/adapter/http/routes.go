@@ -101,7 +101,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		mountConversationRoutes(r, h, audit)
 		mountRunRoutes(r, h)
 		mountOrchestrationRoutes(r, h, audit)
-		mountLLMRoutes(r, h)
+		mountLLMRoutes(r, h, audit)
 		mountRoadmapRoutes(r, h)
 		mountReviewRoutes(r, h)
 		mountIntelligenceRoutes(r, h)
@@ -136,7 +136,7 @@ func mountWebhookRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// Projects
 	r.Get("/projects", h.Project.ListProjects)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects", h.Project.CreateProject)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "project")).Post("/projects", h.Project.CreateProject)
 	r.Get("/projects/remote-branches", h.Project.ListRemoteBranches)
 
 	// Batch project operations
@@ -149,8 +149,8 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Post("/search/conversations", h.SearchConversations)
 
 	r.Get("/projects/{id}", h.Project.GetProject)
-	r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/projects/{id}", h.Project.DeleteProject)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}", h.Project.UpdateProject)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "project")).Delete("/projects/{id}", h.Project.DeleteProject)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("update", "project")).Put("/projects/{id}", h.Project.UpdateProject)
 
 	// Workspace operations (nested under projects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/clone", h.Project.CloneProject)
@@ -163,9 +163,9 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Get("/projects/{id}/files", h.ListFiles)
 	r.Get("/projects/{id}/files/tree", h.ListTree)
 	r.Get("/projects/{id}/files/content", h.ReadFile)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/projects/{id}/files/content", h.WriteFile)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Delete("/projects/{id}/files", h.DeleteFile)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Patch("/projects/{id}/files/rename", h.RenameFile)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("write", "file")).Put("/projects/{id}/files/content", h.WriteFile)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("delete", "file")).Delete("/projects/{id}/files", h.DeleteFile)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("rename", "file")).Patch("/projects/{id}/files/rename", h.RenameFile)
 
 	// Stack Detection
 	r.Get("/projects/{id}/detect-stack", h.Project.DetectProjectStack)
@@ -246,7 +246,7 @@ func mountConversationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Post("/projects/{id}/conversations", h.CreateConversation)
 	r.Get("/projects/{id}/conversations", h.ListConversations)
 	r.Get("/conversations/{id}", h.GetConversation)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("delete", "conversation")).
 		Delete("/conversations/{id}", h.DeleteConversation)
 	r.Get("/conversations/{id}/messages", h.ListConversationMessages)
 	r.Post("/conversations/{id}/messages", h.SendConversationMessage)
@@ -411,7 +411,7 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 }
 
 // mountLLMRoutes registers LLM model management, model registry, copilot, and LLM key endpoints.
-func mountLLMRoutes(r chi.Router, h *Handlers) {
+func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// LLM management (proxied to LiteLLM)
 	r.Get("/llm/models", h.ListLLMModels)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/llm/models", h.AddLLMModel)
@@ -428,8 +428,8 @@ func mountLLMRoutes(r chi.Router, h *Handlers) {
 
 	// LLM Keys
 	r.Get("/llm-keys", h.ListLLMKeys)
-	r.Post("/llm-keys", h.CreateLLMKey)
-	r.Delete("/llm-keys/{id}", h.DeleteLLMKey)
+	r.With(audit("create", "llm_key")).Post("/llm-keys", h.CreateLLMKey)
+	r.With(audit("delete", "llm_key")).Delete("/llm-keys/{id}", h.DeleteLLMKey)
 }
 
 // mountRoadmapRoutes registers roadmap, milestone, feature, and bidirectional sync endpoints.
@@ -767,7 +767,7 @@ func mountQuarantineRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 }
 
 // mountMiscRoutes registers cost, dashboard, settings, and admin audit log endpoints.
-func mountMiscRoutes(r chi.Router, h *Handlers, ro *routeOptions, _ auditFunc) {
+func mountMiscRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit auditFunc) {
 	// Cost aggregation
 	r.Get("/costs", h.GlobalCostSummary)
 	r.Get("/projects/{id}/costs", h.ProjectCostSummary)
@@ -787,7 +787,7 @@ func mountMiscRoutes(r chi.Router, h *Handlers, ro *routeOptions, _ auditFunc) {
 
 	// Settings
 	r.Get("/settings", h.GetSettings)
-	r.With(middleware.RequireRole(user.RoleAdmin)).Put("/settings", h.UpdateSettings)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("update", "settings")).Put("/settings", h.UpdateSettings)
 
 	// Admin Audit Logs (SOC 2 CC6.1)
 	if ro.auditStore != nil {
