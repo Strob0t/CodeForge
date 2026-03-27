@@ -2,12 +2,10 @@ package http
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -121,8 +119,8 @@ func (ph *PolicyHandlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Req
 }
 
 // AllowAlwaysPolicy handles POST /api/v1/policies/allow-always.
-// It adds a persistent "allow" rule for a specific tool to a project's policy profile.
-// If the project uses a built-in preset, a custom clone is created first.
+// It delegates to PolicyService.AllowAlways which handles profile cloning,
+// rule construction, and filesystem persistence.
 func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Request) {
 	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
@@ -141,74 +139,10 @@ func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ctx := r.Context()
-
-	// Get the project to resolve its policy profile.
-	proj, err := ph.Projects.Get(ctx, req.ProjectID)
+	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, ph.PolicyDir, req.ProjectID, req.Tool, req.Command)
 	if err != nil {
-		writeDomainError(w, err, "project not found")
+		writeDomainError(w, err, "allow-always failed")
 		return
 	}
-
-	// Resolve effective profile (project-level or service default).
-	effectiveProfile := ph.Policies.ResolveProfile("", proj.PolicyProfile)
-
-	// If the resolved profile is a built-in preset, clone it to a custom profile.
-	if policy.IsPreset(effectiveProfile) {
-		source, _ := ph.Policies.GetProfile(effectiveProfile)
-		cloneName := effectiveProfile + "-custom-" + req.ProjectID
-		clone := source
-		clone.Name = cloneName
-		clone.Description = fmt.Sprintf("Custom clone of %s for project %s", effectiveProfile, req.ProjectID)
-
-		// Check if clone already exists (from a previous "Allow Always" call).
-		if _, exists := ph.Policies.GetProfile(cloneName); !exists {
-			if err := ph.Policies.SaveProfile(&clone); err != nil {
-				writeInternalError(w, err)
-				return
-			}
-		}
-
-		// Update the project to use the custom clone.
-		if err := ph.Projects.SetPolicyProfile(ctx, req.ProjectID, cloneName); err != nil {
-			writeInternalError(w, err)
-			return
-		}
-		effectiveProfile = cloneName
-	}
-
-	// Construct the permission rule.
-	spec := policy.ToolSpecifier{Tool: req.Tool}
-	if req.Command != "" {
-		// Use first word as command prefix pattern (e.g., "git" from "git status").
-		parts := strings.SplitN(req.Command, " ", 2)
-		spec.SubPattern = parts[0] + "*"
-	}
-	rule := policy.PermissionRule{
-		Specifier: spec,
-		Decision:  policy.DecisionAllow,
-	}
-
-	// Prepend the rule (idempotent -- no-op if same specifier already exists).
-	if err := ph.Policies.PrependRule(effectiveProfile, &rule); err != nil {
-		writeInternalError(w, err)
-		return
-	}
-
-	// Persist to disk if PolicyDir is configured.
-	if ph.PolicyDir != "" {
-		updated, ok := ph.Policies.GetProfile(effectiveProfile)
-		if ok {
-			path := filepath.Join(ph.PolicyDir, effectiveProfile+".yaml")
-			if err := os.MkdirAll(ph.PolicyDir, 0o750); err != nil {
-				slog.Error("failed to create policy directory", "error", err)
-			} else if err := policy.SaveToFile(path, &updated); err != nil {
-				slog.Error("failed to persist policy profile", "name", effectiveProfile, "error", err)
-			}
-		}
-	}
-
-	// Return the updated profile.
-	updated, _ := ph.Policies.GetProfile(effectiveProfile)
-	writeJSON(w, http.StatusOK, updated)
+	writeJSON(w, http.StatusOK, result)
 }

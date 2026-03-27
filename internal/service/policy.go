@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 )
 
 // PolicyService evaluates tool calls against policy profiles and
@@ -134,6 +136,73 @@ func (s *PolicyService) PrependRule(profileName string, rule *policy.PermissionR
 	p.Rules = append([]policy.PermissionRule{*rule}, p.Rules...)
 	s.profiles[profileName] = p
 	return nil
+}
+
+// projectPolicyResolver provides the project-level operations needed by AllowAlways.
+type projectPolicyResolver interface {
+	Get(ctx context.Context, id string) (*project.Project, error)
+	SetPolicyProfile(ctx context.Context, projectID, profile string) error
+}
+
+// AllowAlways adds a persistent "allow" rule for a tool to a project's policy
+// profile. If the project uses a built-in preset, a custom clone is created.
+// This encapsulates the business logic previously in the HTTP handler.
+func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyResolver, policyDir, projectID, tool, command string) (*policy.PolicyProfile, error) {
+	proj, err := projects.Get(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+
+	effectiveProfile := s.ResolveProfile("", proj.PolicyProfile)
+
+	if policy.IsPreset(effectiveProfile) {
+		source, _ := s.GetProfile(effectiveProfile)
+		cloneName := effectiveProfile + "-custom-" + projectID
+		clone := source
+		clone.Name = cloneName
+		clone.Description = fmt.Sprintf("Custom clone of %s for project %s", effectiveProfile, projectID)
+
+		if _, exists := s.GetProfile(cloneName); !exists {
+			if err := s.SaveProfile(&clone); err != nil {
+				return nil, fmt.Errorf("save cloned profile: %w", err)
+			}
+		}
+
+		if err := projects.SetPolicyProfile(ctx, projectID, cloneName); err != nil {
+			return nil, fmt.Errorf("set project policy profile: %w", err)
+		}
+		effectiveProfile = cloneName
+	}
+
+	spec := policy.ToolSpecifier{Tool: tool}
+	if command != "" {
+		parts := strings.SplitN(command, " ", 2)
+		spec.SubPattern = parts[0] + "*"
+	}
+	rule := policy.PermissionRule{
+		Specifier: spec,
+		Decision:  policy.DecisionAllow,
+	}
+
+	if err := s.PrependRule(effectiveProfile, &rule); err != nil {
+		return nil, fmt.Errorf("prepend rule: %w", err)
+	}
+
+	if policyDir != "" {
+		updated, ok := s.GetProfile(effectiveProfile)
+		if ok {
+			path := filepath.Join(policyDir, effectiveProfile+".yaml")
+			if mkErr := os.MkdirAll(policyDir, 0o750); mkErr != nil {
+				return nil, fmt.Errorf("create policy dir: %w", mkErr)
+			}
+			if saveErr := policy.SaveToFile(path, &updated); saveErr != nil {
+				return nil, fmt.Errorf("persist policy file: %w", saveErr)
+			}
+		}
+	}
+
+	result, _ := s.GetProfile(effectiveProfile)
+	return &result, nil
 }
 
 // evaluateWithReason performs first-match rule evaluation against a profile,
