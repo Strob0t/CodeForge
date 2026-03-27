@@ -3,8 +3,11 @@ info:
   title: CodeForge API
   description: |
     REST API for CodeForge -- AI coding agent orchestration platform.
-    This is a foundation stub covering the core endpoint groups.
-    Full spec will be generated from routes.go in a later iteration.
+
+    All endpoints under /api/v1 require a valid JWT bearer token unless
+    explicitly marked as public (login, setup-status, health).
+
+    Refresh tokens are delivered as httpOnly cookies on the /auth path.
   version: "0.8.0"
   license:
     name: AGPL-3.0-or-later
@@ -13,24 +16,129 @@ info:
 servers:
   - url: http://localhost:8080/api/v1
     description: Local development
+  - url: http://localhost:8080
+    description: Local development (root, for /health)
 
 tags:
   - name: Auth
-    description: Authentication and user management
+    description: Authentication, user management, and API keys
   - name: Projects
-    description: Project CRUD and workspace operations
+    description: Project CRUD, workspace operations, and git management
   - name: Conversations
     description: Chat conversations and messages
+  - name: Runs
+    description: Agent execution runs, HITL approval, and trajectory
+  - name: Settings
+    description: Application settings (admin)
+  - name: LLM
+    description: LLM model management and health
+  - name: Dashboard
+    description: Dashboard statistics and charts
   - name: Health
-    description: Service health checks
+    description: Service health and readiness checks
+  - name: Costs
+    description: Cost tracking and aggregation
   - name: GDPR
     description: GDPR data export and deletion
 
 paths:
+  # -----------------------------------------------
+  # Health (outside /api/v1, no auth required)
+  # -----------------------------------------------
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      description: |
+        Returns service status and whether dev mode is active.
+        This endpoint is outside the /api/v1 prefix and requires no authentication.
+      operationId: healthLiveness
+      servers:
+        - url: http://localhost:8080
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  dev_mode:
+                    type: boolean
+                  dropped_logs:
+                    type: integer
+                    format: int64
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: |
+        Checks all dependencies (PostgreSQL, NATS, LiteLLM) and returns
+        503 if any are down. Used by container orchestrators for readiness probes.
+      operationId: healthReadiness
+      servers:
+        - url: http://localhost:8080
+      responses:
+        "200":
+          description: All dependencies are healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  postgres:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [up, down]
+                      latency:
+                        type: string
+                        example: "1.2ms"
+                  nats:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [up, down]
+                      latency:
+                        type: string
+                  litellm:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [up, down]
+                      latency:
+                        type: string
+        "503":
+          description: One or more dependencies are down
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "not_ready"
+
+  # -----------------------------------------------
+  # Auth
+  # -----------------------------------------------
   /auth/login:
     post:
       tags: [Auth]
       summary: Authenticate user
+      description: |
+        Validates credentials and returns a JWT access token.
+        A refresh token is set as an httpOnly cookie on the /api/v1/auth path.
       operationId: login
       requestBody:
         required: true
@@ -55,11 +163,16 @@ paths:
                 $ref: "#/components/schemas/LoginResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /auth/refresh:
     post:
       tags: [Auth]
       summary: Refresh access token
+      description: |
+        Uses the httpOnly refresh cookie to issue a new access token.
+        No request body is needed -- the cookie is read automatically.
       operationId: refreshToken
       responses:
         "200":
@@ -75,6 +188,9 @@ paths:
     get:
       tags: [Auth]
       summary: Check if initial setup is complete
+      description: |
+        Returns whether the first admin user has been created.
+        Public endpoint -- no authentication required.
       operationId: setupStatus
       responses:
         "200":
@@ -86,6 +202,49 @@ paths:
                 properties:
                   setup_complete:
                     type: boolean
+
+  /auth/setup:
+    post:
+      tags: [Auth]
+      summary: Create the initial admin user
+      description: |
+        One-time setup endpoint that creates the first admin account.
+        Returns 409 if setup has already been completed.
+      operationId: initialSetup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Admin user created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Setup already completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /auth/me:
     get:
@@ -104,6 +263,69 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out the current user
+      description: Clears the refresh cookie and invalidates the session.
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change the current user's password
+      operationId: changePassword
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                  format: password
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # -----------------------------------------------
+  # Projects
+  # -----------------------------------------------
   /projects:
     get:
       tags: [Projects]
@@ -123,6 +345,9 @@ paths:
     post:
       tags: [Projects]
       summary: Create a new project
+      description: |
+        Creates a project. Requires admin or editor role.
+        Optionally pass local_path to auto-adopt a local workspace.
       operationId: createProject
       security:
         - bearerAuth: []
@@ -141,6 +366,10 @@ paths:
                 $ref: "#/components/schemas/Project"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /projects/{id}:
     get:
@@ -160,6 +389,45 @@ paths:
                 $ref: "#/components/schemas/Project"
         "404":
           $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Projects]
+      summary: Update a project
+      description: Updates project metadata. Requires admin or editor role.
+      operationId: updateProject
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                repo_url:
+                  type: string
+                config:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Projects]
       summary: Delete project (admin only)
@@ -171,9 +439,14 @@ paths:
       responses:
         "204":
           description: Project deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
+  # -----------------------------------------------
+  # Conversations
+  # -----------------------------------------------
   /projects/{id}/conversations:
     get:
       tags: [Conversations]
@@ -192,6 +465,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       tags: [Conversations]
       summary: Create a new conversation
@@ -211,8 +486,10 @@ paths:
                   type: string
                 mode:
                   type: string
+                  description: Mode ID (e.g., coder, reviewer, architect)
                 model:
                   type: string
+                  description: LLM model override (e.g., openai/gpt-4o)
       responses:
         "201":
           description: Conversation created
@@ -220,6 +497,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Conversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /conversations/{id}:
+    get:
+      tags: [Conversations]
+      summary: Get a conversation by ID
+      operationId: getConversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      responses:
+        "200":
+          description: Conversation details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Conversations]
+      summary: Delete a conversation
+      description: Requires admin or editor role.
+      operationId: deleteConversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      responses:
+        "204":
+          description: Conversation deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /conversations/{id}/messages:
     get:
@@ -229,12 +545,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/ConversationID"
       responses:
         "200":
           description: Message list
@@ -244,6 +555,577 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Message"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Conversations]
+      summary: Send a message to a conversation
+      description: |
+        Dispatches a user message. If the conversation is in agentic mode,
+        this triggers an agent run via NATS and returns 202 immediately.
+        Results stream to the frontend via WebSocket (AG-UI protocol).
+      operationId: sendMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ConversationID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  description: The user's message text
+                agentic:
+                  type: boolean
+                  description: Override agentic mode (null uses project default)
+                mode:
+                  type: string
+                  description: Mode override for this message
+                model:
+                  type: string
+                  description: Model override for this message
+                images:
+                  type: array
+                  description: Attached images for multimodal models
+                  items:
+                    type: object
+                    properties:
+                      data:
+                        type: string
+                        format: byte
+                        description: Base64-encoded image data
+                      media_type:
+                        type: string
+                        example: "image/png"
+      responses:
+        "202":
+          description: Message dispatched (agentic mode)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "dispatched"
+                  run_id:
+                    type: string
+                  message:
+                    type: string
+                    example: "Run dispatched. Results will stream via WebSocket."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -----------------------------------------------
+  # Runs
+  # -----------------------------------------------
+  /runs:
+    post:
+      tags: [Runs]
+      summary: Start a new agent run
+      description: |
+        Creates and starts a new run for a given task and agent.
+        Requires admin or editor role.
+      operationId: startRun
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id, agent_id, project_id]
+              properties:
+                task_id:
+                  type: string
+                agent_id:
+                  type: string
+                project_id:
+                  type: string
+                  format: uuid
+                team_id:
+                  type: string
+                mode_id:
+                  type: string
+                policy_profile:
+                  type: string
+                  description: Policy preset name (e.g., trusted-mount-autonomous)
+                exec_mode:
+                  type: string
+                  enum: [mount, sandbox, hybrid]
+                deliver_mode:
+                  type: string
+                  enum: ["", patch, commit-local, branch, pr]
+      responses:
+        "201":
+          description: Run started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /runs/{id}:
+    get:
+      tags: [Runs]
+      summary: Get run details
+      operationId: getRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      responses:
+        "200":
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /runs/{id}/cancel:
+    post:
+      tags: [Runs]
+      summary: Cancel a running execution
+      description: Requests cancellation of an active run. Requires admin or editor role.
+      operationId: cancelRun
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      responses:
+        "200":
+          description: Run cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "cancelled"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /runs/{id}/approve/{callId}:
+    post:
+      tags: [Runs]
+      summary: Approve or deny a pending tool call (HITL)
+      description: |
+        Resolves a Human-in-the-Loop approval request for a specific tool call.
+        The agent pauses until this decision is received or the approval times out.
+      operationId: approveToolCall
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+        - name: callId
+          in: path
+          required: true
+          description: The tool call ID awaiting approval
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [allow, deny]
+                  description: Whether to allow or deny the tool call
+      responses:
+        "200":
+          description: Approval resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "resolved"
+                  run_id:
+                    type: string
+                  call_id:
+                    type: string
+                  decision:
+                    type: string
+                    enum: [allow, deny]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: No pending approval for this run/call
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /runs/{id}/trajectory:
+    get:
+      tags: [Runs]
+      summary: Get the trajectory (step-by-step log) of a run
+      description: Returns the full sequence of agent steps, tool calls, and results.
+      operationId: getTrajectory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      responses:
+        "200":
+          description: Trajectory data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+                  steps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        step:
+                          type: integer
+                        type:
+                          type: string
+                        tool_name:
+                          type: string
+                        input:
+                          type: string
+                        output:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Settings
+  # -----------------------------------------------
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Get all application settings
+      description: Returns settings as a key-value map.
+      operationId: getSettings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Settings map
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                example:
+                  theme: "dark"
+                  language: "en"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      tags: [Settings]
+      summary: Update application settings (admin only)
+      description: |
+        Upserts one or more settings. The settings map must not be empty.
+        Requires admin role.
+      operationId: updateSettings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  type: object
+                  additionalProperties: true
+                  description: Key-value pairs to upsert
+                  example:
+                    theme: "dark"
+                    language: "en"
+      responses:
+        "200":
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # -----------------------------------------------
+  # LLM
+  # -----------------------------------------------
+  /llm/models:
+    get:
+      tags: [LLM]
+      summary: List active LLM models
+      description: Returns all models currently configured in LiteLLM.
+      operationId: listLLMModels
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    model_name:
+                      type: string
+                      example: "openai/gpt-4o"
+                    litellm_params:
+                      type: object
+                      properties:
+                        model:
+                          type: string
+                        api_base:
+                          type: string
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [LLM]
+      summary: Add an LLM model to LiteLLM
+      description: Requires admin or editor role.
+      operationId: addLLMModel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_name, litellm_params]
+              properties:
+                model_name:
+                  type: string
+                  example: "openai/gpt-4o"
+                litellm_params:
+                  type: object
+                  properties:
+                    model:
+                      type: string
+                    api_key:
+                      type: string
+                    api_base:
+                      type: string
+      responses:
+        "201":
+          description: Model added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /llm/health:
+    get:
+      tags: [LLM]
+      summary: Check LiteLLM proxy health
+      description: Returns the health status of the LiteLLM sidecar.
+      operationId: llmHealth
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: LiteLLM is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+        "503":
+          description: LiteLLM is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # -----------------------------------------------
+  # Dashboard
+  # -----------------------------------------------
+  /dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard summary statistics
+      description: |
+        Returns aggregated metrics for the dashboard: costs, active runs,
+        success rates, token usage, and error rates with delta percentages.
+      operationId: getDashboardStats
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -----------------------------------------------
+  # Costs
+  # -----------------------------------------------
+  /costs:
+    get:
+      tags: [Costs]
+      summary: Global cost summary across all projects
+      description: Returns cost aggregations per project.
+      operationId: globalCostSummary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cost summary list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    project_id:
+                      type: string
+                      format: uuid
+                    project_name:
+                      type: string
+                    total_cost_usd:
+                      type: number
+                      format: double
+                    total_runs:
+                      type: integer
+                    total_tokens_in:
+                      type: integer
+                      format: int64
+                    total_tokens_out:
+                      type: integer
+                      format: int64
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /projects/{id}/costs:
+    get:
+      tags: [Costs]
+      summary: Cost summary for a specific project
+      operationId: projectCostSummary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: Project cost summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_id:
+                    type: string
+                    format: uuid
+                  total_cost_usd:
+                    type: number
+                    format: double
+                  total_runs:
+                    type: integer
+                  total_tokens_in:
+                    type: integer
+                    format: int64
+                  total_tokens_out:
+                    type: integer
+                    format: int64
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # GDPR
+  # -----------------------------------------------
+  /me/export:
+    get:
+      tags: [GDPR]
+      summary: Export own data (GDPR Article 20)
+      description: |
+        Self-service endpoint. Returns all personal data for the authenticated user
+        in a portable JSON format. No admin role required.
+      operationId: exportMyData
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User data export
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserDataExport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /me/data:
+    delete:
+      tags: [GDPR]
+      summary: Delete own data (GDPR Article 17)
+      description: |
+        Self-service endpoint. Deletes all personal data for the authenticated user.
+        This action is irreversible.
+      operationId: deleteMyData
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: User data deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /users/{id}/export:
     post:
@@ -266,6 +1148,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserDataExport"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -286,6 +1170,8 @@ paths:
       responses:
         "204":
           description: User data deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -295,15 +1181,36 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        JWT access token obtained from POST /auth/login.
+        Pass as: Authorization: Bearer <token>
 
   parameters:
     ProjectID:
       name: id
       in: path
       required: true
+      description: Project UUID
       schema:
         type: string
         format: uuid
+
+    ConversationID:
+      name: id
+      in: path
+      required: true
+      description: Conversation UUID
+      schema:
+        type: string
+        format: uuid
+
+    RunID:
+      name: id
+      in: path
+      required: true
+      description: Run ID
+      schema:
+        type: string
 
   responses:
     BadRequest:
@@ -312,14 +1219,37 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+
     Unauthorized:
-      description: Authentication required
+      description: Authentication required or invalid credentials
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+
+    Forbidden:
+      description: Insufficient permissions (role check failed)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
     NotFound:
       description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    InternalServerError:
+      description: Internal server error
       content:
         application/json:
           schema:
@@ -364,8 +1294,10 @@ components:
       properties:
         access_token:
           type: string
+          description: JWT access token
         expires_in:
           type: integer
+          description: Token lifetime in seconds
         user:
           $ref: "#/components/schemas/User"
 
@@ -383,7 +1315,19 @@ components:
           type: string
         status:
           type: string
+          enum: [created, cloning, ready, error]
+        config:
+          type: object
+          additionalProperties:
+            type: string
+          description: Project-level configuration (autonomy_level, policy_preset, etc.)
+        workspace_path:
+          type: string
+          description: Absolute path to the local workspace (if adopted/cloned)
         created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
 
@@ -397,6 +1341,17 @@ components:
           type: string
         repo_url:
           type: string
+          description: Git clone URL (optional for local-only projects)
+        local_path:
+          type: string
+          description: Local filesystem path to auto-adopt as workspace
+        config:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            Project config map. Common keys:
+            autonomy_level (1-5), policy_preset, execution_mode (mount/sandbox)
 
     Conversation:
       type: object
@@ -411,9 +1366,16 @@ components:
           type: string
         mode:
           type: string
+          description: Active mode (coder, reviewer, architect, etc.)
         model:
           type: string
+          description: LLM model in use
+        status:
+          type: string
         created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
 
@@ -431,9 +1393,123 @@ components:
           enum: [user, assistant, system, tool]
         content:
           type: string
+        tool_calls:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              arguments:
+                type: string
+        cost_usd:
+          type: number
+          format: double
+        tokens_in:
+          type: integer
+          format: int64
+        tokens_out:
+          type: integer
+          format: int64
         created_at:
           type: string
           format: date-time
+
+    Run:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        agent_id:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+        mode_id:
+          type: string
+        policy_profile:
+          type: string
+        exec_mode:
+          type: string
+          enum: [mount, sandbox, hybrid]
+        deliver_mode:
+          type: string
+          enum: ["", patch, commit-local, branch, pr]
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled, timeout, quality_gate]
+        step_count:
+          type: integer
+        cost_usd:
+          type: number
+          format: double
+        tokens_in:
+          type: integer
+          format: int64
+        tokens_out:
+          type: integer
+          format: int64
+        model:
+          type: string
+        output:
+          type: string
+        error:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DashboardStats:
+      type: object
+      properties:
+        cost_today_usd:
+          type: number
+          format: double
+        cost_today_delta_pct:
+          type: number
+          format: double
+          description: Percentage change vs yesterday
+        active_runs:
+          type: integer
+        success_rate_7d_pct:
+          type: number
+          format: double
+        success_rate_delta_pct:
+          type: number
+          format: double
+        active_agents:
+          type: integer
+        avg_cost_per_run_usd:
+          type: number
+          format: double
+        avg_cost_delta_pct:
+          type: number
+          format: double
+        token_usage_today:
+          type: integer
+          format: int64
+        token_usage_delta_pct:
+          type: number
+          format: double
+        error_rate_24h_pct:
+          type: number
+          format: double
+        error_rate_delta_pct:
+          type: number
+          format: double
 
     UserDataExport:
       type: object
