@@ -43,13 +43,15 @@ COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/workers /app/workers
 COPY --from=build /app/VERSION /app/VERSION
 COPY --from=build /app/pyproject.toml /app/pyproject.toml
+COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
 
 ENV PATH="/app/.venv/bin:$PATH"
 
 USER codeforge
 
-# FIX-112: Verify the worker module is importable as a basic health check.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD python -c "import codeforge" || exit 1
+# INFRA-015: Sentinel-based healthcheck verifies NATS connection is active,
+# not just that the module is importable.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python /app/scripts/worker-healthcheck.py || exit 1
 
 ENTRYPOINT ["python", "-m", "codeforge.consumer"]

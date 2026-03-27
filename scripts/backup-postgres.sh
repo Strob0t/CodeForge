@@ -4,6 +4,12 @@
 #   ./scripts/backup-postgres.sh              Run backup now
 #   ./scripts/backup-postgres.sh --cleanup    Run backup + enforce retention
 #
+# Recommended cron schedule (add to host crontab or Docker sidecar):
+#   0 2 * * * /path/to/backup-postgres.sh --cleanup  # Daily at 2 AM
+#
+# For off-host backup, set BACKUP_DEST to an S3/GCS/NFS path.
+# For encryption, set BACKUP_ENCRYPTION_KEY_FILE.
+#
 # Environment:
 #   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE (standard libpq vars)
 #   BACKUP_DIR (default: ./backups/postgres)
