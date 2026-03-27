@@ -232,9 +232,86 @@ class ConversationHandlerMixin:
             messages.append({"role": "system", "content": note})
             log.info("injected session context note", operation=op)
 
-    async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:  # noqa: C901
-        """Process a conversation run: agentic loop with tool calling."""
+    async def _build_conversation_messages(
+        self,
+        run_msg: ConversationRunStartMessage,
+        runtime: RuntimeClient,
+        registry: ToolRegistryLike,
+        log: structlog.stdlib.BoundLogger,
+    ) -> list[dict[str, str]]:
+        """Build the message list from system prompt, history, context, and session info."""
         from codeforge.history import ConversationHistoryManager, HistoryConfig
+        from codeforge.tools.capability import classify_model
+
+        system_prompt, loaded_skills = await build_system_prompt(run_msg, registry, log, self._db_url, self._llm)
+
+        wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url)
+        register_handoff_tool(registry, run_msg.run_id, self._js)
+        register_propose_goal_tool(registry, runtime)
+        register_propose_roadmap_tool(registry, runtime)
+        register_spawn_subagent_tool(registry, runtime)
+
+        if run_msg.summarize_threshold > 0 and len(run_msg.messages) > run_msg.summarize_threshold:
+            from codeforge.history import ConversationSummarizer
+
+            summarizer = ConversationSummarizer(llm=self._llm, threshold=run_msg.summarize_threshold)
+            run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
+
+        _cap_level = classify_model(run_msg.model)
+        _context_cap = _CONTEXT_LIMITS.get(_cap_level, 120_000)
+        history_cfg = HistoryConfig(max_context_tokens=_context_cap)
+        log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
+
+        history_mgr = ConversationHistoryManager(history_cfg)
+        messages = history_mgr.build_messages(
+            system_prompt=system_prompt,
+            history=run_msg.messages,
+            context_entries=run_msg.context,
+        )
+
+        self._inject_session_context(messages, run_msg, log)
+        return messages
+
+    async def _resolve_routing_and_fallbacks(
+        self,
+        run_msg: ConversationRunStartMessage,
+        user_prompt: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> tuple[str, RoutingResult, list[str]]:
+        """Resolve the primary model via routing and build fallback chain.
+
+        Returns (primary_model, routing_result, fallback_models).
+        """
+        from codeforge.llm import resolve_model_with_routing
+
+        scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
+        router = await get_hybrid_router(self._litellm_url, self._litellm_key)
+        routing = await asyncio.to_thread(
+            resolve_model_with_routing,
+            prompt=user_prompt,
+            scenario=scenario,
+            router=router,
+            max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
+        )
+        primary_model = run_msg.model or routing.model
+        if run_msg.model and routing.model and routing.model != run_msg.model:
+            log.info("explicit model overrides routing", explicit=run_msg.model, routed=routing.model)
+        elif not run_msg.model and routing.model:
+            log.info("routing selected model", model=routing.model, scenario=scenario)
+
+        fallback_models = await build_fallback_chain(
+            router,
+            user_prompt,
+            primary_model,
+            run_msg.termination.max_cost,
+            routing,
+            lambda: get_available_models(self._litellm_url, self._litellm_key),
+        )
+
+        return primary_model, routing, fallback_models
+
+    async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
+        """Process a conversation run: agentic loop with tool calling."""
         from codeforge.mcp_workbench import McpWorkbench
         from codeforge.tools import ToolRegistry, build_default_registry
 
@@ -279,37 +356,7 @@ class ConversationHandlerMixin:
 
             await self._maybe_prefetch_docs(workbench, run_msg, log)
 
-            system_prompt, loaded_skills = await build_system_prompt(run_msg, registry, log, self._db_url, self._llm)
-
-            wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url)
-            register_handoff_tool(registry, run_msg.run_id, self._js)
-            register_propose_goal_tool(registry, runtime)
-            register_propose_roadmap_tool(registry, runtime)
-            register_spawn_subagent_tool(registry, runtime)
-
-            if run_msg.summarize_threshold > 0 and len(run_msg.messages) > run_msg.summarize_threshold:
-                from codeforge.history import ConversationSummarizer
-
-                summarizer = ConversationSummarizer(llm=self._llm, threshold=run_msg.summarize_threshold)
-                run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
-
-            from codeforge.tools.capability import classify_model
-
-            _cap_level = classify_model(run_msg.model)
-            _context_cap = _CONTEXT_LIMITS.get(_cap_level, 120_000)
-            history_cfg = HistoryConfig(max_context_tokens=_context_cap)
-            log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
-
-            history_mgr = ConversationHistoryManager(history_cfg)
-            messages = history_mgr.build_messages(
-                system_prompt=system_prompt,
-                history=run_msg.messages,
-                context_entries=run_msg.context,
-            )
-
-            self._inject_session_context(messages, run_msg, log)
-
-            from codeforge.llm import resolve_model_with_routing
+            messages = await self._build_conversation_messages(run_msg, runtime, registry, log)
 
             user_prompt = ""
             for m in run_msg.messages:
@@ -317,28 +364,10 @@ class ConversationHandlerMixin:
                     user_prompt = m.content
                     break
 
-            scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
-            router = await get_hybrid_router(self._litellm_url, self._litellm_key)
-            routing = await asyncio.to_thread(
-                resolve_model_with_routing,
-                prompt=user_prompt,
-                scenario=scenario,
-                router=router,
-                max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
-            )
-            primary_model = run_msg.model or routing.model
-            if run_msg.model and routing.model and routing.model != run_msg.model:
-                log.info("explicit model overrides routing", explicit=run_msg.model, routed=routing.model)
-            elif not run_msg.model and routing.model:
-                log.info("routing selected model", model=routing.model, scenario=scenario)
-
-            fallback_models = await build_fallback_chain(
-                router,
+            primary_model, routing, fallback_models = await self._resolve_routing_and_fallbacks(
+                run_msg,
                 user_prompt,
-                primary_model,
-                run_msg.termination.max_cost,
-                routing,
-                lambda: get_available_models(self._litellm_url, self._litellm_key),
+                log,
             )
 
             timeout = int(os.getenv("CODEFORGE_CONVERSATION_TIMEOUT", "3600"))
@@ -370,6 +399,7 @@ class ConversationHandlerMixin:
             )
 
         except Exception as exc:
+            # Intentional catch-all: outermost handler safety net
             logger.exception("failed to process conversation run", error=str(exc))
             await self._publish_error_result(msg)
             await msg.ack()
@@ -425,7 +455,7 @@ class ConversationHandlerMixin:
                     error_complete.model_dump_json().encode(),
                     headers={"Nats-Msg-Id": f"conv-error-{uuid.uuid4()}"},
                 )
-        except Exception as exc:
+        except Exception as exc:  # Intentional catch-all: last-resort error notification
             logger.exception("failed to publish conversation error result", error=str(exc))
 
     async def _execute_conversation_run(
