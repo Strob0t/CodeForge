@@ -46,8 +46,9 @@ func (s *Store) ListReviewPoliciesByProject(ctx context.Context, projectID strin
 	tid := tenantFromCtx(ctx)
 	const q = `SELECT id, project_id, tenant_id, name, trigger_type, commit_threshold,
 		cron_expr, branch_pattern, template_id, enabled, commit_counter, created_at, updated_at
-		FROM review_policies WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q, projectID, tid)
+		FROM review_policies WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC
+		LIMIT $3`
+	rows, err := s.pool.Query(ctx, q, projectID, tid, DefaultListLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +89,9 @@ func (s *Store) ListEnabledPoliciesByTrigger(ctx context.Context, triggerType re
 	tid := tenantFromCtx(ctx)
 	const q = `SELECT id, project_id, tenant_id, name, trigger_type, commit_threshold,
 		cron_expr, branch_pattern, template_id, enabled, commit_counter, created_at, updated_at
-		FROM review_policies WHERE trigger_type = $1 AND enabled = true AND tenant_id = $2`
-	rows, err := s.pool.Query(ctx, q, string(triggerType), tid)
+		FROM review_policies WHERE trigger_type = $1 AND enabled = true AND tenant_id = $2
+		LIMIT $3`
+	rows, err := s.pool.Query(ctx, q, string(triggerType), tid, DefaultListLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -157,8 +159,9 @@ func (s *Store) ListReviewsByProject(ctx context.Context, projectID string) ([]r
 	tid := tenantFromCtx(ctx)
 	const q = `SELECT id, policy_id, project_id, tenant_id, plan_id, status,
 		trigger_ref, created_at, completed_at
-		FROM reviews WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q, projectID, tid)
+		FROM reviews WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC
+		LIMIT $3`
+	rows, err := s.pool.Query(ctx, q, projectID, tid, DefaultListLimit)
 	if err != nil {
 		return nil, err
 	}

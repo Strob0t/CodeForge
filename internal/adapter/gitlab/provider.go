@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
 const providerName = "gitlab"
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // Provider implements pmprovider.Provider for GitLab Issues via the REST API v4.
 type Provider struct {
@@ -27,7 +30,7 @@ func NewProvider(baseURL, token string) *Provider {
 	return &Provider{
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		token:      token,
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 	}
 }
 

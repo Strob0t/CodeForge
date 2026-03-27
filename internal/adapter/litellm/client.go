@@ -446,8 +446,8 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		httpReq.Header.Set("Authorization", "Bearer "+key)
 	}
 
-	// Use a client without the default timeout for streaming.
-	streamClient := &http.Client{}
+	// Use a longer timeout for streaming — LLM responses can take minutes.
+	streamClient := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := streamClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("stream request: %w", err)

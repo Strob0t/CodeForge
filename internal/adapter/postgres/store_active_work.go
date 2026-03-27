@@ -35,9 +35,10 @@ func (s *Store) ListActiveWork(ctx context.Context, projectID string) ([]task.Ac
 		WHERE t.project_id = $1
 		  AND t.status IN ('queued', 'running')
 		  AND t.tenant_id = $2
-		ORDER BY t.updated_at ASC`
+		ORDER BY t.updated_at ASC
+		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx))
+	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list active work: %w", err)
 	}

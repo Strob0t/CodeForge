@@ -38,9 +38,10 @@ func (s *Store) ListMemories(ctx context.Context, projectID string) ([]memory.Me
 		SELECT id, tenant_id, project_id, agent_id, run_id, content, kind, importance, metadata, created_at
 		FROM agent_memories
 		WHERE project_id = $1 AND tenant_id = $2
-		ORDER BY created_at DESC`
+		ORDER BY created_at DESC
+		LIMIT $3`
 
-	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx))
+	rows, err := s.pool.Query(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list memories: %w", err)
 	}

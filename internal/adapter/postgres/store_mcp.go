@@ -55,8 +55,9 @@ func (s *Store) GetMCPServer(ctx context.Context, id string) (*mcp.ServerDef, er
 func (s *Store) ListMCPServers(ctx context.Context) ([]mcp.ServerDef, error) {
 	tid := tenantFromCtx(ctx)
 	const q = `SELECT id, name, description, transport, command, args, url, env, headers, enabled, status
-		FROM mcp_servers WHERE tenant_id = $1 ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q, tid)
+		FROM mcp_servers WHERE tenant_id = $1 ORDER BY created_at DESC
+		LIMIT $2`
+	rows, err := s.pool.Query(ctx, q, tid, DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list mcp servers: %w", err)
 	}
@@ -137,8 +138,9 @@ func (s *Store) ListMCPServersByProject(ctx context.Context, projectID string) (
 		FROM mcp_servers s
 		JOIN project_mcp_servers ps ON ps.mcp_server_id = s.id
 		WHERE ps.project_id = $1 AND s.tenant_id = $2
-		ORDER BY s.name`
-	rows, err := s.pool.Query(ctx, q, projectID, tid)
+		ORDER BY s.name
+		LIMIT $3`
+	rows, err := s.pool.Query(ctx, q, projectID, tid, DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list mcp servers for project %s: %w", projectID, err)
 	}
@@ -178,8 +180,8 @@ func (s *Store) UpsertMCPServerTools(ctx context.Context, serverID string, tools
 
 // ListMCPServerTools returns all cached tools for an MCP server.
 func (s *Store) ListMCPServerTools(ctx context.Context, serverID string) ([]mcp.ServerTool, error) {
-	const q = `SELECT t.server_id, t.name, t.description, t.input_schema FROM mcp_server_tools t JOIN mcp_servers s ON s.id = t.server_id WHERE t.server_id = $1 AND s.tenant_id = $2 ORDER BY t.name`
-	rows, err := s.pool.Query(ctx, q, serverID, tenantFromCtx(ctx))
+	const q = `SELECT t.server_id, t.name, t.description, t.input_schema FROM mcp_server_tools t JOIN mcp_servers s ON s.id = t.server_id WHERE t.server_id = $1 AND s.tenant_id = $2 ORDER BY t.name LIMIT $3`
+	rows, err := s.pool.Query(ctx, q, serverID, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list mcp server tools %s: %w", serverID, err)
 	}

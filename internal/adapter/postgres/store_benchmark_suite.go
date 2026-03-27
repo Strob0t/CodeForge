@@ -47,8 +47,9 @@ func (s *Store) GetBenchmarkSuite(ctx context.Context, id string) (*benchmark.Su
 // ListBenchmarkSuites returns all registered benchmark suites.
 func (s *Store) ListBenchmarkSuites(ctx context.Context) ([]benchmark.Suite, error) {
 	const q = `SELECT id, tenant_id, name, description, type, provider_name, task_count, config, created_at
-		FROM benchmark_suites WHERE tenant_id = $1 ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q, tenantFromCtx(ctx))
+		FROM benchmark_suites WHERE tenant_id = $1 ORDER BY created_at DESC
+		LIMIT $2`
+	rows, err := s.pool.Query(ctx, q, tenantFromCtx(ctx), DefaultListLimit)
 	if err != nil {
 		return nil, fmt.Errorf("list benchmark suites: %w", err)
 	}

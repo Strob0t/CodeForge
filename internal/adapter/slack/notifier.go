@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 )
 
 const providerName = "slack"
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // Notifier sends notifications to Slack via incoming webhook.
 type Notifier struct {
@@ -24,7 +27,7 @@ type Notifier struct {
 func NewNotifier(webhookURL string) *Notifier {
 	return &Notifier{
 		webhookURL: webhookURL,
-		httpClient: http.DefaultClient,
+		httpClient: httpClient,
 	}
 }
 

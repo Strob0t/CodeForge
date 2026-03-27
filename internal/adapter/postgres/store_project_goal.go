@@ -47,9 +47,10 @@ func (s *Store) ListProjectGoals(ctx context.Context, projectID string) ([]goal.
 		SELECT id, tenant_id, project_id, kind, title, content, source, source_path, priority, enabled, created_at, updated_at
 		FROM project_goals
 		WHERE project_id = $1 AND tenant_id = $2
-		ORDER BY priority DESC, created_at ASC`
+		ORDER BY priority DESC, created_at ASC
+		LIMIT $3`
 
-	return s.scanGoals(ctx, q, projectID, tenantFromCtx(ctx))
+	return s.scanGoals(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 }
 
 // ListEnabledGoals returns enabled goals for a project, ordered by priority descending.
@@ -58,9 +59,10 @@ func (s *Store) ListEnabledGoals(ctx context.Context, projectID string) ([]goal.
 		SELECT id, tenant_id, project_id, kind, title, content, source, source_path, priority, enabled, created_at, updated_at
 		FROM project_goals
 		WHERE project_id = $1 AND tenant_id = $2 AND enabled = TRUE
-		ORDER BY priority DESC, created_at ASC`
+		ORDER BY priority DESC, created_at ASC
+		LIMIT $3`
 
-	return s.scanGoals(ctx, q, projectID, tenantFromCtx(ctx))
+	return s.scanGoals(ctx, q, projectID, tenantFromCtx(ctx), DefaultListLimit)
 }
 
 // UpdateProjectGoal updates a project goal.

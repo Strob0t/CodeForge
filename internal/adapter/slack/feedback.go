@@ -22,7 +22,7 @@ type FeedbackProvider struct {
 func NewFeedbackProvider(webhookURL string) *FeedbackProvider {
 	return &FeedbackProvider{
 		webhookURL: webhookURL,
-		httpClient: &http.Client{},
+		httpClient: httpClient,
 	}
 }
 
