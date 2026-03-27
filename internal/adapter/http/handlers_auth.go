@@ -468,3 +468,24 @@ func (h *Handlers) AdminForcePasswordChange(w http.ResponseWriter, r *http.Reque
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_changed"})
 }
+
+// IssueWSTicket handles POST /api/v1/ws/ticket.
+// It issues a single-use, short-lived ticket that the client exchanges for a
+// WebSocket upgrade, preventing credentials from appearing in query strings
+// (CWE-598 mitigation, audit finding F-032).
+func (h *Handlers) IssueWSTicket(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	tenantID := middleware.TenantIDFromContext(r.Context())
+
+	ticket := h.WSTickets.Issue(u.ID, tenantID)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ticket":     ticket,
+		"expires_in": 30,
+	})
+}

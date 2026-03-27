@@ -1,6 +1,7 @@
 package http
 
 import (
+	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
@@ -99,4 +100,5 @@ type Handlers struct {
 	ReviewTrigger      *service.ReviewTriggerService
 	PromptEvolution    *service.PromptEvolutionService
 	GDPR               *service.GDPRService
+	WSTickets          *ws.TicketStore
 }

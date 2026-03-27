@@ -614,6 +614,9 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	}
 
+	// WebSocket ticket exchange (CWE-598: single-use ticket replaces token-in-URL)
+	r.Post("/ws/ticket", h.IssueWSTicket)
+
 	// Auth (authenticated)
 	r.With(audit("logout", "auth")).
 		Post("/auth/logout", h.Logout)
