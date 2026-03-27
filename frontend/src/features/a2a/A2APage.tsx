@@ -1,17 +1,13 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
-import { api } from "~/api/client";
 import type {
   A2APushConfig,
   A2ARemoteAgent,
   A2ATask,
   A2ATaskDirection,
   A2ATaskState,
-  CreateA2ARemoteAgentRequest,
-  SendA2ATaskRequest,
 } from "~/api/types";
 import { useToast } from "~/components/Toast";
-import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import {
   Badge,
@@ -30,6 +26,8 @@ import {
   Textarea,
 } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
+
+import { useAgentsTab, usePushConfigsTab, useTasksTab } from "./useA2APage";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,63 +95,7 @@ export default function A2APage() {
 function AgentsTab() {
   const { t } = useI18n();
   const { show: toast } = useToast();
-  const [agents, { refetch }] = createResource(() => api.a2a.listAgents());
-  const [showForm, setShowForm] = createSignal(false);
-  const [deleteTarget, setDeleteTarget] = createSignal<A2ARemoteAgent | null>(null);
-
-  // Form state
-  const [name, setName] = createSignal("");
-  const [agentUrl, setAgentUrl] = createSignal("");
-  const [trustLevel, setTrustLevel] = createSignal("untrusted");
-
-  function resetForm(): void {
-    setName("");
-    setAgentUrl("");
-    setTrustLevel("untrusted");
-    setShowForm(false);
-  }
-
-  const {
-    run: handleRegister,
-    loading: registering,
-    error: registerError,
-    clearError,
-  } = useAsyncAction(
-    async () => {
-      const req: CreateA2ARemoteAgentRequest = {
-        name: name().trim(),
-        url: agentUrl().trim(),
-        trust_level: trustLevel(),
-      };
-      if (!req.name || !req.url) return;
-      await api.a2a.registerAgent(req);
-      toast("success", t("a2a.agents.toast.registered"));
-      resetForm();
-      refetch();
-    },
-    { onError: () => toast("error", "Failed to register agent.") },
-  );
-
-  const { run: handleDiscover } = useAsyncAction(
-    async (id: string) => {
-      await api.a2a.discoverAgent(id);
-      toast("success", t("a2a.agents.toast.discovered"));
-      refetch();
-    },
-    { onError: () => toast("error", "Discovery failed.") },
-  );
-
-  const { run: handleDelete } = useAsyncAction(
-    async () => {
-      const target = deleteTarget();
-      if (!target) return;
-      await api.a2a.deleteAgent(target.id);
-      toast("success", t("a2a.agents.toast.deleted"));
-      setDeleteTarget(null);
-      refetch();
-    },
-    { onError: () => toast("error", "Delete failed.") },
-  );
+  const data = useAgentsTab(toast, t);
 
   const columns: TableColumn<A2ARemoteAgent>[] = [
     {
@@ -209,14 +151,14 @@ function AgentsTab() {
       header: "",
       render: (agent) => (
         <div class="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => void handleDiscover(agent.id)}>
+          <Button variant="secondary" size="sm" onClick={() => void data.handleDiscover(agent.id)}>
             {t("a2a.agents.discover")}
           </Button>
           <Button
             variant="ghost"
             size="sm"
             class="text-cf-danger-fg hover:text-cf-danger-fg"
-            onClick={() => setDeleteTarget(agent)}
+            onClick={() => data.setDeleteTarget(agent)}
           >
             {t("common.delete")}
           </Button>
@@ -229,25 +171,25 @@ function AgentsTab() {
     <>
       <div class="mb-4 flex justify-end">
         <Button
-          variant={showForm() ? "secondary" : "primary"}
+          variant={data.showForm() ? "secondary" : "primary"}
           onClick={() => {
-            if (showForm()) resetForm();
-            else setShowForm(true);
+            if (data.showForm()) data.resetForm();
+            else data.setShowForm(true);
           }}
         >
-          {showForm() ? t("common.cancel") : t("a2a.agents.register")}
+          {data.showForm() ? t("common.cancel") : t("a2a.agents.register")}
         </Button>
       </div>
 
-      <ErrorBanner error={registerError} onDismiss={clearError} />
+      <ErrorBanner error={data.registerError} onDismiss={data.clearRegisterError} />
 
-      <Show when={showForm()}>
+      <Show when={data.showForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleRegister();
+                void data.handleRegister();
               }}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -255,8 +197,8 @@ function AgentsTab() {
                   <Input
                     id="a2a-agent-name"
                     type="text"
-                    value={name()}
-                    onInput={(e) => setName(e.currentTarget.value)}
+                    value={data.name()}
+                    onInput={(e) => data.setName(e.currentTarget.value)}
                     placeholder="my-remote-agent"
                     aria-required="true"
                   />
@@ -265,8 +207,8 @@ function AgentsTab() {
                   <Input
                     id="a2a-agent-url"
                     type="text"
-                    value={agentUrl()}
-                    onInput={(e) => setAgentUrl(e.currentTarget.value)}
+                    value={data.agentUrl()}
+                    onInput={(e) => data.setAgentUrl(e.currentTarget.value)}
                     placeholder="https://agent.example.com"
                     mono
                     aria-required="true"
@@ -275,8 +217,8 @@ function AgentsTab() {
                 <FormField label={t("a2a.agents.trustLevel")} id="a2a-agent-trust">
                   <Select
                     id="a2a-agent-trust"
-                    value={trustLevel()}
-                    onChange={(e) => setTrustLevel(e.currentTarget.value)}
+                    value={data.trustLevel()}
+                    onChange={(e) => data.setTrustLevel(e.currentTarget.value)}
                   >
                     <For each={[...TRUST_LEVELS]}>
                       {(level) => <option value={level}>{level}</option>}
@@ -285,13 +227,13 @@ function AgentsTab() {
                 </FormField>
               </div>
               <div class="mt-4 flex justify-end gap-2">
-                <Button variant="secondary" onClick={resetForm}>
+                <Button variant="secondary" onClick={data.resetForm}>
                   {t("common.cancel")}
                 </Button>
                 <Button
                   type="submit"
-                  disabled={registering() || !name().trim() || !agentUrl().trim()}
-                  loading={registering()}
+                  disabled={data.registering() || !data.name().trim() || !data.agentUrl().trim()}
+                  loading={data.registering()}
                 >
                   {t("a2a.agents.register")}
                 </Button>
@@ -301,28 +243,32 @@ function AgentsTab() {
         </Card>
       </Show>
 
-      <Show when={agents.loading}>
+      <Show when={data.agents.loading}>
         <LoadingState message={t("common.loading")} />
       </Show>
 
-      <Show when={!agents.loading && !agents.error}>
+      <Show when={!data.agents.loading && !data.agents.error}>
         <Show
-          when={(agents() ?? []).length > 0}
+          when={(data.agents() ?? []).length > 0}
           fallback={<EmptyState title={t("a2a.agents.empty")} />}
         >
-          <Table<A2ARemoteAgent> columns={columns} data={agents() ?? []} rowKey={(a) => a.id} />
+          <Table<A2ARemoteAgent>
+            columns={columns}
+            data={data.agents() ?? []}
+            rowKey={(a) => a.id}
+          />
         </Show>
       </Show>
 
       <ConfirmDialog
-        open={deleteTarget() !== null}
+        open={data.deleteTarget() !== null}
         title={t("common.delete")}
-        message={`Delete agent "${deleteTarget()?.name ?? ""}"?`}
+        message={`Delete agent "${data.deleteTarget()?.name ?? ""}"?`}
         variant="danger"
         confirmLabel={t("common.delete")}
         cancelLabel={t("common.cancel")}
-        onConfirm={() => void handleDelete()}
-        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void data.handleDelete()}
+        onCancel={() => data.setDeleteTarget(null)}
       />
     </>
   );
@@ -335,54 +281,7 @@ function AgentsTab() {
 function TasksTab() {
   const { t } = useI18n();
   const { show: toast } = useToast();
-
-  // Filters
-  const [filterState, setFilterState] = createSignal("");
-  const [filterDirection, setFilterDirection] = createSignal("");
-
-  const [tasks, { refetch }] = createResource(
-    () => ({ state: filterState(), direction: filterDirection() }),
-    (params) => api.a2a.listTasks(params.state || undefined, params.direction || undefined),
-  );
-
-  // Send-task form
-  const [showSendForm, setShowSendForm] = createSignal(false);
-  const [agents] = createResource(() => api.a2a.listAgents());
-  const [sendAgentId, setSendAgentId] = createSignal("");
-  const [sendSkillId, setSendSkillId] = createSignal("");
-  const [sendPrompt, setSendPrompt] = createSignal("");
-
-  function resetSendForm(): void {
-    setSendAgentId("");
-    setSendSkillId("");
-    setSendPrompt("");
-    setShowSendForm(false);
-  }
-
-  const { run: handleSend, loading: sending } = useAsyncAction(
-    async () => {
-      const agentId = sendAgentId();
-      if (!agentId || !sendSkillId().trim() || !sendPrompt().trim()) return;
-      const req: SendA2ATaskRequest = {
-        skill_id: sendSkillId().trim(),
-        prompt: sendPrompt().trim(),
-      };
-      await api.a2a.sendTask(agentId, req);
-      toast("success", t("a2a.tasks.toast.sent"));
-      resetSendForm();
-      refetch();
-    },
-    { onError: () => toast("error", "Failed to send task.") },
-  );
-
-  const { run: handleCancel } = useAsyncAction(
-    async (id: string) => {
-      await api.a2a.cancelTask(id);
-      toast("success", t("a2a.tasks.toast.cancelled"));
-      refetch();
-    },
-    { onError: () => toast("error", "Cancel failed.") },
-  );
+  const data = useTasksTab(toast, t);
 
   const columns: TableColumn<A2ATask>[] = [
     {
@@ -429,7 +328,7 @@ function TasksTab() {
       header: "",
       render: (task) => (
         <Show when={!TERMINAL_STATES.has(task.state)}>
-          <Button variant="secondary" size="sm" onClick={() => void handleCancel(task.id)}>
+          <Button variant="secondary" size="sm" onClick={() => void data.handleCancel(task.id)}>
             {t("a2a.tasks.cancel")}
           </Button>
         </Show>
@@ -444,8 +343,8 @@ function TasksTab() {
         <FormField label={t("a2a.tasks.filterState")} id="a2a-filter-state">
           <Select
             id="a2a-filter-state"
-            value={filterState()}
-            onChange={(e) => setFilterState(e.currentTarget.value)}
+            value={data.filterState()}
+            onChange={(e) => data.setFilterState(e.currentTarget.value)}
           >
             <option value="">{t("a2a.tasks.all")}</option>
             <For each={TASK_STATES}>{(s) => <option value={s}>{s}</option>}</For>
@@ -454,8 +353,8 @@ function TasksTab() {
         <FormField label={t("a2a.tasks.filterDirection")} id="a2a-filter-direction">
           <Select
             id="a2a-filter-direction"
-            value={filterDirection()}
-            onChange={(e) => setFilterDirection(e.currentTarget.value)}
+            value={data.filterDirection()}
+            onChange={(e) => data.setFilterDirection(e.currentTarget.value)}
           >
             <option value="">{t("a2a.tasks.all")}</option>
             <option value="inbound">inbound</option>
@@ -463,35 +362,35 @@ function TasksTab() {
           </Select>
         </FormField>
         <Button
-          variant={showSendForm() ? "secondary" : "primary"}
+          variant={data.showSendForm() ? "secondary" : "primary"}
           onClick={() => {
-            if (showSendForm()) resetSendForm();
-            else setShowSendForm(true);
+            if (data.showSendForm()) data.resetSendForm();
+            else data.setShowSendForm(true);
           }}
         >
-          {showSendForm() ? t("common.cancel") : t("a2a.tasks.send")}
+          {data.showSendForm() ? t("common.cancel") : t("a2a.tasks.send")}
         </Button>
       </div>
 
       {/* Send task form */}
-      <Show when={showSendForm()}>
+      <Show when={data.showSendForm()}>
         <Card class="mb-6">
           <Card.Body>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleSend();
+                void data.handleSend();
               }}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField label={t("a2a.tasks.remoteAgent")} id="a2a-send-agent" required>
                   <Select
                     id="a2a-send-agent"
-                    value={sendAgentId()}
-                    onChange={(e) => setSendAgentId(e.currentTarget.value)}
+                    value={data.sendAgentId()}
+                    onChange={(e) => data.setSendAgentId(e.currentTarget.value)}
                   >
                     <option value="">{t("common.select")}</option>
-                    <For each={agents() ?? []}>
+                    <For each={data.agents() ?? []}>
                       {(agent) => <option value={agent.id}>{agent.name}</option>}
                     </For>
                   </Select>
@@ -500,8 +399,8 @@ function TasksTab() {
                   <Input
                     id="a2a-send-skill"
                     type="text"
-                    value={sendSkillId()}
-                    onInput={(e) => setSendSkillId(e.currentTarget.value)}
+                    value={data.sendSkillId()}
+                    onInput={(e) => data.setSendSkillId(e.currentTarget.value)}
                     placeholder="code_review"
                     mono
                     aria-required="true"
@@ -515,23 +414,26 @@ function TasksTab() {
                 >
                   <Textarea
                     id="a2a-send-prompt"
-                    value={sendPrompt()}
-                    onInput={(e) => setSendPrompt(e.currentTarget.value)}
+                    value={data.sendPrompt()}
+                    onInput={(e) => data.setSendPrompt(e.currentTarget.value)}
                     rows={3}
                     placeholder="Describe the task..."
                   />
                 </FormField>
               </div>
               <div class="mt-4 flex justify-end gap-2">
-                <Button variant="secondary" onClick={resetSendForm}>
+                <Button variant="secondary" onClick={data.resetSendForm}>
                   {t("common.cancel")}
                 </Button>
                 <Button
                   type="submit"
                   disabled={
-                    sending() || !sendAgentId() || !sendSkillId().trim() || !sendPrompt().trim()
+                    data.sending() ||
+                    !data.sendAgentId() ||
+                    !data.sendSkillId().trim() ||
+                    !data.sendPrompt().trim()
                   }
-                  loading={sending()}
+                  loading={data.sending()}
                 >
                   {t("a2a.tasks.send")}
                 </Button>
@@ -541,16 +443,16 @@ function TasksTab() {
         </Card>
       </Show>
 
-      <Show when={tasks.loading}>
+      <Show when={data.tasks.loading}>
         <LoadingState message={t("common.loading")} />
       </Show>
 
-      <Show when={!tasks.loading && !tasks.error}>
+      <Show when={!data.tasks.loading && !data.tasks.error}>
         <Show
-          when={(tasks() ?? []).length > 0}
+          when={(data.tasks() ?? []).length > 0}
           fallback={<EmptyState title={t("a2a.tasks.empty")} />}
         >
-          <Table<A2ATask> columns={columns} data={tasks() ?? []} rowKey={(t) => t.id} />
+          <Table<A2ATask> columns={columns} data={data.tasks() ?? []} rowKey={(t) => t.id} />
         </Show>
       </Show>
     </>
@@ -564,55 +466,7 @@ function TasksTab() {
 function PushConfigsTab() {
   const { t } = useI18n();
   const { show: toast } = useToast();
-
-  // Load tasks for the dropdown
-  const [allTasks] = createResource(() => api.a2a.listTasks());
-  const [selectedTaskId, setSelectedTaskId] = createSignal("");
-  const [deleteTarget, setDeleteTarget] = createSignal<A2APushConfig | null>(null);
-
-  // Push configs for the selected task
-  const [configs, { refetch }] = createResource(
-    () => selectedTaskId(),
-    (taskId) => (taskId ? api.a2a.listPushConfigs(taskId) : Promise.resolve([])),
-  );
-
-  // Create form
-  const [showForm, setShowForm] = createSignal(false);
-  const [webhookUrl, setWebhookUrl] = createSignal("");
-  const [webhookToken, setWebhookToken] = createSignal("");
-
-  function resetForm(): void {
-    setWebhookUrl("");
-    setWebhookToken("");
-    setShowForm(false);
-  }
-
-  const { run: handleCreate, loading: creating } = useAsyncAction(
-    async () => {
-      const taskId = selectedTaskId();
-      if (!taskId || !webhookUrl().trim()) return;
-      await api.a2a.createPushConfig(taskId, {
-        url: webhookUrl().trim(),
-        token: webhookToken().trim() || undefined,
-      });
-      toast("success", t("a2a.pushConfigs.toast.created"));
-      resetForm();
-      refetch();
-    },
-    { onError: () => toast("error", "Failed to create push config.") },
-  );
-
-  const { run: handleDeleteConfig } = useAsyncAction(
-    async () => {
-      const target = deleteTarget();
-      if (!target) return;
-      await api.a2a.deletePushConfig(target.id);
-      toast("success", t("a2a.pushConfigs.toast.deleted"));
-      setDeleteTarget(null);
-      refetch();
-    },
-    { onError: () => toast("error", "Delete failed.") },
-  );
+  const data = usePushConfigsTab(toast, t);
 
   const columns: TableColumn<A2APushConfig>[] = [
     {
@@ -647,7 +501,7 @@ function PushConfigsTab() {
           variant="ghost"
           size="sm"
           class="text-cf-danger-fg hover:text-cf-danger-fg"
-          onClick={() => setDeleteTarget(cfg)}
+          onClick={() => data.setDeleteTarget(cfg)}
         >
           {t("common.delete")}
         </Button>
@@ -661,11 +515,11 @@ function PushConfigsTab() {
         <FormField label={t("a2a.pushConfigs.selectTask")} id="a2a-push-task">
           <Select
             id="a2a-push-task"
-            value={selectedTaskId()}
-            onChange={(e) => setSelectedTaskId(e.currentTarget.value)}
+            value={data.selectedTaskId()}
+            onChange={(e) => data.setSelectedTaskId(e.currentTarget.value)}
           >
             <option value="">{t("common.select")}</option>
-            <For each={allTasks() ?? []}>
+            <For each={data.allTasks() ?? []}>
               {(task) => (
                 <option value={task.id}>
                   {task.id.slice(0, 8)} ({task.state})
@@ -674,26 +528,26 @@ function PushConfigsTab() {
             </For>
           </Select>
         </FormField>
-        <Show when={selectedTaskId()}>
+        <Show when={data.selectedTaskId()}>
           <Button
-            variant={showForm() ? "secondary" : "primary"}
+            variant={data.showForm() ? "secondary" : "primary"}
             onClick={() => {
-              if (showForm()) resetForm();
-              else setShowForm(true);
+              if (data.showForm()) data.resetForm();
+              else data.setShowForm(true);
             }}
           >
-            {showForm() ? t("common.cancel") : t("a2a.pushConfigs.create")}
+            {data.showForm() ? t("common.cancel") : t("a2a.pushConfigs.create")}
           </Button>
         </Show>
       </div>
 
-      <Show when={showForm() && selectedTaskId()}>
+      <Show when={data.showForm() && data.selectedTaskId()}>
         <Card class="mb-6">
           <Card.Body>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleCreate();
+                void data.handleCreate();
               }}
             >
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -701,8 +555,8 @@ function PushConfigsTab() {
                   <Input
                     id="a2a-push-url"
                     type="text"
-                    value={webhookUrl()}
-                    onInput={(e) => setWebhookUrl(e.currentTarget.value)}
+                    value={data.webhookUrl()}
+                    onInput={(e) => data.setWebhookUrl(e.currentTarget.value)}
                     placeholder="https://webhook.example.com/a2a"
                     mono
                     aria-required="true"
@@ -712,21 +566,21 @@ function PushConfigsTab() {
                   <Input
                     id="a2a-push-token"
                     type="password"
-                    value={webhookToken()}
-                    onInput={(e) => setWebhookToken(e.currentTarget.value)}
+                    value={data.webhookToken()}
+                    onInput={(e) => data.setWebhookToken(e.currentTarget.value)}
                     placeholder="optional bearer token"
                     mono
                   />
                 </FormField>
               </div>
               <div class="mt-4 flex justify-end gap-2">
-                <Button variant="secondary" onClick={resetForm}>
+                <Button variant="secondary" onClick={data.resetForm}>
                   {t("common.cancel")}
                 </Button>
                 <Button
                   type="submit"
-                  disabled={creating() || !webhookUrl().trim()}
-                  loading={creating()}
+                  disabled={data.creating() || !data.webhookUrl().trim()}
+                  loading={data.creating()}
                 >
                   {t("a2a.pushConfigs.create")}
                 </Button>
@@ -736,34 +590,38 @@ function PushConfigsTab() {
         </Card>
       </Show>
 
-      <Show when={!selectedTaskId()}>
+      <Show when={!data.selectedTaskId()}>
         <EmptyState title={t("a2a.pushConfigs.selectTask")} />
       </Show>
 
-      <Show when={selectedTaskId()}>
-        <Show when={configs.loading}>
+      <Show when={data.selectedTaskId()}>
+        <Show when={data.configs.loading}>
           <LoadingState message={t("common.loading")} />
         </Show>
 
-        <Show when={!configs.loading && !configs.error}>
+        <Show when={!data.configs.loading && !data.configs.error}>
           <Show
-            when={(configs() ?? []).length > 0}
+            when={(data.configs() ?? []).length > 0}
             fallback={<EmptyState title={t("a2a.pushConfigs.empty")} />}
           >
-            <Table<A2APushConfig> columns={columns} data={configs() ?? []} rowKey={(c) => c.id} />
+            <Table<A2APushConfig>
+              columns={columns}
+              data={data.configs() ?? []}
+              rowKey={(c) => c.id}
+            />
           </Show>
         </Show>
       </Show>
 
       <ConfirmDialog
-        open={deleteTarget() !== null}
+        open={data.deleteTarget() !== null}
         title={t("common.delete")}
-        message={`Delete push config "${deleteTarget()?.id.slice(0, 8) ?? ""}"?`}
+        message={`Delete push config "${data.deleteTarget()?.id.slice(0, 8) ?? ""}"?`}
         variant="danger"
         confirmLabel={t("common.delete")}
         cancelLabel={t("common.cancel")}
-        onConfirm={() => void handleDeleteConfig()}
-        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void data.handleDeleteConfig()}
+        onCancel={() => data.setDeleteTarget(null)}
       />
     </>
   );

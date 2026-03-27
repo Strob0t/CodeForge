@@ -138,17 +138,6 @@ export interface Agent {
   last_active_at?: string;
 }
 
-/** Matches Go domain/agent.InboxMessage */
-export interface InboxMessage {
-  id: string;
-  agent_id: string;
-  from_agent: string;
-  content: string;
-  priority: number;
-  read: boolean;
-  created_at: string;
-}
-
 /** Create agent request */
 export interface CreateAgentRequest {
   name: string;
@@ -281,19 +270,6 @@ export interface ToolCallEvent {
   phase: string;
 }
 
-/** WS event: run status change */
-export interface RunStatusEvent {
-  run_id: string;
-  task_id: string;
-  project_id: string;
-  status: RunStatus;
-  step_count: number;
-  cost_usd?: number;
-  tokens_in?: number;
-  tokens_out?: number;
-  model?: string;
-}
-
 /** WS event: budget alert */
 export interface BudgetAlertEvent {
   run_id: string;
@@ -302,31 +278,6 @@ export interface BudgetAlertEvent {
   cost_usd: number;
   max_cost: number;
   percentage: number;
-}
-
-/** WS event: quality gate status */
-export interface QualityGateEvent {
-  run_id: string;
-  task_id: string;
-  project_id: string;
-  status: "started" | "passed" | "failed";
-  tests_passed?: boolean;
-  lint_passed?: boolean;
-  error?: string;
-}
-
-/** WS event: delivery status */
-export interface DeliveryEvent {
-  run_id: string;
-  task_id: string;
-  project_id: string;
-  status: "started" | "completed" | "failed";
-  mode: string;
-  patch_path?: string;
-  commit_hash?: string;
-  branch_name?: string;
-  pr_url?: string;
-  error?: string;
 }
 
 // --- Execution Plan types (Phase 5A) ---
@@ -397,24 +348,6 @@ export interface CreatePlanRequest {
   steps: CreateStepRequest[];
 }
 
-/** WS event: plan status change */
-export interface PlanStatusEvent {
-  plan_id: string;
-  project_id: string;
-  status: PlanStatus;
-}
-
-/** WS event: plan step status change */
-export interface PlanStepStatusEvent {
-  plan_id: string;
-  step_id: string;
-  project_id: string;
-  status: PlanStepStatus;
-  run_id: string;
-  error: string;
-  review_decision?: ReviewDecisionSnapshot;
-}
-
 /** Snapshot of a review router decision embedded in step events */
 export interface ReviewDecisionSnapshot {
   needs_review: boolean;
@@ -429,18 +362,6 @@ export interface ReviewDecision {
   confidence: number;
   reason: string;
   suggested_reviewers: string[];
-}
-
-/** WS event: review router decision */
-export interface ReviewRouterDecisionEvent {
-  plan_id: string;
-  step_id: string;
-  project_id: string;
-  needs_review: boolean;
-  confidence: number;
-  reason: string;
-  suggested_reviewers: string[];
-  routed: boolean;
 }
 
 /** WS event: multi-agent debate status */
@@ -483,12 +404,6 @@ export interface PlanGraph {
 
 // --- Feature Decomposition types (Phase 5B) ---
 
-/** Orchestrator mode enum matching Go domain/plan.OrchestratorMode */
-export type OrchestratorMode = "manual" | "semi_auto" | "full_auto";
-
-/** Agent strategy enum matching Go domain/plan.AgentStrategy */
-export type AgentStrategy = "single" | "pair" | "team";
-
 /** Feature decomposition request matching Go domain/plan.DecomposeRequest */
 export interface DecomposeRequest {
   feature: string;
@@ -526,46 +441,7 @@ export interface AgentTeam {
   updated_at: string;
 }
 
-/** Create team request matching Go domain/agent.CreateTeamRequest */
-export interface CreateTeamRequest {
-  name: string;
-  protocol: string;
-  members: { agent_id: string; role: TeamRole }[];
-}
-
 // --- Context types (Phase 5D) ---
-
-/** Context entry kind enum matching Go domain/context.EntryKind */
-export type ContextEntryKind =
-  | "file"
-  | "snippet"
-  | "summary"
-  | "shared"
-  | "repomap"
-  | "hybrid"
-  | "graph";
-
-/** Matches Go domain/context.ContextEntry */
-export interface ContextEntry {
-  id: string;
-  pack_id: string;
-  kind: ContextEntryKind;
-  path: string;
-  content: string;
-  tokens: number;
-  priority: number;
-}
-
-/** Matches Go domain/context.ContextPack */
-export interface ContextPack {
-  id: string;
-  task_id: string;
-  project_id: string;
-  token_budget: number;
-  tokens_used: number;
-  entries: ContextEntry[];
-  created_at: string;
-}
 
 /** Matches Go domain/context.SharedContextItem */
 export interface SharedContextItem {
@@ -587,13 +463,6 @@ export interface SharedContext {
   items: SharedContextItem[];
   created_at: string;
   updated_at: string;
-}
-
-/** Matches Go domain/context.AddSharedItemRequest */
-export interface AddSharedItemRequest {
-  key: string;
-  value: string;
-  author: string;
 }
 
 // --- Mode types (Phase 5E) ---
@@ -627,24 +496,6 @@ export interface CreateModeRequest {
   prompt_prefix?: string;
 }
 
-// --- WS events (Phase 5E) ---
-
-/** WS event: team status change */
-export interface TeamStatusEvent {
-  team_id: string;
-  project_id: string;
-  status: TeamStatus;
-  name: string;
-}
-
-/** WS event: shared context update */
-export interface SharedContextUpdateEvent {
-  team_id: string;
-  key: string;
-  author: string;
-  version: number;
-}
-
 // --- RepoMap types (Phase 6A) ---
 
 /** Matches Go domain/context.RepoMap */
@@ -659,16 +510,6 @@ export interface RepoMap {
   version: number;
   created_at: string;
   updated_at: string;
-}
-
-/** WS event: repo map status change */
-export interface RepoMapStatusEvent {
-  project_id: string;
-  status: "generating" | "ready" | "failed";
-  token_count?: number;
-  file_count?: number;
-  symbol_count?: number;
-  error?: string;
 }
 
 // --- Retrieval types (Phase 6B) ---
@@ -735,16 +576,6 @@ export interface SubAgentSearchResult {
   error?: string;
 }
 
-/** WS event: retrieval status change */
-export interface RetrievalStatusEvent {
-  project_id: string;
-  status: "building" | "ready" | "error";
-  file_count?: number;
-  chunk_count?: number;
-  embedding_model?: string;
-  error?: string;
-}
-
 // --- GraphRAG types (Phase 6D) ---
 
 /** Graph node kind */
@@ -785,16 +616,6 @@ export interface GraphSearchResult {
   project_id: string;
   request_id: string;
   results: GraphSearchHit[];
-  error?: string;
-}
-
-/** WS event: graph status change */
-export interface GraphStatusEvent {
-  project_id: string;
-  status: "building" | "ready" | "error";
-  node_count?: number;
-  edge_count?: number;
-  languages?: string[];
   error?: string;
 }
 
@@ -1032,14 +853,6 @@ export interface ProviderInfo {
   capabilities: Record<string, boolean>;
 }
 
-/** WS event: roadmap status change */
-export interface RoadmapStatusEvent {
-  roadmap_id: string;
-  project_id: string;
-  status: string;
-  title: string;
-}
-
 // --- Trajectory types (Phase 8) ---
 
 /** Trajectory page response */
@@ -1185,61 +998,6 @@ export interface BackendList {
   backends: string[];
 }
 
-// --- AG-UI Protocol Types ---
-
-export interface AGUIRunStartedEvent {
-  run_id: string;
-  thread_id?: string;
-  agent_name?: string;
-}
-
-export interface AGUIRunFinishedEvent {
-  run_id: string;
-  status: "completed" | "failed" | "cancelled";
-  model?: string;
-  cost_usd?: number;
-  tokens_in?: number;
-  tokens_out?: number;
-  steps?: number;
-}
-
-export interface AGUITextMessageEvent {
-  run_id: string;
-  role: string;
-  content: string;
-}
-
-export interface AGUIToolCallEvent {
-  run_id: string;
-  call_id: string;
-  name: string;
-  args: string;
-}
-
-export interface AGUIToolResultEvent {
-  run_id: string;
-  call_id: string;
-  result: string;
-  error?: string;
-}
-
-export interface AGUIStateDeltaEvent {
-  run_id: string;
-  delta: string;
-}
-
-export interface AGUIStepStartedEvent {
-  run_id: string;
-  step_id: string;
-  name: string;
-}
-
-export interface AGUIStepFinishedEvent {
-  run_id: string;
-  step_id: string;
-  status: "completed" | "failed";
-}
-
 // Phase 6: Automatic Orchestration
 
 /** Matches Go domain/project.SetupStep */
@@ -1330,13 +1088,6 @@ export interface CreateScopeRequest {
   type: ScopeType;
   project_ids: string[];
   description: string;
-}
-
-/** Matches Go domain/context.UpdateScopeRequest */
-export interface UpdateScopeRequest {
-  name?: string;
-  description?: string;
-  project_ids?: string[];
 }
 
 // --- Conversation types ---
@@ -1485,54 +1236,6 @@ export interface LSPServerInfo {
   pid?: number;
   error?: string;
   diagnostics: number;
-}
-
-/** Matches Go domain/lsp.Diagnostic */
-export interface LSPDiagnostic {
-  range: { start: { line: number; character: number }; end: { line: number; character: number } };
-  severity: number;
-  source: string;
-  message: string;
-  code?: string;
-}
-
-/** Matches Go domain/lsp.Location */
-export interface LSPLocation {
-  uri: string;
-  range: { start: { line: number; character: number }; end: { line: number; character: number } };
-}
-
-/** Matches Go domain/lsp.DocumentSymbol */
-export interface LSPDocumentSymbol {
-  name: string;
-  kind: number;
-  range: { start: { line: number; character: number }; end: { line: number; character: number } };
-  selectionRange: {
-    start: { line: number; character: number };
-    end: { line: number; character: number };
-  };
-  children?: LSPDocumentSymbol[];
-}
-
-/** Matches Go domain/lsp.HoverResult */
-export interface LSPHoverResult {
-  contents: string;
-  range?: { start: { line: number; character: number }; end: { line: number; character: number } };
-}
-
-/** WS event: LSP server status change */
-export interface LSPStatusEvent {
-  project_id: string;
-  language: string;
-  status: "stopped" | "starting" | "ready" | "failed";
-  error?: string;
-}
-
-/** WS event: LSP diagnostic update */
-export interface LSPDiagnosticEvent {
-  project_id: string;
-  uri: string;
-  diagnostics: LSPDiagnostic[];
 }
 
 // --- MCP Server Types (Phase 15C) ---
@@ -1804,11 +1507,6 @@ export interface BenchmarkSuite {
   created_at: string;
 }
 
-/** Matches Go domain/benchmark.MultiCompareRequest */
-export interface MultiCompareRequest {
-  run_ids: string[];
-}
-
 /** Matches Go domain/benchmark.MultiCompareEntry */
 export interface MultiCompareEntry {
   run: BenchmarkRun;
@@ -1909,22 +1607,6 @@ export interface ActiveWorkItem {
   started_at: string;
 }
 
-/** WS event: agent claimed a task */
-export interface ActiveWorkClaimedEvent {
-  task_id: string;
-  task_title: string;
-  project_id: string;
-  agent_id: string;
-  agent_name: string;
-}
-
-/** WS event: stale task released */
-export interface ActiveWorkReleasedEvent {
-  task_id: string;
-  project_id: string;
-  reason: string;
-}
-
 /** WS event: handoff status between agents (Phase 23D War Room) */
 export interface HandoffStatusEvent {
   source_agent_id: string;
@@ -1933,14 +1615,6 @@ export interface HandoffStatusEvent {
   step_id?: string;
   status: "initiated" | "accepted" | "completed" | "failed";
   context?: string;
-}
-
-/** WS event: agent activity for War Room */
-export interface AgentActivityEvent {
-  agent_id: string;
-  project_id: string;
-  type: "tool_call" | "output" | "status_change";
-  data: Record<string, unknown>;
 }
 
 // --- Project Goals (Phase 28) ---
