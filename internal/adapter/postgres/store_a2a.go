@@ -127,6 +127,9 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 	if limit <= 0 {
 		limit = 100
 	}
+	// SAFETY: 'where' is built from controlled field names only (see above).
+	// User values are ALWAYS passed as parameterized $N placeholders in 'args'.
+	// Do NOT interpolate user input into the 'where' string.
 	query := fmt.Sprintf("SELECT id,context_id,state,direction,skill_id,trust_origin,trust_level,source_addr,project_id,remote_agent_id,tenant_id,metadata,history,artifacts,error_message,version,created_at,updated_at FROM a2a_tasks %s ORDER BY created_at DESC LIMIT $%d", where, idx)
 	args = append(args, limit)
 

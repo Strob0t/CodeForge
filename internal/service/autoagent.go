@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -417,7 +419,17 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, test
 		return testResult{}, fmt.Errorf("project has no workspace path")
 	}
 
-	//nolint:gosec // testFile is extracted via regex from trusted feature descriptions.
+	// Validate testFile resolves within workspace (defense-in-depth).
+	absTest := filepath.Join(proj.WorkspacePath, testFile)
+	cleanTest := filepath.Clean(absTest)
+	if !strings.HasPrefix(cleanTest, filepath.Clean(proj.WorkspacePath)+string(filepath.Separator)) {
+		return testResult{}, fmt.Errorf("test file path escapes workspace: %s", testFile)
+	}
+	if info, err := os.Stat(cleanTest); err != nil || info.IsDir() {
+		return testResult{}, fmt.Errorf("test file not found or is directory: %s", testFile)
+	}
+
+	//nolint:gosec // testFile is validated above via regex + path containment check.
 	cmd := exec.CommandContext(ctx, "python", "-m", "pytest", testFile, "-v", "--tb=short")
 	cmd.Dir = proj.WorkspacePath
 

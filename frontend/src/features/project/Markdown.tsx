@@ -126,7 +126,9 @@ function renderInline(text: string): string {
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
     (_match: string, text: string, url: string) => {
-      const safeUrl = /^(https?:|mailto:)/i.test(url) ? url : "#";
+      const safeUrl = /^(https?:|mailto:)/i.test(url)
+        ? url.replace(/"/g, "&quot;").replace(/'/g, "&#39;")
+        : "#";
       return `<a href="${safeUrl}" class="text-cf-accent underline hover:opacity-80" target="_blank" rel="noopener noreferrer">${text}</a>`;
     },
   );
