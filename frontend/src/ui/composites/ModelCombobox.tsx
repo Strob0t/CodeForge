@@ -183,6 +183,7 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
         required={props.required}
         role="combobox"
         aria-expanded={isOpen()}
+        aria-controls="model-combobox-listbox"
         aria-autocomplete="list"
         autocomplete="off"
         class={
@@ -194,6 +195,7 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
       <Show when={isOpen()}>
         <div
           ref={listRef}
+          id="model-combobox-listbox"
           role="listbox"
           class="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-cf border border-cf-border bg-cf-bg-surface shadow-lg"
         >
@@ -227,6 +229,7 @@ export function ModelCombobox(props: ModelComboboxProps): JSX.Element {
                       <div
                         data-idx={globalIdx()}
                         role="option"
+                        tabIndex={-1}
                         aria-selected={highlightedIndex() === globalIdx()}
                         class={
                           "flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm" +

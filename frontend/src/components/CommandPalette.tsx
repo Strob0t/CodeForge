@@ -302,6 +302,7 @@ export function CommandPalette(): JSX.Element {
                                 : "text-cf-text-secondary hover:bg-cf-bg-surface-alt"
                             }`}
                             role="option"
+                            tabIndex={-1}
                             aria-selected={idx() === selectedIndex()}
                             onMouseEnter={() => setSelectedIndex(idx())}
                             onClick={() => {

@@ -82,6 +82,7 @@ export default function NotificationCenter(props: NotificationCenterProps): JSX.
         role="dialog"
         aria-modal="true"
         aria-label="Notifications"
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
         class="absolute right-0 top-full z-50 mt-2 w-80 rounded-cf-md border border-cf-border bg-cf-bg-surface shadow-cf-lg"
       >

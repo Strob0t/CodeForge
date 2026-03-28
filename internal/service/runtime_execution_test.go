@@ -897,6 +897,52 @@ func TestHandleToolCallResult_PostExecutionBudgetExceeded(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Cancelled conversation fast-reject (HITL)
+// ============================================================================
+
+func TestHandleConversationToolCall_Cancelled_Denies(t *testing.T) {
+	svc, _, queue, _ := newRuntimeTestEnv()
+	ctx := context.Background()
+
+	convID := "conv-cancelled-1"
+
+	// Mark the conversation as cancelled before sending a tool call.
+	svc.MarkConversationRunCancelled(convID)
+
+	// Send a tool call request using the conversation ID as run_id.
+	// Since no run record exists for this ID, HandleToolCallRequest falls
+	// through to handleConversationToolCall, which should fast-reject.
+	req := messagequeue.ToolCallRequestPayload{
+		RunID:  convID,
+		CallID: "call-cancelled-1",
+		Tool:   "Read",
+		Path:   "main.go",
+	}
+	if err := svc.HandleToolCallRequest(ctx, &req); err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	// Verify NATS response is deny with correct reason.
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunToolCallResponse)
+	if !ok {
+		t.Fatal("expected tool call response on NATS")
+	}
+	var resp messagequeue.ToolCallResponsePayload
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Decision != "deny" {
+		t.Errorf("expected deny for cancelled conversation, got %q", resp.Decision)
+	}
+	if resp.Reason != "conversation run cancelled" {
+		t.Errorf("expected reason %q, got %q", "conversation run cancelled", resp.Reason)
+	}
+	if resp.CallID != req.CallID {
+		t.Errorf("expected call_id %q, got %q", req.CallID, resp.CallID)
+	}
+}
+
 // boolPtr returns a pointer to a bool value.
 func boolPtr(b bool) *bool {
 	return &b

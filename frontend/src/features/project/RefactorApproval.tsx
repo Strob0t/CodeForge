@@ -77,6 +77,7 @@ export default function RefactorApproval() {
           role="dialog"
           aria-modal="true"
           aria-label="Refactor approval"
+          tabIndex={-1}
           onKeyDown={trapKeyDown}
         >
           <div

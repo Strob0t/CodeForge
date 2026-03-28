@@ -52,6 +52,7 @@ export function ShortcutRecorder(props: Props): JSX.Element {
   return (
     <div
       ref={ref}
+      role="textbox"
       tabIndex={0}
       class="inline-flex items-center rounded-cf-sm border-2 border-cf-accent bg-cf-accent/10 px-2 py-1 text-xs font-medium text-cf-accent outline-none animate-pulse"
       aria-live="polite"

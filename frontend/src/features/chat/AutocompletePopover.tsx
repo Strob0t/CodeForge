@@ -199,6 +199,7 @@ const AutocompletePopover: Component<AutocompletePopoverProps> = (props) => {
                             : "text-cf-text-secondary hover:bg-cf-bg-surface-alt"
                         }`}
                         role="option"
+                        tabIndex={-1}
                         aria-selected={flatIndex() === selectedIndex()}
                         onMouseEnter={() => setSelectedIndex(flatIndex())}
                         onClick={() => props.onSelect(item)}

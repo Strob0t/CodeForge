@@ -35,6 +35,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^25.3.3",
     "eslint": "~9.39.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-simple-import-sort": "^12.0.0",
     "eslint-plugin-solid": "^0.14.0",
     "jsdom": "^28.1.0",

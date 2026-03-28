@@ -58,6 +58,7 @@ export function Modal(props: ModalProps): JSX.Element {
           role="dialog"
           aria-modal="true"
           aria-label={local.title}
+          tabIndex={-1}
           onKeyDown={handleKeyDown}
           onClick={handleBackdropClick}
         >
