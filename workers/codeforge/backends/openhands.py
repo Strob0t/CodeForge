@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 from typing import Any
@@ -69,8 +70,7 @@ class OpenHandsExecutor:
             async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
                 resp = await client.get(f"{self._url}/api/health")
                 return resp.status_code == 200
-        except Exception as exc:
-            _ = exc
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError):
             return False
 
     async def execute(
@@ -110,7 +110,7 @@ class OpenHandsExecutor:
             base = self._url.rstrip("/")
             async with httpx.AsyncClient(timeout=_CANCEL_TIMEOUT) as client:
                 await client.delete(f"{base}/api/conversations/{conversation_id}")
-        except Exception as exc:
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
             logger.warning("openhands cancel failed task=%s: %s", task_id, exc)
         finally:
             self._active_tasks.pop(task_id, None)
@@ -146,8 +146,12 @@ class OpenHandsExecutor:
             resp.raise_for_status()
             data = resp.json()
             conversation_id = data.get("conversation_id", data.get("id", ""))
-        except Exception as exc:
-            return "", TaskResult(status="failed", error=f"OpenHands API error: {exc}")
+        except httpx.HTTPStatusError as exc:
+            return "", TaskResult(status="failed", error=f"OpenHands HTTP {exc.response.status_code}: {exc}")
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            return "", TaskResult(status="failed", error=f"OpenHands unreachable: {exc}")
+        except (json.JSONDecodeError, KeyError) as exc:
+            return "", TaskResult(status="failed", error=f"OpenHands malformed response: {exc}")
         if not conversation_id:
             return "", TaskResult(status="failed", error="OpenHands returned no conversation ID")
         return conversation_id, None
@@ -198,7 +202,7 @@ class OpenHandsExecutor:
             resp = await client.get(f"{base}/api/conversations/{conversation_id}")
             resp.raise_for_status()
             return resp.json()
-        except Exception as exc:
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
             logger.warning("openhands poll error task=%s: %s", task_id, exc)
             return None
 

@@ -343,7 +343,14 @@ async def query_model_context_window(
                 if max_input and isinstance(max_input, (int, float)):
                     return int(max_input)
         return None
-    except Exception:
+    except (httpx.TimeoutException, httpx.ConnectError) as exc:
+        logger.debug("model info endpoint unreachable for %s: %s", model, exc)
+        return None
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("model info response malformed for %s: %s", model, exc)
+        return None
+    except httpx.HTTPStatusError as exc:
+        logger.debug("model info endpoint returned %d for %s", exc.response.status_code, model)
         return None
 
 

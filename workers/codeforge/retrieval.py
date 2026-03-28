@@ -362,11 +362,17 @@ class HybridRetriever:
     def __init__(self, litellm_url: str = "http://localhost:4000", litellm_key: str = "") -> None:
         self._indexes: dict[str, ProjectIndex] = {}
         self._chunker = CodeChunker()
-        base_url = litellm_url.rstrip("/")
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if litellm_key:
-            headers["Authorization"] = f"Bearer {litellm_key}"
-        self._client = httpx.AsyncClient(base_url=base_url, headers=headers, timeout=120.0)
+        self._litellm_url = litellm_url.rstrip("/")
+        self._litellm_key = litellm_key
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            if self._litellm_key:
+                headers["Authorization"] = f"Bearer {self._litellm_key}"
+            self._client = httpx.AsyncClient(base_url=self._litellm_url, headers=headers, timeout=120.0)
+        return self._client
 
     # ------------------------------------------------------------------
     # Public API
@@ -699,7 +705,9 @@ class HybridRetriever:
 
     async def close(self) -> None:
         """Close the HTTP client."""
-        await self._client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -707,7 +715,7 @@ class HybridRetriever:
 
     async def _embed_texts(self, texts: list[str], model: str = "text-embedding-3-small") -> np.ndarray:
         """Batch-embed texts via the LiteLLM /v1/embeddings endpoint."""
-        resp = await self._client.post(
+        resp = await self._get_client().post(
             "/v1/embeddings",
             json={"input": texts, "model": model},
         )
