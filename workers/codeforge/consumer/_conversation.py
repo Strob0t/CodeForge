@@ -283,7 +283,25 @@ class ConversationHandlerMixin:
         from codeforge.history import ConversationHistoryManager, HistoryConfig
         from codeforge.tools.capability import classify_model
 
-        system_prompt, loaded_skills = await build_system_prompt(run_msg, registry, log, self._db_url, self._llm)
+        # Resolve context limit early so it can inform prompt construction
+        # (e.g. compact tool guide for small-context models).
+        _cap_level = classify_model(run_msg.model)
+        _context_cap = await resolve_context_limit(
+            self._llm,
+            run_msg.model,
+            str(_cap_level),
+            api_key=getattr(self, "_litellm_key", ""),
+        )
+        log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
+
+        system_prompt, loaded_skills = await build_system_prompt(
+            run_msg,
+            registry,
+            log,
+            self._db_url,
+            self._llm,
+            context_limit=_context_cap,
+        )
 
         wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url)
         register_handoff_tool(registry, run_msg.run_id, self._js)
@@ -297,15 +315,7 @@ class ConversationHandlerMixin:
             summarizer = ConversationSummarizer(llm=self._llm, threshold=run_msg.summarize_threshold)
             run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
-        _cap_level = classify_model(run_msg.model)
-        _context_cap = await resolve_context_limit(
-            self._llm,
-            run_msg.model,
-            str(_cap_level),
-            api_key=getattr(self, "_litellm_key", ""),
-        )
         history_cfg = HistoryConfig(max_context_tokens=_context_cap)
-        log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
 
         history_mgr = ConversationHistoryManager(history_cfg)
         messages = history_mgr.build_messages(
@@ -615,6 +625,49 @@ class ConversationHandlerMixin:
             extra_body=_extra_body,
             selected_tools=selected_tools,
         )
+
+        # Complexity-aware adjustments for weaker / local models.
+        from codeforge.tools.capability import CapabilityLevel
+
+        _complexity = routing.complexity_tier or "unknown"
+        _is_weak_model = (
+            capability_level
+            in (
+                CapabilityLevel.PURE_COMPLETION,
+                CapabilityLevel.API_WITH_TOOLS,
+            )
+            and _is_local
+        )
+
+        if _is_weak_model and _complexity in ("complex", "reasoning"):
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "This is a complex task being handled by a local model. "
+                        "Break it into smaller, sequential subtasks. "
+                        "Complete each subtask fully (write + test) before moving to the next one."
+                    ),
+                }
+            )
+            logger.info(
+                "injected complexity decomposition hint",
+                complexity=_complexity,
+                model=primary_model,
+            )
+
+        if _is_local and _complexity == "simple":
+            from dataclasses import replace as _dc_replace
+
+            loop_cfg = _dc_replace(
+                loop_cfg,
+                max_iterations=min(loop_cfg.max_iterations, 20),
+            )
+            logger.info(
+                "capped iterations for simple local task",
+                max_iterations=loop_cfg.max_iterations,
+                model=primary_model,
+            )
 
         rollout_count = max(1, min(run_msg.rollout_count, 8))
         if rollout_count > 1:

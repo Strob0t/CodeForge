@@ -6,7 +6,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import pathlib
 import re
+import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
@@ -23,6 +26,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Optional request metadata logging for debugging tool-calling failures.
+# Controlled via CODEFORGE_LOG_LLM_REQUESTS env var (set to "1", "true", or "yes").
+# Only metadata is logged (model, counts, settings) — never message content (PII/secrets).
+_LOG_LLM_REQUESTS = os.getenv("CODEFORGE_LOG_LLM_REQUESTS", "").lower() in ("1", "true", "yes")
+_LLM_REQUEST_LOG_DIR = pathlib.Path(
+    os.getenv("CODEFORGE_LLM_LOG_DIR", str(pathlib.Path(tempfile.gettempdir()) / "codeforge-llm-requests"))
+)
+
 # Default model — empty means auto-discover from LiteLLM.
 # Override via CODEFORGE_DEFAULT_MODEL env var or codeforge.yaml if needed.
 DEFAULT_MODEL: str = get_settings().default_model
@@ -34,6 +45,38 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 def _strip_think_blocks(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from assembled LLM output."""
     return _THINK_RE.sub("", text).lstrip()
+
+
+def _log_request_metadata(
+    model: str,
+    messages: list[dict[str, object]],
+    tools: list[dict[str, object]] | None,
+    tool_choice: str | dict[str, object] | None,
+    temperature: float,
+    *,
+    streaming: bool = False,
+) -> None:
+    """Write request metadata to disk for debugging (no message content / PII)."""
+    if not _LOG_LLM_REQUESTS:
+        return
+    try:
+        _LLM_REQUEST_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        safe_model = model.replace("/", "_").replace("\\", "_")
+        log_file = _LLM_REQUEST_LOG_DIR / f"{safe_model}_{ts}.json"
+        log_data = {
+            "model": model,
+            "messages_count": len(messages),
+            "tools_count": len(tools) if tools else 0,
+            "tool_choice": str(tool_choice),
+            "temperature": temperature,
+            "has_tools": tools is not None,
+            "streaming": streaming,
+            "timestamp": ts,
+        }
+        log_file.write_text(json.dumps(log_data, indent=2))
+    except OSError as exc:
+        logger.debug("failed to write LLM request log: %s", exc)
 
 
 class LLMError(Exception):
@@ -660,6 +703,7 @@ class LiteLLMClient:
                 len(tools) if tools else 0,
                 temperature,
             )
+            _log_request_metadata(model, messages, tools, tool_choice, temperature)
 
             resp = await self._client.post("/v1/chat/completions", json=payload)
 
@@ -753,6 +797,14 @@ class LiteLLMClient:
                 model,
                 len(tools) if tools else 0,
                 temperature,
+            )
+            _log_request_metadata(
+                model,
+                messages,
+                tools,
+                tool_choice,
+                temperature,
+                streaming=True,
             )
 
             acc = _StreamAccumulator()

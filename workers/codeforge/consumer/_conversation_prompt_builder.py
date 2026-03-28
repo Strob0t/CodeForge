@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 from typing import TYPE_CHECKING
 
@@ -42,13 +43,23 @@ def load_step_by_step_prompt() -> str:
     return _STEP_BY_STEP_CACHE
 
 
+# Context token threshold below which the compact tool guide is used.
+_COMPACT_GUIDE_THRESHOLD = int(os.getenv("CODEFORGE_COMPACT_GUIDE_THRESHOLD", "32000"))
+
+
 def inject_tool_guide(
     system_prompt: str,
     registry: object,
     model: str,
     log: structlog.stdlib.BoundLogger,
+    *,
+    context_limit: int = 0,
 ) -> str:
-    """Augment system prompt with adaptive tool-usage guide for weaker models."""
+    """Augment system prompt with adaptive tool-usage guide for weaker models.
+
+    When *context_limit* is set and falls below the compact threshold,
+    a shorter guide is emitted to conserve the context budget.
+    """
     from codeforge.tools.capability import CapabilityLevel, classify_model
     from codeforge.tools.tool_guide import build_tool_usage_guide
 
@@ -56,10 +67,16 @@ def inject_tool_guide(
     if level == CapabilityLevel.FULL:
         return system_prompt
 
-    guide = build_tool_usage_guide(registry, level)
+    compact = 0 < context_limit < _COMPACT_GUIDE_THRESHOLD
+    guide = build_tool_usage_guide(registry, level, compact=compact)
     if guide:
         system_prompt = f"{system_prompt}\n\n--- Tool Usage Guide ---\n{guide}"
-        log.info("tool guide injected", capability_level=level.value, guide_len=len(guide))
+        log.info(
+            "tool guide injected",
+            capability_level=level.value,
+            guide_len=len(guide),
+            compact=compact,
+        )
 
     step_by_step = load_step_by_step_prompt()
     if step_by_step:
@@ -174,8 +191,13 @@ async def build_system_prompt(
     log: structlog.stdlib.BoundLogger,
     db_url: str,
     llm: LiteLLMClient,
+    *,
+    context_limit: int = 0,
 ) -> tuple[str, list]:
     """Assemble the full system prompt with microagents, skills, and tool guide.
+
+    *context_limit* is forwarded to `inject_tool_guide` so it can switch to
+    a compact guide when the model's context window is small.
 
     Returns (system_prompt, loaded_skills).
     """
@@ -212,5 +234,5 @@ async def build_system_prompt(
         llm,
     )
 
-    prompt = inject_tool_guide(system_prompt, registry, run_msg.model, log)
+    prompt = inject_tool_guide(system_prompt, registry, run_msg.model, log, context_limit=context_limit)
     return prompt, loaded_skills
