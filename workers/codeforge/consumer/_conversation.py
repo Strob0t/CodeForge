@@ -30,6 +30,7 @@ from codeforge.runtime import RuntimeClient
 if TYPE_CHECKING:
     import nats.aio.msg
 
+    from codeforge.agent_loop import LoopConfig
     from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
     from codeforge.models import ContextEntry
@@ -580,9 +581,7 @@ class ConversationHandlerMixin:
         fallback_models: list[str],
     ) -> AgentLoopResult:
         """Run the LiteLLM-based agentic loop with optional multi-rollout."""
-        from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor, LoopConfig
-        from codeforge.tools.capability import classify_model
-        from codeforge.tools.tool_router import ToolRouter
+        from codeforge.agent_loop import AgentLoopExecutor, ConversationRolloutExecutor
 
         executor = AgentLoopExecutor(
             llm=self._llm,
@@ -591,6 +590,46 @@ class ConversationHandlerMixin:
             workspace_path=run_msg.workspace_path,
             experience_pool=getattr(self, "_experience_pool", None),
         )
+        loop_cfg, complexity_hint = self._build_loop_config(
+            run_msg,
+            primary_model,
+            routing,
+            registry,
+            fallback_models,
+        )
+        if complexity_hint:
+            messages.append({"role": "system", "content": complexity_hint})
+
+        rollout_count = max(1, min(run_msg.rollout_count, 8))
+        if rollout_count > 1:
+            rollout_exec = ConversationRolloutExecutor(
+                agent_loop_executor=executor,
+                rollout_count=rollout_count,
+                workspace_path=run_msg.workspace_path,
+                runtime=runtime,
+            )
+            return await rollout_exec.execute(messages, config=loop_cfg)
+
+        return await executor.run(messages, config=loop_cfg)
+
+    @staticmethod
+    def _build_loop_config(
+        run_msg: ConversationRunStartMessage,
+        primary_model: str,
+        routing: RoutingResult,
+        registry: ToolRegistryLike,
+        fallback_models: list[str],
+    ) -> tuple[LoopConfig, str | None]:
+        """Build LoopConfig with complexity-aware adjustments.
+
+        Returns ``(config, complexity_hint)`` where *complexity_hint* is an
+        optional system message to inject for weak/local models on complex tasks
+        (``None`` when not applicable).
+        """
+        from codeforge.agent_loop import LoopConfig
+        from codeforge.tools.capability import CapabilityLevel, classify_model
+        from codeforge.tools.tool_router import ToolRouter
+
         mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
         capability_level = classify_model(primary_model)
 
@@ -627,28 +666,17 @@ class ConversationHandlerMixin:
         )
 
         # Complexity-aware adjustments for weaker / local models.
-        from codeforge.tools.capability import CapabilityLevel
-
         _complexity = routing.complexity_tier or "unknown"
         _is_weak_model = (
-            capability_level
-            in (
-                CapabilityLevel.PURE_COMPLETION,
-                CapabilityLevel.API_WITH_TOOLS,
-            )
-            and _is_local
+            capability_level in (CapabilityLevel.PURE_COMPLETION, CapabilityLevel.API_WITH_TOOLS) and _is_local
         )
 
+        complexity_hint: str | None = None
         if _is_weak_model and _complexity in ("complex", "reasoning"):
-            messages.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "This is a complex task being handled by a local model. "
-                        "Break it into smaller, sequential subtasks. "
-                        "Complete each subtask fully (write + test) before moving to the next one."
-                    ),
-                }
+            complexity_hint = (
+                "This is a complex task being handled by a local model. "
+                "Break it into smaller, sequential subtasks. "
+                "Complete each subtask fully (write + test) before moving to the next one."
             )
             logger.info(
                 "injected complexity decomposition hint",
@@ -669,17 +697,7 @@ class ConversationHandlerMixin:
                 model=primary_model,
             )
 
-        rollout_count = max(1, min(run_msg.rollout_count, 8))
-        if rollout_count > 1:
-            rollout_exec = ConversationRolloutExecutor(
-                agent_loop_executor=executor,
-                rollout_count=rollout_count,
-                workspace_path=run_msg.workspace_path,
-                runtime=runtime,
-            )
-            return await rollout_exec.execute(messages, config=loop_cfg)
-
-        return await executor.run(messages, config=loop_cfg)
+        return loop_cfg, complexity_hint
 
     async def _run_simple_chat(
         self,

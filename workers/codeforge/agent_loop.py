@@ -792,23 +792,8 @@ class AgentLoopExecutor:
 
         for i, tc in enumerate(response.tool_calls):
             state.step_count += 1
-            if plan_act is not None and plan_act.enabled:
-                if tc.name == "transition_to_act":
-                    plan_act.transition_to_act()
-                    logger.info("plan/act: transitioned to act phase via tool call")
-                    update_system_suffix(messages, plan_act.get_system_suffix())
-                    self._tool_executor.append_result(
-                        tc, "Transitioned to ACT phase. All tools are now available.", messages, state
-                    )
-                    continue
-                if not plan_act.is_tool_allowed(tc.name):
-                    blocked_msg = (
-                        f"Tool '{tc.name}' is not available in PLAN phase. "
-                        "Only read-only tools (read_file, search_files, glob_files, list_directory) are allowed. "
-                        "Call 'transition_to_act' when your plan is ready."
-                    )
-                    self._tool_executor.append_result(tc, blocked_msg, messages, state)
-                    continue
+            if self._apply_plan_act_gate(tc, plan_act, messages, state):
+                continue
 
             await self._tool_executor.execute(
                 tc, messages, state, quality_tracker=state.quality_tracker, error_tracker=error_tracker
@@ -820,6 +805,38 @@ class AgentLoopExecutor:
                     self._tool_executor.append_result(remaining_tc, "Cancelled", messages, state)
                 break
         return IterationContinue()
+
+    def _apply_plan_act_gate(
+        self,
+        tc: ToolCallPart,
+        plan_act: PlanActController | None,
+        messages: list[dict[str, object]],
+        state: _LoopState,
+    ) -> bool:
+        """Handle plan/act gating for a tool call.
+
+        Returns True if the tool call was handled (caller should ``continue``),
+        False if normal execution should proceed.
+        """
+        if plan_act is None or not plan_act.enabled:
+            return False
+        if tc.name == "transition_to_act":
+            plan_act.transition_to_act()
+            logger.info("plan/act: transitioned to act phase via tool call")
+            update_system_suffix(messages, plan_act.get_system_suffix())
+            self._tool_executor.append_result(
+                tc, "Transitioned to ACT phase. All tools are now available.", messages, state
+            )
+            return True
+        if not plan_act.is_tool_allowed(tc.name):
+            blocked_msg = (
+                f"Tool '{tc.name}' is not available in PLAN phase. "
+                "Only read-only tools (read_file, search_files, glob_files, list_directory) are allowed. "
+                "Call 'transition_to_act' when your plan is ready."
+            )
+            self._tool_executor.append_result(tc, blocked_msg, messages, state)
+            return True
+        return False
 
     @staticmethod
     def _track_write_verification(tc: ToolCallPart, state: _LoopState) -> None:

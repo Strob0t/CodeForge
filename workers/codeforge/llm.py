@@ -713,56 +713,53 @@ class LiteLLMClient:
             _log_request_metadata(model, messages, tools, tool_choice, temperature)
 
             resp = await self._client.post("/v1/chat/completions", json=payload)
-
             self._report_rate_info(self._extract_rate_info(resp.headers, model))
+            self._raise_for_llm_error(resp.status_code, model, resp.text)
 
-            if resp.status_code >= 400:
-                body = resp.text
-                logger.error(
-                    "LiteLLM error status=%d model=%s body=%s",
-                    resp.status_code,
-                    model,
-                    body[:1000],
-                )
-                raise LLMError(resp.status_code, model, body)
             data: dict[str, object] = resp.json()
-
             cost = self._extract_cost(resp.headers)
+            return self._parse_chat_response(data, model, cost)
 
-            choices = data.get("choices", [])
-            if not isinstance(choices, list) or len(choices) == 0:
-                return ChatCompletionResponse(
-                    content="",
-                    tool_calls=[],
-                    finish_reason="stop",
-                    tokens_in=0,
-                    tokens_out=0,
-                    model=model,
-                    cost_usd=cost,
-                )
+        return cast("ChatCompletionResponse", await self._with_retry(_inner))
 
-            choice = choices[0]
-            finish_reason = choice.get("finish_reason", "stop") if isinstance(choice, dict) else "stop"
-            msg = choice.get("message", {}) if isinstance(choice, dict) else {}
-            content = msg.get("content", "") or "" if isinstance(msg, dict) else ""
+    @staticmethod
+    def _raise_for_llm_error(status_code: int, model: str, body: str) -> None:
+        """Log and raise LLMError for HTTP 4xx/5xx responses."""
+        if status_code >= 400:
+            logger.error("LiteLLM error status=%d model=%s body=%s", status_code, model, body[:1000])
+            raise LLMError(status_code, model, body)
 
-            tool_calls = _parse_tool_calls(msg.get("tool_calls")) if isinstance(msg, dict) else []
-
-            usage = data.get("usage", {})
-            tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
-            tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
-
+    @staticmethod
+    def _parse_chat_response(data: dict[str, object], model: str, cost: float) -> ChatCompletionResponse:
+        """Parse /v1/chat/completions JSON into ChatCompletionResponse."""
+        choices = data.get("choices", [])
+        if not isinstance(choices, list) or not choices:
             return ChatCompletionResponse(
-                content=_strip_think_blocks(str(content)),
-                tool_calls=tool_calls,
-                finish_reason=str(finish_reason),
-                tokens_in=int(tokens_in),
-                tokens_out=int(tokens_out),
+                content="",
+                tool_calls=[],
+                finish_reason="stop",
+                tokens_in=0,
+                tokens_out=0,
                 model=model,
                 cost_usd=cost,
             )
-
-        return cast("ChatCompletionResponse", await self._with_retry(_inner))
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        finish_reason = choice.get("finish_reason", "stop") if isinstance(choice, dict) else "stop"
+        msg = choice.get("message", {}) if isinstance(choice, dict) else {}
+        content = msg.get("content", "") or "" if isinstance(msg, dict) else ""
+        tool_calls = _parse_tool_calls(msg.get("tool_calls")) if isinstance(msg, dict) else []
+        usage = data.get("usage", {})
+        tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
+        tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
+        return ChatCompletionResponse(
+            content=_strip_think_blocks(str(content)),
+            tool_calls=tool_calls,
+            finish_reason=str(finish_reason),
+            tokens_in=int(tokens_in),
+            tokens_out=int(tokens_out),
+            model=model,
+            cost_usd=cost,
+        )
 
     async def chat_completion_stream(
         self,
