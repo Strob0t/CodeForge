@@ -273,6 +273,37 @@ def resolve_model_with_routing(
     return RoutingResult(model="", temperature=scenario_cfg.temperature, tags=tags)
 
 
+async def query_model_context_window(
+    client: httpx.AsyncClient,
+    model: str,
+    api_key: str = "",
+) -> int | None:
+    """Query the actual context window size for a model from the LiteLLM proxy.
+
+    Returns max_input_tokens if available, None if unknown.
+    Uses the /model/info endpoint (same as benchmark consumer).
+    """
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = await client.get("/model/info", headers=headers, timeout=5.0)
+        if resp.status_code != 200:
+            return None
+        data = resp.json().get("data", [])
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            info = entry.get("model_info", {})
+            model_name = entry.get("model_name", "")
+            litellm_model = entry.get("litellm_params", {}).get("model", "")
+            if model in (model_name, litellm_model):
+                max_input = info.get("max_input_tokens") or info.get("max_tokens")
+                if max_input and isinstance(max_input, (int, float)):
+                    return int(max_input)
+        return None
+    except Exception:
+        return None
+
+
 def load_routing_config() -> object | None:
     """Load routing config. Hierarchy: defaults < YAML < env vars."""
     from codeforge.config import _resolve_bool, _resolve_float, _resolve_int, _resolve_str, load_yaml_config

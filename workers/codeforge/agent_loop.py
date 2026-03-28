@@ -367,6 +367,11 @@ class AgentLoopExecutor:
             tools_array, cap_level, cfg.mode_tools or None, cfg.selected_tools
         )
 
+        # If the model doesn't support function calling, don't send tools param.
+        # Tools are already injected into the system prompt via tool_guide for these models.
+        if cap_level == CapabilityLevel.PURE_COMPLETION:
+            tools_array = []  # Empty = won't be sent to LLM (see _build_stream_payload)
+
         loop_start = time.monotonic()
         await self._publish_routing_decision(cfg)
 
@@ -604,7 +609,15 @@ class AgentLoopExecutor:
             await self._runtime.send_output(full_text)
 
         return await self._process_llm_response(
-            cfg, state, response, llm_decision, full_text, messages, plan_act=plan_act, error_tracker=error_tracker
+            cfg,
+            state,
+            response,
+            llm_decision,
+            full_text,
+            messages,
+            iteration=iteration,
+            plan_act=plan_act,
+            error_tracker=error_tracker,
         )
 
     async def _process_llm_response(
@@ -616,6 +629,7 @@ class AgentLoopExecutor:
         full_text: str,
         messages: list[dict[str, object]],
         *,
+        iteration: int = 0,
         plan_act: PlanActController | None = None,
         error_tracker: ToolErrorTracker | None = None,
     ) -> IterationOutcome:
@@ -668,6 +682,22 @@ class AgentLoopExecutor:
             )
 
         if not response.tool_calls:
+            # On first iteration of agentic run, if model returns text without tool calls,
+            # re-prompt instead of stopping -- the model may have ignored the tools.
+            if iteration == 0 and len(response.content) > 100:
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "You have tools available to complete this task. "
+                            "Do NOT describe what you would do -- use the tools to actually do it. "
+                            "Start by calling list_directory or read_file to explore the workspace."
+                        ),
+                    }
+                )
+                logger.warning("no tool calls on first iteration, re-prompting agent to use tools")
+                return IterationContinue()
             state.final_content = response.content
             return IterationStop()
 

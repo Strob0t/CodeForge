@@ -198,12 +198,52 @@ async def _prefetch_docs(
     return entries
 
 
-# Context token limits per capability level (M3).
-_CONTEXT_LIMITS: dict[str, int] = {
+# Fallback limits when model info is unavailable (conservative defaults).
+_FALLBACK_CONTEXT_LIMITS: dict[str, int] = {
     "full": 120_000,
     "api_with_tools": 32_000,
     "pure_completion": 16_000,
 }
+
+
+async def resolve_context_limit(
+    llm_client: object,
+    model: str,
+    capability_level: str,
+    api_key: str = "",
+) -> int:
+    """Resolve the effective context token limit for a model.
+
+    Queries the model's actual context window from LiteLLM, then applies
+    a safety margin (85% to leave room for output tokens). Falls back to
+    tier-based defaults if the model info is unavailable.
+    """
+    from codeforge.llm import query_model_context_window
+
+    fallback = _FALLBACK_CONTEXT_LIMITS.get(capability_level, 16_000)
+
+    # Access the underlying httpx client from LiteLLMClient.
+    http_client = getattr(llm_client, "_client", None)
+    if http_client is None:
+        logger.info("using fallback context limit (no http client)", model=model, limit=fallback)
+        return fallback
+
+    actual_window = await query_model_context_window(http_client, model, api_key)
+
+    if actual_window is not None:
+        # Use 85% of actual window to leave room for output tokens.
+        effective = int(actual_window * 0.85)
+        logger.info(
+            "resolved context limit from model info",
+            model=model,
+            actual=actual_window,
+            effective=effective,
+        )
+        # Don't exceed tier default even if model claims more.
+        return min(effective, fallback)
+
+    logger.info("using fallback context limit", model=model, capability=capability_level, limit=fallback)
+    return fallback
 
 
 class ConversationHandlerMixin:
@@ -258,7 +298,12 @@ class ConversationHandlerMixin:
             run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
         _cap_level = classify_model(run_msg.model)
-        _context_cap = _CONTEXT_LIMITS.get(_cap_level, 120_000)
+        _context_cap = await resolve_context_limit(
+            self._llm,
+            run_msg.model,
+            str(_cap_level),
+            api_key=getattr(self, "_litellm_key", ""),
+        )
         history_cfg = HistoryConfig(max_context_tokens=_context_cap)
         log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
 
