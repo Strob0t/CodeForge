@@ -4,6 +4,7 @@ Generates system prompt supplements that help weaker models use tools correctly:
 - full: no extra guide (model is capable enough)
 - api_with_tools: concise hints (when_to_use + common_mistakes)
 - pure_completion: full guide with examples and output format
+- compact mode: one-line descriptions, no examples/mistakes (for small-context models)
 """
 
 from __future__ import annotations
@@ -18,25 +19,54 @@ if TYPE_CHECKING:
 
 
 _MAX_GUIDE_CHARS = 6000  # ~1500 tokens — prevent guide from eating the context budget
+_MAX_COMPACT_CHARS = 2000  # ~500 tokens — tight budget for small-context models
 
 
-def build_tool_usage_guide(registry: ToolRegistry, capability_level: CapabilityLevel) -> str:
+def build_tool_usage_guide(
+    registry: ToolRegistry,
+    capability_level: CapabilityLevel,
+    *,
+    compact: bool = False,
+) -> str:
     """Build a tool-usage guide string based on model capability level.
 
     Returns an empty string for full-capability models.
-    Truncates to ~1500 tokens to prevent context budget implosion.
+
+    When ``compact=True``, returns a minimal guide that skips examples and
+    common-mistakes sections, suitable for models with context windows
+    below 32K tokens.
     """
     if capability_level == CapabilityLevel.FULL:
         return ""
 
-    if capability_level == CapabilityLevel.API_WITH_TOOLS:
+    if compact:
+        guide = _build_compact_guide(registry)
+        limit = _MAX_COMPACT_CHARS
+    elif capability_level == CapabilityLevel.API_WITH_TOOLS:
         guide = _build_concise_guide(registry)
+        limit = _MAX_GUIDE_CHARS
     else:
         guide = _build_full_guide(registry)
+        limit = _MAX_GUIDE_CHARS
 
-    if len(guide) > _MAX_GUIDE_CHARS:
-        guide = guide[:_MAX_GUIDE_CHARS] + "\n\n[Tool guide truncated — see tool definitions for full details]"
+    if len(guide) > limit:
+        guide = guide[:limit] + "\n\n[Tool guide truncated]"
     return guide
+
+
+def _build_compact_guide(registry: ToolRegistry) -> str:
+    """Build a minimal guide: one line per tool, no examples or mistakes."""
+    lines: list[str] = ["## Tools"]
+
+    for defn in _iter_tool_definitions(registry):
+        # First sentence of description, or the full description if short.
+        short_desc = defn.description.split(". ")[0].rstrip(".")
+        lines.append(f"- **{defn.name}**: {short_desc}")
+
+    if len(lines) == 1:
+        return ""
+
+    return "\n".join(lines)
 
 
 def _build_concise_guide(registry: ToolRegistry) -> str:

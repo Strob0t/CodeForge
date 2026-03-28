@@ -147,6 +147,61 @@ class _LoopState:
     writes_since_verify: int = 0
 
 
+# ---------------------------------------------------------------------------
+# Trajectory analysis: tool-usage metrics computed at run completion.
+# ---------------------------------------------------------------------------
+
+# Tool names considered "exploration" (read-only, information-gathering).
+_EXPLORE_TOOLS: frozenset[str] = frozenset(
+    {
+        "read_file",
+        "search_files",
+        "glob_files",
+        "list_directory",
+    }
+)
+# Tool names considered "write" (mutating the workspace).
+_WRITE_TOOLS: frozenset[str] = frozenset({"write_file", "edit_file"})
+
+
+def _compute_trajectory_metrics(
+    tool_messages: list[ConversationMessagePayload],
+    available_tool_count: int,
+) -> dict[str, object]:
+    """Derive trajectory analysis metrics from the sequence of tool messages.
+
+    Counts are derived from tool-result messages (role="tool", name set)
+    and from assistant messages that carry tool_calls.
+    """
+    tool_counts: dict[str, int] = {}
+
+    for msg in tool_messages:
+        # Tool-result messages have role="tool" and name set to the tool name.
+        if msg.name:
+            tool_counts[msg.name] = tool_counts.get(msg.name, 0) + 1
+        # Assistant messages carry outgoing tool_calls (ConversationToolCallPayload).
+        for tc in msg.tool_calls:
+            # tc.function is a ConversationToolCallFunction with a .name field.
+            func = getattr(tc, "function", None)
+            fname = getattr(func, "name", "") if func else ""
+            if fname:
+                tool_counts[fname] = tool_counts.get(fname, 0) + 1
+
+    total_calls = sum(tool_counts.values())
+    unique_tools = len(tool_counts)
+    explore_calls = sum(tool_counts.get(t, 0) for t in _EXPLORE_TOOLS)
+    write_calls = sum(tool_counts.get(t, 0) for t in _WRITE_TOOLS)
+
+    return {
+        "tool_diversity": unique_tools / max(available_tool_count, 1),
+        "explore_ratio": explore_calls / max(total_calls, 1),
+        "write_calls": write_calls,
+        "total_tool_calls": total_calls,
+        "unique_tools": unique_tools,
+        "tool_counts": tool_counts,
+    }
+
+
 class AgentLoopExecutor:
     """Executes the agentic tool-use loop."""
 
@@ -460,6 +515,17 @@ class AgentLoopExecutor:
         except (ConnectionError, TimeoutError, OSError) as exc:
             logger.debug("failed to publish finished trajectory event: %s", exc)
 
+        # Compute trajectory analysis metrics from tool usage patterns.
+        trajectory_metrics = _compute_trajectory_metrics(state.tool_messages, len(self._tools.tool_names))
+        logger.info(
+            "trajectory metrics: diversity=%.2f explore=%.2f writes=%d total=%d unique=%d",
+            trajectory_metrics["tool_diversity"],
+            trajectory_metrics["explore_ratio"],
+            trajectory_metrics["write_calls"],
+            trajectory_metrics["total_tool_calls"],
+            trajectory_metrics["unique_tools"],
+        )
+
         return AgentLoopResult(
             final_content=state.final_content,
             tool_messages=state.tool_messages,
@@ -469,6 +535,7 @@ class AgentLoopExecutor:
             step_count=state.step_count,
             model=state.model,
             error=state.error,
+            metadata={"trajectory": trajectory_metrics},
         )
 
     async def _validate_output_schema(
