@@ -21,6 +21,16 @@ var sensitivePatterns = []*regexp.Regexp{
 
 const redacted = "[REDACTED]"
 
+// sensitiveKeys are attribute key names that always carry PII.
+var sensitiveKeys = map[string]struct{}{
+	"email":       {},
+	"user_email":  {},
+	"admin_email": {},
+	"ip_address":  {},
+	"ip":          {},
+	"password":    {},
+}
+
 // RedactHandler wraps an inner slog.Handler and redacts sensitive patterns
 // from log messages and string attributes before forwarding.
 type RedactHandler struct {
@@ -73,7 +83,13 @@ func redactString(s string) string {
 }
 
 // redactAttr redacts string-valued attributes; other types pass through.
+// Key-based redaction takes precedence: known PII keys are always redacted
+// regardless of value format.
 func redactAttr(a slog.Attr) slog.Attr {
+	if _, isPII := sensitiveKeys[a.Key]; isPII && a.Value.Kind() != slog.KindGroup {
+		a.Value = slog.StringValue(redacted)
+		return a
+	}
 	if a.Value.Kind() == slog.KindString {
 		a.Value = slog.StringValue(redactString(a.Value.String()))
 	}

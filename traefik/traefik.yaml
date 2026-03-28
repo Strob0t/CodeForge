@@ -16,7 +16,7 @@ entryPoints:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "${ACME_EMAIL:-admin@localhost}"
+      email: "${ACME_EMAIL}"  # Required: set ACME_EMAIL env var to a valid email for Let's Encrypt
       storage: /acme/acme.json
       httpChallenge:
         entryPoint: web

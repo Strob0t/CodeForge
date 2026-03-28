@@ -18,6 +18,8 @@
 | **LLM Keys** | Provider API keys | No (opaque) | Critical | PostgreSQL `llm_keys` | AES-256-GCM (`crypto.Encrypt`) | Until deleted by user |
 | **Agent State** | workspace paths, run logs, trajectory | No | Medium | PostgreSQL + NATS KV | Plaintext | Run: 30 days; Trajectory: 30 days |
 | **Consent Records** | purpose_id, granted, ip_address | Yes (IP) | High | PostgreSQL `user_consents` | Plaintext (append-only) | Indefinite (proof-of-consent per Art. 7(1)) |
+| **Message Images** | image data (screenshots, canvas exports) | Yes (may contain PII in screenshots) | High | PostgreSQL `conversation_messages.images` (JSONB) | Plaintext | Same as Conversation (90 days) |
+| **NATS Stream Messages** | serialized task/agent/conversation payloads | Yes (may contain PII) | High | NATS JetStream (transient) | TLS in-transit; plaintext at rest | 30-day MaxAge (stream config) |
 
 ## Encryption Status
 

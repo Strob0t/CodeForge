@@ -60,6 +60,15 @@ func (s *RetentionService) RunCleanup(ctx context.Context) error {
 		s.cleanupAuditEntries(tctx, now)
 	}
 
+	// Cross-tenant: anonymize expired IP addresses in audit log (GDPR/CNIL: 180 days).
+	ipCutoff := now.AddDate(0, 0, -180)
+	n, err := s.store.AnonymizeExpiredIPAddresses(context.Background(), ipCutoff, retentionBatchSize)
+	if err != nil {
+		slog.Error("retention: ip anonymization failed", "error", err)
+	} else if n > 0 {
+		slog.Info("retention: anonymized expired IP addresses", "rows", n, "older_than", ipCutoff.Format(time.RFC3339))
+	}
+
 	return nil
 }
 

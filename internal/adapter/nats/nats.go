@@ -18,6 +18,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/resilience"
 )
 
@@ -31,9 +32,10 @@ const (
 
 // Queue implements messagequeue.Queue using NATS JetStream.
 type Queue struct {
-	nc      *nats.Conn
-	js      jetstream.JetStream
-	breaker *resilience.Breaker
+	nc       *nats.Conn
+	js       jetstream.JetStream
+	breaker  *resilience.Breaker
+	notifier notifier.Notifier
 }
 
 // reconnectOpts returns NATS connection options for automatic reconnection
@@ -134,6 +136,14 @@ func (q *Queue) startDLQMonitor(ctx context.Context) {
 			"request_id", reqID,
 			"data_bytes", len(msg.Data()),
 		)
+		if q.notifier != nil {
+			_ = q.notifier.Send(ctx, notifier.Notification{
+				Title:   "Dead-lettered message",
+				Message: fmt.Sprintf("subject=%s request_id=%s bytes=%d", msg.Subject(), reqID, len(msg.Data())),
+				Level:   "warning",
+				Source:  "nats.dlq",
+			})
+		}
 		if ackErr := msg.Ack(); ackErr != nil {
 			slog.Error("dlq monitor ack failed", "error", ackErr)
 		}
@@ -143,6 +153,11 @@ func (q *Queue) startDLQMonitor(ctx context.Context) {
 		return
 	}
 	slog.Info("DLQ monitor started", "consumer", dlqConsumerName)
+}
+
+// SetNotifier attaches an optional notifier for DLQ alerting.
+func (q *Queue) SetNotifier(n notifier.Notifier) {
+	q.notifier = n
 }
 
 // SetBreaker attaches a circuit breaker to the publish path.
