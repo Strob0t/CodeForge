@@ -78,8 +78,8 @@ func (s *lifecycleTestStore) GetRun(_ context.Context, id string) (*run.Run, err
 	return nil, domain.ErrNotFound
 }
 
-func (s *lifecycleTestStore) CompleteRun(_ context.Context, id string, status run.Status, _, _ string, _ float64, _ int, _, _ int64, _ string) error {
-	s.completedRuns[id] = status
+func (s *lifecycleTestStore) CompleteRun(_ context.Context, req *run.CompletionRequest) error {
+	s.completedRuns[req.ID] = req.Status
 	return nil
 }
 

@@ -50,7 +50,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
 		// Terminate the run
-		logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
+		logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
 		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 			"status": string(run.StatusTimeout),
 			"reason": reason,
@@ -286,7 +286,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if newCost >= maxCost {
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
-			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
+			logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: newCost, StepCount: r.StepCount, TokensIn: newTokensIn, TokensOut: newTokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
 			s.cleanupRunState(r.ID)
 			s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
 				"status": string(run.StatusTimeout),
@@ -330,7 +330,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
 			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			logBestEffort(ctx, s.store.CompleteRun(ctx, r.ID, run.StatusFailed, "", "stall detected: agent not making progress", newCost, r.StepCount, newTokensIn, newTokensOut, r.Model), "CompleteRun", slog.String("run_id", r.ID))
+			logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusFailed, Error: "stall detected: agent not making progress", CostUSD: newCost, StepCount: r.StepCount, TokensIn: newTokensIn, TokensOut: newTokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
 			s.state.DeleteStallTracker(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,

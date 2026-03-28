@@ -13,7 +13,7 @@ type RunStore interface {
 	CreateRun(ctx context.Context, r *run.Run) error
 	GetRun(ctx context.Context, id string) (*run.Run, error)
 	UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error
-	CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error
+	CompleteRun(ctx context.Context, req *run.CompletionRequest) error
 	UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errors []string) error
 	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
 

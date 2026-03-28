@@ -46,7 +46,7 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 
 	s.cleanupRunState(runID)
 
-	if err := s.store.CompleteRun(ctx, r.ID, run.StatusTimeout, "", reason, r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model); err != nil {
+	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
@@ -94,7 +94,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 
 	s.cleanupRunState(r.ID)
 
-	if err := s.store.CompleteRun(ctx, r.ID, status, payload.Output, payload.Error, payload.CostUSD, payload.StepCount, payload.TokensIn, payload.TokensOut, payload.Model); err != nil {
+	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: status, Output: payload.Output, Error: payload.Error, CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model}); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 

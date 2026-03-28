@@ -43,13 +43,13 @@ func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Statu
 	return execExpectOne(tag, err, "update run status %s", id)
 }
 
-func (s *Store) CompleteRun(ctx context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error {
+func (s *Store) CompleteRun(ctx context.Context, req *run.CompletionRequest) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
 		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
 		 WHERE id = $1 AND tenant_id = $10`,
-		id, string(status), output, errMsg, costUSD, stepCount, tokensIn, tokensOut, model, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "complete run %s", id)
+		req.ID, string(req.Status), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "complete run %s", req.ID)
 }
 
 func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errs []string) error {

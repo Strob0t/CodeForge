@@ -190,21 +190,21 @@ func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status 
 	}
 	return errMockNotFound
 }
-func (m *runtimeMockStore) CompleteRun(_ context.Context, id string, status run.Status, output, errMsg string, costUSD float64, stepCount int, tokensIn, tokensOut int64, model string) error {
+func (m *runtimeMockStore) CompleteRun(_ context.Context, req *run.CompletionRequest) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
-		if m.runs[i].ID != id {
+		if m.runs[i].ID != req.ID {
 			continue
 		}
-		m.runs[i].Status = status
-		m.runs[i].Output = output
-		m.runs[i].Error = errMsg
-		m.runs[i].CostUSD = costUSD
-		m.runs[i].StepCount = stepCount
-		m.runs[i].TokensIn = tokensIn
-		m.runs[i].TokensOut = tokensOut
-		m.runs[i].Model = model
+		m.runs[i].Status = req.Status
+		m.runs[i].Output = req.Output
+		m.runs[i].Error = req.Error
+		m.runs[i].CostUSD = req.CostUSD
+		m.runs[i].StepCount = req.StepCount
+		m.runs[i].TokensIn = req.TokensIn
+		m.runs[i].TokensOut = req.TokensOut
+		m.runs[i].Model = req.Model
 		now := time.Now()
 		m.runs[i].CompletedAt = &now
 		return nil

@@ -486,7 +486,7 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	s.cleanupRunState(runID)
 
 	// Update DB
-	if err := s.store.CompleteRun(ctx, r.ID, run.StatusCancelled, "", "cancelled by user", r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut, r.Model); err != nil {
+	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusCancelled, Error: "cancelled by user", CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}); err != nil {
 		return fmt.Errorf("complete run: %w", err)
 	}
 

@@ -273,7 +273,7 @@ func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project
 
 // resolveFullAutoGate checks whether the full-auto gate should redirect
 // to goal_researcher mode. Returns true if the redirect was performed.
-func (s *ConversationService) resolveFullAutoGate(ctx context.Context, proj *project.Project, conversationID, content, model string) (redirected bool, err error) {
+func (s *ConversationService) resolveFullAutoGate(ctx context.Context, proj *project.Project, conversationID, userMessage, model string) (redirected bool, err error) {
 	if !s.isFullAutoProject(ctx, proj) || s.goalSvc == nil {
 		return false, nil
 	}
@@ -306,7 +306,7 @@ func (s *ConversationService) resolveFullAutoGate(ctx context.Context, proj *pro
 		"project_id", proj.ID,
 		"conversation_id", conversationID,
 	)
-	return true, s.SendMessageAgenticWithMode(ctx, conversationID, content, "goal_researcher", WithModel(model))
+	return true, s.SendMessageAgenticWithMode(ctx, conversationID, userMessage, "goal_researcher", WithModel(model))
 }
 
 // resolveModelAndMode resolves the LLM model and agent mode for a conversation run.
@@ -419,7 +419,7 @@ func WithContextEntries(entries []messagequeue.ContextEntryPayload) AgenticOptio
 func (s *ConversationService) dispatchAgenticRun(
 	ctx context.Context,
 	conv *conversation.Conversation,
-	content, modeID string,
+	userMessage, modeID string,
 	opts *agenticOpts,
 ) error {
 	conversationID := conv.ID
@@ -428,7 +428,7 @@ func (s *ConversationService) dispatchAgenticRun(
 	userMsg := &conversation.Message{
 		ConversationID: conversationID,
 		Role:           "user",
-		Content:        content,
+		Content:        userMessage,
 	}
 	if _, err := s.db.CreateMessage(ctx, userMsg); err != nil {
 		return fmt.Errorf("store user message: %w", err)
@@ -489,7 +489,7 @@ func (s *ConversationService) dispatchAgenticRun(
 	}
 
 	// Build context entries + merge extra from functional options.
-	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, content, conversationID, protoMessages)
+	contextEntries := s.buildConversationContextEntries(ctx, proj.ID, userMessage, conversationID, protoMessages)
 	if len(opts.extraContext) > 0 {
 		contextEntries = append(contextEntries, opts.extraContext...)
 	}
@@ -516,7 +516,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		Mode:               resolvedMode,
 		Termination:        termination,
 		MCPServers:         s.buildMCPDefinitions(proj.ID),
-		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, content, conversationID),
+		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, userMessage, conversationID),
 		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:            contextEntries,
 		Agentic:            true,
@@ -627,8 +627,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 // SendMessageAgenticWithMode is like SendMessageAgentic but accepts a mode ID override
 // instead of defaulting to "coder". Used for specialized agent flows like goal discovery.
 // Optional AgenticOption values can inject extra context entries into the NATS payload.
-func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, conversationID, content, modeID string, opts ...AgenticOption) error {
-	if content == "" {
+func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, conversationID, userMessage, modeID string, opts ...AgenticOption) error {
+	if userMessage == "" {
 		return errors.New("content is required")
 	}
 	if s.queue == nil {
@@ -647,7 +647,7 @@ func (s *ConversationService) SendMessageAgenticWithMode(ctx context.Context, co
 	}
 	applied.agentName = modeID
 
-	return s.dispatchAgenticRun(ctx, conv, content, modeID, &applied)
+	return s.dispatchAgenticRun(ctx, conv, userMessage, modeID, &applied)
 }
 
 // HandleConversationRunComplete processes the completion message from the Python worker.

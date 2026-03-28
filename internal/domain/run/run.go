@@ -67,6 +67,19 @@ type Run struct {
 	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
+// CompletionRequest carries the data needed to finalize a run in the store.
+type CompletionRequest struct {
+	ID        string
+	Status    Status
+	Output    string
+	Error     string
+	CostUSD   float64
+	StepCount int
+	TokensIn  int64
+	TokensOut int64
+	Model     string
+}
+
 // StartRequest holds the fields needed to start a new run.
 type StartRequest struct {
 	TaskID        string      `json:"task_id"`

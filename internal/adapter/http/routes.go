@@ -67,6 +67,9 @@ type auditFunc func(action, resource string) func(http.Handler) http.Handler
 //	    r.Use(middleware.Deprecation(sunsetDate))
 //	    // ... existing v1 routes ...
 //	})
+//
+// MIGRATION PLAN: These will be addressed in API v2. v1 routes remain stable
+// with Deprecation headers. Track: https://github.com/Strob0t/CodeForge/issues/XXX
 func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...RouteOption) {
 	var ro routeOptions
 	for _, o := range opts {

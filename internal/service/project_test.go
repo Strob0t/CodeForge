@@ -216,7 +216,7 @@ func (m *mockStore) GetRun(_ context.Context, _ string) (*run.Run, error) {
 func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _ int, _ float64, _, _ int64) error {
 	return nil
 }
-func (m *mockStore) CompleteRun(_ context.Context, _ string, _ run.Status, _, _ string, _ float64, _ int, _, _ int64, _ string) error {
+func (m *mockStore) CompleteRun(_ context.Context, _ *run.CompletionRequest) error {
 	return nil
 }
 func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
