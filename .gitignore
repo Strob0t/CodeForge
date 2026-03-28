@@ -1,6 +1,9 @@
 # -- Worktrees ------------------------------------
 .worktrees/
 
+# -- Session memory -------------------------------
+.remember/
+
 # -- Secrets (production, generated) ---------------
 secrets/
 
