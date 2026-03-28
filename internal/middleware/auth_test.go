@@ -390,3 +390,90 @@ func TestAuth_InvalidAuthScheme_401(t *testing.T) {
 		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
+
+func TestAuth_InternalServiceKey_GrantsAdmin(t *testing.T) {
+	ts := &testStore{}
+	svc := newTestAuthSvcWithStore(ts)
+	const internalKey = "cf-internal-secret-key-1234"
+
+	var gotUser *user.User
+	handler := middleware.Auth(svc, true, internalKey)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser = middleware.UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", http.NoBody)
+	req.Header.Set("X-API-Key", internalKey)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if gotUser == nil {
+		t.Fatal("expected user in context")
+	}
+	if gotUser.Email != "service@internal" {
+		t.Errorf("email = %q, want service@internal", gotUser.Email)
+	}
+	if gotUser.Role != user.RoleAdmin {
+		t.Errorf("role = %q, want admin", gotUser.Role)
+	}
+}
+
+func TestAuth_WebhookPrefix_NoAuthRequired(t *testing.T) {
+	svc := newTestAuthSvc()
+	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/github", http.NoBody)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (webhook prefix bypasses auth)", rec.Code)
+	}
+}
+
+func TestAuth_APIKey_MustChangePassword_403(t *testing.T) {
+	ts := &testStore{}
+	svc := newTestAuthSvcWithStore(ts)
+	ctx := context.Background()
+
+	u, err := svc.Register(ctx, &user.CreateRequest{
+		Email:    "mustchange-apikey@mw.com",
+		Name:     "MustChange APIKey User",
+		Password: "Password123",
+		Role:     user.RoleEditor,
+		TenantID: mwTestTenantID,
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// Set MustChangePassword on the user
+	for i := range ts.users {
+		if ts.users[i].ID == u.ID {
+			ts.users[i].MustChangePassword = true
+		}
+	}
+
+	keyResp, err := svc.CreateAPIKey(ctx, u.ID, user.CreateAPIKeyRequest{Name: "mcp-key"})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", http.NoBody)
+	req.Header.Set("X-API-Key", keyResp.PlainKey)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}

@@ -10,7 +10,6 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -54,7 +53,7 @@ class FakeAgentLoopResult:
     """Mimics AgentLoopResult from agent_loop.py."""
 
     final_content: str = "Task completed successfully."
-    tool_messages: list[dict[str, Any]] = field(default_factory=list)
+    tool_messages: list[dict[str, object]] = field(default_factory=list)
     total_cost: float = 0.02
     total_tokens_in: int = 500
     total_tokens_out: int = 200
@@ -78,9 +77,9 @@ class FakeAgentLoopExecutor:
         self._workspace_path: str = ""
         self.call_count = 0
         self.last_messages: list[dict] | None = None
-        self.last_config: Any = None
+        self.last_config: object = None
 
-    async def run(self, messages: list[dict], config: Any = None) -> FakeAgentLoopResult:
+    async def run(self, messages: list[dict[str, object]], config: object = None) -> FakeAgentLoopResult:
         self.call_count += 1
         self.last_messages = messages
         self.last_config = config

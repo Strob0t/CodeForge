@@ -1,5 +1,7 @@
-import { createMemo, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+
+import { useFocusTrap } from "~/hooks/useFocusTrap";
 
 import { CanvasExportPanel } from "./CanvasExportPanel";
 import type { CanvasStore } from "./canvasState";
@@ -41,6 +43,12 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
   const internalStore = createCanvasStore();
   const resolvedStore = createMemo((): CanvasStore => props.store ?? internalStore);
 
+  let modalRef: HTMLDivElement | undefined;
+  const { onKeyDown: trapKeyDown } = useFocusTrap(
+    () => modalRef,
+    () => props.open,
+  );
+
   const [svgRef, setSvgRef] = createSignal<SVGSVGElement | undefined>(undefined);
   const [exportPanelOpen, setExportPanelOpen] = createSignal(false);
   const [exportPanelWidth, setExportPanelWidth] = createSignal(256);
@@ -70,20 +78,15 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
     return toolInstances[toolType] ?? toolInstances.select;
   });
 
-  // Close on Escape key
+  // Keyboard handler: Escape closes, Tab is trapped by useFocusTrap
   function handleKeyDown(e: KeyboardEvent): void {
     if (e.key === "Escape") {
       e.stopPropagation();
       props.onClose();
+      return;
     }
+    trapKeyDown(e);
   }
-
-  onMount(() => {
-    document.addEventListener("keydown", handleKeyDown);
-    onCleanup(() => {
-      document.removeEventListener("keydown", handleKeyDown);
-    });
-  });
 
   // Export handler — collects all export formats and passes to callback
   function handleSendToAgent(): void {
@@ -119,11 +122,13 @@ export function CanvasModal(props: CanvasModalProps): JSX.Element {
     <Show when={props.open}>
       <Portal>
         <div
+          ref={modalRef}
           class="fixed inset-0 z-50 flex flex-col bg-black/80"
           role="dialog"
           aria-modal="true"
           aria-label="Design Canvas"
           data-testid="canvas-modal"
+          onKeyDown={handleKeyDown}
         >
           {/* Top bar: toolbar + close/export buttons */}
           <div class="flex items-center justify-between border-b border-white/10 bg-cf-bg-surface px-3 py-2">
