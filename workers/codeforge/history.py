@@ -29,6 +29,74 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // CHARS_PER_TOKEN)
 
 
+def estimate_messages_tokens(messages: list[dict[str, object]]) -> int:
+    """Estimate total tokens across a list of OpenAI-format messages."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total += estimate_tokens(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and "text" in part:
+                    total += estimate_tokens(str(part["text"]))
+        # Tool calls add ~50 tokens each
+        tool_calls = msg.get("tool_calls")
+        if tool_calls and isinstance(tool_calls, list):
+            total += len(tool_calls) * 50
+    return total
+
+
+def trim_messages_to_budget(
+    messages: list[dict[str, object]],
+    context_limit: int,
+    keep_recent: int = 10,
+) -> list[dict[str, object]]:
+    """Trim messages to fit within context budget.
+
+    Keeps the system prompt (first message) and the most recent messages.
+    Removes older messages from the middle when the budget is exceeded.
+    Only triggers when estimated token usage exceeds 80% of the limit.
+    """
+    current_tokens = estimate_messages_tokens(messages)
+    threshold = int(context_limit * 0.80)
+
+    if current_tokens <= threshold:
+        return messages
+
+    # Keep system prompt + last N messages, drop middle
+    if len(messages) <= keep_recent + 1:
+        return messages
+
+    system = messages[:1] if messages and messages[0].get("role") == "system" else []
+    tail = messages[-keep_recent:]
+
+    # Try including some head messages if budget allows
+    head_candidates = messages[len(system) : len(messages) - keep_recent]
+    budget = context_limit - estimate_messages_tokens(system) - estimate_messages_tokens(tail)
+
+    kept_head: list[dict[str, object]] = []
+    for msg in head_candidates:
+        msg_tokens = estimate_messages_tokens([msg])
+        if msg_tokens > budget:
+            break
+        kept_head.append(msg)
+        budget -= msg_tokens
+
+    trimmed = system + kept_head + tail
+    new_tokens = estimate_messages_tokens(trimmed)
+    dropped = len(messages) - len(trimmed)
+    if dropped > 0:
+        logger.info(
+            "proactive context trim: dropped %d messages (%d -> %d tokens, limit=%d)",
+            dropped,
+            current_tokens,
+            new_tokens,
+            context_limit,
+        )
+    return trimmed
+
+
 def truncate_tool_result(text: str, max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS) -> str:
     """Truncate long tool results, keeping head + tail.
 
