@@ -48,14 +48,14 @@ from codeforge.quality_tracking import (
 )
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
-from codeforge.stall_detection import STALL_ESCAPE_PROMPT, StallDetector
+from codeforge.stall_detection import StallDetector
 from codeforge.tool_executor import ToolExecutor
 from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
-    from codeforge.llm import ChatCompletionResponse, LiteLLMClient
+    from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
     from codeforge.memory.experience import ExperiencePool
     from codeforge.models import ToolCallDecision
     from codeforge.plan_act import PlanActController
@@ -143,6 +143,8 @@ class _LoopState:
     tool_messages: list[ConversationMessagePayload] = field(default_factory=list)
     failed_models: set[str] = field(default_factory=set)
     quality_tracker: IterationQualityTracker | None = None
+    files_read: set[str] = field(default_factory=set)
+    writes_since_verify: int = 0
 
 
 class AgentLoopExecutor:
@@ -380,6 +382,20 @@ class AgentLoopExecutor:
             if self._runtime.is_cancelled:
                 state.error = "cancelled"
                 break
+
+            # TODO-5: Post-write auto-verification nudge
+            if state.writes_since_verify >= 3:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "[System] You have written/edited 3+ files without running "
+                            "tests or syntax checks. Run verification now before writing more code."
+                        ),
+                    }
+                )
+                state.writes_since_verify = 0
+
             if await self._check_stall(stall_detector, messages, state):
                 break
             if self._check_memory_pressure(state):
@@ -527,8 +543,10 @@ class AgentLoopExecutor:
             return True
 
         if stall_detector.is_stalled():
+            recent_tools = stall_detector.get_recent_tool_names()
+            escape_prompt = stall_detector.get_contextual_escape_prompt(recent_tools)
             logger.info("stall detected (repeated %s), injecting escape prompt", stall_detector.get_repeated_action())
-            messages.append({"role": "user", "content": STALL_ESCAPE_PROMPT})
+            messages.append({"role": "user", "content": escape_prompt})
             stall_detector.record_escape()
         return False
 
@@ -728,11 +746,23 @@ class AgentLoopExecutor:
             await self._tool_executor.execute(
                 tc, messages, state, quality_tracker=state.quality_tracker, error_tracker=error_tracker
             )
+            self._track_write_verification(tc, state)
+
             if self._runtime.is_cancelled:
                 for remaining_tc in response.tool_calls[i + 1 :]:
                     self._tool_executor.append_result(remaining_tc, "Cancelled", messages, state)
                 break
         return IterationContinue()
+
+    @staticmethod
+    def _track_write_verification(tc: ToolCallPart, state: _LoopState) -> None:
+        """Track writes and verification commands for the verify-nudge (TODO-5)."""
+        if tc.name in ("write_file", "edit_file"):
+            state.writes_since_verify += 1
+        elif tc.name == "bash":
+            cmd = (safe_json_loads(tc.arguments, {}) if tc.arguments else {}).get("command", "")
+            if any(kw in cmd for kw in ("test", "pytest", "compile", "tsc", "build", "check")):
+                state.writes_since_verify = 0
 
     @staticmethod
     def _record_tool_calls_for_stall(state: _LoopState, stall_detector: StallDetector) -> None:

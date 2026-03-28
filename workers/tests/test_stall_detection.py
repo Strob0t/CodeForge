@@ -122,7 +122,7 @@ class TestSameToolSameArgs:
 class TestEscapePromptInjection:
     def test_escape_prompt_content(self) -> None:
         """Verify the escape prompt constant matches the expected text."""
-        from codeforge.agent_loop import STALL_ESCAPE_PROMPT
+        from codeforge.stall_detection import STALL_ESCAPE_PROMPT
 
         assert "repeating the same action" in STALL_ESCAPE_PROMPT
         assert "fundamentally different approach" in STALL_ESCAPE_PROMPT

@@ -71,3 +71,36 @@ class StallDetector:
             "repeated_action": self.get_repeated_action(),
             "escape_count": self._escape_count,
         }
+
+    def get_recent_tool_names(self) -> list[str]:
+        """Return tool names from the sliding window (most recent last)."""
+        return [name for name, _ in self._window]
+
+    def get_contextual_escape_prompt(self, recent_tools: list[str]) -> str:
+        """Generate a context-aware escape prompt based on what the agent has been doing."""
+        if not recent_tools:
+            return "You MUST use tools to make progress. Call list_directory or read_file to start."
+
+        reads = sum(1 for t in recent_tools if t in ("read_file", "search_files", "glob_files", "list_directory"))
+        writes = sum(1 for t in recent_tools if t in ("write_file", "edit_file"))
+        bashes = sum(1 for t in recent_tools if t == "bash")
+
+        if reads > writes and reads > bashes:
+            return (
+                "You have been exploring the codebase. You have enough context now "
+                "-- start writing or editing code to make progress."
+            )
+        if writes > 0 and bashes == 0:
+            return (
+                "You have been writing code but not testing it. Run the tests or "
+                "verify your changes with bash before continuing."
+            )
+        if bashes > reads:
+            return (
+                "Your bash commands are not producing the expected results. Read the "
+                "error output carefully, then try a different approach."
+            )
+        return (
+            "You are repeating actions without progress. Step back and try a "
+            "fundamentally different approach to solve this task."
+        )

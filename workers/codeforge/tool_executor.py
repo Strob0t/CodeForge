@@ -53,10 +53,13 @@ class ToolExecutor:
         registry: ToolRegistry,
         runtime: RuntimeClient,
         workspace_path: str,
+        *,
+        inject_state: bool = True,
     ) -> None:
         self._registry = registry
         self._runtime = runtime
         self._workspace = workspace_path
+        self._inject_state = inject_state
 
     async def execute(
         self,
@@ -106,6 +109,8 @@ class ToolExecutor:
             result_text = build_tool_result_text(result, tc.name, error_tracker)
             if not result.success:
                 tool_span.set_status(StatusCode.ERROR, result.error or "Tool returned an error")
+
+            result_text = self._enrich_result(tc.name, arguments, result_text, state)
             self.append_result(tc, result_text, messages, state)
             await self._runtime.report_tool_result(
                 call_id=decision.call_id,
@@ -135,6 +140,59 @@ class ToolExecutor:
                     )
                 except (ConnectionError, TimeoutError, OSError) as exc:
                     logger.debug("failed to publish action_suggestion event: %s", exc)
+
+    def _enrich_result(
+        self,
+        tool_name: str,
+        arguments: dict[str, object],
+        result_text: str,
+        state: _LoopState,
+    ) -> str:
+        """Add explore-before-write warnings and state summary to tool output."""
+        result_text = self._track_explore_before_write(tool_name, arguments, result_text, state)
+        if self._inject_state:
+            result_text += self._build_state_summary(state)
+        return result_text
+
+    @staticmethod
+    def _track_explore_before_write(
+        tool_name: str,
+        arguments: dict[str, object],
+        result_text: str,
+        state: _LoopState,
+    ) -> str:
+        """Track file reads and warn when editing without prior read (TODO-4)."""
+        if tool_name == "read_file":
+            path = arguments.get("file_path", arguments.get("path", ""))
+            if path:
+                state.files_read.add(path)
+        elif tool_name == "edit_file":
+            path = arguments.get("file_path", arguments.get("path", ""))
+            if path and path not in state.files_read:
+                result_text += (
+                    "\n\n[WARNING: You edited this file without reading it first. "
+                    "Always use read_file before edit_file to understand the existing code.]"
+                )
+        return result_text
+
+    @staticmethod
+    def _build_state_summary(state: _LoopState) -> str:
+        """Build a compact state summary string for injection into tool output (TODO-7)."""
+        parts: list[str] = []
+        if state.files_read:
+            parts.append(f"files_read={len(state.files_read)}")
+        write_count = sum(
+            1
+            for m in state.tool_messages
+            if m.role == "assistant" and m.tool_calls
+            for t in m.tool_calls
+            if t.function.name in ("write_file", "edit_file")
+        )
+        if write_count:
+            parts.append(f"files_modified={write_count}")
+        parts.append(f"step={state.step_count}")
+        parts.append(f"writes_unverified={state.writes_since_verify}")
+        return f"\n[State: {', '.join(parts)}]"
 
     @staticmethod
     def append_result(
