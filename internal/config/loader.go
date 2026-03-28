@@ -429,8 +429,11 @@ func validate(cfg *Config) error {
 	}
 
 	// Auth validation: enforce minimum bcrypt cost for security.
-	if cfg.Auth.BcryptCost < 10 {
-		return errors.New("auth.bcrypt_cost must be >= 10")
+	if cfg.Auth.BcryptCost < 12 {
+		return errors.New("auth.bcrypt_cost must be >= 12")
+	}
+	if cfg.Auth.BcryptCost > 31 {
+		return errors.New("auth.bcrypt_cost must be <= 31 (values above 20 cause multi-second login delays)")
 	}
 
 	// Auth validation: reject well-known default admin passwords in non-development environments.
@@ -463,7 +466,7 @@ func ensureSecrets(cfg *Config) error {
 			return fmt.Errorf("generate JWT secret: %w", err)
 		}
 		cfg.Auth.JWTSecret = token
-		slog.Info("auto-generated JWT secret (set CODEFORGE_AUTH_JWT_SECRET for persistence)")
+		slog.Info("auto-generated JWT secret -- persists only in memory; set CODEFORGE_AUTH_JWT_SECRET env var to stabilize across restarts")
 	}
 	return nil
 }

@@ -929,11 +929,13 @@ func run() error {
 		wsGroup.Get("/ws", hub.HandleWS)
 	})
 
-	// Liveness (always 200)
-	r.Get("/health", livenessHandler(logDropped, cfg.AppEnv))
-
-	// Readiness (pings DB, checks NATS, checks LiteLLM)
-	r.Get("/health/ready", readinessHandler(pool, queue, llmClient))
+	// Health endpoints — rate-limited to prevent amplification attacks.
+	// readinessHandler performs 3 I/O ops per call (PG ping, NATS check, LiteLLM check).
+	r.Group(func(health chi.Router) {
+		health.Use(rateLimiter.Handler)
+		health.Get("/health", livenessHandler(logDropped, cfg.AppEnv))
+		health.Get("/health/ready", readinessHandler(pool, queue, llmClient))
+	})
 
 	// API routes wrapped in a group with additional middleware
 	r.Group(func(api chi.Router) {
@@ -985,8 +987,15 @@ func run() error {
 				r.Use(middleware.A2AAuth(cfg.A2A.APIKeys))
 				r.Handle("/a2a", a2aHTTPHandler)
 			})
-			// AgentCard discovery (unauthenticated if AllowOpen).
-			r.Get("/.well-known/agent-card.json", a2asrv.NewAgentCardHandler(cardBuilder).ServeHTTP)
+			// AgentCard discovery — gated by AllowOpen config.
+			if cfg.A2A.AllowOpen {
+				r.Get("/.well-known/agent-card.json", a2asrv.NewAgentCardHandler(cardBuilder).ServeHTTP)
+			} else {
+				r.Group(func(r chi.Router) {
+					r.Use(middleware.A2AAuth(cfg.A2A.APIKeys))
+					r.Get("/.well-known/agent-card.json", a2asrv.NewAgentCardHandler(cardBuilder).ServeHTTP)
+				})
+			}
 
 			slog.Info("a2a protocol enabled", "transport", cfg.A2A.Transport, "base_url", a2aBaseURL)
 		}

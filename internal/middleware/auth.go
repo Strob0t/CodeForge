@@ -81,15 +81,21 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 				return
 			}
 
+			// Normalize path: strip trailing slash for consistent route matching.
+			path := strings.TrimSuffix(r.URL.Path, "/")
+			if path == "" {
+				path = "/"
+			}
+
 			// Skip auth for public paths.
-			if publicPaths[r.URL.Path] {
+			if publicPaths[path] {
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			// Skip auth for public path prefixes (webhooks use their own auth).
 			for _, prefix := range publicPrefixes {
-				if strings.HasPrefix(r.URL.Path, prefix) {
+				if strings.HasPrefix(path, prefix) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -114,24 +120,10 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 			//   - Token lifetime is extended beyond 30min
 			//   - Non-HTTPS deployments become supported
 			//   - URL logging is enabled in production reverse proxies
-			if r.URL.Path == "/ws" {
-				tokenParam := r.URL.Query().Get("token")
-				if tokenParam == "" {
-					writeJSONError(w, http.StatusUnauthorized, "authorization required")
+			if path == "/ws" {
+				u := validateWSToken(authSvc, w, r)
+				if u == nil {
 					return
-				}
-				claims, err := authSvc.ValidateAccessToken(tokenParam)
-				if err != nil {
-					writeJSONError(w, http.StatusUnauthorized, "invalid token")
-					return
-				}
-				u := &user.User{
-					ID:       claims.UserID,
-					Email:    claims.Email,
-					Name:     claims.Name,
-					Role:     claims.Role,
-					TenantID: claims.TenantID,
-					Enabled:  true,
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
 				ctx = withUserID(ctx, u.ID)
@@ -141,82 +133,112 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 
 			// Try X-API-Key header first.
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
-				// Internal service key — Python workers use this for API calls back to Go Core.
-				// By design, the internal service key grants admin access for inter-service
-				// communication (Go Core <-> Python workers). The key is never exposed to
-				// external clients and must be set via CODEFORGE_INTERNAL_KEY env var.
-				if internalKeyVal != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKeyVal)) == 1 {
-					slog.Debug("internal service key authenticated", "path", r.URL.Path)
-					svcUser := &user.User{
-						ID:       "00000000-0000-0000-0000-000000000001",
-						Email:    "service@internal",
-						Name:     "Internal Service",
-						Role:     user.RoleAdmin,
-						TenantID: DefaultTenantID,
-						Enabled:  true,
-					}
-					ctx := context.WithValue(r.Context(), authUserCtxKey{}, svcUser)
-					ctx = withUserID(ctx, svcUser.ID)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-
-				// User-created API key.
-				u, key, err := authSvc.ValidateAPIKey(r.Context(), apiKey)
-				if err != nil {
+				u, key := validateAPIKey(r.Context(), authSvc, internalKeyVal, apiKey)
+				if u == nil {
 					writeJSONError(w, http.StatusUnauthorized, "invalid api key")
 					return
 				}
-				if u.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
+				if u.MustChangePassword && !passwordChangeExempt[path] {
 					writeJSONError(w, http.StatusForbidden, "password change required")
 					return
 				}
 				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
-				ctx = context.WithValue(ctx, apiKeyCtxKey{}, key)
+				if key != nil {
+					ctx = context.WithValue(ctx, apiKeyCtxKey{}, key)
+				}
 				ctx = withUserID(ctx, u.ID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
 			// Try Authorization: Bearer <token> header.
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				writeJSONError(w, http.StatusUnauthorized, "authorization required")
+			u := validateBearerToken(authSvc, w, r)
+			if u == nil {
 				return
 			}
-
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			if token == authHeader {
-				writeJSONError(w, http.StatusUnauthorized, "invalid authorization header")
-				return
-			}
-
-			claims, err := authSvc.ValidateAccessToken(token)
-			if err != nil {
-				writeJSONError(w, http.StatusUnauthorized, "invalid token")
-				return
-			}
-
-			// MustChangePassword check (P2-2): force password change except on exempt paths
-			if claims.MustChangePassword && !passwordChangeExempt[r.URL.Path] {
+			if u.MustChangePassword && !passwordChangeExempt[path] {
 				writeJSONError(w, http.StatusForbidden, "password change required")
 				return
 			}
-
-			u := &user.User{
-				ID:                 claims.UserID,
-				Email:              claims.Email,
-				Name:               claims.Name,
-				Role:               claims.Role,
-				TenantID:           claims.TenantID,
-				Enabled:            true,
-				MustChangePassword: claims.MustChangePassword,
-			}
-
 			ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
 			ctx = withUserID(ctx, u.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+// validateWSToken validates a WebSocket ?token= query parameter.
+// Returns the authenticated user or nil if validation fails.
+func validateWSToken(authSvc *service.AuthService, w http.ResponseWriter, r *http.Request) *user.User {
+	tokenParam := r.URL.Query().Get("token")
+	if tokenParam == "" {
+		writeJSONError(w, http.StatusUnauthorized, "authorization required")
+		return nil
+	}
+	claims, err := authSvc.ValidateAccessToken(tokenParam)
+	if err != nil {
+		writeJSONError(w, http.StatusUnauthorized, "invalid token")
+		return nil
+	}
+	return &user.User{
+		ID:       claims.UserID,
+		Email:    claims.Email,
+		Name:     claims.Name,
+		Role:     claims.Role,
+		TenantID: claims.TenantID,
+		Enabled:  true,
+	}
+}
+
+// validateAPIKey validates an X-API-Key header against the internal service key
+// or user-created API keys. Returns the user, optional API key, or nil.
+func validateAPIKey(ctx context.Context, authSvc *service.AuthService, internalKeyVal, apiKey string) (*user.User, *user.APIKey) {
+	// Internal service key — grants admin access for inter-service communication.
+	if internalKeyVal != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKeyVal)) == 1 {
+		slog.Debug("internal service key authenticated")
+		return &user.User{
+			ID:       "00000000-0000-0000-0000-000000000001",
+			Email:    "service@internal",
+			Name:     "Internal Service",
+			Role:     user.RoleAdmin,
+			TenantID: DefaultTenantID,
+			Enabled:  true,
+		}, nil
+	}
+	// User-created API key.
+	u, key, err := authSvc.ValidateAPIKey(ctx, apiKey)
+	if err != nil {
+		return nil, nil
+	}
+	return u, key
+}
+
+// validateBearerToken validates an Authorization: Bearer header.
+// Returns the authenticated user or nil if validation fails.
+func validateBearerToken(authSvc *service.AuthService, w http.ResponseWriter, r *http.Request) *user.User {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		writeJSONError(w, http.StatusUnauthorized, "authorization required")
+		return nil
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == authHeader {
+		writeJSONError(w, http.StatusUnauthorized, "invalid authorization header")
+		return nil
+	}
+	claims, err := authSvc.ValidateAccessToken(token)
+	if err != nil {
+		writeJSONError(w, http.StatusUnauthorized, "invalid token")
+		return nil
+	}
+	return &user.User{
+		ID:                 claims.UserID,
+		Email:              claims.Email,
+		Name:               claims.Name,
+		Role:               claims.Role,
+		TenantID:           claims.TenantID,
+		Enabled:            true,
+		MustChangePassword: claims.MustChangePassword,
 	}
 }
 
