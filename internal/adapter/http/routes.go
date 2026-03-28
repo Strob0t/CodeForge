@@ -636,6 +636,11 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	r.Get("/me/export", h.ExportMyData)
 	r.With(audit("delete", "my_data")).Delete("/me/data", h.DeleteMyData)
 
+	// Consent management (GDPR Article 7)
+	r.Get("/me/consent/purposes", h.ListConsentPurposes)
+	r.Get("/me/consent", h.GetMyConsentStatus)
+	r.Put("/me/consent/{purposeID}", h.SetMyConsent)
+
 	// Subscription Providers (OAuth device flow connect)
 	r.Get("/auth/providers", h.ListSubscriptionProviders)
 	r.Post("/auth/providers/{provider}/connect", h.StartProviderConnect)

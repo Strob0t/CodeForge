@@ -887,6 +887,7 @@ func run() error {
 		ReviewTrigger:    reviewTriggerSvc,
 		PromptEvolution:  evoSvc,
 		GDPR:             service.NewGDPRService(store),
+		Consent:          service.NewConsentService(store),
 	}
 
 	// A2A Client Service (Phase 27K + 27O) — outbound federation + push notifications.

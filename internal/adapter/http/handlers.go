@@ -100,5 +100,6 @@ type Handlers struct {
 	ReviewTrigger      *service.ReviewTriggerService
 	PromptEvolution    *service.PromptEvolutionService
 	GDPR               *service.GDPRService
+	Consent            *service.ConsentService
 	WSTickets          wsticket.Store
 }
