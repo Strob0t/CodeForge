@@ -1020,9 +1020,13 @@ func run() error {
 			return fmt.Errorf("mcp server init: %w", mcpErr)
 		}
 		if err := mcpServer.Start(); err != nil {
-			return fmt.Errorf("mcp server: %w", err)
+			slog.Warn("mcp server failed to start, MCP integration unavailable",
+				"port", cfg.MCP.ServerPort,
+				"error", err)
+			mcpServer = nil
+		} else {
+			slog.Info("mcp server started", "port", cfg.MCP.ServerPort)
 		}
-		slog.Info("mcp server started", "port", cfg.MCP.ServerPort)
 	}
 
 	addr := ":" + cfg.Server.Port
