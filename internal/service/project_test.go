@@ -1221,11 +1221,15 @@ func TestProjectService_IsUnderWorkspaceRoot(t *testing.T) {
 }
 
 func TestProjectServiceAdopt(t *testing.T) {
-	adoptDir := t.TempDir()
+	wsRoot := t.TempDir()
+	adoptDir := filepath.Join(wsRoot, "myproject")
+	if err := os.MkdirAll(adoptDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	store := &mockStore{
 		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
 	}
-	svc := NewProjectService(store, t.TempDir())
+	svc := NewProjectService(store, wsRoot)
 
 	p, err := svc.Adopt(context.Background(), "p1", adoptDir)
 	if err != nil {
@@ -1245,6 +1249,22 @@ func TestProjectServiceAdoptEmptyPath(t *testing.T) {
 	_, err := svc.Adopt(context.Background(), "p1", "")
 	if err == nil {
 		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestProjectServiceAdoptOutsideWorkspaceRoot(t *testing.T) {
+	outsideDir := t.TempDir()
+	store := &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "Alpha"}},
+	}
+	svc := NewProjectService(store, t.TempDir()) // different root than outsideDir
+
+	_, err := svc.Adopt(context.Background(), "p1", outsideDir)
+	if err == nil {
+		t.Fatal("expected error for path outside workspace root")
+	}
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("expected domain.ErrValidation, got: %v", err)
 	}
 }
 

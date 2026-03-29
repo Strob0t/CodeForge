@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
@@ -65,7 +66,7 @@ func (s *ProjectService) Adopt(ctx context.Context, id, path string) (*project.P
 	if s.workspaceRoot != "" {
 		wsRoot, _ := filepath.Abs(s.workspaceRoot)
 		if !strings.HasPrefix(absPath, wsRoot+string(filepath.Separator)) && absPath != wsRoot {
-			return nil, fmt.Errorf("path must be within workspace root %s", wsRoot)
+			return nil, fmt.Errorf("path must be within workspace root %s: %w", wsRoot, domain.ErrValidation)
 		}
 	}
 
