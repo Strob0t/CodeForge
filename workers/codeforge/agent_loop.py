@@ -438,14 +438,18 @@ class AgentLoopExecutor:
                 state.error = "cancelled"
                 break
 
-            # TODO-5: Post-write auto-verification nudge
-            if state.writes_since_verify >= 3:
+            # Post-write auto-verification nudge: trigger after every write
+            # to enforce compile/test after each file change (prevents the
+            # common failure mode where agents write many files then discover
+            # cross-file inconsistencies too late to recover).
+            if state.writes_since_verify >= 1:
                 messages.append(
                     {
                         "role": "user",
                         "content": (
-                            "[System] You have written/edited 3+ files without running "
-                            "tests or syntax checks. Run verification now before writing more code."
+                            "[System] You just wrote/edited a file. Verify it compiles "
+                            "before writing more code: run `python -m py_compile <file>` "
+                            "or the appropriate build command."
                         ),
                     }
                 )

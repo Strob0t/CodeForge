@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 import threading
 import time
 
 import httpx
+import structlog
 
 from codeforge.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _CACHE_TTL_SECONDS = 60.0
 

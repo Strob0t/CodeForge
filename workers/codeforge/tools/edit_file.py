@@ -71,7 +71,49 @@ class EditFileTool(ToolExecutor):
 
         count = content.count(old_text)
         if count == 0:
-            return ToolResult(output="", error="old_text not found in file", success=False)
+            # Fallback: try matching after normalizing line endings and
+            # trailing whitespace per line, which LLMs often get wrong.
+            old_norm = "\n".join(line.rstrip() for line in old_text.splitlines())
+            content_norm = "\n".join(line.rstrip() for line in content.splitlines())
+            count = content_norm.count(old_norm)
+            if count == 1:
+                # Rebuild old_text from the actual content to preserve
+                # original whitespace in the replacement.
+                start_idx = content_norm.index(old_norm)
+                actual_old = content[start_idx : start_idx + len(old_text)]
+                # Verify lengths align (they may differ if trailing ws was stripped).
+                # Use line-by-line reconstruction for safety.
+                orig_lines = content.splitlines(keepends=True)
+                norm_pos = 0
+                actual_start = None
+                actual_end = None
+                for i, line in enumerate(orig_lines):
+                    line_norm = line.rstrip() + "\n" if line.endswith("\n") else line.rstrip()
+                    if norm_pos <= start_idx < norm_pos + len(line_norm) and actual_start is None:
+                        actual_start = sum(len(l) for l in orig_lines[:i]) + (start_idx - norm_pos)
+                    norm_pos += len(line_norm)
+                    if norm_pos >= start_idx + len(old_norm) and actual_end is None:
+                        actual_end = sum(len(l) for l in orig_lines[: i + 1])
+                if actual_start is not None and actual_end is not None:
+                    actual_old = content[actual_start:actual_end]
+                    updated = content[:actual_start] + new_text + content[actual_end:]
+                    target.write_text(updated, encoding="utf-8")
+                    old_lines = actual_old.count("\n") + 1
+                    new_lines = new_text.count("\n") + 1
+                    start_line = content[:actual_start].count("\n") + 1
+                    return ToolResult(
+                        output=f"edited {rel} (fuzzy match: trailing whitespace normalized)",
+                        error=None,
+                        success=True,
+                    )
+            return ToolResult(
+                output="",
+                error=(
+                    "old_text not found in file. "
+                    "Hint: Use read_file to copy the exact text including whitespace and indentation."
+                ),
+                success=False,
+            )
         if count > 1:
             return ToolResult(output="", error=f"old_text found {count} times (must be unique)", success=False)
 

@@ -140,6 +140,13 @@ def classify_model(model: str) -> CapabilityLevel:
     if supports_fc is True:
         return CapabilityLevel.API_WITH_TOOLS
 
+    # OpenAI-compatible proxies (e.g. openai/container for LM Studio)
+    # typically support function calling via the /v1/chat/completions
+    # tool_choice parameter. Default to api_with_tools rather than
+    # pure_completion so the agent loop sends structured tool calls.
+    if model.startswith("openai/"):
+        return CapabilityLevel.API_WITH_TOOLS
+
     # Unknown model without litellm confirmation — be conservative.
     return CapabilityLevel.PURE_COMPLETION
 

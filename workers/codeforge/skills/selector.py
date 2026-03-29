@@ -9,8 +9,9 @@ for rationale and alternatives if this needs to change later.
 from __future__ import annotations
 
 import json
-import logging
 from typing import TYPE_CHECKING
+
+import structlog
 
 from codeforge.model_resolver import get_available_models
 from codeforge.routing.capabilities import enrich_model_capabilities, filter_models_by_capability
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from codeforge.llm import LiteLLMClient
     from codeforge.skills.models import Skill
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _MAX_SKILLS_PER_RUN = 5
 
