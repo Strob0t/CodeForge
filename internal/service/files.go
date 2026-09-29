@@ -38,8 +38,8 @@ type FileService struct {
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(store database.Store, fs filesystem.Provider) *FileService {
-	return &FileService{store: store, fs: fs}
+func NewFileService(store database.Store, fsProvider filesystem.Provider) *FileService {
+	return &FileService{store: store, fs: fsProvider}
 }
 
 // ListDirectory lists files and directories at the given path within a project workspace.

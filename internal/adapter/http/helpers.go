@@ -103,10 +103,13 @@ func sanitizeName(name string) error {
 	return nil
 }
 
+// maxRawBodyBytes limits request bodies read by readBody.
+const maxRawBodyBytes = 10 << 20 // 10 MB
+
 // readBody reads the request body with a size limit. Returns nil if the body
-// exceeds maxBytes (and writes a 413 response).
-func readBody(w http.ResponseWriter, r *http.Request, maxBytes int64) []byte {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+// exceeds maxRawBodyBytes (and writes a 413 response).
+func readBody(w http.ResponseWriter, r *http.Request) []byte {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRawBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")

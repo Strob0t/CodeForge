@@ -32,12 +32,11 @@ func newQueryBuilder(tenantID string) *queryBuilder {
 	}
 }
 
-// newQueryBuilderWith starts a builder with an initial named condition and
-// the tenant_id condition, e.g. newQueryBuilderWith("run_id", runID, tenantID).
-func newQueryBuilderWith(col string, val any, tenantID string) *queryBuilder {
+// newRunQueryBuilder starts a builder with the run_id and tenant_id conditions.
+func newRunQueryBuilder(runID, tenantID string) *queryBuilder {
 	return &queryBuilder{
-		conditions: []string{col + " = $1", "tenant_id = $2"},
-		args:       []any{val, tenantID},
+		conditions: []string{"run_id = $1", "tenant_id = $2"},
+		args:       []any{runID, tenantID},
 		argIdx:     3,
 	}
 }
@@ -160,7 +159,7 @@ func (s *EventStore) LoadTrajectory(ctx context.Context, runID string, filter ev
 	}
 
 	tid := middleware.TenantIDFromContext(ctx)
-	qb := newQueryBuilderWith("run_id", runID, tid)
+	qb := newRunQueryBuilder(runID, tid)
 
 	if cursor != "" {
 		qb.addCondition("id > $%d", cursor)
@@ -297,7 +296,7 @@ func (s *EventStore) TrajectoryStats(ctx context.Context, runID string) (*events
 // If fromEventID is empty, starts from the beginning. If toEventID is empty, goes to the end.
 func (s *EventStore) LoadEventsRange(ctx context.Context, runID, fromEventID, toEventID string) ([]event.AgentEvent, error) {
 	tid := middleware.TenantIDFromContext(ctx)
-	qb := newQueryBuilderWith("run_id", runID, tid)
+	qb := newRunQueryBuilder(runID, tid)
 
 	if fromEventID != "" {
 		qb.addCondition("version >= (SELECT version FROM agent_events WHERE id = $%d)", fromEventID)

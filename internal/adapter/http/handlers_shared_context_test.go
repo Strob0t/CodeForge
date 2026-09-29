@@ -148,7 +148,7 @@ func TestGetSharedContext(t *testing.T) {
 		}
 		r := newSharedCtxTestRouter(store)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/teams/team-1/shared-context", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/teams/team-1/shared-context", http.NoBody)
 		w := httptest.NewRecorder()
 
 		r.ServeHTTP(w, req)
@@ -236,7 +236,7 @@ func TestSharedContextIntegration(t *testing.T) {
 	}
 
 	// Step 2: Get shared context.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/teams/team-int/shared-context", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/teams/team-int/shared-context", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -256,7 +256,7 @@ func TestSharedContextIntegration(t *testing.T) {
 	}
 
 	// Step 4: Get again and confirm item present.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/teams/team-int/shared-context", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/teams/team-int/shared-context", http.NoBody)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

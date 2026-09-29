@@ -64,8 +64,9 @@ func (s *RoadmapService) GetByProject(ctx context.Context, projectID string) (*r
 
 	// Group features by milestone ID.
 	featuresByMilestone := make(map[string][]roadmap.Feature, len(milestones))
-	for _, f := range allFeatures {
-		featuresByMilestone[f.MilestoneID] = append(featuresByMilestone[f.MilestoneID], f)
+	for i := range allFeatures {
+		milestoneID := allFeatures[i].MilestoneID
+		featuresByMilestone[milestoneID] = append(featuresByMilestone[milestoneID], allFeatures[i])
 	}
 
 	for i := range milestones {

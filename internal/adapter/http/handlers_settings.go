@@ -73,7 +73,7 @@ func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 
 // HandleGitHubWebhook handles POST /api/v1/webhooks/vcs/github
 func (h *Handlers) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
+	body := readBody(w, r)
 	if body == nil {
 		return
 	}
@@ -101,7 +101,7 @@ func (h *Handlers) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 
 // HandleGitLabWebhook handles POST /api/v1/webhooks/vcs/gitlab
 func (h *Handlers) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
+	body := readBody(w, r)
 	if body == nil {
 		return
 	}
@@ -156,7 +156,7 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 
 // HandleGitHubIssueWebhook handles POST /api/v1/webhooks/pm/github
 func (h *Handlers) HandleGitHubIssueWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
+	body := readBody(w, r)
 	if body == nil {
 		return
 	}
@@ -177,7 +177,7 @@ func (h *Handlers) HandleGitHubIssueWebhook(w http.ResponseWriter, r *http.Reque
 
 // HandleGitLabIssueWebhook handles POST /api/v1/webhooks/pm/gitlab
 func (h *Handlers) HandleGitLabIssueWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
+	body := readBody(w, r)
 	if body == nil {
 		return
 	}
@@ -198,7 +198,7 @@ func (h *Handlers) HandleGitLabIssueWebhook(w http.ResponseWriter, r *http.Reque
 
 // HandlePlaneWebhook handles POST /api/v1/webhooks/pm/plane
 func (h *Handlers) HandlePlaneWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
+	body := readBody(w, r)
 	if body == nil {
 		return
 	}
