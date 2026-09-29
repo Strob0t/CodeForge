@@ -144,7 +144,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 			next.ServeHTTP(w, r)
 		})
 	})
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 	return r
 }
 

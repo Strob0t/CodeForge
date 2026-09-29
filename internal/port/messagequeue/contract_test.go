@@ -620,6 +620,9 @@ func TestContract_GenerateFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal %s: %v", fx.Subject, err)
 		}
+		// End with a newline like the committed fixtures (end-of-file-fixer),
+		// so regenerating them leaves the working tree clean.
+		data = append(data, '\n')
 
 		// Replace dots with underscores for filename safety.
 		filename := subjectToFilename(fx.Subject) + ".json"

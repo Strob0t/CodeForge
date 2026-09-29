@@ -160,7 +160,7 @@ func newAuditTestRouter(auditStore *auditStoreMock, ctxUser *user.User) chi.Rout
 			next.ServeHTTP(w, r)
 		})
 	})
-	cfhttp.MountRoutes(r, handlers, config.Webhook{}, cfhttp.WithAuditStore(auditStore))
+	mountTestRoutes(r, handlers, cfhttp.WithAuditStore(auditStore))
 	return r
 }
 

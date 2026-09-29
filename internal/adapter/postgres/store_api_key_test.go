@@ -27,19 +27,10 @@ func TestAPIKeyStore_TenantIsolation(t *testing.T) {
 	})
 
 	t.Run("GetAPIKeyByHash_DocumentedCrossTenant", func(t *testing.T) {
-		// Verify GetAPIKeyByHash is explicitly documented as cross-tenant.
-		idx := strings.Index(content, "GetAPIKeyByHash")
-		if idx == -1 {
-			t.Fatal("GetAPIKeyByHash method not found")
-		}
-		// Check the surrounding comment block for the word "cross-tenant".
-		commentStart := idx - 200
-		if commentStart < 0 {
-			commentStart = 0
-		}
-		surrounding := content[commentStart:idx]
-		if !strings.Contains(surrounding, "cross-tenant") {
-			t.Error("GetAPIKeyByHash must be documented as intentionally cross-tenant")
+		// Verify the doc comment of GetAPIKeyByHash explicitly states that it is cross-tenant.
+		doc := methodDocComment(t, content, filename, "GetAPIKeyByHash")
+		if !strings.Contains(doc, "cross-tenant") {
+			t.Errorf("GetAPIKeyByHash must be documented as intentionally cross-tenant, doc comment: %q", doc)
 		}
 	})
 

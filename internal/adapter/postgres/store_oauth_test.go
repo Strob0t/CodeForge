@@ -52,19 +52,20 @@ func TestOAuthState_GetExpired(t *testing.T) {
 	tenantID := createTestTenant(t, store)
 	ctx := ctxWithTenant(t, tenantID)
 
-	state := &vcsaccount.OAuthState{
-		State:     "expired-state-token-aaaaaabbbbbbccccccddddddeeeeeeee",
-		Provider:  "github",
-		TenantID:  tenantID,
-		ExpiresAt: time.Now().Add(-1 * time.Minute), // already expired
-		CreatedAt: time.Now().Add(-11 * time.Minute),
+	// A random state token keeps the test independent of rows left in a shared
+	// database by earlier runs (state is the primary key).
+	state, err := vcsaccount.NewOAuthState("github", tenantID)
+	if err != nil {
+		t.Fatalf("NewOAuthState: %v", err)
 	}
+	state.ExpiresAt = time.Now().Add(-1 * time.Minute) // already expired
+	state.CreatedAt = time.Now().Add(-11 * time.Minute)
 	if err := store.CreateOAuthState(ctx, state); err != nil {
 		t.Fatalf("CreateOAuthState: %v", err)
 	}
 
 	// GetOAuthState filters by expires_at > now(), so expired states are not found.
-	_, err := store.GetOAuthState(ctx, state.State)
+	_, err = store.GetOAuthState(ctx, state.State)
 	if err == nil {
 		t.Fatal("expected error for expired state")
 	}

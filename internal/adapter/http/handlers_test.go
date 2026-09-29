@@ -1616,6 +1616,20 @@ func newTestRouter() chi.Router {
 	return newTestRouterWithStore(&mockStore{})
 }
 
+// mountTestRoutes wires the domain handler groups (Project, Agent, Task, Run,
+// Policy, Utility) from the flat service fields the same way
+// cmd/codeforge/main.go does, then mounts all routes. Without the groups the
+// routes bound to them dereference a nil receiver.
+func mountTestRoutes(r chi.Router, h *cfhttp.Handlers, opts ...cfhttp.RouteOption) {
+	h.Project = &cfhttp.ProjectHandlers{Projects: h.Projects, Limits: h.Limits}
+	h.Agent = &cfhttp.AgentHandlers{Agents: h.Agents, Limits: h.Limits}
+	h.Task = &cfhttp.TaskHandlers{Tasks: h.Tasks, ActiveWork: h.ActiveWork, Limits: h.Limits}
+	h.Run = &cfhttp.RunHandlers{Runtime: h.Runtime, Events: h.Events, Limits: h.Limits}
+	h.Policy = &cfhttp.PolicyHandlers{Policies: h.Policies, Projects: h.Projects, PolicyDir: h.PolicyDir, Limits: h.Limits}
+	h.Utility = &cfhttp.UtilityHandlers{AgentConfig: h.AgentConfig, OllamaBaseURL: h.OllamaBaseURL}
+	cfhttp.MountRoutes(r, h, config.Webhook{}, opts...)
+}
+
 func newTestRouterWithStore(store *mockStore) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
@@ -1734,7 +1748,7 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 			next.ServeHTTP(w, r)
 		})
 	})
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 	return r
 }
 
@@ -1854,7 +1868,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 			next.ServeHTTP(w, r)
 		})
 	})
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 	return r
 }
 
@@ -2747,7 +2761,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/repomap", http.NoBody)
 	w := httptest.NewRecorder()
@@ -2805,7 +2819,7 @@ func TestIndexProject(t *testing.T) {
 	}
 
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, handlers, config.Webhook{})
+	mountTestRoutes(r, handlers)
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/index", http.NoBody)
 	w := httptest.NewRecorder()
