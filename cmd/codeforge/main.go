@@ -911,6 +911,14 @@ func run() error {
 	rateLimiterCleanup := rateLimiter.StartCleanup(cfg.Rate.CleanupInterval, cfg.Rate.MaxIdleTime)
 	defer rateLimiterCleanup()
 
+	// Client IP first so logging, auditing and rate limiting see the real client
+	// (forwarding headers only from server.trusted_proxies, KI-11).
+	trustedProxies, err := cfg.Server.TrustedProxyPrefixes()
+	if err != nil {
+		return fmt.Errorf("server.trusted_proxies: %w", err)
+	}
+	r.Use(middleware.ClientIP(trustedProxies))
+
 	// Middleware (applied to all routes including WebSocket)
 	r.Use(cfhttp.SecurityHeaders)
 	r.Use(cfhttp.CORS(cfg.Server.CORSOrigin, cfg.AppEnv))
@@ -921,7 +929,6 @@ func run() error {
 	r.Use(middleware.Auth(authSvc, cfg.Auth.Enabled, cfg.InternalKey))
 	r.Use(middleware.TenantID)
 	r.Use(cfhttp.Logger)
-	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
 
 	// WebSocket — rate-limited but no Timeout/Idempotency (long-lived connection)

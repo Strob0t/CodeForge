@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sync"
 	"time"
 )
@@ -337,6 +338,27 @@ type Server struct {
 	ForceSecureCookies bool          `yaml:"force_secure_cookies"` // Unconditionally set Secure=true on cookies (default: false)
 	TLSCertFile        string        `yaml:"tls_cert_file"`        // Path to TLS certificate file (PEM). Empty = plain HTTP.
 	TLSKeyFile         string        `yaml:"tls_key_file"`         // Path to TLS private key file (PEM). Empty = plain HTTP.
+	// TrustedProxies lists reverse proxies (IPs or CIDR prefixes) whose X-Forwarded-For /
+	// X-Real-IP headers identify the client. Empty = forwarding headers are ignored.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// TrustedProxyPrefixes parses TrustedProxies; a bare IP becomes a single-address prefix.
+func (s *Server) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(s.TrustedProxies))
+	for _, entry := range s.TrustedProxies {
+		if prefix, err := netip.ParsePrefix(entry); err == nil {
+			prefixes = append(prefixes, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy %q: want an IP or CIDR prefix", entry)
+		}
+		addr = addr.Unmap()
+		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return prefixes, nil
 }
 
 // Postgres holds PostgreSQL connection configuration.

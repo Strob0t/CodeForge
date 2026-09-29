@@ -170,6 +170,7 @@ func loadEnv(cfg *Config) {
 
 	setString(&cfg.Server.Port, "CODEFORGE_PORT")
 	setString(&cfg.Server.CORSOrigin, "CODEFORGE_CORS_ORIGIN")
+	setStringSlice(&cfg.Server.TrustedProxies, "CODEFORGE_TRUSTED_PROXIES")
 	setString(&cfg.Postgres.DSN, "DATABASE_URL")
 	setTyped(&cfg.Postgres.MaxConns, "CODEFORGE_PG_MAX_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
 	setTyped(&cfg.Postgres.MinConns, "CODEFORGE_PG_MIN_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
@@ -373,6 +374,9 @@ func loadEnv(cfg *Config) {
 func validate(cfg *Config) error {
 	if cfg.Server.Port == "" {
 		return errors.New("server.port is required")
+	}
+	if _, err := cfg.Server.TrustedProxyPrefixes(); err != nil {
+		return fmt.Errorf("server.trusted_proxies: %w", err)
 	}
 	if cfg.Postgres.DSN == "" {
 		return errors.New("postgres.dsn is required")

@@ -803,3 +803,39 @@ func TestSSLModeRejectedInStaging(t *testing.T) {
 		})
 	}
 }
+
+func TestTrustedProxiesFromEnv(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_TRUSTED_PROXIES", "10.0.0.0/8, 192.0.2.10 ,::1")
+	loadEnv(&cfg)
+	prefixes, err := cfg.Server.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatalf("TrustedProxyPrefixes: %v", err)
+	}
+	want := []string{"10.0.0.0/8", "192.0.2.10/32", "::1/128"}
+	if len(prefixes) != len(want) {
+		t.Fatalf("got %v, want %v", prefixes, want)
+	}
+	for i, p := range prefixes {
+		if p.String() != want[i] {
+			t.Errorf("prefix %d = %s, want %s", i, p, want[i])
+		}
+	}
+}
+
+func TestTrustedProxiesDefaultEmpty(t *testing.T) {
+	cfg := Defaults()
+	prefixes, err := cfg.Server.TrustedProxyPrefixes()
+	if err != nil || len(prefixes) != 0 {
+		t.Fatalf("got %v, %v; want no prefixes", prefixes, err)
+	}
+}
+
+func TestValidateRejectsInvalidTrustedProxy(t *testing.T) {
+	cfg := Defaults()
+	cfg.Server.TrustedProxies = []string{"not-an-ip"}
+	err := validate(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "server.trusted_proxies") {
+		t.Fatalf("validate error = %v, want server.trusted_proxies error", err)
+	}
+}
