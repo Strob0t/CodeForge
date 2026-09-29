@@ -37,14 +37,6 @@ export function parseWSMessage(data: unknown): WSMessage | null {
   return null;
 }
 
-/**
- * Validate that a WSMessage payload matches a specific AG-UI event type.
- * Checks for the presence of the required `run_id` field shared by all AG-UI events.
- */
-function isAGUIPayload(payload: Record<string, unknown>): boolean {
-  return typeof payload.run_id === "string";
-}
-
 // AG-UI event types following the CopilotKit AG-UI specification.
 export type AGUIEventType =
   | "agui.run_started"
@@ -171,6 +163,17 @@ export interface AGUIEventMap {
   "agui.roadmap_proposal": AGUIRoadmapProposal;
 }
 
+/**
+ * Narrow a WSMessage to a specific AG-UI event type.
+ * Checks the type discriminator and the required `run_id` field shared by all AG-UI events.
+ */
+function isAGUIEvent<T extends AGUIEventType>(
+  msg: WSMessage,
+  type: T,
+): msg is WSMessage & { type: T; payload: AGUIEventMap[T] } {
+  return msg.type === type && typeof msg.payload.run_id === "string";
+}
+
 function buildWSURL(): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const token = getAccessToken();
@@ -259,9 +262,8 @@ export function createCodeForgeWS() {
     handler: (payload: AGUIEventMap[T]) => void,
   ): () => void {
     return onMessage((msg) => {
-      if (msg.type === type && isAGUIPayload(msg.payload)) {
-        // Safe cast: type discriminator + run_id validation ensures correct shape.
-        handler(msg.payload as AGUIEventMap[T]);
+      if (isAGUIEvent(msg, type)) {
+        handler(msg.payload);
       }
     });
   }

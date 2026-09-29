@@ -116,6 +116,12 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
       - name: Build
         run: npm run build
 

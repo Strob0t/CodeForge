@@ -1588,6 +1588,8 @@ const de: Translations = {
   "goals.toast.createFailed": "Ziel konnte nicht erstellt werden",
   "goals.toast.updated": "Ziel aktualisiert",
   "goals.toast.updateFailed": "Ziel konnte nicht aktualisiert werden",
+  "goals.confirmDelete":
+    "Sind Sie sicher, dass Sie dieses Ziel loeschen moechten? Diese Aktion kann nicht rueckgaengig gemacht werden.",
   "goals.toast.deleted": "Ziel geloescht",
   "goals.toast.deleteFailed": "Ziel konnte nicht geloescht werden",
   "goals.toast.titleRequired": "Zieltitel ist erforderlich",

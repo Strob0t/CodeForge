@@ -255,7 +255,7 @@ export default function QuarantinePage() {
         <LoadingState message={t("common.loading")} />
       </Show>
       <Show when={messages.error}>
-        <ErrorBanner error={extractErrorMessage(messages.error, String(messages.error))} />
+        <ErrorBanner error={() => extractErrorMessage(messages.error, String(messages.error))} />
       </Show>
 
       {/* Messages table */}

@@ -1652,11 +1652,10 @@ export interface UpdateGoalRequest {
   enabled?: boolean;
 }
 
+/** Matches Go service.GoalDiscoveryResult (goals is null when nothing was detected) */
 export interface GoalDiscoveryResult {
-  detected: number;
-  imported: number;
-  skipped: number;
-  sources: string[];
+  goals_created: number;
+  goals: ProjectGoal[] | null;
 }
 
 // --- Subscription Providers (OAuth Device Flow) ---

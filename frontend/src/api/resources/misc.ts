@@ -238,6 +238,12 @@ export function createMCPResource(c: CoreClient) {
     testConnection: (data: CreateMCPServerRequest) =>
       c.post<MCPTestResult>("/mcp/servers/test", data),
     listTools: (id: string) => c.get<MCPServerTool[]>(url`/mcp/servers/${id}/tools`),
+    listProjectServers: (projectId: string) =>
+      c.get<MCPServer[]>(url`/projects/${projectId}/mcp-servers`),
+    assignToProject: (projectId: string, serverId: string) =>
+      c.post<undefined>(url`/projects/${projectId}/mcp-servers`, { server_id: serverId }),
+    unassignFromProject: (projectId: string, serverId: string) =>
+      c.del<undefined>(url`/projects/${projectId}/mcp-servers/${serverId}`),
   };
 }
 
