@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from codeforge.evaluation.providers.base import (
@@ -18,6 +20,9 @@ from codeforge.evaluation.providers.base import (
     list_providers,
     register_provider,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # --- Concrete test provider ---
 
@@ -194,9 +199,18 @@ class TestProviderProtocol:
 
 
 class TestRegistry:
-    def setup_method(self) -> None:
-        """Clear registry before each test."""
+    @pytest.fixture(autouse=True)
+    def _empty_registry(self) -> Iterator[None]:
+        """Run each test against an empty registry, then restore the real providers.
+
+        Providers self-register once at import time, so a registry left empty
+        would break every later test that looks up an already-imported provider.
+        """
+        saved = dict(_registry)
         _registry.clear()
+        yield
+        _registry.clear()
+        _registry.update(saved)
 
     def test_register_and_get(self) -> None:
         register_provider("fake", FakeProvider)

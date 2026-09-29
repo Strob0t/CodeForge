@@ -20,11 +20,31 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import pytest
+
+from codeforge.config import get_settings
 from tests.fake_llm import FakeLLM
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_worker_settings() -> Iterator[None]:
+    """Rebuild WorkerSettings for every test.
+
+    get_settings() is a process-wide lru_cache singleton, and modules such as
+    codeforge.llm call it at import time. Without a reset, env overrides set by
+    a test (monkeypatch.setenv / patch.dict) are never seen, and one test's
+    overrides would leak into every later test.
+    """
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 def load_scenario(role: str, scenario: str) -> tuple[dict[str, Any], dict[str, Any], FakeLLM]:

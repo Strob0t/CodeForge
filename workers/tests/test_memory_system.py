@@ -85,12 +85,11 @@ class TestCompositeScorer:
         w = ScoreWeights()
         assert w.semantic + w.recency + w.importance == pytest.approx(1.0)
 
-    def test_zero_weights_zero_score(self) -> None:
-        scorer = CompositeScorer(weights=ScoreWeights(semantic=0.0, recency=0.0, importance=0.0))
-        v = np.array([1.0, 1.0, 1.0])
-        now = datetime.now(UTC)
-        score = scorer.score(v, v, created_at=now, importance=1.0)
-        assert score == pytest.approx(0.0)
+    def test_zero_weights_rejected(self) -> None:
+        # All-zero weights would silently score every memory 0.0; since F17-D2 the
+        # scorer rejects any weight set that does not sum to 1.0.
+        with pytest.raises(ValueError, match=r"must sum to 1\.0"):
+            CompositeScorer(weights=ScoreWeights(semantic=0.0, recency=0.0, importance=0.0))
 
     def test_only_importance_weight(self) -> None:
         scorer = CompositeScorer(weights=ScoreWeights(semantic=0.0, recency=0.0, importance=1.0))
