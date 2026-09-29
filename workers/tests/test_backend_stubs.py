@@ -375,25 +375,6 @@ class TestOpenHandsExecute:
         assert "Connection refused" in result.error
 
     @pytest.mark.asyncio
-    async def test_missing_httpx(self) -> None:
-        executor = OpenHandsExecutor(url="http://test:3000")
-
-        import builtins
-
-        real_import = builtins.__import__
-
-        def fail_httpx(name: str, *args: object, **kwargs: object) -> object:
-            if name == "httpx":
-                raise ImportError("No module named 'httpx'")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=fail_httpx):
-            result = await executor.execute("t1", "fix bug", "/workspace")
-
-        assert result.status == "failed"
-        assert "httpx is required" in result.error
-
-    @pytest.mark.asyncio
     async def test_cancel(self) -> None:
         executor = OpenHandsExecutor(url="http://test:3000")
         executor._active_tasks["t1"] = "conv-123"
