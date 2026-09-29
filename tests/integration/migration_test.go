@@ -4,22 +4,27 @@ package integration_test
 
 import (
 	"context"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 )
 
+// migrationsDir is the embedded migrations source, relative to this package.
+const migrationsDir = "../../internal/adapter/postgres/migrations"
+
 // TestMigrationUpDown applies all migrations, rolls them all back, then re-applies.
 // This verifies that every migration's Down section works correctly.
 func TestMigrationUpDown(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://codeforge:codeforge_dev@localhost:5432/codeforge?sslmode=disable"
-	}
-
+	dsn := scratchDatabase(t)
 	ctx := context.Background()
-	const totalMigrations = 15
+	totalMigrations := latestMigrationVersion(t)
 
 	// Step 1: Apply all migrations (up to latest)
 	if err := postgres.RunMigrations(ctx, dsn); err != nil {
@@ -35,7 +40,7 @@ func TestMigrationUpDown(t *testing.T) {
 	}
 
 	// Step 2: Roll back all migrations
-	if err := postgres.RollbackMigrations(ctx, dsn, totalMigrations); err != nil {
+	if err := postgres.RollbackMigrations(ctx, dsn, int(totalMigrations)); err != nil {
 		t.Fatalf("RollbackMigrations (down all): %v", err)
 	}
 
@@ -59,4 +64,57 @@ func TestMigrationUpDown(t *testing.T) {
 	if v != totalMigrations {
 		t.Fatalf("expected version %d after re-up, got %d", totalMigrations, v)
 	}
+}
+
+// latestMigrationVersion returns the highest version prefix (NNN_name.sql) of
+// the migration files, so the test follows new migrations automatically.
+func latestMigrationVersion(t *testing.T) int64 {
+	t.Helper()
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	var latest int64
+	for _, e := range entries {
+		prefix, _, ok := strings.Cut(e.Name(), "_")
+		if !ok || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		v, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			t.Fatalf("migration %s: version prefix: %v", e.Name(), err)
+		}
+		latest = max(latest, v)
+	}
+	if latest == 0 {
+		t.Fatalf("no migrations found in %s", migrationsDir)
+	}
+	return latest
+}
+
+// scratchDatabase creates an empty database next to the test database and
+// returns its DSN; it is dropped when the test ends. Rolling back every
+// migration drops all tables, which must never happen in the shared database.
+func scratchDatabase(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+
+	u, err := url.Parse(testDSN())
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		t.Fatalf("DATABASE_URL must be a postgres:// URL, got %q (parse error: %v)", testDSN(), err)
+	}
+	name := "codeforge_migtest_" + strings.ReplaceAll(uuid.NewString()[:13], "-", "")
+	quoted := pgx.Identifier{name}.Sanitize()
+
+	if _, err := testPool.Exec(ctx, "CREATE DATABASE "+quoted); err != nil {
+		t.Fatalf("create scratch database %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		if _, err := testPool.Exec(context.Background(), "DROP DATABASE IF EXISTS "+quoted+" WITH (FORCE)"); err != nil {
+			t.Errorf("drop scratch database %s: %v", name, err)
+		}
+	})
+
+	u.Path = "/" + name
+	return u.String()
 }

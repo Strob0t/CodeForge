@@ -53,8 +53,15 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Vet integration-tagged code
+        run: go vet -tags=integration ./...
+
       - name: Test
         run: go test -race -count=1 ./...
+
+      - name: Integration tests
+        # -p 1: one package at a time against the shared PostgreSQL and NATS services
+        run: go test -race -count=1 -p 1 -tags=integration ./tests/... ./internal/...
 
       - name: Lint
         uses: golangci/golangci-lint-action@1481404843c368bc19ca9406f87d6e0fc97bdcfd # v7.0.0

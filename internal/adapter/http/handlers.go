@@ -103,3 +103,16 @@ type Handlers struct {
 	Consent            *service.ConsentService
 	WSTickets          wsticket.Store
 }
+
+// WireGroups builds the domain handler groups (Project, Agent, Task, Run,
+// Policy, Utility) from the flat service fields. Call it once the flat
+// fields are set and before MountRoutes; routes bound to a missing group
+// dereference a nil receiver.
+func (h *Handlers) WireGroups() {
+	h.Project = &ProjectHandlers{Projects: h.Projects, Limits: h.Limits}
+	h.Agent = &AgentHandlers{Agents: h.Agents, Limits: h.Limits}
+	h.Task = &TaskHandlers{Tasks: h.Tasks, ActiveWork: h.ActiveWork, Limits: h.Limits}
+	h.Run = &RunHandlers{Runtime: h.Runtime, Events: h.Events, Limits: h.Limits}
+	h.Policy = &PolicyHandlers{Policies: h.Policies, Projects: h.Projects, PolicyDir: h.PolicyDir, Limits: h.Limits}
+	h.Utility = &UtilityHandlers{AgentConfig: h.AgentConfig, OllamaBaseURL: h.OllamaBaseURL}
+}

@@ -791,35 +791,6 @@ func run() error {
 	slog.Info("backend health service initialized")
 
 	handlers := &cfhttp.Handlers{
-		// Domain-specific handler groups
-		Project: &cfhttp.ProjectHandlers{
-			Projects: projectSvc,
-			Limits:   &cfg.Limits,
-		},
-		Agent: &cfhttp.AgentHandlers{
-			Agents: agentSvc,
-			Limits: &cfg.Limits,
-		},
-		Task: &cfhttp.TaskHandlers{
-			Tasks:      taskSvc,
-			ActiveWork: activeWorkSvc,
-			Limits:     &cfg.Limits,
-		},
-		Run: &cfhttp.RunHandlers{
-			Runtime: runtimeSvc,
-			Events:  eventStore,
-			Limits:  &cfg.Limits,
-		},
-		Policy: &cfhttp.PolicyHandlers{
-			Policies: policySvc,
-			Projects: projectSvc,
-			Limits:   &cfg.Limits,
-		},
-		Utility: &cfhttp.UtilityHandlers{
-			AgentConfig:   &cfg.Agent,
-			OllamaBaseURL: cfg.Ollama.BaseURL,
-		},
-
 		Projects:         projectSvc,
 		Tasks:            taskSvc,
 		Agents:           agentSvc,
@@ -889,6 +860,7 @@ func run() error {
 		GDPR:             service.NewGDPRService(store),
 		Consent:          service.NewConsentService(store),
 	}
+	handlers.WireGroups()
 
 	// A2A Client Service (Phase 27K + 27O) — outbound federation + push notifications.
 	if cfg.A2A.Enabled {

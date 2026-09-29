@@ -1616,17 +1616,10 @@ func newTestRouter() chi.Router {
 	return newTestRouterWithStore(&mockStore{})
 }
 
-// mountTestRoutes wires the domain handler groups (Project, Agent, Task, Run,
-// Policy, Utility) from the flat service fields the same way
-// cmd/codeforge/main.go does, then mounts all routes. Without the groups the
-// routes bound to them dereference a nil receiver.
+// mountTestRoutes wires the domain handler groups from the flat service fields
+// the same way cmd/codeforge/main.go does, then mounts all routes.
 func mountTestRoutes(r chi.Router, h *cfhttp.Handlers, opts ...cfhttp.RouteOption) {
-	h.Project = &cfhttp.ProjectHandlers{Projects: h.Projects, Limits: h.Limits}
-	h.Agent = &cfhttp.AgentHandlers{Agents: h.Agents, Limits: h.Limits}
-	h.Task = &cfhttp.TaskHandlers{Tasks: h.Tasks, ActiveWork: h.ActiveWork, Limits: h.Limits}
-	h.Run = &cfhttp.RunHandlers{Runtime: h.Runtime, Events: h.Events, Limits: h.Limits}
-	h.Policy = &cfhttp.PolicyHandlers{Policies: h.Policies, Projects: h.Projects, PolicyDir: h.PolicyDir, Limits: h.Limits}
-	h.Utility = &cfhttp.UtilityHandlers{AgentConfig: h.AgentConfig, OllamaBaseURL: h.OllamaBaseURL}
+	h.WireGroups()
 	cfhttp.MountRoutes(r, h, config.Webhook{}, opts...)
 }
 
