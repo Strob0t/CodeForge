@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from codeforge.backends.goose import GooseExecutor
@@ -348,10 +349,10 @@ class TestOpenHandsExecute:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient.return_value = mock_client
-
-        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+        with (
+            patch("codeforge.backends.openhands.httpx.AsyncClient", return_value=mock_client),
+            patch("codeforge.backends.openhands._POLL_INTERVAL", 0.0),
+        ):
             result = await executor.execute("t1", "fix bug", "/workspace")
 
         assert result.status == "completed"
@@ -362,18 +363,16 @@ class TestOpenHandsExecute:
         executor = OpenHandsExecutor(url="http://test:3000")
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient.return_value = mock_client
-
-        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+        with patch("codeforge.backends.openhands.httpx.AsyncClient", return_value=mock_client):
             result = await executor.execute("t1", "fix bug", "/workspace")
 
         assert result.status == "failed"
-        assert "API error" in result.error
+        assert "OpenHands unreachable" in result.error
+        assert "Connection refused" in result.error
 
     @pytest.mark.asyncio
     async def test_missing_httpx(self) -> None:
@@ -404,10 +403,8 @@ class TestOpenHandsExecute:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        mock_httpx = MagicMock()
-        mock_httpx.AsyncClient.return_value = mock_client
-
-        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+        with patch("codeforge.backends.openhands.httpx.AsyncClient", return_value=mock_client):
             await executor.cancel("t1")
 
+        mock_client.delete.assert_awaited_once_with("http://test:3000/api/conversations/conv-123")
         assert "t1" not in executor._active_tasks

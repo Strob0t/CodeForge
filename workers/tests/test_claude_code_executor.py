@@ -5,12 +5,17 @@ from __future__ import annotations
 import os
 import sys
 import types
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from codeforge.claude_code_executor import ClaudeCodeExecutor
+from codeforge.config import get_settings
 from codeforge.models import ToolCallDecision
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def _make_executor() -> ClaudeCodeExecutor:
@@ -186,6 +191,14 @@ class TestPolicyCallback:
 
 class TestEnvVarConfig:
     """Tests for CODEFORGE_CLAUDECODE_* env var support."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_settings(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """get_settings() is lru_cached: rebuild it from each test's patched env, without a local codeforge.yaml."""
+        monkeypatch.setattr("codeforge.config.load_yaml_config", dict)
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
 
     def test_default_max_turns(self) -> None:
         from codeforge.claude_code_executor import get_default_max_turns
