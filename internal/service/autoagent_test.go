@@ -41,6 +41,10 @@ type autoAgentMockStore struct {
 	getRoadmapErr      error
 	listFeaturesErr    error
 	createMessageErr   error
+
+	// createMessageGate, when set, holds CreateMessage until it is closed or the
+	// context ends, so a run stays "running" for as long as a test needs.
+	createMessageGate chan struct{}
 }
 
 func newAutoAgentMockStore() *autoAgentMockStore {
@@ -179,7 +183,13 @@ func (m *autoAgentMockStore) GetConversation(_ context.Context, id string) (*con
 	return c, nil
 }
 
-func (m *autoAgentMockStore) CreateMessage(_ context.Context, msg *conversation.Message) (*conversation.Message, error) {
+func (m *autoAgentMockStore) CreateMessage(ctx context.Context, msg *conversation.Message) (*conversation.Message, error) {
+	if gate := m.createMessageGate; gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.createMessageErr != nil {
@@ -348,6 +358,11 @@ func TestAutoAgentStart_AlreadyRunning(t *testing.T) {
 	seedRoadmapWithFeatures(store, "proj-1", []roadmap.Feature{
 		{ID: "feat-1", Title: "Feature 1", Status: roadmap.FeatureBacklog},
 	})
+	// Keep the first run busy; otherwise it can fail and finish before the
+	// second Start, which then (correctly) succeeds.
+	gate := make(chan struct{})
+	store.createMessageGate = gate
+	defer close(gate)
 
 	_, err := svc.Start(context.Background(), "proj-1")
 	if err != nil {
