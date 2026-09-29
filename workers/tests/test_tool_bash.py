@@ -352,10 +352,28 @@ class TestBashDangerousCommandBlocklist:
 # ---------------------------------------------------------------------------
 
 
+class TestRmSystemDirectories:
+    """rm -rf on a top-level system directory stays blocked; deeper paths are allowed."""
+
+    @pytest.mark.parametrize(
+        "cmd",
+        ["rm -rf /etc", "rm -rf /usr/", "rm -fr /home/*", "sudo rm -rf /var", "echo x; rm -rf /boot"],
+    )
+    def test_system_directories_blocked(self, cmd: str) -> None:
+        assert _check_dangerous_command(cmd) is not None
+
+    @pytest.mark.parametrize(
+        "cmd",
+        ["rm -rf /tmp/mydir", "rm -rf /home/user/project/build", "rm -rf /etcetera", "rm -rf /usr-local-copy"],
+    )
+    def test_deeper_or_other_paths_allowed(self, cmd: str) -> None:
+        assert _check_dangerous_command(cmd) is None
+
+
 class TestCommandInjectionEdgeCases:
     """FIX-012: Comprehensive command injection edge-case tests.
 
-    The blocklist uses simple substring matching on the normalized
+    The blocklist matches patterns against the normalized
     (stripped + lowercased) command. These tests verify both the
     patterns that ARE caught and document known limitations.
     """

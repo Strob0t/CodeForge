@@ -15,10 +15,12 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT = MAX_OUTPUT_CHARS
 HALF_OUTPUT = MAX_OUTPUT // 2
 
-# "rm -rf /" targeting the root itself ("/", "/*", "//", "/.", ...), ended by
-# whitespace, a shell separator, a quote or the end of the command. A plain
-# substring match also blocked absolute paths such as "rm -rf /tmp/build".
-_RM_ROOT_RE = re.compile(r"rm -(?:rf|fr) /[/.*]*(?=$|[\s;&|<>)'\"`])")
+# "rm -rf" targeting the root itself ("/", "/*", "//", "/.", ...) or a top-level
+# system directory ("/etc", "/usr/", "/home/*", ...), ended by whitespace, a shell
+# separator, a quote or the end of the command. Deeper paths such as
+# "rm -rf /tmp/build" stay allowed (a plain substring match blocked them too).
+_SYSTEM_DIRS = "bin|boot|dev|etc|home|lib|lib32|lib64|opt|proc|root|sbin|srv|sys|usr|var"
+_RM_ROOT_RE = re.compile(rf"rm -(?:rf|fr) /(?:[/.*]*|(?:{_SYSTEM_DIRS})/?\*?)(?=$|[\s;&|<>)'\"`])")
 
 DEFINITION = ToolDefinition(
     name="bash",
@@ -85,7 +87,7 @@ def _check_dangerous_command(command: str) -> str | None:
     normalized = command.strip().lower()
 
     if match := _RM_ROOT_RE.search(normalized):
-        return f"blocked by safety filter: recursive deletion of root filesystem ({match.group(0)!r})"
+        return f"blocked by safety filter: recursive deletion of root or a system directory ({match.group(0)!r})"
 
     # Patterns that are dangerous regardless of context.
     blocked_patterns: list[tuple[str, str]] = [
