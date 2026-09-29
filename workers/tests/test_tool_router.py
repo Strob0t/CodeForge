@@ -21,6 +21,8 @@ def all_tools() -> list[str]:
         "glob_files",
         "list_directory",
         "propose_goal",
+        "propose_roadmap",
+        "spawn_subagent",
         "transition_to_act",
         "search_conversations",
         "search_skills",

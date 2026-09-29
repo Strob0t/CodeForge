@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
@@ -13,6 +14,11 @@ logger = logging.getLogger(__name__)
 
 MAX_OUTPUT = MAX_OUTPUT_CHARS
 HALF_OUTPUT = MAX_OUTPUT // 2
+
+# "rm -rf /" targeting the root itself ("/", "/*", "//", "/.", ...), ended by
+# whitespace, a shell separator, a quote or the end of the command. A plain
+# substring match also blocked absolute paths such as "rm -rf /tmp/build".
+_RM_ROOT_RE = re.compile(r"rm -(?:rf|fr) /[/.*]*(?=$|[\s;&|<>)'\"`])")
 
 DEFINITION = ToolDefinition(
     name="bash",
@@ -78,12 +84,11 @@ def _check_dangerous_command(command: str) -> str | None:
     # Normalize for matching: strip leading whitespace, lowercase.
     normalized = command.strip().lower()
 
+    if match := _RM_ROOT_RE.search(normalized):
+        return f"blocked by safety filter: recursive deletion of root filesystem ({match.group(0)!r})"
+
     # Patterns that are dangerous regardless of context.
     blocked_patterns: list[tuple[str, str]] = [
-        ("rm -rf /", "recursive deletion of root filesystem"),
-        ("rm -rf /*", "recursive deletion of root filesystem"),
-        ("rm -fr /", "recursive deletion of root filesystem"),
-        ("rm -fr /*", "recursive deletion of root filesystem"),
         ("mkfs.", "filesystem formatting"),
         ("dd if=", "raw disk write"),
         (":(){:|:&};:", "fork bomb"),

@@ -432,7 +432,7 @@ class ConversationSummarizer:
         try:
             summary_text = await self._summarize_history(head)
         except Exception as exc:
-            logger.warning("conversation summarization failed, keeping original history", exc_info=True, error=str(exc))
+            logger.warning("conversation summarization failed, keeping original history: %s", exc, exc_info=True)
             return history
 
         summary_msg = ConversationMessagePayload(

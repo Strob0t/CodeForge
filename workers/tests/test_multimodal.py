@@ -23,6 +23,12 @@ from codeforge.models import (
     MessageImagePayload,
 )
 
+# _to_msg_dict drops images whose data is not valid base64 (fd61be52), so
+# fixtures that must reach the content-array format use real base64 strings.
+_PNG_B64 = "iVBORw0KGgo="  # PNG signature
+_IMG_B64 = "aW1nZGF0YQ=="  # b"imgdata"
+_PIC_B64 = "cGljdHVyZQ=="  # b"picture"
+
 # ---------------------------------------------------------------------------
 # 1. MessageImagePayload validates correctly
 # ---------------------------------------------------------------------------
@@ -136,7 +142,7 @@ class TestToMsgDictWithImages:
             role="user",
             content="describe this image",
             images=[
-                MessageImagePayload(data="abc123", media_type="image/png", alt_text="sketch"),
+                MessageImagePayload(data=_PNG_B64, media_type="image/png", alt_text="sketch"),
             ],
         )
         result = mgr._to_msg_dict(msg)
@@ -152,7 +158,7 @@ class TestToMsgDictWithImages:
 
         # Second part is image_url
         assert content[1]["type"] == "image_url"
-        assert content[1]["image_url"]["url"] == "data:image/png;base64,abc123"
+        assert content[1]["image_url"]["url"] == f"data:image/png;base64,{_PNG_B64}"
 
     def test_user_message_with_multiple_images(self) -> None:
         mgr = ConversationHistoryManager()
@@ -180,7 +186,7 @@ class TestToMsgDictWithImages:
             role="user",
             content="",
             images=[
-                MessageImagePayload(data="imgdata", media_type="image/png"),
+                MessageImagePayload(data=_IMG_B64, media_type="image/png"),
             ],
         )
         result = mgr._to_msg_dict(msg)
@@ -189,7 +195,19 @@ class TestToMsgDictWithImages:
         assert isinstance(content, list)
         assert len(content) == 1  # just the image, no text part
         assert content[0]["type"] == "image_url"
-        assert content[0]["image_url"]["url"] == "data:image/png;base64,imgdata"
+        assert content[0]["image_url"]["url"] == f"data:image/png;base64,{_IMG_B64}"
+
+    def test_invalid_base64_image_dropped(self) -> None:
+        """Images with invalid base64 are dropped; the text stays a plain string."""
+        mgr = ConversationHistoryManager()
+        msg = ConversationMessagePayload(
+            role="user",
+            content="describe this image",
+            images=[MessageImagePayload(data="abc123", media_type="image/png")],
+        )
+        result = mgr._to_msg_dict(msg)
+
+        assert result["content"] == "describe this image"
 
     def test_non_user_role_with_images_ignored(self) -> None:
         """Only user role gets content-array format for images.
@@ -393,7 +411,7 @@ class TestBuildMessagesWithImages:
                 role="user",
                 content="what is this?",
                 images=[
-                    MessageImagePayload(data="imgdata", media_type="image/png"),
+                    MessageImagePayload(data=_IMG_B64, media_type="image/png"),
                 ],
             ),
             ConversationMessagePayload(role="assistant", content="It is a diagram."),
@@ -422,7 +440,7 @@ class TestBuildMessagesWithImages:
             ConversationMessagePayload(
                 role="user",
                 content="now look at this",
-                images=[MessageImagePayload(data="pic", media_type="image/jpeg")],
+                images=[MessageImagePayload(data=_PIC_B64, media_type="image/jpeg")],
             ),
             ConversationMessagePayload(role="assistant", content="I see it"),
         ]

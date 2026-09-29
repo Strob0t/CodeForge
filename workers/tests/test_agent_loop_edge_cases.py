@@ -369,7 +369,7 @@ async def test_unexpected_exception_wrapped() -> None:
             finish_reason="stop",
             tokens_in=10,
             tokens_out=5,
-            model="model-b",
+            model="openai/model-b",
             cost_usd=0.001,
         )
 
@@ -391,8 +391,9 @@ async def test_unexpected_exception_wrapped() -> None:
         result = await executor.run(
             [{"role": "user", "content": "test"}],
             config=LoopConfig(
-                model="model-a",
-                fallback_models=["model-b"],
+                model="openai/model-a",
+                # Fallback models must use the provider/model format (F7-D3).
+                fallback_models=["openai/model-b"],
             ),
         )
 

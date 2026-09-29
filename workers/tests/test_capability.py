@@ -73,7 +73,11 @@ class TestClassifyModel:
         assert classify_model("ollama/llama3") == CapabilityLevel.PURE_COMPLETION
 
     def test_lm_studio_is_pure_completion(self) -> None:
-        assert classify_model("lm_studio/qwen/qwen3-30b") == CapabilityLevel.PURE_COMPLETION
+        assert classify_model("lm_studio/google/gemma-3-12b") == CapabilityLevel.PURE_COMPLETION
+
+    def test_lm_studio_fc_capable_model_is_api_with_tools(self) -> None:
+        """Whitelisted local models (_LOCAL_FC_CAPABLE_PATTERNS, e.g. qwen3) override the prefix."""
+        assert classify_model("lm_studio/qwen/qwen3-30b") == CapabilityLevel.API_WITH_TOOLS
 
     def test_deepseek_is_api_with_tools(self) -> None:
         assert classify_model("deepseek/deepseek-chat") == CapabilityLevel.API_WITH_TOOLS

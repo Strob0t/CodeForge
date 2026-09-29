@@ -361,6 +361,7 @@ def test_build_default_registry_has_all_tools() -> None:
         "write_file",
         "search_skills",
         "create_skill",
+        "search_conversations",
     }
     assert set(registry.tool_names) == expected
 
@@ -368,7 +369,7 @@ def test_build_default_registry_has_all_tools() -> None:
 def test_build_default_registry_openai_format() -> None:
     registry = build_default_registry()
     tools = registry.get_openai_tools()
-    assert len(tools) == 9
+    assert len(tools) == 10
     for tool in tools:
         assert tool["type"] == "function"
         assert "name" in tool["function"]
