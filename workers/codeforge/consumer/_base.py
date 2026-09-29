@@ -57,7 +57,7 @@ class ConsumerBaseMixin:
     @classmethod
     def _clear_processed(cls, msg_id: str) -> None:
         """Remove a message ID so it can be reprocessed (e.g. after a failure)."""
-        cls._processed_ids.discard(msg_id)
+        cls._processed_ids.pop(msg_id, None)
 
     @staticmethod
     def _retry_count(msg: nats.aio.msg.Msg) -> int:

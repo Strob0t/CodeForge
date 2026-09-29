@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from codeforge.consumer import _base as base_module
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._subjects import (
     HEADER_RETRY_COUNT,
@@ -43,13 +45,13 @@ from codeforge.consumer._subjects import (
 class _FreshMixin(ConsumerBaseMixin):
     """Subclass with its own _processed_ids ClassVar to isolate test state."""
 
-    _processed_ids: ClassVar[set[str]] = set()
+    _processed_ids: ClassVar[OrderedDict[str, None]] = OrderedDict()
 
 
 @pytest.fixture(autouse=True)
 def _clear_dedup_state() -> None:
-    """Ensure each test starts with a clean dedup set."""
-    _FreshMixin._processed_ids = set()
+    """Ensure each test starts with a clean dedup cache."""
+    _FreshMixin._processed_ids = OrderedDict()
 
 
 # ---------------------------------------------------------------------------
@@ -80,19 +82,14 @@ class TestIsDuplicate:
     def test_clear_nonexistent_id_is_safe(self) -> None:
         _FreshMixin._clear_processed("does-not-exist")  # should not raise
 
-    def test_duplicate_set_eviction(self) -> None:
-        """Exceeding _processed_ids_max evicts roughly half the entries."""
-        original_max = _FreshMixin._processed_ids_max
-        try:
-            _FreshMixin._processed_ids_max = 10
-            for i in range(11):
-                _FreshMixin._is_duplicate(f"evict-{i}")
-            # After eviction, set size should be roughly half of max + 1 new entry
-            # (set is unordered, so we can't predict which entries survive)
-            assert len(_FreshMixin._processed_ids) <= 10
-            assert len(_FreshMixin._processed_ids) >= 5  # at least half survived
-        finally:
-            _FreshMixin._processed_ids_max = original_max
+    def test_duplicate_set_eviction(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Exceeding the cap evicts the oldest entries first (bounded FIFO cache)."""
+        monkeypatch.setattr(base_module, "_PROCESSED_IDS_MAX", 10)
+        for i in range(11):
+            _FreshMixin._is_duplicate(f"evict-{i}")
+        assert len(_FreshMixin._processed_ids) == 10
+        assert "evict-0" not in _FreshMixin._processed_ids
+        assert list(_FreshMixin._processed_ids) == [f"evict-{i}" for i in range(1, 11)]
 
 
 # ---------------------------------------------------------------------------

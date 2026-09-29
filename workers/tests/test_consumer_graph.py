@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._graph import GraphHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_GRAPH_BUILD_RESULT, SUBJECT_GRAPH_SEARCH_RESULT
@@ -20,16 +18,9 @@ from codeforge.models import GraphBuildRequest, GraphBuildResult, GraphSearchReq
 class _TestMixin(GraphHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._db_url = "postgresql://test:5432/test"
         self._graph_builder = MagicMock()
         self._graph_searcher = MagicMock()
-
-
-@pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:

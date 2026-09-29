@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._handoff import HandoffHandlerMixin
 
@@ -20,14 +18,6 @@ class _TestMixin(HandoffHandlerMixin, ConsumerBaseMixin):
 
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
-
-
-@pytest.fixture(autouse=True)
-def _fresh_mixin_state() -> None:
-    """Reset class-level dedup set between tests."""
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:

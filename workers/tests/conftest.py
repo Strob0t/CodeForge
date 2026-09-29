@@ -19,12 +19,14 @@ TODO (FIX-066 to FIX-070): Missing test coverage for the following modules:
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from codeforge.config import get_settings
+from codeforge.consumer._base import ConsumerBaseMixin
 from tests.fake_llm import FakeLLM
 
 if TYPE_CHECKING:
@@ -45,6 +47,18 @@ def _fresh_worker_settings() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_consumer_dedup_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give every test an empty consumer dedup cache.
+
+    ``ConsumerBaseMixin._processed_ids`` is class-level state shared by every
+    TaskConsumer, so IDs seen in one test would be skipped as duplicates in the
+    next. monkeypatch restores the original after each test, even when a test
+    rebinds the attribute itself.
+    """
+    monkeypatch.setattr(ConsumerBaseMixin, "_processed_ids", OrderedDict())
 
 
 def load_scenario(role: str, scenario: str) -> tuple[dict[str, Any], dict[str, Any], FakeLLM]:

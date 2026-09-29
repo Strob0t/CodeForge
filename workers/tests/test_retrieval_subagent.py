@@ -342,7 +342,7 @@ async def test_handle_subagent_search_message(workspace: str) -> None:
         return resp
 
     # Build an index first
-    with patch.object(consumer._retriever._client, "post", side_effect=_mock_post):
+    with patch.object(consumer._retriever._get_client(), "post", side_effect=_mock_post):
         await consumer._retriever.build_index("proj-1", workspace)
 
     # Mock LLM for expansion and reranking
@@ -372,7 +372,7 @@ async def test_handle_subagent_search_message(workspace: str) -> None:
 
     consumer._js = AsyncMock()
 
-    with patch.object(consumer._retriever._client, "post", side_effect=_mock_post):
+    with patch.object(consumer._retriever._get_client(), "post", side_effect=_mock_post):
         await consumer._handle_subagent_search(msg)
 
     consumer._js.publish.assert_called_once()

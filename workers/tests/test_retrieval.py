@@ -242,7 +242,7 @@ async def test_build_index_and_search(workspace: str) -> None:
         resp.json = MagicMock(return_value=_make_embedding_response(texts, dim=8))
         return resp
 
-    with patch.object(retriever._client, "post", side_effect=_mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=_mock_post):
         status = await retriever.build_index("proj-1", workspace)
 
     assert status.status == "ready"
@@ -250,7 +250,7 @@ async def test_build_index_and_search(workspace: str) -> None:
     assert status.chunk_count >= 2
 
     # Search
-    with patch.object(retriever._client, "post", side_effect=_mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=_mock_post):
         results = await retriever.search("proj-1", "handler")
 
     assert len(results) > 0
@@ -302,7 +302,7 @@ async def test_handle_retrieval_index_message(workspace: str) -> None:
 
     consumer._js = AsyncMock()
 
-    with patch.object(consumer._retriever._client, "post", side_effect=_mock_post):
+    with patch.object(consumer._retriever._get_client(), "post", side_effect=_mock_post):
         await consumer._handle_retrieval_index(msg)
 
     # Should publish result
@@ -335,7 +335,7 @@ async def test_handle_retrieval_search_message(workspace: str) -> None:
         return resp
 
     # First build an index
-    with patch.object(consumer._retriever._client, "post", side_effect=_mock_post):
+    with patch.object(consumer._retriever._get_client(), "post", side_effect=_mock_post):
         await consumer._retriever.build_index("proj-1", workspace)
 
     # Now search
@@ -352,7 +352,7 @@ async def test_handle_retrieval_search_message(workspace: str) -> None:
 
     consumer._js = AsyncMock()
 
-    with patch.object(consumer._retriever._client, "post", side_effect=_mock_post):
+    with patch.object(consumer._retriever._get_client(), "post", side_effect=_mock_post):
         await consumer._handle_retrieval_search(msg)
 
     # Should publish result
@@ -399,7 +399,7 @@ async def test_incremental_no_changes(workspace: str) -> None:
     retriever = HybridRetriever(litellm_url="http://test:4000")
     mock_post, counts = _make_mock_post()
 
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status1 = await retriever.build_index("proj-inc", workspace)
     assert status1.status == "ready"
     assert not status1.incremental
@@ -409,7 +409,7 @@ async def test_incremental_no_changes(workspace: str) -> None:
     # Second build — same files, same model.
     counts["n"] = 0
     counts["texts"] = 0
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status2 = await retriever.build_index("proj-inc", workspace)
     assert status2.status == "ready"
     assert status2.incremental is True
@@ -426,7 +426,7 @@ async def test_incremental_file_added(workspace: str) -> None:
     retriever = HybridRetriever(litellm_url="http://test:4000")
     mock_post, counts = _make_mock_post()
 
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status1 = await retriever.build_index("proj-add", workspace)
     assert status1.status == "ready"
     original_chunks = status1.chunk_count
@@ -438,7 +438,7 @@ async def test_incremental_file_added(workspace: str) -> None:
 
     counts["n"] = 0
     counts["texts"] = 0
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status2 = await retriever.build_index("proj-add", workspace)
     assert status2.status == "ready"
     assert status2.incremental is True
@@ -456,7 +456,7 @@ async def test_incremental_file_changed(workspace: str) -> None:
     retriever = HybridRetriever(litellm_url="http://test:4000")
     mock_post, counts = _make_mock_post()
 
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status1 = await retriever.build_index("proj-chg", workspace)
     assert status1.status == "ready"
 
@@ -472,7 +472,7 @@ async def test_incremental_file_changed(workspace: str) -> None:
 
     counts["n"] = 0
     counts["texts"] = 0
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status2 = await retriever.build_index("proj-chg", workspace)
     assert status2.status == "ready"
     assert status2.incremental is True
@@ -490,7 +490,7 @@ async def test_incremental_file_deleted(workspace: str) -> None:
     retriever = HybridRetriever(litellm_url="http://test:4000")
     mock_post, counts = _make_mock_post()
 
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status1 = await retriever.build_index("proj-del", workspace)
     assert status1.status == "ready"
     original_chunks = status1.chunk_count
@@ -502,7 +502,7 @@ async def test_incremental_file_deleted(workspace: str) -> None:
 
     counts["n"] = 0
     counts["texts"] = 0
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status2 = await retriever.build_index("proj-del", workspace)
     assert status2.status == "ready"
     assert status2.incremental is True
@@ -519,14 +519,14 @@ async def test_incremental_model_change(workspace: str) -> None:
     retriever = HybridRetriever(litellm_url="http://test:4000")
     mock_post, counts = _make_mock_post()
 
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status1 = await retriever.build_index("proj-mdl", workspace, embedding_model="model-a")
     assert status1.status == "ready"
     first_total = counts["texts"]
 
     counts["n"] = 0
     counts["texts"] = 0
-    with patch.object(retriever._client, "post", side_effect=mock_post):
+    with patch.object(retriever._get_client(), "post", side_effect=mock_post):
         status2 = await retriever.build_index("proj-mdl", workspace, embedding_model="model-b")
     assert status2.status == "ready"
     assert not status2.incremental  # full rebuild

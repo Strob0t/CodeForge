@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._repomap import RepoMapHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_REPOMAP_RESULT
@@ -20,14 +18,7 @@ from codeforge.models import RepoMapRequest, RepoMapResult
 class _TestMixin(RepoMapHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js: AsyncMock | None = AsyncMock()
-        self._processed_ids: set[str] = set()
-        self._processed_ids_max = 10_000
         self._repomap_generator = MagicMock()
-
-
-@pytest.fixture(autouse=True)
-def _fresh_state() -> None:
-    ConsumerBaseMixin._processed_ids = set()
 
 
 def _make_msg(data: dict) -> MagicMock:
