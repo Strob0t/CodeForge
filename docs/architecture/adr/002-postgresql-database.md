@@ -107,12 +107,14 @@ general_settings:
 | Python Workers | ~10 | Read-heavy, task metadata |
 | Total | ~46 | Well within `max_connections=100` |
 
+> **Implementation status (2026-09-29):** The dev compose `archive_command` is prefixed with `mkdir -p /var/lib/postgresql/data/archive &&`, and the volume mount at `/var/lib/postgresql/data` does not fit the PG 18 image (see [Known Issues](../../todo.md#known-issues) KI-43). Go pgxpool defaults are MaxConns 50 / MinConns 10 (`CODEFORGE_PG_MAX_CONNS`, `internal/config/config.go`). There is no dedicated LISTEN/NOTIFY connection; UI push goes through NATS and the WebSocket hub. Python workers open short-lived psycopg connections per operation (no pool).
+
 ### Consequences
 
 #### Positive
 
 - Single database for everything: one backup strategy, one migration tool, one monitoring target
-- Cross-schema queries enable Cost Dashboard to join CodeForge tasks with LiteLLM spend data
+- A shared database would allow the Cost Dashboard to join CodeForge runs with LiteLLM spend data (not implemented; costs are aggregated from CodeForge's `runs` table)
 - LISTEN/NOTIFY eliminates need for additional pub/sub infrastructure for UI push
 - JSONB avoids rigid schema for agent-specific configuration
 - PostgreSQL 18 async I/O (`io_uring`) improves sequential scans, vacuum, and bitmap heap scan performance in containers
@@ -123,11 +125,11 @@ general_settings:
 
 - PostgreSQL requires a running server (unlike embedded SQLite), meaning no database without Docker
 - Shared instance is a single point of failure for dev (acceptable; production can use managed PG)
-- LiteLLM runs Prisma migrations on startup, requiring schema separation to avoid conflicts
+- LiteLLM runs Prisma migrations on startup in the shared `public` schema; table-name conflicts are avoided only by LiteLLM's `LiteLLM_` prefix (no schema separation)
 
 #### Neutral
 
-- NATS JetStream KV (already in stack) handles ephemeral state: heartbeats, task locks, runtime status
+- NATS JetStream KV (already in stack) handles ephemeral state: currently HTTP idempotency keys and the L2 cache bucket (heartbeats use the `runs.heartbeat` subject; no KV-based task locks)
 - LISTEN/NOTIFY payload limited to 8000 bytes, so send event IDs not full data
 - `C.UTF-8` collation prevents index corruption on Docker base image upgrades
 

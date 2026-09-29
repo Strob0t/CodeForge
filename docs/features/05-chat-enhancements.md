@@ -1,6 +1,6 @@
 # Feature 5: Chat Enhancements
 
-> **Status:** Implemented (2026-03-10)
+> **Status:** Implemented (2026-03-10), except Feature 3 (Action Buttons, planned) and Feature 10 (future scope)
 > **Branch:** `feature/chat-enhancements`
 > **Plan:** [docs/plans/2026-03-09-chat-enhancements-plan.md](../plans/2026-03-09-chat-enhancements-plan.md)
 > **Design:** [docs/specs/2026-03-09-chat-enhancements-design.md](../specs/2026-03-09-chat-enhancements-design.md)
@@ -16,19 +16,19 @@
 **What:** Visual approve/deny cards for agent permission requests with countdown timer.
 
 - `supervised-ask-all` policy preset (blocks all tool calls, requires explicit approval)
-- Auto-mapping of autonomy levels 1-5 to policy presets via `AutonomyToPreset()`
+- Auto-mapping of a mode's autonomy level (1-5) to a policy preset via `policyForAutonomy()` (`internal/service/conversation_dispatch.go`). The project-level `autonomy_level` saved by the compact settings popover has no effect (see [Known Issues](../todo.md#known-issues) KI-41)
 - `PermissionRequestCard` component with approve/deny/allow-always buttons, countdown bar, tool name display
-- WebSocket `permission_request` / `permission_response` events
+- WebSocket `agui.permission_request` event; the decision is sent via `POST /api/v1/runs/{id}/approve/{callId}` and forwarded to the worker on NATS `runs.toolcall.response`
 - **"Allow Always" persistence:** Clicking "Allow Always" approves the current call AND persists a permanent `allow` rule via `POST /api/v1/policies/allow-always`. Immutable presets are cloned to `{preset}-custom-{projectId}` on first use. Rule specifier: tool name + first word of command as glob pattern (e.g., `Bash/git*`). Idempotent — duplicate rules detected via `HasRuleForSpecifier()`. Future identical tool calls auto-approve without HITL prompt.
 
-**Files:** `internal/domain/policy/presets.go`, `internal/domain/policy/policy.go`, `internal/service/policy.go`, `internal/service/project.go`, `internal/adapter/http/handlers.go`, `frontend/src/features/project/PermissionRequestCard.tsx`, `frontend/src/features/project/ChatPanel.tsx`
+**Files:** `internal/domain/policy/presets.go`, `internal/domain/policy/policy.go`, `internal/service/policy.go`, `internal/service/project.go`, `internal/adapter/http/handlers_policy_crud.go`, `frontend/src/features/project/PermissionRequestCard.tsx`, `frontend/src/features/project/ChatPanel.tsx`
 
 ### 2. Inline Diff Review (Phase 2)
 
 **What:** Side-by-side diff preview for file-modifying tool calls before approval.
 
-- `DiffPreview` component with split-pane old/new view, syntax-highlighted deletions/additions
-- Integrated into `PermissionRequestCard` for write/edit tool calls
+- `DiffPreview` component: unified diff with old/new line-number columns, highlighted deletions/additions (split-pane view planned)
+- Used in `TrajectoryPanel`; showing it inside `PermissionRequestCard` for write/edit tool calls before approval is planned
 - `GET /api/v1/projects/{id}/files/content` endpoint for fetching current file content
 
 **Files:** `frontend/src/components/DiffPreview.tsx`, `internal/adapter/http/handlers_files.go`
@@ -37,11 +37,13 @@
 
 **What:** Quick-action buttons on agent messages for common follow-up operations.
 
+> **Implementation status (2026-09-29):** Not implemented (planned). No `MessageActions` component exists and `ChatMessages.tsx` has no copy/retry/apply actions.
+
 - `MessageActions` component with context-sensitive buttons (Copy, Retry, Apply, View Diff)
 - Copy-to-clipboard for code blocks, retry failed messages, apply suggested changes
 - Buttons appear on hover/focus for each message bubble
 
-**Files:** <!-- NOT IMPLEMENTED as of 2026-03-23 --> `frontend/src/features/project/MessageActions.tsx`
+**Files (planned):** `frontend/src/features/project/MessageActions.tsx`
 
 ### 4. Cost Tracking per Message (Phase 4)
 
@@ -49,7 +51,7 @@
 
 - `MessageBadge` component showing cost, input/output tokens, and model name
 - `CostBreakdown` expandable panel with detailed token counts
-- Wired to AG-UI `state_delta` events carrying cost metadata
+- Fed by cost data from `agui.tool_result` / `agui.run_finished` and the stored message tokens/model; `agui.state_delta` has no producer yet (see Gap below)
 
 **Files:** `frontend/src/features/project/MessageBadge.tsx`, `frontend/src/features/project/CostBreakdown.tsx`
 
@@ -68,10 +70,10 @@
 
 **What:** `/command` system for chat operations like `/compact`, `/rewind`, `/clear`.
 
-- `CommandRegistry` with built-in commands: `/compact`, `/rewind`, `/clear`, `/help`, `/mode`, `/model`
+- `CommandService` (`internal/service/commands.go`, `GET /api/v1/commands`) with built-in commands `/compact`, `/rewind`, `/clear`, `/diff`, `/cost`, `/help`, `/mode`, `/model`; the frontend `commandStore.ts` keeps a fallback list
 - `POST /api/v1/conversations/{id}/compact` endpoint for context compaction
 - `POST /api/v1/conversations/{id}/rewind` endpoint with event timeline picker
-- `DiffModal` for reviewing changes before applying rewind
+- `DiffSummaryModal` for `/diff` (session file changes). Reviewing a diff before applying a rewind is planned; today the timeline applies the rewind directly
 - Rewind timeline picker showing conversation checkpoints
 
 **Files:** `frontend/src/features/chat/commandStore.ts`, `frontend/src/features/chat/commandExecutor.ts`, compact handler in `internal/adapter/http/handlers_conversation.go`, rewind handler in `internal/adapter/http/handlers_session.go`
@@ -83,7 +85,7 @@
 - Migration 069: GIN index on `conversation_messages.content` for `to_tsvector('english', content)`
 - `POST /api/v1/search/conversations` endpoint with `plainto_tsquery` and `ts_rank` ordering
 - `ConversationResults` component with role-colored badges and content truncation
-- Tabs UI in SearchPage: Code | Conversations
+- Tabs UI in SearchPage: Code | Conversations. Not reachable: `SearchPage` has no route since the sidebar restructure (c6831971); the API and the agent tool work
 - `search_conversations` agent tool for programmatic search
 
 **Files:** `internal/adapter/postgres/migrations/069_add_conversation_fts_index.sql`, `internal/adapter/http/handlers_search.go`, `frontend/src/features/search/ConversationResults.tsx`
@@ -93,7 +95,7 @@
 **What:** In-app notification system with browser push, sound alerts, and tab badge.
 
 - `notificationStore` module-level SolidJS store (max 50 notifications, 5 types)
-- `NotificationBell` with unread count badge in sidebar header
+- `NotificationBell` with unread count badge in the top bar header
 - `NotificationCenter` dropdown with All/Unread/Archived tabs and Mark All Read
 - `NotificationItem` with type-colored left border, relative timestamp, archive on hover
 - `notificationSettings` with localStorage persistence (push, sound, sound type)
@@ -112,7 +114,7 @@
 - Domain model: `Channel` (project/bot types), `Message` (user/agent/bot/webhook senders), `Member` with roles
 - Channel service with validation, bot-only deletion, webhook key generation (`crypto/rand`)
 - 9 HTTP endpoints: list/create/get/delete channels, list/send messages, thread replies, member notify settings, webhook ingress
-- WebSocket events: `channel_message`, `channel_typing`, `channel_read`
+- WebSocket event types `channel.message`, `channel.typing`, `channel.read` are defined but never broadcast; `ChannelView` refetches only after the local user sends, so messages from others appear after a reload (see [Known Issues](../todo.md#known-issues) KI-42)
 - `ChannelList` sidebar component with `#` (project) and `>` (bot) prefixes
 - `ChannelView` with message list, auto-scroll, and input bar
 - `ChannelMessage` with sender type badges and thread reply indicators
@@ -171,11 +173,11 @@ Python Worker  --[NATS]--> Go Core Service --[WebSocket]--> Frontend
 
 | AG-UI Event | Go Emitter | NATS Trigger | Source Files |
 |---|---|---|---|
-| `agui.run_started` | `ConversationService` (direct) | Emitted before NATS publish | `conversation_agent.go`, `conversation.go` |
-| `agui.run_finished` | `ConversationService` | `conversation.run.complete` | `conversation_agent.go` |
-| `agui.text_message` | `RuntimeService` | `runs.output` | `runtime.go` (line 644) |
-| `agui.tool_call` | `RuntimeService` | `runs.toolcall.request` | `runtime_execution.go` (line 142) |
-| `agui.tool_result` | `RuntimeService` | `runs.toolcall.result` | `runtime_execution.go` (line 412) |
+| `agui.run_started` | `ConversationService`, `RuntimeService` (direct) | Emitted before NATS publish | `conversation.go`, `conversation_dispatch.go`, `runtime.go` |
+| `agui.run_finished` | `ConversationService`, `RuntimeService` | `conversation.run.complete`, `runs.complete` | `conversation_agent.go`, `conversation.go`, `conversation_dispatch.go`, `runtime_lifecycle.go` |
+| `agui.text_message` | `RuntimeService` | `runs.output` | `runtime_subscribers.go` |
+| `agui.tool_call` | `RuntimeService` | `runs.toolcall.request` | `runtime_execution.go` |
+| `agui.tool_result` | `RuntimeService` | `runs.toolcall.result` | `runtime_execution.go` |
 | `agui.step_started` | `OrchestratorService` | Direct (orchestration steps) | `orchestrator_consensus.go` |
 | `agui.step_finished` | `OrchestratorService` | Direct (orchestration steps) | `orchestrator_consensus.go` |
 | `agui.state_delta` | Not emitted | N/A | Defined in `agui.go` but no producer exists |
@@ -194,12 +196,12 @@ The Python `ConversationHandlerMixin` publishes `conversation.run.complete` with
 
 ### Go Core NATS Subscribers
 
-Go subscribes to these subjects in `RuntimeService.SubscribeToWorkerEvents()` (`runtime.go`):
+Go subscribes to these subjects in `RuntimeService.StartSubscribers()` (`runtime.go`, handlers in `runtime_subscribers.go`); `conversation.run.complete` is subscribed by `ConversationService` (`conversation_agent.go`):
 
 1. **`runs.output`** -- Broadcasts `EventTaskOutput` (native) + `AGUITextMessage` (AG-UI) for non-stderr, non-empty lines.
 2. **`runs.toolcall.request`** -- Evaluates policy, stores run state, broadcasts `EventToolCallStatus` + `AGUIToolCall`, then publishes `runs.toolcall.response` back to Python.
 3. **`runs.toolcall.result`** -- Updates run metrics, broadcasts `EventToolCallStatus` (phase=result) + `AGUIToolResult` with diff data.
-4. **`runs.trajectory.event`** -- Persists to event store, broadcasts `EventTrajectoryEvent`, and additionally emits `AGUIActionSuggestion` or `AGUIGoalProposal` for specific trajectory event types.
+4. **`runs.trajectory.event`** -- Persists to event store, broadcasts `EventTrajectoryEvent`, and additionally emits `AGUIActionSuggestion`, `AGUIGoalProposal` or `AGUIRoadmapProposal` for specific trajectory event types.
 5. **`conversation.run.complete`** -- Handled by `ConversationService.HandleConversationRunComplete()` which stores messages in PostgreSQL and broadcasts `AGUIRunFinished`.
 
 ### Additional AG-UI Events
@@ -209,13 +211,16 @@ Beyond the NATS bridge, some AG-UI events are emitted directly by Go services:
 - `agui.permission_request` -- Emitted by `RuntimeService` when a tool call requires HITL approval (`runtime_approval.go`)
 - `agui.action_suggestion` -- Emitted via trajectory event bridge when agent suggests follow-up actions
 - `agui.goal_proposal` -- Emitted via trajectory event bridge when agent proposes goals
+- `agui.roadmap_proposal` -- Emitted via trajectory event bridge when the agent proposes a roadmap (`propose_roadmap`)
 
 ### Gap: `agui.state_delta`
 
-The `state_delta` event type is defined in `agui_events.go` and typed in the frontend (`websocket.ts`, `types.ts`), but no producer exists in either Go or Python. This event is intended for partial state updates (JSON Patch / Merge Patch) and would be needed for features like real-time cost accumulation display or agent mode transitions. The per-message cost feature (Feature 4) currently uses `AGUIRunFinished` for final cost data rather than incremental `state_delta` updates.
+The `state_delta` event type is defined in `internal/domain/event/agui.go` and typed in the frontend (`websocket.ts`, `types.ts`), but no producer exists in either Go or Python. This event is intended for partial state updates (JSON Patch / Merge Patch) and would be needed for features like real-time cost accumulation display or agent mode transitions. The per-message cost feature (Feature 4) currently uses `AGUIRunFinished` for final cost data rather than incremental `state_delta` updates.
 
 ## WebSocket Events Added
 
-- `channel_message` -- new message in a channel
-- `channel_typing` -- user typing indicator
-- `channel_read` -- read receipt / cursor update
+Defined in `internal/domain/event/broadcast.go` but not broadcast yet (KI-42):
+
+- `channel.message` -- new message in a channel
+- `channel.typing` -- user typing indicator
+- `channel.read` -- read receipt / cursor update

@@ -28,21 +28,28 @@ cp .env.example .env
 
 Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` and select "Dev Containers: Reopen in Container". Wait until `setup.sh` has finished running.
 
-**Infrastructure services start automatically** via `setup.sh`. The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). The env vars `DATABASE_URL`, `NATS_URL`, `LITELLM_URL`, and `LITELLM_MASTER_KEY` are pre-configured in `devcontainer.json` with no manual setup needed. Note: Python workers use `LITELLM_BASE_URL` which may differ from the devcontainer variable name.
+**Infrastructure services start automatically** via `setup.sh` (`docker compose up -d`). The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). `devcontainer.json` sets `DATABASE_URL` and `NATS_URL` to these container names (the password in `DATABASE_URL` is hardcoded to `codeforge_dev`, so keep `POSTGRES_PASSWORD` unset or matching). `LITELLM_MASTER_KEY` is taken from the host environment (`${localEnv:LITELLM_MASTER_KEY}`): export it on the host or in the terminal (compose LiteLLM default: `sk-codeforge-dev`).
+
+> **Known issue ([KI-50](todo.md#known-issues)):** the devcontainer sets `LITELLM_URL`, but the Go Core and the worker read `LITELLM_BASE_URL` and fall back to `http://localhost:4000`, which is unreachable from the devcontainer. Run `export LITELLM_BASE_URL=http://codeforge-litellm:4000` before `go run` / starting the worker, or use the VS Code launch configs (e.g. "CodeForge: Launch All (F5)"), which set it.
+
+> **Known issue ([KI-43](todo.md#known-issues)):** `postgres:18-alpine` refuses to start with the `pgdata` volume mounted at `/var/lib/postgresql/data` (PG 18 images expect `/var/lib/postgresql`), so PostgreSQL and LiteLLM (which waits for it) do not come up. Until fixed, change the volume target in your local `docker-compose.yml` to `/var/lib/postgresql`.
 
 ### Critical Startup Order (Manual / Outside Devcontainer)
 
 When starting services manually (not via `setup.sh`), follow this **strict order**.
-Violating the order causes silent NATS message drops (toolcall requests timeout
-after 30s with no error in the logs).
+Violating the order causes NATS message drops: tool-call requests time out after 30s
+and are denied; the worker only logs the warning "NATS response timeout waiting for
+policy decision from Go control plane".
 
 1. **Docker services:** `docker compose up -d postgres nats litellm`
 2. **Purge NATS** (fresh test runs only): Kill Go backend + Python worker **first**,
    then purge the JetStream stream. Stale consumers from killed processes block new ones.
 3. **Go backend:** `APP_ENV=development go run ./cmd/codeforge/`
    - MUST start **after** NATS purge -- creates fresh JetStream consumers on startup
-   - Verify: `curl http://localhost:8080/health` returns `{"status":"ok"}`
-4. **Python worker:** Start with container IPs (see WSL2 section in CLAUDE.md)
+   - Verify: `curl http://localhost:8080/health` returns `{"status":"ok","dev_mode":true,...}` (`dev_mode` is true only with `APP_ENV=development`)
+4. **Python worker:** `source scripts/resolve-docker-ips.sh`, then `cd workers && poetry run python -m codeforge.consumer`
+   (the script exports `NATS_URL`, `LITELLM_BASE_URL`, `DATABASE_URL`, ... with container IPs,
+   needed on WSL2 where published `localhost` ports are not reachable)
    - MUST start **after** Go backend -- both sides need active consumers
 5. **Frontend:** `cd frontend && npm run dev`
 
@@ -50,7 +57,7 @@ after 30s with no error in the logs).
 consumers that silently fail after a stream purge. Kill ALL Go processes before
 purging: `ps aux | grep codeforge | grep -v grep`
 
-The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2, goimports, Claude Code CLI, Python dependencies (poetry install), Node dependencies (npm install), and Pre-commit Hooks.
+The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2 (latest release; CI pins v2.5.0), goimports, Claude Code CLI, Python dependencies (poetry install, including the pinned dev dependency ruff 0.15.1), Node dependencies (npm install), and Pre-commit Hooks.
 
 ### Project Structure
 
@@ -67,12 +74,7 @@ CodeForge/
 │   └── workflows/
 │       ├── ci.yml            # Go + Python + Frontend CI
 │       └── docker-build.yml  # Docker image builds (ghcr.io)
-├── data/                     # Persistent data (gitignored, auto-created by docker compose)
-│   ├── docs_mcp/             # Docs MCP Index
-│   ├── litellm/              # LiteLLM Runtime Data
-│   ├── nats/                 # NATS JetStream Data
-│   ├── playwright/           # Playwright Config
-│   └── postgres/             # PostgreSQL Data
+├── data/                     # Runtime data of the Go core (gitignored): workspaces/ (cloned repos), initial_admin_password
 ├── cmd/
 │   └── codeforge/
 │       ├── admin.go          # Admin command entrypoints
@@ -80,6 +82,7 @@ CodeForge/
 │       └── providers.go      # Blank imports of all active adapters
 ├── internal/
 │   ├── config/               # Hierarchical config system (defaults < YAML < ENV < CLI)
+│   ├── crypto/               # AES encryption, key derivation, random tokens/IDs
 │   ├── domain/               # Core: Entities, Business Rules (40+ packages)
 │   │   ├── a2a/              # A2A protocol types (AgentCard, Task, Message)
 │   │   ├── agent/            # Agent + Team + Identity models
@@ -129,7 +132,8 @@ CodeForge/
 │   ├── git/                  # Git worker pool (semaphore-bounded)
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
-│   ├── port/                 # Interfaces + Registries (17 packages)
+│   ├── netutil/              # SSRF checks (private IP filter, safe HTTP transport)
+│   ├── port/                 # Interfaces + Registries (21 packages)
 │   │   ├── agentbackend/     # Agent backend interface + registry
 │   │   ├── benchprovider/    # Benchmark provider interface
 │   │   ├── broadcast/        # Broadcaster interface (WS events)
@@ -138,16 +142,20 @@ CodeForge/
 │   │   ├── database/         # Store interface (80+ methods)
 │   │   ├── eventstore/       # Event store interface + trajectory types
 │   │   ├── feedback/         # Feedback provider interface
+│   │   ├── filesystem/       # Filesystem port
 │   │   ├── gitprovider/      # Git provider interface + registry
+│   │   ├── lsp/              # LSP client port
 │   │   ├── messagequeue/     # Message queue interface + schemas
 │   │   ├── metrics/          # Metrics recorder interface (OTEL abstraction)
 │   │   ├── notifier/         # Notification interface (Slack, Discord, Email)
 │   │   ├── llm/              # LLM provider interface
 │   │   ├── pmprovider/       # PM provider interface + registry
+│   │   ├── shell/            # Shell command port
 │   │   ├── specprovider/     # Spec provider interface + registry
 │   │   ├── subscription/     # Subscription interface
-│   │   └── tokenexchange/    # Token exchange interface (Copilot abstraction)
-│   ├── adapter/              # Concrete Implementations (33 packages)
+│   │   ├── tokenexchange/    # Token exchange interface (Copilot abstraction)
+│   │   └── wsticket/         # Single-use WebSocket ticket store
+│   ├── adapter/              # Concrete Implementations (35 packages)
 │   │   ├── a2a/              # A2A protocol server/client
 │   │   ├── aider/            # Aider agent backend
 │   │   ├── auth/             # Authentication adapter
@@ -155,6 +163,7 @@ CodeForge/
 │   │   ├── copilot/          # GitHub Copilot token exchange
 │   │   ├── discord/          # Discord notification adapter
 │   │   ├── email/            # Email notification + feedback adapter
+│   │   ├── execshell/        # Shell commander (os/exec)
 │   │   ├── gitea/            # Gitea/Forgejo adapter
 │   │   ├── github/           # GitHub adapter
 │   │   ├── githubpm/         # GitHub Issues PM provider (gh CLI)
@@ -171,10 +180,11 @@ CodeForge/
 │   │   ├── opencode/         # OpenCode agent backend
 │   │   ├── openhands/        # OpenHands agent backend
 │   │   ├── openspec/         # OpenSpec spec provider (openspec/ dir)
+│   │   ├── osfs/             # OS filesystem provider
 │   │   ├── otel/             # OpenTelemetry tracing + metrics
 │   │   ├── plandex/          # Plandex agent backend
 │   │   ├── plane/            # Plane.so PM provider
-│   │   ├── postgres/         # PostgreSQL store + 86 migrations
+│   │   ├── postgres/         # PostgreSQL store + 90 migrations
 │   │   ├── ristretto/        # Ristretto in-process cache adapter (L1)
 │   │   ├── slack/            # Slack notification + feedback adapter
 │   │   ├── speckit/          # Spec Kit provider
@@ -184,6 +194,8 @@ CodeForge/
 │   ├── resilience/           # Circuit breaker
 │   ├── secrets/              # Secrets vault with SIGHUP reload
 │   ├── telemetry/            # OTEL span helpers (API-only, no SDK dependency)
+│   ├── tenantctx/            # Tenant ID context helpers
+│   ├── version/              # Build version
 │   └── service/              # Use Cases (Runtime, Orchestrator, Policy, etc.)
 ├── workers/                  # Python AI Workers
 │   └── codeforge/
@@ -207,7 +219,7 @@ CodeForge/
 │       ├── tracing/          # OpenTelemetry tracing
 │       └── trust/            # Trust annotation helpers
 ├── frontend/                 # SolidJS Web GUI
-│   ├── e2e/                  # Playwright E2E tests (82 browser specs + 11 LLM API specs)
+│   ├── e2e/                  # Playwright E2E tests (83 browser/API specs + 11 LLM API specs; the default config also collects e2e/llm)
 │   │   └── llm/              # LLM E2E test suite (88 tests, no browser needed)
 │   ├── nginx.conf            # Production nginx config (SPA + API proxy)
 │   ├── public/
@@ -257,13 +269,22 @@ CodeForge/
 ├── scripts/
 │   ├── test.sh               # Unified test runner (go/python/frontend/integration/e2e)
 │   ├── logs.sh               # Docker log viewer helper
+│   ├── resolve-docker-ips.sh       # Export container-IP env vars (WSL2), then start the worker
 │   ├── backup-postgres.sh          # PostgreSQL backup script
 │   ├── restore-postgres.sh         # PostgreSQL restore script
+│   ├── cleanup-wal-archives.sh     # Remove old WAL archives
+│   ├── generate-secrets.sh         # Generate production secret files
+│   ├── validate-env.sh             # Pre-deploy env var check
+│   ├── deploy-blue-green.sh        # Blue-green deployment
+│   ├── run-agent-eval.sh           # Agent evaluation scenarios
+│   ├── sync-version.sh             # Propagate VERSION to package manifests
+│   ├── verify-features.sh          # Feature verification matrix (CI verify job)
+│   ├── worker-healthcheck.py       # Worker container healthcheck (sentinel file)
 │   └── setup-branch-protection.sh  # GitHub branch protection for main
 ├── configs/
 │   ├── model_pricing.yaml    # Fallback LLM pricing table
-│   └── benchmarks/           # Benchmark datasets (Phase 20)
-│       └── basic-coding.yaml # Sample dataset (5 tasks)
+│   ├── prometheus/           # Prometheus alert rules
+│   └── benchmarks/           # Benchmark datasets (Phase 20): basic-coding, tool-use-basic, agent-coding, e2e-quick
 ├── tests/
 │   └── integration/          # Integration tests (real PostgreSQL, build-tagged)
 ├── docs/                     # Documentation
@@ -272,19 +293,21 @@ CodeForge/
 ├── .env.example              # Environment Template
 ├── .dockerignore             # Docker build exclusions
 ├── .golangci.yml             # Go Linter Config (v2)
-├── .mcp.json                 # MCP Server for Claude Code
+├── .mcp.json                 # MCP Server for Claude Code (local, gitignored, not in repo)
 ├── .pre-commit-config.yaml   # Pre-commit Hooks (15 hooks)
 ├── CLAUDE.md                 # Project Context for Claude Code
 ├── Dockerfile                # Go Core multi-stage build
 ├── Dockerfile.worker         # Python Worker image
 ├── Dockerfile.frontend       # Frontend nginx image
-├── codeforge.example.yaml    # Config file template (all fields documented)
+├── codeforge.example.yaml    # Config file template (main sections; full key list in internal/config/config.go)
 ├── docker-compose.yml        # Dev Services
 ├── docker-compose.prod.yml   # Production Services (6 containers)
 ├── LICENSE                   # AGPL-3.0
 ├── go.mod / go.sum           # Go module files
 └── pyproject.toml            # Python: Poetry + Ruff + Pytest
 ```
+
+PostgreSQL, NATS and docs-mcp data live in the named Docker volumes `codeforge-pgdata`, `codeforge-nats-data`, `codeforge-docs-mcp-data` and `codeforge-docs-mcp-config` (reset with `docker compose down -v`); LiteLLM bind-mounts the repo's `litellm/` directory.
 
 ### Ports
 
@@ -296,10 +319,14 @@ CodeForge/
 | 4222 | NATS                 | Message Queue (client connections)|
 | 6280 | docs-mcp-server      | MCP Endpoint (SSE/HTTP)          |
 | 6281 | docs-mcp-server      | Web Dashboard                    |
-| 8001 | playwright-mcp       | Browser Automation               |
+| 8001 | playwright-mcp       | Browser Automation (profile `dev`) |
 | 8080 | Go API               | Core Service REST/WebSocket      |
 | 8222 | NATS Monitoring      | NATS HTTP monitoring dashboard   |
 | 3001 | MCP Server           | MCP Streamable HTTP (when enabled)|
+| 16686 | Jaeger              | Tracing UI (profile `dev`)       |
+| 4317/4318 | Jaeger          | OTLP gRPC/HTTP receiver (profile `dev`) |
+
+`docker compose up -d` (and `setup.sh`) does not start the `dev`-profile services; start them with `docker compose --profile dev up -d`.
 
 ### docs-mcp-server (Documentation Grounding)
 
@@ -327,21 +354,19 @@ docker exec codeforge-docs-mcp npx docs-mcp-server scrape fastapi https://fastap
 
 **Assign to project:**
 
-1. Go to Settings > MCP Servers > register docs-mcp-server (type: SSE, URL: http://docs-mcp:6280/sse)
+1. Open "MCP Servers" in the sidebar (`/mcp`) > register docs-mcp-server (type: SSE, URL: http://docs-mcp:6280/sse)
 2. Open project > Settings (gear icon) > check "docs-mcp-server"
 3. Agent now has `search_docs`, `scrape_docs`, `list_libraries` tools
 
-**Embeddings:** Uses Ollama by default (no API key needed). Requires `nomic-embed-text` model:
+> **Known issue ([KI-40](todo.md#known-issues)):** step 2 currently fails because the settings popover calls API client methods that do not exist. Assign the server via the API instead: `POST /api/v1/projects/{id}/mcp-servers` with `{"server_id": "<id>"}`.
 
-```bash
-ollama pull nomic-embed-text
-```
+**Embeddings:** `docker-compose.yml` points docs-mcp at LM Studio's OpenAI-compatible API on the host (`http://host.docker.internal:1234/v1`, model `text-embedding-nomic-embed-text-v1.5`). Load that embedding model in LM Studio, or edit the `OPENAI_API_BASE` / `DOCS_MCP_EMBEDDING_MODEL` values in `docker-compose.yml`. They are hardcoded there, so the `DOCS_MCP_*` entries in `.env` have no effect ([KI-51](todo.md#known-issues)).
 
 **Ports:** 6280 (MCP), 6281 (Web UI)
 
 ### Playwright MCP Container
 
-The `codeforge-playwright` container provides browser automation via Model Context Protocol.
+The `codeforge-playwright` container provides browser automation via Model Context Protocol. It is in the compose `dev` profile: start it with `docker compose --profile dev up -d playwright-mcp`.
 
 **Important:** The MCP session is ephemeral -- if the container restarts, all active MCP
 sessions become invalid ("Session not found"). You must reconnect from the MCP client
@@ -365,11 +390,12 @@ A 3-step onboarding wizard is shown on first login when the user has 0 projects.
 # All languages via pre-commit (15 hooks)
 pre-commit run --all-files
 
-# Python only (ruff with 21 rule groups including security, complexity, performance)
-ruff check workers/
-ruff format workers/
+# Python only (ruff 0.15.1, a pinned Poetry dev dependency matching the pre-commit rev;
+# 21 rule groups including security, complexity, performance)
+poetry run ruff check .
+poetry run ruff format .           # CI runs `poetry run ruff format --check .`
 
-# Go only (golangci-lint v2 with 17 linters including gosec, revive, errorlint)
+# Go only (golangci-lint v2 with 17 linters including gosec, revive, errorlint; CI pins v2.5.0)
 go build ./cmd/codeforge/
 golangci-lint run ./...
 
@@ -418,8 +444,9 @@ E2E tests use Playwright and require the full stack to be running (Go backend + 
 cd frontend && npm install && npx playwright install --with-deps chromium
 
 # Prerequisites: full stack running
+# (the E2E suites log in as admin@localhost / Changeme123, so seed that admin)
 docker compose up -d
-go run ./cmd/codeforge/ &
+APP_ENV=development CODEFORGE_AUTH_ADMIN_PASS=Changeme123 go run ./cmd/codeforge/ &
 cd frontend && npm run dev &
 
 # Run tests
@@ -429,7 +456,7 @@ cd frontend && npm run test:e2e:headed           # See browser
 cd frontend && npm run test:e2e:report           # View HTML report
 ```
 
-Tests span 82 spec files covering health checks, navigation, auth, project CRUD, cost dashboard, models, modes, prompts, MCP, benchmarks, canvas, knowledge bases, settings, scopes, war room, accessibility, security, and more.
+Tests span 83 spec files (plus the 11 LLM specs in `e2e/llm`, which the default config also picks up) covering health checks, navigation, auth, project CRUD, cost dashboard, models, modes, prompts, MCP, benchmarks, canvas, knowledge bases, settings, scopes, war room, accessibility, security, and more.
 
 #### LLM E2E Tests (API-Level)
 
@@ -438,9 +465,9 @@ LLM E2E tests validate the full LLM integration stack via API calls (no browser 
 > **WARNING: `APP_ENV=development` is required.** Without it, dev-mode-only endpoints (benchmarks, agent features) return 403 and benchmark-related tests will fail. The `/health` endpoint exposes `dev_mode: true/false` so you can verify the mode.
 
 ```bash
-# Prerequisites: backend + infrastructure running
+# Prerequisites: backend + infrastructure running (tests log in as admin@localhost / Changeme123)
 docker compose up -d
-APP_ENV=development go run ./cmd/codeforge/ &
+APP_ENV=development CODEFORGE_AUTH_ADMIN_PASS=Changeme123 go run ./cmd/codeforge/ &
 
 # Run LLM E2E tests
 cd frontend && npx playwright test --config=playwright.llm.config.ts
@@ -460,7 +487,7 @@ docker compose up -d postgres nats
 go test -race -count=1 -tags=integration ./tests/integration/...
 ```
 
-The integration tests verify health/liveness endpoints, project CRUD lifecycle (create, get, list, delete), input validation (missing fields return 400), and task CRUD lifecycle (create, get, list within a project).
+The integration tests verify health/liveness and API version, project CRUD lifecycle (create, get, list, delete), input validation (missing fields return 400), task CRUD lifecycle (create, get, list within a project), auth flows (login/logout, token refresh, password reset, API keys) and migration up/down. Smoke tests (`-tags=smoke`, `flows_test.go` / `smoke_test.go`) run against a running stack.
 
 ### Running the Project
 
@@ -487,10 +514,10 @@ CodeForge uses a hierarchical configuration system: defaults < YAML < environmen
 Copy the example config and adjust as needed.
 
 ```bash
-cp codeforge.yaml.example codeforge.yaml
+cp codeforge.example.yaml codeforge.yaml
 ```
 
-The YAML file is optional. If missing, defaults are used. Environment variables override YAML, and CLI flags override everything.
+The YAML file is optional. If missing, defaults are used. Environment variables override YAML, and CLI flags override everything. Unknown YAML keys are silently ignored, so check key names against the `yaml:"..."` tags in `internal/config/config.go`.
 
 #### CLI Flags
 
@@ -498,7 +525,7 @@ The Go Core binary accepts the following command-line flags (highest precedence)
 
 | Flag | Shorthand | Description |
 |---|---|---|
-| `--config` | `-c` | Path to YAML config file (default: `codeforge.yaml`) |
+| `--config` | `-c` | Path to YAML config file (default: `$CODEFORGE_CONFIG_FILE`, else `codeforge.yaml`; the worker also honours `CODEFORGE_CONFIG_FILE`) |
 | `--port` | `-p` | HTTP server port |
 | `--log-level` | | Logging level (`debug`, `info`, `warn`, `error`) |
 | `--dsn` | | PostgreSQL connection string |
@@ -516,6 +543,7 @@ Example:
 |---|---|---|---|
 | `server.port` | `CODEFORGE_PORT` | `8080` | HTTP server port |
 | `server.cors_origin` | `CODEFORGE_CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin |
+| `server.trusted_proxies` | `CODEFORGE_TRUSTED_PROXIES` | `[]` | Reverse proxies (IPs or CIDR prefixes, comma-separated in the env var) whose `X-Forwarded-For` / `X-Real-IP` headers identify the client for rate limiting, audit and consent records; empty = headers ignored; invalid entries fail startup |
 | `postgres.dsn` | `DATABASE_URL` | `postgres://codeforge:...` | PostgreSQL DSN |
 | `postgres.max_conns` | `CODEFORGE_PG_MAX_CONNS` | `50` | Max DB connections |
 | `postgres.min_conns` | `CODEFORGE_PG_MIN_CONNS` | `10` | Min DB connections |
@@ -549,100 +577,100 @@ Example:
 | `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
 | `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
 | `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `true` | Enable JWT authentication |
-| `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | `codeforge-dev-jwt-secret-change-in-production` | HMAC-SHA256 signing key (production rejects the default) |
+| `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | `` (random per start) | HMAC-SHA256 signing key; empty = auto-generated in memory at every start (sessions lost on restart). Must be >= 32 chars; well-known values are rejected unless `APP_ENV=development` |
 | `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_EXPIRY` | `15m` | Access token lifetime |
 | `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_EXPIRY` | `168h` | Refresh token lifetime (7d) |
 | `auth.bcrypt_cost` | `CODEFORGE_AUTH_BCRYPT_COST` | `12` | Bcrypt work factor |
 | `auth.default_admin_email` | `CODEFORGE_AUTH_ADMIN_EMAIL` | `admin@localhost` | Seed admin email |
 | `auth.default_admin_pass` | `CODEFORGE_AUTH_ADMIN_PASS` | `` | Seed admin password |
-| `auth.auto_generate_password` | `CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD` | `false` | Auto-generate admin password |
+| `auth.auto_generate_initial_password` | `CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD` | `false` | Auto-generate admin password to `initial_password_file` |
 | `auth.initial_password_file` | `CODEFORGE_AUTH_INITIAL_PASSWORD_FILE` | `data/initial_admin_password` | File path for generated password |
 | `auth.setup_timeout_minutes` | `CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES` | `5` | Setup wizard timeout |
-| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
+| `benchmark.datasets_dir` | (YAML only; `CODEFORGE_BENCHMARK_DATASETS_DIR` is read by the Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files |
 | `benchmark.watchdog_timeout` | `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck benchmark runs |
-| `github.client_id` | `GITHUB_CLIENT_ID` | `` | GitHub OAuth App Client ID |
-| `github.client_secret` | `GITHUB_CLIENT_SECRET` | `` | GitHub OAuth App Client Secret |
-| `github.callback_url` | `GITHUB_CALLBACK_URL` | `http://localhost:8080/api/v1/auth/github/callback` | GitHub OAuth callback URL |
+| `github.client_id` | `GITHUB_CLIENT_ID` | `` | OAuth client ID for the GitHub device-flow subscription provider |
+| `github.client_secret` | `GITHUB_CLIENT_SECRET` | `` | Read but currently unused: the GitHub OAuth web flow (`/api/v1/auth/github`) is not wired and returns 501 ([KI-55](todo.md#known-issues)) |
+| `github.callback_url` | `GITHUB_CALLBACK_URL` | `` | Read but currently unused (see `github.client_secret`) |
 | `postgres.max_conn_lifetime` | `CODEFORGE_PG_MAX_CONN_LIFETIME` | `30m` | Max connection lifetime |
 | `postgres.max_conn_idle_time` | `CODEFORGE_PG_MAX_CONN_IDLE_TIME` | `5m` | Max connection idle time |
 | `postgres.health_check` | `CODEFORGE_PG_HEALTH_CHECK` | `30s` | Health check interval |
 | `logging.service` | `CODEFORGE_LOG_SERVICE` | `codeforge-core` | Service name in structured logs |
 | `logging.async` | `CODEFORGE_LOG_ASYNC` | `true` | Enable async log buffering |
-| `rate.auth_rps` | `CODEFORGE_RATE_AUTH_RPS` | `0.167` | Auth endpoint rate limit (req/s) |
+| `rate.auth_per_second` | `CODEFORGE_RATE_AUTH_RPS` | `0.167` | Auth endpoint rate limit (req/s) |
 | `rate.auth_burst` | `CODEFORGE_RATE_AUTH_BURST` | `5` | Auth endpoint burst capacity |
-| `policy.default` | `CODEFORGE_POLICY_DEFAULT` | `headless-safe-sandbox` | Default policy preset |
-| `policy.dir` | `CODEFORGE_POLICY_DIR` | `` | Custom policy directory |
+| `policy.default_profile` | `CODEFORGE_POLICY_DEFAULT` | `headless-safe-sandbox` | Default policy preset |
+| `policy.custom_dir` | `CODEFORGE_POLICY_DIR` | `` | Custom policy directory |
 | `workspace.root` | `CODEFORGE_WORKSPACE_ROOT` | `data/workspaces` | Workspace root directory |
 | `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
 | `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |
 | `runtime.stall_max_retries` | `CODEFORGE_STALL_MAX_RETRIES` | `2` | Max stall recovery retries |
-| `runtime.qg_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Quality gate timeout |
-| `runtime.deliver_mode` | `CODEFORGE_DELIVER_MODE` | `` | Default delivery mode |
-| `runtime.test_command` | `CODEFORGE_TEST_COMMAND` | `go test ./...` | Default test command |
-| `runtime.lint_command` | `CODEFORGE_LINT_COMMAND` | `golangci-lint run ./...` | Default lint command |
-| `runtime.commit_prefix` | `CODEFORGE_COMMIT_PREFIX` | `codeforge:` | Git commit prefix |
+| `runtime.quality_gate_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Quality gate timeout (currently not applied; the worker uses a fixed 120 s per command, [KI-28](todo.md#known-issues)) |
+| `runtime.default_deliver_mode` | `CODEFORGE_DELIVER_MODE` | `` | Default delivery mode |
+| `runtime.default_test_command` | `CODEFORGE_TEST_COMMAND` | `go test ./...` | Default test command |
+| `runtime.default_lint_command` | `CODEFORGE_LINT_COMMAND` | `golangci-lint run ./...` | Default lint command |
+| `runtime.delivery_commit_prefix` | `CODEFORGE_COMMIT_PREFIX` | `codeforge:` | Git commit prefix |
 | `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | Agent heartbeat interval |
 | `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout |
 | `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds) |
 | `idempotency.bucket` | `CODEFORGE_IDEMPOTENCY_BUCKET` | `IDEMPOTENCY` | NATS KV bucket name |
 | `idempotency.ttl` | `CODEFORGE_IDEMPOTENCY_TTL` | `24h` | Idempotency key TTL |
-| `hybrid.image` | `CODEFORGE_HYBRID_IMAGE` | `` | Docker image for hybrid mode |
-| `hybrid.mount_mode` | `CODEFORGE_HYBRID_MOUNT_MODE` | `rw` | Mount mode (rw/ro) |
-| `sandbox.memory_mb` | `CODEFORGE_SANDBOX_MEMORY_MB` | `512` | Memory limit (MB) |
-| `sandbox.cpu_quota` | `CODEFORGE_SANDBOX_CPU_QUOTA` | `1000` | CPU quota (millicores) |
-| `sandbox.pids_limit` | `CODEFORGE_SANDBOX_PIDS_LIMIT` | `100` | Process limit |
-| `sandbox.storage_gb` | `CODEFORGE_SANDBOX_STORAGE_GB` | `10` | Storage limit (GB) |
-| `sandbox.network` | `CODEFORGE_SANDBOX_NETWORK` | `none` | Network mode |
-| `sandbox.image` | `CODEFORGE_SANDBOX_IMAGE` | `ubuntu:22.04` | Container image |
-| `cache.l1_size_mb` | `CODEFORGE_CACHE_L1_SIZE_MB` | `100` | L1 in-memory cache size (MB) |
+| `runtime.hybrid.command_image` | `CODEFORGE_HYBRID_IMAGE` | `` | Docker image for hybrid mode |
+| `runtime.hybrid.mount_mode` | `CODEFORGE_HYBRID_MOUNT_MODE` | `rw` | Mount mode (rw/ro) |
+| `runtime.sandbox.memory_mb` | `CODEFORGE_SANDBOX_MEMORY_MB` | `512` | Memory limit (MB) |
+| `runtime.sandbox.cpu_quota` | `CODEFORGE_SANDBOX_CPU_QUOTA` | `1000` | CPU quota (millicores) |
+| `runtime.sandbox.pids_limit` | `CODEFORGE_SANDBOX_PIDS_LIMIT` | `100` | Process limit |
+| `runtime.sandbox.storage_gb` | `CODEFORGE_SANDBOX_STORAGE_GB` | `10` | Storage limit (GB) |
+| `runtime.sandbox.network_mode` | `CODEFORGE_SANDBOX_NETWORK` | `none` | Network mode |
+| `runtime.sandbox.image` | `CODEFORGE_SANDBOX_IMAGE` | `ubuntu:22.04` | Container image |
+| `cache.l1_max_size_mb` | `CODEFORGE_CACHE_L1_SIZE_MB` | `100` | L1 in-memory cache size (MB) |
 | `cache.l2_bucket` | `CODEFORGE_CACHE_L2_BUCKET` | `CACHE` | NATS KV cache bucket |
 | `cache.l2_ttl` | `CODEFORGE_CACHE_L2_TTL` | `10m` | L2 cache TTL |
-| `orchestrator.context_budget` | `CODEFORGE_ORCH_CONTEXT_BUDGET` | `4096` | Token budget for orchestrator context |
+| `orchestrator.default_context_budget` | `CODEFORGE_ORCH_CONTEXT_BUDGET` | `4096` | Token budget for orchestrator context |
 | `orchestrator.prompt_reserve` | `CODEFORGE_ORCH_PROMPT_RESERVE` | `1024` | Prompt token reserve |
 | `orchestrator.subagent_enabled` | `CODEFORGE_ORCH_SUBAGENT_ENABLED` | `true` | Enable sub-agent search |
 | `orchestrator.subagent_timeout` | `CODEFORGE_ORCH_SUBAGENT_TIMEOUT` | `60s` | Sub-agent request timeout |
-| `context.rerank_enabled` | `CODEFORGE_CONTEXT_RERANK_ENABLED` | `false` | Enable LLM context reranking |
-| `context.rerank_model` | `CODEFORGE_CONTEXT_RERANK_MODEL` | `` | Model for reranking |
+| `orchestrator.context_rerank_enabled` | `CODEFORGE_CONTEXT_RERANK_ENABLED` | `false` | Enable LLM context reranking |
+| `orchestrator.context_rerank_model` | `CODEFORGE_CONTEXT_RERANK_MODEL` | `` | Model for reranking |
 | `webhook.github_secret` | `CODEFORGE_WEBHOOK_GITHUB_SECRET` | `` | GitHub webhook HMAC secret |
 | `webhook.gitlab_token` | `CODEFORGE_WEBHOOK_GITLAB_TOKEN` | `` | GitLab webhook token |
 | `webhook.plane_secret` | `CODEFORGE_WEBHOOK_PLANE_SECRET` | `` | Plane webhook secret |
 | `notification.slack_webhook_url` | `CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL` | `` | Slack webhook URL |
 | `notification.discord_webhook_url` | `CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL` | `` | Discord webhook URL |
-| `smtp.host` | `CODEFORGE_SMTP_HOST` | `` | SMTP server hostname |
-| `smtp.port` | `CODEFORGE_SMTP_PORT` | `587` | SMTP server port |
-| `smtp.from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
-| `smtp.password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
-| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | (auto-detect) | Public URL for AgentCard |
+| `notification.smtp_host` | `CODEFORGE_SMTP_HOST` | `` | SMTP server hostname |
+| `notification.smtp_port` | `CODEFORGE_SMTP_PORT` | `0` | SMTP server port; must be set (e.g. `587`), port 0 makes sends fail ([KI-51](todo.md#known-issues)) |
+| `notification.smtp_from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
+| `notification.smtp_password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
+| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
 | `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated API keys |
-| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol |
-| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks |
-| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `true` | Allow unauthenticated discovery |
+| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
+| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks (not enforced yet) |
+| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `false` | Allow AgentCard discovery without A2A API key |
 | `a2a.streaming` | `CODEFORGE_A2A_STREAMING` | `false` | Enable A2A streaming |
 | `agent.default_model` | `CODEFORGE_AGENT_DEFAULT_MODEL` | `` | Default agent model (empty = auto-discover) |
 | `agent.max_context_tokens` | `CODEFORGE_AGENT_MAX_CONTEXT_TOKENS` | `128000` | Max context window tokens |
 | `agent.max_loop_iterations` | `CODEFORGE_AGENT_MAX_LOOP_ITERATIONS` | `50` | Max tool-use loop iterations |
 | `agent.agentic_by_default` | `CODEFORGE_AGENT_AGENTIC_BY_DEFAULT` | `true` | Enable agentic mode by default |
-| `agent.tool_output_max_chars` | `CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS` | `10000` | Max chars per tool output |
+| `agent.tool_output_max_chars` | `CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS` | `10000` | Max chars per tool output (currently not read; the worker uses its own default, [KI-38](todo.md#known-issues)) |
 | `agent.conversation_rollout_count` | `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT` | `1` | Conversation rollout count (1-8) |
 | `agent.summarize_threshold` | `CODEFORGE_SUMMARIZE_THRESHOLD` | `0` | Message count to trigger summarization (0 = disabled) |
 | `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |
-| `copilot.hosts_file` | `CODEFORGE_COPILOT_HOSTS_FILE` | `~/.config/github-copilot/hosts.json` | Copilot hosts file path |
+| `copilot.hosts_file_path` | `CODEFORGE_COPILOT_HOSTS_FILE` | `` (falls back to `~/.config/github-copilot/hosts.json`) | Copilot hosts file path |
 | `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum confidence to use cached experience |
 | `experience.max_entries` | `CODEFORGE_EXPERIENCE_MAX_ENTRIES` | `1000` | Max experience pool size |
-| (none) | `APP_ENV` | `` | Application environment (`development`/`production`) |
-| (none) | `CODEFORGE_INTERNAL_KEY` | `` | Shared secret for worker-to-core API auth |
-| (none) | `CODEFORGE_ENV_FILE` | `` | Path to .env file for OAuth device flow |
+| `app_env` | `APP_ENV` | `` | Application environment (`development`/`production`) |
+| `internal_key` | `CODEFORGE_INTERNAL_KEY` | `` | Shared secret for worker-to-core API auth |
+| `env_file` | `CODEFORGE_ENV_FILE` | `` | Path to .env file for OAuth device flow |
 
-#### Python Worker Config (`workers/codeforge/config.py`)
+#### Python Worker Config (`workers/codeforge/config.py`, routing vars in `llm.py`, backend paths in `backends/*.py`)
 
 | ENV Variable | Default | Description |
 |---|---|---|
 | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
 | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
-| `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
-| `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level |
+| `LITELLM_MASTER_KEY` | `sk-codeforge-dev` | LiteLLM API key (dev default, matches the compose LiteLLM default; a warning is logged) |
+| `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level (falls back to `logging.level` in codeforge.yaml) |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
-| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker health port |
+| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Reserved: no worker HTTP health server is started; liveness uses the sentinel file `/tmp/codeforge-worker-healthy` ([KI-34](todo.md#known-issues)) |
 | `CODEFORGE_AIDER_PATH` | `aider` | Path to Aider CLI binary |
 | `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
 | `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
@@ -699,14 +727,14 @@ Example:
 
 | Endpoint | Purpose | Response |
 |---|---|---|
-| `GET /health` | Liveness probe (Kubernetes) | Always `200 {"status":"ok"}` |
+| `GET /health` | Liveness probe (Kubernetes) | Always `200 {"status":"ok","dev_mode":<bool>,"dropped_logs":<int>}` |
 | `GET /health/ready` | Readiness probe | `200` if all services up, `503` if any down |
 
-The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and LiteLLM (health API) with per-service latency reporting.
+The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and LiteLLM (health API), with latency reporting for PostgreSQL and LiteLLM (NATS reports up/down only).
 
 ### NATS Subjects
 
-The Go Core and Python Workers communicate via NATS JetStream subjects.
+The Go Core and Python Workers communicate via NATS JetStream subjects. The tables below are a subset; the authoritative lists are `internal/port/messagequeue/queue.go` (Go) and `workers/codeforge/nats_subjects.py` (Python). Not listed here: `runs.heartbeat`, `runs.qualitygate.*`, `runs.trajectory.event`, `benchmark.task.*`, `context.shared.updated`, `context.rerank.*`, `repomap.generate.*`, `conversation.run.*`, `conversation.compact.*`, `evaluation.gemmas.*`, `a2a.task.*`, `memory.*`, `handoff.request`, `backends.health.*`, `review.*`, `prompt.evolution.*`.
 
 #### Legacy Task Protocol (fire-and-forget)
 
@@ -715,7 +743,8 @@ The Go Core and Python Workers communicate via NATS JetStream subjects.
 | `tasks.agent.<name>` | Go -> Python | Dispatch task to agent backend (name = aider/goose/openhands/opencode/plandex) |
 | `tasks.result` | Python -> Go | Task result from worker |
 | `tasks.output` | Python -> Go | Streaming output line |
-| `agents.status` | Go -> Frontend | Agent status update |
+| `tasks.cancel` | Go -> Python | Cancel a running task (does not stop a running backend process yet, [KI-22](todo.md#known-issues)) |
+| `agents.output` | Python -> Go | Per-line backend output (re-broadcast over WebSocket) |
 
 #### Run Protocol (Phase 4B, step-by-step)
 
@@ -735,18 +764,20 @@ The run protocol enables per-tool-call policy enforcement. Each tool call is ind
 
 | Subject | Direction | Purpose |
 |---------|-----------|---------|
-| `retrieval.build.request` | Go -> Python | Build retrieval index (BM25 + embeddings) |
-| `retrieval.build.result` | Python -> Go | Index build result |
+| `retrieval.index.request` | Go -> Python | Build retrieval index (BM25 + embeddings) |
+| `retrieval.index.result` | Python -> Go | Index build result |
 | `retrieval.search.request` | Go -> Python | Hybrid search query |
 | `retrieval.search.result` | Python -> Go | Search results |
-| `retrieval.agent.search.request` | Go -> Python | Sub-agent search (LLM query expansion + rerank) |
-| `retrieval.agent.search.result` | Python -> Go | Sub-agent search results |
+| `retrieval.subagent.request` | Go -> Python | Sub-agent search (LLM query expansion + rerank) |
+| `retrieval.subagent.result` | Python -> Go | Sub-agent search results |
 | `graph.build.request` | Go -> Python | Build structural code graph |
 | `graph.build.result` | Python -> Go | Graph build result |
 | `graph.search.request` | Go -> Python | BFS graph traversal from seed symbols |
 | `graph.search.result` | Python -> Go | Graph search results |
 
 #### MCP Protocol (Phase 15)
+
+Reserved/planned subjects: the `CODEFORGE` stream already captures `mcp.>`, but no code publishes or consumes these yet.
 
 | Subject | Direction | Purpose |
 |---------|-----------|---------|
@@ -766,26 +797,33 @@ CodeForge uses structured JSON logging across all services with Docker-native lo
 
 #### Log Access
 
+In development the Go Core and the worker run on the host and log to their own terminals; `docker compose logs` covers only the infrastructure services. In production the Go Core and worker are the `core` and `worker` services of `docker-compose.prod.yml`.
+
 ```bash
 # Follow all service logs
 docker compose logs -f
 
-# Single service
-docker compose logs -f codeforge
+# Single service (production)
+docker compose -f docker-compose.prod.yml logs -f core
 
-# Filter by level (requires jq)
-docker compose logs codeforge 2>&1 | jq 'select(.level == "ERROR")'
+# Filter by level (requires jq; --no-log-prefix strips the "<container> |" prefix,
+# fromjson? skips non-JSON lines, ascii_upcase also matches the worker's lowercase levels)
+docker compose -f docker-compose.prod.yml logs --no-log-prefix core worker \
+  | jq -R 'fromjson? | select(.level | ascii_upcase == "ERROR")'
 
 # Filter by request ID across all services
-docker compose logs 2>&1 | jq 'select(.request_id == "your-request-id")'
+docker compose -f docker-compose.prod.yml logs --no-log-prefix \
+  | jq -R 'fromjson? | select(.request_id == "your-request-id")'
 ```
 
 #### Helper Script
 
+`scripts/logs.sh` only covers the dev compose (`docker-compose.yml`) infrastructure services.
+
 ```bash
 ./scripts/logs.sh tail              # Follow all logs
 ./scripts/logs.sh errors            # Only ERROR level
-./scripts/logs.sh service codeforge # Single service
+./scripts/logs.sh service litellm   # Single service (postgres, nats, litellm, docs-mcp, ...)
 ./scripts/logs.sh request abc-123   # By request ID across services
 ```
 
@@ -794,25 +832,27 @@ docker compose logs 2>&1 | jq 'select(.request_id == "your-request-id")'
 | Service | Config Key | Env Variable | Default |
 |---|---|---|---|
 | Go Core | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` |
-| Python Workers | -- | `CODEFORGE_WORKER_LOG_LEVEL` | `info` |
+| Python Workers | `logging.level` (shared via codeforge.yaml) | `CODEFORGE_WORKER_LOG_LEVEL` | `info` |
 
 Valid levels: `debug`, `info`, `warn`, `error`
 
 #### Log Format
 
-All services emit structured JSON to stdout.
+All services emit structured JSON to stdout. Go Core example:
 
 ```json
-{"time":"2026-02-17T14:30:00Z","level":"INFO","service":"codeforge","msg":"request handled","request_id":"abc-123","method":"GET","path":"/api/v1/projects"}
+{"time":"2026-02-17T14:30:00Z","level":"INFO","service":"codeforge-core","msg":"request handled","request_id":"abc-123","method":"GET","path":"/api/v1/projects"}
 ```
+
+The Python worker emits `timestamp`, `level` (lowercase), `event`, `logger` and `service: codeforge-worker` instead, and stdlib loggers (e.g. httpx) write plain-text lines ([KI-35](todo.md#known-issues)).
 
 #### Request ID Propagation
 
-Every HTTP request gets a UUID (`X-Request-ID` header). This ID propagates through Go Core HTTP handler (logger context), NATS message headers (`X-Request-ID`), Python Worker (structlog context), and back to Go Core via NATS response. Use the request ID to trace a single operation across all services.
+Every HTTP request gets a request ID (`X-Request-ID` header): the client-supplied value, or a random 32-character hex ID. This ID propagates through Go Core HTTP handler (logger context), NATS message headers (`X-Request-ID`), Python Worker (structlog context), and back to Go Core via NATS response. Use the request ID to trace a single operation across all services.
 
 #### Log Rotation
 
-Docker handles log rotation automatically via the `json-file` driver. Each service gets max 10 MB per log file with max 3 files (30 MB total per service). This is configured in `docker-compose.yml` via the `x-logging` anchor.
+Docker handles log rotation automatically via the `json-file` driver. Each service gets max 50 MB per log file with max 10 files (500 MB total per service). This is configured in `docker-compose.yml` and `docker-compose.prod.yml` via the `x-logging` anchor.
 
 ### Docker Production Build
 
@@ -827,7 +867,7 @@ docker build -t codeforge-core .
 # Python Worker (python:3.12-slim, poetry, non-root user)
 docker build -t codeforge-worker -f Dockerfile.worker .
 
-# Frontend (node:22-alpine build -> nginx:alpine serve)
+# Frontend (node:22-alpine build -> nginxinc/nginx-unprivileged:1.27-alpine serve on port 8080)
 docker build -t codeforge-frontend -f Dockerfile.frontend .
 ```
 
@@ -846,25 +886,35 @@ docker compose -f docker-compose.prod.yml down
 
 Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
+> **Known issues (2026-09-29):** the production stack does not start as shipped. Workarounds until fixed ([Known Issues](todo.md#known-issues)):
+> - **KI-43:** PostgreSQL refuses the volume at `/var/lib/postgresql/data`; mount `postgres_data` at `/var/lib/postgresql`.
+> - **KI-44:** `ssl=on` points at `server.crt`/`server.key` files nothing creates, so PostgreSQL does not start; mount a certificate/key pair and point `ssl_cert_file`/`ssl_key_file` at it (the DSNs use `sslmode=require`).
+> - **KI-45:** `core` runs `read_only: true` without a writable volume, so cloning repositories and writing the initial admin password fail; mount a volume writable by the `codeforge` user at `/data` (the relative defaults `data/workspaces` and `data/initial_admin_password` resolve there).
+> - **KI-34:** the worker crashes at startup because it cannot write its health sentinel `/tmp/codeforge-worker-healthy` on the read-only filesystem, and the compose healthcheck (`import codeforge.consumer`) reports healthy anyway; add `tmpfs: [/tmp]` to the `worker` service.
+> - **KI-46:** secrets must be passed as env vars, see [Secret Management](#secret-management).
+
 #### CI/CD
 
-GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`.
+CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build/test/lint (golangci-lint v2.5.0), Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`), frontend lint/format/build, Lighthouse CI, contract tests and security scanning; smoke tests and feature verification run only on pushes to `staging`/`main`.
+
+GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`. Its Grype image scan job currently fails because it pulls a `sha-<full sha>` tag that is never pushed (images are tagged with the short SHA), so image scanning does not run ([KI-48](todo.md#known-issues)).
 
 ### Environment Variables
 
-See `.env.example` for all configurable values.
+See `.env.example` for the most common values; the full lists are in `internal/config/loader.go` (Go) and `workers/codeforge/config.py` (Python).
 
 | Variable                  | Default                                  | Description                     |
 |---------------------------|------------------------------------------|---------------------------------|
 | CODEFORGE_PORT            | 8080                                     | Go Core Service port            |
 | CODEFORGE_CORS_ORIGIN     | http://localhost:3000                     | Allowed CORS origin             |
+| CODEFORGE_TRUSTED_PROXIES | (empty)                                   | Trusted reverse proxies (IPs/CIDRs) for client IP headers |
 | DATABASE_URL              | postgres://...@codeforge-postgres:5432/codeforge (devcontainer) | PostgreSQL connection string |
 | NATS_URL                  | nats://codeforge-nats:4222 (devcontainer) | NATS server URL                 |
-| LITELLM_BASE_URL               | http://codeforge-litellm:4000 (devcontainer) | LiteLLM Proxy URL               |
-| LITELLM_MASTER_KEY        | sk-codeforge-dev (devcontainer)          | Master Key for LiteLLM Proxy    |
-| DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint          |
-| DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings          |
-| DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name            |
+| LITELLM_BASE_URL          | http://localhost:4000                    | LiteLLM Proxy URL (the devcontainer does not set it, export `http://codeforge-litellm:4000` there, [KI-50](todo.md#known-issues)) |
+| LITELLM_MASTER_KEY        | empty (Go Core); sk-codeforge-dev (worker, dev LiteLLM container) | Master Key for LiteLLM Proxy (the devcontainer forwards the host value) |
+| DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint (currently ignored: docker-compose.yml hardcodes the docs-mcp embedding settings, [KI-51](todo.md#known-issues)) |
+| DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings (currently ignored) |
+| DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name (currently ignored; compose uses `text-embedding-nomic-embed-text-v1.5`) |
 | OPENAI_API_KEY            | (optional)                               | OpenAI API Key (via LiteLLM)    |
 | ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
 | GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |
@@ -872,18 +922,18 @@ See `.env.example` for all configurable values.
 | MISTRAL_API_KEY           | (optional)                               | Mistral AI API Key              |
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
-| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local)         |
+| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local); used by Go model discovery, while LiteLLM's `ollama/*` entry hardcodes its `api_base` ([KI-51](todo.md#known-issues)) |
 | CODEFORGE_OTEL_ENABLED    | false                                    | Enable OpenTelemetry tracing    |
 | CODEFORGE_OTEL_ENDPOINT   | localhost:4317                              | OTLP gRPC endpoint              |
 | CODEFORGE_OTEL_SERVICE_NAME | codeforge-core                          | OTEL service name               |
 | CODEFORGE_OTEL_SAMPLE_RATE | 1.0                                     | Trace sampling rate (0.0-1.0)   |
 | CODEFORGE_A2A_ENABLED     | false                                    | Enable A2A protocol endpoints   |
-| CODEFORGE_AGUI_ENABLED    | false                                    | Enable AG-UI event emission     |
+| CODEFORGE_AGUI_ENABLED    | false                                    | Reserved, currently has no effect (AG-UI run events are always emitted) |
 | CODEFORGE_MCP_ENABLED     | false                                    | Enable MCP integration          |
 | CODEFORGE_MCP_SERVERS_DIR |                                          | MCP server YAML definitions dir |
 | CODEFORGE_MCP_SERVER_PORT | 3001                                     | Built-in MCP server port        |
 | CODEFORGE_AUTH_ENABLED    | true                                     | Enable JWT authentication       |
-| CODEFORGE_AUTH_JWT_SECRET | `codeforge-dev-jwt-secret-change-in-production` | HMAC-SHA256 JWT signing key (production rejects the default) |
+| CODEFORGE_AUTH_JWT_SECRET | (empty: random secret per start)         | HMAC-SHA256 JWT signing key; if unset, a random secret is generated at startup and lost on restart. Must be >= 32 chars; well-known values such as `codeforge-dev-jwt-secret-change-in-production` are rejected unless `APP_ENV=development` |
 | CODEFORGE_AUTH_ACCESS_EXPIRY | 15m                                   | Access token lifetime           |
 | CODEFORGE_AUTH_REFRESH_EXPIRY | 168h                                  | Refresh token lifetime (7d)     |
 | CODEFORGE_AUTH_BCRYPT_COST | 12                                      | Bcrypt work factor              |
@@ -908,13 +958,13 @@ See `.env.example` for all configurable values.
 | CODEFORGE_ORCH_REVIEW_ROUTER_MODEL |                                  | LLM model for review evaluation  |
 | CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
 | CODEFORGE_ROUTING_ENABLED   | true                                     | Enable hybrid intelligent routing |
-| CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable experience pool caching   |
-| CODEFORGE_A2A_BASE_URL     | (auto-detect)                            | Public URL for AgentCard         |
+| CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable experience pool caching (currently ignored: the pool is always active, [KI-16](todo.md#known-issues)) |
+| CODEFORGE_A2A_BASE_URL     | `http://localhost:<CODEFORGE_PORT>`      | Public URL for AgentCard         |
 | CODEFORGE_A2A_API_KEYS     |                                          | Comma-separated API keys         |
-| CODEFORGE_A2A_TRANSPORT    | jsonrpc                                  | Transport protocol               |
-| CODEFORGE_A2A_MAX_TASKS    | 100                                      | Max concurrent A2A tasks         |
-| CODEFORGE_A2A_ALLOW_OPEN   | true                                     | Allow unauthenticated discovery  |
-| CODEFORGE_OTEL_INSECURE    | true                                     | Use insecure gRPC (false for TLS)|
+| CODEFORGE_A2A_TRANSPORT    | jsonrpc                                  | Transport protocol (only `jsonrpc` is implemented) |
+| CODEFORGE_A2A_MAX_TASKS    | 100                                      | Max concurrent A2A tasks (not enforced yet) |
+| CODEFORGE_A2A_ALLOW_OPEN   | false                                    | Allow AgentCard discovery without A2A API key |
+| CODEFORGE_OTEL_INSECURE    | false (Go Core) / true (worker)          | Use insecure gRPC; the Go exporter currently always uses TLS ([KI-36](todo.md#known-issues)) |
 | DEEPSEEK_API_KEY            | (optional)                               | DeepSeek API Key                 |
 | COHERE_API_KEY              | (optional)                               | Cohere API Key                   |
 | TOGETHERAI_API_KEY          | (optional)                               | Together AI API Key              |
@@ -938,15 +988,31 @@ environments, set `DEEPEVAL_TELEMETRY_OPT_OUT=YES` to disable this. Add it to yo
 ### Secret Management
 
 In development, secrets are loaded from environment variables (`.env` file).
-In production, Docker Secrets files at `/run/secrets/` take priority.
+In production, only the Python worker reads a Docker Secrets file: `/run/secrets/litellm-master-key`
+(`workers/codeforge/secrets.py`, falling back to `LITELLM_MASTER_KEY`). The Go helper in
+`internal/secrets/provider.go` (file first, then env var) exists but is not wired yet; all Go Core
+values and all other worker values come from environment variables.
 
-Both Go (`internal/secrets/provider.go`) and Python (`workers/codeforge/secrets.py`)
-implement the same fallback: file first, then env var.
+> **Known issue ([KI-46](todo.md#known-issues)):** `docker-compose.prod.yml` requires `POSTGRES_PASSWORD`,
+> `NATS_USER`, `NATS_PASS` and `LITELLM_MASTER_KEY` as env vars (`${VAR:?}`), so `up` aborts unless they are
+> exported, whether or not the secret files exist; it also passes neither `CODEFORGE_AUTH_JWT_SECRET` nor
+> `CODEFORGE_INTERNAL_KEY` to `core` (add both via an override, the internal key to `worker` as well; otherwise
+> users are logged out on every restart and worker-to-core calls get 401).
+> `scripts/validate-env.sh` checks the unused `CODEFORGE_JWT_SECRET`.
 
-To generate production secrets:
+To generate production secrets and start the stack (the script writes base64 values, which can contain `/` and
+then break the credentials embedded in the `NATS_URL` and `DATABASE_URL` URLs, so pre-create those as hex; the
+script skips existing files):
 
 ```bash
+mkdir -p secrets
+openssl rand -hex 16 > secrets/nats-user
+openssl rand -hex 24 > secrets/nats-pass
+openssl rand -hex 24 > secrets/postgres-password
 ./scripts/generate-secrets.sh ./secrets
+export POSTGRES_PASSWORD="$(cat secrets/postgres-password)" \
+  NATS_USER="$(cat secrets/nats-user)" NATS_PASS="$(cat secrets/nats-pass)" \
+  LITELLM_MASTER_KEY="$(cat secrets/litellm-master-key)"
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -954,7 +1020,9 @@ See `docs/SECURITY.md` for the full secret management policy.
 
 ### Distributed Tracing (OpenTelemetry)
 
-CodeForge supports end-to-end distributed tracing across Go Core, Python Workers, and NATS messaging using OpenTelemetry. Traces flow bidirectionally: Go injects W3C `traceparent` headers into NATS messages, Python extracts them on incoming messages and injects them on outgoing responses, creating a single trace that spans the full request lifecycle.
+CodeForge supports distributed tracing across Go Core, Python Workers, and NATS messaging using OpenTelemetry. Go injects W3C `traceparent` headers into NATS messages and Python extracts them on incoming messages. Injection on the worker's outgoing messages is not implemented yet, so Python -> Go hops start new traces ([KI-36](todo.md#known-issues)).
+
+> **Known issue ([KI-36](todo.md#known-issues)):** the Go exporter ignores `CODEFORGE_OTEL_INSECURE` and always dials TLS, so the Go Core cannot export to a plaintext collector such as the dev Jaeger; only worker spans arrive there until this is fixed.
 
 #### Quick Start
 
@@ -962,11 +1030,11 @@ CodeForge supports end-to-end distributed tracing across Go Core, Python Workers
 # 1. Start Jaeger (OTLP collector + UI)
 docker compose --profile dev up -d jaeger
 
-# 2. Enable OTEL on Go Core
-CODEFORGE_OTEL_ENABLED=true go run ./cmd/codeforge/
+# 2. Enable OTEL on Go Core (plaintext collector; see the KI-36 note above)
+CODEFORGE_OTEL_ENABLED=true CODEFORGE_OTEL_INSECURE=true go run ./cmd/codeforge/
 
 # 3. Enable OTEL on Python Worker
-CODEFORGE_OTEL_ENABLED=true cd workers && poetry run python -m codeforge.consumer
+cd workers && CODEFORGE_OTEL_ENABLED=true poetry run python -m codeforge.consumer
 
 # 4. Open Jaeger UI
 open http://localhost:16686
@@ -983,7 +1051,7 @@ Both Go Core and Python Workers share the same environment variables:
 | `CODEFORGE_OTEL_ENABLED` | `false` | Master switch for tracing + metrics |
 | `CODEFORGE_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
 | `CODEFORGE_OTEL_SERVICE_NAME` | `codeforge-core` / `codeforge-worker` | Service name in traces |
-| `CODEFORGE_OTEL_INSECURE` | `true` | Use insecure gRPC (set `false` for production TLS) |
+| `CODEFORGE_OTEL_INSECURE` | `false` (Go Core) / `true` (Python worker) | Use insecure gRPC; set `true` for a local plaintext collector such as Jaeger |
 | `CODEFORGE_OTEL_SAMPLE_RATE` | `1.0` | Trace sampling rate (0.0-1.0) |
 
 Or use the YAML config file (`codeforge.yaml`):
@@ -1009,9 +1077,9 @@ otel:
 
 **Go Core:** HTTP requests (middleware), run lifecycle (start/complete), tool call approval, delivery, conversation messages.
 
-**Python Workers:** Agent execution (`agent_loop`, `executor`), tool calls (`mcp_workbench`), all NATS publish/subscribe with W3C trace propagation.
+**Python Workers:** Agent execution (`agent_loop`, `executor`), tool calls (`mcp_workbench`), incoming NATS messages (trace context extraction).
 
-**Metrics (Python):** 6 instruments -- `agent.llm_calls`, `agent.tool_calls`, `agent.tokens_used`, `agent.cost_usd`, `agent.loop_iterations`, `agent.errors`. Active when OTEL is enabled; no-ops when disabled.
+**Metrics (Python):** 6 instruments -- `codeforge.agent.loop.iterations`, `codeforge.agent.loop.duration`, `codeforge.llm.call.duration`, `codeforge.llm.tokens.used`, `codeforge.tool.execution.duration`, `codeforge.nats.message.processing.duration`. Not exported yet: the worker configures no MeterProvider, so they are no-ops even when OTEL is enabled ([KI-36](todo.md#known-issues)).
 
 ### Backup and Restore
 
@@ -1040,7 +1108,9 @@ Backups are stored in `./backups/postgres/` (gitignored) as compressed `pg_dump 
 ./scripts/restore-postgres.sh latest
 ```
 
-The restore script drops and recreates the database. Active connections are terminated automatically.
+The restore script asks for confirmation, then drops and recreates the database.
+
+> **Known issue ([KI-49](todo.md#known-issues)):** the connection-termination step does not work (`psql -c` does not substitute `:'dbname'` and the error is hidden), so `dropdb` fails while clients are connected. Stop the core, worker and LiteLLM (or close all connections) before restoring.
 
 #### Scheduled Backups (cron)
 
@@ -1097,7 +1167,7 @@ curl -X DELETE http://localhost:8080/api/v1/benchmarks/runs/{run_id}
 # --- Suite CRUD ---
 curl -X POST http://localhost:8080/api/v1/benchmarks/suites \
   -H "Content-Type: application/json" \
-  -d '{"name": "Code Quality", "type": "deepeval", "provider_name": "deepeval"}'
+  -d '{"name": "Code Quality", "type": "simple", "provider_name": "codeforge_simple"}'
 
 curl http://localhost:8080/api/v1/benchmarks/suites
 curl http://localhost:8080/api/v1/benchmarks/suites/{suite_id}
@@ -1136,14 +1206,14 @@ The frontend Benchmarks page (`/benchmarks`) has 5 tabs:
 
 Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `benchmark.datasets_dir` in `codeforge.yaml`). See `configs/benchmarks/README.md` for the YAML schema.
 
-Available metrics: `correctness`, `tool_correctness`, `faithfulness`, `answer_relevancy`, `contextual_precision`.
+Available metrics/evaluators: `llm_judge`, `functional_test`, `sparc`, `trajectory_verifier`, `correctness`, `faithfulness`, `relevance`, `coherence`, `fluency`, `tool_correctness`, `answer_relevancy`, `contextual_precision` (other names are rejected with 400). `trajectory_verifier` currently always scores 0.0 because the worker lacks `litellm` ([KI-37](todo.md#known-issues)).
 
 #### Configuration
 
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
-| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Directory with benchmark dataset YAML files |
-| — | `BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck runs (Go duration: `30m`, `4h`). Agent runs with local models can take 60+ min. |
+| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` (Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files. The Go Core (dataset listing and path resolution) reads only the YAML key |
+| `benchmark.watchdog_timeout` | `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck runs (Go duration: `30m`, `4h`). Agent runs with local models can take 60+ min. |
 | — | `HF_TOKEN` | — | HuggingFace API token for gated datasets. Required for CRUXEval (`cruxeval/cruxeval`). Optional for other external suites. Get a token at https://huggingface.co/settings/tokens |
 
 #### Interactive E2E Testing Guide
@@ -1158,10 +1228,10 @@ This section provides a step-by-step walkthrough for manually testing the benchm
 docker compose up -d postgres nats litellm
 ```
 
-2. **Start the Go backend in dev mode** (required for benchmark endpoints):
+2. **Start the Go backend in dev mode** (required for benchmark endpoints; the password seeds the `admin@localhost` account used below):
 
 ```bash
-APP_ENV=development go run ./cmd/codeforge/
+APP_ENV=development CODEFORGE_AUTH_ADMIN_PASS=Changeme123 go run ./cmd/codeforge/
 ```
 
 3. **Start the frontend dev server** (for dashboard testing):
@@ -1179,12 +1249,21 @@ curl -s http://localhost:8080/health | jq '.dev_mode'
 
 Without `APP_ENV=development`, all `/api/v1/benchmarks/*` endpoints return 403.
 
-5. **Log in and export the auth token** (all API calls require auth):
+5. **Log in and export the auth token** (all API calls require auth). A seeded admin must change the password first (otherwise every call returns 403 "password change required"); the E2E helpers simply set it to the same value and log in again:
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@localhost","password":"Changeme123"}' | jq -r '.access_token')
+login() {
+  curl -s -X POST http://localhost:8080/api/v1/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"admin@localhost","password":"Changeme123"}' | jq -r '.access_token'
+}
+TOKEN=$(login)
+
+# First login only: clear must_change_password, then log in again
+curl -s -X POST http://localhost:8080/api/v1/auth/change-password \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"old_password":"Changeme123","new_password":"Changeme123"}'
+TOKEN=$(login)
 
 # Verify token works
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/health | jq
@@ -1193,7 +1272,7 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/health | jq
 ##### Step 1: Verify Infrastructure Health
 
 ```bash
-# Backend health (includes NATS connectivity check)
+# Backend liveness (use /health/ready for PostgreSQL/NATS/LiteLLM checks)
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/health | jq
 # Expected: {"status":"ok","dev_mode":true,...}
 
@@ -1496,18 +1575,18 @@ See `configs/benchmarks/README.md` for the full YAML schema and available fields
 
 ### A2A Protocol (Phase 27)
 
-The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external AI agents. When enabled, CodeForge exposes an AgentCard at `/.well-known/agent.json` and can delegate tasks to remote A2A agents.
+The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external AI agents. When enabled, CodeForge exposes an AgentCard at `/.well-known/agent-card.json` and can delegate tasks to remote A2A agents. With auth enabled (default), the AgentCard and `/a2a` currently also sit behind the global JWT middleware, so they need a CodeForge JWT or API key; A2A API keys alone are not accepted ([KI-15](todo.md#known-issues)).
 
 #### Configuration
 
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
 | `a2a.enabled` | `CODEFORGE_A2A_ENABLED` | `false` | Enable A2A endpoints |
-| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | auto-detect | Public URL for AgentCard |
+| `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
 | `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | (empty) | Comma-separated API keys for inbound auth |
-| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol |
-| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks |
-| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `true` | Allow unauthenticated AgentCard discovery |
+| `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
+| `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks (not enforced yet) |
+| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `false` | Allow AgentCard discovery without A2A API key |
 
 #### Quick Test
 
@@ -1515,11 +1594,12 @@ The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external
 # Enable A2A and start the server
 CODEFORGE_A2A_ENABLED=true go run ./cmd/codeforge/
 
-# Fetch the AgentCard
-curl http://localhost:8080/.well-known/agent.json
+# Fetch the AgentCard ($TOKEN: CodeForge access token, see the benchmark guide above)
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/.well-known/agent-card.json
 
-# Register a remote agent
+# Register a remote agent (admin or editor role)
 curl -X POST http://localhost:8080/api/v1/a2a/agents \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "remote-coder", "url": "https://remote-agent.example.com"}'
 ```
@@ -1563,6 +1643,18 @@ model_list:
 
 When routing is disabled (`CODEFORGE_ROUTING_ENABLED=false`), the system falls back to scenario-based tag routing.
 
+#### Key Files
+
+| File | Purpose |
+|---|---|
+| `workers/codeforge/routing/` | Routing package (10 modules) |
+| `workers/codeforge/routing/complexity.py` | Layer 1: rule-based prompt analysis |
+| `workers/codeforge/routing/mab.py` | Layer 2: UCB1 bandit model selection |
+| `workers/codeforge/routing/meta_router.py` | Layer 3: LLM classification fallback |
+| `workers/codeforge/routing/router.py` | HybridRouter cascade orchestrator |
+| `workers/codeforge/llm.py` | `resolve_model_with_routing()` integration |
+| `litellm/config.yaml` | Provider wildcard configuration |
+
 ### Goal Discovery (Phase 30)
 
 Auto-detection of project vision, requirements, constraints, and state from workspace files. Goals are injected into agent system prompts and available as ContextPack entries.
@@ -1574,6 +1666,7 @@ Auto-detection of project vision, requirements, constraints, and state from work
 | `GET` | `/api/v1/projects/{id}/goals` | List goals for a project |
 | `POST` | `/api/v1/projects/{id}/goals` | Create a goal |
 | `POST` | `/api/v1/projects/{id}/goals/detect` | Trigger auto-detection from workspace |
+| `POST` | `/api/v1/projects/{id}/goals/ai-discover` | LLM-assisted goal discovery |
 | `GET` | `/api/v1/goals/{id}` | Get a single goal |
 | `PUT` | `/api/v1/goals/{id}` | Update a goal |
 | `DELETE` | `/api/v1/goals/{id}` | Delete a goal |
@@ -1591,24 +1684,12 @@ Goal Discovery uses 1 PostgreSQL table (migration `056_project_goals.sql`): `pro
 | `internal/adapter/postgres/store_project_goal.go` | PostgreSQL persistence |
 | `internal/adapter/http/handlers_goals.go` | REST API handlers |
 
-#### Key Files
-
-| File | Purpose |
-|---|---|
-| `workers/codeforge/routing/` | Routing package (7 modules) |
-| `workers/codeforge/routing/complexity.py` | Layer 1: rule-based prompt analysis |
-| `workers/codeforge/routing/mab.py` | Layer 2: UCB1 bandit model selection |
-| `workers/codeforge/routing/meta_router.py` | Layer 3: LLM classification fallback |
-| `workers/codeforge/routing/router.py` | HybridRouter cascade orchestrator |
-| `workers/codeforge/llm.py` | `resolve_model_with_routing()` integration |
-| `litellm/config.yaml` | Provider wildcard configuration |
-
 ### Branch Protection (Recommended)
 
-For PRs to `main`, configure these required status checks in GitHub:
+For PRs to `main` (CI also runs for PRs to `staging`), configure these required status checks in GitHub. Checks match the job display names in `.github/workflows/ci.yml`; `scripts/setup-branch-protection.sh` applies `Go`, `Python` and `Frontend`:
 
-- `test-go` -- Go unit tests
-- `test-python` -- Python tests + linting
-- `test-frontend` -- Frontend lint + build
-- `contract` -- NATS payload contract validation
-- `verify` -- Critical feature verification gate (staging/main only)
+- `Go` -- Go build, unit tests, golangci-lint v2.5.0
+- `Python` -- Python tests + ruff lint/format check
+- `Frontend` -- Frontend lint + format check + build
+- `Contract Tests` -- NATS payload contract validation
+- `Feature Verification` -- Critical feature verification gate (runs only on pushes to `staging`/`main`; skipped on PRs)

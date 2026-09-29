@@ -43,6 +43,8 @@ HandoffMessage with a2a:// prefix --> A2A client --> remote agent
 HandoffMessage without prefix     --> NATS      --> local agent
 ```
 
+> **Implementation status (2026-09-29):** Inbound requests are authenticated only with static API keys sent as Bearer tokens (`a2a.api_keys`, `internal/middleware/a2a_auth.go`; the AgentCard advertises a single `apiKey` scheme). Outbound calls to remote agents carry no credentials (`internal/service/a2a.go`); OAuth 2.0, OIDC, mTLS and JWS per remote agent are not implemented. There is no `/{tenant}/` path prefix: the endpoints are `/a2a` and `/.well-known/agent-card.json`, and the remote agent registry is tenant-scoped via `tenant_id` in PostgreSQL. Both endpoints sit behind the global JWT middleware, so A2A API keys are rejected while auth is enabled; inbound prompts are not quarantined; `a2a://` routing exists only in `HandoffService` (`internal/service/handoff.go`), which is never constructed (see [Known Issues](../../todo.md#known-issues) KI-15).
+
 ### Consequences
 
 #### Positive

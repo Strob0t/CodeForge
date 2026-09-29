@@ -20,7 +20,7 @@ Containerized service for orchestrating AI coding agents with a web GUI.
 ```
 TypeScript Frontend (SolidJS)  -->  REST / WebSocket
 Go Core Service (HTTP, WS, Agent Lifecycle, Repo Mgmt, Scheduling)  -->  NATS JetStream
-Python AI Workers (LLM Calls, Agent Execution, LiteLLM, LangGraph)
+Python AI Workers (LLM Calls via LiteLLM Proxy, Agent Execution with custom agent loop; LangGraph planned)
 ```
 
 | Layer | Language | Purpose |
@@ -60,34 +60,34 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - **logBestEffort pattern** (`internal/service/log_best_effort.go`) for non-fatal store errors -- logs with structured context instead of silencing
 
 ### Agent System
-- **Execution Modes:** Sandbox (isolated container), Mount (direct file access), Hybrid
+- **Execution Modes:** Sandbox (isolated container), Mount (direct file access), Hybrid — sandbox/hybrid isolation not effective yet, see [Known Issues](docs/todo.md#known-issues) KI-13
 - **Safety Layer (8):** Budget Limiter, Command Safety Evaluator, Branch Isolation, Test/Lint Gate, Max Steps, Rollback, Path Blocklist, Stall Detection
 - **Workflow:** Plan -> Approve -> Execute -> Review -> Deliver (configurable)
 - **Autonomy Levels:** 1=supervised (approve all), 2=semi-auto (approve destructive), 3=auto-edit (approve terminal/deploy), 4=full-auto (safety rules replace user), 5=headless (CI/CD, cron, API)
 - **Modes System:** YAML-configurable roles (architect, coder, reviewer, debugger), per-mode tools/LLM/autonomy/prompt, built-in + custom (`.codeforge/modes/`), DAG pipelines, schedule support
-- **Per-Mode Tool Lists:** Tools are defined inline in each Mode struct (`Mode.Tools` / `Mode.DeniedTools`), not as separate YAML bundle files
+- **Per-Mode Tool Lists:** Tools are defined inline in each Mode struct (`Mode.Tools` / `Mode.DeniedTools`), not as separate YAML bundle files — not enforced yet, see [Known Issues](docs/todo.md#known-issues) KI-10
 - **History Processors:** Context window optimization pipeline
 - **Hook System:** Observer pattern for agent/environment lifecycle
 - **Trajectory:** Recording, replay, inspector, audit trail
 - **Cost Management:** Budget limits per task/project/user, auto-tracking
-- **Prompt Templates:** Go `text/template` in `.tmpl` files via `//go:embed`
+- **Prompt Templates:** YAML prompt library (`internal/service/prompts/`, embedded via `//go:embed`, rendered with Go `text/template` by `PromptAssembler`) plus `.tmpl` files in `internal/service/templates/`
 - **BM25S Retrieval:** Code search and tool recommendation
 - **SimHash Dedup:** 64-bit fingerprints, hamming distance threshold — `internal/service/dedup.go`
-- **Real-time State:** WebSocket live updates for agent status, logs, costs
+- **Real-time State:** WebSocket live updates for agent status, logs, costs — broadcasts are not tenant-scoped yet, see [Known Issues](docs/todo.md#known-issues) KI-12
 
 ### Agentic Conversation Loop (Phase 17) — **implemented**
 - Multi-turn tool-use loop: LLM -> tools -> results -> repeat. Go dispatches via NATS (`conversation.run.start/complete`)
-- 7 built-in tools: Read, Write, Edit, Bash, Search, Glob, ListDir + MCP merge
+- 10 built-in tools (`read_file`, `write_file`, `edit_file`, `bash`, `search_files`, `glob_files`, `list_directory`, `search_conversations`, `search_skills`, `create_skill`) plus context-dependent `handoff_to`, `propose_goal`, `propose_roadmap`, `spawn_subagent` + MCP merge (tool defects: see [Known Issues](docs/todo.md#known-issues) KI-25, KI-38, KI-58)
 - `AgentLoopExecutor` (Python): streaming LLM, per-tool policy, cost tracking
 - `ConversationHistoryManager`: head-and-tail token budget, tool result truncation
-- HITL: `DecisionAsk` -> WS `permission_request` -> HTTP approve/deny -> channel resume
-- Config: `MaxLoopIterations` (50), `MaxContextTokens` (120K), `ContextEnabled` (true), `ContextBudget` (2048), `ContextPromptReserve` (512), `ApprovalTimeoutSeconds` (60)
+- HITL: `DecisionAsk` -> WS `agui.permission_request` -> HTTP approve/deny -> channel resume
+- Config: `MaxLoopIterations` (50), `MaxContextTokens` (128K), `ContextEnabled` (true), `ContextBudget` (2048), `ContextPromptReserve` (512), `ApprovalTimeoutSeconds` (60)
 - **Adaptive Context Budget:** Linear decay from `ContextBudget` to 0 over 60 messages — `internal/service/context_budget.go`
-- **Auto-Indexing:** Clone/Adopt/Setup trigger RepoMap + Retrieval Index + GraphRAG — `internal/adapter/http/handlers.go`
+- **Auto-Indexing:** Clone/Adopt/Setup trigger RepoMap + Retrieval Index + GraphRAG — `internal/service/project.go` (`AutoIndex`), called from `internal/adapter/http/handlers_project.go`
 - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`, `internal/service/runtime_execution.go`, `internal/service/runtime_lifecycle.go`
 
 ### Chat Enhancements — **implemented**
-HITL Permission UI (`PermissionRequestCard`: approve/deny/allow-always, countdown, preset mapping, `POST /policies/allow-always`), Inline Diff Review (`DiffPreview`), Action Buttons (copy/retry/apply/diff), Per-Message Cost (`MessageBadge`+`CostBreakdown` via AG-UI `state_delta`), Smart References (`@/#//` autocomplete, `AutocompletePopover`, `useFrequencyTracker`), Slash Commands (`/compact`/`/rewind`/`/clear`/`/help`/`/mode`/`/model` via `CommandRegistry`), Conversation Search (PostgreSQL FTS, GIN, `ts_rank`, `POST /search/conversations`), Notification Center (`notificationStore`, browser push, Web Audio, tab badge), Real-Time Channels (3 tables, 9 endpoints, WS events, `ChannelList`/`ChannelView`/`ThreadPanel`). Spec: `docs/features/05-chat-enhancements.md`
+HITL Permission UI (`PermissionRequestCard`: approve/deny/allow-always, countdown, preset mapping, `POST /policies/allow-always`), Inline Diff Review (`DiffPreview`), Action Buttons (copy/retry/apply/diff), Per-Message Cost (`MessageBadge`+`CostBreakdown` via AG-UI `state_delta`), Smart References (`@/#//` autocomplete, `AutocompletePopover`, `useFrequencyTracker`), Slash Commands (`/compact`/`/rewind`/`/clear`/`/diff`/`/cost`/`/help`/`/mode`/`/model` via `CommandService` + `GET /commands`, frontend `commandStore.ts`/`commandExecutor.ts`), Conversation Search (PostgreSQL FTS, GIN, `ts_rank`, `POST /search/conversations`), Notification Center (`notificationStore`, browser push, Web Audio, tab badge), Real-Time Channels (3 tables, 9 endpoints, WS events, `ChannelList`/`ChannelView`/`ThreadPanel`). Spec: `docs/features/05-chat-enhancements.md`
 
 ### Framework & Agent Insights (adopted patterns)
 
@@ -95,10 +95,10 @@ HITL Permission UI (`PermissionRequestCard`: approve/deny/allow-always, countdow
 Composite Memory Scoring (Semantic+Recency+Importance) — `workers/codeforge/memory/scorer.py`, `internal/service/memory.go` | Context Window Strategies (Buffered/TokenLimited/HeadAndTail) | Experience Pool (@exp_cache) — `workers/codeforge/memory/experience.py`, `internal/service/experience_pool.go` | Tool Recommendation via BM25 | Workbench (tool container, shared state, MCP) | LLM Guardrail Agent | Structured Output/ActionNode (schema validation + review/revise) | Event Bus (Agent/Task/System -> WS) | GraphFlow/DAG (Conditional Edges, Parallel Nodes, Cycles) | Composable Termination (MaxSteps|Budget|Timeout) | Component System (JSON serializable, GUI editor) | Document Pipeline PRD->Design->Tasks->Code | MagenticOne Planning Loop (Stall Detection + Re-Planning) | HandoffMessage Pattern — `internal/domain/orchestration/handoff.go`, `internal/service/handoff.go`, `workers/codeforge/tools/handoff.py` | Human Feedback Provider (Web GUI, Slack, Email) — `internal/port/feedback/provider.go`, `internal/adapter/slack/feedback.go`, `internal/adapter/email/feedback.go`
 
 **From Cline, Devika:**
-Plan/Act Mode (**implemented**: `workers/codeforge/plan_act.py`, `internal/service/conversation_agent.go`) | Shadow Git Checkpoints | Ask/Say Approval Pattern | MCP extensibility | .clinerules-like YAML config | Auto-Compact (~80% window) | Diff-based File Review | Sub-Agent Architecture | Agent State Visualization | LLM-driven Web Crawler | Stateless Agent Design (state in core)
+Plan/Act Mode (**implemented**: `workers/codeforge/plan_act.py`, `internal/service/conversation_dispatch.go`) | Shadow Git Checkpoints | Ask/Say Approval Pattern | MCP extensibility | .clinerules-like YAML config | Auto-Compact (~80% window) | Diff-based File Review | Sub-Agent Architecture | Agent State Visualization | LLM-driven Web Crawler | Stateless Agent Design (state in core)
 
 **From OpenHands, SWE-agent:**
-Event-Sourcing (EventStream) | Workspace Abstraction (Local/Docker/Remote, self-healing) | AgentHub (CodeAct, Browsing, Delegator, Microagents) | Microagents (YAML+MD trigger-driven) — `internal/domain/microagent/`, `internal/service/microagent.go` | Skills System — `workers/codeforge/skills/`, `internal/service/skill.go` | Risk Management (LLMSecurityAnalyzer) | V0->V1 SDK Migration | RouterLLM via LiteLLM tags — `internal/service/conversation.go`, `workers/codeforge/consumer.py` | ACI (shell for LLMs) | Per-Mode Tool Lists | History Processors | SWE-ReX Sandbox | Mini-SWE-Agent (100 LOC, 74% SWE-bench) | ToolFilterConfig (blocklist + conditional blocking)
+Event-Sourcing (EventStream) | Workspace Abstraction (Local/Docker/Remote, self-healing) | AgentHub (CodeAct, Browsing, Delegator, Microagents) | Microagents (YAML+MD trigger-driven) — `internal/domain/microagent/`, `internal/service/microagent.go` | Skills System — `workers/codeforge/skills/`, `internal/service/skill.go` | Risk Management (LLMSecurityAnalyzer) | V0->V1 SDK Migration | RouterLLM via LiteLLM tags — `internal/service/conversation_dispatch.go`, `workers/codeforge/llm.py`, `workers/codeforge/consumer/_conversation_routing.py` | ACI (shell for LLMs) | Per-Mode Tool Lists | History Processors | SWE-ReX Sandbox | Mini-SWE-Agent (100 LOC, 74% SWE-bench) | ToolFilterConfig (blocklist + conditional blocking)
 
 ### Competitor Analysis
 
@@ -121,24 +121,24 @@ Event-Sourcing (EventStream) | Workspace Abstraction (Local/Docker/Remote, self-
 
 ### Implemented Phases
 
-**Security & Trust (Phase 23):** Trust Annotations (4 levels, auto-stamped on NATS) — `internal/domain/trust/` | Message Quarantine (risk scoring, admin review) — `internal/service/quarantine.go`, migration 049 | Persistent Agent Identity (fingerprint, stats, inbox) — `internal/domain/agent/agent.go` | War Room — `frontend/src/features/project/WarRoom.tsx`
+**Security & Trust (Phase 23):** Trust Annotations (4 levels, auto-stamped on NATS) — `internal/domain/trust/` | Message Quarantine (risk scoring, admin review) — `internal/service/quarantine.go`, migration 049 | Persistent Agent Identity (stats, state, capabilities, inbox) — `internal/domain/agent/agent.go` | War Room — `frontend/src/features/project/WarRoom.tsx` | A2A/handoff trust gates bypassed: see [Known Issues](docs/todo.md#known-issues) KI-15
 
 **Benchmark & Evaluation (Phase 26+28+5):** Phase 26: Provider interface, evaluator plugins (LLMJudge, FunctionalTest, SPARC, FilesystemState), 3 runners, external providers (HumanEval, MBPP, SWE-bench, DPAI Arena, Terminal-Bench). Phase 28 (R2E-Gym/EntroPO): Hybrid verification, trajectory verifier, multi-rollout, entropy-UCB1 MAB, DPO export, SWE-GEN — `workers/codeforge/evaluation/`. Phase 5: DPAI Arena, Terminal-Bench+FilesystemStateEvaluator, RLVR export (`GET /benchmarks/runs/{id}/export/rlvr`).
 
-**Contract-First Review/Refactor (Phase 31):** Boundary Detection (LLM-based, API/data/inter-service/cross-language) — `internal/domain/boundary/` | Review-Refactor Pipeline (4-step: boundary_analyzer->contract_reviewer->reviewer->refactorer) — `internal/domain/pipeline/presets.go` | 2 Modes: `boundary_analyzer` (read-only, plan), `contract_reviewer` (read-only, review) — `internal/domain/mode/presets.go` | ReviewTriggerService (cascade triggers, SHA dedup) — `internal/service/review_trigger.go` | DiffImpactScorer (3-tier HITL) — `internal/service/diff_impact.go` | Phase-aware Context Budget (100%/60%/50%/70%) — `internal/service/context_budget.go` | waiting_approval status — `internal/service/orchestrator.go` | BoundaryService — `internal/service/boundary.go` | Frontend: RefactorApproval, BoundariesPanel — `frontend/src/features/project/` | NATS: `review.>` wildcard — `internal/port/messagequeue/subjects.go`
+**Contract-First Review/Refactor (Phase 31):** Boundary Detection (LLM-based, API/data/inter-service/cross-language) — `internal/domain/boundary/` | Review-Refactor Pipeline (4-step: boundary_analyzer->contract_reviewer->reviewer->refactorer) — `internal/domain/pipeline/presets.go` | 2 Modes: `boundary_analyzer` (read-only, plan), `contract_reviewer` (read-only, review) — `internal/domain/mode/presets.go` | ReviewTriggerService (cascade triggers, SHA dedup) — `internal/service/review_trigger.go` | DiffImpactScorer (3-tier HITL) — `internal/service/diff_impact.go` | Phase-aware Context Budget (100%/60%/50%/70%) — `internal/service/context_budget.go` | waiting_approval status — `internal/service/orchestrator.go` | BoundaryService — `internal/service/boundary.go` | Frontend: RefactorApproval, BoundariesPanel — `frontend/src/features/project/` | NATS: `review.>` wildcard — `internal/adapter/nats/nats.go` (stream subjects), subjects in `internal/port/messagequeue/queue.go` | Not wired end-to-end yet: see [Known Issues](docs/todo.md#known-issues) KI-17
 
-**Visual Design Canvas (Phase 32):** SVG canvas with 7 tools (select, rect, ellipse, freehand, text, annotate, image) — `frontend/src/features/canvas/` | Triple export: PNG (offscreen), ASCII (char grid), JSON | Smart output: vision->PNG+JSON, text-only->ASCII+JSON, basic->JSON | Multimodal pipeline: `MessageImage` Frontend->Go JSONB->NATS->Python content-array->LiteLLM | Migration `075_add_message_images.sql` | `buildCanvasPrompt()` uses `supports_vision` | Spec: `docs/features/06-visual-design-canvas.md`
+**Visual Design Canvas (Phase 32):** SVG canvas with 9 tools (select, rect, ellipse, freehand, text, annotate, image, polygon, node) — `frontend/src/features/canvas/` | Triple export: PNG (offscreen), ASCII (char grid), JSON | Smart output: vision->PNG+JSON, text-only->ASCII+JSON, basic->JSON | Multimodal pipeline: `MessageImage` Frontend->Go JSONB->NATS->Python content-array->LiteLLM | Migration `075_add_message_images.sql` | `buildCanvasPrompt()` uses `supports_vision` | Spec: `docs/features/06-visual-design-canvas.md`
 
 ### Roadmap Auto-Detection & Integration
 No custom PM tool — sync with Plane, OpenProject, GitHub/GitLab Issues. Auto-Detection: 3-tier (repo files->platform APIs->file markers). Multi-Format SDD: OpenSpec (`openspec/`), Spec Kit (`.specify/`), Autospec (`specs/spec.yaml`). Provider Registry: `specprovider` + `pmprovider`, same architecture as Git. Bidirectional Sync: CodeForge <-> PM Tool <-> Repo Specs (Webhook/Poll/Manual). Adopted patterns: Plane (cursor pagination, HMAC-SHA256, label sync), OpenProject (optimistic locking, schema endpoints), OpenSpec (delta spec), Ploi Roadmap (`/ai`). Gitea/Forgejo: GitHub adapter works (compatible API). Details: `docs/research/market-analysis.md` Section 5.
 
 ### Database & Libraries
 
-**PostgreSQL 18** (shared with LiteLLM, schema separation): Go pgx v5 + goose migrations, Python psycopg3 (sync+async), NATS JetStream KV for ephemeral state. ADR: `docs/architecture/adr/002-postgresql-database.md`
+**PostgreSQL 18** (shared with LiteLLM: same `codeforge` database and `public` schema, LiteLLM tables prefixed `LiteLLM_`; no schema separation): Go pgx v5 + goose migrations, Python psycopg3 (sync+async), NATS JetStream KV for ephemeral state. ADR: `docs/architecture/adr/002-postgresql-database.md`
 
 **Go Libraries (minimal-dep):** chi v5 (router), coder/websocket v1.8+ (WS), os/exec git CLI wrapper. NOT used: Echo/Fiber, gorilla/websocket, go-git.
 
-**Frontend Libraries (minimal-stack):** @solidjs/router, Tailwind CSS (no component lib), @solid-primitives/websocket, native fetch + thin wrapper, SolidJS signals/stores/context, Unicode+inline SVG icons, Outfit+Source Sans 3 fonts (self-hosted woff2 in `frontend/public/fonts/`), design system at `/design-system` (dev-only, docs in `frontend/src/ui/DESIGN-SYSTEM.md`), onboarding wizard (`codeforge-onboarding-completed` key) — `frontend/src/features/onboarding/OnboardingWizard.tsx`. NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand.
+**Frontend Libraries (minimal-stack):** @solidjs/router, Tailwind CSS (no component lib), native WebSocket wrapper (`frontend/src/api/websocket.ts`), native fetch + thin wrapper, SolidJS signals/stores/context, Unicode+inline SVG icons plus vscode-icons-js (file icons), @unovis/solid + @unovis/ts (charts), solid-monaco (code editor), @tanstack/solid-virtual (virtual lists), Outfit+Source Sans 3 fonts (self-hosted woff2 in `frontend/public/fonts/`), design system at `/design-system` (dev-only, docs in `frontend/src/ui/DESIGN-SYSTEM.md`), onboarding wizard (`codeforge-onboarding-completed` key) — `frontend/src/features/onboarding/OnboardingWizard.tsx`. NOT used: axios, styled-components, Kobalte, shadcn-solid, Socket.IO, Redux/Zustand.
 
 ### Protocol Support
 
@@ -147,8 +147,8 @@ No custom PM tool — sync with Plane, OpenProject, GitHub/GitLab Issues. Auto-D
 | **MCP** | Phase 15 | Agent<->Tool (JSON-RPC). Go: mcp-go SDK (tools: list_projects, get_project, get_run_status, get_cost_summary; resources: codeforge://projects, codeforge://costs/summary; registry with PG persistence, project assignment, HTTP CRUD). Python: McpWorkbench (multi-server, BM25 recommend, discovery, bridging). Frontend: MCPServersPage. Config: `mcp.enabled/servers_dir/server_port` (3001). Policy: `mcp:server:tool` glob matching. |
 | **LSP** | Phase 15D | Code intelligence (go-to-def, refs, diagnostics). Go Core manages lifecycle per project language. |
 | **A2A** | Phase 27 | Agent-to-Agent v0.3.0 (LF, Apache 2.0). Protobuf `lf.a2a.v1`, JSON-RPC 2.0/HTTPS, SSE, push notifications. 11 RPCs, 8 task states. Types: AgentCard, Task, Message, Part, Artifact. Security: API Key, Bearer/JWT, OAuth 2.0, OIDC, mTLS, JWS. Multi-tenant `/{tenant}/`. SDKs: Go/Python/JS/Java/.NET. Integration: agents as A2A servers, Go Core as client via `a2a-go`, NATS internal + A2A external. |
-| **AG-UI** | Phase 17+ | Agent<->Frontend streaming (CopilotKit). 8 events: run_started/finished, text_message, tool_call/result, state_delta, step_started/finished. WS format across Go+TS (20+ files). |
-| **OTEL GenAI** | planned | LLM/agent observability. LiteLLM exports OTEL natively, Go adds agent spans. |
+| **AG-UI** | Phase 17+ | Agent<->Frontend streaming (CopilotKit). 12 events (all prefixed `agui.`): run_started/finished, text_message, tool_call/result, state_delta, step_started/finished + CodeForge extensions permission_request, goal_proposal, action_suggestion, roadmap_proposal (`internal/domain/event/agui.go`). WS format across Go+TS (20+ files). |
+| **OTEL GenAI** | implemented (opt-in, `otel.enabled`) | LLM/agent observability. Go: OTLP traces + metrics (`internal/adapter/otel/`), HTTP middleware, run/toolcall/delivery spans (`internal/telemetry/`). Python: `workers/codeforge/tracing/` with `gen_ai.*` LLM span attributes. Jaeger in `docker-compose.yml` (dev profile). LiteLLM OTEL callback not configured yet; gaps: see [Known Issues](docs/todo.md#known-issues) KI-36. |
 | **Watch** | future | ANP (decentralized networking), LSAP (LSP for AI agents). |
 
 MCP + A2A complementary: "MCP for tools, A2A for agents"
@@ -182,13 +182,19 @@ Details: `docs/architecture.md` | Framework comparison: `docs/research/market-an
 | 005 | Docker-native logging (no ELK/Loki/Grafana) | `docs/architecture/adr/005-docker-native-logging.md` |
 | 006 | Approach C: Go control plane + Python runtime | `docs/architecture/adr/006-agent-execution-approach-c.md` |
 | 007 | Policy: first-match-wins permission rules | `docs/architecture/adr/007-policy-layer.md` |
-| 008 | Benchmark: DeepEval + AgentNeo + GEMMAS | `docs/architecture/adr/008-benchmark-evaluation-framework.md` |
+| 008 | Benchmark: DeepEval + GEMMAS-inspired metrics (AgentNeo removed 2026-03-05) | `docs/architecture/adr/008-benchmark-evaluation-framework.md` |
+| 009 | GDPR compliance architecture | `docs/architecture/adr/009-gdpr-compliance-architecture.md` |
+| 010 | A2A protocol adoption for agent federation | `docs/architecture/adr/010-a2a-protocol-adoption.md` |
+| 011 | Trust annotations and message quarantine | `docs/architecture/adr/011-trust-quarantine-system.md` |
+| 012 | Hybrid routing cascade for model selection | `docs/architecture/adr/012-hybrid-routing-cascade.md` |
+| 013 | Service layer config sub-struct imports | `docs/architecture/adr/013-config-import-in-services.md` |
+| 014 | Store interface segregation plan | `docs/architecture/adr/014-store-interface-segregation.md` |
 
 **Infrastructure Principles:**
 - **Zero-config startup** — system runs with defaults; CLI flags have highest precedence
 - **Async-first:** Logging, NATS, LLM calls never block hot path. Buffered channels + workers (Go), QueueHandler + QueueListener (Python)
 - **Docker-native logging:** Structured JSON to stdout, `docker compose logs` + `jq` for debugging
-- **Policy Layer:** Declarative YAML, first-match-wins, 4 built-in presets, extensible without code
+- **Policy Layer:** Declarative YAML, first-match-wins, 5 built-in presets, extensible without code — enforcement gaps: see [Known Issues](docs/todo.md#known-issues) KI-4..KI-9
 - **Approach C:** Go owns state/policies/sessions; Python owns LLM/tools/agent loop; NATS with per-tool-call policy
 - **Resilience:** Circuit breakers (NATS, LiteLLM), idempotency keys, dead letter queues, 4-phase graceful shutdown
 
@@ -232,19 +238,19 @@ Details: `docs/architecture.md` | Framework comparison: `docs/research/market-an
 When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 
 ### NATS Subjects & Streams
-- Subjects must match EXACTLY: Go (`internal/port/messagequeue/subjects.go`) <-> Python (`workers/codeforge/consumer/_subjects.py`)
-- JetStream config (`internal/port/messagequeue/jetstream.go`) must include wildcards for new prefixes (e.g. `benchmark.>`)
+- Subjects must match EXACTLY: Go (`internal/port/messagequeue/queue.go`, `Subject*` constants) <-> Python (`workers/codeforge/consumer/_subjects.py`)
+- JetStream stream config (`internal/adapter/nats/nats.go`, `CreateOrUpdateStream` subjects list) must include wildcards for new prefixes (e.g. `benchmark.>`)
 - New subjects need publisher (one side) + subscriber (other side)
 
 ### JSON Payload Contracts
 - Go JSON tags must match Python Pydantic field names exactly
-- Sync changes: Go (`internal/port/messagequeue/schemas.go` / domain) <-> Python (`workers/codeforge/models.py`)
+- Sync changes: Go (`internal/port/messagequeue/schemas_*.go` / domain) <-> Python (`workers/codeforge/models.py`)
 - Test round-trip both directions
 - Type mapping: Go `int64`/`float64`/`time.Time` <-> Python `int`/`float`/`datetime`
 
 ### API Keys & Secrets
 - NEVER hardcode — always env vars. LiteLLM auth: `LITELLM_MASTER_KEY` (default: `sk-codeforge-dev`)
-- Verify model has valid key in `litellm-config.yaml`
+- Verify model has valid key in `litellm/config.yaml`
 
 ### Method Signatures & Interfaces
 - Python `LiteLLMClient.chat_completion()` (NOT `chat()`) — check callers + fakes
@@ -253,7 +259,7 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 
 ### Path Resolution
 - Frontend sends dataset names -> Go resolves to absolute paths -> NATS -> Python receives absolute paths
-- Verify: `internal/service/benchmark.go` `resolveDatasetPath()`
+- Verify: `internal/service/benchmark_run.go` `(*BenchmarkRunManager).resolveDatasetPath()`
 
 ### Idempotency
 - JetStream redelivers unacked messages — handlers must be idempotent
@@ -266,7 +272,7 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 - ALL tenant-scoped queries: `AND tenant_id = $N` with `tenantFromCtx(ctx)` (exceptions: user/token/tenant mgmt)
 - LIMIT via `$N` placeholders, not `%d` interpolation
 - NATS payloads MUST carry `tenant_id` for background jobs -> `tenantctx.WithTenant(ctx, payload.TenantID)`
-- Reference: `store.go:GetProject` (correct), `store_a2a.go` (fixed)
+- Reference: `store_project.go:GetProject` (correct), `store_a2a.go` (fixed)
 
 ## TDD (Test-Driven Development)
 
@@ -287,8 +293,9 @@ Full stack in **development mode** required:
 ```bash
 # 1. Docker services
 docker compose up -d postgres nats litellm
-# 2. Go backend (APP_ENV=development required — dev endpoints return 403 without it)
-APP_ENV=development go run ./cmd/codeforge/
+# 2. Go backend (APP_ENV=development required — dev endpoints return 403 without it;
+#    CODEFORGE_AUTH_ADMIN_PASS seeds the admin user that Playwright logs in with)
+APP_ENV=development CODEFORGE_AUTH_ADMIN_PASS=Changeme123 go run ./cmd/codeforge/
 # 3. Frontend
 cd frontend && npm run dev
 # 4. Tests
@@ -296,7 +303,8 @@ cd frontend && npx playwright test
 ```
 
 - `/health` exposes `dev_mode: true/false` | Backend: 8080, Frontend: 3000
-- Credentials: `admin@localhost` / `Changeme123` | Playwright: chromium, workers:1, retries:1
+- Credentials: `admin@localhost` / `Changeme123` (seeded only when `CODEFORGE_AUTH_ADMIN_PASS` is set, otherwise the backend waits for the setup wizard; the admin is created with `must_change_password`, which `frontend/e2e/global-setup.ts` handles) | Playwright: chromium, workers:1, retries:1
+- The `postgres:18-alpine` container refuses to start with the current data volume mount: see [Known Issues](docs/todo.md#known-issues) KI-43
 
 ### LLM E2E Tests (API-Level, no browser)
 
@@ -304,11 +312,11 @@ cd frontend && npx playwright test
 cd frontend && npx playwright test --config=playwright.llm.config.ts
 ```
 
-95 tests, 12 specs in `frontend/e2e/llm/`. Helper: `frontend/e2e/llm/llm-helpers.ts`. Config: `frontend/playwright.llm.config.ts`
+88 tests, 11 specs in `frontend/e2e/llm/`. Helper: `frontend/e2e/llm/llm-helpers.ts`. Config: `frontend/playwright.llm.config.ts`
 
 ### Autonomous Goal-to-Program Test (Playwright-MCP)
 
-Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` | Tool complexity: `docs/plans/tool-call-complexity-plan.md`
+Testplan: `docs/testing/autonomous-goal-to-program-testplan.md` | Tool complexity: `docs/plans/tool-call-complexity-plan.md`
 
 **Critical Startup Sequence (in order):**
 1. `docker compose up -d postgres nats litellm`
@@ -319,7 +327,7 @@ Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` | Too
    POSTGRES_IP=$(docker inspect codeforge-postgres | grep -m1 '"IPAddress"' | grep -oP '[\d.]+')
    ```
 3. Purge NATS JetStream (`await js.purge_stream('CODEFORGE')` + delete stale consumers)
-4. Start Go backend: `APP_ENV=development go run ./cmd/codeforge/`
+4. Start Go backend: `APP_ENV=development CODEFORGE_AUTH_ADMIN_PASS=Changeme123 go run ./cmd/codeforge/`
 5. **VERIFY** toolcall consumer: `curl http://${NATS_IP}:8222/jsz?consumers=1`
 6. Start Python worker:
    ```bash
@@ -338,7 +346,7 @@ Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` | Too
 **Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (override default=true; avoids router picking unhealthy models in test), auth field: `access_token` (NOT `token`)
 
 **Project setup:**
-- Create project: `POST /projects` with `config: {"autonomy_level": "4", "policy_preset": "trusted-mount-autonomous", "execution_mode": "mount"}` and optional `"local_path": "/abs/path"` (auto-adopts workspace)
+- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (the only project config key the backend reads; autonomy comes from the selected mode, see [Known Issues](docs/todo.md#known-issues) KI-41) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
 - Alternatively: `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` as separate call
 - TestRepo clone fails often — use local workspace creation instead
 - Auto-onboarding disabled (ChatPanel.tsx)
@@ -379,19 +387,26 @@ Testplan: `docs/testing/2026-03-19-autonomous-goal-to-program-testplan.md` | Too
 ```
 docs/
 ├── README.md               # Index
-├── todo.md                 # Central TODO (single source of truth)
+├── todo.md                 # Central TODO (single source of truth, incl. Known Issues)
+├── known-issues-fix-plan.md # Milestone plan (S0-S6) for fixing the Known Issues
 ├── architecture.md         # System architecture
 ├── dev-setup.md            # Setup guide
 ├── project-status.md       # Phase tracking
 ├── tech-stack.md           # Dependencies
-├── features/               # Per-pillar specs (01-06)
+├── SECURITY.md             # Security policy, secret management
+├── data-retention.md       # GDPR data retention policy
+├── privacy-policy.md       # Privacy & LLM data processing notice
+├── disaster-recovery.md    # Backup/restore runbook
+├── features/               # Feature specs (01-07)
+├── api/                    # OpenAPI spec (openapi.yaml)
+├── security/               # Breach notification procedure, data classification
 ├── specs/                  # Design specs (*-design.md)
 ├── plans/                  # Implementation plans (*-plan.md)
 ├── testing/                # Test plans + reports
 ├── audits/                 # Schema, UX, code audits
-├── architecture/adr/       # ADRs (use _template.md)
+├── architecture/adr/       # ADRs 001-014 (use _template.md)
 ├── research/               # Market research
-└── prompts/                # Prompt templates
+└── prompts/                # Claude Code audit/discovery prompts
 ```
 
 **TODO rules:** Read `docs/todo.md` before work. Mark `[x]` with date on completion. Add new tasks when discovered. Feature TODOs in `docs/features/*.md` cross-referenced in `docs/todo.md`.

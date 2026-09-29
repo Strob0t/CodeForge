@@ -14,11 +14,11 @@ CodeForge automatically detects which spec tools, PM platforms, and roadmap arti
 
 ### Three-Tier Auto-Detection
 
-- Spec-Driven Detectors (repo files): OpenSpec (`openspec/`), Spec Kit (`.specify/`), Autospec (`specs/spec.yaml`), ADR/RFC.
+- Spec-Driven Detectors (repo files): OpenSpec (`openspec/`), Spec Kit (`.specify/`), Autospec (`specs/spec.yaml`). ADR/RFC detection is planned.
 - Platform Detectors (API-based): GitHub Issues, GitLab Issues, Plane.so. <!-- OpenProject: NOT IMPLEMENTED as of 2026-03-22 -->
-- **File-Based Detectors** (simple markers): ROADMAP.md, TASKS.md, backlog/, CHANGELOG.md.
+- **File-Based Detectors** (simple markers): ROADMAP.md, TODO.md (repo root or `docs/`), CHANGELOG.md (`fileMarkers` in `internal/service/roadmap_import.go`). TASKS.md and backlog/ detection are planned.
 
-Each detector implements `specprovider.SpecProvider` or `pmprovider.PMProvider` and self-registers via `init()`. This follows the same pattern as git providers.
+Each detector implements `specprovider.Provider` or `pmprovider.Provider` and self-registers via `init()`. This follows the same pattern as git providers.
 
 ### Supported Integrations
 
@@ -35,8 +35,9 @@ Each detector implements `specprovider.SpecProvider` or `pmprovider.PMProvider` 
 | Provider | Adapter | Sync Method |
 |---|---|---|
 | Plane.so | `adapter/plane/` | REST API v1, Webhooks, HMAC-SHA256 |
-| GitHub Issues/Projects | `adapter/githubpm/` | `gh` CLI integration, issue CRUD |
-| Forgejo/Codeberg Issues | `adapter/githubpm/` (compatible) | REST API (GitHub-compatible) |
+| GitHub Issues (Projects planned) | `adapter/githubpm/` | `gh` CLI, issue CRUD |
+| GitLab Issues | `adapter/gitlab/` | REST API v4, issue CRUD |
+| Gitea/Forgejo/Codeberg Issues | `adapter/gitea/` (variants) | Gitea REST API, issue CRUD |
 
 ### Bidirectional Sync
 
@@ -51,14 +52,14 @@ flowchart LR
     CF <-- "Sync" --> SPECS
 ```
 
-- Import: PM tool items become CodeForge features/tasks.
+- Import: PM tool items become CodeForge features (mapping to tasks is planned).
 - Export: New features created as PM issues.
-- **Conflict resolution** uses timestamp-based comparison plus user decision.
-- Sync triggers: Webhook (real-time), poll (periodic), manual.
+- **Conflict resolution** (target): timestamp-based comparison plus user decision. Today it is last-writer-wins per direction: pull overwrites the CodeForge feature, push overwrites the PM item (`internal/service/sync.go`).
+- Sync triggers (target): Webhook (real-time), poll (periodic), manual. Today: manual `POST /projects/{id}/roadmap/sync` (pull/push/bidi) and PM webhooks for GitHub/GitLab/Plane (pull only, currently always failing, see [Known Issues](../todo.md#known-issues) KI-56). Periodic polling is planned.
 
 ### Internal Data Model
 
-- `Milestone` contains Features, which contain Tasks.
+- `Milestone` contains Features (linking Features to Tasks is planned).
 - `Feature` has Labels (for sync), SpecRef (link to spec file), ExternalIDs (PM mappings).
 - Optimistic Locking (from OpenProject pattern) prevents concurrent edit conflicts.
 
@@ -81,7 +82,7 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 
 - [x] Domain models: `internal/domain/roadmap/` (Roadmap, Milestone, Feature, statuses, validation, optimistic locking).
 - [x] Migration 017: `roadmaps`, `milestones`, `features` tables with indexes, triggers.
-- [x] Port interfaces: `specprovider.SpecProvider` + `pmprovider.PMProvider` (interface + registry).
+- [x] Port interfaces: `specprovider.Provider` + `pmprovider.Provider` (interface + registry).
 - [x] Store: 16 methods on `database.Store` + Postgres adapter.
 - [x] RoadmapService: CRUD, AutoDetect (file markers), AIView (json/yaml/markdown).
 - [x] REST API: 20 endpoints (roadmap CRUD, milestones, features, AI view, detect, import, sync, providers).

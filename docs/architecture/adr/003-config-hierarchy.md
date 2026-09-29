@@ -55,6 +55,8 @@ Implementation details:
 | LiteLLM | `LITELLM_*` | `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY` |
 | Python Workers | `CODEFORGE_WORKER_*` | `CODEFORGE_WORKER_LOG_LEVEL` |
 
+> **Implementation status (2026-09-29):** `Config` also has `GitHub`, `Ollama`, `Plane` and `Retention` sections plus `AppEnv`, `InternalKey` and `EnvFile` (`internal/config/config.go`). The env helpers are `setString`, `setTyped[T]` and `setStringSlice`; they skip empty values and log a warning on parse errors. `LoadWithCLI()` runs `ensureSecrets()` (auto-generates a missing JWT secret) before `validate()`. Workers additionally read the `core`, `postgres`, `app_env`, `consumer`, `claudecode`, `benchmark`, `otel`, `evaluation` and `backends` sections (`workers/codeforge/config.py`).
+
 ### Consequences
 
 #### Positive
@@ -68,8 +70,8 @@ Implementation details:
 #### Negative
 
 - Four sources of truth can be confusing for debugging ("where did this value come from?"). Mitigation: startup logs could print effective config with source annotations (deferred).
-- YAML file path is hardcoded to `codeforge.yaml` in working directory. Mitigation: add CLI flag or env var for config file path (deferred).
-- No hot-reload (SIGHUP) support yet, requiring service restart for config changes.
+- YAML file path defaults to `codeforge.yaml` in the working directory; it can be overridden with `--config`/`-c` or `CODEFORGE_CONFIG_FILE` (`internal/config/loader.go`).
+- Limited hot reload: SIGHUP reloads the secrets vault and re-reads the config into `config.ConfigHolder` (`cmd/codeforge/main.go`), but no service reads the holder yet, so config changes still require a service restart.
 
 #### Neutral
 
@@ -90,5 +92,5 @@ Implementation details:
 - [The Twelve-Factor App -- Config](https://12factor.net/config)
 - `internal/config/config.go` -- Config struct definitions
 - `internal/config/loader.go` -- Load/LoadWithCLI function with four-tier merge
-- `internal/config/loader_test.go` -- 25 test functions
+- `internal/config/loader_test.go` -- 38 test functions
 - `codeforge.example.yaml` -- Full example configuration

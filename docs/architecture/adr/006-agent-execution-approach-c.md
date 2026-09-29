@@ -75,6 +75,8 @@ The control plane manages three execution modes:
 | Sandbox | Go Core creates Docker container, Python worker runs tools via `docker exec` | Resource limits (memory, CPU, PIDs, network) |
 | Hybrid | Container with mounted volumes (deferred) | Configurable read/write permissions |
 
+> **Implementation status (2026-09-29):** Sandbox and hybrid runs get a per-run container with resource limits (`SandboxService.Create` / `CreateHybrid` in `internal/service/sandbox.go`, started from `internal/service/runtime.go`), but no tool call is executed in it: `SandboxService.Exec` has no callers, and the Python worker ignores `exec_mode` and runs tools as local subprocesses (e.g. `workers/codeforge/tools/bash.py`), see [Known Issues](../../todo.md#known-issues) KI-13. Go evaluates every tool call as designed, but the worker's tool names never match the preset rules (KI-4). `runs.start` is still a single LLM completion without a tool loop (KI-21); the agentic tool loop runs on the `conversation.run.*` subjects.
+
 ### Consequences
 
 #### Positive
@@ -90,12 +92,12 @@ The control plane manages three execution modes:
 
 - NATS round-trip per tool call: Each tool call requires Go to Python to Go communication, adding ~1-5ms latency per step. Mitigation: acceptable for AI agent tasks where LLM calls take 1-30 seconds.
 - Split debugging: Issues may span Go and Python, requiring correlating logs across services. Mitigation: Request ID propagation (ADR-005) and structured logging (ADR-004).
-- Protocol complexity: 7 NATS subjects for the run protocol, typed payloads with schema validation. Mitigation: well-defined, tested; schemas prevent silent failures.
+- Protocol complexity: 11 NATS subjects for the run protocol (the 7 above plus `runs.heartbeat`, `runs.qualitygate.request`/`result` and `runs.trajectory.event`), typed payloads with schema validation. Mitigation: well-defined, tested; schemas prevent silent failures (`runs.*` payloads are currently only checked for valid JSON, KI-20).
 
 #### Neutral
 
 - Python workers access PostgreSQL directly via psycopg for memory, experience, conversations, skills, routing, and GraphRAG; Go Core remains the owner of run lifecycle and policy state
-- The NATS protocol uses typed payload schemas (`internal/port/messagequeue/schemas.go`) with JSON struct tags for contract enforcement
+- The NATS protocol uses typed payload schemas (`internal/port/messagequeue/schemas_*.go`, e.g. `schemas_run.go`) with JSON struct tags for contract enforcement
 - Workers can be replaced with alternative implementations (e.g., Rust) without changing the Go control plane
 
 ### Alternatives Considered
@@ -114,5 +116,5 @@ The control plane manages three execution modes:
 - `internal/service/checkpoint.go` -- Shadow git checkpoint system
 - `internal/service/sandbox.go` -- Docker sandbox lifecycle
 - `workers/codeforge/runtime.py` -- Python RuntimeClient
-- `internal/port/messagequeue/schemas.go` -- NATS payload schemas
+- `internal/port/messagequeue/schemas_*.go` -- NATS payload schemas (e.g. `schemas_run.go`)
 - Project analysis document, Section 13 -- Approach comparison

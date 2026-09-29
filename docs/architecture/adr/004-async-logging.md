@@ -65,6 +65,8 @@ Both Go and Python emit structured JSON, but with different key names:
 
 Note: Go uses `time`/`msg`, Python uses `timestamp`/`event`. The `level` and `request_id` fields are shared, enabling cross-service correlation.
 
+> **Implementation status (2026-09-29):** The Go `service` field defaults to `codeforge-core` (`logging.service`, `internal/config/config.go`). In the Python workers, stdlib loggers (e.g. httpx, nats) bypass structlog and are written as plain-text lines to the same stream (see [Known Issues](../../todo.md#known-issues) KI-35).
+
 ### Consequences
 
 #### Positive
@@ -83,7 +85,7 @@ Note: Go uses `time`/`msg`, Python uses `timestamp`/`event`. The `level` and `re
 
 #### Neutral
 
-- Async mode is opt-in via `cfg.Async` (defaults to `true` in production config)
+- Async mode is controlled by `cfg.Async` (`logging.async`), which defaults to `true` in all environments; set it to `false` for ordered synchronous logging
 - Sync mode available for development/debugging where log ordering matters more than throughput
 
 ### Alternatives Considered

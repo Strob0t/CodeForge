@@ -70,6 +70,8 @@ Two access patterns for data management:
 
 Self-service endpoints operate only on the authenticated user's own data. Admin endpoints require the `admin` role and can target any user. Both paths use the same underlying deletion/export logic.
 
+> **Implementation status (2026-09-29):** Erasure is implemented in `GDPRService.DeleteUserData` (`internal/service/gdpr.go`), not in `RetentionService`: audit entries are anonymized by nulling `admin_email` and `ip_address` (`admin_id` is kept, no tombstone), then the user row is deleted and dependent rows are removed by `ON DELETE CASCADE` foreign keys (migration 088). Routes: `GET /api/v1/me/export`, `DELETE /api/v1/me/data`, and admin-only `POST /api/v1/users/{id}/export`, `DELETE /api/v1/users/{id}/data` (no `/admin` prefix). The log level variable is `CODEFORGE_LOG_LEVEL` (workers: `CODEFORGE_WORKER_LOG_LEVEL`). `RetentionService` is never instantiated and its IP anonymization query is invalid SQL, so storage limitation is not enforced (see [Known Issues](../../todo.md#known-issues) KI-52); the admin audit-log listing fails once a user has been erased (KI-53).
+
 ### Consequences
 
 #### Positive
@@ -91,7 +93,7 @@ Self-service endpoints operate only on the authenticated user's own data. Admin 
 
 - NATS JetStream messages are ephemeral and expire via TTL; no explicit GDPR deletion is needed for the message queue layer
 - LiteLLM's own tables (prefixed `LiteLLM_`) track spend by virtual key, not by user email; these are outside the GDPR cascade but do not contain PII beyond the key mapping
-- The `_FILE` env var pattern for Docker secrets (used for JWT secret) is a general infrastructure improvement that happens to support GDPR's security requirements (Art. 32)
+- Docker secrets support (files under `/run/secrets`: `internal/secrets/provider.go`, `workers/codeforge/secrets.py`) is a general infrastructure improvement that happens to support GDPR's security requirements (Art. 32); the JWT secret itself comes from `CODEFORGE_AUTH_JWT_SECRET`, and the Go Core does not read the secret files yet (KI-46)
 
 ### Alternatives Considered
 

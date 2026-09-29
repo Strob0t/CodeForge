@@ -1,21 +1,24 @@
 # CodeForge — Documentation Index
 
 > **LLM Agents:** Start here. This file maps all project documentation.
-> For open tasks and priorities, see [todo.md](todo.md).
+> For open tasks and priorities, see [todo.md](todo.md); for known defects on the current code, see its [Known Issues](todo.md#known-issues) section.
 
 ### Quick Reference
 
 | Document | Purpose |
 |---|---|
 | [todo.md](todo.md) | Active TODO tracker — what needs to be done next |
+| [todo.md#known-issues](todo.md#known-issues) | Known Issues (KI-n) — verified defects in the current code |
+| [known-issues-fix-plan.md](known-issues-fix-plan.md) | Milestone plan (S0-S6) and decisions for fixing the Known Issues |
 | [project-status.md](project-status.md) | Phase tracking, milestones, completed work |
 | [architecture.md](architecture.md) | System architecture, patterns, design details |
 | [tech-stack.md](tech-stack.md) | Languages, tools, dependencies, infrastructure |
 | [dev-setup.md](dev-setup.md) | Development environment setup guide |
+| [api/openapi.yaml](api/openapi.yaml) | REST API specification (OpenAPI 3.0) |
 
 ### Feature Specifications
 
-Each of the four core pillars has its own feature spec:
+Each of the four core pillars has its own feature spec (01-04); 05-07 cover cross-cutting features:
 
 | Feature | File | Status |
 |---|---|---|
@@ -25,6 +28,7 @@ Each of the four core pillars has its own feature spec:
 | Agent Orchestration | [features/04-agent-orchestration.md](features/04-agent-orchestration.md) | Core implemented |
 | Chat Enhancements | [features/05-chat-enhancements.md](features/05-chat-enhancements.md) | Implemented |
 | Visual Design Canvas | [features/06-visual-design-canvas.md](features/06-visual-design-canvas.md) | Implemented |
+| Chat-First Orchestrator | [features/07-chat-first-orchestrator.md](features/07-chat-first-orchestrator.md) | Implemented (`spawn_subagent` gap: see [Known Issues](todo.md#known-issues) KI-25) |
 
 ### Architecture Details
 
@@ -32,6 +36,16 @@ Each of the four core pillars has its own feature spec:
 |---|---|
 | [architecture/adr/](architecture/adr/) | Architecture Decision Records (ADRs) |
 | [architecture/adr/_template.md](architecture/adr/_template.md) | ADR template for new decisions |
+
+### Security, Compliance & Operations
+
+| Document | Purpose |
+|---|---|
+| [SECURITY.md](SECURITY.md) | Security policy, vulnerability reporting, secret management |
+| [security/](security/) | [Breach notification procedure](security/breach-notification-procedure.md), [data classification](security/data-classification.md) |
+| [data-retention.md](data-retention.md) | GDPR data retention policy |
+| [privacy-policy.md](privacy-policy.md) | Privacy & LLM data processing notice |
+| [disaster-recovery.md](disaster-recovery.md) | Backup, restore and recovery runbook |
 
 ### Research
 
@@ -61,6 +75,7 @@ Each of the four core pillars has its own feature spec:
 
 | Document | Purpose |
 |---|---|
+| [prompts/](prompts/) | Claude Code audit/discovery prompts and their reports |
 | [prompts/stub-finder.md](prompts/stub-finder.md) | Claude Code prompt for stub discovery |
 
 ### Documentation Rules

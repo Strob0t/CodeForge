@@ -49,6 +49,8 @@ CRUD endpoints for benchmark runs/results behind a `DevModeOnly` middleware that
 
 Unified `BenchmarkPage` with run management, dataset selection, results inspection, and run comparison.
 
+> **Implementation status (2026-09-29):** Only `SimpleBenchmarkRunner`, `ToolUseBenchmarkRunner` and `AgentBenchmarkRunner` inherit from `BaseBenchmarkRunner`; `MultiRolloutRunner` (`workers/codeforge/evaluation/runners/multi_rollout.py`) wraps them. The `trajectory_verifier` and `logprob_verifier` evaluators import the `litellm` SDK directly instead of going through the proxy; it is not a worker dependency, so they always score 0.0 (see [Known Issues](../../todo.md#known-issues) KI-37). No Python `MeterProvider` is configured, so the metric instruments are never exported (KI-36). DeepEval telemetry is not opted out (KI-54).
+
 ### Consequences
 
 #### Positive

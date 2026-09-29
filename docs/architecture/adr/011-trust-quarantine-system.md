@@ -56,6 +56,8 @@ internal/domain/agent/agent.go:
   - Agent.Stats: success count, failure count, last active
 ```
 
+> **Implementation status (2026-09-29):** `internal/domain/trust/trust.go` defines `Level` and `Annotation{Origin, TrustLevel, SourceID, Signature, Timestamp}`. Internal messages are always stamped `full`, external (A2A, webhook) messages default to `untrusted`; `verified` means a valid cryptographic signature and `partial` a known external source without signature. Graduated promotion by run history is not implemented; `internal/domain/agent/agent.go` tracks `TotalRuns`, `TotalCost`, `SuccessRate`, `State`, `Capabilities` and `LastActiveAt` (no fingerprint). Annotations travel in the JSON payload field `trust`, not in NATS headers, and the workers do not enforce them (`validate_incoming` in `workers/codeforge/trust/middleware.py` is never called). Quarantined messages start as `pending` (then `approved`/`rejected`/`expired`, migration 049), and messages at or above `quarantine.min_trust_bypass` (default `verified`) bypass quarantine. Scoring is `quarantine.ScoreMessage` (`internal/domain/quarantine/scorer.go`); `QuarantineService` offers `Evaluate`, `Approve`, `Reject`, `List` and `Get`. The only wired gate (`runs.start`) always carries `full` trust, and inbound A2A prompts and handoffs are never evaluated, so quarantine never holds anything (see [Known Issues](../../todo.md#known-issues) KI-15).
+
 ### Consequences
 
 #### Positive
@@ -74,9 +76,9 @@ internal/domain/agent/agent.go:
 
 #### Neutral
 
-- Trust annotations are NATS headers, adding negligible overhead (~100 bytes per message)
+- Trust annotations add negligible overhead (~100 bytes per message)
 - Quarantine table uses the same tenant isolation pattern as all other tables
-- Agent fingerprinting uses the existing persistent identity system (SHA-256 of agent config + version)
+- Agent fingerprinting (SHA-256 of agent config + version) is planned on top of the persistent identity system, which currently tracks run statistics only
 
 ### Alternatives Considered
 
