@@ -31,7 +31,7 @@ func authRequest(method, url string, body io.Reader, token string) (*http.Reques
 
 // doJSON executes an HTTP request and parses the JSON response into a map.
 // It fails the test on HTTP or decode errors.
-func doJSON(t *testing.T, req *http.Request) (int, map[string]any) {
+func doJSON(t *testing.T, req *http.Request) (status int, body map[string]any) {
 	t.Helper()
 	client := httpClient()
 	resp, err := client.Do(req)
@@ -64,7 +64,7 @@ func doRaw(t *testing.T, req *http.Request) int {
 }
 
 // doJSONList executes an HTTP request and parses the JSON response as an array.
-func doJSONList(t *testing.T, req *http.Request) (int, []map[string]any) {
+func doJSONList(t *testing.T, req *http.Request) (status int, items []map[string]any) {
 	t.Helper()
 	client := httpClient()
 	resp, err := client.Do(req)
