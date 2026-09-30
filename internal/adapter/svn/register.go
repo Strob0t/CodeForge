@@ -11,6 +11,8 @@ func init() {
 		if pw, ok := cfg["password"]; ok {
 			p.password = pw
 		}
+		// Operators hosting local repositories allow file:// URLs.
+		p.allowFileURLs = cfg["allow_file_urls"] == "true"
 		return p, nil
 	})
 }
