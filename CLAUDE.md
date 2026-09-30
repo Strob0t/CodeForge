@@ -271,6 +271,7 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 - Settle every message exactly once: success or a published error result -> ack; failure -> `_retry_or_dead_letter` (NAK with delay, DLQ + ack on the last attempt, from `num_delivered`); invalid payload -> `_reject_invalid` (DLQ + `term`). Never NAK an invalid payload, never ack without a DLQ copy (DLQ copies drop `Nats-*` headers)
 - Duplicate guards (skip if already `"completed"`); a failed request is removed from the dedup cache
 - Notification subscriptions (per-run and per-task cancel listeners, one `runtime.listen_for_cancel` helper; tool-call responses) use deliver policy `new` and ack policy `none`; Go keeps handlers in progress up to `Queue.SetMaxHandlerDuration` (covers the HITL approval timeout). The worker waits for a tool-call decision up to the approval timeout (`approval_timeout_seconds` on `runs.start` / `conversation.run.start`, default 60 s) plus 15 s
+- Quality gates: `runs.qualitygate.request` carries `timeout_seconds` and `heartbeat_seconds`; while a gate runs the worker sends `runs.heartbeat` (with `tenant_id`, phase `quality_gate`) and keeps the request in progress; a check that could not run is reported as a null verdict plus `error` (only a check that ran and failed rolls back)
 - `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`); backend CLIs run in their own process group, which `tasks.cancel` stops (result status `cancelled`)
 - A worker whose consumer loop gives up fails its unfinished accepted work (30 s grace) and exits 1
 
@@ -354,7 +355,7 @@ Testplan: `docs/testing/autonomous-goal-to-program-testplan.md` | Tool complexit
 **Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (override default=true; avoids router picking unhealthy models in test), auth field: `access_token` (NOT `token`)
 
 **Project setup:**
-- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (besides `execution_mode`, which only accepts `mount`, the only project config key the backend reads; autonomy comes from the selected mode; `PUT /projects/{id}` merges config keys, `null` deletes one) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
+- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (the backend also reads `execution_mode`, which only accepts `mount`, and the gate commands `test_command` / `lint_command`, validated on write; autonomy comes from the selected mode; `PUT /projects/{id}` merges config keys, `null` deletes one) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
 - Alternatively: `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` as separate call
 - TestRepo clone fails often — use local workspace creation instead
 - Auto-onboarding disabled (ChatPanel.tsx)

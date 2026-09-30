@@ -127,7 +127,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 - **Path Blocklist** -- sensitive files protected.
 - Stall Detection -- re-planning or abort.
 
-> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and shadow-Git rollback in `runtime_completion.go`, `deliver.go` and `checkpoint.go`. Policy evaluation follows ADR-015 (canonical tool names, deny lists win, shell-aware command matching). Gaps: gate, delivery and checkpoint defects (KI-26, KI-27, KI-28, KI-29). Stops (cancel, timeout, termination limit, budget, stall) end runs through the common completion path and advance plans (KI-30, fixed). See [Known Issues](../todo.md#known-issues).
+> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and checkpoint rollback in `runtime_gate.go`, `runtime_lifecycle.go`, `deliver.go` and `checkpoint.go` (checkpoints under `refs/codeforge/checkpoints/<run>`, never on a branch; every workspace git call hardened, KI-77). Policy evaluation follows ADR-015 (canonical tool names, deny lists win, shell-aware command matching). Gate and delivery rules since S3 (KI-26 to KI-29): every completed run delivers; only a check that ran and failed rolls back; gate commands from the project config (`test_command`, `lint_command`, validated on write), the workspace language or the runtime defaults; a stuck gate is failed by the watchdog. Stops (cancel, timeout, termination limit, budget, stall) end runs through the common completion path and advance plans (KI-30, fixed). See [Known Issues](../todo.md#known-issues).
 
 ### Quality Layer (4 Tiers)
 
@@ -303,12 +303,12 @@ sequenceDiagram
 
 - [x] Policy layer: 5 presets, YAML custom policies, deny lists win then first-match-wins (ADR-015), REST API + frontend PolicyPanel (KI-4 to KI-10 fixed 2026-09-30; open: KI-68, KI-69).
 - [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement. `runs.start` runs the agent loop (`AgentLoopExecutor`) in the project workspace named by the run start; Go decides every LLM and tool call (KI-21 fixed 2026-09-30).
-- [x] Checkpoint system: shadow Git commits for safe rollback (checkpoint commits corrupt delivery, KI-27).
+- [x] Checkpoint system: working-tree commits from a private index under `refs/codeforge/checkpoints/<run>` for rollback (tree, user's index and HEAD); hardened git (KI-27, KI-77 fixed 2026-09-30).
 - [x] Docker Sandbox: container lifecycle management with resource limits (use gated: tools do not run inside it yet, so sandbox/hybrid runs are rejected, KI-13).
 - [ ] Execute agent tools inside the sandbox container (`SandboxService.Exec`), then lift the KI-13 gate
 - [x] Stall detection: FNV-64a hash ring buffer, configurable threshold.
-- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol (KI-26, KI-28, KI-29).
-- [x] 5 deliver modes: none, patch, commit-local, branch, PR (KI-26, KI-27).
+- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol with project/language commands, per-command timeout, heartbeats and a watchdog (KI-26, KI-28, KI-29 fixed 2026-09-30).
+- [x] 5 deliver modes: none, patch, commit-local, branch, PR; delivery for every completed run, before checkpoint cleanup; patches in `.git/codeforge/patches/` (KI-26, KI-27 fixed 2026-09-30).
 
 ### Completed (Phase 5 -- Multi-Agent Orchestration)
 

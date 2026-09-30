@@ -395,6 +395,10 @@ paths:
       description: |
         Creates a project. Requires admin or editor role.
         Optionally pass local_path to auto-adopt a local workspace.
+        Config keys the backend reads: policy_preset, execution_mode (only
+        "mount"), test_command and lint_command (quality gate commands; 400
+        unless they split like a shell command line and start with an
+        executable on the worker's allowlist).
       operationId: createProject
       security:
         - bearerAuth: []
@@ -439,7 +443,7 @@ paths:
     put:
       tags: [Projects]
       summary: Update a project
-      description: Updates project metadata. Requires admin or editor role.
+      description: Updates project metadata. Requires admin or editor role. Config keys are merged (null deletes one); test_command and lint_command are validated as on create (400).
       operationId: updateProject
       security:
         - bearerAuth: []

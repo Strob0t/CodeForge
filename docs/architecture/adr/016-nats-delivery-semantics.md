@@ -94,7 +94,7 @@ redelivered instead of holding a `MaxAckPending` slot forever. Go: the longest l
 request, which waits up to the HITL approval timeout (`runtime.approval_timeout_seconds`, no upper bound), so the
 cap is `max(10 min, approval timeout + 5 min)` (`Queue.SetMaxHandlerDuration`, called at startup); a fixed cap below
 the approval timeout would redeliver the request and handle it twice. Worker: 30 min, above the longest indexing or
-LLM request. CPU-bound worker work (repo map, retrieval chunking, BM25 indexing and embedding decoding of the whole
+LLM request, except quality gates: a gate request stays in progress as long as its gate sends heartbeats (`heartbeat_seconds` on the request, `runs.heartbeat` with phase `quality_gate`), and the Go stuck-work watchdog fails a gate whose heartbeats stop (KI-28). CPU-bound worker work (repo map, retrieval chunking, BM25 indexing and embedding decoding of the whole
 corpus, graph extraction) runs in a thread so it does not starve the event loop that sends the heartbeats.
 
 A request/response handler that answers with an **error result** (context rerank, retrieval, sub-agent and graph

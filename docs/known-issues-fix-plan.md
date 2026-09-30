@@ -25,7 +25,7 @@
 | **S0** | Green CI with complete gates | KI-1, KI-2, KI-3 | M |
 | **S1** | Policy and security enforcement | ~~KI-4~~, ~~KI-5~~, ~~KI-6~~, ~~KI-7~~, ~~KI-8~~, ~~KI-9~~, ~~KI-10~~, ~~KI-11~~, ~~KI-12~~, ~~KI-13~~, ~~KI-14~~ | L |
 | **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, ~~KI-21~~, ~~KI-22~~, ~~KI-23~~, ~~KI-24~~, ~~KI-30~~, ~~KI-31~~, ~~KI-32~~ | L |
-| **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
+| **S3** | Quality gates and delivery | ~~KI-26~~, ~~KI-27~~, ~~KI-28~~, ~~KI-29~~ | M |
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | KI-15, KI-16, KI-17, KI-25, KI-33, KI-37, KI-38, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, KI-55, KI-56, KI-57, KI-58, KI-60, KI-62 | L |
@@ -84,10 +84,10 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 
 | KI | Fix | Proof |
 |---|---|---|
-| **KI-26** | Runs without gates deliver; failed gate fails the run and never delivers (D9); terminal-state guard in `HandleRunComplete` | Runtime tests for all three paths |
-| **KI-27** | Delivery after checkpoint cleanup, or checkpoints outside the workspace history (shadow repo as documented) | Scratch-repo test for commit-local, branch and patch delivery |
-| **KI-28** | Send `CODEFORGE_QG_TIMEOUT`; kill the process group on timeout; watchdog for `quality_gate` status | Worker timeout test; watchdog test |
-| **KI-29** | Project/mode gate commands used; missing result fails the gate | Gate tests |
+| **KI-26** | **Done (2026-09-30).** Runs without gates deliver; failed gate fails the run and never delivers (D9); terminal-state guard in `HandleRunComplete` | Runtime tests for all three paths |
+| **KI-27** | **Done (2026-09-30).** Delivery after checkpoint cleanup, or checkpoints outside the workspace history (shadow repo as documented) | Scratch-repo test for commit-local, branch and patch delivery |
+| **KI-28** | **Done (2026-09-30).** Send `CODEFORGE_QG_TIMEOUT`; kill the process group on timeout; watchdog for `quality_gate` status | Worker timeout test; watchdog test |
+| **KI-29** | **Done (2026-09-30).** Project/mode gate commands used; missing result fails the gate | Gate tests |
 
 ## S4 - Operations and Deployment
 
@@ -159,7 +159,9 @@ scheduled as follows:
 | **KI-74** | Frontend live-update follow-ups | S6 |
 | **KI-75** | LLM models are global across tenants | S6 |
 | **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up |
-| **KI-77** | Go core git calls in agent-writable workspaces are not hardened (fsmonitor, filters, hooks, credential helpers) | S3 review round |
+| **KI-77** | Go core git calls in agent-writable workspaces are not hardened (fsmonitor, filters, hooks, credential helpers) | S3 review round, **done 2026-09-30** |
+| **KI-78** | Artifact validation events/audit written before the run's end is decided | S6 |
+| **KI-79** | GDPR residuals (quarantine reviewer free text, privacy page wording) | S6 |
 
 ## Decisions
 

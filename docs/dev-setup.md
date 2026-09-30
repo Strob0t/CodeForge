@@ -625,14 +625,16 @@ Example:
 | `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
 | `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |
 | `runtime.stall_max_retries` | `CODEFORGE_STALL_MAX_RETRIES` | `2` | Max stall recovery retries |
-| `runtime.quality_gate_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Quality gate timeout (currently not applied; the worker uses a fixed 120 s per command, [KI-28](todo.md#known-issues)) |
+| `runtime.quality_gate_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Timeout per gate command (sent to the worker, which kills the command's process group); must be at least 1s |
 | `runtime.default_deliver_mode` | `CODEFORGE_DELIVER_MODE` | `` | Default delivery mode |
-| `runtime.default_test_command` | `CODEFORGE_TEST_COMMAND` | `go test ./...` | Default test command |
-| `runtime.default_lint_command` | `CODEFORGE_LINT_COMMAND` | `golangci-lint run ./...` | Default lint command |
+| `runtime.default_test_command` | `CODEFORGE_TEST_COMMAND` | `` | Last fallback for the gate test command: project config `test_command` first, then the default of the language whose test runner is set up in the workspace |
+| `runtime.default_lint_command` | `CODEFORGE_LINT_COMMAND` | `` | Last fallback for the gate lint command (project config `lint_command` first, then the language default) |
 | `runtime.delivery_commit_prefix` | `CODEFORGE_COMMIT_PREFIX` | `codeforge:` | Git commit prefix |
 | `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | Agent heartbeat interval |
 | `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout |
-| `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds) |
+| `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds); also sent to the worker, which waits this long plus 15 s for a tool-call decision |
+| `runtime.stale_check_interval` | (YAML only) | `60s` | How often the stuck-work watchdog runs (stuck quality gates, stale backend tasks); must be > 0 |
+| `runtime.stale_work_threshold` | (YAML only) | `30m` | Age after which a backend task without progress counts as stale |
 | `idempotency.bucket` | `CODEFORGE_IDEMPOTENCY_BUCKET` | `IDEMPOTENCY` | NATS KV bucket name |
 | `idempotency.ttl` | `CODEFORGE_IDEMPOTENCY_TTL` | `24h` | Idempotency key TTL |
 | `runtime.hybrid.command_image` | `CODEFORGE_HYBRID_IMAGE` | `` | Docker image for hybrid mode |

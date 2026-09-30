@@ -65,6 +65,8 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   `Monitor` (background shell command) is an alias of `Bash`; the CLI is offered only tools with a canonical name
   and any other name is denied before evaluation. Worker and Claude Code send paths through one mapping
   (`workers/codeforge/policy_args.py`): relative to the real workspace, absolute when outside it.
+- Git metadata (KI-77): the presets deny Write/Edit on `**/.git/**`, and the worker's file tools refuse `.git`
+  path components; the Go Core runs workspace git only through the hardened `internal/git` entry point.
 
 ## Consequences
 
