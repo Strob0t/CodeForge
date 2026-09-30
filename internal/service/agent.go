@@ -141,6 +141,16 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("get agent: %w", err)
 	}
 
+	// tasks.cancel reaches every worker: only stop a task of the caller's
+	// tenant (the store is tenant-scoped) and of the agent's project.
+	t, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("get task: %w", err)
+	}
+	if err := requireProject("task", t.ID, t.ProjectID, ag.ProjectID); err != nil {
+		return err
+	}
+
 	backend, err := agentbackend.New(ag.Backend, ag.Config)
 	if err != nil {
 		return fmt.Errorf("create backend: %w", err)
@@ -174,20 +184,25 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 	return nil
 }
 
-// HandleResult processes a task result received from a worker: an error
-// result leaves the task failed, any other completed.
-func (s *AgentService) HandleResult(ctx context.Context, result task.Result, taskID, projectID string, costUSD float64) error {
-	status := task.StatusCompleted
-	if result.Error != "" {
-		status = task.StatusFailed
-	}
-	return s.recordResult(ctx, status, result, taskID, projectID, costUSD)
+// HandleResult processes a task result received from a worker with the
+// status the worker reported (see resultStatus).
+func (s *AgentService) HandleResult(ctx context.Context, reported string, result task.Result, taskID, projectID string, costUSD float64) error {
+	return s.recordResult(ctx, resultStatus(reported, &result), result, taskID, projectID, costUSD)
 }
 
-// HandleCancelledResult processes the result of a task the worker stopped on
-// tasks.cancel: the task stays cancelled.
-func (s *AgentService) HandleCancelledResult(ctx context.Context, result task.Result, taskID, projectID string, costUSD float64) error {
-	return s.recordResult(ctx, task.StatusCancelled, result, taskID, projectID, costUSD)
+// resultStatus is the final status of a task from the status its worker
+// reported: cancelled when the worker stopped it on tasks.cancel, completed
+// only for a completed result without error, failed otherwise (a failure
+// without message, an error, an unknown or missing status).
+func resultStatus(reported string, result *task.Result) task.Status {
+	switch {
+	case reported == string(task.StatusCancelled):
+		return task.StatusCancelled
+	case reported == string(task.StatusCompleted) && result.Error == "":
+		return task.StatusCompleted
+	default:
+		return task.StatusFailed
+	}
 }
 
 // recordResult stores a worker's task result with the final status, records
@@ -245,10 +260,7 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 			TokensOut: result.TokensOut,
 		}
 
-		if result.Status == string(task.StatusCancelled) {
-			return s.HandleCancelledResult(msgCtx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
-		}
-		return s.HandleResult(msgCtx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
+		return s.HandleResult(msgCtx, result.Status, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
 	})
 }
 

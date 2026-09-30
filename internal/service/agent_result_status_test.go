@@ -48,7 +48,7 @@ func TestAgentServiceHandleResult_TaskStatusFollowsTheResult(t *testing.T) {
 			bc := &mockBroadcaster{}
 			svc := NewAgentService(store, &mockQueue{}, bc)
 
-			if err := svc.HandleResult(context.Background(), tc.result, "t1", "p1", 0.01); err != nil {
+			if err := svc.HandleResult(context.Background(), "completed", tc.result, "t1", "p1", 0.01); err != nil {
 				t.Fatalf("HandleResult: %v", err)
 			}
 			if got := store.statuses["t1"]; got != tc.want {
@@ -89,6 +89,32 @@ func TestAgentResultSubscriber_TaskStatusFollowsTheReportedStatus(t *testing.T) 
 			payload: messagequeue.TaskResultPayload{TaskID: "t1", ProjectID: "p1", Status: "cancelled", Error: "cancelled by user"},
 			want:    task.StatusCancelled,
 			wantWS:  "cancelled",
+		},
+		// A failure without message (a bare TimeoutError, OpenHands
+		// {"status":"failed","error":""}) must not be stored completed.
+		{
+			name:    "failed without error",
+			payload: messagequeue.TaskResultPayload{TaskID: "t1", ProjectID: "p1", Status: "failed"},
+			want:    task.StatusFailed,
+			wantWS:  "failed",
+		},
+		{
+			name:    "completed with error",
+			payload: messagequeue.TaskResultPayload{TaskID: "t1", ProjectID: "p1", Status: "completed", Error: "partial"},
+			want:    task.StatusFailed,
+			wantWS:  "failed",
+		},
+		{
+			name:    "unknown status",
+			payload: messagequeue.TaskResultPayload{TaskID: "t1", ProjectID: "p1", Status: "weird", Output: "?"},
+			want:    task.StatusFailed,
+			wantWS:  "failed",
+		},
+		{
+			name:    "no status",
+			payload: messagequeue.TaskResultPayload{TaskID: "t1", ProjectID: "p1", Output: "?"},
+			want:    task.StatusFailed,
+			wantWS:  "failed",
 		},
 	}
 	for _, tc := range tests {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 
@@ -13,17 +14,31 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 )
 
-// executionProbeBackend records the executions it is asked to run.
+// executionProbeBackend records the executions it is asked to run and the
+// tasks it is asked to stop.
 type executionProbeBackend struct {
 	mu         sync.Mutex
 	executions []agentbackend.Execution
+	stopped    []string
 }
 
 func (b *executionProbeBackend) Name() string { return "execution-probe" }
 func (b *executionProbeBackend) Capabilities() agentbackend.Capabilities {
 	return agentbackend.Capabilities{}
 }
-func (b *executionProbeBackend) Stop(context.Context, string) error { return nil }
+
+func (b *executionProbeBackend) Stop(_ context.Context, taskID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.stopped = append(b.stopped, taskID)
+	return nil
+}
+
+func (b *executionProbeBackend) stops() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.stopped
+}
 
 func (b *executionProbeBackend) Execute(_ context.Context, e *agentbackend.Execution) (*task.Result, error) {
 	b.mu.Lock()
@@ -37,6 +52,7 @@ func (b *executionProbeBackend) reset() []agentbackend.Execution {
 	defer b.mu.Unlock()
 	got := b.executions
 	b.executions = nil
+	b.stopped = nil
 	return got
 }
 
@@ -131,5 +147,41 @@ func TestAgentDispatch_TaskOfAnotherProjectFails(t *testing.T) {
 	}
 	if store.agents[0].Status != agent.StatusIdle {
 		t.Errorf("agent status = %q, want idle", store.agents[0].Status)
+	}
+}
+
+// TestAgentStopTask_OnlyStopsTheCallersTask: tasks.cancel reaches every
+// worker, so StopTask must not publish it for a task outside the caller's
+// tenant (the tenant-scoped store does not find it) or the agent's project.
+func TestAgentStopTask_OnlyStopsTheCallersTask(t *testing.T) {
+	tests := []struct {
+		name      string
+		tasks     []task.Task
+		wantErr   error
+		wantStops []string
+	}{
+		{name: "own task", tasks: []task.Task{{ID: "task-1", ProjectID: "proj-1", Status: task.StatusRunning}}, wantStops: []string{"task-1"}},
+		{name: "task of another tenant", tasks: nil, wantErr: domain.ErrNotFound},
+		{name: "task of another project", tasks: []task.Task{{ID: "task-1", ProjectID: "proj-2", Status: task.StatusRunning}}, wantErr: domain.ErrValidation},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe := registerExecutionProbe(t)
+			store := dispatchStore("/data/workspaces/proj-1")
+			store.tasks = tt.tasks
+			svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+			err := svc.StopTask(context.Background(), "agent-1", "task-1")
+
+			if tt.wantErr == nil && err != nil {
+				t.Fatalf("StopTask: %v", err)
+			}
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Fatalf("StopTask error = %v, want %v", err, tt.wantErr)
+			}
+			if got := probe.stops(); !slices.Equal(got, tt.wantStops) {
+				t.Errorf("backend stopped %v, want %v", got, tt.wantStops)
+			}
+		})
 	}
 }
