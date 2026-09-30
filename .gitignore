@@ -67,7 +67,11 @@ data/
 backups/
 
 # -- Claude Code ----------------------------------
-.claude/
+# Keep local state (worktrees, settings.local.json, ...) out; share the web
+# session hook and its registration.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .superpowers/
 
 # -- DeepEval (runtime telemetry) ------------------

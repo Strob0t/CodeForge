@@ -17,6 +17,8 @@
 
 ---
 
+- [x] (2026-09-30) SessionStart hook for Claude Code on the web (`.claude/hooks/session-start.sh`, registered in `.claude/settings.json`): installs the CI toolchains and dependencies and starts PostgreSQL 18 + NATS JetStream for the Go tests, see [dev-setup](dev-setup.md#claude-code-on-the-web-sessionstart-hook)
+
 ### Known Issues
 
 > Verified defects found in the docs/code reconciliation of 2026-09-29 on `staging` (HEAD `cb9b63ce`).

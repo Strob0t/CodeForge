@@ -34,6 +34,21 @@ Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` an
 
 > **Known issue ([KI-43](todo.md#known-issues)):** `postgres:18-alpine` refuses to start with the `pgdata` volume mounted at `/var/lib/postgresql/data` (PG 18 images expect `/var/lib/postgresql`), so PostgreSQL and LiteLLM (which waits for it) do not come up. Until fixed, change the volume target in your local `docker-compose.yml` to `/var/lib/postgresql`.
 
+### Claude Code on the Web (SessionStart Hook)
+
+Cloud sessions of Claude Code on the web run `.claude/hooks/session-start.sh` (registered in `.claude/settings.json`)
+before the session starts. The hook only acts when `CLAUDE_CODE_REMOTE=true` and is idempotent:
+
+- Go: `GOTOOLCHAIN=go1.25.14` (the CI toolchain), `go mod download`, golangci-lint v2.11.4 and goimports v0.42.0 in `$(go env GOPATH)/bin`
+- Python: `poetry install` on Python 3.12 (like CI, including the pinned ruff)
+- Frontend: `npm install --prefix frontend`
+- pre-commit: `pre-commit install` and `pre-commit install-hooks`
+- Test services (best effort): starts `dockerd` if needed, then PostgreSQL 18 (`codeforge-test-postgres`) and NATS JetStream
+  (`codeforge-test-nats`) bound to `127.0.0.1:5432` / `127.0.0.1:4222` (or reuses services already listening there) and exports
+  `DATABASE_URL` / `NATS_URL` for the session, so `go test -race ./...` and the `integration`-tagged tests run like in CI
+
+Versions are kept in sync with `.github/workflows/ci.yml` and `.devcontainer/setup.sh`.
+
 ### Critical Startup Order (Manual / Outside Devcontainer)
 
 When starting services manually (not via `setup.sh`), follow this **strict order**.
