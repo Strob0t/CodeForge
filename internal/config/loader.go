@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // DefaultConfigFile is the path checked for YAML configuration.
@@ -92,6 +93,9 @@ func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
 	}
 
 	loadEnv(&cfg)
+	if err := loadSecretFiles(&cfg); err != nil {
+		return nil, "", fmt.Errorf("config secret files: %w", err)
+	}
 	applyCLI(&cfg, flags)
 
 	if err := ensureSecrets(&cfg); err != nil {
@@ -115,6 +119,9 @@ func LoadFrom(yamlPath string) (*Config, error) {
 	}
 
 	loadEnv(&cfg)
+	if err := loadSecretFiles(&cfg); err != nil {
+		return nil, fmt.Errorf("config secret files: %w", err)
+	}
 
 	if err := ensureSecrets(&cfg); err != nil {
 		return nil, fmt.Errorf("config secrets: %w", err)
@@ -370,6 +377,52 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
 }
 
+// secretSetting is a secret that may be given as <key>_FILE (Docker secrets).
+type secretSetting struct {
+	key string
+	set func(string)
+}
+
+// secretSettings lists the settings that accept <key>_FILE. It is limited to
+// secrets on purpose: files are how secrets reach a container without showing
+// up in `docker inspect`, other settings stay plain environment variables.
+func secretSettings(cfg *Config) []secretSetting {
+	str := func(dst *string) func(string) { return func(v string) { *dst = v } }
+	return []secretSetting{
+		{"CODEFORGE_INTERNAL_KEY", str(&cfg.InternalKey)},
+		{"DATABASE_URL", str(&cfg.Postgres.DSN)},
+		{"NATS_URL", str(&cfg.NATS.URL)},
+		{"LITELLM_MASTER_KEY", str(&cfg.LiteLLM.MasterKey)},
+		{"CODEFORGE_AUTH_JWT_SECRET", str(&cfg.Auth.JWTSecret)},
+		{"CODEFORGE_AUTH_ADMIN_PASS", str(&cfg.Auth.DefaultAdminPass)},
+		{"CODEFORGE_WEBHOOK_GITHUB_SECRET", str(&cfg.Webhook.GitHubSecret)},
+		{"CODEFORGE_WEBHOOK_GITLAB_TOKEN", str(&cfg.Webhook.GitLabToken)},
+		{"CODEFORGE_WEBHOOK_PLANE_SECRET", str(&cfg.Webhook.PlaneSecret)},
+		{"CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL", str(&cfg.Notification.SlackWebhookURL)},
+		{"CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL", str(&cfg.Notification.DiscordWebhookURL)},
+		{"GITHUB_CLIENT_SECRET", str(&cfg.GitHub.ClientSecret)},
+		{"CODEFORGE_SMTP_PASSWORD", str(&cfg.Notification.SMTPPassword)},
+		{"CODEFORGE_PLANE_API_TOKEN", str(&cfg.Plane.APIToken)},
+		{"CODEFORGE_A2A_API_KEYS", func(v string) { cfg.A2A.APIKeys = splitList(v) }},
+	}
+}
+
+// loadSecretFiles overlays secrets read from <key>_FILE onto cfg. It runs after
+// loadEnv, at the same precedence level: a key set both directly and as a
+// file is rejected instead of silently preferring one of them.
+func loadSecretFiles(cfg *Config) error {
+	for _, s := range secretSettings(cfg) {
+		v, ok, err := secrets.LookupFileEnv(s.key)
+		if err != nil {
+			return err
+		}
+		if ok {
+			s.set(v)
+		}
+	}
+	return nil
+}
+
 // validate checks that required fields are set and security constraints are met.
 func validate(cfg *Config) error {
 	if cfg.Server.Port == "" {
@@ -518,14 +571,19 @@ func setTyped[T any](dst *T, key string, parse func(string) (T, error)) {
 
 func setStringSlice(dst *[]string, key string) {
 	if v := os.Getenv(key); v != "" {
-		parts := strings.Split(v, ",")
-		result := make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				result = append(result, p)
-			}
-		}
-		*dst = result
+		*dst = splitList(v)
 	}
+}
+
+// splitList splits a comma-separated value and drops blank entries.
+func splitList(v string) []string {
+	parts := strings.Split(v, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
