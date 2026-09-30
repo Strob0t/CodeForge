@@ -79,7 +79,10 @@ def _glob_reach(pattern: str) -> str:
     ".." after it: a wildcard may stand for any number of directories, so each
     ".." may climb one level. A brace group with a "/" may reach anywhere.
     """
-    pattern = os.path.expanduser(pattern)
+    try:
+        pattern = os.path.expanduser(pattern)
+    except ValueError:  # "~<NUL>...": no user of that name can exist
+        return os.sep
     if _BRACE_WITH_SLASH.search(pattern):
         return "/"
     parts = pattern.split("/")
@@ -95,7 +98,12 @@ def _workspace_relative(workspace: str, path: str) -> str:
     if not path or not workspace:
         return path
     root = os.path.realpath(workspace)
-    real = os.path.realpath(os.path.join(root, os.path.expanduser(path)))
+    try:
+        real = os.path.realpath(os.path.join(root, os.path.expanduser(path)))
+    except (ValueError, OSError):
+        # Unresolvable (e.g. a NUL byte from the model): report it as outside
+        # the workspace, which Go denies, instead of failing the whole loop.
+        return os.sep
     if real == root:
         return "."
     if real.startswith(root.rstrip(os.sep) + os.sep):

@@ -93,6 +93,13 @@ class TestFilePaths:
     def test_missing_path_is_empty(self, value: object, ws: Path) -> None:
         assert _path("Edit", {"file_path": value}, ws) == ""
 
+    @pytest.mark.parametrize("raw", ["a\x00b", "src/\x00", "~\x00/x"])
+    def test_unresolvable_path_is_outside(self, raw: str, ws: Path) -> None:
+        # A path the OS cannot resolve (NUL byte from the model) must not
+        # raise out of the agent loop; it is reported as outside, which Go denies.
+        assert _path("Write", {"file_path": raw}, ws) == "/"
+        assert _path("Glob", {"pattern": raw}, ws) == "/"
+
 
 class TestSymlinks:
     def test_symlinked_workspace(self, ws: Path, tmp_path: Path) -> None:
