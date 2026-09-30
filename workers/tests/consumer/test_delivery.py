@@ -148,7 +148,13 @@ class TestEnsureDurable:
         consumer = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
         js = AsyncMock()
         nc = AsyncMock()
-        nc.jetstream = lambda: js
+        jetstream_clients: list[object] = []
+
+        def tracing_jetstream(client: object) -> AsyncMock:
+            jetstream_clients.append(client)
+            return js
+
+        monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", tracing_jetstream)
         bound: dict[str, str] = {}
 
         async def fake_ensure(_js: object, name: str, subject: str) -> str:
@@ -166,6 +172,7 @@ class TestEnsureDurable:
         monkeypatch.setattr("codeforge.consumer._HEALTHY_SENTINEL", SimpleNamespace(touch=lambda: None))
         await consumer.start()
 
+        assert jetstream_clients == [nc], "every publish must carry the trace context (KI-36)"
         assert bound["runs.start"] == "codeforge-py-runs-start"
         assert bound["conversation.run.start"] == "codeforge-py-conversation-run-start"
         js.delete_consumer.assert_not_awaited()

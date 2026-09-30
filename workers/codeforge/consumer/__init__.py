@@ -74,6 +74,7 @@ from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
 from codeforge.tracing import tracing_manager
+from codeforge.tracing.propagation import TracingJetStreamContext
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -165,7 +166,7 @@ class TaskConsumer(
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""
         self._nc = await nats.connect(self.nats_url)
-        self._js = self._nc.jetstream()
+        self._js = TracingJetStreamContext(self._nc)
         self._running = True
 
         logger.info("connected to NATS", url=redact_url(self.nats_url))

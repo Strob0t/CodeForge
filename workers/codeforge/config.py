@@ -255,7 +255,8 @@ class WorkerSettings:
         self.otel_service_name = _resolve_str(
             "CODEFORGE_OTEL_SERVICE_NAME", otel_cfg.get("service_name"), "codeforge-worker"
         )
-        self.otel_insecure = _resolve_bool("CODEFORGE_OTEL_INSECURE", otel_cfg.get("insecure"), True)
+        # Same default as the Go core (TLS); the dev Jaeger needs CODEFORGE_OTEL_INSECURE=true.
+        self.otel_insecure = _resolve_bool("CODEFORGE_OTEL_INSECURE", otel_cfg.get("insecure"), False)
         self.otel_sample_rate = _resolve_float("CODEFORGE_OTEL_SAMPLE_RATE", otel_cfg.get("sample_rate"), 1.0)
 
         # --- Plan/Act ---

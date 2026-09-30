@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import structlog
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
@@ -27,7 +29,7 @@ class OTELConfig:
     enabled: bool = False
     endpoint: str = "localhost:4317"
     service_name: str = "codeforge-worker"
-    insecure: bool = True
+    insecure: bool = False
     sample_rate: float = 1.0
 
     @classmethod
@@ -117,13 +119,14 @@ class _OTELTracer:
 class TracingManager:
     """Manages OpenTelemetry tracing lifecycle.
 
-    Initializes OTEL TracerProvider with OTLP gRPC exporter when enabled,
+    Initializes OTEL TracerProvider and MeterProvider with OTLP gRPC exporters when enabled,
     or falls back to no-op stubs for zero overhead when disabled.
     """
 
     def __init__(self) -> None:
         self._tracer: TracerProtocol = _NoOpTracer()
         self._provider: TracerProvider | None = None
+        self._meter_provider: MeterProvider | None = None
         self._initialized = False
 
     def init(self) -> None:
@@ -165,10 +168,19 @@ class TracingManager:
             self._provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
         trace.set_tracer_provider(self._provider)
+        self._meter_provider = _otlp_meter_provider(cfg, resource)
+        # The instruments in codeforge.tracing.metrics were created on the
+        # global proxy meter at import; they record into this provider from now on.
+        metrics.set_meter_provider(self._meter_provider)
         otel_tracer = trace.get_tracer(TRACER_NAME)
         self._tracer = _OTELTracer(otel_tracer)
         self._initialized = True
-        logger.info("otel tracing initialized", service=cfg.service_name, endpoint=cfg.endpoint)
+        logger.info(
+            "otel tracing and metrics initialized",
+            service=cfg.service_name,
+            endpoint=cfg.endpoint,
+            insecure=cfg.insecure,
+        )
 
     def get_tracer(self) -> TracerProtocol:
         """Return the active tracer instance (or no-op stub)."""
@@ -181,7 +193,17 @@ class TracingManager:
         return self._initialized and not isinstance(self._tracer, _NoOpTracer)
 
     def shutdown(self) -> None:
-        """Gracefully shutdown the TracerProvider."""
+        """Flush and shut down the MeterProvider and the TracerProvider."""
+        if self._meter_provider is not None:
+            self._meter_provider.shutdown()
         if self._provider is not None:
             self._provider.shutdown()
             logger.info("otel tracer provider shut down")
+
+
+def _otlp_meter_provider(cfg: OTELConfig, resource: Resource) -> MeterProvider:
+    """A MeterProvider that exports periodically to the OTLP gRPC endpoint (like the Go core)."""
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
+    exporter = OTLPMetricExporter(endpoint=cfg.endpoint, insecure=cfg.insecure)
+    return MeterProvider(resource=resource, metric_readers=[PeriodicExportingMetricReader(exporter)])

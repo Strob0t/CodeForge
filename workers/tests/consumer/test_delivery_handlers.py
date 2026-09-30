@@ -949,9 +949,8 @@ async def _start_until_given_up(
     monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
     js = consumer._js
     js.find_stream_name_by_subject = AsyncMock(return_value="CODEFORGE")  # type: ignore[union-attr]
-    nc = MagicMock()
-    nc.jetstream = MagicMock(return_value=js)
-    monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=nc))
+    monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=MagicMock()))
     pending = [msg]
 
     async def ensure(_js: object, _name: str, subject: str) -> MagicMock:

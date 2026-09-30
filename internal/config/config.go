@@ -435,7 +435,7 @@ type OTEL struct {
 	Enabled     bool    `yaml:"enabled"`      // Enable OTEL tracing + metrics (default: false)
 	Endpoint    string  `yaml:"endpoint"`     // OTLP gRPC endpoint (default: "localhost:4317")
 	ServiceName string  `yaml:"service_name"` // Service name for traces (default: "codeforge-core")
-	Insecure    bool    `yaml:"insecure"`     // Use insecure gRPC connection (default: true)
+	Insecure    bool    `yaml:"insecure"`     // Plaintext gRPC instead of TLS, e.g. for the dev Jaeger (default: false)
 	SampleRate  float64 `yaml:"sample_rate"`  // Trace sampling rate 0.0-1.0 (default: 1.0)
 }
 
