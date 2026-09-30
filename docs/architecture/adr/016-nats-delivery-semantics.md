@@ -48,33 +48,54 @@ durable, so each message is processed by one instance. Settings: explicit ack, `
 
 The Go health monitor checks its durables every 30 s and recreates a deleted one the same way (deliver policy
 `new`), replacing the consume context of the subscription. The worker ensures a durable again when a fetch shows it
-is gone (no responders / not found); a message loop that cannot recover within `consumer_max_errors` consecutive
-errors stops the whole worker (health sentinel removed, exit status 1), so the container is restarted instead of a
-"healthy" process that no longer consumes the subject.
+is gone (no responders, which nats-py raises as `ServiceUnavailableError`; a pending pull on a deleted durable is
+reported as a timeout, so the next fetch sees it). A message loop that cannot recover within `consumer_max_errors`
+consecutive errors stops the whole worker (health sentinel removed, exit status 1), so the container is restarted
+instead of a "healthy" process that no longer consumes the subject. An answered fetch without messages and a
+successful re-attach reset the count, so separate error episodes do not add up. Before the worker exits, accepted
+at-most-once work gets a grace period of 30 s; what is still running then is cancelled and reported as failed
+(section 3). The exit is therefore not delayed by a long run, and the Go Core does not wait for its timeout.
 
 **3. Two acknowledgement modes.**
 
 | Mode | Subjects | Ack | Failure | Crashed instance |
 |---|---|---|---|---|
-| at-most-once (ack on accept) | worker: `runs.start`, `conversation.run.start`, `tasks.agent.*`, `benchmark.run.request` (runs in the background) | confirmed (double) ack before the handler runs | reported as a failed completion or result (`runs.complete`, `conversation.run.complete`, `tasks.result`, `benchmark.run.result`), never retried | run is failed by the Go Core (section 6) |
+| at-most-once (ack on accept) | worker: `runs.start`, `conversation.run.start`, `tasks.agent.*`, `benchmark.run.request` (runs in the background) | confirmed (double) ack before the handler runs | reported as a failed completion or result (`runs.complete`, `conversation.run.complete`, `tasks.result`, `benchmark.run.result`), never retried | ended by a Go-side watchdog where one exists: run timer, stale-work release, benchmark watchdog; none for conversation runs (section 6) |
 | at-least-once | all other subjects, Go and worker | after the handler succeeded | retried, then dead-lettered (section 4) | redelivered after `AckWait` |
 
 Agent runs, conversation runs and backend tasks (Aider, OpenHands, ...) change the workspace and are not idempotent:
 a redelivery would execute a partially applied run a second time on another worker. The accept ack is confirmed by
 the server (`ack_sync`): a plain ack is fire-and-forget, and a lost one would hand the running work to a second
-worker after `AckWait`. Without the confirmation the work is not started and its dedup key is released: the message
-is redelivered, or, if the ack did reach the server, the run is ended by the Go Core (section 6). An exception after
-the accept is reported as a failed completion (unless the run already reported its outcome).
+worker after `AckWait`. An unanswered double ack is repeated (3 attempts of 5 s): it is idempotent, the server
+confirms an ack it already applied. If none is confirmed, the work is not started, its dedup key is released and
+the message is NAK'd: a message whose ack never arrived goes to the next worker at once, and the server ignores the
+NAK of a message whose ack did arrive (that work is then ended by a Go-side watchdog, section 6). An exception
+after the accept is reported as a failed completion, unless the work already published its outcome: a conversation
+run is failed only while its completion is unpublished, a run only while `RuntimeClient.completed` is false.
+
+The completion or result of accepted work is the only way the Go Core learns its outcome, so it is published with
+up to 3 attempts (backoff 0.5 s, then 1 s; `workers/codeforge/nats_publish.py`), all under one `Nats-Msg-Id`: if an
+attempt reached the stream but its PubAck was lost, the stream's dedup window (2 min) drops the retry. This matters
+for `conversation.run.complete`, which the Go Core deduplicates by `Nats-Msg-Id` only. A result that could still
+not be published is logged. The worker registers every accepted piece of work with a callback that publishes its
+failed completion (`workers/codeforge/consumer/_in_flight.py`); when the worker has to stop (section 2) it waits up
+to 30 s for the registry to empty, then cancels the message loops and the background benchmark runs and publishes
+failed completions ("worker stopped before the work finished: ...") for the work that did not finish. A completion
+published at the moment of the cancellation can still be followed by the failed one; the window is a few
+milliseconds.
 
 Everything else is a request whose repetition is harmless (index, search, repo map, quality gate, memory, review
 trigger, ...). While an at-least-once handler runs, its consumer sends an in-progress ack (`+WPI`) every
 `AckWait / 3` (Go: a timer in `handleMessage` that is only armed after `AckWait / 3`, so fast handlers send nothing;
 worker: in the message loop around every handler, stopping as soon as the message is settled), so a handler that is
 slower than `AckWait` is not redelivered to another instance, while a crashed instance stops the heartbeat and its
-message is redelivered. The heartbeat is capped (Go 10 min, ten times the default HITL approval wait; worker 30 min,
-above the longest indexing or LLM request): a hung handler stops reporting progress and its message is redelivered
-instead of holding a `MaxAckPending` slot forever. CPU-bound worker handlers (repo map, retrieval chunking, graph
-extraction) run in a thread so they do not starve the event loop that sends the heartbeats.
+message is redelivered. The heartbeat is capped: a hung handler stops reporting progress and its message is
+redelivered instead of holding a `MaxAckPending` slot forever. Go: the longest legitimate handler is the tool-call
+request, which waits up to the HITL approval timeout (`runtime.approval_timeout_seconds`, no upper bound), so the
+cap is `max(10 min, approval timeout + 5 min)` (`Queue.SetMaxHandlerDuration`, called at startup); a fixed cap below
+the approval timeout would redeliver the request and handle it twice. Worker: 30 min, above the longest indexing or
+LLM request. CPU-bound worker work (repo map, retrieval chunking, BM25 indexing and embedding decoding of the whole
+corpus, graph extraction) runs in a thread so it does not starve the event loop that sends the heartbeats.
 
 A request/response handler that answers with an **error result** (context rerank, retrieval, sub-agent and graph
 search) has settled the request: the Go waiter got its answer, so the message is acked rather than retried.
@@ -112,14 +133,25 @@ died. What exists (checked on `staging`, 2026-09-30):
   lives in memory). `HeartbeatTimeout` and `AbsoluteMaxExecutionTimeout` are only evaluated when a tool call
   arrives, so they never fire for a dead worker.
 - `conversation.run.start`: there is **no** Go-side watchdog; the worker's wall-clock timeout dies with the worker.
+- `tasks.agent.*`: no run timer. `ActiveWorkService.ReleaseStaleWork` (every `StaleCheckInterval`, 60 s) resets
+  tasks in status `running` or `queued` whose row was not updated for `StaleWorkThreshold` (30 min) to `pending`
+  and clears their agent. The task is not failed and not re-dispatched, and the agent's status is not reset. A
+  healthy task that runs longer than 30 min without a row update is released while it is still running.
+- `benchmark.run.request`: the benchmark watchdog (every 5 min, state in the database) fails runs in status
+  `running` that are older than 30 min (simple), 60 min (tool use) or 4 h (agent).
 
-These gaps are follow-up work, not part of this decision.
+A worker that stops because a message loop gave up fails its own unfinished work (section 3), so these watchdogs
+matter for workers that crash, are killed, or lose the connection to NATS. The gaps are follow-up work, not part of
+this decision.
 
 **7. Per-run subscriptions.** A run's cancel listeners (`runs.cancel` plus `tasks.cancel` or
-`conversation.run.cancel`, ephemeral consumers with deliver policy `new`) and its heartbeat belong to the run:
-`RuntimeClient.close()` releases them and every run handler calls it when the run ends, successfully or not. The
-cancel subjects are shared by all active runs, so a malformed cancel message is skipped, never fatal to the listener,
-and empty run or task IDs never match.
+`conversation.run.cancel`) and its heartbeat belong to the run: `RuntimeClient.close()` releases them and every run
+handler calls it when the run ends, successfully or not. The cancel listeners and the per-call subscription for a
+tool-call response are ephemeral consumers with deliver policy `new` and ack policy `none`: they are never acked,
+and with explicit acks JetStream would redeliver each message after the ack wait and stop delivering once
+`MaxAckPending` messages are outstanding (a long run would stop receiving its cancel). The cancel subjects are shared
+by all active runs, so a malformed cancel message is skipped, never fatal to the listener, and empty run or task IDs
+never match.
 
 **8. Payload validation.** The Go validator checks every `runs.*`, `context.*` and `repomap.*` subject that has a
 port struct against it, like the other subject families (`runs.start`, `runs.toolcall.request/response/result`,
@@ -149,9 +181,11 @@ consumer provisioning, delivery count and heartbeat in `workers/codeforge/consum
 #### Negative
 
 - Runs and backend tasks are at-most-once: if a worker dies mid-run, the run is not retried. For `runs.start` the
-  Go run timeout fails it (within the gaps listed in section 6); a conversation run stays "running" until the user
-  stops it, because no Go-side watchdog exists yet. The same holds when the server applied an accept ack whose
-  confirmation was lost: the work never starts.
+  Go run timeout fails it and a backend task is released back to `pending` after 30 min (within the gaps listed in
+  section 6); a conversation run stays "running" until the user stops it, because no Go-side watchdog exists yet.
+  The same holds when the server applied an accept ack whose confirmation was lost three times: the work never
+  starts.
+- A worker that gives up fails its unfinished accepted work after a 30 s grace period instead of letting it finish.
 - A request/response handler that answered with an error result is not retried, even if the cause was transient;
   the Go caller decides whether to ask again.
 - A message published while its durable does not exist (before the worker's first start on a new deployment, or
@@ -164,8 +198,8 @@ consumer provisioning, delivery count and heartbeat in `workers/codeforge/consum
 
 - The Go Core does not provision the worker's durables (the design reference proposed it): each side owns the
   durables of the subjects it consumes, so no consumer list is duplicated across languages.
-- Notifications (cancel signals, permission decisions) still use ephemeral JetStream consumers with deliver policy
-  `new`, per run and per tool call, instead of process-wide core NATS subscriptions.
+- Notifications (cancel signals, permission decisions) still use ephemeral JetStream consumers (deliver policy
+  `new`, ack policy `none`), per run and per tool call, instead of process-wide core NATS subscriptions.
 - Durable names are contracts: a start-policy change needs a new durable name.
 
 ### Alternatives Considered
