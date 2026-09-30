@@ -305,7 +305,13 @@ class ConversationHandlerMixin:
         )
 
         wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url)
-        register_handoff_tool(registry, run_msg.run_id, self._js)
+        register_handoff_tool(
+            registry,
+            run_msg.run_id,
+            self._js,
+            tenant_id=run_msg.tenant_id,
+            project_id=run_msg.project_id,
+        )
         register_propose_goal_tool(registry, runtime)
         register_propose_roadmap_tool(registry, runtime)
         register_spawn_subagent_tool(registry, runtime)

@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // handoffMockQueue captures published messages for verification.
@@ -273,6 +274,54 @@ func TestHandoffService_CreateHandoff_ValidationError(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("expected error containing %q, got: %s", tt.wantErr, err.Error())
+			}
+		})
+	}
+}
+
+// The worker starts the handoff run in the tenant named by the request; without
+// it the run's live events have no tenant and are dropped (KI-12).
+func TestHandoffService_CreateHandoff_CarriesTenantFromContext(t *testing.T) {
+	tests := []struct {
+		name       string
+		ctxTenant  string
+		msgTenant  string
+		wantTenant string
+	}{
+		{name: "tenant from context", ctxTenant: "tenant-a", wantTenant: "tenant-a"},
+		{name: "context wins over message", ctxTenant: "tenant-a", msgTenant: "tenant-b", wantTenant: "tenant-a"},
+		{name: "no tenant in context keeps message tenant", msgTenant: "tenant-b", wantTenant: "tenant-b"},
+		{name: "no tenant anywhere stays empty", wantTenant: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			queue := &handoffMockQueue{}
+			svc := service.NewHandoffService(&runtimeMockStore{}, queue)
+			ctx := context.Background()
+			if tt.ctxTenant != "" {
+				ctx = tenantctx.WithTenant(ctx, tt.ctxTenant)
+			}
+			msg := &orchestration.HandoffMessage{
+				SourceAgentID: "agent-1",
+				TargetAgentID: "agent-2",
+				Context:       "continue",
+				TenantID:      tt.msgTenant,
+			}
+			if err := svc.CreateHandoff(ctx, msg); err != nil {
+				t.Fatalf("CreateHandoff: %v", err)
+			}
+			var published map[string]json.RawMessage
+			if err := json.Unmarshal(queue.data, &published); err != nil {
+				t.Fatalf("unmarshal published: %v", err)
+			}
+			var got string
+			if raw, ok := published["tenant_id"]; ok {
+				if err := json.Unmarshal(raw, &got); err != nil {
+					t.Fatalf("unmarshal tenant_id: %v", err)
+				}
+			}
+			if got != tt.wantTenant {
+				t.Errorf("tenant_id = %q, want %q", got, tt.wantTenant)
 			}
 		})
 	}

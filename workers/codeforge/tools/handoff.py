@@ -66,8 +66,14 @@ async def execute_handoff(
     run_id: str,
     arguments: dict[str, Any],
     nats_publish: Callable[[str, bytes], Awaitable[object]],
+    tenant_id: str = "",
+    project_id: str = "",
 ) -> str:
-    """Execute a handoff_to tool call by publishing to the handoff NATS subject."""
+    """Execute a handoff_to tool call by publishing to the handoff NATS subject.
+
+    tenant_id and project_id are the source run's: the handoff run belongs to the
+    same tenant and project, and its live events are only delivered to that tenant.
+    """
     target = arguments.get("target_agent_id", "")
     context_msg = arguments.get("context", "")
     target_mode = arguments.get("target_mode", "")
@@ -93,6 +99,8 @@ async def execute_handoff(
         metadata["handoff_hop"] = str(hop)
 
     payload = {
+        "tenant_id": tenant_id,
+        "project_id": project_id,
         "source_run_id": run_id,
         "target_agent_id": target,
         "target_mode_id": target_mode,

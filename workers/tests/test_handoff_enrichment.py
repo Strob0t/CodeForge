@@ -281,3 +281,43 @@ async def test_handoff_consumer_propagates_chain_hop(consumer) -> None:
     config = run_payload["config"]
     assert config["handoff_handoff_hop"] == "3"
     assert config["handoff_handoff_chain_id"] == "chain-1"
+
+
+async def test_handoff_payload_carries_run_tenant_and_project() -> None:
+    """The handoff request carries the source run's tenant and project (KI-12)."""
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review this code"},
+        nats_publish=fake_publish,
+        tenant_id="tenant-a",
+        project_id="proj-a",
+    )
+
+    payload = json.loads(published[0][1])
+    assert payload["tenant_id"] == "tenant-a"
+    assert payload["project_id"] == "proj-a"
+
+
+async def test_registered_handoff_tool_uses_run_tenant_and_project() -> None:
+    """register_handoff_tool binds the conversation run's tenant and project to the tool."""
+    from codeforge.consumer._conversation_skill_integration import register_handoff_tool
+
+    registry = MagicMock()
+    js = MagicMock()
+    js.publish = AsyncMock()
+
+    register_handoff_tool(registry, "run-1", js, tenant_id="tenant-a", project_id="proj-a")
+
+    executor = registry.register.call_args.args[1]
+    await executor.execute({"target_agent_id": "agent-2", "context": "go"}, "/ws")
+
+    subject, data = js.publish.call_args.args
+    assert subject == SUBJECT_HANDOFF_REQUEST
+    payload = json.loads(data)
+    assert payload["tenant_id"] == "tenant-a"
+    assert payload["project_id"] == "proj-a"

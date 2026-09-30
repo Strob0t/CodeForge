@@ -64,7 +64,13 @@ def make_skill_save_fn(project_id: str, db_url: str) -> object:
     return save_fn
 
 
-def register_handoff_tool(registry: object, run_id: str, js: object) -> None:
+def register_handoff_tool(
+    registry: object,
+    run_id: str,
+    js: object,
+    tenant_id: str = "",
+    project_id: str = "",
+) -> None:
     """Register the handoff tool in the tool registry if NATS is available."""
     if js is None:
         return
@@ -83,7 +89,13 @@ def register_handoff_tool(registry: object, run_id: str, js: object) -> None:
         async def execute(self, arguments: dict, workspace_path: str) -> _ToolResult:
             from codeforge.tools.handoff import execute_handoff
 
-            result = await execute_handoff(self._run_id, arguments, self._js.publish)
+            result = await execute_handoff(
+                self._run_id,
+                arguments,
+                self._js.publish,
+                tenant_id=tenant_id,
+                project_id=project_id,
+            )
             return _ToolResult(output=result)
 
     registry.register(

@@ -73,7 +73,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - **Prompt Templates:** YAML prompt library (`internal/service/prompts/`, embedded via `//go:embed`, rendered with Go `text/template` by `PromptAssembler`) plus `.tmpl` files in `internal/service/templates/`
 - **BM25S Retrieval:** Code search and tool recommendation
 - **SimHash Dedup:** 64-bit fingerprints, hamming distance threshold — `internal/service/dedup.go`
-- **Real-time State:** WebSocket live updates for agent status, logs, costs — broadcasts are not tenant-scoped yet, see [Known Issues](docs/todo.md#known-issues) KI-12
+- **Real-time State:** WebSocket live updates for agent status, logs, costs — tenant-scoped (`BroadcastEvent` uses the tenant in ctx, events without one are dropped; `BroadcastGlobal` only for tenant-free data), per-client send queues, single-use tickets (`POST /api/v1/ws/ticket`, then `GET /ws?ticket=`; no JWT in the URL). NATS payloads carry `tenant_id` and the worker echoes it
 
 ### Agentic Conversation Loop (Phase 17) — **implemented**
 - Multi-turn tool-use loop: LLM -> tools -> results -> repeat. Go dispatches via NATS (`conversation.run.start/complete`)

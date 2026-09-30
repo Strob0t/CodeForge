@@ -143,6 +143,57 @@ describe("createCodeForgeWS", () => {
     expect(FakeWebSocket.urls).toEqual([]);
   });
 
+  it("disconnect closes the socket and stays closed until reconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      clientMock.wsTicket
+        .mockResolvedValueOnce({ ticket: "ticket-1", expires_in: 30 })
+        .mockResolvedValueOnce({ ticket: "ticket-2", expires_in: 30 });
+      const closed = vi.spyOn(FakeWebSocket.prototype, "close");
+
+      await createRoot(async (dispose) => {
+        const ws = createCodeForgeWS();
+        await vi.advanceTimersByTimeAsync(0);
+        ws.disconnect();
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(closed).toHaveBeenCalledTimes(1);
+        expect(clientMock.wsTicket).toHaveBeenCalledTimes(1);
+
+        ws.reconnect();
+        await vi.advanceTimersByTimeAsync(0);
+        dispose();
+      });
+
+      expect(FakeWebSocket.urls).toEqual([
+        buildWSURL("ticket-1", location),
+        buildWSURL("ticket-2", location),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not poll for a login while disconnected", async () => {
+    vi.useFakeTimers();
+    try {
+      clientMock.accessToken = null;
+      clientMock.wsTicket.mockResolvedValue({ ticket: "ticket-1", expires_in: 30 });
+
+      await createRoot(async (dispose) => {
+        const ws = createCodeForgeWS();
+        ws.disconnect();
+        clientMock.accessToken = ACCESS_TOKEN;
+        await vi.advanceTimersByTimeAsync(5000);
+        dispose();
+      });
+
+      expect(clientMock.wsTicket).not.toHaveBeenCalled();
+      expect(FakeWebSocket.urls).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not open a socket when disposed while the ticket is pending", async () => {
     let resolveTicket: (v: { ticket: string; expires_in: number }) => void = () => undefined;
     clientMock.wsTicket.mockReturnValue(

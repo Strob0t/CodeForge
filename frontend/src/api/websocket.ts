@@ -201,6 +201,8 @@ export function createCodeForgeWS() {
 
   let ws: WebSocket | null = null;
   let disposed = false;
+  // Set by disconnect() (logout): no connection attempts until reconnect().
+  let paused = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // Incremented per connection attempt: a ticket that arrives after the
   // attempt was superseded (reconnect or cleanup) is discarded.
@@ -208,12 +210,12 @@ export function createCodeForgeWS() {
   const listeners: ((ev: MessageEvent) => void)[] = [];
 
   function scheduleReconnect(): void {
-    if (disposed) return;
+    if (disposed || paused) return;
     reconnectTimer = setTimeout(() => void connect(), RECONNECT_DELAY);
   }
 
   async function connect(): Promise<void> {
-    if (disposed) return;
+    if (disposed || paused) return;
     const current = ++attempt;
 
     if (!getAccessToken()) {
@@ -230,7 +232,7 @@ export function createCodeForgeWS() {
       if (current === attempt) scheduleReconnect();
       return;
     }
-    if (disposed || current !== attempt) return;
+    if (disposed || paused || current !== attempt) return;
 
     const socket = new WebSocket(buildWSURL(ticket));
     ws = socket;
@@ -305,12 +307,24 @@ export function createCodeForgeWS() {
     });
   }
 
-  /** Force-close and reconnect (e.g. after token refresh). */
+  /** Force-close and reconnect (e.g. after a login or a user change). */
   function reconnect(): void {
     if (disposed) return;
+    paused = false;
     closeCurrent();
     void connect();
   }
 
-  return { connected, onMessage, onAGUIEvent, reconnect } as const;
+  /**
+   * Close the socket and stop reconnecting until reconnect() (logout). A
+   * ticket-bound connection outlives the token it was issued for, so it must be
+   * closed explicitly.
+   */
+  function disconnect(): void {
+    paused = true;
+    attempt++;
+    closeCurrent();
+  }
+
+  return { connected, onMessage, onAGUIEvent, reconnect, disconnect } as const;
 }

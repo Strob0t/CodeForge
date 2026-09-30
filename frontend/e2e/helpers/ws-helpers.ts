@@ -60,6 +60,11 @@ export class TestWSClient {
           };
         }),
     );
+    // A failed attempt (ticket request or handshake) must not be cached, so the
+    // next connect() retries instead of returning the same rejection.
+    this.openPromise.catch(() => {
+      this.openPromise = null;
+    });
 
     return this.openPromise;
   }

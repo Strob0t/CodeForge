@@ -171,3 +171,16 @@ async def test_handoff_plan_step_propagated() -> None:
     published_data = json.loads(mixin._js.publish.call_args.args[1])
     assert published_data["config"]["plan_id"] == "plan-42"
     assert published_data["config"]["step_id"] == "step-7"
+
+
+async def test_handoff_run_carries_request_tenant() -> None:
+    """The run started for a handoff belongs to the handoff request's tenant (KI-12)."""
+    mixin = _TestMixin()
+    payload = _base_payload()
+    payload["tenant_id"] = "tenant-a"
+    msg = _make_msg(payload)
+    await mixin._handle_handoff_request(msg)
+
+    published_data = json.loads(mixin._js.publish.call_args[0][1])
+    assert published_data["tenant_id"] == "tenant-a"
+    assert published_data["project_id"] == "proj-1"

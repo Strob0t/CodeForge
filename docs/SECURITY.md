@@ -27,7 +27,7 @@ If you discover a security vulnerability, please report it responsibly:
 - **Secrets:** Environment variables (development and, currently, production), never hardcoded; file-based Docker Secrets are only partly wired (see [Secret Management](#secret-management))
 - **SSRF Protection:** Private IP range blocking (IPv4 + IPv6)
 
-> **Known gaps (2026-09-29):** policy/tool enforcement (KI-4..KI-10), cross-tenant WebSocket broadcasts (KI-12), experience pool not tenant-scoped (KI-16), production secrets (KI-46), GDPR retention job never runs (KI-52) - see [Known Issues](todo.md#known-issues).
+> **Known gaps (2026-09-29):** policy/tool enforcement (KI-4..KI-10), tool-call approvals not tenant-checked (KI-63), experience pool not tenant-scoped (KI-16), production secrets (KI-46), GDPR retention job never runs (KI-52) - see [Known Issues](todo.md#known-issues).
 
 ## Secret Management
 

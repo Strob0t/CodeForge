@@ -297,6 +297,41 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /ws/ticket:
+    post:
+      tags: [Auth]
+      summary: Issue a single-use WebSocket ticket
+      description: |
+        Issues a short-lived (30 s), single-use ticket bound to the caller's user and tenant.
+        The client opens the WebSocket with `GET /ws?ticket=<ticket>` (root path, not under /api/v1);
+        the connection receives only events of that tenant. The JWT is never sent in the WebSocket URL
+        (`?token=` is rejected with 401). Users who must change their password get 403.
+      operationId: issueWSTicket
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Ticket issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, expires_in]
+                properties:
+                  ticket:
+                    type: string
+                    description: Opaque single-use ticket for `GET /ws?ticket=`
+                  expires_in:
+                    type: integer
+                    description: Seconds until the ticket expires
+                    example: 30
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: WebSocket tickets are not configured
+
   /auth/change-password:
     post:
       tags: [Auth]

@@ -14,8 +14,10 @@ import (
 
 const (
 	// DefaultSendQueueSize is the number of messages buffered per client. A
-	// client whose queue is full is too slow to keep up and is dropped.
-	DefaultSendQueueSize = 256
+	// client whose queue is full is too slow to keep up and is dropped. Each
+	// streamed LLM chunk fans out to about three messages, so the queue covers a
+	// burst of several hundred chunks while a healthy client's link stalls briefly.
+	DefaultSendQueueSize = 1024
 	// DefaultWriteTimeout bounds a single write to one client. A client that
 	// does not accept a message within it is dropped.
 	DefaultWriteTimeout = 10 * time.Second

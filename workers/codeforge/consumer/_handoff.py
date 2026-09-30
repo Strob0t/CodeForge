@@ -61,6 +61,7 @@ class HandoffHandlerMixin:
                 config[f"handoff_{k}"] = str(v)
 
             run_payload: dict[str, object] = {
+                "tenant_id": payload.get("tenant_id", ""),
                 "run_id": f"handoff-{source_run}-{target_agent}",
                 "task_id": "",
                 "project_id": payload.get("project_id", ""),

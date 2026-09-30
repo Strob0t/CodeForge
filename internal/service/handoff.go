@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // HandoffService handles agent-to-agent handoff messaging (Phase 23B).
@@ -45,6 +46,11 @@ func NewHandoffService(db database.Store, queue messagequeue.Queue, hub ...broad
 func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.HandoffMessage) error {
 	if err := msg.Validate(); err != nil {
 		return err
+	}
+
+	// The handoff run belongs to the caller's tenant; a message cannot move it to another one.
+	if tenantID, ok := tenantctx.Lookup(ctx); ok {
+		msg.TenantID = tenantID
 	}
 
 	// Auto-stamp trust annotation if not provided.
