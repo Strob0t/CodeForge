@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -26,7 +25,10 @@ type DeliveryResult struct {
 	PushError  string          `json:"push_error,omitempty"` // P2-5: propagate push failure
 }
 
-// DeliverService executes delivery strategies after a successful run.
+// DeliverService executes delivery strategies after a successful run. All
+// git (and gh) runs through git.OpenRepo's hardened repository (KI-77):
+// the workspace is agent-writable, so its hooks, filters, drivers and
+// transport settings must not run in the Go Core.
 type DeliverService struct {
 	store database.Store
 	cfg   *config.Runtime
@@ -36,6 +38,15 @@ type DeliverService struct {
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
 	return &DeliverService{store: store, cfg: cfg, pool: pool}
+}
+
+// deliveryIdentity is the author of delivery commits in a repository that
+// configures none (the Go Core ignores global git config).
+var deliveryIdentity = []string{
+	"GIT_AUTHOR_NAME=CodeForge",
+	"GIT_AUTHOR_EMAIL=codeforge@codeforge.invalid",
+	"GIT_COMMITTER_NAME=CodeForge",
+	"GIT_COMMITTER_EMAIL=codeforge@codeforge.invalid",
 }
 
 // Deliver executes the delivery strategy for the given run.
@@ -79,12 +90,16 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run, shortID string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		idx, err := newWorktreeIndex(ctx, dir)
+		repo, err := git.OpenRepo(ctx, dir)
+		if err != nil {
+			return fmt.Errorf("patch delivery: %w", err)
+		}
+		idx, err := newWorktreeIndex(ctx, repo)
 		if err != nil {
 			return fmt.Errorf("patch index: %w", err)
 		}
 		defer idx.remove()
-		diff, err := runGit(ctx, dir, idx.env, "diff", "--cached", "--binary")
+		diff, err := repo.Run(ctx, idx.env, "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv")
 		if err != nil {
 			return fmt.Errorf("git diff: %w", err)
 		}
@@ -107,57 +122,70 @@ func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Ru
 func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-			return fmt.Errorf("git add: %w", err)
-		}
-
-		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit: %w", err)
-		}
-
-		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		repo, err := git.OpenRepo(ctx, dir)
 		if err != nil {
-			return fmt.Errorf("git rev-parse: %w", err)
+			return fmt.Errorf("commit-local delivery: %w", err)
 		}
-
-		slog.Info("commit-local delivered", "run_id", r.ID, "hash", strings.TrimSpace(hash))
+		hash, err := s.commitWorkspace(ctx, repo, shortID, taskTitle)
+		if err != nil {
+			return err
+		}
+		slog.Info("commit-local delivered", "run_id", r.ID, "hash", hash)
 		result = &DeliveryResult{
 			Mode:       run.DeliverModeCommitLocal,
-			CommitHash: strings.TrimSpace(hash),
+			CommitHash: hash,
 		}
 		return nil
 	})
 	return result, err
 }
 
+// commitWorkspace commits the whole working tree on the checked-out branch
+// and returns the commit.
+func (s *DeliverService) commitWorkspace(ctx context.Context, repo *git.Repo, shortID, taskTitle string) (string, error) {
+	if _, err := repo.Run(ctx, nil, "add", "-A"); err != nil {
+		return "", fmt.Errorf("git add: %w", err)
+	}
+	var identity []string
+	if !repo.HasConfig("user.name") || !repo.HasConfig("user.email") {
+		identity = deliveryIdentity
+	}
+	msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
+	if _, err := repo.Run(ctx, identity, "commit", "--no-verify", "--no-gpg-sign", "-m", msg); err != nil {
+		return "", fmt.Errorf("git commit: %w", err)
+	}
+	hash, err := repo.Run(ctx, nil, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse: %w", err)
+	}
+	return strings.TrimSpace(hash), nil
+}
+
 func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
+		repo, err := git.OpenRepo(ctx, dir)
+		if err != nil {
+			return fmt.Errorf("branch delivery: %w", err)
+		}
 		branchName := fmt.Sprintf("codeforge/%s", shortID)
 
-		if _, err := runDeliverGit(ctx, dir, "checkout", "-b", branchName); err != nil {
+		if _, err := repo.Run(ctx, nil, "checkout", "-b", branchName); err != nil {
 			return fmt.Errorf("git checkout -b: %w", err)
 		}
-
-		// Commit on the new branch (add, commit, rev-parse)
-		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-			return fmt.Errorf("git add: %w", err)
-		}
-
-		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit: %w", err)
-		}
-
-		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		commitHash, err := s.commitWorkspace(ctx, repo, shortID, taskTitle)
 		if err != nil {
-			return fmt.Errorf("git rev-parse: %w", err)
+			return err
 		}
-		commitHash := strings.TrimSpace(hash)
 
+		// The remote and its transport come from agent-writable config: a
+		// repository that configures transports is not pushed from.
+		pushErr := repo.RequireNetworkSafe()
+		if pushErr == nil {
+			_, pushErr = repo.Run(ctx, nil, "push", "--no-verify", "-u", "origin", branchName)
+		}
 		var pushError string
-		if _, pushErr := runDeliverGit(ctx, dir, "push", "-u", "origin", branchName); pushErr != nil {
+		if pushErr != nil {
 			pushError = pushErr.Error()
 			slog.Warn("git push failed (branch delivery)", "run_id", r.ID, "error", pushErr)
 		}
@@ -187,44 +215,37 @@ func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, 
 		return branchResult, nil
 	}
 
-	// Try to create PR using gh CLI (not a git operation, no pool needed)
+	// gh reads the remote from the workspace repository and runs git: it
+	// gets the repository's hardened environment.
+	repo, err := git.OpenRepo(ctx, dir)
+	if err == nil {
+		err = repo.RequireNetworkSafe()
+	}
+	if err != nil {
+		slog.Warn("gh pr create skipped, falling back to branch-only", "run_id", r.ID, "error", err)
+		return branchResult, nil
+	}
 	prTitle := fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle)
 	prBody := fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID)
-	prURL, prErr := runDeliverCmd(ctx, dir, "gh", "pr", "create",
+	cmd := repo.Command(ctx, "gh", "pr", "create",
 		"--title", prTitle,
 		"--body", prBody,
 		"--head", branchResult.BranchName,
 	)
-	if prErr != nil {
-		slog.Warn("gh pr create failed, falling back to branch-only", "run_id", r.ID, "error", prErr)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if prErr := cmd.Run(); prErr != nil {
+		slog.Warn("gh pr create failed, falling back to branch-only", "run_id", r.ID, "error", prErr, "stderr", strings.TrimSpace(stderr.String()))
 		return branchResult, nil
 	}
+	prURL := strings.TrimSpace(stdout.String())
 
-	slog.Info("PR delivered", "run_id", r.ID, "url", strings.TrimSpace(prURL))
+	slog.Info("PR delivered", "run_id", r.ID, "url", prURL)
 	return &DeliveryResult{
 		Mode:       run.DeliverModePR,
 		BranchName: branchResult.BranchName,
 		CommitHash: branchResult.CommitHash,
-		PRURL:      strings.TrimSpace(prURL),
+		PRURL:      prURL,
 	}, nil
-}
-
-// runDeliverGit runs a git command in the given directory.
-func runDeliverGit(ctx context.Context, dir string, args ...string) (string, error) {
-	return runDeliverCmd(ctx, dir, "git", args...)
-}
-
-// runDeliverCmd runs an arbitrary command in the given directory.
-func runDeliverCmd(ctx context.Context, dir, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
 }

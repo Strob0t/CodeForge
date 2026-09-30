@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,9 +9,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/git"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -312,18 +312,14 @@ func (s *ProjectService) ListRemoteBranches(ctx context.Context, repoURL string)
 	cmdCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL validated: parsed URL with scheme allowlist.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		slog.Warn("git ls-remote failed", "url", repoURL, "error", err, "stderr", stderr.String())
+	out, err := git.Run(cmdCtx, "", "ls-remote", "--heads", "--", repoURL)
+	if err != nil {
+		slog.Warn("git ls-remote failed", "url", repoURL, "error", err)
 		return nil, fmt.Errorf("list remote branches: git ls-remote failed: %w", err)
 	}
 
 	var branches []string
-	for _, line := range strings.Split(stdout.String(), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

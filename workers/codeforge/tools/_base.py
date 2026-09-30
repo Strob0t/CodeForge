@@ -68,6 +68,13 @@ def resolve_safe_path(
     if not target.is_relative_to(workspace):
         return Path(), ToolResult(output="", error="path traversal blocked", success=False)
 
+    # Git metadata is off limits for file tools (KI-77): the Go Core runs git in
+    # this workspace, and .git/config, hooks and info/attributes can make git
+    # run programs. Checked on the resolved path, so a symlink into .git is
+    # refused as well; any case, for case-insensitive filesystems.
+    if any(part.lower() == ".git" for part in target.relative_to(workspace).parts):
+        return Path(), ToolResult(output="", error="access to .git is blocked", success=False)
+
     if must_exist and not target.exists():
         return Path(), ToolResult(output="", error=f"not found: {relative_path}", success=False)
 

@@ -29,8 +29,8 @@ func PresetHeadlessSafeSandbox() PolicyProfile {
 		Mode:        ModeDefault,
 		Rules: append(readOnlyRules(),
 			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
-			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: secretPaths()},
-			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAsk, PathDeny: secretPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAsk, PathDeny: protectedPaths()},
 			PermissionRule{
 				Specifier:    ToolSpecifier{Tool: ToolBash},
 				Decision:     DecisionAllow,
@@ -62,8 +62,8 @@ func PresetHeadlessPermissiveSandbox() PolicyProfile {
 		Mode:        ModeAcceptEdits,
 		Rules: append(readOnlyRules(),
 			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
-			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: secretPaths()},
-			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: secretPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{
 				Specifier:   ToolSpecifier{Tool: ToolBash},
 				Decision:    DecisionAllow,
@@ -92,8 +92,8 @@ func PresetTrustedMountAutonomous() PolicyProfile {
 		Mode:        ModeAcceptEdits,
 		Rules: append(readOnlyRules(),
 			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
-			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: secretPaths()},
-			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: secretPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionAllow},
 		),
 		Termination: TerminationCondition{
@@ -131,9 +131,22 @@ func readOnlyRules() []PermissionRule {
 	}
 }
 
-// secretPaths are the workspace paths that no preset lets an agent edit or write.
+// secretPaths are the workspace files that hold secrets.
 func secretPaths() []string {
 	return []string{".env", "**/.env", "secrets/**", "**/credentials.*"}
+}
+
+// gitMetadataPaths are git's own files: the Go Core runs git in the workspace,
+// and .git/config, hooks and info/attributes make git run programs (KI-77).
+// Bash can still write there, which the Go Core's hardened git covers.
+func gitMetadataPaths() []string {
+	return []string{"**/.git", "**/.git/**"}
+}
+
+// protectedPaths are the workspace paths that no preset lets an agent edit or
+// write.
+func protectedPaths() []string {
+	return append(secretPaths(), gitMetadataPaths()...)
 }
 
 // PresetNames returns the names of all built-in presets.

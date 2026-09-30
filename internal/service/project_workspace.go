@@ -7,9 +7,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/Strob0t/CodeForge/internal/git"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -110,7 +111,7 @@ func (s *ProjectService) InitWorkspace(ctx context.Context, id, tenantID string)
 	}
 
 	// Initialize a git repository so agents can work with version control.
-	if gitErr := exec.CommandContext(ctx, "git", "init", destPath).Run(); gitErr != nil { //nolint:gosec // destPath is constructed from workspaceRoot/tenantID/projectID, not user input
+	if _, gitErr := git.Run(ctx, "", "init", destPath); gitErr != nil {
 		// Clean up on failure.
 		_ = os.RemoveAll(destPath)
 		return nil, fmt.Errorf("git init: %w", gitErr)

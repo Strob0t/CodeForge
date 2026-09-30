@@ -9,12 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
@@ -144,7 +144,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 		}
 	}
 
-	porcelain, err := runGit(ctx, repoPath, "status", "--porcelain")
+	porcelain, err := runGit(ctx, repoPath, "status", "--porcelain", "--ignore-submodules=all")
 	if err != nil {
 		return nil, fmt.Errorf("github: porcelain status: %w", err)
 	}
@@ -262,19 +262,8 @@ func parseLinkNext(header string) string {
 	return ""
 }
 
-// runGit executes a git command and returns its combined stdout.
+// runGit runs git hardened in the workspace repository at dir, or outside any
+// repository when dir is "" (clone).
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // G204: args are controlled by caller (internal git operations)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
+	return git.RunIn(ctx, dir, args...) // hardened: workspaces are agent-writable (KI-77)
 }
