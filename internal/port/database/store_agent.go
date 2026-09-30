@@ -30,3 +30,11 @@ type AgentStore interface {
 	ListAgentInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error)
 	MarkInboxRead(ctx context.Context, messageID string) error
 }
+
+// EndedTeam is a team that has not ended although every execution plan of it
+// has (the stuck-work watchdog ends it). Failed: a plan did not complete.
+type EndedTeam struct {
+	ID       string
+	TenantID string
+	Failed   bool
+}

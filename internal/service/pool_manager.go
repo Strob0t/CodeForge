@@ -13,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // PoolManagerService manages agent team lifecycle: creation, assembly, and cleanup.
@@ -170,13 +171,10 @@ func (s *PoolManagerService) AssembleTeamForStrategy(
 	return s.CreateTeam(ctx, req)
 }
 
-// CleanupTeam marks a team as completed or failed and releases its agents.
+// CleanupTeam marks a team as completed or failed. Its members' status is
+// left to their runs: CreateTeam reserves no agent, every run resets its agent
+// when it ends, and a member may run work of another team or plan by now.
 func (s *PoolManagerService) CleanupTeam(ctx context.Context, teamID string, failed bool) error {
-	team, err := s.store.GetTeam(ctx, teamID)
-	if err != nil {
-		return fmt.Errorf("get team: %w", err)
-	}
-
 	status := agent.TeamStatusCompleted
 	if failed {
 		status = agent.TeamStatusFailed
@@ -184,22 +182,68 @@ func (s *PoolManagerService) CleanupTeam(ctx context.Context, teamID string, fai
 
 	if err := s.store.UpdateTeamStatus(ctx, teamID, status); err != nil {
 		if errors.Is(err, domain.ErrConflict) {
-			// Cleaned up before (KI-31): its agents may work for another team by now.
+			// Cleaned up before (KI-31).
 			slog.InfoContext(ctx, "team already ended, cleanup skipped", "team_id", teamID)
 			return nil
 		}
 		return fmt.Errorf("update team status: %w", err)
 	}
 
-	// Release all agents back to idle.
-	for _, m := range team.Members {
-		if err := s.store.UpdateAgentStatus(ctx, m.AgentID, agent.StatusIdle); err != nil {
-			slog.Warn("failed to release agent", "agent_id", m.AgentID, "error", err)
-		}
-	}
-
 	slog.Info("team cleaned up", "team_id", teamID, "status", status)
 	return nil
+}
+
+// PlanEnded is an orchestrator plan-end callback (AddOnPlanComplete, KI-33):
+// the team of a plan that completed or failed ends with it, unless another
+// plan of the team has not ended.
+func (s *PoolManagerService) PlanEnded(ctx context.Context, planID, status string) {
+	p, err := s.store.GetPlan(ctx, planID)
+	if err != nil || p.TeamID == "" {
+		return
+	}
+	plans, err := s.store.ListPlansByProject(ctx, p.ProjectID)
+	if err != nil {
+		slog.Warn("team not ended with its plan, the watchdog ends it later", "team_id", p.TeamID, "error", err)
+		return
+	}
+	for i := range plans {
+		if plans[i].TeamID == p.TeamID && !plans[i].Status.IsTerminal() {
+			return
+		}
+	}
+	logBestEffort(ctx, s.CleanupTeam(ctx, p.TeamID, status != string(plan.StatusCompleted)),
+		"CleanupTeam", slog.String("team_id", p.TeamID))
+}
+
+// endedTeamBatch limits the teams one watchdog check ends; the rest follow
+// at the next check.
+const endedTeamBatch = 100
+
+// endedTeamLister finds teams whose plans all ended, across tenants
+// (postgres.Store.ListEndedTeams).
+type endedTeamLister interface {
+	ListEndedTeams(ctx context.Context, limit int) ([]database.EndedTeam, error)
+}
+
+// CleanupEndedTeams ends the teams whose plans all ended but that were not
+// ended with them (a cancelled plan, or a plan that ended while Go Core was
+// down), each in its own tenant, and returns how many it ended. It runs at
+// startup and as a stuck-work watchdog check.
+func (s *PoolManagerService) CleanupEndedTeams(ctx context.Context, teams endedTeamLister) (int, error) {
+	ended, err := teams.ListEndedTeams(ctx, endedTeamBatch)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, t := range ended {
+		tctx := tenantctx.WithTenant(ctx, t.TenantID)
+		if err := s.CleanupTeam(tctx, t.ID, t.Failed); err != nil {
+			slog.Warn("end team whose plans ended", "team_id", t.ID, "error", err)
+			continue
+		}
+		n++
+	}
+	return n, nil
 }
 
 // GetTeam returns a team by ID.

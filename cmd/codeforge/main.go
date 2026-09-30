@@ -391,6 +391,8 @@ func run() error {
 	// --- Wire SharedContext into PoolManager + Orchestrator (Phase 5E) ---
 	poolManagerSvc.SetSharedContext(sharedCtxSvc)
 	orchSvc.SetSharedContext(sharedCtxSvc)
+	// A team ends with its plan (KI-33).
+	orchSvc.AddOnPlanComplete(poolManagerSvc.PlanEnded)
 
 	// --- Mode Service (Phase 5E) ---
 	modeSvc := service.NewModeService()
@@ -1067,9 +1069,15 @@ func run() error {
 		}
 	}()
 
-	// --- Stuck-work watchdog (KI-28 quality gates, KI-65 lost workers) ---
+	// --- Stuck-work watchdog (KI-28 quality gates, KI-65 lost workers, KI-33 teams) ---
 	// Work acked on accept whose worker stopped sending heartbeats is ended
 	// through its completion path (runtime.heartbeat_timeout; 0 disables).
+	// Teams whose plans all ended are ended as well.
+	endedTeams := service.StuckWorkCheck{Name: "ended teams", EndStuck: func(ctx context.Context) (int, error) {
+		return poolManagerSvc.CleanupEndedTeams(ctx, store)
+	}}
+	// Teams whose plans ended while Go Core was down end at startup.
+	service.NewStuckWorkWatchdog(0, endedTeams).RunOnce(ctx)
 	stopStuckWorkWatchdog := service.NewStuckWorkWatchdog(cfg.Runtime.StaleCheckInterval,
 		service.StuckWorkCheck{Name: "lost tasks", EndStuck: func(ctx context.Context) (int, error) {
 			return agentSvc.FailTasksWithLostWorker(ctx, service.LostWorkerAfter(&cfg.Runtime))
@@ -1077,6 +1085,7 @@ func run() error {
 		service.StuckWorkCheck{Name: "quality gates", EndStuck: runtimeSvc.FailStuckQualityGates},
 		service.StuckWorkCheck{Name: "lost runs", EndStuck: runtimeSvc.EndRunsWithLostWorker},
 		service.StuckWorkCheck{Name: "lost conversation runs", EndStuck: conversationSvc.EndConversationRunsWithLostWorker},
+		endedTeams,
 	).Start(ctx)
 
 	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
