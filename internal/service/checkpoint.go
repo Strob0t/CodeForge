@@ -1,11 +1,9 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +28,15 @@ type fileSnapshot struct {
 
 // CheckpointService manages git-based shadow checkpoints for agent runs
 // and file-content snapshots for per-tool-call revert.
+//
+// A checkpoint is a commit of the whole working tree (tracked changes and
+// untracked files that are not ignored), built from a private index with
+// commit-tree and kept under checkpointRef, never on a branch. HEAD, the
+// user's index and every branch stay as they are, so delivery (commit,
+// branch, PR, patch) sees exactly the run's change, before or after the
+// checkpoints are cleaned up (KI-27). The run's first checkpoint has the
+// commit checked out when the run began as its parent, each later one the
+// previous checkpoint.
 type CheckpointService struct {
 	mu          sync.Mutex
 	checkpoints map[string][]Checkpoint // runID -> ordered list
@@ -48,27 +55,47 @@ func NewCheckpointService(pool *git.Pool) *CheckpointService {
 	}
 }
 
-// CreateCheckpoint stages all changes and creates a shadow git commit.
+// checkpointRef is the ref that keeps a run's checkpoints reachable. It is
+// outside refs/heads and refs/tags, so no branch, push or clone carries it.
+func checkpointRef(runID string) string {
+	return "refs/codeforge/checkpoints/" + runID
+}
+
+// checkpointIdentity is the author of checkpoint commits: the workspace may
+// have no git identity configured, and checkpoints are not the user's commits.
+var checkpointIdentity = []string{
+	"GIT_AUTHOR_NAME=CodeForge Checkpoint",
+	"GIT_AUTHOR_EMAIL=checkpoint@codeforge.invalid",
+	"GIT_COMMITTER_NAME=CodeForge Checkpoint",
+	"GIT_COMMITTER_EMAIL=checkpoint@codeforge.invalid",
+}
+
+// CreateCheckpoint records the workspace's working tree as the run's next
+// checkpoint without touching HEAD, branches or the user's index; the
+// workspace's hooks do not run.
 func (s *CheckpointService) CreateCheckpoint(ctx context.Context, runID, workspacePath, tool, callID string) error {
 	var hash string
 	err := s.pool.Run(ctx, func() error {
-		// Stage all changes
-		if _, err := runCheckpointGit(ctx, workspacePath, "add", "-A"); err != nil {
-			return fmt.Errorf("checkpoint git add: %w", err)
-		}
-
-		// Create shadow commit
-		msg := fmt.Sprintf("codeforge-checkpoint: %s", callID)
-		if _, err := runCheckpointGit(ctx, workspacePath, "commit", "--allow-empty", "-m", msg); err != nil {
-			return fmt.Errorf("checkpoint git commit: %w", err)
-		}
-
-		// Get commit hash
-		h, err := runCheckpointGit(ctx, workspacePath, "rev-parse", "HEAD")
+		tree, err := worktreeTree(ctx, workspacePath)
 		if err != nil {
-			return fmt.Errorf("checkpoint get hash: %w", err)
+			return fmt.Errorf("checkpoint tree: %w", err)
 		}
-		hash = h
+		args := []string{"commit-tree", "--no-gpg-sign", "-m", "codeforge-checkpoint: " + callID}
+		parent, hasParent, err := s.checkpointParent(ctx, runID, workspacePath)
+		if err != nil {
+			return fmt.Errorf("checkpoint parent: %w", err)
+		}
+		if hasParent {
+			args = append(args, "-p", parent)
+		}
+		out, err := runGit(ctx, workspacePath, checkpointIdentity, append(args, tree)...)
+		if err != nil {
+			return fmt.Errorf("checkpoint commit: %w", err)
+		}
+		hash = strings.TrimSpace(out)
+		if _, err := runGit(ctx, workspacePath, nil, "update-ref", checkpointRef(runID), hash); err != nil {
+			return fmt.Errorf("checkpoint ref: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
@@ -78,7 +105,7 @@ func (s *CheckpointService) CreateCheckpoint(ctx context.Context, runID, workspa
 	s.mu.Lock()
 	s.checkpoints[runID] = append(s.checkpoints[runID], Checkpoint{
 		RunID:      runID,
-		CommitHash: strings.TrimSpace(hash),
+		CommitHash: hash,
 		Tool:       tool,
 		CallID:     callID,
 		CreatedAt:  time.Now(),
@@ -86,6 +113,42 @@ func (s *CheckpointService) CreateCheckpoint(ctx context.Context, runID, workspa
 	s.mu.Unlock()
 
 	return nil
+}
+
+// checkpointParent returns the parent of the run's next checkpoint: its last
+// checkpoint, else the commit checked out now (none on an unborn branch).
+func (s *CheckpointService) checkpointParent(ctx context.Context, runID, workspacePath string) (parent string, ok bool, err error) {
+	if last, ok := s.checkpointAt(runID, -1); ok {
+		return last.CommitHash, true, nil
+	}
+	return headCommit(ctx, workspacePath)
+}
+
+// headCommit returns the commit HEAD points to; ok is false on an unborn
+// branch.
+func headCommit(ctx context.Context, dir string) (commit string, ok bool, err error) {
+	if _, err := runGit(ctx, dir, nil, "rev-parse", "--git-dir"); err != nil {
+		return "", false, err
+	}
+	out, err := runGit(ctx, dir, nil, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	if err != nil {
+		return "", false, nil // a repository whose branch has no commit yet
+	}
+	return strings.TrimSpace(out), true, nil
+}
+
+// worktreeTree writes the tree of the workspace's working tree as it is.
+func worktreeTree(ctx context.Context, dir string) (string, error) {
+	idx, err := newWorktreeIndex(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	defer idx.remove()
+	out, err := runGit(ctx, dir, idx.env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // GetCheckpoints returns the ordered list of checkpoints for a run.
@@ -98,45 +161,97 @@ func (s *CheckpointService) GetCheckpoints(runID string) []Checkpoint {
 	return out
 }
 
-// RewindToFirst resets the workspace to the state before the first checkpoint.
-func (s *CheckpointService) RewindToFirst(ctx context.Context, runID, workspacePath string) error {
+// checkpointAt returns the run's checkpoint at index i; -1 is the last one.
+func (s *CheckpointService) checkpointAt(runID string, i int) (Checkpoint, bool) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	cps := s.checkpoints[runID]
-	s.mu.Unlock()
-
 	if len(cps) == 0 {
+		return Checkpoint{}, false
+	}
+	if i < 0 {
+		i = len(cps) - 1
+	}
+	return cps[i], true
+}
+
+// RewindToFirst restores the workspace to its state at the run's first
+// checkpoint, before the run changed anything: the working tree as it was,
+// including the user's uncommitted and untracked files, and, if the run
+// moved HEAD (an agent commit), the commit checked out when the run began
+// with the index reset to it. Files the run added are removed; ignored files
+// are left alone.
+func (s *CheckpointService) RewindToFirst(ctx context.Context, runID, workspacePath string) error {
+	first, ok := s.checkpointAt(runID, 0)
+	if !ok {
 		return fmt.Errorf("no checkpoints for run %s", runID)
 	}
-
-	target := cps[0].CommitHash + "^"
 	return s.pool.Run(ctx, func() error {
-		if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--hard", target); err != nil {
+		if err := restoreHead(ctx, workspacePath, first.CommitHash); err != nil {
+			return fmt.Errorf("rewind to first: %w", err)
+		}
+		if err := restoreWorktree(ctx, workspacePath, first.CommitHash); err != nil {
 			return fmt.Errorf("rewind to first: %w", err)
 		}
 		return nil
 	})
 }
 
-// RewindToLast resets the workspace to the state before the last checkpoint.
+// RewindToLast restores the working tree to its state at the run's last
+// checkpoint, undoing only the change made after it. HEAD is not moved.
 func (s *CheckpointService) RewindToLast(ctx context.Context, runID, workspacePath string) error {
-	s.mu.Lock()
-	cps := s.checkpoints[runID]
-	s.mu.Unlock()
-
-	if len(cps) == 0 {
+	last, ok := s.checkpointAt(runID, -1)
+	if !ok {
 		return fmt.Errorf("no checkpoints for run %s", runID)
 	}
-
-	target := cps[len(cps)-1].CommitHash + "^"
 	return s.pool.Run(ctx, func() error {
-		if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--hard", target); err != nil {
+		if err := restoreWorktree(ctx, workspacePath, last.CommitHash); err != nil {
 			return fmt.Errorf("rewind to last: %w", err)
 		}
 		return nil
 	})
 }
 
-// CleanupCheckpoints removes shadow commits but keeps the current working state.
+// restoreHead moves the checked-out branch and the index back to the first
+// checkpoint's parent, the commit checked out when the run began, if the run
+// moved HEAD. The working tree is left to restoreWorktree.
+func restoreHead(ctx context.Context, dir, firstCheckpoint string) error {
+	out, err := runGit(ctx, dir, nil, "rev-list", "--parents", "--max-count=1", firstCheckpoint)
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(out)
+	if len(fields) < 2 {
+		return nil // the run began on an unborn branch: no commit to go back to
+	}
+	preRunHead := fields[1]
+	head, ok, err := headCommit(ctx, dir)
+	if err != nil {
+		return err
+	}
+	if ok && head == preRunHead {
+		return nil
+	}
+	_, err = runGit(ctx, dir, nil, "reset", "--quiet", "--mixed", preRunHead)
+	return err
+}
+
+// restoreWorktree makes the working tree match the checkpoint's tree: a
+// private index holding the current working tree is moved to the checkpoint
+// with read-tree -u, which rewrites changed files and deletes the files the
+// checkpoint does not have.
+func restoreWorktree(ctx context.Context, dir, checkpoint string) error {
+	idx, err := newWorktreeIndex(ctx, dir)
+	if err != nil {
+		return err
+	}
+	defer idx.remove()
+	_, err = runGit(ctx, dir, idx.env, "read-tree", "-u", "--reset", checkpoint)
+	return err
+}
+
+// CleanupCheckpoints forgets the run's checkpoints and deletes their ref;
+// the working tree, the index and HEAD are not touched.
 func (s *CheckpointService) CleanupCheckpoints(ctx context.Context, runID, workspacePath string) error {
 	s.mu.Lock()
 	cps := s.checkpoints[runID]
@@ -147,9 +262,8 @@ func (s *CheckpointService) CleanupCheckpoints(ctx context.Context, runID, works
 		return nil
 	}
 
-	target := cps[0].CommitHash + "^"
 	return s.pool.Run(ctx, func() error {
-		if _, err := runCheckpointGit(ctx, workspacePath, "reset", "--soft", target); err != nil {
+		if _, err := runGit(ctx, workspacePath, nil, "update-ref", "-d", checkpointRef(runID)); err != nil {
 			return fmt.Errorf("cleanup checkpoints: %w", err)
 		}
 		return nil
@@ -206,21 +320,4 @@ func (s *CheckpointService) ClearRun(runID string) {
 	s.snapshotMu.Lock()
 	delete(s.snapshots, runID)
 	s.snapshotMu.Unlock()
-}
-
-// runCheckpointGit executes a git command in the given directory.
-func runCheckpointGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
 }

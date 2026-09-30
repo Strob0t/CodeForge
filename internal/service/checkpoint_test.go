@@ -186,10 +186,14 @@ func TestCheckpoint_CreateCreatesCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify commit exists
-	log := gitRun(t, dir, "log", "--oneline", "-1")
+	// The checkpoint commit is kept under the run's checkpoint ref, not on
+	// the checked-out branch (KI-27).
+	log := gitRun(t, dir, "log", "--oneline", "-1", "refs/codeforge/checkpoints/run-1")
 	if !strings.Contains(log, "codeforge-checkpoint: call-1") {
 		t.Fatalf("expected checkpoint commit, got: %s", log)
+	}
+	if head := gitRun(t, dir, "log", "--oneline", "-1"); strings.Contains(head, "codeforge-checkpoint") {
+		t.Fatalf("checkpoint commit on the branch: %s", head)
 	}
 
 	// Verify checkpoints list
@@ -204,18 +208,19 @@ func TestCheckpoint_RewindToFirst(t *testing.T) {
 	ctx := context.Background()
 	svc := service.NewCheckpointService(git.NewPool(5))
 
-	// Create two changes with checkpoints
-	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Two changes, each after its checkpoint: the runtime checkpoints before
+	// a file-modifying tool call executes.
 	if err := svc.CreateCheckpoint(ctx, "run-1", dir, "Edit", "call-1"); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("v2"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := svc.CreateCheckpoint(ctx, "run-1", dir, "Edit", "call-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("v2"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -247,22 +252,22 @@ func TestCheckpoint_RewindToLast(t *testing.T) {
 	ctx := context.Background()
 	svc := service.NewCheckpointService(git.NewPool(5))
 
-	// Create two changes
-	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Two changes, each after its checkpoint (the runtime's order)
 	if err := svc.CreateCheckpoint(ctx, "run-1", dir, "Edit", "call-1"); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("v2"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "file1.txt"), []byte("v1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := svc.CreateCheckpoint(ctx, "run-1", dir, "Edit", "call-2"); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "file2.txt"), []byte("v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	// Rewind to before last checkpoint only
+	// Undo the change after the last checkpoint only
 	if err := svc.RewindToLast(ctx, "run-1", dir); err != nil {
 		t.Fatal(err)
 	}

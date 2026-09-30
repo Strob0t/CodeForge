@@ -73,10 +73,18 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	}
 }
 
+// deliverPatch writes the run's whole change as a patch: the working tree
+// (including new files) against HEAD, diffed from a private index so that the
+// user's index is not touched.
 func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run, shortID string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		diff, err := runDeliverGit(ctx, dir, "diff", "HEAD")
+		idx, err := newWorktreeIndex(ctx, dir)
+		if err != nil {
+			return fmt.Errorf("patch index: %w", err)
+		}
+		defer idx.remove()
+		diff, err := runGit(ctx, dir, idx.env, "diff", "--cached", "--binary")
 		if err != nil {
 			return fmt.Errorf("git diff: %w", err)
 		}
