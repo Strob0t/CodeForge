@@ -498,7 +498,7 @@ func run() error {
 	// --- VCS Webhook & Sync Services ---
 	vcsWebhookSvc := service.NewVCSWebhookService(hub, store)
 	syncSvc := service.NewSyncService(store)
-	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc, store)
+	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc, store, pmConfigs)
 	slog.Info("vcs webhook, pm webhook, and sync services initialized")
 
 	// --- Review Service (Phase 12I) ---

@@ -368,8 +368,10 @@ type QuarantineResolvedEvent struct {
 type PMSyncEvent struct {
 	ProjectID string `json:"project_id"`
 	Provider  string `json:"provider"`
+	Status    string `json:"status"` // "completed" or "failed"
 	Created   int    `json:"created"`
 	Updated   int    `json:"updated"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ChannelMessageEvent is broadcast when a new message is posted in a channel.
