@@ -180,6 +180,14 @@ class ToolCallPart:
 
 
 @dataclass(frozen=True)
+class TokenLogprob:
+    """A candidate token and its log probability."""
+
+    token: str
+    logprob: float
+
+
+@dataclass(frozen=True)
 class ChatCompletionResponse:
     """Parsed response from a chat completion with tool-calling support."""
 
@@ -190,6 +198,9 @@ class ChatCompletionResponse:
     tokens_out: int
     model: str
     cost_usd: float = 0.0
+    # The most likely candidates for the first output token, when requested
+    # with chat_completion(logprobs=True, top_logprobs=n).
+    top_logprobs: list[TokenLogprob] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -423,6 +434,23 @@ def _parse_duration(value: str) -> float | None:
     if ms:
         total += int(ms) / 1000
     return total if total > 0 else None
+
+
+def _parse_top_logprobs(logprobs: object) -> list[TokenLogprob]:
+    """Return the top candidates of the first output token from an OpenAI logprobs object."""
+    if not isinstance(logprobs, dict):
+        return []
+    content = logprobs.get("content")
+    if not isinstance(content, list) or not content or not isinstance(content[0], dict):
+        return []
+    candidates = content[0].get("top_logprobs")
+    if not isinstance(candidates, list):
+        return []
+    return [
+        TokenLogprob(token=str(c["token"]), logprob=float(c["logprob"]))
+        for c in candidates
+        if isinstance(c, dict) and "token" in c and isinstance(c.get("logprob"), (int, float))
+    ]
 
 
 class LiteLLMClient:
@@ -678,8 +706,14 @@ class LiteLLMClient:
         max_tokens: int | None = None,
         response_format: dict[str, object] | None = None,
         provider_api_key: str = "",
+        logprobs: bool = False,
+        top_logprobs: int | None = None,
     ) -> ChatCompletionResponse:
-        """Send a chat completion with tool-calling support and automatic retry."""
+        """Send a chat completion with tool-calling support and automatic retry.
+
+        With *logprobs* the response carries the *top_logprobs* most likely
+        candidates for the first output token.
+        """
         if not model:
             from codeforge.model_resolver import resolve_model
 
@@ -703,6 +737,10 @@ class LiteLLMClient:
                 payload["response_format"] = response_format
             if provider_api_key:
                 payload["api_key"] = provider_api_key
+            if logprobs:
+                payload["logprobs"] = True
+                if top_logprobs is not None:
+                    payload["top_logprobs"] = top_logprobs
 
             logger.debug(
                 "chat_completion model=%s tools=%d temperature=%.2f",
@@ -759,6 +797,7 @@ class LiteLLMClient:
             tokens_out=int(tokens_out),
             model=model,
             cost_usd=cost,
+            top_logprobs=_parse_top_logprobs(choice.get("logprobs") if isinstance(choice, dict) else None),
         )
 
     async def chat_completion_stream(

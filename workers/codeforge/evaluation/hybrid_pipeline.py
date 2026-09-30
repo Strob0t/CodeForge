@@ -27,7 +27,13 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.evaluation.pipeline import EvaluationPipeline
-from codeforge.evaluation.providers.base import EvalDimension, EvalScore, ExecutionResult, TaskSpec
+from codeforge.evaluation.providers.base import (
+    EvalDimension,
+    EvalScore,
+    ExecutionResult,
+    TaskSpec,
+    average_of_scores,
+)
 
 if TYPE_CHECKING:
     from codeforge.evaluation.evaluators.base import Evaluator
@@ -206,6 +212,4 @@ def _merge_scores(
 
 
 def _average(dims: list[EvalDimension]) -> float:
-    if not dims:
-        return 0.0
-    return sum(d.score for d in dims) / len(dims)
+    return average_of_scores(dims)

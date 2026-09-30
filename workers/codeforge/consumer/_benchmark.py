@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     import nats.aio.msg
 
     from codeforge.consumer._in_flight import AcceptedWork
+    from codeforge.llm import LiteLLMClient
 
 
 logger = structlog.get_logger()
@@ -176,7 +177,8 @@ async def _wait_for_litellm(llm: object, log: structlog.stdlib.BoundLogger) -> b
 # --- Evaluator + pipeline builders ---
 
 
-def _build_evaluators(evaluator_names: list[str], model: str) -> list:
+def _build_evaluators(evaluator_names: list[str], model: str, llm: LiteLLMClient | None = None) -> list:
+    """Build the evaluators; the LLM verifiers call the proxy through *llm* (the worker's client)."""
     from codeforge.evaluation.evaluators.functional_test import FunctionalTestEvaluator
     from codeforge.evaluation.evaluators.llm_judge import LLMJudgeEvaluator
     from codeforge.evaluation.evaluators.sparc import SPARCEvaluator
@@ -203,11 +205,11 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
         elif name == "sparc":
             evaluators.append(SPARCEvaluator())
         elif name == "trajectory_verifier":
-            evaluators.append(TrajectoryVerifierEvaluator(model=model))
+            evaluators.append(TrajectoryVerifierEvaluator(model=model, llm=llm))
         elif name == "logprob_verifier":
             from codeforge.evaluation.evaluators.logprob_verifier import LogprobVerifierEvaluator
 
-            evaluators.append(LogprobVerifierEvaluator(model=model))
+            evaluators.append(LogprobVerifierEvaluator(model=model, llm=llm))
         elif name == "filesystem_state":
             from codeforge.evaluation.evaluators.filesystem_state import FilesystemStateEvaluator
 
@@ -273,9 +275,7 @@ def _build_progress_callbacks(js: object, run_id: str, tenant_id: str = "") -> t
         if hasattr(result, "execution"):
             cost = getattr(result.execution, "cost_usd", 0.0) or 0.0
             if result.eval_score is not None:
-                dims = getattr(result.eval_score, "dimensions", [])
-                dim_scores = [d.score for d in dims if hasattr(d, "score")]
-                avg_task_score = sum(dim_scores) / len(dim_scores) if dim_scores else 0.0
+                avg_task_score = result.eval_score.average_score()
         else:
             cost = getattr(result, "cost_usd", 0.0) or 0.0
             scores = getattr(result, "scores", {}) or {}
@@ -466,7 +466,7 @@ class BenchmarkHandlerMixin:
             try:
                 log.info("benchmark run started")
                 start = time.monotonic()
-                evaluators = _build_evaluators(req.evaluators, req.model)
+                evaluators = _build_evaluators(req.evaluators, req.model, llm=self._llm)
                 pipeline = EvaluationPipeline(evaluators)
                 hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
                 effective_llm = await self._resolve_effective_llm(req, log)

@@ -11,7 +11,13 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.evaluation.providers.base import EvalDimension, EvalScore, ExecutionResult, TaskSpec
+from codeforge.evaluation.providers.base import (
+    EvalDimension,
+    EvalScore,
+    ExecutionResult,
+    TaskSpec,
+    average_of_scores,
+)
 
 if TYPE_CHECKING:
     from codeforge.evaluation.evaluators.base import Evaluator
@@ -57,16 +63,18 @@ class EvaluationPipeline:
                 log.debug("evaluator completed", dimensions=len(dimensions))
             except Exception as exc:
                 log.exception("evaluator failed", error=str(exc))
+                message = str(exc)[:500] or type(exc).__name__
                 all_dimensions.append(
                     EvalDimension(
                         name=f"{evaluator.name}_error",
                         score=0.0,
-                        details={"error": "evaluator raised an exception"},
+                        details={"error": message},
+                        error=message,
                     )
                 )
 
         # Compute derived metrics.
-        avg_score = _average_score(all_dimensions)
+        avg_score = average_of_scores(all_dimensions)
         cost_per_point = (result.cost_usd / avg_score) if avg_score > 0 else 0.0
         total_tokens = result.tokens_in + result.tokens_out
         token_efficiency = (avg_score / total_tokens) if total_tokens > 0 else 0.0
@@ -88,10 +96,3 @@ class EvaluationPipeline:
             score = await self.evaluate(task, result)
             scores.append(score)
         return scores
-
-
-def _average_score(dimensions: list[EvalDimension]) -> float:
-    """Compute mean score across dimensions."""
-    if not dimensions:
-        return 0.0
-    return sum(d.score for d in dimensions) / len(dimensions)

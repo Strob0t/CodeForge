@@ -80,6 +80,15 @@ class EvalDimension(BaseModel):
     score: float
     details: dict[str, str] = {}
     cost_usd: float = 0.0
+    # Set when the evaluator failed: the dimension marks the error and its
+    # score is not a result (averages leave it out).
+    error: str = ""
+
+
+def average_of_scores(dimensions: list[EvalDimension]) -> float:
+    """Mean score of the dimensions that are results (errors left out); 0.0 if there are none."""
+    scored = [d.score for d in dimensions if not d.error]
+    return sum(scored) / len(scored) if scored else 0.0
 
 
 class EvalScore(BaseModel):
@@ -91,10 +100,8 @@ class EvalScore(BaseModel):
     token_efficiency: float = 0.0
 
     def average_score(self) -> float:
-        """Compute mean score across all dimensions."""
-        if not self.dimensions:
-            return 0.0
-        return sum(d.score for d in self.dimensions) / len(self.dimensions)
+        """Compute mean score across the dimensions that are results (errors left out)."""
+        return average_of_scores(self.dimensions)
 
 
 class Capabilities(BaseModel):

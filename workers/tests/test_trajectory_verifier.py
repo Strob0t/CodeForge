@@ -6,15 +6,22 @@ LLM parse failure, stage property, and multi-dimension output.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
+from codeforge.evaluation.evaluators.base import EvaluatorError
 from codeforge.evaluation.evaluators.trajectory_verifier import (
     TrajectoryVerifierEvaluator,
     _format_trajectory,
 )
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, TrajectoryMessage
+
+
+class _Answer:
+    """The verifier's answer: what the evaluator reads of LiteLLMClient.chat_completion's response."""
+
+    content: str = ""
 
 
 def _task() -> TaskSpec:
@@ -91,9 +98,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_returns_five_dimensions(self) -> None:
         """Well-formed trajectory -> 5 named EvalDimension scores."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "ACHIEVED", "approach_efficiency": "PARTIALLY_ACHIEVED", '
             '"code_quality": "ACHIEVED", "error_recovery": "NOT_ACHIEVED", "completeness": "ACHIEVED"}'
         )
@@ -120,9 +126,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_empty_trajectory_returns_zero_scores(self) -> None:
         """Empty trajectory -> all 5 dimensions with score 0.0."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "NOT_ACHIEVED", "approach_efficiency": "NOT_ACHIEVED", '
             '"code_quality": "NOT_ACHIEVED", "error_recovery": "NOT_ACHIEVED", "completeness": "NOT_ACHIEVED"}'
         )
@@ -137,33 +142,29 @@ class TestTrajectoryVerifierEvaluator:
             assert d.score == 0.0
 
     @pytest.mark.asyncio
-    async def test_llm_parse_failure_returns_error_dimension(self) -> None:
-        """LLM returns unparseable response → single error dimension."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = "I cannot evaluate this task properly."
+    async def test_llm_parse_failure_is_an_evaluation_error(self) -> None:
+        """An unparseable answer is an EvaluatorError, not a 0.0 score (KI-37)."""
+        mock_response = _Answer()
+        mock_response.content = "I cannot evaluate this task properly."
 
         evaluator = TrajectoryVerifierEvaluator(model="test-model")
 
-        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
-            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
-
-        assert len(dims) == 1
-        assert dims[0].name == "trajectory_quality"
-        assert dims[0].score == 0.0
-        assert "error" in dims[0].details
+        with (
+            patch.object(evaluator, "_call_verifier", return_value=mock_response),
+            pytest.raises(EvaluatorError, match="trajectory verifier failed"),
+        ):
+            await evaluator.evaluate(_task(), _result_with_trajectory())
 
     @pytest.mark.asyncio
-    async def test_llm_call_exception_returns_error_dimension(self) -> None:
-        """LLM call raises exception → single error dimension."""
+    async def test_llm_call_exception_is_an_evaluation_error(self) -> None:
+        """A failed LLM call is an EvaluatorError, not a 0.0 score (KI-37)."""
         evaluator = TrajectoryVerifierEvaluator(model="test-model")
 
-        with patch.object(evaluator, "_call_verifier", side_effect=RuntimeError("API down")):
-            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
-
-        assert len(dims) == 1
-        assert dims[0].name == "trajectory_quality"
-        assert dims[0].score == 0.0
+        with (
+            patch.object(evaluator, "_call_verifier", side_effect=RuntimeError("API down")),
+            pytest.raises(EvaluatorError, match="API down"),
+        ):
+            await evaluator.evaluate(_task(), _result_with_trajectory())
 
     def test_stage_is_rank(self) -> None:
         """Trajectory verifier is a Stage 2 (rank) evaluator."""
@@ -177,9 +178,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_unknown_category_maps_to_zero(self) -> None:
         """Unknown category string maps to 0.0."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "UNKNOWN", "approach_efficiency": "MAYBE", '
             '"code_quality": "ACHIEVED", "error_recovery": "ACHIEVED", "completeness": "ACHIEVED"}'
         )
@@ -197,9 +197,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_achieved_maps_to_1(self) -> None:
         """ACHIEVED -> 1.0."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "ACHIEVED", "approach_efficiency": "ACHIEVED", '
             '"code_quality": "ACHIEVED", "error_recovery": "ACHIEVED", "completeness": "ACHIEVED"}'
         )
@@ -212,9 +211,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_partially_maps_to_half(self) -> None:
         """PARTIALLY_ACHIEVED -> 0.5."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "PARTIALLY_ACHIEVED", "approach_efficiency": "PARTIALLY_ACHIEVED", '
             '"code_quality": "PARTIALLY_ACHIEVED", "error_recovery": "PARTIALLY_ACHIEVED", '
             '"completeness": "PARTIALLY_ACHIEVED"}'
@@ -228,9 +226,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_not_achieved_maps_to_zero(self) -> None:
         """NOT_ACHIEVED -> 0.0."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "NOT_ACHIEVED", "approach_efficiency": "NOT_ACHIEVED", '
             '"code_quality": "NOT_ACHIEVED", "error_recovery": "NOT_ACHIEVED", '
             '"completeness": "NOT_ACHIEVED"}'
@@ -244,9 +241,8 @@ class TestTrajectoryVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_case_insensitive_categories(self) -> None:
         """Category matching is case-insensitive."""
-        mock_response = AsyncMock()
-        mock_response.choices = [AsyncMock()]
-        mock_response.choices[0].message.content = (
+        mock_response = _Answer()
+        mock_response.content = (
             '{"solution_quality": "achieved", "approach_efficiency": "Achieved", '
             '"code_quality": "ACHIEVED", "error_recovery": "partially_achieved", '
             '"completeness": "Partially_Achieved"}'

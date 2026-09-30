@@ -8,12 +8,14 @@ stage/name properties, missing YES/NO tokens, case-insensitive matching.
 from __future__ import annotations
 
 import math
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
+from codeforge.evaluation.evaluators.base import EvaluatorError
 from codeforge.evaluation.evaluators.logprob_verifier import LogprobVerifierEvaluator
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, TrajectoryMessage
+from codeforge.llm import ChatCompletionResponse, TokenLogprob
 
 
 def _task() -> TaskSpec:
@@ -35,39 +37,30 @@ def _result_empty_trajectory() -> ExecutionResult:
     return ExecutionResult(actual_output="Done", trajectory=[])
 
 
-def _mock_logprob_response(yes_logprob: float, no_logprob: float) -> AsyncMock:
-    """Create a mock LLM response with logprobs for YES and NO tokens."""
-    response = AsyncMock()
-    response.choices = [AsyncMock()]
-    response.choices[0].message.content = "YES" if yes_logprob > no_logprob else "NO"
-
-    top_logprobs = []
-    # YES token
-    yes_token = AsyncMock()
-    yes_token.token = "YES"  # noqa: S105
-    yes_token.logprob = yes_logprob
-    top_logprobs.append(yes_token)
-    # NO token
-    no_token = AsyncMock()
-    no_token.token = "NO"  # noqa: S105
-    no_token.logprob = no_logprob
-    top_logprobs.append(no_token)
-
-    logprobs_content_item = AsyncMock()
-    logprobs_content_item.top_logprobs = top_logprobs
-    response.choices[0].logprobs = AsyncMock()
-    response.choices[0].logprobs.content = [logprobs_content_item]
-
-    return response
+def _response(content: str, top_logprobs: list[TokenLogprob] | None = None) -> ChatCompletionResponse:
+    """A verifier answer as LiteLLMClient.chat_completion returns it."""
+    return ChatCompletionResponse(
+        content=content,
+        tool_calls=[],
+        finish_reason="stop",
+        tokens_in=10,
+        tokens_out=1,
+        model="test-model",
+        top_logprobs=top_logprobs or [],
+    )
 
 
-def _mock_text_response(text: str) -> AsyncMock:
-    """Create a mock LLM response without logprobs (text fallback)."""
-    response = AsyncMock()
-    response.choices = [AsyncMock()]
-    response.choices[0].message.content = text
-    response.choices[0].logprobs = None
-    return response
+def _mock_logprob_response(yes_logprob: float, no_logprob: float) -> ChatCompletionResponse:
+    """A response with logprobs for the YES and NO tokens."""
+    return _response(
+        "YES" if yes_logprob > no_logprob else "NO",
+        [TokenLogprob("YES", yes_logprob), TokenLogprob("NO", no_logprob)],
+    )
+
+
+def _mock_text_response(text: str) -> ChatCompletionResponse:
+    """A response without logprobs (text fallback)."""
+    return _response(text)
 
 
 class TestLogprobVerifierEvaluator:
@@ -153,16 +146,15 @@ class TestLogprobVerifierEvaluator:
         assert dims[0].details["method"] == "text_fallback"
 
     @pytest.mark.asyncio
-    async def test_llm_exception_returns_error(self) -> None:
-        """LLM call raises exception -> score=0.0, 'error' in details."""
+    async def test_llm_exception_is_an_evaluation_error(self) -> None:
+        """LLM call raises -> EvaluatorError, not a 0.0 score (KI-37)."""
         evaluator = LogprobVerifierEvaluator(model="test-model")
 
-        with patch.object(evaluator, "_call_verifier", side_effect=RuntimeError("API down")):
-            dims = await evaluator.evaluate(_task(), _result())
-
-        assert len(dims) == 1
-        assert dims[0].score == 0.0
-        assert "error" in dims[0].details
+        with (
+            patch.object(evaluator, "_call_verifier", side_effect=RuntimeError("API down")),
+            pytest.raises(EvaluatorError, match="API down"),
+        ):
+            await evaluator.evaluate(_task(), _result())
 
     @pytest.mark.asyncio
     async def test_empty_trajectory(self) -> None:
@@ -188,19 +180,7 @@ class TestLogprobVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_missing_yes_no_tokens(self) -> None:
         """Logprobs with only unrelated tokens -> falls back to text parsing."""
-        response = AsyncMock()
-        response.choices = [AsyncMock()]
-        response.choices[0].message.content = "YES"
-
-        # Create logprobs with only an unrelated token
-        maybe_token = AsyncMock()
-        maybe_token.token = "MAYBE"  # noqa: S105
-        maybe_token.logprob = -0.5
-
-        logprobs_content_item = AsyncMock()
-        logprobs_content_item.top_logprobs = [maybe_token]
-        response.choices[0].logprobs = AsyncMock()
-        response.choices[0].logprobs.content = [logprobs_content_item]
+        response = _response("YES", [TokenLogprob("MAYBE", -0.5)])
 
         evaluator = LogprobVerifierEvaluator(model="test-model")
 
@@ -213,23 +193,7 @@ class TestLogprobVerifierEvaluator:
     @pytest.mark.asyncio
     async def test_case_insensitive_matching(self) -> None:
         """Logprobs with lowercase 'yes'/'no' tokens are recognized correctly."""
-        response = AsyncMock()
-        response.choices = [AsyncMock()]
-        response.choices[0].message.content = "yes"
-
-        # Lowercase tokens
-        yes_token = AsyncMock()
-        yes_token.token = "yes"  # noqa: S105
-        yes_token.logprob = -0.1
-
-        no_token = AsyncMock()
-        no_token.token = "no"  # noqa: S105
-        no_token.logprob = -3.0
-
-        logprobs_content_item = AsyncMock()
-        logprobs_content_item.top_logprobs = [yes_token, no_token]
-        response.choices[0].logprobs = AsyncMock()
-        response.choices[0].logprobs.content = [logprobs_content_item]
+        response = _response("yes", [TokenLogprob("yes", -0.1), TokenLogprob("no", -3.0)])
 
         evaluator = LogprobVerifierEvaluator(model="test-model")
 

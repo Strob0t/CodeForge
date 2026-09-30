@@ -15,12 +15,16 @@ Produces 5 quality dimensions:
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from codeforge.evaluation.evaluators.base import EvaluatorError
 from codeforge.evaluation.evaluators.prompt_compressor import compress_for_context
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
+
+if TYPE_CHECKING:
+    from codeforge.llm import ChatCompletionResponse, LiteLLMClient
 
 logger = structlog.get_logger()
 
@@ -96,15 +100,21 @@ _CATEGORY_SCORES: dict[str, float] = {
 
 
 class TrajectoryVerifierEvaluator:
-    """Stage 2 (rank) evaluator that scores full agent trajectories."""
+    """Stage 2 (rank) evaluator that scores full agent trajectories.
+
+    The verifier model is called through the LiteLLM proxy with the worker's
+    client (*llm*; by default one for the configured proxy).
+    """
 
     def __init__(
         self,
         model: str = "openai/gpt-4o",
         max_trajectory_tokens: int = 8000,
+        llm: LiteLLMClient | None = None,
     ) -> None:
         self._model = model
         self._max_trajectory_tokens = max_trajectory_tokens
+        self._llm = llm
 
     @property
     def name(self) -> str:
@@ -130,17 +140,10 @@ class TrajectoryVerifierEvaluator:
 
         try:
             response = await self._call_verifier(prompt)
-            content = response.choices[0].message.content
-            scores = _parse_scores(content)
+            scores = _parse_scores(response.content)
         except Exception as exc:
-            logger.exception("trajectory verifier failed", task_id=task.id, error=str(exc))
-            return [
-                EvalDimension(
-                    name="trajectory_quality",
-                    score=0.0,
-                    details={"error": "verifier call failed"},
-                )
-            ]
+            msg = f"trajectory verifier failed: {exc}"
+            raise EvaluatorError(msg) from exc
 
         return [
             EvalDimension(
@@ -150,11 +153,9 @@ class TrajectoryVerifierEvaluator:
             for dim in _SCORE_DIMENSIONS
         ]
 
-    async def _call_verifier(self, prompt: str) -> object:
-        """Call the verifier LLM. Isolated for testability (mock target)."""
-        import litellm
-
-        return await litellm.acompletion(
+    async def _call_verifier(self, prompt: str) -> ChatCompletionResponse:
+        """Call the verifier model through the LiteLLM proxy."""
+        return await verifier_client(self._llm).chat_completion(
             model=self._model,
             messages=[
                 {"role": "system", "content": "You are a precise evaluation model. Return only JSON."},
@@ -163,6 +164,17 @@ class TrajectoryVerifierEvaluator:
             temperature=0.0,
             max_tokens=128,
         )
+
+
+def verifier_client(llm: LiteLLMClient | None) -> LiteLLMClient:
+    """Return *llm*, or a client for the configured LiteLLM proxy."""
+    if llm is not None:
+        return llm
+    from codeforge.config import get_settings
+    from codeforge.llm import LiteLLMClient
+
+    settings = get_settings()
+    return LiteLLMClient(base_url=settings.litellm_url, api_key=settings.litellm_api_key)
 
 
 def _format_trajectory(task: TaskSpec, result: ExecutionResult) -> str:
@@ -192,13 +204,16 @@ def _format_trajectory(task: TaskSpec, result: ExecutionResult) -> str:
 
 
 def _parse_scores(content: str) -> dict[str, float]:
-    """Parse categorical JSON scores from LLM response. Returns empty dict on failure."""
+    """Parse categorical JSON scores from LLM response; raises when the answer is not such JSON."""
     try:
         text = content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
         raw: dict[str, Any] = json.loads(text)
+        if not isinstance(raw, dict):
+            msg = "verifier answer is not a JSON object"
+            raise TypeError(msg)
         result: dict[str, float] = {}
         for k, v in raw.items():
             if k in _SCORE_DIMENSIONS:
