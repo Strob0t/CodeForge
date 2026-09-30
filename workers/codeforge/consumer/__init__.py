@@ -232,6 +232,7 @@ class TaskConsumer(
         if self._stop_requested:
             logger.info("stop requested while subscribing, the consumer does not start")
             return
+        await self._start_task_cancel_registry()
 
         for subject, run_loop in loops:
             task = asyncio.create_task(run_loop(), name=f"message-loop {subject}")

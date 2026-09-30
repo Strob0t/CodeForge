@@ -143,3 +143,67 @@ async def test_worker_abort_stops_the_backend_without_reporting_cancelled(
     assert backend.cancelled
     assert _results(consumer) == []
     assert _cancel_subscription(consumer).unsubscribed
+
+
+# ---------------------------------------------------------------------------
+# A cancel for a task still queued in NATS (KI-65)
+# ---------------------------------------------------------------------------
+
+
+async def test_a_task_cancelled_while_queued_is_not_started(consumer: TaskConsumer, backend: _Backend) -> None:
+    """The cancel was published after the task's dispatch: the task never runs, Go already marked it cancelled."""
+    consumer._task_cancels.record("task-1", 20)
+    msg, client = jetstream_msg(_payload(), subject="tasks.agent.aider", stream_seq=10)
+
+    await consumer._handle_message(msg)
+
+    assert not backend.started.is_set()
+    assert client.settlements() == ["ack"]
+    assert _results(consumer) == [], "no result: it could overwrite the state of a later dispatch of the task"
+
+
+async def test_a_dispatch_after_the_cancel_runs(consumer: TaskConsumer, backend: _Backend) -> None:
+    """A task dispatched again after it was cancelled (and after an earlier dispatch of it ran) is not skipped."""
+    backend.release.set()
+    first, _ = jetstream_msg(_payload(), subject="tasks.agent.aider", stream_seq=10)
+    await consumer._handle_message(first)
+    consumer._task_cancels.record("task-1", 20)
+
+    again, client = jetstream_msg(_payload(), subject="tasks.agent.aider", stream_seq=30)
+    await asyncio.wait_for(consumer._handle_message(again), timeout=2)
+
+    assert client.settlements() == ["ack(sync)"]
+    assert _results(consumer) == [("task-1", "completed"), ("task-1", "completed")]
+
+
+async def test_a_cancel_arriving_before_the_task_listens_stops_it(consumer: TaskConsumer, backend: _Backend) -> None:
+    """A cancel recorded after the queued-cancel check but before the task's own listener subscribed is not lost."""
+    js = consumer._js
+    subscribe = js.subscribe  # type: ignore[union-attr]
+
+    async def subscribe_after_cancel(subject: str, config: object = None) -> FakeSubscription:
+        if subject == "tasks.cancel":
+            consumer._task_cancels.record("task-1", 20)
+        return await subscribe(subject, config=config)
+
+    js.subscribe = subscribe_after_cancel  # type: ignore[union-attr,method-assign]
+    msg, _ = jetstream_msg(_payload(), subject="tasks.agent.aider", stream_seq=10)
+
+    await asyncio.wait_for(consumer._handle_message(msg), timeout=2)
+
+    assert not backend.started.is_set()
+    assert _results(consumer) == [("task-1", "cancelled")]
+
+
+async def test_the_worker_records_every_task_cancel(consumer: TaskConsumer) -> None:
+    await consumer._start_task_cancel_registry()
+    subscription = _cancel_subscription(consumer)
+    subscription.deliver(json.dumps({"task_id": "task-9"}).encode(), stream_seq=42)
+    await asyncio.sleep(0.05)
+
+    assert consumer._task_cancels.cancelled("task-9", 41)
+    assert subscription.config.deliver_policy == DeliverPolicy.NEW  # type: ignore[union-attr]
+    assert subscription.config.ack_policy == AckPolicy.NONE  # type: ignore[union-attr]
+
+    await consumer._in_flight.abort([], 0, "test over")
+    assert subscription.unsubscribed

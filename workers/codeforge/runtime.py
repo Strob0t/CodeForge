@@ -98,7 +98,7 @@ def notification_consumer() -> ConsumerConfig:
     return ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=AckPolicy.NONE)
 
 
-def _cancel_ids(data: object) -> tuple[str, str] | None:
+def cancel_ids(data: object) -> tuple[str, str] | None:
     """(run_id, task_id) of a cancel message, "" for an absent ID; None if the message is malformed."""
     try:
         payload = json.loads(data)  # type: ignore[arg-type]
@@ -134,7 +134,7 @@ async def listen_for_cancel(
         except Exception as exc:
             logger.debug("cancel listener stopped", error=str(exc))
             return
-        ids = _cancel_ids(msg.data)
+        ids = cancel_ids(msg.data)
         if ids is not None and matches(*ids):
             on_cancel()
             return

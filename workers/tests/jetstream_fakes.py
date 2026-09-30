@@ -79,13 +79,22 @@ def jetstream_msg(
     subject: str = "test.request",
     num_delivered: int = 1,
     headers: dict[str, str] | None = None,
+    stream_seq: int = 10,
 ) -> tuple[Msg, RecordingClient]:
-    """Build a JetStream message delivered for the *num_delivered*-th time."""
+    """Build a JetStream message delivered for the *num_delivered*-th time.
+
+    *stream_seq* is the message's position in the stream: redeliveries of one
+    message share it, every published message has its own.
+    """
     client = RecordingClient()
-    # $JS.ACK.<stream>.<consumer>.<delivered>.<stream seq>.<consumer seq>.<timestamp ns>.<pending>
-    reply = f"$JS.ACK.CODEFORGE.codeforge-py-test.{num_delivered}.10.5.1727690400000000000.0"
+    reply = _ack_reply("codeforge-py-test", num_delivered, stream_seq)
     msg = Msg(_client=client, subject=subject, reply=reply, data=data, headers=headers)  # type: ignore[arg-type]
     return msg, client
+
+
+def _ack_reply(consumer: str, num_delivered: int, stream_seq: int) -> str:
+    # $JS.ACK.<stream>.<consumer>.<delivered>.<stream seq>.<consumer seq>.<timestamp ns>.<pending>
+    return f"$JS.ACK.CODEFORGE.{consumer}.{num_delivered}.{stream_seq}.5.1727690400000000000.0"
 
 
 class FakeSubscription:
@@ -97,9 +106,10 @@ class FakeSubscription:
         self.unsubscribed = False
         self._incoming: asyncio.Queue[Msg] = asyncio.Queue()
 
-    def deliver(self, data: bytes) -> None:
-        """Queue a core NATS message with *data* for the subscriber."""
-        self._incoming.put_nowait(Msg(_client=None, subject=self.subject, data=data))  # type: ignore[arg-type]
+    def deliver(self, data: bytes, stream_seq: int | None = None) -> None:
+        """Queue a message with *data* for the subscriber: a JetStream one at *stream_seq*, else a core NATS one."""
+        reply = _ack_reply("notification", 1, stream_seq) if stream_seq is not None else ""
+        self._incoming.put_nowait(Msg(_client=None, subject=self.subject, reply=reply, data=data))  # type: ignore[arg-type]
 
     async def next_msg(self, timeout: float = 1.0) -> Msg:
         try:

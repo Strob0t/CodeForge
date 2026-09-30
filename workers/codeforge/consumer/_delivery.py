@@ -110,6 +110,17 @@ def delivery_attempt(msg: Msg) -> int:
         return 1
 
 
+def stream_sequence(msg: Msg) -> int | None:
+    """Return the position of *msg* in its stream; None for a message without JetStream metadata.
+
+    Every published message has its own; the redeliveries of a message share it.
+    """
+    try:
+        return int(msg.metadata.sequence.stream)
+    except NotJSMessageError:
+        return None
+
+
 def is_last_attempt(msg: Msg) -> bool:
     """Whether JetStream will not redeliver *msg* after this attempt."""
     return delivery_attempt(msg) >= MAX_DELIVER

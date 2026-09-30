@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.consumer._cancel_registry import CancelRegistry, record_cancels
+from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL, SUBJECT_TASK_HEARTBEAT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
 from codeforge.runtime import HEARTBEAT_INTERVAL_SECONDS, heartbeats, listen_for_cancel, notification_consumer
@@ -16,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     import nats.aio.msg
+    from nats.js.client import JetStreamContext
 
     from codeforge.backends._base import TaskResult as BackendTaskResult
 
@@ -27,6 +31,28 @@ TASK_HEARTBEAT_INTERVAL_SECONDS = HEARTBEAT_INTERVAL_SECONDS
 
 class TaskHandlerMixin:
     """Handles task.agent.* messages — backend router dispatch."""
+
+    @functools.cached_property
+    def _task_cancels(self) -> CancelRegistry:
+        """The task cancels this worker has seen, for tasks that may still wait in NATS (KI-65)."""
+        return CancelRegistry()
+
+    async def _start_task_cancel_registry(self) -> None:
+        """Record every tasks.cancel from now on, until the worker aborts its background tasks."""
+        if self._js is None:
+            return
+        sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer())
+
+        async def listen() -> None:
+            try:
+                await record_cancels(sub, self._task_cancels)
+            finally:
+                try:
+                    await sub.unsubscribe()
+                except Exception as exc:
+                    logger.warning("task cancel registry unsubscribe failed", error=str(exc))
+
+        self._in_flight.start_background(listen(), name="task cancel registry")
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
         """Process a single task message: parse, execute via backend router, report the result.
@@ -51,9 +77,19 @@ class TaskHandlerMixin:
         backend_name = task.backend or (msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown")
         log = log.bind(task_id=task.id, backend=backend_name)
 
-        dedup_key = f"task-{task.id}"
+        # A task can be dispatched again: its messages differ in their stream
+        # position, the redeliveries of one message share it.
+        dispatch = stream_sequence(msg)
+        dedup_key = f"task-{task.id}" if dispatch is None else f"task-{task.id}@{dispatch}"
         if self._is_duplicate(dedup_key):
             log.warning("duplicate task message, skipping")
+            await msg.ack()
+            return
+
+        if dispatch is not None and self._task_cancels.cancelled(task.id, dispatch):
+            # Go marked the task cancelled when it published the cancel; a
+            # result here could overwrite the state of a later dispatch.
+            log.info("task cancelled while it waited for a worker, skipping")
             await msg.ack()
             return
 
@@ -74,7 +110,7 @@ class TaskHandlerMixin:
             await self._publish_result(failed(reason), SUBJECT_RESULT)
 
         with self._in_flight.track(f"task {task.id}", report_failure):
-            await self._run_task(task, backend_name, request_id, failed, log)
+            await self._run_task(task, backend_name, request_id, failed, log, dispatch)
 
     async def _run_task(
         self,
@@ -83,6 +119,7 @@ class TaskHandlerMixin:
         request_id: str,
         failed: Callable[[str], TaskResult],
         log: structlog.BoundLogger,
+        dispatch: int | None,
     ) -> None:
         """Execute an accepted task and publish its result, reporting it alive meanwhile."""
         beat = {"task_id": task.id, "tenant_id": task.tenant_id}
@@ -99,7 +136,7 @@ class TaskHandlerMixin:
                     task.id, f"Starting task: {task.title}", "stdout", request_id, task.tenant_id
                 )
 
-                backend_result = await self._run_backend(task, backend_name, request_id)
+                backend_result = await self._run_backend(task, backend_name, request_id, dispatch)
                 if backend_result is None:
                     result = TaskResult(
                         task_id=task.id,
@@ -124,7 +161,9 @@ class TaskHandlerMixin:
             await self._publish_result(result, SUBJECT_RESULT)
         log.info("task completed", status=result.status, backend=backend_name)
 
-    async def _run_backend(self, task: TaskMessage, backend_name: str, request_id: str) -> BackendTaskResult | None:
+    async def _run_backend(
+        self, task: TaskMessage, backend_name: str, request_id: str, dispatch: int | None = None
+    ) -> BackendTaskResult | None:
         """Run *task* on its backend; None if a tasks.cancel for it stopped the run.
 
         The backend runs as a task of its own, so that a cancel stops it while
@@ -137,6 +176,12 @@ class TaskHandlerMixin:
             raise RuntimeError(msg)
         # Every worker sees every cancel: the task may run on any of them.
         sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer())
+        if dispatch is not None and self._task_cancels.cancelled(task.id, dispatch):
+            # Cancelled after the check in _handle_message, before this
+            # listener saw new messages.
+            logger.info("task cancelled by control plane before it started", task_id=task.id)
+            await self._unsubscribe_task_cancel(sub, task.id)
+            return None
         execution = asyncio.create_task(
             self._backend_router.execute(
                 backend_name=backend_name,
@@ -174,7 +219,11 @@ class TaskHandlerMixin:
             listener.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await listener
-            try:
-                await sub.unsubscribe()
-            except Exception as exc:
-                logger.warning("task cancel listener unsubscribe failed", task_id=task.id, error=str(exc))
+            await self._unsubscribe_task_cancel(sub, task.id)
+
+    @staticmethod
+    async def _unsubscribe_task_cancel(sub: JetStreamContext.PushSubscription, task_id: str) -> None:
+        try:
+            await sub.unsubscribe()
+        except Exception as exc:
+            logger.warning("task cancel listener unsubscribe failed", task_id=task_id, error=str(exc))
