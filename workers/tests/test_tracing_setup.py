@@ -277,6 +277,50 @@ class TestTracingManagerMetrics:
         errors = [fields for level, _event, fields in logs.entries if level == "error"]
         assert errors == [{"error": "invalid endpoint"}]
 
+    def test_metric_exporter_failure_is_reported_not_raised(
+        self, monkeypatch: pytest.MonkeyPatch, installed: list[object]
+    ) -> None:
+        """init() runs at import time (get_tracer); a metric exporter error must not break the worker's imports."""
+
+        def broken_exporter(**_kwargs: object) -> None:
+            raise ValueError("invalid metrics endpoint")
+
+        monkeypatch.setattr(
+            "opentelemetry.exporter.otlp.proto.grpc.metric_exporter.OTLPMetricExporter", broken_exporter
+        )
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        logs = _RecordingLogger()
+        monkeypatch.setattr("codeforge.tracing.setup.logger", logs)
+        tm = TracingManager()
+        tm.init()  # does not raise
+        try:
+            assert tm.enabled, "tracing still works"
+            assert installed == [], "no meter provider without an exporter"
+            assert logs.entries == []
+            tm.log_status()
+        finally:
+            tm.shutdown()
+        errors = [fields for level, _event, fields in logs.entries if level == "error"]
+        assert errors == [{"error": "invalid metrics endpoint"}]
+
+    def test_shutdown_is_idempotent(self, monkeypatch: pytest.MonkeyPatch, installed: list[object]) -> None:
+        """stop() may run twice (a second signal); the providers are shut down once."""
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        tm = TracingManager()
+        tm.init()
+        [exporter] = _RecordingMetricExporter.instances
+        calls: list[str] = []
+        original = exporter.shutdown
+
+        def counting_shutdown(timeout_millis: float = 30_000, **kwargs: object) -> None:
+            calls.append("shutdown")
+            original(timeout_millis, **kwargs)
+
+        monkeypatch.setattr(exporter, "shutdown", counting_shutdown)
+        tm.shutdown()
+        tm.shutdown()
+        assert calls == ["shutdown"]
+
     def test_log_status_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "false")
         logs = _RecordingLogger()

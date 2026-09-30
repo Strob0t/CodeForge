@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import threading
 from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
@@ -142,6 +143,20 @@ async def test_setup_error_caused_by_the_stop_is_not_a_crash(
     release.set()
     await asyncio.wait_for(start, timeout=5)  # returns, does not raise
     assert consumer._loop_tasks == []
+
+
+async def test_otel_shutdown_runs_off_the_event_loop(consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The final OTLP export blocks; it must not stall the event loop (drain, other stop work)."""
+    threads: list[threading.Thread] = []
+
+    class _Tracing:
+        def shutdown(self) -> None:
+            threads.append(threading.current_thread())
+
+    monkeypatch.setattr("codeforge.consumer.tracing_manager", _Tracing())
+    await consumer.stop()
+    assert len(threads) == 1
+    assert threads[0] is not threading.main_thread()
 
 
 async def test_a_failing_drain_does_not_break_stop(consumer: TaskConsumer) -> None:

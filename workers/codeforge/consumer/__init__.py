@@ -414,7 +414,8 @@ class TaskConsumer(
             except Exception as exc:
                 logger.warning("NATS drain failed", error=str(exc))
 
-        tracing_manager.shutdown()
+        # The final OTLP export blocks; keep the event loop responsive meanwhile.
+        await asyncio.to_thread(tracing_manager.shutdown)
         logger.info("consumer stopped")
 
 

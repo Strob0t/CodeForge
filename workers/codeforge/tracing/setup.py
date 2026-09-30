@@ -21,6 +21,9 @@ logger = structlog.get_logger()
 
 TRACER_NAME = "codeforge"
 
+# Upper bound for the final metric export when the worker stops.
+_SHUTDOWN_TIMEOUT_MILLIS = 10_000
+
 
 @dataclass(frozen=True)
 class OTELConfig:
@@ -130,6 +133,7 @@ class TracingManager:
         self._initialized = False
         self._config: OTELConfig | None = None
         self._exporter_error = ""
+        self._metric_exporter_error = ""
 
     def init(self) -> None:
         """Initialize tracing and metrics from the OTEL config.
@@ -170,10 +174,16 @@ class TracingManager:
             self._exporter_error = str(exc)
 
         trace.set_tracer_provider(self._provider)
-        self._meter_provider = _otlp_meter_provider(cfg, resource)
-        # The instruments in codeforge.tracing.metrics were created on the
-        # global proxy meter at import; they record into this provider from now on.
-        metrics.set_meter_provider(self._meter_provider)
+        try:
+            self._meter_provider = _otlp_meter_provider(cfg, resource)
+        except Exception as exc:
+            # Metrics are not recorded; log_status() reports why. Raising here
+            # would break the imports that call get_tracer().
+            self._metric_exporter_error = str(exc)
+        else:
+            # The instruments in codeforge.tracing.metrics were created on the
+            # global proxy meter at import; they record into this provider from now on.
+            metrics.set_meter_provider(self._meter_provider)
         otel_tracer = trace.get_tracer(TRACER_NAME)
         self._tracer = _OTELTracer(otel_tracer)
         self._initialized = True
@@ -186,6 +196,10 @@ class TracingManager:
             return
         if self._exporter_error:
             logger.error("otlp span exporter setup failed, spans are not exported", error=self._exporter_error)
+        if self._metric_exporter_error:
+            logger.error(
+                "otlp metric exporter setup failed, metrics are not exported", error=self._metric_exporter_error
+            )
         logger.info(
             "otel tracing and metrics enabled",
             service=cfg.service_name,
@@ -205,12 +219,18 @@ class TracingManager:
         return self._initialized and not isinstance(self._tracer, _NoOpTracer)
 
     def shutdown(self) -> None:
-        """Flush and shut down the MeterProvider and the TracerProvider."""
-        if self._meter_provider is not None:
-            self._meter_provider.shutdown()
-        if self._provider is not None:
-            self._provider.shutdown()
-            logger.info("otel tracer provider shut down")
+        """Flush and shut down the MeterProvider and the TracerProvider, once.
+
+        Blocks for the final export (bounded by the exporters' timeouts): call
+        it off the event loop.
+        """
+        meter_provider, self._meter_provider = self._meter_provider, None
+        tracer_provider, self._provider = self._provider, None
+        if meter_provider is not None:
+            meter_provider.shutdown(timeout_millis=_SHUTDOWN_TIMEOUT_MILLIS)
+        if tracer_provider is not None:
+            tracer_provider.shutdown()
+            logger.info("otel providers shut down")
 
 
 def _otlp_meter_provider(cfg: OTELConfig, resource: Resource) -> MeterProvider:
