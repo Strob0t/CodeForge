@@ -1,7 +1,9 @@
 package secrets_test
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/secrets"
 )
@@ -24,8 +26,18 @@ func TestRedactURL(t *testing.T) {
 		{"unencoded slash in password (base64)", "nats://u:ab/cd+ef==@nats:4222", "nats://[REDACTED]@nats:4222"},
 		{"ipv6 host", "postgres://u:p@[::1]:5432/db", "postgres://[REDACTED]@[::1]:5432/db"},
 		{"url at end of text", "server nats://u:p@nats", "server nats://[REDACTED]@nats"},
+		{"go url.Error with quotes", `parse "nats://u:ab/cd+ef==@nats:4222": invalid port`, `parse "nats://[REDACTED]@nats:4222": invalid port`},
+		{"single quotes", "dsn='postgres://u:p@db/x'", "dsn='postgres://[REDACTED]@db/x'"},
+		{"followed by a paren", "(see nats://u:p@nats:4222)", "(see nats://[REDACTED]@nats:4222)"},
+		{"followed by a full stop", "cannot reach nats://u:p@nats:4222.", "cannot reach nats://[REDACTED]@nats:4222."},
+		{"followed by a semicolon", "a=nats://u:p@nats:4222;b=1", "a=nats://[REDACTED]@nats:4222;b=1"},
+		{"inside brackets", "[nats://u:p@nats:4222]", "[nats://[REDACTED]@nats:4222]"},
+		{"inside angle brackets", "<nats://u:p@nats:4222>", "<nats://[REDACTED]@nats:4222>"},
+		{"host with underscore", "nats://u:p@nats_server:4222", "nats://[REDACTED]@nats_server:4222"},
+		{"already redacted stays unchanged", "nats://[REDACTED]@nats:4222", "nats://[REDACTED]@nats:4222"},
 		{"at sign in path is treated as userinfo (never under-redact)", "https://host/path@v1", "https://[REDACTED]@v1"},
-		{"at sign only in query", "https://host/x?mail=a@b.c", "https://host/x?mail=a@b.c"},
+		{"at sign in query is treated as userinfo (never under-redact)", "https://host/x?mail=a@b.c", "https://[REDACTED]@b.c"},
+		{"scheme separator without scheme", "text ://u:p@host", "text ://u:p@host"},
 		{"empty", "", ""},
 		{"not a url", "just text", "just text"},
 	}
@@ -35,5 +47,25 @@ func TestRedactURL(t *testing.T) {
 				t.Fatalf("RedactURL(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRedactURL_LinearTime guards against pathological inputs: every log line
+// passes through RedactURL.
+func TestRedactURL_LinearTime(t *testing.T) {
+	inputs := map[string]string{
+		"scheme characters":          strings.Repeat("a", 100_000),
+		"scheme characters with sep": strings.Repeat("a", 100_000) + "://",
+		"many separators":            strings.Repeat("a://", 25_000),
+		"long authority without at":  "x://" + strings.Repeat("b", 100_000),
+		"many at signs":              "x://" + strings.Repeat("@", 100_000),
+		"many urls":                  strings.Repeat("n://u:p@h ", 10_000),
+	}
+	for name, in := range inputs {
+		start := time.Now()
+		secrets.RedactURL(in)
+		if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+			t.Errorf("%s: %v for %d bytes", name, elapsed, len(in))
+		}
 	}
 }

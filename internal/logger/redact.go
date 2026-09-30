@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"regexp"
 
@@ -87,24 +88,48 @@ func redactString(s string) string {
 	return s
 }
 
-// redactAttr redacts string-valued attributes; other types pass through.
-// Key-based redaction takes precedence: known PII keys are always redacted
-// regardless of value format.
+// redactAttr redacts string attributes and the text of errors and
+// fmt.Stringer values (a *url.Error prints its URL, token included); other
+// types pass through. LogValuers are resolved first. Key-based redaction
+// takes precedence: known PII keys are always redacted regardless of value
+// format.
 func redactAttr(a slog.Attr) slog.Attr {
+	a.Value = a.Value.Resolve()
 	if _, isPII := sensitiveKeys[a.Key]; isPII && a.Value.Kind() != slog.KindGroup {
 		a.Value = slog.StringValue(redacted)
 		return a
 	}
-	if a.Value.Kind() == slog.KindString {
+	switch a.Value.Kind() {
+	case slog.KindString:
 		a.Value = slog.StringValue(redactString(a.Value.String()))
-	}
-	if a.Value.Kind() == slog.KindGroup {
+	case slog.KindGroup:
 		groupAttrs := a.Value.Group()
 		redactedGroup := make([]slog.Attr, len(groupAttrs))
 		for i, ga := range groupAttrs {
 			redactedGroup[i] = redactAttr(ga)
 		}
 		a.Value = slog.GroupValue(redactedGroup...)
+	case slog.KindAny:
+		if text, ok := textOf(a.Value.Any()); ok {
+			a.Value = slog.StringValue(redactString(text))
+		}
 	}
 	return a
+}
+
+// textOf returns the Error() or String() text of v. A method that panics
+// (e.g. on a nil pointer receiver) leaves the value to the inner handler.
+func textOf(v any) (text string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			text, ok = "", false
+		}
+	}()
+	switch t := v.(type) {
+	case error:
+		return t.Error(), true
+	case fmt.Stringer:
+		return t.String(), true
+	}
+	return "", false
 }

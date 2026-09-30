@@ -2,7 +2,11 @@ package logger
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -63,5 +67,59 @@ func TestRedactHandler_EmailStillRedacted(t *testing.T) {
 	out := logThroughRedactHandler(t, "login", "who", "alice@example.com")
 	if strings.Contains(out, "alice@example.com") {
 		t.Fatalf("email not redacted: %s", out)
+	}
+}
+
+type urlStringer struct{ u string }
+
+func (s urlStringer) String() string { return "endpoint " + s.u }
+
+type urlValuer struct{ u string }
+
+func (v urlValuer) LogValue() slog.Value { return slog.StringValue(v.u) }
+
+func TestRedactHandler_NonStringValues(t *testing.T) {
+	tokenURL := "https://ghp_tok123@github.com/org/repo.git"
+	tests := []struct {
+		name  string
+		attrs []any
+	}{
+		{"error value", []any{"error", &url.Error{Op: "Get", URL: tokenURL, Err: io.EOF}}},
+		{"wrapped error", []any{"error", fmt.Errorf("clone failed: %w", &url.Error{Op: "Get", URL: tokenURL, Err: io.EOF})}},
+		{"fmt.Stringer", []any{"target", urlStringer{u: tokenURL}}},
+		{"LogValuer", []any{"target", urlValuer{u: tokenURL}}},
+		{"error inside a group", []any{slog.Group("req", slog.Any("error", errors.New("dial "+tokenURL)))}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := logThroughRedactHandler(t, "x", tt.attrs...)
+			if strings.Contains(out, "ghp_tok123") {
+				t.Fatalf("output leaks the token: %s", out)
+			}
+			if !strings.Contains(out, "[REDACTED]@github.com") {
+				t.Fatalf("output lost the host: %s", out)
+			}
+		})
+	}
+}
+
+type ptrStringer struct{ u string }
+
+func (p *ptrStringer) String() string { return p.u }
+
+func TestRedactHandler_PanickingStringerIsLeftToTheInnerHandler(t *testing.T) {
+	var nilStringer *ptrStringer
+	out := logThroughRedactHandler(t, "x", "target", nilStringer)
+	if !strings.Contains(out, `"msg":"x"`) {
+		t.Fatalf("record was not written: %s", out)
+	}
+}
+
+func TestRedactHandler_OtherValuesUnchanged(t *testing.T) {
+	out := logThroughRedactHandler(t, "x", "count", 42, "ids", []int{1, 2}, "ok", true)
+	for _, want := range []string{`"count":42`, `"ids":[1,2]`, `"ok":true`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output %s lacks %s", out, want)
+		}
 	}
 }

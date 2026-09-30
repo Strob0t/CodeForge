@@ -16,18 +16,64 @@ import structlog
 
 _listener: QueueListener | None = None
 
-# "scheme://userinfo@host[:port]" up to the end of the authority; the shortest
-# userinfo that is followed by a host, so passwords containing "@", ":" or an
-# unencoded "/" are covered and each URL of a server list is matched on its own.
-# Mirrors secrets.RedactURL in the Go core.
-_URL_USERINFO = re.compile(
-    r"([A-Za-z][A-Za-z0-9+.-]*://)[^\s?#]*?@([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])((?::[0-9]+)?(?:[/?#,\s]|$))"
-)
+_SCHEME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.")
+# Where the text that can hold "userinfo@host" ends.
+_AUTHORITY_END = re.compile(r"""[\s"'`()\[\]{}<>]|://""")
 
 
 def redact_url(text: str) -> str:
-    """Replace the userinfo (user, password or token) of every URL in *text*."""
-    return _URL_USERINFO.sub(r"\1[REDACTED]@\2\3", text)
+    """Replace the userinfo (user, password or token) of every URL in *text*.
+
+    After each "scheme://" the userinfo runs to the last "@" before the next
+    whitespace, quote, bracket or "://", so passwords containing "@", ":" or an
+    unencoded "/", URLs inside quotes or brackets and server lists are covered,
+    whatever follows the host. An "@" later in a path or query is treated as
+    the end of the userinfo (errs on the side of redacting). Linear time.
+    Mirrors secrets.RedactURL in the Go core.
+    """
+    parts: list[str] = []
+    copied = 0
+    pos = 0
+    while (sep := text.find("://", pos)) >= 0:
+        start = sep + 3
+        pos = start
+        if sep == 0 or text[sep - 1] not in _SCHEME_CHARS:
+            continue
+        match = _AUTHORITY_END.search(text, start)
+        end = match.start() if match else len(text)
+        pos = end
+        at = text.rfind("@", start, end)
+        if at < 0:
+            continue
+        parts.append(text[copied:start])
+        parts.append("[REDACTED]")
+        copied = at
+    if not parts:
+        return text
+    parts.append(text[copied:])
+    return "".join(parts)
+
+
+class RedactURLFilter(logging.Filter):
+    """Redact URL userinfo in stdlib log records (nats, httpx, litellm, ...).
+
+    Records from ``logging.getLogger`` loggers never pass the structlog
+    processors, so the root handler renders and redacts their message and
+    exception text here.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except (TypeError, ValueError):
+            return True  # leave a malformed record to logging's own error handling
+        record.msg = redact_url(message)
+        record.args = None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact_url(record.exc_text)
+        return True
 
 
 def redact_urls_processor(
@@ -62,7 +108,9 @@ def setup_logging(service: str = "codeforge-worker", level: str = "info") -> Non
     # Root logger uses QueueHandler
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(QueueHandler(log_queue))
+    queue_handler = QueueHandler(log_queue)
+    queue_handler.addFilter(RedactURLFilter())
+    root.addHandler(queue_handler)
     root.setLevel(log_level)
 
     structlog.configure(
