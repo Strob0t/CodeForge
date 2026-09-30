@@ -304,6 +304,40 @@ func TestPatchDelivery_HoldsExactlyTheRunsChange(t *testing.T) {
 	}
 }
 
+func TestPatchDelivery_ReplacesASymlinkInsteadOfWritingThroughIt(t *testing.T) {
+	ctx := context.Background()
+	dir := initCheckpointTestRepo(t)
+	writeRepoFile(t, dir, "victim.txt", "keep me\n")
+	patchDir := filepath.Join(dir, ".git", "codeforge", "patches")
+	if err := os.MkdirAll(patchDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	patchFile := filepath.Join(patchDir, checkpointRunID+".patch")
+	if err := os.Symlink(filepath.Join(dir, "victim.txt"), patchFile); err != nil {
+		t.Fatal(err)
+	}
+	pool := git.NewPool(1)
+	cp := service.NewCheckpointService(pool)
+	deliverer := service.NewDeliverService(&deliverMockStore{proj: &project.Project{ID: "proj-1", WorkspacePath: dir}},
+		&config.Runtime{}, pool)
+	if err := cp.CreateCheckpoint(ctx, checkpointRunID, dir, "Write", "call-1"); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, dir, "new.txt", "x\n")
+
+	result, err := deliverer.Deliver(ctx, &run.Run{ID: checkpointRunID, ProjectID: "proj-1", DeliverMode: run.DeliverModePatch}, "task")
+	if err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if got := readRepoFile(t, dir, "victim.txt"); got != "keep me\n" {
+		t.Fatalf("patch written through a symlink into victim.txt: %q", got)
+	}
+	info, err := os.Lstat(result.PatchPath)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("patch file %s is not a regular file (%v, %v)", result.PatchPath, info, err)
+	}
+}
+
 func TestPatchDelivery_WithoutCheckpointsFails(t *testing.T) {
 	dir := initCheckpointTestRepo(t)
 	writeRepoFile(t, dir, "initial.txt", "changed outside any run\n")
