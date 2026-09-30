@@ -4,7 +4,8 @@ Every line on stdout is one JSON object in the Go core's slog schema:
   {"time": "2026-09-30T12:00:00.123Z", "level": "INFO", "msg": "...", "service": "codeforge-worker",
    "logger": "codeforge.consumer", ...attributes}
 structlog loggers and stdlib loggers (httpx, nats, litellm, ...) share one
-formatter, so both produce the same schema on the same stream.
+formatter, so both produce the same schema on the same stream, and URL
+userinfo (passwords, tokens) is redacted in every rendered line.
 """
 
 from __future__ import annotations
@@ -58,41 +59,23 @@ def redact_url(text: str) -> str:
     return "".join(parts)
 
 
-class RedactURLFilter(logging.Filter):
-    """Redact URL userinfo in stdlib log records (nats, httpx, litellm, ...).
-
-    Records from ``logging.getLogger`` loggers never pass the structlog
-    processors, so the root handler renders and redacts their message and
-    exception text here. Records from structlog carry their event dict as the
-    message; ``redact_urls_processor`` redacts those in the formatter.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, dict):
-            return True
-        try:
-            message = record.getMessage()
-        except (TypeError, ValueError):
-            return True  # leave a malformed record to logging's own error handling
-        record.msg = redact_url(message)
-        record.args = None
-        if record.exc_info and not record.exc_text:
-            record.exc_text = logging.Formatter().formatException(record.exc_info)
-        if record.exc_text:
-            record.exc_text = redact_url(record.exc_text)
-        return True
+_render_json = structlog.processors.JSONRenderer()
 
 
-def redact_urls_processor(
-    _logger: structlog.types.WrappedLogger,
-    _method_name: str,
+def _render_redacted_json(
+    logger: structlog.types.WrappedLogger,
+    method_name: str,
     event_dict: structlog.types.EventDict,
-) -> structlog.types.EventDict:
-    """structlog processor: redact URL userinfo in every string value."""
-    for key, value in event_dict.items():
-        if isinstance(value, str):
-            event_dict[key] = redact_url(value)
-    return event_dict
+) -> str:
+    """Last formatter step: render the line as JSON and redact URL userinfo in all of it.
+
+    Covers every value at any depth (dicts, lists, values rendered with
+    repr(), exception text) of structlog and stdlib records alike. JSON
+    escaping never cuts through a redacted span: it runs from "://" to an
+    "@", neither of which is part of an escape sequence, and ends before the
+    closing quote of its string.
+    """
+    return redact_url(_render_json(logger, method_name, event_dict))
 
 
 def setup_logging(service: str = "codeforge-worker", level: str = "info") -> None:
@@ -109,9 +92,8 @@ def setup_logging(service: str = "codeforge-worker", level: str = "info") -> Non
         foreign_pre_chain=[structlog.contextvars.merge_contextvars],
         processors=[
             structlog.processors.format_exc_info,
-            redact_urls_processor,
             _go_schema(service),
-            structlog.processors.JSONRenderer(),
+            _render_redacted_json,
         ],
     )
 
@@ -129,7 +111,6 @@ def setup_logging(service: str = "codeforge-worker", level: str = "info") -> Non
     root = logging.getLogger()
     root.handlers.clear()
     queue_handler = QueueHandler(log_queue)
-    queue_handler.addFilter(RedactURLFilter())
     queue_handler.setFormatter(formatter)
     root.addHandler(queue_handler)
     root.setLevel(log_level)

@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from codeforge.logger import RedactURLFilter, redact_url, redact_urls_processor, setup_logging, stop_logging
+from codeforge.logger import redact_url, setup_logging, stop_logging
 
 REDACT_CASES = [
     ("nats://user:s3cret@nats:4222", "nats://[REDACTED]@nats:4222"),
@@ -67,20 +67,6 @@ def test_redact_url_is_linear(name: str) -> None:
     assert elapsed < 0.05, f"{name}: {elapsed * 1000:.1f} ms for {len(text)} chars"
 
 
-def test_processor_redacts_every_string_value() -> None:
-    event = {
-        "event": "connecting to nats://u:p1@nats:4222",
-        "url": "postgresql://cf:p2@postgres:5432/cf",
-        "attempt": 3,
-        "nested": "unchanged",
-    }
-    out = redact_urls_processor(None, "info", event)
-    assert out["event"] == "connecting to nats://[REDACTED]@nats:4222"
-    assert out["url"] == "postgresql://[REDACTED]@postgres:5432/cf"
-    assert out["attempt"] == 3
-    assert out["nested"] == "unchanged"
-
-
 async def test_consumer_logs_nats_url_without_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """The consumer's 'connected to NATS' line must not carry the password."""
     import codeforge.consumer as consumer_mod
@@ -117,33 +103,6 @@ async def test_consumer_logs_nats_url_without_credentials(monkeypatch: pytest.Mo
 # ---------------------------------------------------------------------------
 # stdlib logging (nats, httpx, litellm and plain logging.getLogger modules)
 # ---------------------------------------------------------------------------
-
-
-def _record(msg: str, args: tuple[object, ...] = (), exc: BaseException | None = None) -> logging.LogRecord:
-    exc_info = (type(exc), exc, exc.__traceback__) if exc is not None else None
-    return logging.LogRecord("nats.aio.client", logging.ERROR, __file__, 1, msg, args, exc_info)
-
-
-def test_filter_redacts_message_and_args() -> None:
-    record = _record("connect to %s failed (%d)", ("nats://u:p-123@nats:4222", 3))
-    assert RedactURLFilter().filter(record)
-    assert record.getMessage() == "connect to nats://[REDACTED]@nats:4222 failed (3)"
-
-
-def test_filter_redacts_exception_text() -> None:
-    try:
-        raise ConnectionError("dial postgresql://cf:pw-456@postgres:5432/cf refused")
-    except ConnectionError as exc:
-        record = _record("database down", exc=exc)
-    RedactURLFilter().filter(record)
-    rendered = logging.Formatter().format(record)
-    assert "pw-456" not in rendered
-    assert "postgresql://[REDACTED]@postgres:5432/cf" in rendered
-
-
-def test_filter_keeps_records_with_bad_format_args() -> None:
-    record = _record("%d items", ("not-a-number",))
-    assert RedactURLFilter().filter(record)
 
 
 @pytest.fixture
@@ -202,3 +161,127 @@ def test_exception_text_is_redacted(capsys: pytest.CaptureFixture[str], source: 
     out = capsys.readouterr().out
     assert "pw-456" not in out
     assert "postgresql://[REDACTED]@postgres:5432/cf" in json.loads(out)["exception"]
+
+
+class _Endpoint:
+    """A value JSON cannot serialize; the renderer writes its repr()."""
+
+    def __repr__(self) -> str:
+        return "Endpoint(https://svc:pw-repr@api.example.com)"
+
+
+def _one_line(capsys: pytest.CaptureFixture[str]) -> tuple[str, dict[str, object]]:
+    stop_logging()
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert len(lines) == 1, out
+    return out, json.loads(lines[0])
+
+
+@pytest.mark.usefixtures("_logging_restored")
+def test_nested_structlog_values_are_redacted(capsys: pytest.CaptureFixture[str]) -> None:
+    """Every value of the line, at any depth, as the whole rendered line was redacted before KI-35."""
+    import structlog
+
+    setup_logging(service="test-worker", level="info")
+    structlog.get_logger("s").info(
+        "x",
+        extra_url={"u": "https://user:pw-dict@host", "deeper": {"dsn": "postgresql://cf:pw-deep@db/cf"}},
+        servers=["nats://u:pw-list@a:4222", "nats://b:4222"],
+        pair=("https://t:pw-tuple@host", 1),
+        endpoint=_Endpoint(),
+        error=ConnectionError("dial nats://u:pw-exc@nats:4222 refused"),
+    )
+    out, line = _one_line(capsys)
+    for secret in ("pw-dict", "pw-deep", "pw-list", "pw-tuple", "pw-repr", "pw-exc", "user:", "svc:"):
+        assert secret not in out, f"{secret} leaked: {out}"
+    assert line["extra_url"] == {"u": "https://[REDACTED]@host", "deeper": {"dsn": "postgresql://[REDACTED]@db/cf"}}
+    assert line["servers"] == ["nats://[REDACTED]@a:4222", "nats://b:4222"]
+    assert line["pair"] == ["https://[REDACTED]@host", 1]
+
+
+@pytest.mark.usefixtures("_logging_restored")
+def test_stdlib_record_with_arguments_is_redacted(capsys: pytest.CaptureFixture[str]) -> None:
+    setup_logging(service="test-worker", level="info")
+    logging.getLogger("nats.aio.client").error("connect to %s failed (%d)", "nats://u:p-123@nats:4222", 3)
+    out, line = _one_line(capsys)
+    assert "p-123" not in out
+    assert line["msg"] == "connect to nats://[REDACTED]@nats:4222 failed (3)"
+
+
+@pytest.mark.usefixtures("_logging_restored")
+def test_stdlib_exception_with_arguments_is_redacted_once(capsys: pytest.CaptureFixture[str]) -> None:
+    setup_logging(service="test-worker", level="info")
+    try:
+        raise ConnectionError("dial postgresql://cf:pw-789@postgres:5432/cf refused")
+    except ConnectionError:
+        logging.getLogger("psycopg").exception("pool for %s failed", "postgresql://cf:pw-789@postgres:5432/cf")
+    out, line = _one_line(capsys)
+    assert "pw-789" not in out
+    assert line["msg"] == "pool for postgresql://[REDACTED]@postgres:5432/cf failed"
+    assert str(line["exception"]).count("Traceback (most recent call last)") == 1
+
+
+@pytest.mark.usefixtures("_logging_restored")
+def test_bad_format_arguments_do_not_break_the_caller(capsys: pytest.CaptureFixture[str]) -> None:
+    """A malformed stdlib record is left to logging's own error handling, as before."""
+    setup_logging(service="test-worker", level="info")
+    logging.getLogger("lib").info("%d items", "not-a-number")  # must not raise
+    logging.getLogger("lib").info("next line")
+    stop_logging()
+    lines = capsys.readouterr().out.splitlines()
+    assert json.loads(lines[-1])["msg"] == "next line"
+
+
+@pytest.mark.usefixtures("_logging_restored")
+@pytest.mark.parametrize(
+    "value",
+    [
+        'quoted "https://u:pw-q@host" value',
+        "back\\slash https://u:pw\\x@host",
+        "line\nbreak https://u:pw-nl@host\nend",
+        "unicode \u00e9 https://u:pw-\u00e9@host",
+        "tab\thttps://u:pw-tab@host",
+    ],
+)
+def test_redacted_line_stays_valid_json(capsys: pytest.CaptureFixture[str], value: str) -> None:
+    import structlog
+
+    setup_logging(service="test-worker", level="info")
+    structlog.get_logger("s").info("tricky", value=value)
+    out, line = _one_line(capsys)  # parses
+    assert "pw" not in out
+    assert "[REDACTED]" in str(line["value"])
+
+
+def test_redacting_rendered_json_never_breaks_it() -> None:
+    """Redaction runs on the rendered line: it must keep any value valid JSON (seeded random values)."""
+    import random
+
+    from codeforge.logger import _render_redacted_json
+
+    alphabet = [
+        '"',
+        "\\",
+        "\n",
+        "\t",
+        "@",
+        ":",
+        "/",
+        "://",
+        "https://",
+        "u:p@",
+        chr(0xE9),
+        chr(0x2028),
+        "x",
+        " ",
+        "'",
+        "]",
+    ]
+    rng = random.Random(4711)  # noqa: S311 - deterministic test data
+    for _ in range(3000):
+        value = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 24)))
+        nested = {"v": value, "list": [value, {"k": value}]}
+        rendered = _render_redacted_json(None, "info", nested)
+        parsed = json.loads(rendered)  # raises if redaction cut an escape sequence
+        assert set(parsed) == {"v", "list"}
