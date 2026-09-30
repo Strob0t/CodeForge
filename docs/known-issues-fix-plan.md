@@ -1,7 +1,6 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-09-29). Progress: **S0 in progress** (KI-1, KI-3 done; KI-11 from S1 done early;
-> KI-2 test repairs merged, integration-test gate pending).
+> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3; KI-11 from S1 done early), next: S1.
 > **Scope:** the verified defects KI-1 to KI-62 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
@@ -40,14 +39,13 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 
 ## S0 - Green CI With Complete Gates
 
-> **Progress (2026-09-29):** KI-1 and KI-3 done; KI-2: all Python (2541 tests), Go unit (`-race`) and frontend
-> (`tsc`, 398 vitest tests) suites green locally, with `typecheck` and `test` gates added to the Frontend job; the
-> `integration`-tagged Go tests do not compile yet and are being repaired before their CI step is added. KI-11 was
-> fixed here as well, because chi v5.3.0 (KI-3) deprecates `RealIP`.
+> **Done (2026-09-30).** KI-1, KI-2 and KI-3 fixed: Python (2541 tests), Go unit (`-race`) and `integration`-tagged
+> tests, frontend `tsc` and vitest (398 tests) are green and gated in CI; smoke tests pass locally with the admin seeded.
+> KI-11 was fixed here as well, because chi v5.3.0 (KI-3) deprecates `RealIP`.
 
 | KI | Fix | Proof |
 |---|---|---|
-| **KI-1** | Relock Python deps (psutil), pin `ruff` 0.15.1 as Poetry dev dependency, golangci-lint v2.5.0 (built with Go 1.25) + fix its 11 findings, run CI for PRs to `staging` | Each CI job green on the PR |
+| **KI-1** | Relock Python deps (psutil), pin `ruff` 0.15.1 as Poetry dev dependency, golangci-lint v2.11.4 (v2.1.6 cannot lint go 1.25; v2.10+ knows the G706 exclude) + fix its findings, run CI for PRs to `staging` | Each CI job green on the PR |
 | **KI-3** | Bump vulnerable Go modules (chi 5.3.0, pgx 5.9.2, otel 1.44.0, grpc 1.83.1, x/net, x/text), `@unovis` 1.7.1 + in-range npm updates, Python updates; drop the obsolete `setuptools<82` pin | govulncheck, `npm audit --omit=dev --audit-level=high`, pip-audit clean |
 | **KI-2** | Repair the rotted suites: root-cause every failing test (stale test vs. code bug vs. non-hermetic vs. order-dependent), fix code bugs the tests expose, never skip or weaken; Go contract fixtures keep the committed format; then add the missing gates: `tsc --noEmit` and `vitest run` in the Frontend job, `-tags=integration` tests in CI | Full `pytest`, `go test -race ./...`, `vitest`, `tsc` green locally and in CI |
 

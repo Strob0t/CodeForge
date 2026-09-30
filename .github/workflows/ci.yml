@@ -66,7 +66,8 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@1481404843c368bc19ca9406f87d6e0fc97bdcfd # v7.0.0
         with:
-          version: v2.5.0 # built with Go 1.25; older builds refuse the go 1.25 module
+          # v2.10+ knows every gosec rule excluded in .golangci.yml (G706); keep in sync with .devcontainer/setup.sh
+          version: v2.11.4
 
       - name: Check circular imports
         run: go vet ./... 2>&1 | grep -i "import cycle" && exit 1 || true

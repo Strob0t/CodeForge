@@ -57,7 +57,7 @@ policy decision from Go control plane".
 consumers that silently fail after a stream purge. Kill ALL Go processes before
 purging: `ps aux | grep codeforge | grep -v grep`
 
-The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2 (latest release; CI pins v2.5.0), goimports, Claude Code CLI, Python dependencies (poetry install, including the pinned dev dependency ruff 0.15.1), Node dependencies (npm install), and Pre-commit Hooks.
+The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2.11.4 (same version as CI), goimports, Claude Code CLI, Python dependencies (poetry install, including the pinned dev dependency ruff 0.15.1), Node dependencies (npm install), and Pre-commit Hooks.
 
 ### Project Structure
 
@@ -395,7 +395,7 @@ pre-commit run --all-files
 poetry run ruff check .
 poetry run ruff format .           # CI runs `poetry run ruff format --check .`
 
-# Go only (golangci-lint v2 with 17 linters including gosec, revive, errorlint; CI pins v2.5.0)
+# Go only (golangci-lint v2 with 17 linters including gosec, revive, errorlint; CI pins v2.11.4)
 go build ./cmd/codeforge/
 golangci-lint run ./...
 
@@ -895,7 +895,7 @@ Production compose differences from dev include named volumes for data persisten
 
 #### CI/CD
 
-CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build/test/lint (golangci-lint v2.5.0), Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`), frontend lint/format/build, Lighthouse CI, contract tests and security scanning; smoke tests and feature verification run only on pushes to `staging`/`main`.
+CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build, `go vet -tags=integration`, unit tests with `-race`, `integration`-tagged tests against PostgreSQL + NATS, golangci-lint v2.11.4; Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`); frontend lint, format check, type check (`npm run typecheck`), unit tests (`npm run test`, vitest) and build; Lighthouse CI, contract tests and security scanning; smoke tests and feature verification run only on pushes to `staging`/`main`.
 
 GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`. Its Grype image scan job currently fails because it pulls a `sha-<full sha>` tag that is never pushed (images are tagged with the short SHA), so image scanning does not run ([KI-48](todo.md#known-issues)).
 
@@ -1688,7 +1688,7 @@ Goal Discovery uses 1 PostgreSQL table (migration `056_project_goals.sql`): `pro
 
 For PRs to `main` (CI also runs for PRs to `staging`), configure these required status checks in GitHub. Checks match the job display names in `.github/workflows/ci.yml`; `scripts/setup-branch-protection.sh` applies `Go`, `Python` and `Frontend`:
 
-- `Go` -- Go build, unit tests, golangci-lint v2.5.0
+- `Go` -- Go build, unit and integration tests, golangci-lint v2.11.4
 - `Python` -- Python tests + ruff lint/format check
 - `Frontend` -- Frontend lint + format check + build
 - `Contract Tests` -- NATS payload contract validation

@@ -22,7 +22,7 @@
 
 #### Go
 
-- Linter: [golangci-lint](https://golangci-lint.run/) v2 (aggregator; CI pins v2.5.0)
+- Linter: [golangci-lint](https://golangci-lint.run/) v2 (aggregator; CI and devcontainer pin v2.11.4, the first line that knows every gosec rule excluded in `.golangci.yml`)
 - Configuration: `.golangci.yml` (v2 format)
 - Active linters: errcheck, govet, staticcheck, unused, ineffassign, gocritic, misspell, unconvert, unparam, gosec (security), bodyclose (HTTP response body), noctx (context-less HTTP), errorlint (error wrapping), revive (18 curated rules), fatcontext (loop context leak), dupword (comment typos), durationcheck (duration bugs)
 - Formatter: gofmt + goimports
