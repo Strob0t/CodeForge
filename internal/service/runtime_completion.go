@@ -45,6 +45,14 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 		s.keepWorkerTotals(ctx, r.ID, payload)
 		return nil
 	}
+	// The control plane is stopping the run and records its end with the
+	// stop's status and reason; the worker's completion (its answer to the
+	// stop) contributes its usage totals only.
+	if s.state.IsStopping(r.ID) {
+		slog.Info("completion for a run being stopped, usage kept", "run_id", r.ID, "status", payload.Status)
+		s.keepWorkerTotals(ctx, r.ID, payload)
+		return nil
+	}
 
 	// Determine final status
 	status := run.Status(payload.Status)
@@ -184,6 +192,10 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		slog.Warn("received quality gate result for non-gated run", "run_id", r.ID, "status", r.Status)
 		return nil
 	}
+	if s.state.IsStopping(r.ID) {
+		slog.Info("quality gate result for a run being stopped, skipped", "run_id", r.ID)
+		return nil
+	}
 
 	profile, _ := s.policy.GetProfile(r.PolicyProfile)
 
@@ -206,7 +218,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 
 		// Trigger delivery if configured, then finalize as completed
 		s.triggerDelivery(ctx, r)
-		return s.finishRun(ctx, r, run.StatusCompleted, gatedOutcome(r, run.StatusCompleted, ""))
+		return s.finishRun(ctx, r, run.StatusCompleted, storedOutcome(r, run.StatusCompleted, ""))
 	}
 
 	// Gates failed
@@ -242,13 +254,14 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		Error:       errMsg,
 	})
 
-	return s.finishRun(ctx, r, finalStatus, gatedOutcome(r, finalStatus, errMsg))
+	return s.finishRun(ctx, r, finalStatus, storedOutcome(r, finalStatus, errMsg))
 }
 
-// gatedOutcome is the completion of a run that waited for its quality gate:
-// the output, model and usage the worker reported (stored when the run
-// entered the gate), with the gate's status and error.
-func gatedOutcome(r *run.Run, status run.Status, errMsg string) *messagequeue.RunCompletePayload {
+// storedOutcome is a completion that ends a run with the outcome stored on it
+// and status and errMsg: for a run that waited for its quality gate, the
+// output, model and usage the worker reported (stored when it entered the
+// gate); for a run the control plane stops, what it has so far.
+func storedOutcome(r *run.Run, status run.Status, errMsg string) *messagequeue.RunCompletePayload {
 	return &messagequeue.RunCompletePayload{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,

@@ -83,23 +83,18 @@ const workerStopTimeout = 5 * time.Second
 // executes it: user cancel, context-level timeout, termination limits, the
 // post-execution budget and stall detection. The worker is told to stop
 // first, then the run goes through the same completion path as a run the
-// worker finished (KI-30), with r's counters as its final numbers and reason
-// as its error.
+// worker finished (KI-30), with status and reason as its end and the outcome
+// it has (output and model of a run waiting for its gate, usage) kept.
+//
+// While the stop is under way the run is marked stopping: the completion the
+// worker sends when it stops only raises the usage totals (HandleRunComplete),
+// so the run ends with the stop's status and reason, not the worker's
+// "cancelled".
 func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Status, reason string) error {
+	s.state.BeginStop(r.ID)
+	defer s.state.EndStop(r.ID)
 	s.tellWorkerToStop(ctx, r.ID)
-	outcome := &messagequeue.RunCompletePayload{
-		RunID:     r.ID,
-		TaskID:    r.TaskID,
-		ProjectID: r.ProjectID,
-		Status:    string(status),
-		Error:     reason,
-		CostUSD:   r.CostUSD,
-		StepCount: r.StepCount,
-		TokensIn:  r.TokensIn,
-		TokensOut: r.TokensOut,
-		Model:     r.Model,
-	}
-	return s.finalizeRun(ctx, r, status, outcome)
+	return s.finalizeRun(ctx, r, status, storedOutcome(r, status, reason))
 }
 
 // tellWorkerToStop publishes runs.cancel before the run is completed: the

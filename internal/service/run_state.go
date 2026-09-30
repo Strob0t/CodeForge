@@ -26,6 +26,9 @@ type RunStateManager struct {
 	convTurns        sync.Map // map[conversationID]string: turn of the conversation's current run
 	bypassedConvs    sync.Map // map[conversationID]bool
 	runSpans         sync.Map // map[runID]trace.Span
+
+	stopsMu sync.Mutex
+	stops   map[string]int // runID -> control-plane stops of the run under way
 }
 
 // NewRunStateManager creates a zero-value RunStateManager ready for use.
@@ -137,6 +140,38 @@ func (m *RunStateManager) FirstToolResult(runID, callID string) bool {
 // longer running, so the result was not counted.
 func (m *RunStateManager) ForgetToolResult(runID, callID string) {
 	m.toolResults.Delete(runID + ":" + callID)
+}
+
+// --- Stops ---
+
+// BeginStop records that the control plane is stopping the run (cancel,
+// timeout, limits): the stop records the run's end, and the worker's own
+// completion, which the stop triggers, must not end the run first.
+func (m *RunStateManager) BeginStop(runID string) {
+	m.stopsMu.Lock()
+	defer m.stopsMu.Unlock()
+	if m.stops == nil {
+		m.stops = make(map[string]int)
+	}
+	m.stops[runID]++
+}
+
+// EndStop records that a stop of the run is over.
+func (m *RunStateManager) EndStop(runID string) {
+	m.stopsMu.Lock()
+	defer m.stopsMu.Unlock()
+	if m.stops[runID] <= 1 {
+		delete(m.stops, runID)
+		return
+	}
+	m.stops[runID]--
+}
+
+// IsStopping reports whether the control plane is stopping the run.
+func (m *RunStateManager) IsStopping(runID string) bool {
+	m.stopsMu.Lock()
+	defer m.stopsMu.Unlock()
+	return m.stops[runID] > 0
 }
 
 // --- Cancelled Conversations ---

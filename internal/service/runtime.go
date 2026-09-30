@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
@@ -519,10 +521,22 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	}
 
 	if err := s.stopRun(ctx, r, run.StatusCancelled, "cancelled by user"); err != nil {
+		// Another cancel of the run (a double click, a plan cancel) ended it
+		// first: the run is cancelled as requested.
+		if errors.Is(err, domain.ErrConflict) && s.endedCancelled(ctx, runID) {
+			slog.Info("run already cancelled", "run_id", runID)
+			return nil
+		}
 		return err
 	}
 	slog.Info("run cancelled", "run_id", runID)
 	return nil
+}
+
+// endedCancelled reports whether the run is stored as cancelled.
+func (s *RuntimeService) endedCancelled(ctx context.Context, runID string) bool {
+	r, err := s.store.GetRun(ctx, runID)
+	return err == nil && r.Status == run.StatusCancelled
 }
 
 // GetRun returns a run by ID.

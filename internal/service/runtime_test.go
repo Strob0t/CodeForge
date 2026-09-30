@@ -151,10 +151,20 @@ func (m *runtimeMockStore) UpdateTaskStatus(_ context.Context, id string, status
 	return errMockNotFound
 }
 
-// UpdateTaskResult sets the task's status like the store, which writes it
-// with the result.
-func (m *runtimeMockStore) UpdateTaskResult(ctx context.Context, id string, status task.Status, _ task.Result, _ float64) error {
-	return m.UpdateTaskStatus(ctx, id, status)
+// UpdateTaskResult stores the result and sets the task's status like the
+// store, which writes both in one statement.
+func (m *runtimeMockStore) UpdateTaskResult(_ context.Context, id string, status task.Status, result task.Result, costUSD float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tasks {
+		if m.tasks[i].ID == id {
+			m.tasks[i].Status = status
+			m.tasks[i].Result = &result
+			m.tasks[i].CostUSD = costUSD
+			return nil
+		}
+	}
+	return errMockNotFound
 }
 
 func (m *runtimeMockStore) CreateRun(_ context.Context, r *run.Run) error {
