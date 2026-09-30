@@ -190,6 +190,7 @@ Details: `docs/architecture.md` | Framework comparison: `docs/research/market-an
 | 013 | Service layer config sub-struct imports | `docs/architecture/adr/013-config-import-in-services.md` |
 | 014 | Store interface segregation plan | `docs/architecture/adr/014-store-interface-segregation.md` |
 | 015 | Policy deny lists are blocklists; canonical tool names (amends 007) | `docs/architecture/adr/015-policy-deny-lists-and-tool-names.md` |
+| 016 | NATS delivery: shared durables without replay, ack-on-accept runs, bounded retries + DLQ (refines 001) | `docs/architecture/adr/016-nats-delivery-semantics.md` |
 
 **Infrastructure Principles:**
 - **Zero-config startup** — system runs with defaults; CLI flags have highest precedence
@@ -262,12 +263,14 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 - Frontend sends dataset names -> Go resolves to absolute paths -> NATS -> Python receives absolute paths
 - Verify: `internal/service/benchmark_run.go` `(*BenchmarkRunManager).resolveDatasetPath()`
 
-### Idempotency
-- JetStream redelivers unacked messages — handlers must be idempotent
-- Duplicate guards (skip if already `"completed"`), always `msg.ack()` even on error
+### Delivery & Idempotency (ADR-016)
+- One shared durable pull consumer per subject and side (`codeforge-go-*` / `codeforge-py-*`), created with deliver policy `new`, no inactivity threshold, `MaxDeliver` 4 — provisioning: `internal/adapter/nats/nats.go`, `workers/codeforge/consumer/_delivery.py`
+- Long runs (`runs.start`, `conversation.run.start`, `benchmark.run.request`) are acked on accept (at-most-once) and report failures as completions; every other subject is at-least-once and its handler must be idempotent
+- Settle every message exactly once: success -> ack; failure -> `_retry_or_dead_letter` (NAK with delay, DLQ + ack on the last attempt, from `num_delivered`); invalid payload -> `_reject_invalid` (DLQ + `term`). Never NAK an invalid payload, never ack without a DLQ copy
+- Duplicate guards (skip if already `"completed"`); a failed request is removed from the dedup cache
 
 ### Error Handling
-- `except Exception as exc:` (NOT bare), log `error=str(exc)`, publish errors back to NATS
+- `except Exception as exc:` (NOT bare), log `error=str(exc)`, publish errors back to NATS, then settle the message as above
 
 ### Tenant Isolation
 - ALL tenant-scoped queries: `AND tenant_id = $N` with `tenantFromCtx(ctx)` (exceptions: user/token/tenant mgmt)
@@ -405,7 +408,7 @@ docs/
 ├── plans/                  # Implementation plans (*-plan.md)
 ├── testing/                # Test plans + reports
 ├── audits/                 # Schema, UX, code audits
-├── architecture/adr/       # ADRs 001-015 (use _template.md)
+├── architecture/adr/       # ADRs 001-016 (use _template.md)
 ├── research/               # Market research
 └── prompts/                # Claude Code audit/discovery prompts
 ```

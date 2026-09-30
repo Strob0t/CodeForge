@@ -1,6 +1,6 @@
 # ADR-001: NATS JetStream as Message Queue
 
-> **Status:** accepted
+> **Status:** accepted; delivery, acknowledgement and retry semantics refined by [ADR-016](016-nats-delivery-semantics.md) (2026-09-30)
 > **Date:** 2026-02-14
 > **Deciders:** Project lead + Claude Code analysis
 

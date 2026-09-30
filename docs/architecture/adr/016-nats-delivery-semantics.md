@@ -1,6 +1,6 @@
 # ADR-016: NATS Delivery, Acknowledgement and Retry Semantics
 
-> **Status:** accepted (implemented in milestone S2 of the [fix plan](../../known-issues-fix-plan.md), KI-18, KI-19, KI-20)
+> **Status:** accepted (implemented in milestone S2 of the [fix plan](../../known-issues-fix-plan.md#s2---reliable-messaging-and-runtime), KI-18, KI-19, KI-20)
 > **Date:** 2026-09-30
 > **Deciders:** Project owner (accepted the messaging principles of the fix plan: one stream, shared durable pull
 > consumers, at-most-once ack-on-accept for long work plus a Go-side watchdog, retries via the JetStream delivery
