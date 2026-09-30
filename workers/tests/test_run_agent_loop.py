@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 
 from codeforge.executor import AgentExecutor
-from codeforge.llm import ChatCompletionResponse, ToolCallPart
+from codeforge.llm import ChatCompletionResponse, RoutingResult, ToolCallPart
 from codeforge.models import ModeConfig, TaskMessage, TerminationConfig
 from codeforge.runtime import RuntimeClient
 from tests.jetstream_fakes import RecordingJetStream
@@ -24,7 +25,16 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from codeforge.agent_loop import LoopConfig
+
 MODEL = "openai/gpt-4o"
+
+
+@pytest.fixture(autouse=True)
+def _no_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Routing disabled and no model list: the run uses the model of the task config."""
+    monkeypatch.setattr("codeforge.consumer._conversation_routing.get_hybrid_router", AsyncMock(return_value=None))
+    monkeypatch.setattr("codeforge.consumer._conversation_routing.get_available_models", AsyncMock(return_value=[]))
 
 
 class PolicyJetStream(RecordingJetStream):
@@ -196,3 +206,111 @@ async def test_mode_prompt_and_tools_reach_the_loop(tmp_path: Path) -> None:
     offered = {t["function"]["name"] for t in llm.calls[0]["tools"]}  # type: ignore[union-attr]
     assert "read_file" in offered
     assert _completion(js)["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Review of KI-21: runs get the conversation path's loop setup
+# ---------------------------------------------------------------------------
+
+
+class _LoopSpy:
+    """Records the messages and LoopConfig the run hands to the agent loop."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from codeforge.agent_loop import AgentLoopExecutor
+
+        self.messages: list[dict[str, object]] = []
+        self.config: LoopConfig | None = None
+        self.tool_names: list[str] = []
+        real_run = AgentLoopExecutor.run
+        spy = self
+
+        async def run(loop: AgentLoopExecutor, messages: list[dict[str, object]], config: LoopConfig) -> object:
+            spy.messages = list(messages)
+            spy.config = config
+            spy.tool_names = list(loop._tools.tool_names)
+            return await real_run(loop, messages, config)
+
+        monkeypatch.setattr(AgentLoopExecutor, "run", run)
+
+
+def _route(monkeypatch: pytest.MonkeyPatch, routing: RoutingResult, available: list[str]) -> None:
+    """Routing as the HybridRouter would decide it, and the models LiteLLM offers."""
+    monkeypatch.setattr("codeforge.llm.resolve_model_with_routing", lambda **_kwargs: routing)
+    monkeypatch.setattr(
+        "codeforge.consumer._conversation_routing.get_available_models", AsyncMock(return_value=available)
+    )
+
+
+def _task_with_model(workspace: str, model: str) -> TaskMessage:
+    task = _task(workspace)
+    task.config = {"model": model} if model else {}
+    return task
+
+
+async def test_run_gets_fallbacks_limits_and_the_routing_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fallback models and the routing decision reach the loop, so _record_routing_outcome feeds the MAB."""
+    spy = _LoopSpy(monkeypatch)
+    _route(
+        monkeypatch,
+        RoutingResult(model=MODEL, temperature=0.3, routing_layer="mab", complexity_tier="complex", task_type="code"),
+        [MODEL, "openai/gpt-4o-mini"],
+    )
+
+    await AgentExecutor(llm=ScriptedLLM([_answer("done")])).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), ""), _runtime(PolicyJetStream())
+    )
+
+    cfg = spy.config
+    assert cfg is not None
+    assert cfg.model == MODEL
+    assert cfg.fallback_models == ["openai/gpt-4o-mini"]
+    assert (cfg.routing_layer, cfg.complexity_tier, cfg.task_type) == ("mab", "complex", "code")
+    assert (cfg.max_iterations, cfg.max_cost) == (10, 5.0)
+
+
+async def test_local_model_gets_sampling_parameters_and_the_tool_guide(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spy = _LoopSpy(monkeypatch)
+    _route(monkeypatch, RoutingResult(), [])
+
+    await AgentExecutor(llm=ScriptedLLM([_answer("done")])).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), "ollama/llama3"), _runtime(PolicyJetStream())
+    )
+
+    cfg = spy.config
+    assert cfg is not None
+    assert (cfg.temperature, cfg.top_p) == (0.7, 0.8)
+    assert cfg.extra_body == {"top_k": 20, "repetition_penalty": 1.05}
+    system_prompt = str(spy.messages[0]["content"])
+    assert "--- Tool Usage Guide ---" in system_prompt or "--- Workflow Rules ---" in system_prompt
+
+
+async def test_run_never_uses_the_claude_code_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude Code bypasses the per-call policy (KI-72): runs go through LiteLLM models only."""
+    spy = _LoopSpy(monkeypatch)
+    _route(monkeypatch, RoutingResult(model="claudecode/default"), ["claudecode/default", MODEL])
+
+    await AgentExecutor(llm=ScriptedLLM([_answer("done")])).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), ""), _runtime(PolicyJetStream())
+    )
+
+    cfg = spy.config
+    assert cfg is not None
+    assert cfg.model == MODEL
+    assert not any(m.startswith("claudecode/") for m in cfg.fallback_models)
+
+
+async def test_run_has_no_skill_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skill search and creation are conversation features: in a run they would find nothing or not save."""
+    spy = _LoopSpy(monkeypatch)
+
+    await AgentExecutor(llm=ScriptedLLM([_answer("done")])).execute_with_runtime(  # type: ignore[arg-type]
+        _task(str(tmp_path)), _runtime(PolicyJetStream())
+    )
+
+    assert "write_file" in spy.tool_names
+    assert not set(spy.tool_names) & {"search_skills", "create_skill"}

@@ -313,6 +313,29 @@ class TestRunStart:
         assert [s.subject for s in subs] == ["runs.cancel", "tasks.cancel"]
         assert all(s.unsubscribed for s in subs)
 
+    @pytest.mark.parametrize("fails", [False, True])
+    async def test_heartbeats_while_the_run_runs(self, consumer: TaskConsumer, fails: bool) -> None:
+        """Agent-loop runs are long: the Go Core sees them alive, and the heartbeat ends with the run."""
+        msg, _ = jetstream_msg(_run_start_payload("run-beat"), subject="runs.start")
+        seen: dict[str, object] = {}
+
+        async def execute(_task: object, runtime: RuntimeClient, **_kwargs: object) -> None:
+            await asyncio.sleep(0.05)
+            seen["runtime"] = runtime
+            seen["beats"] = [json.loads(d)["run_id"] for s, d in _published(consumer) if s == "runs.heartbeat"]
+            if fails:
+                raise RuntimeError("boom")
+
+        consumer._executor = MagicMock()
+        consumer._executor.execute_with_runtime = execute
+
+        await consumer._handle_run_start(msg)
+
+        assert seen["beats"] == ["run-beat"], "a heartbeat is sent while the run runs"
+        runtime = seen["runtime"]
+        assert isinstance(runtime, RuntimeClient)
+        assert runtime._heartbeat_task is None, "the heartbeat stops when the run ends"
+
 
 # ---------------------------------------------------------------------------
 # conversation.run.start (at-most-once, ack on accept)

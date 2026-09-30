@@ -114,8 +114,12 @@ class _McpToolProxy:
         )
 
 
-def build_default_registry() -> ToolRegistry:
-    """Create a ToolRegistry with all built-in tools registered."""
+def build_default_registry(*, skill_tools: bool = True) -> ToolRegistry:
+    """Create a ToolRegistry with all built-in tools registered.
+
+    *skill_tools* False leaves out search_skills and create_skill, which only
+    work once the conversation path wired them (wire_skill_tools).
+    """
     from codeforge.tools import (
         bash,
         create_skill,
@@ -138,6 +142,7 @@ def build_default_registry() -> ToolRegistry:
     registry.register(search_conversations.DEFINITION, search_conversations.SearchConversationsTool())
     registry.register(glob_files.DEFINITION, glob_files.GlobFilesTool())
     registry.register(list_directory.DEFINITION, list_directory.ListDirectoryTool())
-    registry.register(search_skills.DEFINITION, search_skills.SearchSkillsTool())
-    registry.register(create_skill.DEFINITION, create_skill.CreateSkillTool())
+    if skill_tools:
+        registry.register(search_skills.DEFINITION, search_skills.SearchSkillsTool())
+        registry.register(create_skill.DEFINITION, create_skill.CreateSkillTool())
     return registry

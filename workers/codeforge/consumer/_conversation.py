@@ -11,11 +11,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 import structlog
 
 from codeforge.consumer._conversation_prompt_builder import build_system_prompt
-from codeforge.consumer._conversation_routing import (
-    build_fallback_chain,
-    get_available_models,
-    get_hybrid_router,
-)
+from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
 from codeforge.consumer._conversation_skill_integration import (
     register_handoff_tool,
     register_propose_goal_tool,
@@ -24,6 +20,7 @@ from codeforge.consumer._conversation_skill_integration import (
     wire_skill_tools,
 )
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
+from codeforge.loop_config import build_loop_config
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient
@@ -31,7 +28,6 @@ from codeforge.runtime import RuntimeClient
 if TYPE_CHECKING:
     import nats.aio.msg
 
-    from codeforge.agent_loop import LoopConfig
     from codeforge.consumer._in_flight import AcceptedWork
     from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
@@ -347,33 +343,15 @@ class ConversationHandlerMixin:
 
         Returns (primary_model, routing_result, fallback_models).
         """
-        from codeforge.llm import resolve_model_with_routing
-
-        scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
-        router = await get_hybrid_router(self._litellm_url, self._litellm_key)
-        routing = await asyncio.to_thread(
-            resolve_model_with_routing,
+        return await resolve_model_and_fallbacks(
+            self._litellm_url,
+            self._litellm_key,
             prompt=user_prompt,
-            scenario=scenario,
-            router=router,
-            max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
+            scenario=run_msg.mode.llm_scenario if run_msg.mode else "",
+            explicit_model=run_msg.model,
+            max_cost=run_msg.termination.max_cost,
+            log=log,
         )
-        primary_model = run_msg.model or routing.model
-        if run_msg.model and routing.model and routing.model != run_msg.model:
-            log.info("explicit model overrides routing", explicit=run_msg.model, routed=routing.model)
-        elif not run_msg.model and routing.model:
-            log.info("routing selected model", model=routing.model, scenario=scenario)
-
-        fallback_models = await build_fallback_chain(
-            router,
-            user_prompt,
-            primary_model,
-            run_msg.termination.max_cost,
-            routing,
-            lambda: get_available_models(self._litellm_url, self._litellm_key),
-        )
-
-        return primary_model, routing, fallback_models
 
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
         """Process a conversation run: agentic loop with tool calling.
@@ -634,12 +612,17 @@ class ConversationHandlerMixin:
             workspace_path=run_msg.workspace_path,
             experience_pool=getattr(self, "_experience_pool", None),
         )
-        loop_cfg, complexity_hint = self._build_loop_config(
-            run_msg,
-            primary_model,
-            routing,
-            registry,
-            fallback_models,
+        loop_cfg, complexity_hint = build_loop_config(
+            primary_model=primary_model,
+            routing=routing,
+            tool_names=registry.tool_names,
+            fallback_models=fallback_models,
+            user_prompt=next((m.content for m in run_msg.messages if m.role == "user" and m.content), ""),
+            max_steps=run_msg.termination.max_steps,
+            max_cost=run_msg.termination.max_cost,
+            mode_tools=frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset(),
+            provider_api_key=run_msg.provider_api_key,
+            plan_act_enabled=run_msg.plan_act_enabled,
         )
         if complexity_hint:
             messages.append({"role": "system", "content": complexity_hint})
@@ -655,93 +638,6 @@ class ConversationHandlerMixin:
             return await rollout_exec.execute(messages, config=loop_cfg)
 
         return await executor.run(messages, config=loop_cfg)
-
-    @staticmethod
-    def _build_loop_config(
-        run_msg: ConversationRunStartMessage,
-        primary_model: str,
-        routing: RoutingResult,
-        registry: ToolRegistryLike,
-        fallback_models: list[str],
-    ) -> tuple[LoopConfig, str | None]:
-        """Build LoopConfig with complexity-aware adjustments.
-
-        Returns ``(config, complexity_hint)`` where *complexity_hint* is an
-        optional system message to inject for weak/local models on complex tasks
-        (``None`` when not applicable).
-        """
-        from codeforge.agent_loop import LoopConfig
-        from codeforge.tools.capability import CapabilityLevel, classify_model
-        from codeforge.tools.tool_router import ToolRouter
-
-        mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
-        capability_level = classify_model(primary_model)
-
-        user_msg = next((m.content for m in run_msg.messages if m.role == "user" and m.content), "")
-        tool_router = ToolRouter(all_tool_names=registry.tool_names)
-        selected_tools = tool_router.select(user_msg) if user_msg else None
-        if selected_tools is not None:
-            logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
-
-        _is_local = primary_model.startswith(("lm_studio/", "ollama/"))
-        _temperature = 0.7 if _is_local else routing.temperature
-        _top_p: float | None = 0.8 if _is_local else None
-        _extra_body: dict[str, object] | None = {"top_k": 20, "repetition_penalty": 1.05} if _is_local else None
-
-        loop_cfg = LoopConfig(
-            max_iterations=run_msg.termination.max_steps or 50,
-            max_cost=run_msg.termination.max_cost or 0.0,
-            model=primary_model,
-            temperature=_temperature,
-            tags=routing.tags,
-            fallback_models=fallback_models,
-            routing_layer=routing.routing_layer,
-            complexity_tier=routing.complexity_tier,
-            task_type=routing.task_type,
-            provider_api_key=run_msg.provider_api_key,
-            plan_act_enabled=run_msg.plan_act_enabled,
-            extra_plan_tools=mode_tools,
-            routing_metadata=getattr(routing, "routing_metadata", None),
-            capability_level=str(capability_level),
-            mode_tools=mode_tools,
-            top_p=_top_p,
-            extra_body=_extra_body,
-            selected_tools=selected_tools,
-        )
-
-        # Complexity-aware adjustments for weaker / local models.
-        _complexity = routing.complexity_tier or "unknown"
-        _is_weak_model = (
-            capability_level in (CapabilityLevel.PURE_COMPLETION, CapabilityLevel.API_WITH_TOOLS) and _is_local
-        )
-
-        complexity_hint: str | None = None
-        if _is_weak_model and _complexity in ("complex", "reasoning"):
-            complexity_hint = (
-                "This is a complex task being handled by a local model. "
-                "Break it into smaller, sequential subtasks. "
-                "Complete each subtask fully (write + test) before moving to the next one."
-            )
-            logger.info(
-                "injected complexity decomposition hint",
-                complexity=_complexity,
-                model=primary_model,
-            )
-
-        if _is_local and _complexity == "simple":
-            from dataclasses import replace as _dc_replace
-
-            loop_cfg = _dc_replace(
-                loop_cfg,
-                max_iterations=min(loop_cfg.max_iterations, 20),
-            )
-            logger.info(
-                "capped iterations for simple local task",
-                max_iterations=loop_cfg.max_iterations,
-                model=primary_model,
-            )
-
-        return loop_cfg, complexity_hint
 
     async def _run_simple_chat(
         self,

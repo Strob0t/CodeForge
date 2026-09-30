@@ -1,0 +1,89 @@
+"""LoopConfig for an agent loop: shared by conversation runs and runs.start."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
+import structlog
+
+from codeforge.agent_loop import DEFAULT_MAX_ITERATIONS, LoopConfig
+from codeforge.tools.capability import CapabilityLevel, classify_model
+from codeforge.tools.tool_router import ToolRouter
+
+if TYPE_CHECKING:
+    from codeforge.llm import RoutingResult
+
+logger = structlog.get_logger()
+
+_LOCAL_MODEL_PREFIXES = ("lm_studio/", "ollama/")
+
+
+def build_loop_config(
+    *,
+    primary_model: str,
+    routing: RoutingResult,
+    tool_names: list[str],
+    fallback_models: list[str],
+    user_prompt: str,
+    max_steps: int,
+    max_cost: float,
+    mode_tools: frozenset[str],
+    provider_api_key: str = "",
+    plan_act_enabled: bool = False,
+) -> tuple[LoopConfig, str | None]:
+    """Build the LoopConfig of a run with complexity-aware adjustments.
+
+    Carries the fallback chain and the routing decision (the loop reports the
+    outcome to the MAB router), selects the tools for the prompt and applies
+    local-model sampling parameters. Returns ``(config, complexity_hint)``;
+    the hint is a system message for weak local models on complex tasks, or
+    None.
+    """
+    capability_level = classify_model(primary_model)
+
+    selected_tools = ToolRouter(all_tool_names=tool_names).select(user_prompt) if user_prompt else None
+    if selected_tools is not None:
+        logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
+
+    is_local = primary_model.startswith(_LOCAL_MODEL_PREFIXES)
+    loop_cfg = LoopConfig(
+        max_iterations=max_steps or DEFAULT_MAX_ITERATIONS,
+        max_cost=max_cost or 0.0,
+        model=primary_model,
+        temperature=0.7 if is_local else routing.temperature,
+        tags=routing.tags,
+        fallback_models=fallback_models,
+        routing_layer=routing.routing_layer,
+        complexity_tier=routing.complexity_tier,
+        task_type=routing.task_type,
+        provider_api_key=provider_api_key,
+        plan_act_enabled=plan_act_enabled,
+        extra_plan_tools=mode_tools,
+        routing_metadata=routing.routing_metadata,
+        capability_level=str(capability_level),
+        mode_tools=mode_tools,
+        top_p=0.8 if is_local else None,
+        extra_body={"top_k": 20, "repetition_penalty": 1.05} if is_local else None,
+        selected_tools=selected_tools,
+    )
+
+    complexity = routing.complexity_tier or "unknown"
+    is_weak_model = is_local and capability_level in (CapabilityLevel.PURE_COMPLETION, CapabilityLevel.API_WITH_TOOLS)
+
+    complexity_hint: str | None = None
+    if is_weak_model and complexity in ("complex", "reasoning"):
+        complexity_hint = (
+            "This is a complex task being handled by a local model. "
+            "Break it into smaller, sequential subtasks. "
+            "Complete each subtask fully (write + test) before moving to the next one."
+        )
+        logger.info("injected complexity decomposition hint", complexity=complexity, model=primary_model)
+
+    if is_local and complexity == "simple":
+        loop_cfg = replace(loop_cfg, max_iterations=min(loop_cfg.max_iterations, 20))
+        logger.info(
+            "capped iterations for simple local task", max_iterations=loop_cfg.max_iterations, model=primary_model
+        )
+
+    return loop_cfg, complexity_hint

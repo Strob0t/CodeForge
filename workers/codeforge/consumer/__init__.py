@@ -149,7 +149,7 @@ class TaskConsumer(
         from codeforge.memory.experience import ExperiencePool
 
         self._experience_pool = ExperiencePool(db_url=self._db_url, llm=self._llm)
-        self._executor = AgentExecutor(llm=self._llm)
+        self._executor = AgentExecutor(llm=self._llm, litellm_url=litellm_url, litellm_key=litellm_key)
 
         from codeforge.backends import build_default_router
 

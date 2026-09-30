@@ -174,6 +174,9 @@ class TestRunsHandlerExtraSubjects:
             async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
                 captured_extra.extend(extra_subjects or [])
 
+            async def start_heartbeat(self) -> None:
+                pass
+
             async def close(self) -> None:
                 closed.append(True)
 

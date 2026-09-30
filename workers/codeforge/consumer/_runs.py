@@ -75,6 +75,8 @@ class RunHandlerMixin:
         ):
             try:
                 await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
+                # Agent-loop runs take long; runtime.close() stops the heartbeat.
+                await runtime.start_heartbeat()
                 task = self._build_run_task(run_msg, log)
                 await self._executor.execute_with_runtime(
                     task, runtime, mode=run_msg.mode, mcp_servers=run_msg.mcp_servers

@@ -6,13 +6,15 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from codeforge.agent_loop import DEFAULT_MAX_ITERATIONS, AgentLoopExecutor, LoopConfig
-from codeforge.llm import resolve_model_with_routing
+import structlog
+
+from codeforge.agent_loop import AgentLoopExecutor
+from codeforge.loop_config import build_loop_config
 from codeforge.mcp_workbench import McpWorkbench
 from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
 from codeforge.tools import build_default_registry
-from codeforge.tools.capability import CapabilityLevel, classify_model
+from codeforge.tools.capability import classify_model
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
@@ -24,12 +26,29 @@ logger = logging.getLogger(__name__)
 
 _tracer = tracing_manager.get_tracer()
 
+_CLAUDE_CODE_PREFIX = "claudecode/"
+
+
+def _litellm_models(primary: str, fallbacks: list[str]) -> tuple[str, list[str]]:
+    """Drop Claude Code models from a run's model choice.
+
+    The run loop calls models through LiteLLM with a policy decision per tool
+    call; Claude Code runs its own tools outside that policy (KI-72).
+    """
+    usable = [m for m in fallbacks if not m.startswith(_CLAUDE_CODE_PREFIX)]
+    if primary.startswith(_CLAUDE_CODE_PREFIX):
+        primary = usable.pop(0) if usable else ""
+    return primary, usable
+
 
 class AgentExecutor:
     """Executes tasks: runs in the agent loop, fire-and-forget and A2A tasks as one completion."""
 
-    def __init__(self, llm: LiteLLMClient) -> None:
+    def __init__(self, llm: LiteLLMClient, litellm_url: str = "", litellm_key: str = "") -> None:
         self._llm = llm
+        # Model routing and discovery of a run (HybridRouter, fallback chain).
+        self._litellm_url = litellm_url
+        self._litellm_key = litellm_key
 
     @_tracer.trace_agent("executor")
     async def execute(self, task: TaskMessage) -> TaskResult:
@@ -139,43 +158,66 @@ class AgentExecutor:
 
         await runtime.send_output(f"Starting task: {task.title}")
 
-        system_prompt = mode.prompt_prefix if mode and mode.prompt_prefix else f"You are working on task: {task.title}"
-        scenario_tag = mode.llm_scenario if mode and mode.llm_scenario else "default"
-        routing = resolve_model_with_routing(prompt=task.prompt, scenario=scenario_tag)
-        model = routing.model or task.config.get("model", "")
-        logger.info(
-            "llm_routing_decision run_id=%s mode=%s routed_model=%s temperature=%.2f",
-            runtime.run_id,
-            mode.id if mode else "",
-            model or "(tag-based)",
-            routing.temperature,
-        )
+        # The run path shares the conversation path's routing, loop setup and
+        # tool guide; imported here because the consumer package imports this
+        # module.
+        from codeforge.consumer._conversation import resolve_context_limit
+        from codeforge.consumer._conversation_prompt_builder import inject_tool_guide
+        from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
 
+        log = structlog.get_logger().bind(run_id=runtime.run_id, task_id=task.id)
         workbench: McpWorkbench | None = None
         try:
-            registry = build_default_registry()
+            # No skill tools: search_skills would find nothing and create_skill
+            # would not save without the conversation path's skill wiring.
+            registry = build_default_registry(skill_tools=False)
             if mcp_servers:
                 workbench = McpWorkbench()
                 await workbench.connect_servers(mcp_servers)
                 await workbench.discover_tools()
                 registry.merge_mcp_tools(workbench)
 
+            scenario = mode.llm_scenario if mode and mode.llm_scenario else "default"
+            primary_model, routing, fallback_models = await resolve_model_and_fallbacks(
+                self._litellm_url,
+                self._litellm_key,
+                prompt=task.prompt,
+                scenario=scenario,
+                explicit_model=task.config.get("model", ""),
+                max_cost=runtime.termination.max_cost,
+                log=log,
+            )
+            primary_model, fallback_models = _litellm_models(primary_model, fallback_models)
+
+            base_prompt = (
+                mode.prompt_prefix if mode and mode.prompt_prefix else f"You are working on task: {task.title}"
+            )
+            context_limit = await resolve_context_limit(
+                self._llm, primary_model, str(classify_model(primary_model)), api_key=self._litellm_key
+            )
+            system_prompt = inject_tool_guide(base_prompt, registry, primary_model, log, context_limit=context_limit)
+
+            config, complexity_hint = build_loop_config(
+                primary_model=primary_model,
+                routing=routing,
+                tool_names=registry.tool_names,
+                fallback_models=fallback_models,
+                user_prompt=task.prompt,
+                max_steps=runtime.termination.max_steps,
+                max_cost=runtime.termination.max_cost,
+                mode_tools=frozenset(mode.tools) if mode else frozenset(),
+            )
+            messages: list[dict[str, object]] = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": task.prompt},
+            ]
+            if complexity_hint:
+                messages.append({"role": "system", "content": complexity_hint})
+
             # No experience pool: a cached answer would report the run done
             # without changing the workspace.
             loop = AgentLoopExecutor(llm=self._llm, tool_registry=registry, runtime=runtime, workspace_path=workspace)
-            config = LoopConfig(
-                max_iterations=runtime.termination.max_steps or DEFAULT_MAX_ITERATIONS,
-                max_cost=runtime.termination.max_cost,
-                model=model,
-                temperature=routing.temperature,
-                tags=routing.tags,
-                capability_level=str(classify_model(model)) if model else str(CapabilityLevel.FULL),
-                mode_tools=frozenset(mode.tools) if mode else frozenset(),
-            )
-            result = await loop.run(
-                [{"role": "system", "content": system_prompt}, {"role": "user", "content": task.prompt}],
-                config,
-            )
+            result = await loop.run(messages, config)
 
             if runtime.is_cancelled:
                 await runtime.complete_run(status="cancelled", error="cancelled by user")
