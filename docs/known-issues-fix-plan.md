@@ -163,6 +163,8 @@ scheduled as follows:
 | **KI-78** | Artifact validation events/audit written before the run's end is decided | S6 |
 | **KI-79** | GDPR residuals (quarantine reviewer free text, privacy page wording) | S6 |
 | **KI-80** | Copilot token handed to every authenticated user | S6 (high: do first) |
+| **KI-81** | Auto-agent runs workspace tests inside the Go Core with the core's environment | S3 follow-ups (high: do first) |
+| **KI-82** | Git config allowlist refuses common repositories | S3 follow-ups |
 
 ## Decisions
 
