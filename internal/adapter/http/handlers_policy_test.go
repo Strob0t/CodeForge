@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -25,7 +26,9 @@ func newPersistentPolicyRouter(t *testing.T, store *mockStore) (chi.Router, *ser
 	t.Helper()
 	dir := t.TempDir()
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
-	policySvc.SetPolicyDir(dir)
+	if err := policySvc.LoadPolicyDir(dir); err != nil {
+		t.Fatal(err)
+	}
 	return newTestRouterWithPolicies(store, policySvc), policySvc, dir
 }
 
@@ -468,6 +471,23 @@ func TestCreateDeletePolicyProfile_Persistence(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected profile file removed, stat err = %v", err)
+	}
+}
+
+// TestCreatePolicyProfile_FileConflict verifies that a new profile whose
+// file name is taken by an unloaded file is refused with 409 and a message
+// that names the actual conflict.
+func TestCreatePolicyProfile_FileConflict(t *testing.T) {
+	r, _, dir := newPersistentPolicyRouter(t, &mockStore{})
+	if err := os.WriteFile(filepath.Join(dir, "taken.yaml"), []byte("name: other\nmode: default\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := postJSON(t, r, "/api/v1/policies", policy.PolicyProfile{Name: "taken", Mode: policy.ModeDefault})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "preset") || !strings.Contains(w.Body.String(), "policy file") {
+		t.Fatalf("unexpected conflict message: %s", w.Body.String())
 	}
 }
 

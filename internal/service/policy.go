@@ -36,6 +36,8 @@ type PolicyService struct {
 	// directory writes, so the file on disk always holds the latest version.
 	persistMu sync.Mutex
 	dir       string
+	// files maps each profile persisted in dir to the file that defines it.
+	files map[string]string
 }
 
 // NewPolicyService creates a PolicyService with built-in presets
@@ -62,13 +64,37 @@ func NewPolicyService(defaultProfile string, custom []policy.PolicyProfile) *Pol
 	}
 }
 
-// SetPolicyDir enables persistence: profiles created, deleted or extended by
-// Allow-Always are written to dir as <name>.yaml, which cmd/codeforge loads
-// again at startup. An empty dir keeps profiles in memory only.
-func (s *PolicyService) SetPolicyDir(dir string) {
+// LoadPolicyDir loads the custom profiles in dir (overriding presets of the
+// same name, an operator decision made on disk) and enables persistence:
+// profiles changed or deleted later are written to, or removed from, the
+// file that defines them; new profiles are written to <name>.yaml. A
+// missing dir is created on the first write. An empty dir keeps profiles in
+// memory only.
+func (s *PolicyService) LoadPolicyDir(dir string) error {
+	var sources []policy.ProfileSource
+	if dir != "" {
+		loaded, err := policy.LoadSourcesFromDirectory(dir)
+		if err != nil {
+			return err
+		}
+		sources = loaded
+	}
+
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
 	s.dir = dir
+	s.files = make(map[string]string, len(sources))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range sources {
+		p := sources[i].Profile
+		if policy.IsPreset(p.Name) {
+			slog.Warn("custom policy profile overrides built-in preset", "profile", p.Name, "file", sources[i].File)
+		}
+		s.profiles[p.Name] = p
+		s.files[p.Name] = sources[i].File
+	}
+	return nil
 }
 
 // Evaluate checks a ToolCall against a named PolicyProfile and returns a Decision.
@@ -148,14 +174,11 @@ func (s *PolicyService) DeleteProfile(name string) error {
 	if _, ok := s.GetProfile(name); !ok {
 		return fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, name)
 	}
-	if s.dir != "" {
-		path, err := s.profilePath(name)
-		if err != nil {
-			return err
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if file, ok := s.files[name]; ok {
+		if err := os.Remove(filepath.Join(s.dir, file)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove policy file: %w", err)
 		}
+		delete(s.files, name)
 	}
 	s.mu.Lock()
 	delete(s.profiles, name)
@@ -224,14 +247,16 @@ func (s *PolicyService) storeLocked(profile *policy.PolicyProfile) error {
 
 // writeProfileFile writes the profile atomically (temp file + rename) so a
 // crash never leaves a truncated YAML file that would block the next startup.
+// The caller holds persistMu.
 func (s *PolicyService) writeProfileFile(profile *policy.PolicyProfile) error {
-	path, err := s.profilePath(profile.Name)
+	file, err := s.profileFile(profile.Name)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("create policy dir: %w", err)
 	}
+	path := filepath.Join(s.dir, file)
 	tmp := path + ".tmp"
 	if err := policy.SaveToFile(tmp, profile); err != nil {
 		return fmt.Errorf("persist policy file: %w", err)
@@ -240,16 +265,30 @@ func (s *PolicyService) writeProfileFile(profile *policy.PolicyProfile) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("persist policy file: %w", err)
 	}
+	s.files[profile.Name] = file
 	return nil
 }
 
-// profilePath returns the YAML file path for a profile name, rejecting names
-// that would leave the policy directory.
-func (s *PolicyService) profilePath(name string) (string, error) {
+// profileFile returns the file in the policy directory that holds a
+// profile: the file it was loaded from or last written to, else
+// <name>.yaml for a new profile. A new profile's name must stay inside the
+// policy directory, and its file must not exist yet: it could define
+// another profile or be an operator's file that was not loaded. The caller
+// holds persistMu.
+func (s *PolicyService) profileFile(name string) (string, error) {
+	if file, ok := s.files[name]; ok {
+		return file, nil
+	}
 	if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") {
 		return "", fmt.Errorf("%w: invalid policy profile name %q", domain.ErrValidation, name)
 	}
-	return filepath.Join(s.dir, name+".yaml"), nil
+	file := name + ".yaml"
+	if _, err := os.Lstat(filepath.Join(s.dir, file)); err == nil {
+		return "", fmt.Errorf("%w: policy file %s already exists and does not define profile %q", domain.ErrConflict, file, name)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("check policy file: %w", err)
+	}
+	return file, nil
 }
 
 // projectPolicyResolver provides the project lookup needed by AllowAlways.

@@ -48,7 +48,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
-	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
@@ -216,18 +215,12 @@ func run() error {
 	agentSvc.SetEventStore(eventStore)
 
 	// --- Policy Service ---
-	var customPolicies []policy.PolicyProfile
-	if cfg.Policy.CustomDir != "" {
-		loaded, err := policy.LoadFromDirectory(cfg.Policy.CustomDir)
-		if err != nil {
-			return fmt.Errorf("policy custom dir: %w", err)
-		}
-		customPolicies = loaded
-	}
-	policySvc := service.NewPolicyService(cfg.Policy.DefaultProfile, customPolicies)
+	policySvc := service.NewPolicyService(cfg.Policy.DefaultProfile, nil)
 	// Profiles created via the API and Allow-Always rules are written back to
 	// the directory they are loaded from, so they survive a restart.
-	policySvc.SetPolicyDir(cfg.Policy.CustomDir)
+	if err := policySvc.LoadPolicyDir(cfg.Policy.CustomDir); err != nil {
+		return fmt.Errorf("policy custom dir: %w", err)
+	}
 	slog.Info("policy service initialized",
 		"default_profile", cfg.Policy.DefaultProfile,
 		"profiles", len(policySvc.ListProfiles()),

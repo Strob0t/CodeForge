@@ -143,7 +143,9 @@ func TestAllowAlwaysRule(t *testing.T) {
 // A rule prepended by Allow-Always never overrides a deny list (ADR-015).
 func TestAllowAlways_DoesNotOverrideDenyLists(t *testing.T) {
 	svc := NewPolicyService("headless-permissive-sandbox", nil)
-	svc.SetPolicyDir(t.TempDir())
+	if err := svc.LoadPolicyDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
 	projects := &stubProjects{proj: project.Project{ID: "p1"}}
 	ctx := context.Background()
 

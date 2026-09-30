@@ -28,7 +28,9 @@ func (s storeProjects) Get(ctx context.Context, id string) (*project.Project, er
 func newPersistentPolicyService(t *testing.T, defaultProfile string, custom ...policy.PolicyProfile) *service.PolicyService {
 	t.Helper()
 	policySvc := service.NewPolicyService(defaultProfile, custom)
-	policySvc.SetPolicyDir(t.TempDir())
+	if err := policySvc.LoadPolicyDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
 	return policySvc
 }
 

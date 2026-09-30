@@ -15,7 +15,7 @@ import (
 
 // PolicyHandlers groups HTTP handlers for policy profile CRUD,
 // evaluation, and the allow-always mechanism. Persistence of custom
-// profiles is handled by the PolicyService (see SetPolicyDir).
+// profiles is handled by the PolicyService (see LoadPolicyDir).
 type PolicyHandlers struct {
 	Policies *service.PolicyService
 	Projects *service.ProjectService
@@ -74,8 +74,12 @@ func (ph *PolicyHandlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := ph.Policies.SaveProfile(&profile); err != nil {
-		if errors.Is(err, domain.ErrConflict) {
+		switch {
+		case errors.Is(err, domain.ErrConflict) && policy.IsPreset(profile.Name):
 			writeError(w, http.StatusConflict, "built-in policy presets cannot be overwritten")
+			return
+		case errors.Is(err, domain.ErrConflict):
+			writeError(w, http.StatusConflict, "a policy file with this profile name already exists in the policy directory")
 			return
 		}
 		writeDomainError(w, err, "save policy profile failed")
