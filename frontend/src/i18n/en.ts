@@ -697,16 +697,12 @@ const en = {
   "trajectory.noRuns": "No runs found for this project.",
   "trajectory.runLabel": "Run",
   "detail.settings.title": "Project Settings",
-  "detail.settings.autonomyLevel": "Autonomy Level",
-  "detail.settings.autonomyPlaceholder": "Select level...",
-  "detail.settings.save": "Save Settings",
-  "detail.settings.saving": "Saving...",
+  "detail.settings.autonomyFromMode":
+    "Autonomy comes from the selected mode (see Modes), not from the project.",
   "detail.settings.gearTooltip": "Project Settings",
   "detail.roadmap.collapse": "Collapse Roadmap",
   "detail.roadmap.expand": "Expand Roadmap",
   "detail.settings.costSummary": "Cost Summary",
-  "detail.toast.settingsSaved": "Project settings saved",
-  "detail.toast.settingsFailed": "Failed to save project settings",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",

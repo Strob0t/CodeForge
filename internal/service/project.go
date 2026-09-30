@@ -157,7 +157,9 @@ func (s *ProjectService) Create(ctx context.Context, req *project.CreateRequest)
 	return s.store.CreateProject(ctx, req)
 }
 
-// Update applies partial updates to a project.
+// Update applies partial updates to a project. Config is merged key by key
+// (see project.ConfigPatch), so a client that changes one setting cannot wipe
+// the others, such as policy_preset or detected_languages.
 func (s *ProjectService) Update(ctx context.Context, id string, req project.UpdateRequest) (*project.Project, error) {
 	if err := project.ValidateUpdateRequest(req); err != nil {
 		return nil, err
@@ -180,8 +182,8 @@ func (s *ProjectService) Update(ctx context.Context, id string, req project.Upda
 	if req.Provider != nil {
 		p.Provider = *req.Provider
 	}
-	if req.Config != nil {
-		p.Config = req.Config
+	if len(req.Config) > 0 {
+		p.Config = req.Config.Apply(p.Config)
 	}
 
 	if err := s.store.UpdateProject(ctx, p); err != nil {

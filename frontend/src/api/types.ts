@@ -42,7 +42,8 @@ export interface UpdateProjectRequest {
   description?: string;
   repo_url?: string;
   provider?: string;
-  config?: Record<string, string>;
+  /** Merged into the stored config: a key with a value is set, a key with null is removed, other keys are kept. */
+  config?: Record<string, string | null>;
 }
 
 /** Matches Go domain/project.ParsedRepoURL */

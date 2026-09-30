@@ -157,7 +157,6 @@ export default function ProjectDetailPage() {
   // Destructure for template readability
   const {
     project,
-    refetchProject,
     tasks,
     refetchTasks,
     gitStatus,
@@ -411,13 +410,8 @@ export default function ProjectDetailPage() {
                   </Button>
                   <CompactSettingsPopover
                     projectId={params.id}
-                    config={p().config ?? {}}
                     open={settingsOpen()}
                     onClose={() => setSettingsOpen(false)}
-                    onSaved={() => {
-                      refetchProject();
-                      setSettingsOpen(false);
-                    }}
                   />
                 </div>
               </div>

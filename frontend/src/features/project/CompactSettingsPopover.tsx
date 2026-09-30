@@ -1,29 +1,23 @@
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { MCPServer } from "~/api/types";
 import { useToast } from "~/components/Toast";
-import { AUTONOMY_LEVELS_NUMERIC } from "~/config/domain-constants";
-import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
-import { Button, FormField, Select } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
 
 interface CompactSettingsPopoverProps {
   projectId: string;
-  config: Record<string, string>;
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
 }
 
 export default function CompactSettingsPopover(props: CompactSettingsPopoverProps) {
   const { t } = useI18n();
   const { show: toast } = useToast();
 
-  const [autonomy, setAutonomy] = createSignal("");
   const [assignedIds, setAssignedIds] = createSignal<Set<string>>(new Set());
   const [togglingId, setTogglingId] = createSignal<string | null>(null);
 
@@ -38,8 +32,7 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
   const [projectServers] = createResource(
     () => (props.open ? props.projectId : false),
     async (projectId) => {
-      if (!projectId) return [] as MCPServer[];
-      const servers = await api.mcp.listProjectServers(projectId as string);
+      const servers = await api.mcp.listProjectServers(projectId);
       setAssignedIds(new Set(servers.map((s) => s.id)));
       return servers;
     },
@@ -69,14 +62,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
 
   let popoverRef: HTMLDivElement | undefined;
 
-  // Sync from props when popover opens
-  createEffect(() => {
-    if (props.open) {
-      const cfg = props.config ?? {};
-      setAutonomy(cfg["autonomy_level"] ?? "");
-    }
-  });
-
   // Dismiss: click-outside and Escape key.
   // Listeners are registered once on mount and check props.open in the handler
   // to avoid SolidJS createEffect timing issues with addEventListener/removeEventListener.
@@ -104,23 +89,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
     document.removeEventListener("keydown", handleKeyDown);
   });
 
-  const { run: handleSave, loading: saving } = useAsyncAction(
-    async () => {
-      const config: Record<string, string> = {};
-      const a = autonomy();
-      if (a) config["autonomy_level"] = a;
-
-      await api.projects.update(props.projectId, { config });
-      toast("success", t("detail.toast.settingsSaved"));
-      props.onSaved();
-    },
-    {
-      onError: (err) => {
-        toast("error", getErrorMessage(err, t("detail.toast.settingsFailed")));
-      },
-    },
-  );
-
   return (
     <Show when={props.open}>
       <div
@@ -131,19 +99,8 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
           {t("detail.settings.title")}
         </h3>
 
-        {/* Autonomy Level */}
-        <FormField id="popover_autonomy" label={t("detail.settings.autonomyLevel")}>
-          <Select
-            id="popover_autonomy"
-            value={autonomy()}
-            onChange={(e) => setAutonomy(e.currentTarget.value)}
-          >
-            <option value="">{t("detail.settings.autonomyPlaceholder")}</option>
-            <For each={AUTONOMY_LEVELS_NUMERIC}>
-              {(level) => <option value={level.value}>{t(level.labelKey)}</option>}
-            </For>
-          </Select>
-        </FormField>
+        {/* Autonomy is a property of the mode a run or conversation uses. */}
+        <p class="text-xs text-cf-text-tertiary mb-3">{t("detail.settings.autonomyFromMode")}</p>
 
         {/* MCP Servers */}
         <div class="mb-3">
@@ -188,19 +145,6 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
               </p>
             </Show>
           </Show>
-        </div>
-
-        {/* Save Button */}
-        <div class="mb-4 flex justify-end">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => void handleSave()}
-            disabled={saving()}
-            loading={saving()}
-          >
-            {saving() ? t("detail.settings.saving") : t("detail.settings.save")}
-          </Button>
         </div>
 
         {/* Cost Summary */}

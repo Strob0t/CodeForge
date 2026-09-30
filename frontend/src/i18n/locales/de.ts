@@ -691,16 +691,12 @@ const de: Translations = {
   "trajectory.noRuns": "Keine Laeufe fuer dieses Projekt gefunden.",
   "trajectory.runLabel": "Lauf",
   "detail.settings.title": "Projekteinstellungen",
-  "detail.settings.autonomyLevel": "Autonomie-Stufe",
-  "detail.settings.autonomyPlaceholder": "Stufe auswahlen...",
-  "detail.settings.save": "Einstellungen speichern",
-  "detail.settings.saving": "Speichern...",
+  "detail.settings.autonomyFromMode":
+    "Die Autonomie-Stufe kommt aus dem gew\u00e4hlten Modus (siehe Modi), nicht aus dem Projekt.",
   "detail.settings.gearTooltip": "Projekteinstellungen",
   "detail.roadmap.collapse": "Roadmap einklappen",
   "detail.roadmap.expand": "Roadmap ausklappen",
   "detail.settings.costSummary": "Kostenübersicht",
-  "detail.toast.settingsSaved": "Projekteinstellungen gespeichert",
-  "detail.toast.settingsFailed": "Fehler beim Speichern der Projekteinstellungen",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live-Ausgabe",
