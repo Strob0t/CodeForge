@@ -54,11 +54,12 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	}
 	// The control plane is stopping the run and records its end with the
 	// stop's status and reason; the worker's completion (its answer to the
-	// stop) contributes its usage totals only.
-	if s.state.IsStopping(r.ID) {
+	// stop) contributes its usage totals only. It is kept for the stop before
+	// anything else happens: if the stop cannot record the run's end, the
+	// stop ends the run with it.
+	if s.state.DeferCompletionIfStopping(r.ID, payload) {
 		slog.Info("completion for a run being stopped, usage kept", "run_id", r.ID, "status", payload.Status)
 		s.keepWorkerTotals(ctx, r.ID, payload)
-		s.state.DeferCompletion(r.ID, payload)
 		return nil
 	}
 

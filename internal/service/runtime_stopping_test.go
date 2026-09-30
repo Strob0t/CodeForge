@@ -255,3 +255,79 @@ func TestStop_FailedEndWriteWithoutCompletionReportsTheError(t *testing.T) {
 		t.Fatalf("run = %s, want cancelled", r.Status)
 	}
 }
+
+// usageBlockingStore holds the first usage raise until it is released.
+type usageBlockingStore struct {
+	*failingEndStore
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *usageBlockingStore) RaiseRunUsage(ctx context.Context, runID string, totals *run.Usage) error {
+	s.once.Do(func() {
+		s.entered <- struct{}{}
+		<-s.release
+	})
+	return s.failingEndStore.RaiseRunUsage(ctx, runID, totals)
+}
+
+// workerCompletesConcurrently plays a worker whose completion is handled
+// concurrently with the stop: Publish returns once the completion reached
+// the store's usage raise.
+type workerCompletesConcurrently struct {
+	runtimeMockQueue
+	svc     *service.RuntimeService
+	entered chan struct{}
+	done    chan error
+	totals  messagequeue.RunCompletePayload
+}
+
+func (q *workerCompletesConcurrently) Publish(ctx context.Context, subject string, data []byte) error {
+	if err := q.runtimeMockQueue.Publish(ctx, subject, data); err != nil {
+		return err
+	}
+	if subject == messagequeue.SubjectRunCancel {
+		payload := q.totals
+		go func() { q.done <- q.svc.HandleRunComplete(context.WithoutCancel(ctx), &payload) }()
+		<-q.entered
+	}
+	return nil
+}
+
+// TestStop_WorkerCompletionRacingAFailedStop (S2-F review, F2): the worker's
+// completion saw the run stopping and wrote its usage; meanwhile the stop
+// could not record the run's end and ended, then the completion was deferred
+// to a stop that no longer existed and dropped: the run stayed running. The
+// completion is now deferred in the same step that sees the stop, so the
+// failed stop ends the run with it.
+func TestStop_WorkerCompletionRacingAFailedStop(t *testing.T) {
+	_, mock, _, bc := newRuntimeTestEnv()
+	entered := make(chan struct{})
+	store := &usageBlockingStore{failingEndStore: &failingEndStore{runtimeMockStore: mock}, entered: entered, release: make(chan struct{})}
+	queue := &workerCompletesConcurrently{entered: entered, done: make(chan error, 1), totals: messagequeue.RunCompletePayload{
+		RunID: "run-stop-race", Status: "cancelled", Error: "cancelled by control plane", CostUSD: 0.7, StepCount: 3,
+	}}
+	svc := service.NewRuntimeService(store, queue, bc, &runtimeMockEventStore{}, service.NewPolicyService("headless-safe-sandbox", nil), &config.Runtime{})
+	queue.svc = svc
+	setStoredRun(mock, &run.Run{
+		ID: "run-stop-race", TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
+		PolicyProfile: "headless-safe-sandbox", Status: run.StatusRunning,
+	})
+
+	cancelErr := svc.CancelRun(context.Background(), "run-stop-race")
+	close(store.release)
+	if err := <-queue.done; err != nil {
+		t.Fatalf("HandleRunComplete: %v", err)
+	}
+	if cancelErr != nil {
+		t.Errorf("CancelRun: %v, want the worker's completion to end the run", cancelErr)
+	}
+	r := storedRun(t, mock, "run-stop-race")
+	if r.Status != run.StatusCancelled {
+		t.Fatalf("run = %s %q, want cancelled by the worker's completion", r.Status, r.Error)
+	}
+	if r.CostUSD != 0.7 || r.StepCount != 3 {
+		t.Errorf("usage = %.2f %d steps, want the worker's totals", r.CostUSD, r.StepCount)
+	}
+}

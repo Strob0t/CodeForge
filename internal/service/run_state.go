@@ -185,18 +185,22 @@ func (m *RunStateManager) BeginStop(runID string) {
 	m.stops[runID]++
 }
 
-// DeferCompletion keeps the completion a worker reported while its run was
-// being stopped; the last EndStop of the run returns it.
-func (m *RunStateManager) DeferCompletion(runID string, payload *messagequeue.RunCompletePayload) {
+// DeferCompletionIfStopping keeps the completion a worker reported while
+// its run is being stopped, and reports whether it did; the last EndStop of
+// the run returns it. Seeing the stop and keeping the completion is one step:
+// a stop that ends in between would otherwise never see the completion, and
+// a run whose stop failed would stay running.
+func (m *RunStateManager) DeferCompletionIfStopping(runID string, payload *messagequeue.RunCompletePayload) bool {
 	m.stopsMu.Lock()
 	defer m.stopsMu.Unlock()
 	if m.stops[runID] == 0 {
-		return
+		return false
 	}
 	if m.stopCompletions == nil {
 		m.stopCompletions = make(map[string]*messagequeue.RunCompletePayload)
 	}
 	m.stopCompletions[runID] = payload
+	return true
 }
 
 // EndStop records that a stop of the run is over. The last one returns the
