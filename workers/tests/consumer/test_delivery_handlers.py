@@ -932,7 +932,6 @@ def _install_benchmark_work(consumer: TaskConsumer, monkeypatch: pytest.MonkeyPa
 async def _start_until_given_up(
     consumer: TaskConsumer,
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     subscription: str,
     msg: object,
     work: _Work,
@@ -942,7 +941,6 @@ async def _start_until_given_up(
 
     Returns how long start() took.
     """
-    monkeypatch.setattr("codeforge.consumer._HEALTHY_SENTINEL", tmp_path / "codeforge-worker-healthy")
     monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 2)
     monkeypatch.setattr("codeforge.consumer._BACKOFF_MULTIPLIER", 0.0)
     monkeypatch.setattr("codeforge.consumer._GIVE_UP_GRACE_SECONDS", grace)
@@ -1026,7 +1024,6 @@ class TestGiveUpFailsAcceptedWork:
         self,
         consumer: TaskConsumer,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
         subscription: str,
         subject: str,
         payload: bytes,
@@ -1040,9 +1037,10 @@ class TestGiveUpFailsAcceptedWork:
         install(consumer, monkeypatch, work)  # type: ignore[operator]
         msg, client = jetstream_msg(payload, subject=subject)
 
-        await _start_until_given_up(consumer, monkeypatch, tmp_path, subscription, msg, work, grace=0.05)
+        await _start_until_given_up(consumer, monkeypatch, subscription, msg, work, grace=0.05)
 
         assert consumer.failed is True
+        assert consumer.ready is False
         assert work.cancelled, "the work must not outlive the worker"
         results = [json.loads(data) for published, data in _published(consumer) if published == result_subject]
         assert [(r[id_field], r["status"]) for r in results] == [(work_id, "failed")]
@@ -1050,7 +1048,7 @@ class TestGiveUpFailsAcceptedWork:
         assert client.settlements()[0] == "ack(sync)"
 
     async def test_work_that_finishes_within_the_grace_period_is_not_failed(
-        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from codeforge.backends._base import TaskResult as BackendTaskResult
 
@@ -1058,7 +1056,7 @@ class TestGiveUpFailsAcceptedWork:
         _install_task_work(consumer, monkeypatch, work)
         msg, _ = jetstream_msg(_task_payload("task-quick"), subject="tasks.agent.aider")
 
-        elapsed = await _start_until_given_up(consumer, monkeypatch, tmp_path, "tasks.agent.*", msg, work, grace=5.0)
+        elapsed = await _start_until_given_up(consumer, monkeypatch, "tasks.agent.*", msg, work, grace=5.0)
 
         assert consumer.failed is True
         assert not work.cancelled

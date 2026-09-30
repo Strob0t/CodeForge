@@ -307,12 +307,14 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+    # GET /health/ready on CODEFORGE_WORKER_HEALTH_PORT (default 8081): 200
+    # while the worker is connected to NATS and every consumer loop runs.
     healthcheck:
-      test: ["CMD", "python", "-c", "import codeforge.consumer"]
+      test: ["CMD", "python", "/app/scripts/worker-healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
     networks:
       - internal
     deploy:

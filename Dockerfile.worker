@@ -53,8 +53,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 USER codeforge
 
-# INFRA-015: Sentinel-based healthcheck verifies NATS connection is active,
-# not just that the module is importable.
+# The worker serves GET /health (liveness) and GET /health/ready (connected to
+# NATS, every consumer loop running) on CODEFORGE_WORKER_HEALTH_PORT (8081);
+# the check asks /health/ready.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD python /app/scripts/worker-healthcheck.py || exit 1
 

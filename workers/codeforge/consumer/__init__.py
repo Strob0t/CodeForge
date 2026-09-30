@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import functools
 import signal
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import nats
@@ -68,6 +67,7 @@ from codeforge.consumer._subjects import (
 from codeforge.consumer._tasks import TaskHandlerMixin
 from codeforge.executor import AgentExecutor
 from codeforge.graphrag import CodeGraphBuilder, GraphSearcher
+from codeforge.health import start_health_server
 from codeforge.llm import LiteLLMClient
 from codeforge.logger import redact_url, setup_logging, stop_logging
 from codeforge.qualitygate import QualityGateExecutor
@@ -83,10 +83,6 @@ if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
 
 logger = structlog.get_logger()
-
-# Sentinel file touched when NATS connection is active and message loops
-# are running.  The worker healthcheck script checks for this file.
-_HEALTHY_SENTINEL = Path("/tmp/codeforge-worker-healthy")  # noqa: S108
 
 # Consumer error backoff config (from centralized WorkerSettings)
 _MAX_CONSECUTIVE_ERRORS = get_settings().consumer_max_errors
@@ -163,6 +159,22 @@ class TaskConsumer(
         self._graph_builder = CodeGraphBuilder()
         self._graph_searcher = GraphSearcher()
 
+    @property
+    def ready(self) -> bool:
+        """Whether the worker consumes its subjects: running, connected to NATS, every loop alive, not given up.
+
+        Read by the health server thread (GET /health/ready).
+        """
+        loops = list(self._loop_tasks)
+        return (
+            self._running
+            and not self.failed
+            and self._nc is not None
+            and self._nc.is_connected
+            and bool(loops)
+            and not any(task.done() for task in loops)
+        )
+
     async def start(self) -> None:
         """Connect to NATS and subscribe to task and run subjects."""
         self._nc = await nats.connect(self.nats_url)
@@ -220,10 +232,8 @@ class TaskConsumer(
             task.add_done_callback(functools.partial(self._loop_ended, subject))
             self._loop_tasks.append(task)
 
-        # Signal to the Docker healthcheck that the worker is connected and
-        # all subscriptions are active.
-        _HEALTHY_SENTINEL.touch()
-        logger.info("healthcheck sentinel created", path=str(_HEALTHY_SENTINEL))
+        # From here on GET /health/ready answers 200 (see ready).
+        logger.info("worker ready", subscriptions=len(self._loop_tasks))
 
         await asyncio.wait(self._loop_tasks)
         if self._abort_task is not None:
@@ -332,9 +342,9 @@ class TaskConsumer(
     def _give_up(self, subject: str) -> None:
         """Stop the worker after a message loop could not recover.
 
-        Every loop ends, the health sentinel is removed and main() exits with
-        status 1, so the container's restart policy starts a fresh worker instead
-        of a "healthy" process that no longer consumes *subject*. Accepted
+        Every loop ends, /health/ready fails at once (see ready) and main() exits
+        with status 1, so the container's restart policy starts a fresh worker
+        instead of a "healthy" process that no longer consumes *subject*. Accepted
         at-most-once work gets a bounded grace period; what is still running
         then is cancelled and reported as failed (ADR-016), so the exit is not
         delayed by a long run and the Go Core does not wait for its timeout.
@@ -342,7 +352,6 @@ class TaskConsumer(
         logger.error("message loop cannot recover, stopping the worker", subject=subject)
         self.failed = True
         self._running = False
-        _HEALTHY_SENTINEL.unlink(missing_ok=True)
         if self._abort_task is None:
             reason = f"worker stopped before the work finished: message loop for {subject} could not recover"
             self._abort_task = asyncio.create_task(
@@ -351,12 +360,8 @@ class TaskConsumer(
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""
-        self._running = False
+        self._running = False  # /health/ready fails from now on
         logger.info("stopping consumer")
-
-        # Remove healthcheck sentinel so Docker marks the container unhealthy
-        # during shutdown.
-        _HEALTHY_SENTINEL.unlink(missing_ok=True)
 
         await self._llm.close()
         await self._retriever.close()
@@ -392,16 +397,42 @@ async def main() -> None:
         litellm_key=litellm_key,
     )
 
-    loop = asyncio.get_running_loop()
-    # FIX-091: Bind consumer via default argument so the closure captures
-    # the current value, not the variable (prevents stale reference if
-    # the function is ever refactored to reassign consumer).
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda c=consumer: asyncio.create_task(c.stop()))
+    # A worker without its health endpoint would be restarted as unhealthy:
+    # fail at once, before connecting to NATS.
+    try:
+        health = start_health_server(settings.health_port, lambda: consumer.ready)
+    except (OSError, OverflowError) as exc:
+        logger.error("health server failed to start", port=settings.health_port, error=str(exc))
+        stop_logging()
+        raise SystemExit(1) from exc
+    logger.info("health server listening", port=health.server_address[1], ready_path="/health/ready")
 
-    await consumer.start()
-    if consumer.failed:
-        await consumer.stop()
+    stopping: list[asyncio.Task[None]] = []
+
+    def request_stop() -> None:
+        if not stopping:
+            stopping.append(asyncio.create_task(consumer.stop(), name="stop consumer"))
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, request_stop)
+
+    crashed = False
+    try:
+        # start() returns once every loop ended: after a stop request or a give-up.
+        try:
+            await consumer.start()
+        except Exception as exc:  # e.g. NATS unreachable at startup
+            crashed = True
+            logger.exception("worker stopped by an error", error=str(exc))
+        request_stop()
+        # Awaited, not left to asyncio.run() to cancel: the shutdown drains
+        # NATS and flushes the tracing and log queues.
+        await stopping[0]
+    finally:
+        await asyncio.to_thread(health.shutdown)
+        health.server_close()
+    if crashed or consumer.failed:
         raise SystemExit(1)
 
 

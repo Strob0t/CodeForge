@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 import nats.errors
@@ -29,9 +29,6 @@ from codeforge.consumer._delivery import (
 from codeforge.nats_publish import PUBLISH_ATTEMPTS
 from codeforge.nats_subjects import ACCEPT_ATTEMPTS, ACK_WAIT_SECONDS, MAX_DELIVER, NAK_DELAY_SECONDS, STREAM_NAME
 from tests.jetstream_fakes import RecordingClient, RecordingJetStream, jetstream_msg
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Durable consumers (KI-18)
@@ -169,7 +166,6 @@ class TestEnsureDurable:
         monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=nc))
         monkeypatch.setattr("codeforge.consumer.ensure_durable", fake_ensure)
         monkeypatch.setattr(consumer, "_message_loop", fake_loop)
-        monkeypatch.setattr("codeforge.consumer._HEALTHY_SENTINEL", SimpleNamespace(touch=lambda: None))
         await consumer.start()
 
         assert jetstream_clients == [nc], "every publish must carry the trace context (KI-36)"
@@ -297,10 +293,7 @@ class TestMessageLoopConsumerLifecycle:
     """The loop re-attaches to a deleted durable and fails the worker when it cannot recover (KI-67)."""
 
     @pytest.fixture
-    def consumer(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TaskConsumer:
-        sentinel = tmp_path / "codeforge-worker-healthy"
-        sentinel.touch()
-        monkeypatch.setattr("codeforge.consumer._HEALTHY_SENTINEL", sentinel)
+    def consumer(self, monkeypatch: pytest.MonkeyPatch) -> TaskConsumer:
         monkeypatch.setattr("codeforge.consumer._BACKOFF_MULTIPLIER", 0.0)
         worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
         worker._running = True
@@ -337,9 +330,11 @@ class TestMessageLoopConsumerLifecycle:
 
     async def test_gives_up_and_fails_the_worker(self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch) -> None:
         """After too many errors the worker is marked unhealthy and all loops stop, so it exits and restarts."""
-        import codeforge.consumer as consumer_module
-
         monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 3)
+        consumer._nc = MagicMock(is_connected=True)
+        loop = asyncio.get_running_loop()
+        consumer._loop_tasks = [loop.create_task(asyncio.sleep(3600))]
+        assert consumer.ready is True
         sub = MagicMock()
         sub.fetch = AsyncMock(side_effect=ConnectionError("connection lost"))
 
@@ -347,12 +342,13 @@ class TestMessageLoopConsumerLifecycle:
             raise AssertionError("no message expected")
 
         await consumer._message_loop(sub, handler, "test.request")
+        assert consumer.ready is False, "/health/ready fails as soon as the worker gives up (KI-34)"
         await consumer._abort_task
 
         assert sub.fetch.await_count == 3
         assert consumer.failed is True
         assert consumer._running is False
-        assert not consumer_module._HEALTHY_SENTINEL.exists()
+        assert consumer.ready is False
 
     async def test_idle_fetches_reset_the_error_count(
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
@@ -428,6 +424,7 @@ class TestMessageLoopConsumerLifecycle:
 
         monkeypatch.setattr(consumer_module, "TaskConsumer", _FailedConsumer)
         monkeypatch.setattr(consumer_module, "setup_logging", lambda **_kwargs: None)
+        monkeypatch.setenv("CODEFORGE_WORKER_HEALTH_PORT", "0")  # any free port for the health server
 
         with pytest.raises(SystemExit) as exc_info:
             await consumer_module.main()
