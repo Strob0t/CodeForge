@@ -44,8 +44,10 @@ type modeRestriction struct {
 // EvalOption configures optional parameters for Evaluate.
 type EvalOption func(*evalContext)
 
-// WithTrust attaches a trust annotation to the evaluation context. Rules
-// with a TrustMinimum above the annotation's level do not decide the call.
+// WithTrust attaches a trust annotation to the evaluation context. An allow
+// rule with a TrustMinimum only allows calls whose annotation meets it; a
+// call without an annotation never meets it. Deny and ask rules apply to
+// every caller.
 func WithTrust(t *trust.Annotation) EvalOption {
 	return func(c *evalContext) { c.trust = t }
 }
@@ -112,7 +114,7 @@ func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationRe
 
 	for i := range p.Rules {
 		rule := &p.Rules[i]
-		if !matchTool(CanonicalTool(rule.Specifier.Tool), tool) || !rule.subPatternMatches(cmd, false) {
+		if !rule.matchesTool(call.Tool, tool, true) || !rule.subPatternMatches(cmd, false) {
 			continue
 		}
 		if reason := rule.denyListReason(path, cmd); reason != "" {
@@ -122,7 +124,8 @@ func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationRe
 
 	for i := range p.Rules {
 		rule := &p.Rules[i]
-		if !matchTool(CanonicalTool(rule.Specifier.Tool), tool) || !rule.subPatternMatches(cmd, rule.Decision == DecisionAllow) {
+		allow := rule.Decision == DecisionAllow
+		if !rule.matchesTool(call.Tool, tool, !allow) || !rule.subPatternMatches(cmd, allow) {
 			continue
 		}
 		if len(rule.PathAllow) > 0 && (path == "" || !matchesAnyGlob(rule.PathAllow, path, false)) {
@@ -131,7 +134,7 @@ func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationRe
 		if len(rule.CommandAllow) > 0 && !cmd.allowedBy(rule.CommandAllow) {
 			continue
 		}
-		if rule.TrustMinimum != "" && ctx.trust != nil && !ctx.trust.MeetsMinimum(rule.TrustMinimum) {
+		if allow && rule.TrustMinimum != "" && (ctx.trust == nil || !ctx.trust.MeetsMinimum(rule.TrustMinimum)) {
 			continue
 		}
 		reason := fmt.Sprintf("matched rule %d in profile %q: tool=%s", i, p.Name, rule.Specifier.Tool)
@@ -225,6 +228,21 @@ func (r *PermissionRule) subPatternMatches(cmd shellCommand, allOf bool) bool {
 		}
 	}
 	return allOf
+}
+
+// matchesTool matches the rule's tool pattern against a call, given the raw
+// tool name the worker sent and its canonical name. The canonicalized
+// pattern is matched against the canonical name. A restrictive match (deny
+// lists, deny and ask rules) also matches the pattern against the raw name,
+// so rules written for worker names or legacy categories ("file:*",
+// "*_file") keep denying (fail closed); allow rules only match canonical
+// names, so a legacy glob never grants more than a canonical rule would.
+func (r *PermissionRule) matchesTool(raw, canonical string, restrictive bool) bool {
+	pattern := r.Specifier.Tool
+	if matchTool(CanonicalTool(pattern), canonical) {
+		return true
+	}
+	return restrictive && (matchTool(pattern, raw) || matchTool(pattern, canonical))
 }
 
 // matchTool checks whether a tool specifier pattern matches a tool name.

@@ -530,7 +530,10 @@ func TestEvaluateTrustMinimumAllowed(t *testing.T) {
 	}
 }
 
-func TestEvaluateNoTrustAnnotationBackwardsCompatible(t *testing.T) {
+// An allow rule with a trust minimum must not allow a call that carries no
+// trust annotation (fail closed); previously a missing annotation skipped
+// the check and the rule allowed untrusted calls.
+func TestEvaluateNoTrustAnnotationFailsClosed(t *testing.T) {
 	p := PolicyProfile{
 		Name: "trust-test",
 		Mode: ModeDefault,
@@ -543,14 +546,36 @@ func TestEvaluateNoTrustAnnotationBackwardsCompatible(t *testing.T) {
 		},
 	}
 
-	// No WithTrust option — rule with TrustMinimum should still match
-	// because we only filter when both rule.TrustMinimum and ctx.trust are set.
 	result := p.Evaluate(ToolCall{Tool: "Bash"})
-	if result.Decision != DecisionAllow {
-		t.Errorf("expected allow (no annotation = no filtering), got %q", result.Decision)
+	if result.Decision == DecisionAllow {
+		t.Errorf("expected no allow without a trust annotation, got %q", result.Decision)
 	}
-	if result.RuleIndex != 0 {
-		t.Errorf("expected rule index 0, got %d", result.RuleIndex)
+	if result.RuleIndex != -1 {
+		t.Errorf("expected no rule match, got index %d", result.RuleIndex)
+	}
+	result = p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(nil))
+	if result.Decision == DecisionAllow {
+		t.Errorf("expected no allow with a nil trust annotation, got %q", result.Decision)
+	}
+}
+
+// Trust minimums only restrict what an allow rule grants: deny and ask
+// rules apply to every caller.
+func TestEvaluateTrustMinimumNeverSkipsRestrictiveRules(t *testing.T) {
+	p := PolicyProfile{
+		Name: "trust-test",
+		Mode: ModeAcceptEdits,
+		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionDeny, TrustMinimum: trust.LevelVerified},
+			{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionAsk, TrustMinimum: trust.LevelFull},
+		},
+	}
+	untrusted := &trust.Annotation{TrustLevel: trust.LevelUntrusted}
+	if res := p.Evaluate(ToolCall{Tool: "Bash"}, WithTrust(untrusted)); res.Decision != DecisionDeny {
+		t.Errorf("deny rule skipped for an untrusted caller: %s", res.Decision)
+	}
+	if res := p.Evaluate(ToolCall{Tool: "Edit", Path: "a"}); res.Decision != DecisionAsk {
+		t.Errorf("ask rule skipped without annotation: %s", res.Decision)
 	}
 }
 

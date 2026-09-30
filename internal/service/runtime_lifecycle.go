@@ -512,10 +512,11 @@ func toContextEntryPayloads(entries []cfcontext.ContextEntry) []messagequeue.Con
 	return out
 }
 
-// isFileModifyingTool returns true for tools that change files on disk.
+// isFileModifyingTool returns true for tools that change files on disk:
+// Edit, Write and Bash under any worker or Claude Code name.
 func isFileModifyingTool(tool string) bool {
-	switch tool {
-	case "Edit", "Write", "Bash", "execute", "write_file", "edit_file":
+	switch policy.CanonicalTool(tool) {
+	case policy.ToolEdit, policy.ToolWrite, policy.ToolBash, "execute":
 		return true
 	}
 	return false

@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
@@ -69,7 +70,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call, policyEvalOptions(workspace, m)...)
+	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call, policyEvalOptions(workspace, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -225,7 +226,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call, policyEvalOptions(proj.WorkspacePath, m)...)
+	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call, policyEvalOptions(proj.WorkspacePath, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -303,9 +304,11 @@ func denialReason(decision policy.Decision, result *policy.EvaluationResult) str
 }
 
 // policyEvalOptions returns the policy evaluation options for a tool call:
-// the workspace that paths are resolved against and the mode's tool lists.
-func policyEvalOptions(workspace string, m *mode.Mode) []policy.EvalOption {
-	opts := []policy.EvalOption{policy.WithWorkspace(workspace)}
+// the workspace that paths are resolved against, the trust annotation of
+// the request (allow rules with a trust minimum need one) and the mode's
+// tool lists.
+func policyEvalOptions(workspace string, m *mode.Mode, ann *trust.Annotation) []policy.EvalOption {
+	opts := []policy.EvalOption{policy.WithWorkspace(workspace), policy.WithTrust(ann)}
 	if m != nil {
 		opts = append(opts, policy.WithModeTools(m.ID, m.Tools, m.DeniedTools))
 	}

@@ -176,6 +176,46 @@ func TestEvaluate_CanonicalRuleAndCallNames(t *testing.T) {
 	}
 }
 
+// Rule tool patterns written for worker names or legacy categories keep
+// working for restrictive rules (fail closed): deny/ask rules and deny lists
+// match the raw call name as well as the canonical one. Allow rules match
+// only canonical names, so a legacy glob never grants more than intended.
+func TestEvaluate_LegacyToolGlobs(t *testing.T) {
+	p := PolicyProfile{
+		Name: "legacy",
+		Mode: ModeAcceptEdits,
+		Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "file:*"}, Decision: DecisionDeny},
+			{Specifier: ToolSpecifier{Tool: "edit_*"}, Decision: DecisionAsk},
+			{Specifier: ToolSpecifier{Tool: "*_directory"}, Decision: DecisionAllow, PathDeny: []string{"secrets/**"}},
+			{Specifier: ToolSpecifier{Tool: "read_*"}, Decision: DecisionAllow},
+		},
+	}
+	pPlan := p
+	pPlan.Mode = ModePlan
+	tests := []struct {
+		name    string
+		profile *PolicyProfile
+		call    ToolCall
+		want    Decision
+	}{
+		{"deny glob on legacy category", &p, ToolCall{Tool: "file:write", Path: "a"}, DecisionDeny},
+		{"ask glob on worker name", &p, ToolCall{Tool: "edit_file", Path: "a"}, DecisionAsk},
+		{"deny list on worker-name glob", &p, ToolCall{Tool: "list_directory", Path: "secrets/x"}, DecisionDeny},
+		{"allow glob does not match worker name", &pPlan, ToolCall{Tool: "read_file", Path: "a"}, DecisionDeny},
+		{"canonical deny still matches", &PolicyProfile{Name: "c", Mode: ModeAcceptEdits, Rules: []PermissionRule{
+			{Specifier: ToolSpecifier{Tool: "Write"}, Decision: DecisionDeny},
+		}}, ToolCall{Tool: "write_file", Path: "a"}, DecisionDeny},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if res := tt.profile.Evaluate(tt.call); res.Decision != tt.want {
+				t.Errorf("%+v -> %s (%s), want %s", tt.call, res.Decision, res.Reason, tt.want)
+			}
+		})
+	}
+}
+
 func TestEvaluate_ModeTools(t *testing.T) {
 	p := PresetTrustedMountAutonomous()
 	architect := WithModeTools("architect", []string{"Read", "Glob", "Grep", "ListDir"}, []string{"Write", "Edit", "Bash"})

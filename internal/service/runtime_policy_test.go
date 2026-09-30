@@ -20,6 +20,10 @@ const policyTestWorkspace = "/tmp/policy-ws"
 // newConversationPolicyEnv returns a RuntimeService with the built-in modes
 // and one conversation in a project with the given policy settings.
 func newConversationPolicyEnv(p *project.Project, convMode, defaultProfile string) (*service.RuntimeService, *runtimeMockQueue) {
+	return newConversationPolicyEnvWith(p, convMode, service.NewPolicyService(defaultProfile, nil))
+}
+
+func newConversationPolicyEnvWith(p *project.Project, convMode string, policySvc *service.PolicyService) (*service.RuntimeService, *runtimeMockQueue) {
 	proj := *p
 	proj.ID = "proj-pol"
 	proj.WorkspacePath = policyTestWorkspace
@@ -31,7 +35,7 @@ func newConversationPolicyEnv(p *project.Project, convMode, defaultProfile strin
 	}
 	queue := &runtimeMockQueue{}
 	svc := service.NewRuntimeService(store, queue, &runtimeMockBroadcaster{}, &runtimeMockEventStore{},
-		service.NewPolicyService(defaultProfile, nil), &config.Runtime{ApprovalTimeoutSeconds: 1})
+		policySvc, &config.Runtime{ApprovalTimeoutSeconds: 1})
 	svc.SetModeService(service.NewModeService())
 	return svc, queue
 }

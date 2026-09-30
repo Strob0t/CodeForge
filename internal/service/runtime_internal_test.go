@@ -32,12 +32,22 @@ func TestIsFileModifyingTool(t *testing.T) {
 		{"execute", true},
 		{"write_file", true},
 		{"edit_file", true},
+		// Worker and Claude Code names that modify files map to Edit/Write/Bash
+		// (policy.CanonicalTool); previously only exact names matched and the
+		// worker's bash, MultiEdit and NotebookEdit got no checkpoint.
+		{"bash", true},
+		{"MultiEdit", true},
+		{"NotebookEdit", true},
+		{"file:write", true},
+		{"command:execute", true},
+		{"edit", true}, // canonical names are case-insensitive
 		{"Read", false},
+		{"read_file", false},
 		{"Search", false},
 		{"Glob", false},
 		{"ListDir", false},
+		{"mcp__fs__write", false},
 		{"", false},
-		{"edit", false}, // case-sensitive
 	}
 
 	for _, tc := range tests {
