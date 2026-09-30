@@ -21,6 +21,7 @@ type RunStateManager struct {
 	runTimeouts      sync.Map // map[runID]context.CancelFunc
 	budgetAlerts     sync.Map // map["runID:threshold"]bool
 	pendingApprovals sync.Map // map["runID:callID"]chan string
+	toolResults      sync.Map // map["runID:callID"]bool: results of running runs already handled
 	cancelledConvs   sync.Map // map[conversationID]bool
 	convTurns        sync.Map // map[conversationID]string: turn of the conversation's current run
 	bypassedConvs    sync.Map // map[conversationID]bool
@@ -121,6 +122,23 @@ func (m *RunStateManager) RangePendingApprovals(fn func(key string, ch chan stri
 	})
 }
 
+// --- Tool Results ---
+
+// FirstToolResult records that the result of a call of a running run is being
+// handled and reports whether it is the first delivery: runs.toolcall.result
+// is delivered at least once, and a redelivered result must not count its
+// usage twice. Entries live until the run's state is cleaned up.
+func (m *RunStateManager) FirstToolResult(runID, callID string) bool {
+	_, seen := m.toolResults.LoadOrStore(runID+":"+callID, true)
+	return !seen
+}
+
+// ForgetToolResult drops the record of a call's result: its run was no
+// longer running, so the result was not counted.
+func (m *RunStateManager) ForgetToolResult(runID, callID string) {
+	m.toolResults.Delete(runID + ":" + callID)
+}
+
 // --- Cancelled Conversations ---
 
 func (m *RunStateManager) SetCancelledConversation(convID string) {
@@ -190,6 +208,11 @@ func (m *RunStateManager) LoadAndDeleteRunSpan(runID string) (trace.Span, bool) 
 
 // --- Composite Operations ---
 
+// isRunKey reports whether key is a "runID:..." key of runID.
+func isRunKey(key, runID string) bool {
+	return len(key) > len(runID) && key[:len(runID)] == runID && key[len(runID)] == ':'
+}
+
 // CleanupRun removes all ephemeral state for a run. Pending approval channels
 // receive a "deny" message to unblock waiting goroutines.
 func (m *RunStateManager) CleanupRun(runID string) {
@@ -203,9 +226,15 @@ func (m *RunStateManager) CleanupRun(runID string) {
 	}
 	m.DeleteBudgetAlert(fmt.Sprintf("%s:80", runID))
 	m.DeleteBudgetAlert(fmt.Sprintf("%s:90", runID))
+	m.toolResults.Range(func(k, _ any) bool {
+		if key, _ := k.(string); isRunKey(key, runID) {
+			m.toolResults.Delete(key)
+		}
+		return true
+	})
 	// Drain and close pending approval channels for this run.
 	m.RangePendingApprovals(func(key string, ch chan string) bool {
-		if len(key) > len(runID) && key[:len(runID)] == runID && key[len(runID)] == ':' {
+		if isRunKey(key, runID) {
 			if ch != nil {
 				select {
 				case ch <- "deny":

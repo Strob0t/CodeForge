@@ -194,8 +194,16 @@ func (m *runtimeMockStore) EnterQualityGate(_ context.Context, req *run.Completi
 	}
 	r := &m.runs[i]
 	r.Status, r.Output, r.Error, r.Model = run.StatusQualityGate, req.Output, req.Error, req.Model
-	r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut = req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut
+	raiseUsage(r, req)
 	return nil
+}
+
+// raiseUsage sets the reported counters without lowering them, like the store.
+func raiseUsage(r *run.Run, req *run.CompletionRequest) {
+	r.CostUSD = max(r.CostUSD, req.CostUSD)
+	r.StepCount = max(r.StepCount, req.StepCount)
+	r.TokensIn = max(r.TokensIn, req.TokensIn)
+	r.TokensOut = max(r.TokensOut, req.TokensOut)
 }
 
 func (m *runtimeMockStore) CountRunStep(_ context.Context, id string) error {
@@ -218,6 +226,9 @@ func (m *runtimeMockStore) AddRunUsage(_ context.Context, id string, usage *run.
 	i, ok := m.runIndex(id)
 	if !ok {
 		return nil, errMockNotFound
+	}
+	if m.runs[i].Status != run.StatusRunning {
+		return nil, errMockRunTransition
 	}
 	r := &m.runs[i]
 	r.StepCount += usage.Steps
@@ -290,10 +301,7 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, req *run.CompletionReq
 		m.runs[i].Status = req.Status
 		m.runs[i].Output = req.Output
 		m.runs[i].Error = req.Error
-		m.runs[i].CostUSD = req.CostUSD
-		m.runs[i].StepCount = req.StepCount
-		m.runs[i].TokensIn = req.TokensIn
-		m.runs[i].TokensOut = req.TokensOut
+		raiseUsage(&m.runs[i], req)
 		m.runs[i].Model = req.Model
 		now := time.Now()
 		m.runs[i].CompletedAt = &now

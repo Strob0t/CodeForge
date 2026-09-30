@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -57,13 +58,18 @@ func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Statu
 	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "update run status", id)
 }
 
+// completionUsageSQL sets a run's counters to the reported ones ($5 cost, $6
+// steps, $7/$8 tokens) without lowering them: usage counters never go down,
+// so a stale or partial report cannot undo usage recorded in between.
+const completionUsageSQL = `cost_usd = GREATEST(cost_usd, $5), step_count = GREATEST(step_count, $6),
+		 tokens_in = GREATEST(tokens_in, $7), tokens_out = GREATEST(tokens_out, $8)`
+
 // EnterQualityGate moves a running run to quality_gate with the outcome the
 // worker reported (output, model, usage), which the run keeps when the gate
 // result ends it. Any other source status is refused with domain.ErrConflict.
 func (s *Store) EnterQualityGate(ctx context.Context, req *run.CompletionRequest) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
-		 tokens_in = $7, tokens_out = $8, model = $9, updated_at = now()
+		`UPDATE runs SET status = $2, output = $3, error = $4, `+completionUsageSQL+`, model = $9, updated_at = now()
 		 WHERE id = $1 AND tenant_id = $10 AND status = ANY($11)`,
 		req.ID, string(run.StatusQualityGate), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model,
 		tenantFromCtx(ctx), sourceStatuses(run.StatusQualityGate))
@@ -72,14 +78,14 @@ func (s *Store) EnterQualityGate(ctx context.Context, req *run.CompletionRequest
 
 // CompleteRun ends an active run. It returns domain.ErrConflict when the run
 // already ended, so a run is completed exactly once, and domain.ErrValidation
-// for a status that does not end a run.
+// for a status that does not end a run. The usage counters never go down.
 func (s *Store) CompleteRun(ctx context.Context, req *run.CompletionRequest) error {
 	if !req.Status.IsTerminal() {
 		return fmt.Errorf("complete run %s with status %q: %w", req.ID, req.Status, domain.ErrValidation)
 	}
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
-		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
+		`UPDATE runs SET status = $2, output = $3, error = $4, `+completionUsageSQL+`, model = $9,
+		 completed_at = now(), updated_at = now()
 		 WHERE id = $1 AND tenant_id = $10 AND status = ANY($11)`,
 		req.ID, string(req.Status), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model,
 		tenantFromCtx(ctx), sourceStatuses(req.Status))
@@ -97,19 +103,24 @@ func (s *Store) CountRunStep(ctx context.Context, id string) error {
 	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "count run step", id)
 }
 
-// AddRunUsage adds usage to a run's counters atomically, whatever the run's
-// status (a tool call can finish after its run ended), and returns the run
-// as stored afterwards. The status is never touched.
+// AddRunUsage adds a tool call's usage to a running run's counters atomically
+// and returns the run as stored afterwards; the status is never touched. A
+// run that is no longer running is refused with domain.ErrConflict: the
+// worker's totals (stored when the run entered its gate or ended, or raised
+// with RaiseRunUsage) include the call, and adding it would count it twice.
 func (s *Store) AddRunUsage(ctx context.Context, id string, usage *run.Usage) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
 		`UPDATE runs SET step_count = step_count + $2, cost_usd = cost_usd + $3,
 		 tokens_in = tokens_in + $4, tokens_out = tokens_out + $5, updated_at = now()
-		 WHERE id = $1 AND tenant_id = $6
+		 WHERE id = $1 AND tenant_id = $6 AND status = $7
 		 RETURNING `+runColumns,
-		id, usage.Steps, usage.CostUSD, usage.TokensIn, usage.TokensOut, tenantFromCtx(ctx))
+		id, usage.Steps, usage.CostUSD, usage.TokensIn, usage.TokensOut, tenantFromCtx(ctx), string(run.StatusRunning))
 	r, err := scanRun(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, s.refusedUpdate(ctx, runExistsSQL, "add run usage", id)
+	}
 	if err != nil {
-		return nil, notFoundWrap(err, "add run usage %s", id)
+		return nil, fmt.Errorf("add run usage %s: %w", id, err)
 	}
 	return &r, nil
 }

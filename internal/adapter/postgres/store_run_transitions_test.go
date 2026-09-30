@@ -13,7 +13,10 @@ import (
 )
 
 // Run status writes follow the run's transitions (run.SourceStatuses); usage
-// counters are updated without touching the status, also after the run ended.
+// counters are updated without touching the status and never go down. A tool
+// call's usage is added only while the run is running: once the worker
+// reported its totals (gate, completion) or the run ended, the totals include
+// the call (review 2, finding 1).
 
 // runIn moves a fresh run to status through the store's own methods.
 func (f *statusFixture) runIn(t *testing.T, status run.Status) *run.Run {
@@ -139,21 +142,32 @@ func TestStore_CountRunStep(t *testing.T) {
 func TestStore_AddRunUsage(t *testing.T) {
 	f := newStatusFixture(t)
 
-	for _, status := range []run.Status{run.StatusRunning, run.StatusQualityGate, run.StatusCancelled, run.StatusTimeout} {
-		t.Run(string(status), func(t *testing.T) {
+	t.Run("running", func(t *testing.T) {
+		r := f.newRun(t, run.StatusRunning)
+		if _, err := f.store.AddRunUsage(f.ctx, r.ID, &run.Usage{Steps: 1, CostUSD: 0.25, TokensIn: 10, TokensOut: 4}); err != nil {
+			t.Fatalf("AddRunUsage: %v", err)
+		}
+		got, err := f.store.AddRunUsage(f.ctx, r.ID, &run.Usage{CostUSD: 0.5, TokensIn: 5, TokensOut: 1})
+		if err != nil {
+			t.Fatalf("AddRunUsage: %v", err)
+		}
+		if got.Status != run.StatusRunning || got.StepCount != 1 || got.CostUSD != 0.75 || got.TokensIn != 15 || got.TokensOut != 5 {
+			t.Errorf("returned run = %s %d steps %.2f %d/%d, want running 1 step 0.75 15/5", got.Status, got.StepCount, got.CostUSD, got.TokensIn, got.TokensOut)
+		}
+		if stored := f.runStatus(t, r.ID); stored.CostUSD != 0.75 || stored.Status != run.StatusRunning {
+			t.Errorf("stored run = %s %.2f, want running 0.75", stored.Status, stored.CostUSD)
+		}
+	})
+
+	// The worker's totals of a gated or ended run include the call already.
+	for _, status := range []run.Status{run.StatusPending, run.StatusQualityGate, run.StatusCompleted, run.StatusCancelled, run.StatusTimeout} {
+		t.Run(string(status)+" is refused", func(t *testing.T) {
 			r := f.runIn(t, status)
-			if _, err := f.store.AddRunUsage(f.ctx, r.ID, &run.Usage{Steps: 1, CostUSD: 0.25, TokensIn: 10, TokensOut: 4}); err != nil {
-				t.Fatalf("AddRunUsage: %v", err)
+			if _, err := f.store.AddRunUsage(f.ctx, r.ID, &run.Usage{Steps: 1, CostUSD: 0.25, TokensIn: 10, TokensOut: 4}); !errors.Is(err, domain.ErrConflict) {
+				t.Fatalf("AddRunUsage: err = %v, want ErrConflict", err)
 			}
-			got, err := f.store.AddRunUsage(f.ctx, r.ID, &run.Usage{CostUSD: 0.5, TokensIn: 5, TokensOut: 1})
-			if err != nil {
-				t.Fatalf("AddRunUsage: %v", err)
-			}
-			if got.Status != status || got.StepCount != 1 || got.CostUSD != 0.75 || got.TokensIn != 15 || got.TokensOut != 5 {
-				t.Errorf("returned run = %s %d steps %.2f %d/%d, want %s 1 step 0.75 15/5", got.Status, got.StepCount, got.CostUSD, got.TokensIn, got.TokensOut, status)
-			}
-			if stored := f.runStatus(t, r.ID); stored.CostUSD != 0.75 || stored.Status != status {
-				t.Errorf("stored run = %s %.2f, want %s 0.75", stored.Status, stored.CostUSD, status)
+			if got := f.runStatus(t, r.ID); got.Status != status || got.StepCount != 0 || got.CostUSD != 0 || got.TokensIn != 0 || got.TokensOut != 0 {
+				t.Errorf("run = %s %d steps %.2f %d/%d, want %s without usage", got.Status, got.StepCount, got.CostUSD, got.TokensIn, got.TokensOut, status)
 			}
 		})
 	}
@@ -189,6 +203,47 @@ func TestStore_AddRunUsage(t *testing.T) {
 			t.Errorf("other tenant changed the usage: %.2f", got.CostUSD)
 		}
 	})
+}
+
+// TestStore_CompletionsNeverLowerTheUsage: the gate transition and the
+// completion keep counters that are higher than the reported ones (usage a
+// concurrent writer added, or worker totals recorded while the control plane
+// stopped the run); higher reported totals replace them.
+func TestStore_CompletionsNeverLowerTheUsage(t *testing.T) {
+	f := newStatusFixture(t)
+	lower := run.Usage{Steps: 1, CostUSD: 0.5, TokensIn: 10, TokensOut: 5}
+	higher := run.Usage{Steps: 7, CostUSD: 2.5, TokensIn: 300, TokensOut: 90}
+	stored := run.Usage{Steps: 3, CostUSD: 1.0, TokensIn: 100, TokensOut: 50}
+
+	write := map[string]func(id string, u run.Usage) error{
+		"quality gate": func(id string, u run.Usage) error {
+			return f.store.EnterQualityGate(f.ctx, &run.CompletionRequest{ID: id, Status: run.StatusQualityGate,
+				CostUSD: u.CostUSD, StepCount: u.Steps, TokensIn: u.TokensIn, TokensOut: u.TokensOut})
+		},
+		"completion": func(id string, u run.Usage) error {
+			return f.store.CompleteRun(f.ctx, &run.CompletionRequest{ID: id, Status: run.StatusCancelled,
+				CostUSD: u.CostUSD, StepCount: u.Steps, TokensIn: u.TokensIn, TokensOut: u.TokensOut})
+		},
+	}
+	for name, fn := range write {
+		for reported, want := range map[string][2]run.Usage{"lower": {lower, stored}, "higher": {higher, higher}} {
+			t.Run(name+" with "+reported+" totals", func(t *testing.T) {
+				r := f.newRun(t, run.StatusRunning)
+				if _, err := f.store.AddRunUsage(f.ctx, r.ID, &stored); err != nil {
+					t.Fatalf("AddRunUsage: %v", err)
+				}
+				if err := fn(r.ID, want[0]); err != nil {
+					t.Fatalf("write: %v", err)
+				}
+				got := f.runStatus(t, r.ID)
+				w := want[1]
+				if got.StepCount != w.Steps || got.CostUSD != w.CostUSD || got.TokensIn != w.TokensIn || got.TokensOut != w.TokensOut {
+					t.Errorf("usage = %d steps %.2f %d/%d, want %d steps %.2f %d/%d",
+						got.StepCount, got.CostUSD, got.TokensIn, got.TokensOut, w.Steps, w.CostUSD, w.TokensIn, w.TokensOut)
+				}
+			})
+		}
+	}
 }
 
 func TestStore_RaiseRunUsage(t *testing.T) {

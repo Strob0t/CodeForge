@@ -359,19 +359,13 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		return nil
 	}
 
-	// Add the call's usage to the run's counters, whatever the run's status: a
-	// call that finishes after its run ended still cost money. The status is
-	// not touched. counted is the run as stored afterwards.
-	counted := *r
-	counted.CostUSD += result.CostUSD
-	counted.TokensIn += result.TokensIn
-	counted.TokensOut += result.TokensOut
-	stored, err := s.store.AddRunUsage(ctx, r.ID, &run.Usage{CostUSD: result.CostUSD, TokensIn: result.TokensIn, TokensOut: result.TokensOut})
-	if err != nil {
-		logBestEffort(ctx, err, "AddRunUsage", slog.String("run_id", r.ID))
-	} else {
-		counted = *stored
+	// A result delivered again (at-least-once) was handled already.
+	if r.Status == run.StatusRunning && !s.state.FirstToolResult(r.ID, result.CallID) {
+		slog.Info("tool call result already handled, skipped", "run_id", r.ID, "call_id", result.CallID)
+		return nil
 	}
+
+	counted, running := s.countToolUsage(ctx, r, result)
 	newCost := counted.CostUSD
 
 	// The per-tool usage record (cost by tool), kept for every executed call.
@@ -384,8 +378,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 
 	// A run that ended (or waits for its quality gate) gets no budget or stall
 	// decision and no live events after its run_finished.
-	if counted.Status != run.StatusRunning {
-		slog.Info("tool call result for a run that is not running, usage recorded", "run_id", r.ID, "status", counted.Status)
+	if !running {
+		slog.Info("tool call result for a run that is not running, usage in the worker's totals", "run_id", r.ID)
 		return nil
 	}
 
@@ -402,7 +396,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			logRunUpdate(ctx, s.stopRun(ctx, &counted, run.StatusTimeout, reason), "stopRun", r.ID)
+			logRunUpdate(ctx, s.stopRun(ctx, counted, run.StatusTimeout, reason), "stopRun", r.ID)
 			return nil
 		}
 
@@ -432,7 +426,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			logRunUpdate(ctx, s.stopRun(ctx, &counted, run.StatusFailed, "stall detected: agent not making progress"), "stopRun", r.ID)
+			logRunUpdate(ctx, s.stopRun(ctx, counted, run.StatusFailed, "stall detected: agent not making progress"), "stopRun", r.ID)
 			return nil
 		}
 	}
@@ -454,6 +448,32 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	})
 
 	return nil
+}
+
+// countToolUsage adds a tool call's usage to the counters of a running run
+// and returns the run as stored afterwards and whether it still runs. Once
+// the worker reported its totals (quality gate, completion) or the run ended,
+// the totals include the call - RaiseRunUsage keeps them after a stop - and
+// the store refuses the addition, so the call is not counted twice.
+func (s *RuntimeService) countToolUsage(ctx context.Context, r *run.Run, result *messagequeue.ToolCallResultPayload) (*run.Run, bool) {
+	if r.Status != run.StatusRunning {
+		return r, false
+	}
+	stored, err := s.store.AddRunUsage(ctx, r.ID, &run.Usage{CostUSD: result.CostUSD, TokensIn: result.TokensIn, TokensOut: result.TokensOut})
+	switch {
+	case errors.Is(err, domain.ErrConflict):
+		s.state.ForgetToolResult(r.ID, result.CallID)
+		return r, false
+	case err != nil:
+		// Not stored: decide on the run's counters with the call added.
+		logBestEffort(ctx, err, "AddRunUsage", slog.String("run_id", r.ID))
+		estimate := *r
+		estimate.CostUSD += result.CostUSD
+		estimate.TokensIn += result.TokensIn
+		estimate.TokensOut += result.TokensOut
+		return &estimate, true
+	}
+	return stored, stored.Status == run.StatusRunning
 }
 
 // cleanupRunState removes heartbeat, stall tracker, and timeout goroutine for a run.

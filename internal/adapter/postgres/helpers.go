@@ -134,6 +134,14 @@ func (s *Store) guardedUpdateResult(ctx context.Context, tag pgconn.CommandTag, 
 	if tag.RowsAffected() > 0 {
 		return nil
 	}
+	return s.refusedUpdate(ctx, existsSQL, op, id)
+}
+
+// refusedUpdate explains a guarded UPDATE that changed no row: existsSQL
+// (parameters: id, tenant) tells a row the predicate refused -
+// domain.ErrConflict - from a missing row or another tenant's -
+// domain.ErrNotFound.
+func (s *Store) refusedUpdate(ctx context.Context, existsSQL, op, id string) error {
 	var exists bool
 	if err := s.pool.QueryRow(ctx, existsSQL, id, tenantFromCtx(ctx)).Scan(&exists); err != nil {
 		return fmt.Errorf("%s %s: %w", op, id, err)

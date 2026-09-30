@@ -15,7 +15,7 @@ import (
 
 // Run status writes follow the run's transitions: `running` is written only
 // while the run is pending or running, usage counters never touch the status,
-// and a run that ended still records the usage the worker reports.
+// and a run that ended still records the usage totals the worker reports.
 
 // recordingEventStore records appended events and audit entries.
 type recordingEventStore struct {
@@ -105,7 +105,8 @@ func TestHandleToolCallRequest_RunEntersQualityGateWhileWaiting(t *testing.T) {
 }
 
 // TestHandleToolCallResult_QualityGateRunKeepsItsStatus: a late tool result
-// adds its usage but leaves the gate waiting; the gate result then ends the run.
+// leaves the gate waiting and adds no usage (the worker's totals stored with
+// the gate include the call); the gate result then ends the run.
 func TestHandleToolCallResult_QualityGateRunKeepsItsStatus(t *testing.T) {
 	svc, store, _, _, _ := newRunStateEnv()
 	ctx := context.Background()
@@ -117,8 +118,8 @@ func TestHandleToolCallResult_QualityGateRunKeepsItsStatus(t *testing.T) {
 	if err := svc.HandleToolCallResult(ctx, &messagequeue.ToolCallResultPayload{RunID: "run-gate", CallID: "c1", Tool: "Read", Success: true, CostUSD: 0.5, TokensIn: 10}); err != nil {
 		t.Fatalf("HandleToolCallResult: %v", err)
 	}
-	if r := storedRun(t, store, "run-gate"); r.Status != run.StatusQualityGate || r.CostUSD != 1.5 || r.TokensIn != 10 {
-		t.Fatalf("run = %s cost %.2f tokens in %d, want quality_gate 1.50 10", r.Status, r.CostUSD, r.TokensIn)
+	if r := storedRun(t, store, "run-gate"); r.Status != run.StatusQualityGate || r.CostUSD != 1.0 || r.TokensIn != 0 {
+		t.Fatalf("run = %s cost %.2f tokens in %d, want quality_gate 1.00 0", r.Status, r.CostUSD, r.TokensIn)
 	}
 
 	passed := true
@@ -130,10 +131,11 @@ func TestHandleToolCallResult_QualityGateRunKeepsItsStatus(t *testing.T) {
 	}
 }
 
-// TestHandleToolCallResult_EndedRunRecordsUsageOnly: a tool call that
-// finishes after its run ended adds its usage and its per-tool usage event,
-// and nothing else: no budget decision, no stop, no broadcast.
-func TestHandleToolCallResult_EndedRunRecordsUsageOnly(t *testing.T) {
+// TestHandleToolCallResult_EndedRunRecordsTheCallOnly: a tool call that
+// finishes after its run ended records its per-tool usage event and nothing
+// else: the run's counters stay (the worker's totals include the call), no
+// budget decision, no stop, no broadcast.
+func TestHandleToolCallResult_EndedRunRecordsTheCallOnly(t *testing.T) {
 	for _, ended := range []run.Status{run.StatusCancelled, run.StatusTimeout, run.StatusCompleted} {
 		t.Run(string(ended), func(t *testing.T) {
 			svc, store, queue, bc, es := newRunStateEnv()
@@ -151,8 +153,8 @@ func TestHandleToolCallResult_EndedRunRecordsUsageOnly(t *testing.T) {
 			}
 
 			r := storedRun(t, store, "run-ended")
-			if r.Status != ended || r.TokensIn != 120 || r.TokensOut != 60 || r.CostUSD < 5.29 || r.CostUSD > 5.31 {
-				t.Errorf("run = %s cost %.2f tokens %d/%d, want %s 5.30 120/60", r.Status, r.CostUSD, r.TokensIn, r.TokensOut, ended)
+			if r.Status != ended || r.TokensIn != 100 || r.TokensOut != 50 || r.CostUSD != 4.8 {
+				t.Errorf("run = %s cost %.2f tokens %d/%d, want %s 4.80 100/50", r.Status, r.CostUSD, r.TokensIn, r.TokensOut, ended)
 			}
 			if n := len(bc.snapshot()); n != 0 {
 				t.Errorf("broadcasts = %d, want none for an ended run", n)
