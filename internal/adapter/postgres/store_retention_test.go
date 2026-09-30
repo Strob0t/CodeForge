@@ -708,8 +708,11 @@ func TestStore_RetentionLockIsExclusive(t *testing.T) {
 	}
 }
 
-// Every retention batch is selected through an index on its age predicate
-// (with sequential scans disabled, the plan names the retention index).
+// The retention batches of audit entries and consent records are selected
+// through an index on their creation (with sequential scans disabled, the
+// plan names the retention index). Sessions, conversations and runs age by an
+// activity timestamp that every update changes; they are scanned, so that
+// their updates stay HOT (migration 096).
 func TestRetention_BatchSelectionUsesIndexes(t *testing.T) {
 	setupStore(t) // runs the migrations
 	pool := retentionPool(t)
@@ -717,9 +720,6 @@ func TestRetention_BatchSelectionUsesIndexes(t *testing.T) {
 		query string
 		index string
 	}{
-		{`SELECT id FROM sessions WHERE last_activity_at < $1 LIMIT 1000`, "idx_retention_sessions_last_activity"},
-		{`SELECT id FROM conversations WHERE updated_at < $1 LIMIT 1000`, "idx_retention_conversations_updated"},
-		{`SELECT id FROM runs WHERE updated_at < $1 LIMIT 1000`, "idx_retention_runs_updated"},
 		{`SELECT id FROM audit_log WHERE created_at < $1 LIMIT 1000`, "idx_retention_audit_log_created"},
 		{`SELECT id FROM audit_log WHERE ip_address IS NOT NULL AND created_at < $1 LIMIT 1000`, "idx_retention_audit_log_ip_created"},
 		{`SELECT id FROM user_consents WHERE (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1 LIMIT 1000`,
