@@ -35,6 +35,8 @@ from codeforge.nats_subjects import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nats.js.client import JetStreamContext
 
     from codeforge.models import TerminationConfig
@@ -53,6 +55,50 @@ def notification_consumer() -> ConsumerConfig:
     delivering once MaxAckPending messages were outstanding.
     """
     return ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=AckPolicy.NONE)
+
+
+def _cancel_ids(data: object) -> tuple[str, str] | None:
+    """(run_id, task_id) of a cancel message, "" for an absent ID; None if the message is malformed."""
+    try:
+        payload = json.loads(data)  # type: ignore[arg-type]
+    except (ValueError, TypeError) as exc:  # invalid JSON or UTF-8, or no bytes at all
+        logger.warning("ignoring malformed cancel message", error=str(exc))
+        return None
+    if not isinstance(payload, dict):
+        logger.warning("ignoring malformed cancel message", payload_type=type(payload).__name__)
+        return None
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    return (run_id if isinstance(run_id, str) else "", task_id if isinstance(task_id, str) else "")
+
+
+async def listen_for_cancel(
+    sub: JetStreamContext.PushSubscription,
+    matches: Callable[[str, str], bool],
+    on_cancel: Callable[[], None],
+    *,
+    until: Callable[[], bool],
+) -> None:
+    """Call *on_cancel* once a cancel message on *sub* matches(run_id, task_id).
+
+    Cancel subjects are shared by every run and task, so a malformed message is
+    skipped, not fatal. Returns after the cancel, once *until()* is true, or
+    when the subscription is closed.
+    """
+    while not until():
+        try:
+            msg = await sub.next_msg(timeout=1.0)
+        except TimeoutError:
+            continue
+        except Exception as exc:
+            logger.debug("cancel listener stopped", error=str(exc))
+            return
+        ids = _cancel_ids(msg.data)
+        if ids is not None and matches(*ids):
+            on_cancel()
+            return
+        # Let the run go on even if unmatched messages arrive back to back.
+        await asyncio.sleep(0)
 
 
 def policy_response_timeout(approval_timeout_seconds: float) -> float:
@@ -133,40 +179,20 @@ class RuntimeClient:
         for subject in subjects:
             sub = await self._js.subscribe(subject, config=notification_consumer())
             self._cancel_subs.append(sub)
-            self._cancel_tasks.append(asyncio.create_task(self._listen_for_cancel(sub)))
+            listener = listen_for_cancel(sub, self._names_this_run, self._mark_cancelled, until=self._is_cancelled)
+            self._cancel_tasks.append(asyncio.create_task(listener))
 
-    async def _listen_for_cancel(self, sub: JetStreamContext.PushSubscription) -> None:
-        while not self._cancelled:
-            try:
-                msg = await sub.next_msg(timeout=1.0)
-            except TimeoutError:
-                continue
-            except Exception as exc:
-                # The subscription is closed or the connection is gone.
-                logger.debug("cancel listener stopped", error=str(exc))
-                return
-            if self._is_cancel_for_this_run(msg.data):
-                self._cancelled = True
-                self._log.info("run cancelled by control plane")
-
-    def _is_cancel_for_this_run(self, data: bytes) -> bool:
-        """Whether a cancel message names this run; a malformed one is skipped, not fatal.
-
-        The cancel subjects are shared by every active run, so one bad message
-        must not end the listening. Empty IDs never match (a run without a task
-        ID is not cancelled by a cancel for "no task").
-        """
-        try:
-            payload = json.loads(data)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            self._log.warning("ignoring malformed cancel message", error=str(exc))
-            return False
-        if not isinstance(payload, dict):
-            self._log.warning("ignoring malformed cancel message", payload_type=type(payload).__name__)
-            return False
-        run_id = payload.get("run_id")
-        task_id = payload.get("task_id")
+    def _names_this_run(self, run_id: str, task_id: str) -> bool:
+        # Empty IDs never match: a run without a task ID is not cancelled by a
+        # cancel for "no task".
         return (bool(run_id) and run_id == self.run_id) or (bool(task_id) and task_id == self.task_id)
+
+    def _mark_cancelled(self) -> None:
+        self._cancelled = True
+        self._log.info("run cancelled by control plane")
+
+    def _is_cancelled(self) -> bool:
+        return self._cancelled
 
     async def stop_cancel_listener(self) -> None:
         """Stop the listener tasks and unsubscribe this run's cancel subscriptions."""

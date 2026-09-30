@@ -4,54 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 from typing import TYPE_CHECKING
 
 import structlog
 
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
-from codeforge.runtime import notification_consumer
+from codeforge.runtime import listen_for_cancel, notification_consumer
 
 if TYPE_CHECKING:
     import nats.aio.msg
-    from nats.js.client import JetStreamContext
 
     from codeforge.backends._base import TaskResult as BackendTaskResult
 
 logger = structlog.get_logger()
-
-
-def _names_task(data: bytes, task_id: str) -> bool:
-    """Whether a tasks.cancel message names *task_id*; a malformed one names no task."""
-    try:
-        payload = json.loads(data)
-    except (ValueError, TypeError):  # invalid JSON or UTF-8, or no bytes at all
-        return False
-    return isinstance(payload, dict) and bool(task_id) and payload.get("task_id") == task_id
-
-
-async def _cancel_on_request(
-    sub: JetStreamContext.PushSubscription,
-    task_id: str,
-    execution: asyncio.Task[BackendTaskResult],
-    requested: asyncio.Event,
-) -> None:
-    """Cancel *execution* when a tasks.cancel for *task_id* arrives."""
-    while not execution.done():
-        try:
-            msg = await sub.next_msg(timeout=1.0)
-        except TimeoutError:
-            continue
-        except Exception as exc:
-            # The subscription is closed or the connection is gone.
-            logger.debug("task cancel listener stopped", task_id=task_id, error=str(exc))
-            return
-        if _names_task(msg.data, task_id):
-            logger.info("task cancelled by control plane", task_id=task_id)
-            requested.set()
-            execution.cancel()
-            return
 
 
 class TaskHandlerMixin:
@@ -160,7 +126,20 @@ class TaskHandlerMixin:
             name=f"backend task {task.id}",
         )
         requested = asyncio.Event()
-        listener = asyncio.create_task(_cancel_on_request(sub, task.id, execution, requested))
+
+        def cancel_execution() -> None:
+            logger.info("task cancelled by control plane", task_id=task.id)
+            requested.set()
+            execution.cancel()
+
+        listener = asyncio.create_task(
+            listen_for_cancel(
+                sub,
+                lambda _run_id, task_id: bool(task_id) and task_id == task.id,
+                cancel_execution,
+                until=execution.done,
+            )
+        )
         try:
             return await execution
         except asyncio.CancelledError:
