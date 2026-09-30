@@ -395,6 +395,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, 0, 0, 0, 0); err != nil {
+		s.endPendingRun(ctx, r, err)
 		return nil, fmt.Errorf("update run status: %w", err)
 	}
 	r.Status = run.StatusRunning
@@ -493,19 +494,45 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	return r, nil
 }
 
+// startCleanupTimeout bounds the writes that end a run which could not be
+// started.
+const startCleanupTimeout = 30 * time.Second
+
+// startCleanupContext is the context that ends a run which could not be
+// started: the start may have failed because the request's context was
+// cancelled (client gone), and the run must not stay running because of it.
+// It keeps the context's values (tenant).
+func startCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), startCleanupTimeout)
+}
+
 // failStartedRun ends a run that was created and marked running but could not
 // be started (sandbox, dispatch): it goes through the completion path as
 // failed, so that run, task and agent do not stay running. No worker executes
-// it, so none is told to stop. It returns startErr for StartRun to return.
+// it, so none is told to stop, and no agent work happened, so the agent's
+// statistics do not count it. It returns startErr for StartRun to return.
 func (s *RuntimeService) failStartedRun(ctx context.Context, r *run.Run, startErr error) error {
-	logRunUpdate(ctx, s.finalizeRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
+	ctx, cancel := startCleanupContext(ctx)
+	defer cancel()
+	logRunUpdate(ctx, s.endRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
 		Status:    string(run.StatusFailed),
 		Error:     "run could not be started: " + startErr.Error(),
-	}), "finalizeRun", r.ID)
+	}, false), "endRun", r.ID)
 	return startErr
+}
+
+// endPendingRun ends a run that was created but could not be marked running:
+// only its record is ended as failed, since its task and agent were not
+// touched yet and nothing was announced for it.
+func (s *RuntimeService) endPendingRun(ctx context.Context, r *run.Run, startErr error) {
+	ctx, cancel := startCleanupContext(ctx)
+	defer cancel()
+	logRunUpdate(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{
+		ID: r.ID, Status: run.StatusFailed, Error: "run could not be started: " + startErr.Error(),
+	}), "CompleteRun", r.ID)
 }
 
 // CancelRun cancels an active run on the user's request and tells the worker

@@ -116,6 +116,13 @@ func (s *RuntimeService) tellWorkerToStop(ctx context.Context, runID string) {
 // onRunComplete (execution-plan progress). When the run record cannot be
 // completed, nothing after it happens.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
+	return s.endRun(ctx, r, status, payload, true)
+}
+
+// endRun is finalizeRun; agentWorked tells whether the run's end is an
+// outcome of the agent's work that its statistics record (a run that could
+// not be started is not).
+func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload, agentWorked bool) error {
 	// OTEL: annotate run span before cleanup ends it
 	if sp, ok := s.state.GetRunSpan(r.ID); ok {
 		sp.SetAttributes(
@@ -161,9 +168,10 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 
 	// Agent identity stats (Phase 23C) record how the agent's runs turned out.
-	// A cancel is the user's (or the plan's) decision, not an outcome of the
-	// agent's work, and is not counted; timeouts and stalls are failures.
-	if status != run.StatusCancelled {
+	// A cancel is the user's (or the plan's) decision and a failed start an
+	// infrastructure failure, not outcomes of the agent's work, and are not
+	// counted; timeouts and stalls are failures.
+	if agentWorked && status != run.StatusCancelled {
 		if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
 			slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
 		}
