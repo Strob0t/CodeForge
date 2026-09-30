@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -204,6 +205,7 @@ func (m *runtimeMockStore) EnterQualityGate(_ context.Context, req *run.Completi
 	}
 	r := &m.runs[i]
 	r.Status, r.Output, r.Error, r.Model = run.StatusQualityGate, req.Output, req.Error, req.Model
+	r.UpdatedAt = time.Now()
 	raiseUsage(r, req)
 	return nil
 }
@@ -315,6 +317,7 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, req *run.CompletionReq
 		m.runs[i].Model = req.Model
 		now := time.Now()
 		m.runs[i].CompletedAt = &now
+		m.runs[i].UpdatedAt = now
 		return nil
 	}
 	return errMockNotFound
@@ -332,6 +335,25 @@ func (m *runtimeMockStore) ListRunsByTask(_ context.Context, taskID string) ([]r
 		}
 	}
 	return result, nil
+}
+
+// ListStaleRuns filters like the store: status, last update older than
+// idleFor, oldest first, at most limit.
+func (m *runtimeMockStore) ListStaleRuns(_ context.Context, status run.Status, idleFor time.Duration, limit int) ([]run.Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cutoff := time.Now().Add(-idleFor)
+	var stale []run.Run
+	for i := range m.runs {
+		if m.runs[i].Status == status && m.runs[i].UpdatedAt.Before(cutoff) {
+			stale = append(stale, m.runs[i])
+		}
+	}
+	slices.SortFunc(stale, func(a, b run.Run) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
+	if len(stale) > limit {
+		stale = stale[:limit]
+	}
+	return stale, nil
 }
 
 // --- Plan stub methods (satisfy database.Store interface) ---

@@ -13,11 +13,12 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
-// finishRun finalizes a run on a worker message. A run that already ended on
-// another path is skipped instead of failing the handler, which would have
-// the message redelivered (KI-31); it keeps the worker's usage totals.
-func (s *RuntimeService) finishRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
-	err := s.finalizeRun(ctx, r, status, payload)
+// finishRun finalizes a run on a worker message (or on the gate watchdog). A
+// run that already ended on another path is skipped instead of failing the
+// handler, which would have the message redelivered (KI-31); it keeps the
+// worker's usage totals.
+func (s *RuntimeService) finishRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload, end runEnd) error {
+	err := s.endRun(ctx, r, status, payload, end)
 	if errors.Is(err, domain.ErrConflict) {
 		s.keepWorkerTotals(ctx, r.ID, payload)
 	}
@@ -109,12 +110,12 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if status == run.StatusCompleted && !ok {
 		failed := *payload
 		failed.Status, failed.Error = string(run.StatusFailed), unknownGateProfile(r.PolicyProfile)
-		return s.finishRun(ctx, r, run.StatusFailed, &failed)
+		return s.finishRun(ctx, r, run.StatusFailed, &failed, agentEnd)
 	}
 	if status == run.StatusCompleted && profile.QualityGate.Enabled() {
 		return s.enterQualityGate(ctx, r, &profile.QualityGate, payload)
 	}
-	return s.finishRun(ctx, r, status, payload)
+	return s.finishRun(ctx, r, status, payload, agentEnd)
 }
 
 // storedOutcome is a completion that ends a run with the outcome stored on it

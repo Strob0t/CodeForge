@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -52,6 +54,8 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 		RunLint:       gate.RequireLintPass,
 		TestCommand:   cmds.Test,
 		LintCommand:   cmds.Lint,
+		// Whole seconds, never shorter than configured (KI-28).
+		TimeoutSeconds: int(math.Ceil(s.runtimeCfg.QualityGateTimeout.Seconds())),
 	}
 	if err := s.publishJSON(ctx, messagequeue.SubjectQualityGateRequest, gateReq); err != nil {
 		slog.Error("quality gate request not published, failing the gate", "run_id", r.ID, "error", err)
@@ -153,7 +157,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		TestsPassed: result.TestsPassed,
 		LintPassed:  result.LintPassed,
 	})
-	return s.finishRun(ctx, r, run.StatusCompleted, storedOutcome(r, run.StatusCompleted, ""))
+	return s.finishRun(ctx, r, run.StatusCompleted, storedOutcome(r, run.StatusCompleted, ""), agentEnd)
 }
 
 // unknownGateProfile is the failure of a gate whose policy profile no longer
@@ -191,15 +195,12 @@ func checkFailure(required bool, passed *bool, missing, failed string) string {
 }
 
 // failQualityGate ends a run waiting for its gate as failed (D9), with the
-// outcome stored on it and reason: the workspace is rolled back first if the
-// policy says so, and the run is never delivered. result is the worker's gate
-// result, nil when the gate did not run.
+// outcome stored on it and reason; it is never delivered. If the policy says
+// so, the workspace is rolled back once the failed record is written, so only
+// the path that ends the run rolls back (runEnd.rollBack). result is the
+// worker's gate result, nil when the gate did not run.
 func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *policy.QualityGate, reason string, result *messagequeue.QualityGateResultPayload) error {
 	errMsg := "quality gate failed: " + reason
-	if gate.RollbackOnGateFail {
-		errMsg += s.rollBackWorkspace(ctx, r)
-	}
-
 	gateEvent := event.QualityGateEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
@@ -214,27 +215,53 @@ func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *
 	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{"error": errMsg})
 	s.hub.BroadcastEvent(ctx, event.EventQualityGate, gateEvent)
 
-	return s.finishRun(ctx, r, run.StatusFailed, storedOutcome(r, run.StatusFailed, errMsg))
+	return s.finishRun(ctx, r, run.StatusFailed, storedOutcome(r, run.StatusFailed, errMsg),
+		runEnd{agentWorked: true, rollBack: gate.RollbackOnGateFail})
 }
 
-// rollBackWorkspace restores the workspace to its state before the run's
-// first change and returns what the run's error reports about it.
-func (s *RuntimeService) rollBackWorkspace(ctx context.Context, r *run.Run) string {
-	if s.checkpoint == nil {
-		return " (no rollback: checkpoints are not available)"
+// qualityGateMargin is how long past the longest possible gate (both
+// commands running into the timeout) a run may wait for its gate result:
+// queueing, worker restarts and the result's delivery.
+const qualityGateMargin = time.Minute
+
+// staleRunBatch bounds the runs one watchdog sweep ends.
+const staleRunBatch = 100
+
+// qualityGateDeadline is how long a run may wait in quality_gate before the
+// watchdog fails it: a gate runs at most the test and the lint command, each
+// bounded by runtime.quality_gate_timeout on the worker.
+func (s *RuntimeService) qualityGateDeadline() time.Duration {
+	return 2*s.runtimeCfg.QualityGateTimeout + qualityGateMargin
+}
+
+// FailStuckQualityGates fails the runs that have waited in quality_gate
+// longer than their gate can take (KI-28): the gate request or result was
+// lost, or the worker died. Each is ended as a failed gate through the gate
+// result path (fresh status check, rollback if configured, never delivered),
+// in its own tenant; a run another replica or a late result ended meanwhile is
+// skipped by the store's status predicate. It returns how many stuck runs it
+// handled. Runs are found in the store, so the sweep also covers runs that
+// entered their gate before a Go Core restart.
+func (s *RuntimeService) FailStuckQualityGates(ctx context.Context) (int, error) {
+	deadline := s.qualityGateDeadline()
+	stale, err := s.store.ListStaleRuns(ctx, run.StatusQualityGate, deadline, staleRunBatch)
+	if err != nil {
+		return 0, fmt.Errorf("list runs stuck in quality_gate: %w", err)
 	}
-	proj, err := s.store.GetProject(ctx, r.ProjectID)
-	if err == nil {
-		err = s.checkpoint.RewindToFirst(ctx, r.ID, proj.WorkspacePath)
+	handled := 0
+	var errs []error
+	for i := range stale {
+		r := &stale[i]
+		slog.Warn("quality gate result missing, failing the run", "run_id", r.ID, "deadline", deadline)
+		if err := s.HandleQualityGateResult(ctx, &messagequeue.QualityGateResultPayload{
+			RunID:    r.ID,
+			TenantID: r.TenantID,
+			Error:    fmt.Sprintf("no quality gate result within %s", deadline),
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("run %s: %w", r.ID, err))
+			continue
+		}
+		handled++
 	}
-	switch {
-	case errors.Is(err, errNoCheckpoints):
-		return "" // the run changed no files
-	case err != nil:
-		slog.Error("checkpoint rollback failed", "run_id", r.ID, "error", err)
-		s.appendAudit(ctx, r, "qualitygate.rollback_failed", err.Error())
-		return " (rollback failed: " + err.Error() + ")"
-	default:
-		return " (workspace rolled back)"
-	}
+	return handled, errors.Join(errs...)
 }

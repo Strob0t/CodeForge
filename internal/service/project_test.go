@@ -231,6 +231,9 @@ func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _
 	return nil
 }
 func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
+func (m *mockStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
 
 // --- Plan stub methods (satisfy database.Store interface) ---
 

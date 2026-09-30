@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shlex
+import signal
+import sys
+import time
 from collections import OrderedDict
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +18,9 @@ from codeforge.consumer import TaskConsumer
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.models import QualityGateRequest, QualityGateResult
 from codeforge.qualitygate import QualityGateExecutor
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _SPAWN = "codeforge.qualitygate.asyncio.create_subprocess_exec"
 
@@ -147,11 +156,85 @@ async def test_execute_timeout(executor: QualityGateExecutor) -> None:
 
     hanging = _proc("", 0)
     hanging.communicate = never_finishes
-    with patch(_SPAWN, return_value=hanging):
+    hanging.pid = object()  # a fake process: its "group" must only reach the patched killpg
+    hanging.wait = AsyncMock(return_value=-9)
+    with patch(_SPAWN, return_value=hanging) as spawn, patch("codeforge.qualitygate.os.killpg") as killpg:
         result = await short_executor.execute(request)
 
     assert result.tests_passed is False
     assert "timed out" in result.test_output
+    assert spawn.call_args.kwargs["start_new_session"] is True
+    killpg.assert_called_once_with(hanging.pid, signal.SIGKILL)
+    hanging.wait.assert_awaited_once()
+
+
+def _process_gone(pid: int) -> bool:
+    """True when pid no longer runs (exited, or a zombie nobody reaped yet)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            state = f.read().rsplit(")", 1)[1].split()[0]
+    except FileNotFoundError:
+        return True
+    return state in {"Z", "X"}
+
+
+async def test_execute_timeout_kills_the_whole_process_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A command that outlives the request's timeout is killed with everything it started (KI-28).
+
+    The command starts a grandchild that inherits its output pipe and ignores
+    the command's end; only killing the process group ends it, and until then
+    the gate could not even read the command's output to its end.
+    """
+    monkeypatch.setenv("PATH", f"{os.path.dirname(sys.executable)}{os.pathsep}{os.environ['PATH']}")
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        "import subprocess, sys, time; "
+        "p = subprocess.Popen([sys.executable, '-c', 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)']); "
+        f"open({str(pid_file)!r}, 'w').write(str(p.pid)); "
+        "time.sleep(60)"
+    )
+    request = QualityGateRequest(
+        run_id="run-timeout",
+        project_id="proj-1",
+        workspace_path=str(tmp_path),
+        run_tests=True,
+        test_command=f"python -c {shlex.quote(script)}",
+        timeout_seconds=1,
+    )
+    executor = QualityGateExecutor(timeout_seconds=30)  # the request's timeout wins
+
+    started = time.monotonic()
+    result = await executor.execute(request)
+    elapsed = time.monotonic() - started
+
+    assert result.tests_passed is False
+    assert "timed out after 1s" in result.test_output
+    assert elapsed < 15, f"the gate took {elapsed:.1f}s, the request's 1s timeout was not applied"
+    grandchild = int(pid_file.read_text())
+    deadline = time.monotonic() + 5
+    while not _process_gone(grandchild) and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+    assert _process_gone(grandchild), "the command's grandchild survived the timeout"
+
+
+async def test_execute_without_request_timeout_uses_the_default(executor: QualityGateExecutor) -> None:
+    """A request without timeout_seconds (an older Go Core) keeps the worker's default."""
+    request = QualityGateRequest(
+        run_id="run-default",
+        project_id="proj-1",
+        workspace_path="/tmp",
+        run_tests=True,
+        test_command="pytest",
+    )
+    assert request.timeout_seconds == 0
+    with (
+        patch("codeforge.qualitygate.asyncio.wait_for", wraps=asyncio.wait_for) as wait_for,
+        patch(_SPAWN, return_value=_proc("ok", 0)),
+    ):
+        result = await executor.execute(request)
+
+    assert result.tests_passed is True
+    assert wait_for.call_args.kwargs["timeout"] == 5  # the fixture executor's default
 
 
 async def test_execute_no_commands(executor: QualityGateExecutor) -> None:

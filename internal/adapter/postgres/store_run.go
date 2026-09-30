@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -154,6 +155,25 @@ func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, e
 		`SELECT `+runColumns+` FROM runs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, taskID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (run.Run, error) {
+		return scanRun(r)
+	})
+}
+
+// ListStaleRuns returns up to limit runs in status whose last update is older
+// than idleFor, oldest first.
+//
+// INTENTIONALLY CROSS-TENANT: the stuck-work watchdog fails runs whose worker
+// result no longer arrives in every tenant. The returned runs carry their
+// tenant_id, and the caller ends each one in its tenant's context.
+func (s *Store) ListStaleRuns(ctx context.Context, status run.Status, idleFor time.Duration, limit int) ([]run.Run, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+runColumns+` FROM runs
+		 WHERE status = $1 AND updated_at < now() - $2::interval
+		 ORDER BY updated_at LIMIT $3`, string(status), idleFor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list stale runs: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (run.Run, error) {
 		return scanRun(r)

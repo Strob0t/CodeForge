@@ -182,6 +182,8 @@ class QualityGateRequest(BaseModel):
     run_lint: bool = False
     test_command: str = ""
     lint_command: str = ""
+    # Per-command timeout (runtime.quality_gate_timeout); 0 = the worker's default.
+    timeout_seconds: int = Field(default=0, ge=0)
 
 
 class QualityGateResult(BaseModel):

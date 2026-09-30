@@ -149,6 +149,8 @@ func TestValidateRunSubjects(t *testing.T) {
 		// runs.qualitygate.request (Go -> Python)
 		{"qualitygate request valid", SubjectQualityGateRequest, `{"run_id":"r1","project_id":"p1","workspace_path":"/ws","run_tests":true,"run_lint":false,"test_command":"go test ./..."}`, ""},
 		{"qualitygate request run_tests not a bool", SubjectQualityGateRequest, `{"run_id":"r1","run_tests":"true"}`, schemaErr},
+		{"qualitygate request with timeout", SubjectQualityGateRequest, `{"run_id":"r1","project_id":"p1","workspace_path":"/ws","run_tests":true,"test_command":"pytest","timeout_seconds":60}`, ""},
+		{"qualitygate request timeout not a number", SubjectQualityGateRequest, `{"run_id":"r1","timeout_seconds":"60s"}`, schemaErr},
 
 		// runs.qualitygate.result (Python -> Go), unset gates are null
 		{"qualitygate result valid", SubjectQualityGateResult, `{"run_id":"r1","tests_passed":true,"lint_passed":null,"test_output":"ok","lint_output":"","error":""}`, ""},

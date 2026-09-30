@@ -27,6 +27,8 @@ from codeforge.models import (
     GraphBuildResult,
     GraphSearchRequest,
     GraphSearchResult,
+    QualityGateRequest,
+    QualityGateResult,
     RepoMapRequest,
     RepoMapResult,
     RetrievalIndexRequest,
@@ -66,6 +68,8 @@ SUBJECT_MODEL_MAP: dict[str, type[BaseModel]] = {
     "graph.search.result": GraphSearchResult,
     "a2a.task.created": A2ATaskCreatedMessage,
     "a2a.task.complete": A2ATaskCompleteMessage,
+    "runs.qualitygate.request": QualityGateRequest,
+    "runs.qualitygate.result": QualityGateResult,
 }
 
 

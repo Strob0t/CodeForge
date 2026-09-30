@@ -1047,25 +1047,16 @@ func run() error {
 		}
 	}()
 
-	// --- Active Work Stale Recovery (Phase 24) ---
-	staleCtx, staleCancel := context.WithCancel(ctx)
-	go func() {
-		ticker := time.NewTicker(cfg.Runtime.StaleCheckInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-staleCtx.Done():
-				return
-			case <-ticker.C:
-				released, err := activeWorkSvc.ReleaseStaleWork(staleCtx, cfg.Runtime.StaleWorkThreshold)
-				if err != nil {
-					slog.Error("stale work release error", "error", err)
-				} else if len(released) > 0 {
-					slog.Info("released stale tasks", "count", len(released))
-				}
-			}
-		}
-	}()
+	// --- Stuck-work watchdog (Phase 24 stale tasks, KI-28 quality gates) ---
+	// Further at-most-once work (conversation runs, backend tasks, KI-65)
+	// joins as one more check.
+	stopStuckWorkWatchdog := service.NewStuckWorkWatchdog(cfg.Runtime.StaleCheckInterval,
+		service.StuckWorkCheck{Name: "stale tasks", EndStuck: func(ctx context.Context) (int, error) {
+			released, err := activeWorkSvc.ReleaseStaleWork(ctx, cfg.Runtime.StaleWorkThreshold)
+			return len(released), err
+		}},
+		service.StuckWorkCheck{Name: "quality gates", EndStuck: runtimeSvc.FailStuckQualityGates},
+	).Start(ctx)
 
 	<-done
 
@@ -1085,7 +1076,7 @@ func run() error {
 
 	// Phase 2: Cancel NATS subscribers and background tasks
 	slog.Info("shutdown phase 2: cancelling NATS subscribers")
-	staleCancel()
+	stopStuckWorkWatchdog()
 	for _, cancel := range runtimeCancels {
 		cancel()
 	}

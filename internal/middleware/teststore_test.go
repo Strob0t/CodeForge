@@ -246,6 +246,9 @@ func (s *testStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _
 	return nil
 }
 func (s *testStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
+func (s *testStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
 
 // Plan stubs
 func (s *testStore) CreatePlan(_ context.Context, _ *plan.ExecutionPlan) error { return nil }

@@ -116,13 +116,26 @@ func (s *RuntimeService) tellWorkerToStop(ctx context.Context, runID string) {
 // onRunComplete (execution-plan progress). When the run record cannot be
 // completed, nothing after it happens.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
-	return s.endRun(ctx, r, status, payload, true)
+	return s.endRun(ctx, r, status, payload, agentEnd)
 }
 
-// endRun is finalizeRun; agentWorked tells whether the run's end is an
-// outcome of the agent's work that its statistics record (a run that could
-// not be started is not).
-func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload, agentWorked bool) error {
+// runEnd tells endRun what a run's end involves beyond its status.
+type runEnd struct {
+	// agentWorked: the end is an outcome of the agent's work that its
+	// statistics record (a run that could not be started is not).
+	agentWorked bool
+	// rollBack: restore the workspace to its state before the run (a failed
+	// quality gate with rollback_on_gate_fail). It happens only after this
+	// path wrote the run's terminal record, so a run another path ended (a
+	// passed gate that delivered, a cancel) is never rolled back.
+	rollBack bool
+}
+
+// agentEnd is the end of a run the agent worked on.
+var agentEnd = runEnd{agentWorked: true}
+
+// endRun is finalizeRun with the details of the run's end.
+func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload, end runEnd) error {
 	// OTEL: annotate run span before cleanup ends it
 	if sp, ok := s.state.GetRunSpan(r.ID); ok {
 		sp.SetAttributes(
@@ -171,7 +184,7 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 	// A cancel is the user's (or the plan's) decision and a failed start an
 	// infrastructure failure, not outcomes of the agent's work, and are not
 	// counted; timeouts and stalls are failures.
-	if agentWorked && status != run.StatusCancelled {
+	if end.agentWorked && status != run.StatusCancelled {
 		if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
 			slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
 		}
@@ -217,15 +230,7 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 		Steps:     payload.StepCount,
 	})
 
-	// Clean up checkpoints (delete their ref, keep working state)
-	if s.checkpoint != nil {
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		if projErr == nil {
-			if cpErr := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); cpErr != nil {
-				slog.Warn("checkpoint cleanup failed", "run_id", r.ID, "error", cpErr)
-			}
-		}
-	}
+	s.releaseCheckpoints(ctx, r, end.rollBack)
 
 	// A run delivers its change (deliver_mode) once it is recorded completed,
 	// with or without quality gates, before the next plan step can touch the
@@ -266,6 +271,52 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 	}
 
 	return nil
+}
+
+// releaseCheckpoints rolls the workspace back to its state before the run if
+// rollBack is set, then deletes the run's checkpoints (the working state is
+// kept).
+func (s *RuntimeService) releaseCheckpoints(ctx context.Context, r *run.Run, rollBack bool) {
+	if s.checkpoint == nil {
+		if rollBack {
+			s.reportRollbackFailure(ctx, r, errors.New("checkpoints are not available"))
+		}
+		return
+	}
+	proj, err := s.store.GetProject(ctx, r.ProjectID)
+	if err != nil {
+		if rollBack {
+			s.reportRollbackFailure(ctx, r, fmt.Errorf("get project: %w", err))
+		}
+		slog.Warn("checkpoint cleanup skipped", "run_id", r.ID, "error", err)
+		return
+	}
+	if rollBack {
+		s.rollBackWorkspace(ctx, r, proj.WorkspacePath)
+	}
+	if err := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); err != nil {
+		slog.Warn("checkpoint cleanup failed", "run_id", r.ID, "error", err)
+	}
+}
+
+// rollBackWorkspace restores the workspace to its state before the run's
+// first change and records the outcome in the audit trail.
+func (s *RuntimeService) rollBackWorkspace(ctx context.Context, r *run.Run, workspacePath string) {
+	err := s.checkpoint.RewindToFirst(ctx, r.ID, workspacePath)
+	switch {
+	case errors.Is(err, errNoCheckpoints):
+		slog.Info("rollback: the run changed no files", "run_id", r.ID)
+	case err != nil:
+		s.reportRollbackFailure(ctx, r, err)
+	default:
+		slog.Info("workspace rolled back", "run_id", r.ID)
+		s.appendAudit(ctx, r, "qualitygate.rolled_back", "Workspace restored to its state before the run")
+	}
+}
+
+func (s *RuntimeService) reportRollbackFailure(ctx context.Context, r *run.Run, err error) {
+	slog.Error("checkpoint rollback failed", "run_id", r.ID, "error", err)
+	s.appendAudit(ctx, r, "qualitygate.rollback_failed", "Workspace rollback failed: "+err.Error())
 }
 
 // taskStatusForRun maps the terminal status of a run to the status of its task.

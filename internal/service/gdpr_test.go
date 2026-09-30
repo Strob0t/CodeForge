@@ -69,6 +69,10 @@ func (m *gdprMockStore) ListTasks(_ context.Context, _ string) ([]task.Task, err
 	return m.tasks, nil
 }
 
+func (m *gdprMockStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+
 func (m *gdprMockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) {
 	return m.runs, nil
 }

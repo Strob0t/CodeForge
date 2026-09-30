@@ -550,7 +550,7 @@ func (s *RuntimeService) failStartedRun(ctx context.Context, r *run.Run, startEr
 		ProjectID: r.ProjectID,
 		Status:    string(run.StatusFailed),
 		Error:     "run could not be started: " + startErr.Error(),
-	}, false), "endRun", r.ID)
+	}, runEnd{}), "endRun", r.ID)
 	return startErr
 }
 

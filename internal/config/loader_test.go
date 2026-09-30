@@ -135,6 +135,26 @@ func TestValidateRequired(t *testing.T) {
 			modify: func(c *Config) { c.Rate.Burst = 0 },
 			errMsg: "rate.burst must be >= 1",
 		},
+		{
+			name:   "zero quality gate timeout",
+			modify: func(c *Config) { c.Runtime.QualityGateTimeout = 0 },
+			errMsg: "runtime.quality_gate_timeout must be >= 1s",
+		},
+		{
+			name:   "sub-second quality gate timeout",
+			modify: func(c *Config) { c.Runtime.QualityGateTimeout = 999 * time.Millisecond },
+			errMsg: "runtime.quality_gate_timeout must be >= 1s",
+		},
+		{
+			name:   "negative quality gate timeout",
+			modify: func(c *Config) { c.Runtime.QualityGateTimeout = -time.Minute },
+			errMsg: "runtime.quality_gate_timeout must be >= 1s",
+		},
+		{
+			name:   "zero stale check interval",
+			modify: func(c *Config) { c.Runtime.StaleCheckInterval = 0 },
+			errMsg: "runtime.stale_check_interval must be > 0",
+		},
 	}
 
 	for _, tt := range tests {

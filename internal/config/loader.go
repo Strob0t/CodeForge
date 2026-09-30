@@ -461,6 +461,14 @@ func validate(cfg *Config) error {
 	if cfg.Notification.SMTPHost != "" && (cfg.Notification.SMTPPort < 1 || cfg.Notification.SMTPPort > 65535) {
 		return fmt.Errorf("notification.smtp_port must be 1-65535 when smtp_host is set (got %d)", cfg.Notification.SMTPPort)
 	}
+	// The gate timeout reaches the worker in whole seconds and bounds the
+	// quality-gate watchdog; the watchdog ticks at stale_check_interval.
+	if cfg.Runtime.QualityGateTimeout < time.Second {
+		return errors.New("runtime.quality_gate_timeout must be >= 1s")
+	}
+	if cfg.Runtime.StaleCheckInterval <= 0 {
+		return errors.New("runtime.stale_check_interval must be > 0")
+	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
 	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {

@@ -196,6 +196,9 @@ type QualityGateRequestPayload struct {
 	RunLint       bool   `json:"run_lint"`
 	TestCommand   string `json:"test_command,omitempty"`
 	LintCommand   string `json:"lint_command,omitempty"`
+	// TimeoutSeconds bounds each command (runtime.quality_gate_timeout); the
+	// worker kills a command's process group when it expires.
+	TimeoutSeconds int `json:"timeout_seconds"`
 }
 
 // QualityGateResultPayload is published with the outcome of a quality gate execution.

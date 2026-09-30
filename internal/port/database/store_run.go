@@ -27,6 +27,9 @@ type RunStore interface {
 	RaiseRunUsage(ctx context.Context, id string, totals *run.Usage) error
 	UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errors []string) error
 	ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error)
+	// ListStaleRuns returns up to limit runs in status that were not updated
+	// for idleFor, oldest first, across all tenants (watchdog use).
+	ListStaleRuns(ctx context.Context, status run.Status, idleFor time.Duration, limit int) ([]run.Run, error)
 
 	// Sessions
 	CreateSession(ctx context.Context, s *run.Session) error
