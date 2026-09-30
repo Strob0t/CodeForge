@@ -41,16 +41,25 @@ var gateCommandAllowlist = []string{
 // like a POSIX shell word list (Python's shlex.split) and its executable is
 // on the worker's allowlist.
 func ValidateGateCommand(key, cmd string) error {
+	if err := CheckGateCommand(cmd); err != nil {
+		return fmt.Errorf("%s: %s: %w", key, err.Error(), domain.ErrValidation)
+	}
+	return nil
+}
+
+// CheckGateCommand is ValidateGateCommand without a config key: the check of
+// the runtime defaults at config load (runtime.default_test_command and
+// default_lint_command, S3 follow-up 1d).
+func CheckGateCommand(cmd string) error {
 	if strings.TrimSpace(cmd) == "" {
 		return nil
 	}
 	argv, err := splitCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("%s: invalid command: %s: %w", key, err.Error(), domain.ErrValidation)
+		return fmt.Errorf("invalid command: %w", err)
 	}
 	if !slices.Contains(gateCommandAllowlist, argv[0]) {
-		return fmt.Errorf("%s: %q is not on the worker's allowlist (%s): %w",
-			key, argv[0], strings.Join(gateCommandAllowlist, ", "), domain.ErrValidation)
+		return fmt.Errorf("%q is not on the worker's allowlist (%s)", argv[0], strings.Join(gateCommandAllowlist, ", "))
 	}
 	return nil
 }

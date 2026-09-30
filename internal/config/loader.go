@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
@@ -471,6 +472,14 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Runtime.StaleCheckInterval <= 0 {
 		return errors.New("runtime.stale_check_interval must be > 0")
+	}
+	// The default gate commands follow the rules of the project config keys
+	// test_command / lint_command: the worker would refuse them at every gate.
+	if err := project.CheckGateCommand(cfg.Runtime.DefaultTestCommand); err != nil {
+		return fmt.Errorf("runtime.default_test_command: %w", err)
+	}
+	if err := project.CheckGateCommand(cfg.Runtime.DefaultLintCommand); err != nil {
+		return fmt.Errorf("runtime.default_lint_command: %w", err)
 	}
 	if err := validateRetention(&cfg.Retention); err != nil {
 		return err
