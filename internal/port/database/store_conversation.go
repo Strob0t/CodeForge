@@ -22,5 +22,6 @@ type ConversationStore interface {
 	SearchConversationMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error)
 
 	// Retention: cross-tenant system job (RetentionService), at most batchSize rows per call
+	DeleteExpiredConversationMessages(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }

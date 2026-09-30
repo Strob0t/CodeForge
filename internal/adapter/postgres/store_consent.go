@@ -73,7 +73,7 @@ func (s *Store) AnonymizeExpiredConsentIPAddresses(ctx context.Context, before t
 		`UPDATE user_consents SET ip_address = NULL, user_agent = NULL WHERE id IN (
 		   SELECT id FROM user_consents
 		   WHERE (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1 LIMIT $2
-		 )`,
+		 ) AND (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1`,
 		before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("anonymize expired consent ip addresses: %w", err)

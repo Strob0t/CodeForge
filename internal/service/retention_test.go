@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +19,11 @@ import (
 // category, works off a backlog in bounded batches, keeps going when one
 // category fails, and runs on a ticker that stops with the server.
 
-var retentionCategories = []string{"sessions", "conversations", "runs", "audit_entries", "audit_ip_addresses", "consent_ip_addresses"}
+// retentionCategories in sweep order: the messages of expired conversations
+// go in bounded batches before the conversations cascade to them.
+var retentionCategories = []string{
+	"sessions", "conversation_messages", "conversations", "runs", "audit_entries", "audit_ip_addresses", "consent_ip_addresses",
+}
 
 type retentionCall struct {
 	category  string
@@ -56,6 +62,10 @@ func (f *fakeRetentionStore) record(ctx context.Context, category string, before
 
 func (f *fakeRetentionStore) DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error) {
 	return f.record(ctx, "sessions", before, batchSize)
+}
+
+func (f *fakeRetentionStore) DeleteExpiredConversationMessages(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	return f.record(ctx, "conversation_messages", before, batchSize)
 }
 
 func (f *fakeRetentionStore) DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error) {
@@ -115,13 +125,22 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 	store := &fakeRetentionStore{}
 	newTestRetentionService(store, policy, now).RunCleanup(context.Background())
 
+	var order []string
+	for _, c := range store.calls {
+		order = append(order, c.category)
+	}
+	if strings.Join(order, ",") != strings.Join(retentionCategories, ",") {
+		t.Fatalf("sweep order = %v, want %v", order, retentionCategories)
+	}
+
 	want := map[string]time.Duration{
-		"sessions":             policy.Sessions,
-		"conversations":        policy.Conversations,
-		"runs":                 policy.CostRecords,
-		"audit_entries":        policy.AuditEntries,
-		"audit_ip_addresses":   policy.AuditIPAddresses,
-		"consent_ip_addresses": policy.ConsentIPAddresses,
+		"sessions":              policy.Sessions,
+		"conversation_messages": policy.Conversations,
+		"conversations":         policy.Conversations,
+		"runs":                  policy.CostRecords,
+		"audit_entries":         policy.AuditEntries,
+		"audit_ip_addresses":    policy.AuditIPAddresses,
+		"consent_ip_addresses":  policy.ConsentIPAddresses,
 	}
 	for _, category := range retentionCategories {
 		calls := store.callsOf(category)
@@ -138,23 +157,27 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 }
 
 func TestRetention_ZeroPeriodKeepsCategory(t *testing.T) {
-	disable := map[string]func(*config.Retention){
-		"sessions":             func(p *config.Retention) { p.Sessions = 0 },
-		"conversations":        func(p *config.Retention) { p.Conversations = 0 },
-		"runs":                 func(p *config.Retention) { p.CostRecords = -time.Hour },
-		"audit_entries":        func(p *config.Retention) { p.AuditEntries = 0 },
-		"audit_ip_addresses":   func(p *config.Retention) { p.AuditIPAddresses = 0 },
-		"consent_ip_addresses": func(p *config.Retention) { p.ConsentIPAddresses = 0 },
+	tests := []struct {
+		setting  string
+		modify   func(*config.Retention)
+		disabled []string
+	}{
+		{"sessions", func(p *config.Retention) { p.Sessions = 0 }, []string{"sessions"}},
+		{"conversations", func(p *config.Retention) { p.Conversations = 0 }, []string{"conversation_messages", "conversations"}},
+		{"cost_records", func(p *config.Retention) { p.CostRecords = -time.Hour }, []string{"runs"}},
+		{"audit_entries", func(p *config.Retention) { p.AuditEntries = 0 }, []string{"audit_entries"}},
+		{"audit_ip_addresses", func(p *config.Retention) { p.AuditIPAddresses = 0 }, []string{"audit_ip_addresses"}},
+		{"consent_ip_addresses", func(p *config.Retention) { p.ConsentIPAddresses = 0 }, []string{"consent_ip_addresses"}},
 	}
-	for disabled, modify := range disable {
-		t.Run(disabled, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.setting, func(t *testing.T) {
 			policy := testRetentionPolicy()
-			modify(&policy)
+			tt.modify(&policy)
 			store := &fakeRetentionStore{}
 			newTestRetentionService(store, policy, time.Now()).RunCleanup(context.Background())
 			for _, category := range retentionCategories {
 				wantCalls := 1
-				if category == disabled {
+				if slices.Contains(tt.disabled, category) {
 					wantCalls = 0
 				}
 				if got := len(store.callsOf(category)); got != wantCalls {
@@ -176,7 +199,7 @@ func TestRetention_WorksOffBacklogInBatches(t *testing.T) {
 	newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
 
 	for category, want := range map[string]int{
-		"sessions": 3, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4, "consent_ip_addresses": 2,
+		"sessions": 3, "conversation_messages": 1, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4, "consent_ip_addresses": 2,
 	} {
 		if got := len(store.callsOf(category)); got != want {
 			t.Errorf("%s: %d batches, want %d", category, got, want)

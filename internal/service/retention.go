@@ -18,6 +18,7 @@ const retentionBatchSize = 1000
 // batchSize rows per call.
 type retentionStore interface {
 	DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	DeleteExpiredConversationMessages(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
@@ -53,6 +54,8 @@ type retentionCategory struct {
 func (s *RetentionService) categories() []retentionCategory {
 	return []retentionCategory{
 		{"sessions", "deleted", s.config.Sessions, s.store.DeleteExpiredSessions},
+		// Messages first, in bounded batches: deleting a conversation cascades to them.
+		{"conversation_messages", "deleted", s.config.Conversations, s.store.DeleteExpiredConversationMessages},
 		{"conversations", "deleted", s.config.Conversations, s.store.DeleteExpiredConversations},
 		{"runs", "deleted", s.config.CostRecords, s.store.DeleteExpiredRuns},
 		{"audit_entries", "deleted", s.config.AuditEntries, s.store.DeleteExpiredAuditEntries},

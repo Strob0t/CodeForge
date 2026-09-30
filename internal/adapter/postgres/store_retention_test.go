@@ -246,6 +246,90 @@ func TestStore_DeleteExpiredConversations(t *testing.T) {
 	}
 }
 
+// The messages of expired conversations go in bounded batches before the
+// conversations, so no single statement cascades over an unbounded number of
+// messages; messages of conversations inside retention stay.
+func TestStore_DeleteExpiredConversationMessages(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+	message := func(f *statusFixture, convID string) string {
+		t.Helper()
+		m, err := f.store.CreateMessage(f.ctx, &conversation.Message{ConversationID: convID, Role: "user", Content: "hello"})
+		if err != nil {
+			t.Fatalf("CreateMessage: %v", err)
+		}
+		return m.ID
+	}
+	oldA, idleA, oldB := a.conversation(t), a.conversation(t), b.conversation(t)
+	oldMsgs := map[string]string{
+		"first": message(a, oldA.ID), "second": message(a, oldA.ID), "third": message(a, oldA.ID),
+		"other tenant": message(b, oldB.ID),
+	}
+	idleMsg := message(a, idleA.ID)
+	backdateConversation(t, pool, oldA.ID, expired)
+	backdateConversation(t, pool, oldB.ID, expired)
+	backdateConversation(t, pool, idleA.ID, inside)
+
+	purgeAll(t, "DeleteExpiredConversationMessages", a.store.DeleteExpiredConversationMessages)
+
+	assertRows(t, pool, "conversation_messages", map[string]string{"inside retention": idleMsg}, oldMsgs)
+	assertRows(t, pool, "conversations", map[string]string{"expired, removed by its own category": oldA.ID}, nil)
+}
+
+// waitForLockWait returns once a backend runs a statement starting with
+// prefix and waits for a row lock.
+func waitForLockWait(t *testing.T, pool *pgxpool.Pool, prefix string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND starts_with(ltrim(query), $1)`,
+			prefix).Scan(&waiting); err != nil {
+			t.Fatalf("pg_stat_activity: %v", err)
+		}
+		if waiting > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no statement %q waited for a lock", prefix)
+}
+
+// A conversation that becomes active again while the purge runs is kept: the
+// purge selects its batch from a snapshot, so the delete itself re-checks the
+// age on the row it locks.
+func TestRetention_ConversationReactivatedDuringPurgeIsKept(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	conv := f.conversation(t)
+	backdateConversation(t, pool, conv.ID, expired)
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE conversations SET updated_at = now() WHERE id = $1`, conv.ID); err != nil {
+		t.Fatalf("reactivate: %v", err)
+	}
+
+	purged := make(chan error, 1)
+	go func() {
+		_, err := f.store.DeleteExpiredConversations(ctx, retentionCutoff, 1000)
+		purged <- err
+	}()
+	waitForLockWait(t, pool, "DELETE FROM conversations")
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := <-purged; err != nil {
+		t.Fatalf("DeleteExpiredConversations: %v", err)
+	}
+	assertRows(t, pool, "conversations", map[string]string{"reactivated during the purge": conv.ID}, nil)
+}
+
 // A conversation's session is reused by every message (no other write), so
 // reusing it must count as activity: the session of a conversation in daily
 // use survives however old it is.

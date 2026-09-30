@@ -105,7 +105,7 @@ func (s *Store) AnonymizeExpiredIPAddresses(ctx context.Context, before time.Tim
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE audit_log SET ip_address = NULL WHERE id IN (
 		   SELECT id FROM audit_log WHERE ip_address IS NOT NULL AND created_at < $1 LIMIT $2
-		 )`,
+		 ) AND ip_address IS NOT NULL AND created_at < $1`,
 		before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("anonymize expired ip addresses: %w", err)

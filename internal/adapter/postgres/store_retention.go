@@ -16,6 +16,11 @@ import (
 // only predicate is the row's age against the cutoff the caller computed from
 // the policy, and each call removes at most batchSize rows (the caller loops),
 // so a call cannot remove more than the policy allows or hold long locks.
+//
+// The batch is selected from the statement's snapshot, so every statement
+// repeats the age predicate on the rows it changes: PostgreSQL re-evaluates it
+// on the newest version of a row that was written concurrently (READ
+// COMMITTED), and a row that became active again in between is left alone.
 
 // DeleteExpiredSessions deletes up to batchSize agent sessions that were last
 // used before the cutoff (last_activity_at: reuse and status changes count,
@@ -26,9 +31,33 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context, before time.Time, bat
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM sessions WHERE id IN (
 		   SELECT id FROM sessions WHERE last_activity_at < $1 LIMIT $2
-		 )`, before, batchSize)
+		 ) AND last_activity_at < $1`, before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteExpiredConversationMessages deletes up to batchSize messages of
+// conversations whose last activity is before the cutoff and returns how many
+// it deleted. It runs before DeleteExpiredConversations, so deleting a
+// conversation no longer cascades over an unbounded number of messages. The
+// conversation rows are share-locked (skipping those being written): a
+// conversation that becomes active again is either re-checked against the
+// cutoff or skipped, never emptied.
+//
+// INTENTIONALLY CROSS-TENANT: instance-wide retention job (see file comment).
+func (s *Store) DeleteExpiredConversationMessages(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM conversation_messages WHERE id IN (
+		   SELECT m.id FROM conversation_messages m
+		   JOIN conversations c ON c.id = m.conversation_id
+		   WHERE c.updated_at < $1
+		   LIMIT $2
+		   FOR SHARE OF c SKIP LOCKED
+		 )`, before, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired conversation messages: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
@@ -44,7 +73,7 @@ func (s *Store) DeleteExpiredConversations(ctx context.Context, before time.Time
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM conversations WHERE id IN (
 		   SELECT id FROM conversations WHERE updated_at < $1 LIMIT $2
-		 )`, before, batchSize)
+		 ) AND updated_at < $1`, before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired conversations: %w", err)
 	}
@@ -63,7 +92,7 @@ func (s *Store) DeleteExpiredRuns(ctx context.Context, before time.Time, batchSi
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM runs WHERE id IN (
 		   SELECT id FROM runs WHERE updated_at < $1 LIMIT $2
-		 )`, before, batchSize)
+		 ) AND updated_at < $1`, before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired runs: %w", err)
 	}
@@ -78,7 +107,7 @@ func (s *Store) DeleteExpiredAuditEntries(ctx context.Context, before time.Time,
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM audit_log WHERE id IN (
 		   SELECT id FROM audit_log WHERE created_at < $1 LIMIT $2
-		 )`, before, batchSize)
+		 ) AND created_at < $1`, before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired audit entries: %w", err)
 	}
