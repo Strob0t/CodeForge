@@ -65,6 +65,15 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   `Monitor` (background shell command) is an alias of `Bash`; the CLI is offered only tools with a canonical name
   and any other name is denied before evaluation. Worker and Claude Code send paths through one mapping
   (`workers/codeforge/policy_args.py`): relative to the real workspace, absolute when outside it.
+- Redirections (KI-69): the shell parser records redirection targets (writes `>`, `>>`, `>|`, `&>`, `&>>`, `>&`,
+  `<>`; reads `<`, `<&`), following static `cd`/`pushd` (up to 4 changes); Bash and Claude Code `Monitor` calls check
+  write targets against the `path_deny` lists of Write/Edit rules and read targets against Read rules. A target with an
+  expansion, glob, `~` or `/dev/tcp|udp` is unknown and denied when such a list exists; targets outside the workspace
+  are left to the outside-workspace rule. Paths given as program arguments (`cp`, `tee`, `sed -i`) are covered by
+  `command_deny`, not by this check.
+- Profiles are tenant-scoped (KI-68): `<custom_dir>/<tenant_id>/`, resolved tenant first, then legacy flat files
+  (default tenant only, read-only), then the global read-only presets. Allow-Always clones are snapshots of their base
+  profile: later changes of the base do not reach them.
 - Git metadata (KI-77): the presets deny Write/Edit on `**/.git/**`, and the worker's file tools refuse `.git`
   path components; the Go Core runs workspace git only through the hardened `internal/git` entry point.
 

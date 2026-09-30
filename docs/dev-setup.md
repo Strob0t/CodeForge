@@ -620,7 +620,7 @@ Example:
 | `rate.auth_per_second` | `CODEFORGE_RATE_AUTH_RPS` | `0.167` | Auth endpoint rate limit (req/s) |
 | `rate.auth_burst` | `CODEFORGE_RATE_AUTH_BURST` | `5` | Auth endpoint burst capacity |
 | `policy.default_profile` | `CODEFORGE_POLICY_DEFAULT` | `headless-safe-sandbox` | Default policy preset |
-| `policy.custom_dir` | `CODEFORGE_POLICY_DIR` | `data/policies` | Custom policy profiles (loaded at start; API-created profiles and Allow-Always clones are written back to their source file). `""` keeps them in memory only and disables Allow-Always (409) |
+| `policy.custom_dir` | `CODEFORGE_POLICY_DIR` | `data/policies` | Custom policy profiles, per tenant in `<custom_dir>/<tenant_id>/<name>.yaml` (loaded at start; API-created profiles and Allow-Always clones are written atomically to the owning tenant's directory). Flat files directly in `custom_dir` (layout before 2026-09-30) are still loaded read-only for the default tenant; saving one writes a copy to the default tenant's directory. `""` keeps profiles in memory only and disables Allow-Always (409) |
 | `workspace.root` | `CODEFORGE_WORKSPACE_ROOT` | `data/workspaces` | Workspace root directory |
 | `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
 | `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |
@@ -684,7 +684,8 @@ Example:
 | `agent.summarize_threshold` | `CODEFORGE_SUMMARIZE_THRESHOLD` | `0` | Message count to trigger summarization (0 = disabled) |
 | `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |
 | `copilot.hosts_file_path` | `CODEFORGE_COPILOT_HOSTS_FILE` | `` (falls back to `~/.config/github-copilot/hosts.json`) | Copilot hosts file path |
-| `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum confidence to use cached experience |
+| `experience.enabled` | `CODEFORGE_EXPERIENCE_ENABLED` | `false` | Experience pool (Go and worker): tenant-scoped cache used only for the first turn of a simple (non-agentic) chat |
+| `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum similarity to use a cached answer (0 < value <= 1) |
 | `experience.max_entries` | `CODEFORGE_EXPERIENCE_MAX_ENTRIES` | `1000` | Max experience pool size |
 | `app_env` | `APP_ENV` | `` | Application environment (`development`/`production`) |
 | `internal_key` | `CODEFORGE_INTERNAL_KEY` | `` | Shared secret for worker-to-core API auth |
@@ -982,7 +983,8 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_ORCH_REVIEW_ROUTER_MODEL |                                  | LLM model for review evaluation  |
 | CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
 | CODEFORGE_ROUTING_ENABLED   | true                                     | Enable hybrid intelligent routing |
-| CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable experience pool caching (currently ignored: the pool is always active, [KI-16](todo.md#known-issues)) |
+| CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable the experience pool (worker and Go); tenant-scoped, first turn of a simple chat only |
+| CODEFORGE_TEST_DATABASE_URL | (unset)                                  | PostgreSQL URL for the worker's database tests (experience pool, skills); they are skipped when unset |
 | CODEFORGE_A2A_BASE_URL     | `http://localhost:<CODEFORGE_PORT>`      | Public URL for AgentCard         |
 | CODEFORGE_A2A_API_KEYS     |                                          | Comma-separated API keys         |
 | CODEFORGE_A2A_TRANSPORT    | jsonrpc                                  | Transport protocol (only `jsonrpc` is implemented) |

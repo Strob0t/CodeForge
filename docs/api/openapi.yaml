@@ -980,7 +980,7 @@ paths:
     post:
       tags: [LLM]
       summary: Add an LLM model to LiteLLM
-      description: Requires admin or editor role.
+      description: Platform admin only (an admin of the default tenant; models are shared by all tenants), audited. Others get 403.
       operationId: addLLMModel
       security:
         - bearerAuth: []
@@ -1027,8 +1027,9 @@ paths:
       tags: [LLM]
       summary: Delete an LLM model deployment from LiteLLM
       description: |
-        Admin only, audited. `id` is the LiteLLM deployment ID (`model_id` in the model list,
-        taken from LiteLLM's `model_info.id`). Models are shared by all tenants (KI-75).
+        Platform admin only (an admin of the default tenant), audited. `id` is the LiteLLM
+        deployment ID (`model_id` in the model list, taken from LiteLLM's `model_info.id`).
+        Models are shared by all tenants.
         Replaces `POST /llm/models/delete` (405 since 2026-09-30).
       operationId: deleteLLMModel
       security:
