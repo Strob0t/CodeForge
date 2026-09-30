@@ -581,6 +581,16 @@ func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.Execu
 		return false // wait for current step
 	}
 
+	// A step whose round began but that did not start yet (its review is
+	// decided in the background, or it waits for its run after its debate)
+	// starts in that round. Its round counts as begun: taking it as done
+	// would switch to the other step and end the plan without running it.
+	for _, st := range []*plan.Step{s0, s1} {
+		if st.Status == plan.StepStatusPending && st.Round > 0 {
+			return !s.startStep(ctx, p, st.ID)
+		}
+	}
+
 	// Determine which step goes next: alternate, starting with step 0
 	// Step 0 goes on rounds: 1, 3, 5, ... ; Step 1 goes on rounds: 2, 4, 6, ...
 	totalCompleted := s0.Round + s1.Round
