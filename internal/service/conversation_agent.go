@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -191,13 +192,13 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		Steps:     payload.StepCount,
 	})
 
-	// Notify in-process waiters (e.g. autoagent).
+	// Notify in-process waiters (e.g. autoagent). A waiter takes one result;
+	// a further completion is dropped instead of blocking under the lock.
 	s.completionWaitersMu.Lock()
 	if ch, ok := s.completionWaiters[payload.ConversationID]; ok {
-		ch <- CompletionResult{
-			Status:  payload.Status,
-			Error:   payload.Error,
-			CostUSD: payload.CostUSD,
+		select {
+		case ch <- CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD}:
+		default:
 		}
 	}
 	s.completionWaitersMu.Unlock()
@@ -232,30 +233,60 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	return nil
 }
 
-// WaitForCompletion blocks until the conversation run finishes or the context is cancelled.
-func (s *ConversationService) WaitForCompletion(ctx context.Context, conversationID string) (CompletionResult, error) {
-	ch := make(chan CompletionResult, 1)
+// CompletionWaiter receives the end of a conversation's next run. Register
+// it with ExpectCompletion before the run is dispatched, so that a run that
+// ends before the caller waits is not missed (KI-76); Close releases it.
+type CompletionWaiter struct {
+	svc            *ConversationService
+	conversationID string
+	ch             chan CompletionResult
+	closeOnce      sync.Once
+}
 
+// ExpectCompletion registers a waiter for the end of the conversation's next
+// run. A conversation has one waiter at a time.
+func (s *ConversationService) ExpectCompletion(conversationID string) (*CompletionWaiter, error) {
+	w := &CompletionWaiter{svc: s, conversationID: conversationID, ch: make(chan CompletionResult, 1)}
 	s.completionWaitersMu.Lock()
+	defer s.completionWaitersMu.Unlock()
 	if _, exists := s.completionWaiters[conversationID]; exists {
-		s.completionWaitersMu.Unlock()
-		return CompletionResult{}, fmt.Errorf("a waiter already exists for conversation %s", conversationID)
+		return nil, fmt.Errorf("a waiter already exists for conversation %s", conversationID)
 	}
-	s.completionWaiters[conversationID] = ch
-	s.completionWaitersMu.Unlock()
+	s.completionWaiters[conversationID] = w.ch
+	return w, nil
+}
 
-	defer func() {
-		s.completionWaitersMu.Lock()
-		delete(s.completionWaiters, conversationID)
-		s.completionWaitersMu.Unlock()
-	}()
-
+// Wait blocks until the run ended or ctx is done.
+func (w *CompletionWaiter) Wait(ctx context.Context) (CompletionResult, error) {
 	select {
-	case result := <-ch:
+	case result := <-w.ch:
 		return result, nil
 	case <-ctx.Done():
 		return CompletionResult{}, ctx.Err()
 	}
+}
+
+// Close releases the waiter; safe to call more than once.
+func (w *CompletionWaiter) Close() {
+	w.closeOnce.Do(func() {
+		w.svc.completionWaitersMu.Lock()
+		defer w.svc.completionWaitersMu.Unlock()
+		if w.svc.completionWaiters[w.conversationID] == w.ch {
+			delete(w.svc.completionWaiters, w.conversationID)
+		}
+	})
+}
+
+// WaitForCompletion blocks until the conversation run finishes or the context
+// is cancelled. It misses a run that ended before it was called: to dispatch
+// and wait, register with ExpectCompletion first.
+func (s *ConversationService) WaitForCompletion(ctx context.Context, conversationID string) (CompletionResult, error) {
+	w, err := s.ExpectCompletion(conversationID)
+	if err != nil {
+		return CompletionResult{}, err
+	}
+	defer w.Close()
+	return w.Wait(ctx)
 }
 
 // StopConversation cancels an active agentic run by publishing a cancel
@@ -271,6 +302,11 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 
 	if err := s.publishConversationCancel(ctx, conversationID); err != nil {
 		return err
+	}
+	// The run ends now: its remaining tool calls are rejected and the
+	// conversation takes its next message.
+	if s.runTracker != nil {
+		s.runTracker.MarkConversationRunCancelled(conversationID)
 	}
 	logBestEffort(ctx, s.db.EndConversationTurn(ctx, conversationID, ""), "EndConversationTurn",
 		slog.String("conversation_id", conversationID))

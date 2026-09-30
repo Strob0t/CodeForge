@@ -261,18 +261,9 @@ func (s *AutoAgentService) processFeature(
 		feat.Description,
 	)
 
-	// Send the message via the agentic loop (tool-use enabled).
-	err = s.conversations.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
-		Content: prompt,
-	})
-	if err != nil {
-		return fmt.Errorf("send agentic message: %w", err)
-	}
-
-	// Wait for the conversation run to complete via NATS.
-	err = s.waitForCompletion(ctx, conv.ID, aa)
-	if err != nil {
-		return fmt.Errorf("wait for completion: %w", err)
+	// Run the prompt via the agentic loop (tool-use enabled) and wait for it.
+	if err := s.runAndWait(ctx, conv.ID, prompt, aa); err != nil {
+		return fmt.Errorf("feature run: %w", err)
 	}
 
 	// Post-completion verification: run associated tests and send a fix prompt if they fail.
@@ -299,16 +290,8 @@ func (s *AutoAgentService) processFeature(
 				"The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```\n\nPlease fix the implementation to make all tests pass.",
 				passed, total, strings.TrimSpace(output),
 			)
-			err = s.conversations.SendMessageAgentic(ctx, conv.ID, &conversation.SendMessageRequest{
-				Content: fixPrompt,
-			})
-			if err != nil {
-				return fmt.Errorf("send fix prompt: %w", err)
-			}
-
-			err = s.waitForCompletion(ctx, conv.ID, aa)
-			if err != nil {
-				return fmt.Errorf("wait for fix completion: %w", err)
+			if err := s.runAndWait(ctx, conv.ID, fixPrompt, aa); err != nil {
+				return fmt.Errorf("fix run: %w", err)
 			}
 		}
 	}
@@ -316,19 +299,49 @@ func (s *AutoAgentService) processFeature(
 	return nil
 }
 
+// runAndWait dispatches prompt as an agentic run of the conversation and
+// waits for the run to end. The waiter is registered before the dispatch, so
+// a run that ends at once is not missed (KI-76).
+func (s *AutoAgentService) runAndWait(ctx context.Context, conversationID, prompt string, aa *autoagent.AutoAgent) error {
+	waiter, err := s.conversations.ExpectCompletion(conversationID)
+	if err != nil {
+		return fmt.Errorf("expect completion: %w", err)
+	}
+	defer waiter.Close()
+
+	if err := s.conversations.SendMessageAgentic(ctx, conversationID, &conversation.SendMessageRequest{Content: prompt}); err != nil {
+		return fmt.Errorf("send agentic message: %w", err)
+	}
+	if err := s.waitForCompletion(ctx, conversationID, waiter, aa); err != nil {
+		return fmt.Errorf("wait for completion: %w", err)
+	}
+	return nil
+}
+
+// autoAgentStopTimeout bounds stopping a run the auto-agent gave up on.
+const autoAgentStopTimeout = 10 * time.Second
+
 // waitForCompletion waits for the conversation run to finish via the
 // ConversationService's in-process waiter (no duplicate NATS subscription).
+// A run the auto-agent stops waiting for (feature timeout, auto-agent
+// stopped) is stopped: it would go on changing the workspace next to the
+// next feature's run, and its conversation would refuse messages (KI-76).
 func (s *AutoAgentService) waitForCompletion(
 	ctx context.Context,
 	conversationID string,
+	waiter *CompletionWaiter,
 	aa *autoagent.AutoAgent,
 ) error {
 	timeout := time.Duration(autoagent.FeatureTimeoutMinutes) * time.Minute
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err := s.conversations.WaitForCompletion(timeoutCtx, conversationID)
+	result, err := waiter.Wait(timeoutCtx)
 	if err != nil {
+		stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), autoAgentStopTimeout)
+		defer stopCancel()
+		logBestEffort(stopCtx, s.conversations.StopConversation(stopCtx, conversationID), "StopConversation",
+			slog.String("conversation_id", conversationID))
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("feature timed out after %d minutes", autoagent.FeatureTimeoutMinutes)
 		}
