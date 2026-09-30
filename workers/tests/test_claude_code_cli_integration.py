@@ -240,14 +240,18 @@ def workspace(
     monkeypatch.setenv("CODEFORGE_CLAUDECODE_PATH", str(CLAUDE))
     monkeypatch.setenv("CODEFORGE_CLAUDECODE_TIMEOUT", "120")
     monkeypatch.setattr("codeforge.config.load_yaml_config", dict)
-    monkeypatch.setattr(cce, "_cli_support_cache", {})
+    monkeypatch.setattr(cce, "_supported_clis", set())
+    monkeypatch.setattr(cce, "_cli_check_lock", None)
     get_settings.cache_clear()
     return ws, evidence
 
 
+SYSTEM_PROMPT = "You are the CodeForge coder mode (system prompt marker 7f3a)."
+
+
 async def _run(ws: Path, runtime: _FakeRuntime) -> cce.AgentLoopResult:
     executor = ClaudeCodeExecutor(workspace_path=str(ws), runtime=runtime)  # type: ignore[arg-type]
-    return await executor.run([{"role": "user", "content": PROMPT}], max_turns=4)
+    return await executor.run([{"role": "user", "content": PROMPT}], max_turns=4, system_prompt=SYSTEM_PROMPT)
 
 
 def _agent_requests(requests: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -272,6 +276,7 @@ async def test_policy_deny_blocks_the_tool_and_repo_settings_are_ignored(
     assert sorted(os.listdir(evidence)) == []
     agent_requests = _agent_requests(fake_api[1])
     assert PROMPT in json.dumps(agent_requests[0]["messages"])
+    assert SYSTEM_PROMPT in json.dumps(agent_requests[0]["system"])
     # The model is offered only tools the Go policy maps (no WebFetch, Agent, ...).
     offered = {t["name"] for t in agent_requests[0]["tools"]}
     assert "Bash" in offered

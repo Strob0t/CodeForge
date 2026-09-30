@@ -278,7 +278,11 @@ async def _claude_code_cli_check(ws: Path) -> None:
     from codeforge.claude_code_executor import ClaudeCodeCLIError, resolve_cli
 
     # The fake process prints no --help text, so the check fails after its spawn.
-    with patch("codeforge.claude_code_executor._cli_support_cache", {}), contextlib.suppress(ClaudeCodeCLIError):
+    with (
+        patch("codeforge.claude_code_executor._supported_clis", set()),
+        patch("codeforge.claude_code_executor._cli_check_lock", None),
+        contextlib.suppress(ClaudeCodeCLIError),
+    ):
         await resolve_cli(sys.executable)
 
 

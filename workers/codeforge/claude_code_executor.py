@@ -42,6 +42,7 @@ from codeforge.policy_args import policy_request_args
 from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
 from codeforge.subprocess_env import tool_env
+from codeforge.subprocess_utils import terminate_process_group
 
 if TYPE_CHECKING:
     from codeforge.runtime import RuntimeClient
@@ -105,10 +106,8 @@ _REQUEST_READ_TIMEOUT_SECONDS = 10.0
 _ALLOW = "allow"
 _DENY = "deny"
 
-# Command line flags the policy enforcement relies on, checked against
-# ``claude --help`` before a run. --max-turns is not listed: the CLI hides it
-# from --help, and an unknown option makes the CLI exit with an error before
-# it runs any tool.
+# Command line options the policy enforcement relies on, checked against
+# ``claude --help`` before a run.
 _REQUIRED_CLI_OPTIONS: tuple[str, ...] = (
     "--print",
     "--output-format",
@@ -118,12 +117,14 @@ _REQUIRED_CLI_OPTIONS: tuple[str, ...] = (
     "--strict-mcp-config",
     "--mcp-config",
     "--permission-mode",
-    "--system-prompt",
     "--tools",
 )
+# Options the CLI accepts but does not list in --help (2.1): checked by
+# running the CLI with them (see _check_hidden_options).
+_HIDDEN_CLI_OPTIONS: tuple[str, ...] = ("--max-turns", "--system-prompt-file")
 # Denies every tool call the hook did not allow (nothing is auto-approved).
 _PERMISSION_MODE = "dontAsk"
-_CLI_HELP_TIMEOUT_SECONDS = 30.0
+_CLI_CHECK_TIMEOUT_SECONDS = 30.0
 _STOP_GRACE_SECONDS = 5.0
 
 # Default model for cost estimation when Claude Code doesn't report one.
@@ -215,6 +216,11 @@ class PolicySocketServer:
         self._server: asyncio.Server | None = None
         self._handlers: set[asyncio.Task[None]] = set()
         self._closed = False
+
+    @property
+    def directory(self) -> str:
+        """The run's private directory (0700), removed with the server."""
+        return self._dir
 
     @property
     def socket_path(self) -> str:
@@ -331,13 +337,14 @@ def _hook_command(timeout: float) -> str:
     )
 
 
-def build_cli_command(cli_path: str, *, max_turns: int, system_prompt: str, policy_wait_seconds: float) -> list[str]:
+def build_cli_command(cli_path: str, *, max_turns: int, system_prompt_file: str, timeouts: HookTimeouts) -> list[str]:
     """Return the command line of a Claude Code run; the prompt goes to stdin.
 
     On the command line, a prompt that starts with "-" would be parsed as an
-    option (``--dangerously-skip-permissions``).
+    option (``--dangerously-skip-permissions``). The system prompt is read
+    from ``system_prompt_file`` (an argument is limited to 128 KiB and shown
+    by ps).
     """
-    timeouts = hook_timeouts(policy_wait_seconds)
     pre_tool_use = {
         "matcher": "*",
         "hooks": [{"type": "command", "command": _hook_command(timeouts.hook), "timeout": timeouts.cli}],
@@ -366,27 +373,42 @@ def build_cli_command(cli_path: str, *, max_turns: int, system_prompt: str, poli
         "--permission-mode",
         _PERMISSION_MODE,
     ]
-    if system_prompt:
-        cmd.extend(["--system-prompt", system_prompt])
+    if system_prompt_file:
+        cmd.extend(["--system-prompt-file", system_prompt_file])
     return cmd
+
+
+def _write_private_file(directory: str, name: str, content: str) -> str:
+    """Write ``content`` to a new 0600 file in ``directory``; return its path ("" for no content)."""
+    if not content:
+        return ""
+    path = os.path.join(directory, name)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
 
 
 class ClaudeCodeCLIError(Exception):
     """The Claude Code CLI is missing or cannot enforce the policy on its tool calls."""
 
 
-# Outcome of the --help check per CLI binary (real path, mtime): "" when the
-# CLI supports every required flag, otherwise the error. An upgraded binary has
-# a new mtime and is checked again.
-_cli_support_cache: dict[tuple[str, int], str] = {}
+# CLI binaries (real path, mtime) that passed the capability check. Only a
+# success is cached: a failed check (a transient kill, a CLI being upgraded)
+# is repeated on the next run. An upgraded binary has a new mtime.
+_supported_clis: set[tuple[str, int]] = set()
+# One check at a time: concurrent first runs wait for it instead of starting
+# their own CLI processes. Created on first use (it binds to the event loop).
+_cli_check_lock: asyncio.Lock | None = None
 
 
 async def resolve_cli(cli_path: str) -> str:
-    """Return the path of the configured CLI once it is known to support every flag the executor uses.
+    """Return the path of the configured CLI once it is known to support every option the executor uses.
 
-    Raises ClaudeCodeCLIError when the CLI is missing or lacks a flag: the run
-    fails instead of starting the CLI without the policy hook.
+    Raises ClaudeCodeCLIError when the CLI is missing or lacks an option: the
+    run fails instead of starting the CLI without the policy hook.
     """
+    global _cli_check_lock
     resolved = shutil.which(cli_path)
     if resolved is None:
         raise ClaudeCodeCLIError(f"Claude Code CLI {cli_path!r} not found")
@@ -395,44 +417,77 @@ async def resolve_cli(cli_path: str) -> str:
         key = (os.path.realpath(resolved), os.stat(resolved).st_mtime_ns)
     except OSError as exc:
         raise ClaudeCodeCLIError(f"Claude Code CLI {resolved!r} not found: {exc}") from exc
-    error = _cli_support_cache.get(key)
-    if error is None:
-        error = await _check_cli_help(resolved)
-        _cli_support_cache[key] = error
-    if error:
-        raise ClaudeCodeCLIError(error)
+    if key in _supported_clis:
+        return resolved
+    if _cli_check_lock is None:
+        _cli_check_lock = asyncio.Lock()
+    async with _cli_check_lock:
+        if key not in _supported_clis:
+            await _check_cli(resolved)
+            _supported_clis.add(key)
     return resolved
 
 
-async def _check_cli_help(cli: str) -> str:
-    """Return "" when ``cli --help`` lists every required flag, else the error; raise on a failure to run it."""
+async def _check_cli(cli: str) -> None:
+    """Raise ClaudeCodeCLIError unless the CLI supports every option the executor uses."""
+    returncode, output = await _run_check(cli, ["--help"], tool_env(passthrough=_CLAUDE_CLI_ENV))
+    if returncode != 0:
+        raise ClaudeCodeCLIError(f"Claude Code CLI {cli!r} --help failed (exit {returncode}): {output[:500]}")
+    missing = _missing_cli_options(output)
+    if missing:
+        raise ClaudeCodeCLIError(_unsupported(cli, ", ".join(missing)))
+    await _check_hidden_options(cli)
+
+
+async def _check_hidden_options(cli: str) -> None:
+    """Raise ClaudeCodeCLIError when the CLI rejects an option --help does not list.
+
+    Runs the CLI in print mode with those options and a system prompt file
+    that does not exist, without credentials, settings or stdin: a CLI that
+    knows the options fails on the missing file, one that does not fails
+    with "unknown option" before anything else.
+    """
+    with tempfile.TemporaryDirectory(prefix="cf-cc-check-") as home:
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": home, "CLAUDE_CONFIG_DIR": home}
+        missing_file = os.path.join(home, "no-system-prompt")
+        args = ["-p", "--max-turns", "1", "--system-prompt-file", missing_file]
+        _, output = await _run_check(cli, args, env)
+    for line in output.splitlines():
+        if "unknown option" in line.lower():
+            raise ClaudeCodeCLIError(_unsupported(cli, line.strip()))
+
+
+def _unsupported(cli: str, what: str) -> str:
+    return (
+        f"Claude Code CLI {cli!r} is not supported ({what}): CodeForge needs "
+        f"{', '.join(_REQUIRED_CLI_OPTIONS + _HIDDEN_CLI_OPTIONS)} and permission mode "
+        f"{_PERMISSION_MODE} to decide its tool calls by policy. Install a current Claude Code version."
+    )
+
+
+async def _run_check(cli: str, args: list[str], env: dict[str, str]) -> tuple[int, str]:
+    """Run the CLI for a capability check; return its exit code and output (stdout, then stderr)."""
     try:
         proc = await asyncio.create_subprocess_exec(
             cli,
-            "--help",
+            *args,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=tool_env(passthrough=_CLAUDE_CLI_ENV),
+            env=env,
+            start_new_session=True,
         )
     except OSError as exc:
         raise ClaudeCodeCLIError(f"cannot run Claude Code CLI {cli!r}: {exc}") from exc
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_CLI_HELP_TIMEOUT_SECONDS)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_CLI_CHECK_TIMEOUT_SECONDS)
     except TimeoutError:
-        raise ClaudeCodeCLIError(f"Claude Code CLI {cli!r} --help timed out") from None
+        raise ClaudeCodeCLIError(f"Claude Code CLI {cli!r} {args[0]} timed out") from None
     finally:
-        await _stop_process(proc)
-    if proc.returncode != 0:
-        detail = stderr.decode(errors="replace").strip()[:500]
-        return f"Claude Code CLI {cli!r} --help failed (exit {proc.returncode}): {detail}"
-    missing = _missing_cli_options(stdout.decode(errors="replace"))
-    if missing:
-        return (
-            f"Claude Code CLI {cli!r} is not supported: it lacks {', '.join(missing)}, "
-            "which CodeForge needs to decide its tool calls by policy. Install a current Claude Code version."
-        )
-    return ""
+        if proc.returncode is None:
+            await terminate_process_group(proc)
+    output = (stdout + b"\n" + stderr).decode(errors="replace").strip()
+    return proc.returncode if proc.returncode is not None else -1, output
 
 
 def _missing_cli_options(help_text: str) -> list[str]:
@@ -594,14 +649,15 @@ class ClaudeCodeExecutor:
             logger.error("Claude Code run not started: %s", exc)
             return AgentLoopResult(error=str(exc), model=acc.model, metadata={"executor": _EXECUTOR_NAME})
 
-        policy_wait = self._runtime.policy_wait_seconds
-        cmd = build_cli_command(cli, max_turns=max_turns, system_prompt=system_prompt, policy_wait_seconds=policy_wait)
+        timeouts = hook_timeouts(self._runtime.policy_wait_seconds)
         error_msg = ""
         stdout = b""
         try:
-            async with PolicySocketServer(
-                self._runtime, self._workspace, hook_timeouts(policy_wait).decision
-            ) as policy:
+            async with PolicySocketServer(self._runtime, self._workspace, timeouts.decision) as policy:
+                system_prompt_file = _write_private_file(policy.directory, "system-prompt", system_prompt)
+                cmd = build_cli_command(
+                    cli, max_turns=max_turns, system_prompt_file=system_prompt_file, timeouts=timeouts
+                )
                 env = tool_env(
                     passthrough=_CLAUDE_CLI_ENV,
                     extra={policy_hook.SOCKET_ENV: policy.socket_path, policy_hook.TOKEN_ENV: policy.token},

@@ -390,9 +390,12 @@ def _hook_of(cmd: list[str]) -> dict[str, object]:
 
 
 class TestBuildCliCommand:
-    def _cmd(self, system_prompt: str = "", policy_wait: float = 75.0) -> list[str]:
+    def _cmd(self, system_prompt_file: str = "", policy_wait: float = 75.0) -> list[str]:
         return build_cli_command(
-            "/opt/bin/claude", max_turns=7, system_prompt=system_prompt, policy_wait_seconds=policy_wait
+            "/opt/bin/claude",
+            max_turns=7,
+            system_prompt_file=system_prompt_file,
+            timeouts=hook_timeouts(policy_wait),
         )
 
     def test_print_mode_with_stream_json(self) -> None:
@@ -481,10 +484,13 @@ class TestBuildCliCommand:
         assert hook.SOCKET_ENV not in joined
         assert ".sock" not in joined
 
-    def test_system_prompt(self) -> None:
-        cmd = self._cmd(system_prompt="-be careful")
-        assert cmd[cmd.index("--system-prompt") + 1] == "-be careful"
-        assert "--system-prompt" not in self._cmd()
+    def test_system_prompt_file(self) -> None:
+        # The system prompt goes through a private file, not an argv entry
+        # (MAX_ARG_STRLEN is 128 KiB, and argv is visible in ps).
+        cmd = self._cmd(system_prompt_file="/tmp/cf-cc-x/system-prompt")
+        assert cmd[cmd.index("--system-prompt-file") + 1] == "/tmp/cf-cc-x/system-prompt"
+        assert "--system-prompt" not in cmd
+        assert "--system-prompt-file" not in self._cmd()
 
 
 # ---------------------------------------------------------------------------
@@ -512,9 +518,25 @@ cfg = json.load(open(os.path.join(HERE, "fake_cli.json")))
 if sys.argv[1:] == ["--help"]:
     with open(os.path.join(HERE, "help_calls"), "a") as f:
         f.write("x\\n")
+    time.sleep(cfg.get("help_sleep", 0))
     print(cfg["help"])
     sys.exit(cfg.get("help_exit", 0))
-record = {{"argv": sys.argv[1:], "stdin": sys.stdin.read(), "cwd": os.getcwd(), "hooks": []}}
+for opt in cfg.get("unknown_options", []):
+    if opt in sys.argv:
+        print("error: unknown option '" + opt + "'", file=sys.stderr)
+        sys.exit(1)
+record = {{"argv": sys.argv[1:], "cwd": os.getcwd(), "hooks": []}}
+if "--system-prompt-file" in sys.argv:
+    spf = sys.argv[sys.argv.index("--system-prompt-file") + 1]
+    if not os.path.exists(spf):
+        with open(os.path.join(HERE, "probe_calls"), "a") as f:
+            f.write(json.dumps(sorted(os.environ)) + "\\n")
+        print("Error: System prompt file not found: " + spf, file=sys.stderr)
+        sys.exit(1)
+    record["system_prompt"] = open(spf).read()
+    record["system_prompt_mode"] = oct(os.stat(spf).st_mode & 0o777)
+    record["system_prompt_file"] = spf
+record["stdin"] = sys.stdin.read()
 settings = json.loads(sys.argv[sys.argv.index("--settings") + 1])
 command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
 for call in cfg.get("tool_calls", []):
@@ -558,10 +580,16 @@ class _FakeCli:
         calls = self.dir / "help_calls"
         return len(calls.read_text().splitlines()) if calls.exists() else 0
 
+    @property
+    def probe_envs(self) -> list[list[str]]:
+        calls = self.dir / "probe_calls"
+        return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+
 
 @pytest.fixture
 def _no_cli_cache(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cce, "_cli_support_cache", {})
+    monkeypatch.setattr(cce, "_supported_clis", set())
+    monkeypatch.setattr(cce, "_cli_check_lock", None)
 
 
 @pytest.fixture
@@ -603,8 +631,23 @@ class TestRunWithFakeCli:
         assert record["cwd"] == str(tmp_path)
         assert (
             record["argv"]
-            == build_cli_command(str(fake_cli.path), max_turns=3, system_prompt="", policy_wait_seconds=75.0)[1:]
+            == build_cli_command(str(fake_cli.path), max_turns=3, system_prompt_file="", timeouts=hook_timeouts(75.0))[
+                1:
+            ]
         )
+
+    async def test_system_prompt_goes_through_a_private_file(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        fake_cli.configure(events=_RESULT_EVENTS)
+        system_prompt = "-You are the coder mode. " + "x" * 200_000
+
+        result = await _run(tmp_path, _FakeRuntime(), system_prompt=system_prompt)
+
+        assert result.error == ""
+        record = fake_cli.record
+        assert record["system_prompt"] == system_prompt
+        assert record["system_prompt_mode"] == "0o600"
+        assert all(system_prompt[:30] not in arg for arg in record["argv"])
+        assert not os.path.exists(record["system_prompt_file"])
 
     async def test_env_adds_only_the_socket_and_token(
         self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -617,7 +660,7 @@ class TestRunWithFakeCli:
         real_exec = asyncio.create_subprocess_exec
 
         async def spy(*args: str, **kwargs: object) -> asyncio.subprocess.Process:
-            if "-p" in args:
+            if "--settings" in args:  # the run, not the capability check
                 seen.append(dict(kwargs["env"]))  # type: ignore[arg-type]
             return await real_exec(*args, **kwargs)  # type: ignore[arg-type]
 
@@ -739,6 +782,50 @@ class TestCliSupport:
         result = await _run(tmp_path, _FakeRuntime())
 
         assert result.error
+        assert not fake_cli.ran
+
+    async def test_only_success_is_cached(self, fake_cli: _FakeCli) -> None:
+        # A failed check (a transient OOM kill, a CLI being upgraded) is retried on the next run.
+        fake_cli.configure(help_exit=3)
+        with pytest.raises(ClaudeCodeCLIError):
+            await resolve_cli(str(fake_cli.path))
+        fake_cli.configure()
+
+        assert await resolve_cli(str(fake_cli.path)) == str(fake_cli.path)
+        assert await resolve_cli(str(fake_cli.path)) == str(fake_cli.path)
+        assert fake_cli.help_calls == 2
+
+    async def test_concurrent_first_runs_check_once(self, fake_cli: _FakeCli) -> None:
+        fake_cli.configure(help_sleep=0.3)
+
+        paths = await asyncio.gather(*(resolve_cli(str(fake_cli.path)) for _ in range(5)))
+
+        assert paths == [str(fake_cli.path)] * 5
+        assert fake_cli.help_calls == 1
+
+    @pytest.mark.parametrize("hidden", ["--system-prompt-file", "--max-turns"])
+    async def test_hidden_option_unknown_fails_closed(self, fake_cli: _FakeCli, tmp_path: Path, hidden: str) -> None:
+        """--help does not list these options; the check runs the CLI with them and fails on "unknown option"."""
+        fake_cli.configure(unknown_options=[hidden], events=_RESULT_EVENTS)
+
+        with pytest.raises(ClaudeCodeCLIError, match=hidden):
+            await resolve_cli(str(fake_cli.path))
+        result = await _run(tmp_path, _FakeRuntime())
+
+        assert hidden in result.error
+        assert not fake_cli.ran
+
+    async def test_hidden_option_probe_has_no_credentials(
+        self, fake_cli: _FakeCli, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-live")
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth")
+
+        await resolve_cli(str(fake_cli.path))
+
+        (env_names,) = fake_cli.probe_envs
+        assert "ANTHROPIC_API_KEY" not in env_names
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in env_names
         assert not fake_cli.ran
 
     @pytest.mark.usefixtures("_no_cli_cache")
