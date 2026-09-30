@@ -141,3 +141,57 @@ func TestConversationRun_CompletionOfTheStoredActiveTurn(t *testing.T) {
 		t.Errorf("stored active turn = %q, want none", got)
 	}
 }
+
+// TestConversationRun_ToolCallsOfAnEndedTurnAreDenied (S2-F review, F4): a
+// turn the stuck-work watchdog ended left no mark, so the calls of its
+// worker, when it reconnected, were evaluated and allowed. A call of a turn
+// that is neither the active run here nor the stored active turn is denied.
+func TestConversationRun_ToolCallsOfAnEndedTurnAreDenied(t *testing.T) {
+	env := newConvStopEnv(t, nil, nil)
+	ctx := context.Background()
+	start := conversationRunStarters[0].start
+
+	if err := start(ctx, env.conv, env.convID); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	first := env.lastTurn(t)
+	if resp := env.toolCallInTurn(t, "call-while-active", first); resp.Decision != "allow" {
+		t.Fatalf("call of the active turn: %q (%s), want allow", resp.Decision, resp.Reason)
+	}
+	env.endTurnByWatchdog(t, first)
+
+	if resp := env.toolCallInTurn(t, "call-after-the-watchdog", first); resp.Decision != "deny" || resp.Reason != "conversation run ended" {
+		t.Fatalf("call of the ended turn: %q (%s), want deny (conversation run ended)", resp.Decision, resp.Reason)
+	}
+
+	if err := start(ctx, env.conv, env.convID); err != nil {
+		t.Fatalf("next run: %v", err)
+	}
+	next := env.lastTurn(t)
+	if resp := env.toolCallInTurn(t, "call-during-the-next-turn", first); resp.Decision != "deny" {
+		t.Fatalf("call of the ended turn during the next one: %q (%s), want deny", resp.Decision, resp.Reason)
+	}
+	if resp := env.toolCallInTurn(t, "call-of-the-next-turn", next); resp.Decision != "allow" {
+		t.Fatalf("call of the next turn: %q (%s), want allow", resp.Decision, resp.Reason)
+	}
+}
+
+// TestConversationRun_ToolCallsOfTheStoredActiveTurn: a process that did
+// not dispatch the turn (a restart) evaluates the calls of the stored active
+// turn and denies those of any other turn.
+func TestConversationRun_ToolCallsOfTheStoredActiveTurn(t *testing.T) {
+	env := newConvStopEnv(t, nil, nil)
+	if err := env.store.BeginConversationTurn(context.Background(), env.convID, "turn-before-restart"); err != nil {
+		t.Fatalf("BeginConversationTurn: %v", err)
+	}
+	if resp := env.toolCallInTurn(t, "call-of-the-stored-turn", "turn-before-restart"); resp.Decision != "allow" {
+		t.Fatalf("call of the stored active turn: %q (%s), want allow", resp.Decision, resp.Reason)
+	}
+	if resp := env.toolCallInTurn(t, "call-of-another-turn", "turn-of-another-run"); resp.Decision != "deny" {
+		t.Fatalf("call of another turn: %q (%s), want deny", resp.Decision, resp.Reason)
+	}
+	// A worker that sends no turn is evaluated as before.
+	if resp := env.toolCall(t, "call-without-turn"); resp.Decision != "allow" {
+		t.Fatalf("call without turn: %q (%s), want allow", resp.Decision, resp.Reason)
+	}
+}

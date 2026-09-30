@@ -131,6 +131,10 @@ func TestStore_ConversationTurnHeartbeat(t *testing.T) {
 	if err := b.store.BeginConversationTurn(b.ctx, lost.ID, turn()); err != nil {
 		t.Fatalf("BeginConversationTurn(cross-tenant): %v", err)
 	}
+	// The conversation carries its stored active turn.
+	if c, err := a.store.GetConversation(a.ctx, lost.ID); err != nil || c.ActiveTurnID != lostTurn {
+		t.Fatalf("GetConversation active turn = %+v, %v; want %q", c, err, lostTurn)
+	}
 
 	for conv, tr := range map[string]string{lost.ID: lostTurn, healthy.ID: healthyTurn, ended.ID: endedTurn} {
 		if err := a.store.TouchConversationTurnHeartbeat(a.ctx, conv, tr); err != nil {
@@ -200,6 +204,9 @@ func TestStore_ConversationTurnHeartbeat(t *testing.T) {
 		if _, listed := got[conv]; listed {
 			t.Errorf("ended conversation turn %s still listed", conv)
 		}
+	}
+	if c, err := a.store.GetConversation(a.ctx, ended.ID); err != nil || c.ActiveTurnID != "" {
+		t.Errorf("GetConversation active turn after its end = %+v, %v; want none", c, err)
 	}
 	if got[lost.ID] != lostTurn {
 		t.Errorf("lost turn no longer listed after other turns ended")

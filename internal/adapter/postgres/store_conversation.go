@@ -31,10 +31,10 @@ func (s *Store) CreateConversation(ctx context.Context, c *conversation.Conversa
 func (s *Store) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
 	var c conversation.Conversation
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, project_id, title, mode, model, created_at, updated_at
+		`SELECT id, tenant_id, project_id, title, mode, model, created_at, updated_at, COALESCE(active_turn_id, '')
 		 FROM conversations WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx),
-	).Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.Mode, &c.Model, &c.CreatedAt, &c.UpdatedAt)
+	).Scan(&c.ID, &c.TenantID, &c.ProjectID, &c.Title, &c.Mode, &c.Model, &c.CreatedAt, &c.UpdatedAt, &c.ActiveTurnID)
 	if err != nil {
 		return nil, notFoundWrap(err, "get conversation %s", id)
 	}

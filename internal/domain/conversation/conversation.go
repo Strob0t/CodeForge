@@ -17,6 +17,9 @@ type Conversation struct {
 	Model     string    `json:"model,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// ActiveTurnID is the turn of the conversation's active run ("" when
+	// none), as stored (KI-65). Only GetConversation reads it.
+	ActiveTurnID string `json:"-"`
 }
 
 // ActiveTurn is the active run of a conversation (its turn) with the tenant

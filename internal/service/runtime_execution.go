@@ -244,6 +244,14 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if conv == nil {
 		return fmt.Errorf("conversation not found: %s", req.RunID)
 	}
+	// A call of a turn this process does not know as the active run is
+	// evaluated only if it is the stored active turn (a restart, another
+	// replica). Any other turn ended - stopped, or ended by the stuck-work
+	// watchdog while its worker was cut off - and its worker must not go on
+	// editing the workspace.
+	if !ofActiveRun && req.TurnID != "" && req.TurnID != conv.ActiveTurnID {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run ended")
+	}
 	ctx = withEntityTenant(ctx, conv.TenantID)
 
 	proj, err := s.store.GetProject(ctx, conv.ProjectID)

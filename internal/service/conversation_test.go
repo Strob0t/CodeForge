@@ -60,7 +60,9 @@ func (m *convMockStore) CreateConversation(_ context.Context, c *conversation.Co
 func (m *convMockStore) GetConversation(_ context.Context, id string) (*conversation.Conversation, error) {
 	for i := range m.conversations {
 		if m.conversations[i].ID == id {
-			return &m.conversations[i], nil
+			c := m.conversations[i]
+			c.ActiveTurnID = m.activeTurnOf(id)
+			return &c, nil
 		}
 	}
 	return nil, errMockNotFound
