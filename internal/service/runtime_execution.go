@@ -8,12 +8,10 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
-	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
@@ -49,13 +47,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
-		// Terminate the run
-		logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
-		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-			"status": string(run.StatusTimeout),
-			"reason": reason,
-		})
-		s.broadcastRunStatus(ctx, r, run.StatusTimeout)
+		logBestEffort(ctx, s.stopRun(ctx, r, run.StatusTimeout, reason), "stopRun", slog.String("run_id", r.ID))
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
 
@@ -328,6 +320,11 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	newTokensOut := r.TokensOut + result.TokensOut
 	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
+	// The run's counters including this tool call, final numbers for the paths
+	// below that end the run.
+	counted := *r
+	counted.CostUSD, counted.TokensIn, counted.TokensOut = newCost, newTokensIn, newTokensOut
+
 	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
 	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
 	if profileOK && profile.Termination.MaxCost > 0 {
@@ -340,24 +337,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if newCost >= maxCost {
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
-			logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: newCost, StepCount: r.StepCount, TokensIn: newTokensIn, TokensOut: newTokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
-			s.cleanupRunState(r.ID)
-			s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-				"status": string(run.StatusTimeout),
-				"reason": reason,
-			})
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			// Use a temporary copy with updated cost/tokens for the broadcast.
-			budgetRun := *r
-			budgetRun.CostUSD = newCost
-			budgetRun.TokensIn = newTokensIn
-			budgetRun.TokensOut = newTokensOut
-			s.broadcastRunStatus(ctx, &budgetRun, run.StatusTimeout)
-			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-			if s.onRunComplete != nil {
-				s.onRunComplete(ctx, r.ID, run.StatusTimeout)
-			}
+			logBestEffort(ctx, s.stopRun(ctx, &counted, run.StatusTimeout, reason), "stopRun", slog.String("run_id", r.ID))
 			return nil
 		}
 
@@ -382,23 +363,12 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	// Check stall detection
 	if st, ok := s.state.GetStallTracker(r.ID); ok {
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
-			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusFailed, Error: "stall detected: agent not making progress", CostUSD: newCost, StepCount: r.StepCount, TokensIn: newTokensIn, TokensOut: newTokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
-			s.state.DeleteStallTracker(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			// Use a temporary copy with updated cost/tokens for the broadcast.
-			stallRun := *r
-			stallRun.CostUSD = newCost
-			stallRun.TokensIn = newTokensIn
-			stallRun.TokensOut = newTokensOut
-			s.broadcastRunStatus(ctx, &stallRun, run.StatusFailed)
-			// Set agent idle, task failed
-			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
+			logBestEffort(ctx, s.stopRun(ctx, &counted, run.StatusFailed, "stall detected: agent not making progress"), "stopRun", slog.String("run_id", r.ID))
 			return nil
 		}
 	}

@@ -489,8 +489,8 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	return r, nil
 }
 
-// HandleToolCallRequest processes a tool call permission request from a worker.
-// It evaluates termination conditions and policy rules, then publishes a response.
+// CancelRun cancels an active run on the user's request and tells the worker
+// to stop it.
 func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	r, err := s.store.GetRun(ctx, runID)
 	if err != nil {
@@ -501,58 +501,9 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 		return fmt.Errorf("run %s is not active (status: %s)", runID, r.Status)
 	}
 
-	// Clean up all run-associated state
-	s.cleanupRunState(runID)
-
-	// Update DB
-	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusCancelled, Error: "cancelled by user", CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}); err != nil {
-		return fmt.Errorf("complete run: %w", err)
+	if err := s.stopRun(ctx, r, run.StatusCancelled, "cancelled by user"); err != nil {
+		return err
 	}
-
-	// Set agent idle
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-
-	// Notify worker via NATS
-	cancelPayload := struct {
-		RunID string `json:"run_id"`
-	}{RunID: runID}
-	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
-
-	// Record event
-	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-		"status": string(run.StatusCancelled),
-		"reason": "cancelled by user",
-	})
-
-	// Broadcast WS
-	s.broadcastRunStatus(ctx, r, run.StatusCancelled)
-
-	// Clean up checkpoints
-	if s.checkpoint != nil {
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		if projErr == nil {
-			if cpErr := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); cpErr != nil {
-				slog.Warn("checkpoint cleanup on cancel failed", "run_id", r.ID, "error", cpErr)
-			}
-		}
-	}
-
-	// Clean up sandbox
-	if s.sandbox != nil {
-		if _, ok := s.sandbox.Get(r.ID); ok {
-			if err := s.sandbox.Stop(ctx, r.ID); err != nil {
-				slog.Warn("sandbox stop on cancel failed", "run_id", r.ID, "error", err)
-			}
-			if err := s.sandbox.Remove(ctx, r.ID); err != nil {
-				slog.Warn("sandbox remove on cancel failed", "run_id", r.ID, "error", err)
-			}
-		}
-	}
-
-	// Audit trail
-	s.appendAudit(ctx, r, "run.cancelled", fmt.Sprintf("Run cancelled by user, %d steps completed, cost $%.4f", r.StepCount, r.CostUSD))
-
 	slog.Info("run cancelled", "run_id", runID)
 	return nil
 }

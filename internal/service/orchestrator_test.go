@@ -177,6 +177,13 @@ func (m *orchMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]a
 func (m *orchMockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
 
 func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
+	store, orchSvc, _ := newOrchRuntimeSetup()
+	return store, orchSvc
+}
+
+// newOrchRuntimeSetup is newOrchTestSetup that also returns the runtime whose
+// run completions advance the plans.
+func newOrchRuntimeSetup() (*orchMockStore, *service.OrchestratorService, *service.RuntimeService) {
 	store := &orchMockStore{}
 	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3")
@@ -200,7 +207,7 @@ func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
 
-	return store, orchSvc
+	return store, orchSvc, runtimeSvc
 }
 
 // newOrchProjects returns the project the test plans belong to: starting a

@@ -629,7 +629,7 @@ func TestFinalizeRun(t *testing.T) {
 				StepCount: 1,
 			},
 			wantRunStatus:     run.StatusCancelled,
-			wantTaskStatus:    task.StatusCompleted, // cancelled is not failed/timeout
+			wantTaskStatus:    task.StatusCancelled, // same as a user cancel (KI-30)
 			wantAgentStatus:   agent.StatusIdle,
 			wantAgentSuccess:  false,
 			wantBroadcastMin:  3,

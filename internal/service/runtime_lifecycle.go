@@ -49,42 +49,45 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 	if r.Status != run.StatusRunning && r.Status != run.StatusPending {
 		return nil // already completed
 	}
+	return s.stopRun(ctx, r, run.StatusTimeout, reason)
+}
 
-	// OTEL: annotate run span before cleanup ends it
-	if sp, ok := s.state.GetRunSpan(runID); ok {
-		sp.SetAttributes(attribute.String("cancel.reason", reason))
-		sp.SetStatus(codes.Error, reason)
+// runCancelPayload is the runs.cancel message that tells the worker to stop a run.
+type runCancelPayload struct {
+	RunID string `json:"run_id"`
+}
+
+// stopRun ends a run that the control plane terminates while the worker still
+// executes it: user cancel, context-level timeout, termination limits, the
+// post-execution budget and stall detection. The run goes through the same
+// completion path as a run the worker finished (KI-30), with r's counters as
+// its final numbers and reason as its error; then the worker is told to stop.
+func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Status, reason string) error {
+	outcome := &messagequeue.RunCompletePayload{
+		RunID:     r.ID,
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(status),
+		Error:     reason,
+		CostUSD:   r.CostUSD,
+		StepCount: r.StepCount,
+		TokensIn:  r.TokensIn,
+		TokensOut: r.TokensOut,
+		Model:     r.Model,
 	}
-	if s.metrics != nil {
-		s.metrics.RecordRunFailed(ctx, "project.id", r.ProjectID, "status", "timeout")
+	if err := s.finalizeRun(ctx, r, status, outcome); err != nil {
+		return err
 	}
-
-	s.cleanupRunState(runID)
-
-	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}); err != nil {
-		return fmt.Errorf("complete run: %w", err)
-	}
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-
-	cancelPayload := struct {
-		RunID string `json:"run_id"`
-	}{RunID: runID}
-	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
-
-	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-		"status": string(run.StatusTimeout),
-		"reason": reason,
-	})
-	s.broadcastRunStatus(ctx, r, run.StatusTimeout)
-
-	if s.onRunComplete != nil {
-		s.onRunComplete(ctx, r.ID, run.StatusTimeout)
-	}
+	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, runCancelPayload{RunID: r.ID}),
+		"publishJSON", slog.String("subject", messagequeue.SubjectRunCancel), slog.String("run_id", r.ID))
 	return nil
 }
 
-// finalizeRun completes the run lifecycle: update DB, task, agent, broadcast events.
+// finalizeRun is the one completion path of a run, whichever way it ended:
+// run state cleanup, the terminal run record, task and agent reset, events,
+// WebSocket broadcasts, checkpoint and sandbox cleanup, the audit entry and
+// onRunComplete (execution-plan progress). When the run record cannot be
+// completed, nothing after it happens.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
 	// OTEL: annotate run span before cleanup ends it
 	if sp, ok := s.state.GetRunSpan(r.ID); ok {
@@ -97,6 +100,13 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 			sp.SetStatus(codes.Error, payload.Error)
 		}
 	}
+
+	s.cleanupRunState(r.ID)
+
+	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: status, Output: payload.Output, Error: payload.Error, CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model}); err != nil {
+		return fmt.Errorf("complete run: %w", err)
+	}
+
 	if s.metrics != nil {
 		metricAttrs := []string{"project.id", r.ProjectID, "status", string(status)}
 		if status == run.StatusCompleted {
@@ -107,23 +117,14 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 	}
 
-	s.cleanupRunState(r.ID)
-
-	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: status, Output: payload.Output, Error: payload.Error, CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model}); err != nil {
-		return fmt.Errorf("complete run: %w", err)
-	}
-
-	// Update task result
+	// Task result first: the store's UpdateTaskResult also marks the task
+	// completed, so the status of a failed or cancelled run must come after it.
 	taskResult := task.Result{
 		Output: payload.Output,
 		Error:  payload.Error,
 	}
-	taskStatus := task.StatusCompleted
-	if status == run.StatusFailed || status == run.StatusTimeout {
-		taskStatus = task.StatusFailed
-	}
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatus), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
+	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatusForRun(status)), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
 
 	// Set agent back to idle
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
@@ -196,7 +197,15 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	}
 
 	// Audit trail
-	s.appendAudit(ctx, r, "run.completed", fmt.Sprintf("Run finalized with status %s, %d steps, cost $%.4f", status, payload.StepCount, payload.CostUSD))
+	auditAction := "run.completed"
+	if status == run.StatusCancelled {
+		auditAction = "run.cancelled"
+	}
+	auditDetails := fmt.Sprintf("Run finalized with status %s, %d steps, cost $%.4f", status, payload.StepCount, payload.CostUSD)
+	if payload.Error != "" {
+		auditDetails += ": " + payload.Error
+	}
+	s.appendAudit(ctx, r, auditAction, auditDetails)
 
 	slog.Info("run finalized", "run_id", r.ID, "status", status, "steps", payload.StepCount)
 
@@ -206,6 +215,18 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	}
 
 	return nil
+}
+
+// taskStatusForRun maps the terminal status of a run to the status of its task.
+func taskStatusForRun(status run.Status) task.Status {
+	switch status {
+	case run.StatusFailed, run.StatusTimeout:
+		return task.StatusFailed
+	case run.StatusCancelled:
+		return task.StatusCancelled
+	default:
+		return task.StatusCompleted
+	}
 }
 
 // triggerDelivery attempts to deliver the run output (patch, commit, branch, PR).
@@ -285,8 +306,6 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		PRURL:      deliverResult.PRURL,
 	})
 }
-
-// CancelRun cancels a running run and notifies the worker.
 
 // --- Internal helpers ---
 

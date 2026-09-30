@@ -185,6 +185,13 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 		return fmt.Errorf("plan %s is %s, cannot cancel", planID, p.Status)
 	}
 
+	// The plan is cancelled before its runs: cancelling a run reports it
+	// through HandleRunCompleted, which must not start the remaining steps.
+	if err := s.store.UpdatePlanStatus(ctx, planID, plan.StatusCancelled); err != nil {
+		return err
+	}
+	p.Status = plan.StatusCancelled
+
 	for i := range p.Steps {
 		switch p.Steps[i].Status {
 		case plan.StepStatusPending:
@@ -202,10 +209,6 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 		}
 	}
 
-	if err := s.store.UpdatePlanStatus(ctx, planID, plan.StatusCancelled); err != nil {
-		return err
-	}
-	p.Status = plan.StatusCancelled
 	s.appendPlanEvent(ctx, event.TypePlanCancelled, p)
 	s.broadcastPlanStatus(ctx, p)
 
