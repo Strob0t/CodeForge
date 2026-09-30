@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/artifact"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -14,9 +16,22 @@ import (
 
 // finishRun finalizes a run on a worker message. A run that already ended on
 // another path is skipped instead of failing the handler, which would have
-// the message redelivered (KI-31).
+// the message redelivered (KI-31); it keeps the worker's usage totals.
 func (s *RuntimeService) finishRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
-	return skipEndedRun(ctx, s.finalizeRun(ctx, r, status, payload), "finalizeRun", r.ID)
+	err := s.finalizeRun(ctx, r, status, payload)
+	if errors.Is(err, domain.ErrConflict) {
+		s.keepWorkerTotals(ctx, r.ID, payload)
+	}
+	return skipEndedRun(ctx, err, "finalizeRun", r.ID)
+}
+
+// keepWorkerTotals raises the counters of a run that the control plane
+// already ended (cancel, timeout, limits) to the usage totals the worker
+// reports at its end: calls finished after the stop still cost money. Nothing
+// else of the ended run changes.
+func (s *RuntimeService) keepWorkerTotals(ctx context.Context, runID string, payload *messagequeue.RunCompletePayload) {
+	totals := &run.Usage{Steps: payload.StepCount, CostUSD: payload.CostUSD, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut}
+	logBestEffort(ctx, s.store.RaiseRunUsage(ctx, runID, totals), "RaiseRunUsage", slog.String("run_id", runID))
 }
 
 // HandleRunComplete processes a run completion message from a worker.
@@ -24,6 +39,11 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	ctx, r, err := s.loadRunScoped(ctx, payload.RunID, payload.TenantID)
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
+	}
+	if r.Status.IsTerminal() {
+		slog.Info("completion for a run that already ended, usage kept", "run_id", r.ID, "status", r.Status)
+		s.keepWorkerTotals(ctx, r.ID, payload)
+		return nil
 	}
 
 	// Determine final status
@@ -73,9 +93,16 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 		(profile.QualityGate.RequireTestsPass || profile.QualityGate.RequireLintPass)
 
 	if hasGates {
-		// Transition to quality_gate status — do not finalize yet
-		if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusQualityGate, payload.StepCount, payload.CostUSD, payload.TokensIn, payload.TokensOut); err != nil {
-			return skipEndedRun(ctx, fmt.Errorf("update run to quality_gate: %w", err), "UpdateRunStatus", r.ID)
+		// Transition to quality_gate status — do not finalize yet. The run keeps
+		// the worker's outcome for the gate result to finalize it with.
+		if err := s.store.EnterQualityGate(ctx, &run.CompletionRequest{
+			ID: r.ID, Status: run.StatusQualityGate, Output: payload.Output, Error: payload.Error,
+			CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model,
+		}); err != nil {
+			if errors.Is(err, domain.ErrConflict) {
+				s.keepWorkerTotals(ctx, r.ID, payload)
+			}
+			return skipEndedRun(ctx, fmt.Errorf("enter quality gate: %w", err), "EnterQualityGate", r.ID)
 		}
 
 		// Look up project for workspace path
@@ -179,14 +206,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 
 		// Trigger delivery if configured, then finalize as completed
 		s.triggerDelivery(ctx, r)
-		return s.finishRun(ctx, r, run.StatusCompleted, &messagequeue.RunCompletePayload{
-			RunID:     r.ID,
-			TaskID:    r.TaskID,
-			ProjectID: r.ProjectID,
-			Status:    string(run.StatusCompleted),
-			CostUSD:   r.CostUSD,
-			StepCount: r.StepCount,
-		})
+		return s.finishRun(ctx, r, run.StatusCompleted, gatedOutcome(r, run.StatusCompleted, ""))
 	}
 
 	// Gates failed
@@ -222,13 +242,24 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		Error:       errMsg,
 	})
 
-	return s.finishRun(ctx, r, finalStatus, &messagequeue.RunCompletePayload{
+	return s.finishRun(ctx, r, finalStatus, gatedOutcome(r, finalStatus, errMsg))
+}
+
+// gatedOutcome is the completion of a run that waited for its quality gate:
+// the output, model and usage the worker reported (stored when the run
+// entered the gate), with the gate's status and error.
+func gatedOutcome(r *run.Run, status run.Status, errMsg string) *messagequeue.RunCompletePayload {
+	return &messagequeue.RunCompletePayload{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
-		Status:    string(finalStatus),
+		Status:    string(status),
+		Output:    r.Output,
 		Error:     errMsg,
 		CostUSD:   r.CostUSD,
 		StepCount: r.StepCount,
-	})
+		TokensIn:  r.TokensIn,
+		TokensOut: r.TokensOut,
+		Model:     r.Model,
+	}
 }

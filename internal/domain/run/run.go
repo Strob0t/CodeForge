@@ -30,6 +30,37 @@ func (s Status) IsTerminal() bool {
 	return slices.Contains(TerminalStatuses(), s)
 }
 
+// SourceStatuses returns the statuses a run may be moved to status from: a
+// run runs only while pending or running, waits for its quality gate only
+// after running, and ends from any active status. Nothing leads back to
+// pending or out of a terminal status. The store refuses any other status
+// write with domain.ErrConflict.
+func SourceStatuses(status Status) []Status {
+	switch {
+	case status == StatusRunning:
+		return []Status{StatusPending, StatusRunning}
+	case status == StatusQualityGate:
+		return []Status{StatusRunning}
+	case status.IsTerminal():
+		return []Status{StatusPending, StatusRunning, StatusQualityGate}
+	default:
+		return nil
+	}
+}
+
+// CanTransition reports whether a run in status from may be moved to status to.
+func CanTransition(from, to Status) bool {
+	return slices.Contains(SourceStatuses(to), from)
+}
+
+// Usage is the LLM usage a run accumulates: steps (tool calls), cost and tokens.
+type Usage struct {
+	Steps     int
+	CostUSD   float64
+	TokensIn  int64
+	TokensOut int64
+}
+
 // ExecMode defines how the agent accesses the project filesystem.
 type ExecMode string
 

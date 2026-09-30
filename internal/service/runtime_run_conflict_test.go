@@ -27,6 +27,14 @@ func (s *endedRunStore) UpdateRunStatus(_ context.Context, id string, _ run.Stat
 	return fmt.Errorf("update run status %s: %w", id, domain.ErrConflict)
 }
 
+func (s *endedRunStore) EnterQualityGate(_ context.Context, req *run.CompletionRequest) error {
+	return fmt.Errorf("enter quality gate %s: %w", req.ID, domain.ErrConflict)
+}
+
+func (s *endedRunStore) CountRunStep(_ context.Context, id string) error {
+	return fmt.Errorf("count run step %s: %w", id, domain.ErrConflict)
+}
+
 // TestRunEndedElsewhere_CompletionPathsSkip: when the store refuses the
 // terminal update because the run already ended, no path repeats the
 // completion's side effects - the path that ended the run did them - and the

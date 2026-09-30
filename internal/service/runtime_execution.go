@@ -109,15 +109,16 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		}
 	}
 
-	// Count the step. A run that ended while the call waited for approval
-	// (cancel, timeout) is not moved back to running, and its call is denied
-	// like any call of a run that is not running (KI-31).
-	err = s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, r.StepCount+1, r.CostUSD, r.TokensIn, r.TokensOut)
+	// Count the step; only a running run counts steps and its usage counters
+	// are not touched. A run that ended or moved to its quality gate while the
+	// call waited for approval stays where it is, and its call is denied
+	// without a policy verdict (KI-31).
+	err = s.store.CountRunStep(ctx, r.ID)
 	if errors.Is(err, domain.ErrConflict) {
-		slog.Info("run ended while the tool call was pending, denying", "run_id", r.ID, "call_id", req.CallID)
-		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "run is not running")
+		slog.Info("run no longer running after the tool call was pending, denying", "run_id", r.ID, "call_id", req.CallID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "run is no longer running")
 	}
-	logBestEffort(ctx, err, "UpdateRunStatus", slog.String("run_id", r.ID))
+	logBestEffort(ctx, err, "CountRunStep", slog.String("run_id", r.ID))
 
 	// Record event
 	evType := event.TypeToolCallApproved
@@ -353,16 +354,35 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		return nil
 	}
 
-	// Accumulate cost and tokens
-	newCost := r.CostUSD + result.CostUSD
-	newTokensIn := r.TokensIn + result.TokensIn
-	newTokensOut := r.TokensOut + result.TokensOut
-	logRunUpdate(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", r.ID)
-
-	// The run's counters including this tool call, final numbers for the paths
-	// below that end the run.
+	// Add the call's usage to the run's counters, whatever the run's status: a
+	// call that finishes after its run ended still cost money. The status is
+	// not touched. counted is the run as stored afterwards.
 	counted := *r
-	counted.CostUSD, counted.TokensIn, counted.TokensOut = newCost, newTokensIn, newTokensOut
+	counted.CostUSD += result.CostUSD
+	counted.TokensIn += result.TokensIn
+	counted.TokensOut += result.TokensOut
+	stored, err := s.store.AddRunUsage(ctx, r.ID, &run.Usage{CostUSD: result.CostUSD, TokensIn: result.TokensIn, TokensOut: result.TokensOut})
+	if err != nil {
+		logBestEffort(ctx, err, "AddRunUsage", slog.String("run_id", r.ID))
+	} else {
+		counted = *stored
+	}
+	newCost := counted.CostUSD
+
+	// The per-tool usage record (cost by tool), kept for every executed call.
+	s.appendRunEventWithTokens(ctx, event.TypeToolCallResultEv, r, map[string]string{
+		"call_id": result.CallID,
+		"tool":    result.Tool,
+		"success": fmt.Sprintf("%t", result.Success),
+		"cost":    fmt.Sprintf("%.6f", result.CostUSD),
+	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
+
+	// A run that ended (or waits for its quality gate) gets no budget or stall
+	// decision and no live events after its run_finished.
+	if counted.Status != run.StatusRunning {
+		slog.Info("tool call result for a run that is not running, usage recorded", "run_id", r.ID, "status", counted.Status)
+		return nil
+	}
 
 	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
 	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
@@ -411,14 +431,6 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 			return nil
 		}
 	}
-
-	// Record event with per-tool token data
-	s.appendRunEventWithTokens(ctx, event.TypeToolCallResultEv, r, map[string]string{
-		"call_id": result.CallID,
-		"tool":    result.Tool,
-		"success": fmt.Sprintf("%t", result.Success),
-		"cost":    fmt.Sprintf("%.6f", result.CostUSD),
-	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
 
 	// Broadcast WS with token data
 	s.broadcastToolCallStatus(ctx, r.ID, result.CallID, result.Tool, "result", "")

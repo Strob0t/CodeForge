@@ -219,6 +219,14 @@ func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _
 func (m *mockStore) CompleteRun(_ context.Context, _ *run.CompletionRequest) error {
 	return nil
 }
+func (m *mockStore) EnterQualityGate(_ context.Context, _ *run.CompletionRequest) error {
+	return nil
+}
+func (m *mockStore) CountRunStep(_ context.Context, _ string) error { return nil }
+func (m *mockStore) AddRunUsage(_ context.Context, _ string, _ *run.Usage) (*run.Run, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) RaiseRunUsage(_ context.Context, _ string, _ *run.Usage) error { return nil }
 func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
 	return nil
 }

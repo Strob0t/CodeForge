@@ -179,6 +179,32 @@ func TestAllExecModes(t *testing.T) {
 	}
 }
 
+func TestCanTransition(t *testing.T) {
+	all := []run.Status{run.StatusPending, run.StatusRunning, run.StatusQualityGate,
+		run.StatusCompleted, run.StatusFailed, run.StatusCancelled, run.StatusTimeout}
+	allowed := map[run.Status][]run.Status{
+		run.StatusPending:     nil,
+		run.StatusRunning:     {run.StatusPending, run.StatusRunning},
+		run.StatusQualityGate: {run.StatusRunning},
+		run.StatusCompleted:   {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		run.StatusFailed:      {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		run.StatusCancelled:   {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		run.StatusTimeout:     {run.StatusPending, run.StatusRunning, run.StatusQualityGate},
+		"unknown":             nil,
+	}
+	for to, sources := range allowed {
+		for _, from := range all {
+			want := false
+			for _, s := range sources {
+				want = want || s == from
+			}
+			if got := run.CanTransition(from, to); got != want {
+				t.Errorf("CanTransition(%s, %s) = %v, want %v", from, to, got, want)
+			}
+		}
+	}
+}
+
 func TestStatusIsTerminal(t *testing.T) {
 	tests := []struct {
 		status run.Status

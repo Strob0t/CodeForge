@@ -302,6 +302,49 @@ func (m *mockStore) CompleteRun(_ context.Context, req *run.CompletionRequest) e
 	return errNotFound
 }
 
+func (m *mockStore) EnterQualityGate(_ context.Context, req *run.CompletionRequest) error {
+	for i := range m.runs {
+		if m.runs[i].ID == req.ID {
+			m.runs[i].Status = run.StatusQualityGate
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) CountRunStep(_ context.Context, id string) error {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			m.runs[i].StepCount++
+			return nil
+		}
+	}
+	return errNotFound
+}
+
+func (m *mockStore) AddRunUsage(_ context.Context, id string, usage *run.Usage) (*run.Run, error) {
+	for i := range m.runs {
+		if m.runs[i].ID != id {
+			continue
+		}
+		m.runs[i].CostUSD += usage.CostUSD
+		m.runs[i].TokensIn += usage.TokensIn
+		m.runs[i].TokensOut += usage.TokensOut
+		r := m.runs[i]
+		return &r, nil
+	}
+	return nil, errNotFound
+}
+
+func (m *mockStore) RaiseRunUsage(_ context.Context, id string, _ *run.Usage) error {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			return nil
+		}
+	}
+	return errNotFound
+}
+
 func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
 	return nil
 }

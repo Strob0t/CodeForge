@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 )
 
@@ -21,12 +22,14 @@ func (s *Store) CreateRun(ctx context.Context, r *run.Run) error {
 	return row.Scan(&r.ID, &r.StartedAt, &r.CreatedAt, &r.UpdatedAt, &r.Version)
 }
 
+// runColumns is the column list scanRun reads.
+const runColumns = `id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
+		        step_count, cost_usd, tokens_in, tokens_out, model, artifact_type, artifact_valid, artifact_errors,
+		        output, error, version, started_at, completed_at, created_at, updated_at`
+
 func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, tokens_in, tokens_out, model, artifact_type, artifact_valid, artifact_errors,
-		        output, error, version, started_at, completed_at, created_at, updated_at
-		 FROM runs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
+		`SELECT `+runColumns+` FROM runs WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	r, err := scanRun(row)
 	if err != nil {
@@ -35,30 +38,92 @@ func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	return &r, nil
 }
 
-// runTerminalStatuses parameterizes the status predicate of run updates.
-var runTerminalStatuses = statusStrings(run.TerminalStatuses())
-
 const runExistsSQL = `SELECT EXISTS (SELECT 1 FROM runs WHERE id = $1 AND tenant_id = $2)`
 
-// UpdateRunStatus updates an active run. It returns domain.ErrConflict when
-// the run already ended: a run is never moved back from a terminal state.
+// sourceStatuses parameterizes the transition predicate of a status write:
+// the statuses a run may be moved to status from (run.SourceStatuses).
+func sourceStatuses(status run.Status) []string {
+	return statusStrings(run.SourceStatuses(status))
+}
+
+// UpdateRunStatus sets a run's status and counters. It returns
+// domain.ErrConflict when the run's current status does not lead to status:
+// running is written only while the run is pending or running.
 func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, tokens_in = $5, tokens_out = $6, updated_at = now()
-		 WHERE id = $1 AND tenant_id = $7 AND status <> ALL($8)`,
-		id, string(status), stepCount, costUSD, tokensIn, tokensOut, tenantFromCtx(ctx), runTerminalStatuses)
+		 WHERE id = $1 AND tenant_id = $7 AND status = ANY($8)`,
+		id, string(status), stepCount, costUSD, tokensIn, tokensOut, tenantFromCtx(ctx), sourceStatuses(status))
 	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "update run status", id)
 }
 
+// EnterQualityGate moves a running run to quality_gate with the outcome the
+// worker reported (output, model, usage), which the run keeps when the gate
+// result ends it. Any other source status is refused with domain.ErrConflict.
+func (s *Store) EnterQualityGate(ctx context.Context, req *run.CompletionRequest) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
+		 tokens_in = $7, tokens_out = $8, model = $9, updated_at = now()
+		 WHERE id = $1 AND tenant_id = $10 AND status = ANY($11)`,
+		req.ID, string(run.StatusQualityGate), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model,
+		tenantFromCtx(ctx), sourceStatuses(run.StatusQualityGate))
+	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "enter quality gate", req.ID)
+}
+
 // CompleteRun ends an active run. It returns domain.ErrConflict when the run
-// already ended, so a run is completed exactly once.
+// already ended, so a run is completed exactly once, and domain.ErrValidation
+// for a status that does not end a run.
 func (s *Store) CompleteRun(ctx context.Context, req *run.CompletionRequest) error {
+	if !req.Status.IsTerminal() {
+		return fmt.Errorf("complete run %s with status %q: %w", req.ID, req.Status, domain.ErrValidation)
+	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
 		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
-		 WHERE id = $1 AND tenant_id = $10 AND status <> ALL($11)`,
-		req.ID, string(req.Status), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model, tenantFromCtx(ctx), runTerminalStatuses)
+		 WHERE id = $1 AND tenant_id = $10 AND status = ANY($11)`,
+		req.ID, string(req.Status), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model,
+		tenantFromCtx(ctx), sourceStatuses(req.Status))
 	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "complete run", req.ID)
+}
+
+// CountRunStep counts one tool call of a running run without touching its
+// usage counters. A run that is not running is refused with
+// domain.ErrConflict.
+func (s *Store) CountRunStep(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE runs SET step_count = step_count + 1, updated_at = now()
+		 WHERE id = $1 AND tenant_id = $2 AND status = $3`,
+		id, tenantFromCtx(ctx), string(run.StatusRunning))
+	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "count run step", id)
+}
+
+// AddRunUsage adds usage to a run's counters atomically, whatever the run's
+// status (a tool call can finish after its run ended), and returns the run
+// as stored afterwards. The status is never touched.
+func (s *Store) AddRunUsage(ctx context.Context, id string, usage *run.Usage) (*run.Run, error) {
+	row := s.pool.QueryRow(ctx,
+		`UPDATE runs SET step_count = step_count + $2, cost_usd = cost_usd + $3,
+		 tokens_in = tokens_in + $4, tokens_out = tokens_out + $5, updated_at = now()
+		 WHERE id = $1 AND tenant_id = $6
+		 RETURNING `+runColumns,
+		id, usage.Steps, usage.CostUSD, usage.TokensIn, usage.TokensOut, tenantFromCtx(ctx))
+	r, err := scanRun(row)
+	if err != nil {
+		return nil, notFoundWrap(err, "add run usage %s", id)
+	}
+	return &r, nil
+}
+
+// RaiseRunUsage raises a run's counters to the totals the worker reported,
+// whatever the run's status; a counter never goes down. The status is never
+// touched.
+func (s *Store) RaiseRunUsage(ctx context.Context, id string, totals *run.Usage) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE runs SET step_count = GREATEST(step_count, $2), cost_usd = GREATEST(cost_usd, $3),
+		 tokens_in = GREATEST(tokens_in, $4), tokens_out = GREATEST(tokens_out, $5), updated_at = now()
+		 WHERE id = $1 AND tenant_id = $6`,
+		id, totals.Steps, totals.CostUSD, totals.TokensIn, totals.TokensOut, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "raise run usage %s", id)
 }
 
 func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errs []string) error {
@@ -75,10 +140,7 @@ func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, 
 
 func (s *Store) ListRunsByTask(ctx context.Context, taskID string) ([]run.Run, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, tenant_id, task_id, agent_id, project_id, COALESCE(team_id::text, ''), mode_id, policy_profile, exec_mode, deliver_mode, status,
-		        step_count, cost_usd, tokens_in, tokens_out, model, artifact_type, artifact_valid, artifact_errors,
-		        output, error, version, started_at, completed_at, created_at, updated_at
-		 FROM runs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, taskID, tenantFromCtx(ctx))
+		`SELECT `+runColumns+` FROM runs WHERE task_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`, taskID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list runs by task: %w", err)
 	}

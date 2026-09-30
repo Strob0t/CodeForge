@@ -166,8 +166,79 @@ func (m *runtimeMockStore) CreateRun(_ context.Context, r *run.Run) error {
 	return nil
 }
 
-// errMockRunEnded mirrors the store: a run in a terminal state is not updated.
-var errMockRunEnded = fmt.Errorf("mock: run already ended: %w", domain.ErrConflict)
+// errMockRunTransition mirrors the store: status writes follow run.SourceStatuses.
+var errMockRunTransition = fmt.Errorf("mock: run status transition refused: %w", domain.ErrConflict)
+
+// runIndex returns the index of run id; the caller holds m.mu.
+func (m *runtimeMockStore) runIndex(id string) (int, bool) {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (m *runtimeMockStore) EnterQualityGate(_ context.Context, req *run.CompletionRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(req.ID)
+	if !ok {
+		return errMockNotFound
+	}
+	if !run.CanTransition(m.runs[i].Status, run.StatusQualityGate) {
+		return errMockRunTransition
+	}
+	r := &m.runs[i]
+	r.Status, r.Output, r.Error, r.Model = run.StatusQualityGate, req.Output, req.Error, req.Model
+	r.CostUSD, r.StepCount, r.TokensIn, r.TokensOut = req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut
+	return nil
+}
+
+func (m *runtimeMockStore) CountRunStep(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(id)
+	if !ok {
+		return errMockNotFound
+	}
+	if m.runs[i].Status != run.StatusRunning {
+		return errMockRunTransition
+	}
+	m.runs[i].StepCount++
+	return nil
+}
+
+func (m *runtimeMockStore) AddRunUsage(_ context.Context, id string, usage *run.Usage) (*run.Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(id)
+	if !ok {
+		return nil, errMockNotFound
+	}
+	r := &m.runs[i]
+	r.StepCount += usage.Steps
+	r.CostUSD += usage.CostUSD
+	r.TokensIn += usage.TokensIn
+	r.TokensOut += usage.TokensOut
+	stored := *r
+	return &stored, nil
+}
+
+func (m *runtimeMockStore) RaiseRunUsage(_ context.Context, id string, totals *run.Usage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(id)
+	if !ok {
+		return errMockNotFound
+	}
+	r := &m.runs[i]
+	r.StepCount = max(r.StepCount, totals.Steps)
+	r.CostUSD = max(r.CostUSD, totals.CostUSD)
+	r.TokensIn = max(r.TokensIn, totals.TokensIn)
+	r.TokensOut = max(r.TokensOut, totals.TokensOut)
+	return nil
+}
 
 // GetRun returns a copy, like the store: callers never share the mock's rows.
 func (m *runtimeMockStore) GetRun(_ context.Context, id string) (*run.Run, error) {
@@ -188,8 +259,8 @@ func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status 
 		if m.runs[i].ID != id {
 			continue
 		}
-		if m.runs[i].Status.IsTerminal() {
-			return errMockRunEnded
+		if !run.CanTransition(m.runs[i].Status, status) {
+			return errMockRunTransition
 		}
 		m.runs[i].Status = status
 		m.runs[i].StepCount = stepCount
@@ -207,8 +278,11 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, req *run.CompletionReq
 		if m.runs[i].ID != req.ID {
 			continue
 		}
-		if m.runs[i].Status.IsTerminal() {
-			return errMockRunEnded
+		if !req.Status.IsTerminal() {
+			return fmt.Errorf("mock: complete run with %q: %w", req.Status, domain.ErrValidation)
+		}
+		if !run.CanTransition(m.runs[i].Status, req.Status) {
+			return errMockRunTransition
 		}
 		m.runs[i].Status = req.Status
 		m.runs[i].Output = req.Output

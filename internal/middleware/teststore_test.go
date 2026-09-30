@@ -234,6 +234,14 @@ func (s *testStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _
 func (s *testStore) CompleteRun(_ context.Context, _ *run.CompletionRequest) error {
 	return nil
 }
+func (s *testStore) EnterQualityGate(_ context.Context, _ *run.CompletionRequest) error {
+	return nil
+}
+func (s *testStore) CountRunStep(_ context.Context, _ string) error { return nil }
+func (s *testStore) AddRunUsage(_ context.Context, _ string, _ *run.Usage) (*run.Run, error) {
+	return &run.Run{}, nil
+}
+func (s *testStore) RaiseRunUsage(_ context.Context, _ string, _ *run.Usage) error { return nil }
 func (s *testStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
 	return nil
 }
