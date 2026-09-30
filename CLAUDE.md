@@ -276,7 +276,7 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 - `except Exception as exc:` (NOT bare), log `error=str(exc)`, publish errors back to NATS, then settle the message as above
 
 ### Tenant Isolation
-- ALL tenant-scoped queries: `AND tenant_id = $N` with `tenantFromCtx(ctx)` (exceptions: user/token/tenant mgmt)
+- ALL tenant-scoped queries: `AND tenant_id = $N` with `tenantFromCtx(ctx)` (exceptions: user/token/tenant mgmt, and system jobs that must span tenants - the GDPR retention sweep and the stuck-work watchdog's `ListStaleRuns` - whose queries are commented `INTENTIONALLY CROSS-TENANT` with the reason and handle each row in its own tenant's context)
 - LIMIT via `$N` placeholders, not `%d` interpolation
 - NATS payloads MUST carry `tenant_id` for background jobs -> `tenantctx.WithTenant(ctx, payload.TenantID)`
 - Reference: `store_project.go:GetProject` (correct), `store_a2a.go` (fixed)
