@@ -643,11 +643,13 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	r.Get("/me/consent", h.GetMyConsentStatus)
 	r.Put("/me/consent/{purposeID}", h.SetMyConsent)
 
-	// Subscription Providers (OAuth device flow connect)
+	// Subscription Providers (OAuth device flow connect). Connecting writes
+	// the platform's .env, which LiteLLM uses for all tenants: platform
+	// admins only (KI-75).
 	r.Get("/auth/providers", h.ListSubscriptionProviders)
-	r.Post("/auth/providers/{provider}/connect", h.StartProviderConnect)
+	r.With(middleware.RequirePlatformAdmin).Post("/auth/providers/{provider}/connect", h.StartProviderConnect)
 	r.Get("/auth/providers/{provider}/status", h.GetProviderStatus)
-	r.Delete("/auth/providers/{provider}/disconnect", h.DisconnectProvider)
+	r.With(middleware.RequirePlatformAdmin).Delete("/auth/providers/{provider}/disconnect", h.DisconnectProvider)
 
 	// VCS Accounts
 	r.Get("/vcs-accounts", h.ListVCSAccounts)
