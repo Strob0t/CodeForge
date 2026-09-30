@@ -73,6 +73,7 @@ class RuntimeClient:
         termination: TerminationConfig,
         tenant_id: str = "",
         mode_id: str = "",
+        turn_id: str = "",
     ) -> None:
         self._js = js
         self.run_id = run_id
@@ -85,6 +86,10 @@ class RuntimeClient:
         # Agent mode the run was started with; the Go policy layer enforces
         # its tool lists on every tool call.
         self.mode_id = mode_id
+        # Turn of a conversation run: conversation runs reuse the conversation
+        # ID as run ID, so Go tells the calls of a stopped run from the calls
+        # of the next run of the same conversation by it.
+        self.turn_id = turn_id
         self._metrics = ExecutionMetrics()
         self._cancelled = False
         self._completed = False
@@ -238,6 +243,7 @@ class RuntimeClient:
             "path": path,
             "mode_id": self.mode_id,
             "arguments_preview": arguments_preview,
+            "turn_id": self.turn_id,
         }
 
         start_time = time.monotonic()

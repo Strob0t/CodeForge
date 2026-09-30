@@ -83,7 +83,8 @@ type ToolCallRequestPayload struct {
 	Command  string            `json:"command"`
 	Path     string            `json:"path"`
 	ModeID   string            `json:"mode_id,omitempty"`
-	Trust    *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
+	TurnID   string            `json:"turn_id,omitempty"` // conversation runs: the turn of conversation.run.start
+	Trust    *trust.Annotation `json:"trust,omitempty"`   // Message trust annotation (Phase 23A)
 	// ArgumentsPreview is truncated JSON of the tool arguments, shown to a
 	// human approver. Display only: the policy never evaluates it.
 	ArgumentsPreview string `json:"arguments_preview,omitempty"`

@@ -336,6 +336,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		Reminders:          reminders,
 		RolloutCount:       rolloutCount,
 		SummarizeThreshold: s.summarizeThreshold(),
+		TurnID:             uuid.New().String(),
 	}
 
 	data, err := json.Marshal(payload)
@@ -368,7 +369,7 @@ func (s *ConversationService) dispatchAgenticRun(
 			return fmt.Errorf("publish conversation run start: %w", err)
 		}
 	}
-	s.markRunStarted(conversationID)
+	s.markRunStarted(conversationID, payload.TurnID)
 
 	if opts.recordMetrics && s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)

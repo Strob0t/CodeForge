@@ -99,11 +99,13 @@ func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
 }
 
 // MarkConversationRunStarted records that a new run of the conversation
-// started: conversation runs reuse the conversation ID as run ID, so the mark
-// set by MarkConversationRunCancelled is cleared here and tool calls are
-// evaluated again. Until then, tool calls of the stopped run are rejected
-// (KI-24).
-func (s *RuntimeService) MarkConversationRunStarted(conversationID string) {
+// started with turnID: conversation runs reuse the conversation ID as run ID,
+// so the mark set by MarkConversationRunCancelled is cleared here and tool
+// calls are evaluated again (KI-24). Calls that report another turn - late
+// calls of the stopped run - stay rejected. The new turn is recorded before
+// the mark is cleared, so no stale call passes in between.
+func (s *RuntimeService) MarkConversationRunStarted(conversationID, turnID string) {
+	s.state.SetConversationTurn(conversationID, turnID)
 	s.state.ClearCancelledConversation(conversationID)
 }
 

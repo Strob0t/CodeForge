@@ -77,6 +77,10 @@ type ConversationRunStartPayload struct {
 	PlanActEnabled     bool                         `json:"plan_act_enabled,omitempty"`    // Plan/Act mode toggle (A3)
 	RolloutCount       int                          `json:"rollout_count,omitempty"`       // Multi-rollout count for inference-time scaling (Phase 4 A4)
 	SummarizeThreshold int                          `json:"summarize_threshold,omitempty"` // Message count threshold for auto-summarization (Phase 3)
+	// TurnID identifies this run of the conversation (runs reuse the
+	// conversation ID as run ID); the worker echoes it on every tool call so
+	// that calls of a stopped run are rejected after the next run started.
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.

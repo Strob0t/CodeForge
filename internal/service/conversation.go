@@ -127,13 +127,14 @@ func (s *ConversationService) SetQueue(q messagequeue.Queue) { s.queue = q }
 // conversation starts.
 func (s *ConversationService) SetRunTracker(t convRunTracker) { s.runTracker = t }
 
-// markRunStarted tells the runtime that a new run of the conversation started,
-// so that a stop of an earlier run no longer rejects its tool calls (KI-24).
+// markRunStarted tells the runtime that a new run of the conversation started
+// with turnID, so that a stop of an earlier run no longer rejects the new
+// run's tool calls (KI-24) while the earlier run's calls stay rejected.
 // Callers invoke it only after the run start was published: a dispatch that
 // fails starts no run, and the stopped run's tool calls stay rejected.
-func (s *ConversationService) markRunStarted(conversationID string) {
+func (s *ConversationService) markRunStarted(conversationID, turnID string) {
 	if s.runTracker != nil {
-		s.runTracker.MarkConversationRunStarted(conversationID)
+		s.runTracker.MarkConversationRunStarted(conversationID, turnID)
 	}
 }
 
@@ -326,6 +327,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		},
 		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
 		TenantID:       tenantctx.FromContext(ctx),
+		TurnID:         uuid.New().String(),
 	}
 
 	data, err := json.Marshal(payload)
@@ -349,7 +351,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		})
 		return nil, fmt.Errorf("publish conversation run start: %w", err)
 	}
-	s.markRunStarted(conversationID)
+	s.markRunStarted(conversationID, payload.TurnID)
 
 	if s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation", "project.id", conv.ProjectID)

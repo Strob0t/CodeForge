@@ -22,6 +22,7 @@ type RunStateManager struct {
 	budgetAlerts     sync.Map // map["runID:threshold"]bool
 	pendingApprovals sync.Map // map["runID:callID"]chan string
 	cancelledConvs   sync.Map // map[conversationID]bool
+	convTurns        sync.Map // map[conversationID]string: turn of the conversation's current run
 	bypassedConvs    sync.Map // map[conversationID]bool
 	runSpans         sync.Map // map[runID]trace.Span
 }
@@ -131,6 +132,22 @@ func (m *RunStateManager) SetCancelledConversation(convID string) {
 // run must not outlive the start of the next one (KI-24).
 func (m *RunStateManager) ClearCancelledConversation(convID string) {
 	m.cancelledConvs.Delete(convID)
+}
+
+// SetConversationTurn records the turn of the conversation's current run.
+func (m *RunStateManager) SetConversationTurn(convID, turnID string) {
+	m.convTurns.Store(convID, turnID)
+}
+
+// ConversationTurn returns the turn of the conversation's current run, if
+// this process started one.
+func (m *RunStateManager) ConversationTurn(convID string) (string, bool) {
+	v, ok := m.convTurns.Load(convID)
+	if !ok {
+		return "", false
+	}
+	turn, _ := v.(string)
+	return turn, true
 }
 
 func (m *RunStateManager) IsConversationCancelled(convID string) bool {

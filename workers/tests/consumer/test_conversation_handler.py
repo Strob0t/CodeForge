@@ -221,6 +221,28 @@ class TestHandleConversationRun:
         assert runtime_cls.call_args.kwargs["mode_id"] == expected_mode_id
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("turn_id", ["turn-7", ""])
+    async def test_runtime_client_reports_turn(self, turn_id: str) -> None:
+        """The RuntimeClient sends the run's turn with every tool call, so Go can
+        reject calls of a stopped run of the conversation (review finding 11)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-turn-test")
+        run_msg.turn_id = turn_id
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.assert_called_once()
+        assert runtime_cls.call_args.kwargs["turn_id"] == turn_id
+
+    @pytest.mark.asyncio
     async def test_invalid_json_is_dead_lettered_and_terminated(self) -> None:
         """Invalid JSON goes to the DLQ and is terminated: never NAK'd, never run."""
         handler = _make_handler()

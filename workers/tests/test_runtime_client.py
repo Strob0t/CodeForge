@@ -235,12 +235,23 @@ async def test_request_tool_call_payload_contract() -> None:
         termination=TerminationConfig(max_steps=50, timeout_seconds=600, max_cost=5.0),
         tenant_id="tenant-1",
         mode_id="architect",
+        turn_id="turn-1",
     )
     payload = await _published_tool_call_request(
         client, js, tool="bash", command="go test ./...", path="", arguments_preview='{"command": "go test ./..."}'
     )
 
-    assert set(payload) == {"run_id", "call_id", "tenant_id", "tool", "command", "path", "mode_id", "arguments_preview"}
+    assert set(payload) == {
+        "run_id",
+        "call_id",
+        "tenant_id",
+        "tool",
+        "command",
+        "path",
+        "mode_id",
+        "turn_id",
+        "arguments_preview",
+    }
     assert payload["tenant_id"] == "tenant-1"
     assert payload["run_id"] == "conv-1"
     assert payload["tool"] == "bash"
@@ -248,12 +259,15 @@ async def test_request_tool_call_payload_contract() -> None:
     assert payload["path"] == ""
     assert payload["mode_id"] == "architect"
     assert payload["arguments_preview"] == '{"command": "go test ./..."}'
+    # The conversation run's turn: Go rejects calls of a stopped run by it.
+    assert payload["turn_id"] == "turn-1"
 
 
 async def test_request_tool_call_mode_id_defaults_to_empty() -> None:
     js = _make_js_mock()
     payload = await _published_tool_call_request(_make_client(js), js, tool="read_file", path="src/x.go")
     assert payload["mode_id"] == ""
+    assert payload["turn_id"] == ""
     assert payload["path"] == "src/x.go"
     assert payload["arguments_preview"] == ""
 

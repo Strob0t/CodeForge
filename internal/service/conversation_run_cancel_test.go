@@ -25,6 +25,7 @@ type convStopEnv struct {
 	conv      *service.ConversationService
 	runtime   *service.RuntimeService
 	responses *runtimeMockQueue // tool call responses of the runtime
+	starts    *runtimeMockQueue // run starts of the conversation service (nil with a custom queue)
 	convID    string
 }
 
@@ -40,8 +41,10 @@ func newConvStopEnv(t *testing.T, projectConfig map[string]string, convQueue mes
 	rt := service.NewRuntimeService(store, responses, &runtimeMockBroadcaster{}, &runtimeMockEventStore{},
 		service.NewPolicyService("headless-safe-sandbox", nil), &config.Runtime{})
 
+	var starts *runtimeMockQueue
 	if convQueue == nil {
-		convQueue = &runtimeMockQueue{}
+		starts = &runtimeMockQueue{}
+		convQueue = starts
 	}
 	conv := service.NewConversationService(store, &runtimeMockBroadcaster{}, "gpt-4o", service.NewModeService())
 	conv.SetQueue(convQueue)
@@ -52,14 +55,34 @@ func newConvStopEnv(t *testing.T, projectConfig map[string]string, convQueue mes
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	return &convStopEnv{conv: conv, runtime: rt, responses: responses, convID: c.ID}
+	return &convStopEnv{conv: conv, runtime: rt, responses: responses, starts: starts, convID: c.ID}
 }
 
-// toolCall sends a Read tool call for the conversation's run and returns the
-// runtime's response to it.
+// lastTurn returns the turn ID of the latest run start of the conversation.
+func (e *convStopEnv) lastTurn(t *testing.T) string {
+	t.Helper()
+	msg, ok := e.starts.lastMessage(messagequeue.SubjectConversationRunStart)
+	if !ok {
+		t.Fatal("no conversation run start published")
+	}
+	var start messagequeue.ConversationRunStartPayload
+	if err := json.Unmarshal(msg.Data, &start); err != nil {
+		t.Fatalf("unmarshal run start: %v", err)
+	}
+	return start.TurnID
+}
+
+// toolCall sends a Read tool call for the conversation's run, as a worker
+// that does not report the run's turn, and returns the runtime's response.
 func (e *convStopEnv) toolCall(t *testing.T, callID string) messagequeue.ToolCallResponsePayload {
 	t.Helper()
-	req := messagequeue.ToolCallRequestPayload{RunID: e.convID, CallID: callID, Tool: "Read", Path: "main.go"}
+	return e.toolCallInTurn(t, callID, "")
+}
+
+// toolCallInTurn sends a Read tool call of the run started with turnID.
+func (e *convStopEnv) toolCallInTurn(t *testing.T, callID, turnID string) messagequeue.ToolCallResponsePayload {
+	t.Helper()
+	req := messagequeue.ToolCallRequestPayload{RunID: e.convID, CallID: callID, Tool: "Read", Path: "main.go", TurnID: turnID}
 	if err := e.runtime.HandleToolCallRequest(context.Background(), &req); err != nil {
 		t.Fatalf("HandleToolCallRequest(%s): %v", callID, err)
 	}
@@ -200,7 +223,7 @@ func TestConversationStop_ConcurrentStopsStartsAndToolCalls(t *testing.T) {
 				case 0:
 					env.runtime.MarkConversationRunCancelled(env.convID)
 				case 1:
-					env.runtime.MarkConversationRunStarted(env.convID)
+					env.runtime.MarkConversationRunStarted(env.convID, fmt.Sprintf("turn-%d-%d", w, i))
 				default:
 					req := messagequeue.ToolCallRequestPayload{
 						RunID: env.convID, CallID: fmt.Sprintf("call-%d-%d", w, i), Tool: "Read", Path: "main.go",
@@ -222,8 +245,52 @@ func TestConversationStop_ConcurrentStopsStartsAndToolCalls(t *testing.T) {
 	if resp := env.toolCall(t, "call-after-last-stop"); resp.Decision != "deny" {
 		t.Fatalf("after the last stop: decision %q, want deny", resp.Decision)
 	}
-	env.runtime.MarkConversationRunStarted(env.convID)
+	env.runtime.MarkConversationRunStarted(env.convID, "turn-last")
 	if resp := env.toolCall(t, "call-after-last-start"); resp.Decision != "allow" {
 		t.Fatalf("after the last start: decision %q (%s), want allow", resp.Decision, resp.Reason)
+	}
+}
+
+// TestConversationStop_LateCallsOfTheStoppedRunStayDenied: conversation runs
+// reuse the conversation ID as run ID; the turn ID of each run start tells
+// the runs apart, so a call the stopped run makes after the next run started
+// is still denied, while the next run's calls are allowed (review finding 11).
+func TestConversationStop_LateCallsOfTheStoppedRunStayDenied(t *testing.T) {
+	for _, starter := range conversationRunStarters {
+		t.Run(starter.name, func(t *testing.T) {
+			env := newConvStopEnv(t, nil, nil)
+			ctx := context.Background()
+
+			if err := starter.start(ctx, env.conv, env.convID); err != nil {
+				t.Fatalf("start first run: %v", err)
+			}
+			first := env.lastTurn(t)
+			if first == "" {
+				t.Fatal("the run start carries no turn ID")
+			}
+			if resp := env.toolCallInTurn(t, "call-first", first); resp.Decision != "allow" {
+				t.Fatalf("call of the running run: %s (%s), want allow", resp.Decision, resp.Reason)
+			}
+
+			env.runtime.MarkConversationRunCancelled(env.convID)
+			if err := starter.start(ctx, env.conv, env.convID); err != nil {
+				t.Fatalf("start next run: %v", err)
+			}
+			next := env.lastTurn(t)
+			if next == "" || next == first {
+				t.Fatalf("next run turn = %q, want a new turn (first %q)", next, first)
+			}
+
+			if resp := env.toolCallInTurn(t, "call-late", first); resp.Decision != "deny" || resp.Reason != "conversation run ended" {
+				t.Errorf("late call of the stopped run: %s (%s), want deny (conversation run ended)", resp.Decision, resp.Reason)
+			}
+			if resp := env.toolCallInTurn(t, "call-next", next); resp.Decision != "allow" {
+				t.Errorf("call of the next run: %s (%s), want allow", resp.Decision, resp.Reason)
+			}
+			// A worker that does not report turns keeps the previous behaviour.
+			if resp := env.toolCall(t, "call-no-turn"); resp.Decision != "allow" {
+				t.Errorf("call without turn: %s (%s), want allow", resp.Decision, resp.Reason)
+			}
+		})
 	}
 }

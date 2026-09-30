@@ -180,6 +180,11 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if s.state.IsConversationCancelled(req.RunID) {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run cancelled")
 	}
+	// A call of an earlier run of the conversation (the worker reports the
+	// run's turn): that run was stopped or replaced by the current one.
+	if turn, ok := s.state.ConversationTurn(req.RunID); ok && req.TurnID != "" && req.TurnID != turn {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run ended")
+	}
 
 	conv, err := s.store.GetConversation(ctx, req.RunID)
 	if err != nil {

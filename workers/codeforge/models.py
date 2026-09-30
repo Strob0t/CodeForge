@@ -496,6 +496,8 @@ class ConversationRunStartMessage(BaseModel):
     reminders: list[str] = Field(default_factory=list)
     rollout_count: int = 1
     summarize_threshold: int = 0
+    # Identifies this run of the conversation; echoed on every tool call.
+    turn_id: str = ""
 
     @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
     @classmethod

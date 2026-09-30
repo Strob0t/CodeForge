@@ -74,5 +74,5 @@ type convScoreRecorder interface {
 
 // convRunTracker is the subset of RuntimeService used by ConversationService.
 type convRunTracker interface {
-	MarkConversationRunStarted(conversationID string)
+	MarkConversationRunStarted(conversationID, turnID string)
 }

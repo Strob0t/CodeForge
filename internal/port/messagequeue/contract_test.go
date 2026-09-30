@@ -194,6 +194,7 @@ func sampleConversationRunStartPayload() mq.ConversationRunStartPayload {
 		ProviderAPIKey:     "sk-user-key-abc123",
 		RolloutCount:       3,
 		SummarizeThreshold: 50,
+		TurnID:             "550e8400-e29b-41d4-a716-446655440005",
 	}
 }
 
@@ -668,7 +669,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 
 	// Common field expectations per subject.
 	expectedKeys := map[string][]string{
-		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic"},
+		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
 		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model"},
