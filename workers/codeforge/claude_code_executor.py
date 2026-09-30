@@ -1,8 +1,10 @@
 """ClaudeCodeExecutor — wraps Claude Code (Anthropic CLI agent) as a routing target.
 
 Claude Code is an autonomous agent with its own tool loop. This executor:
-- Tries the Python SDK first, falls back to CLI subprocess
-- Enforces CodeForge policy via ``can_use_tool`` callback (SDK) or post-hoc (CLI)
+- Runs the ``claude`` CLI as a subprocess with a scrubbed environment. The
+  claude-code-sdk path is not used: the SDK (0.0.25) starts the CLI with
+  ``{**os.environ, **options.env}``, which would hand the worker's credentials
+  to the agent.
 - Returns results in the standard ``AgentLoopResult`` format
 - Guards concurrency with an asyncio semaphore
 """
@@ -20,8 +22,6 @@ from codeforge.config import get_settings
 from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
-    ConversationToolCallFunction,
-    ConversationToolCallPayload,
 )
 from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
@@ -96,7 +96,7 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 
 class ClaudeCodeExecutor:
-    """Run a conversation turn via Claude Code (SDK or CLI fallback).
+    """Run a conversation turn via the Claude Code CLI.
 
     Parameters
     ----------
@@ -125,15 +125,10 @@ class ClaudeCodeExecutor:
     ) -> AgentLoopResult:
         """Run a conversation turn through Claude Code.
 
-        Acquires a concurrency permit, then tries the SDK path.  If the SDK
-        is not installed (``ImportError``), falls back to the CLI subprocess.
+        Acquires a concurrency permit, then runs the CLI subprocess.
         """
         async with _get_semaphore():
-            try:
-                return await self._run_via_sdk(messages, model, max_turns, system_prompt)
-            except ImportError:
-                logger.info("claude-code-sdk not installed, falling back to CLI")
-                return await self._run_via_cli(messages, model, max_turns, system_prompt)
+            return await self._run_via_cli(messages, model, max_turns, system_prompt)
 
     async def cancel(self) -> None:
         """Signal cancellation and terminate the subprocess if running."""
@@ -186,105 +181,7 @@ class ClaudeCodeExecutor:
         return resolve_cost(0.0, _DEFAULT_MODEL, tokens_in, tokens_out)
 
     # ------------------------------------------------------------------
-    # SDK path
-    # ------------------------------------------------------------------
-
-    async def _handle_sdk_assistant_block(
-        self,
-        block: object,
-        acc: _RunAccumulator,
-    ) -> None:
-        """Process a single content block from an SDK AssistantMessage."""
-        from claude_code_sdk.types import TextBlock, ToolResultBlock, ToolUseBlock
-
-        if isinstance(block, TextBlock):
-            acc.content_parts.append(block.text)
-            await self._runtime.send_output(block.text)
-        elif isinstance(block, ToolUseBlock):
-            acc.step_count += 1
-            arguments = json.dumps(block.input) if isinstance(block.input, dict) else str(block.input)
-            tool_call = ConversationToolCallPayload(
-                id=block.id,
-                function=ConversationToolCallFunction(name=block.name, arguments=arguments),
-            )
-            acc.tool_messages.append(
-                ConversationMessagePayload(role="assistant", tool_calls=[tool_call]),
-            )
-        elif isinstance(block, ToolResultBlock):
-            acc.tool_messages.append(
-                ConversationMessagePayload(
-                    role="tool",
-                    content=str(block.content) if block.content else "",
-                    tool_call_id=block.tool_use_id,
-                ),
-            )
-
-    @staticmethod
-    def _handle_sdk_result(message: object, acc: _RunAccumulator) -> None:
-        """Extract cost, tokens, and model from a ResultMessage."""
-        if hasattr(message, "cost_usd") and message.cost_usd:
-            acc.total_cost = float(message.cost_usd)
-        if hasattr(message, "usage"):
-            acc.total_tokens_in = getattr(message.usage, "input_tokens", 0) or 0
-            acc.total_tokens_out = getattr(message.usage, "output_tokens", 0) or 0
-        if hasattr(message, "num_turns"):
-            acc.step_count = message.num_turns or acc.step_count
-        if hasattr(message, "model") and message.model:
-            acc.model = message.model
-
-    async def _run_via_sdk(
-        self,
-        messages: list[dict[str, str]],
-        model: str,
-        max_turns: int,
-        system_prompt: str,
-    ) -> AgentLoopResult:
-        """Run via the ``claude-code-sdk`` Python package.
-
-        Imports are done inside the method so the rest of the module works
-        even when the SDK is not installed.
-        """
-        from claude_code_sdk import ClaudeCodeOptions, query
-        from claude_code_sdk.types import AssistantMessage, ResultMessage
-
-        prompt = self._format_messages_as_prompt(messages)
-        if not prompt:
-            return AgentLoopResult(error="empty prompt")
-
-        options = ClaudeCodeOptions(
-            system_prompt=system_prompt or None,
-            max_turns=max_turns,
-            permission_mode="bypassPermissions",
-            cwd=self._workspace,
-        )
-
-        acc = _RunAccumulator(model=model or _DEFAULT_MODEL)
-
-        async for message in query(prompt=prompt, options=options):
-            if self._cancelled or self._runtime.is_cancelled:
-                break
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    await self._handle_sdk_assistant_block(block, acc)
-            elif isinstance(message, ResultMessage):
-                self._handle_sdk_result(message, acc)
-
-        if acc.total_cost == 0.0:
-            acc.total_cost = self._estimate_equivalent_cost(acc.total_tokens_in, acc.total_tokens_out)
-
-        return AgentLoopResult(
-            final_content="\n".join(acc.content_parts),
-            tool_messages=acc.tool_messages,
-            total_cost=acc.total_cost,
-            total_tokens_in=acc.total_tokens_in,
-            total_tokens_out=acc.total_tokens_out,
-            step_count=acc.step_count,
-            model=acc.model,
-            metadata={"executor": "claude-code-sdk"},
-        )
-
-    # ------------------------------------------------------------------
-    # CLI fallback path
+    # CLI path
     # ------------------------------------------------------------------
 
     async def _parse_cli_event(self, event: dict[str, object], acc: _RunAccumulator) -> None:
@@ -398,7 +295,8 @@ class ClaudeCodeExecutor:
         )
 
     # ------------------------------------------------------------------
-    # Policy callback (for SDK path)
+    # Policy callback (claude-code-sdk ``can_use_tool``; the SDK path is not
+    # used, see the module docstring)
     # ------------------------------------------------------------------
 
     def _make_policy_callback(self):

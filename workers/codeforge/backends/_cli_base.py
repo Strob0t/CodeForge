@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import TypedDict
+from typing import ClassVar, TypedDict
 
 from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
 from codeforge.config import resolve_backend_path
@@ -26,6 +26,33 @@ from codeforge.subprocess_utils import check_cli_available, graceful_terminate
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
+
+# LLM provider credentials and endpoints the agent CLIs read directly. They
+# are the backend's own credentials: the agent inside can read them, but not
+# the worker's (tool_env never passes CODEFORGE_*, LITELLM_*, DATABASE_URL or
+# NATS_URL). Anything else a backend needs goes into its extra_env config.
+PROVIDER_ENV: tuple[str, ...] = (
+    "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
+    "OPENAI_BASE_URL",
+    "OPENAI_ORGANIZATION",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "XAI_API_KEY",
+    "COHERE_API_KEY",
+    "TOGETHERAI_API_KEY",
+    "AZURE_API_KEY",
+    "AZURE_API_BASE",
+    "AZURE_API_VERSION",
+    "OLLAMA_API_BASE",
+    "OLLAMA_HOST",
+)
 
 
 class ExecutorConfig(TypedDict, total=False):
@@ -45,6 +72,11 @@ class CLIBackendExecutor(ABC):
     - ``info`` property returning ``BackendInfo``
     - ``_build_command(prompt, config)`` returning the CLI argument list
     """
+
+    # The backend's own configuration variables (e.g. AIDER_*), passed to its
+    # subprocess together with PROVIDER_ENV.
+    env_prefixes: ClassVar[tuple[str, ...]] = ()
+    env_names: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, cli_path: str | None, env_var: str, default_cmd: str) -> None:
         self._cli_path = resolve_backend_path(cli_path, env_var, default_cmd)
@@ -92,7 +124,11 @@ class CLIBackendExecutor(ABC):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=cwd or None,
-                env=tool_env(extra=extra_env),
+                env=tool_env(
+                    passthrough=PROVIDER_ENV + self.env_names,
+                    passthrough_prefixes=self.env_prefixes,
+                    extra=extra_env,
+                ),
             )
         except OSError as exc:
             return TaskResult(status="failed", error=f"Failed to start {name}: {exc}")

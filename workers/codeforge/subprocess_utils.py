@@ -8,6 +8,7 @@ import logging
 import shutil
 
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
+from codeforge.subprocess_env import tool_env
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,8 @@ async def run_subprocess(
     timeout: int = 120,
     merge_stderr: bool = False,
 ) -> tuple[int, str, str]:
-    """Run a subprocess and return ``(returncode, stdout, stderr)``.
+    """Run a subprocess with a scrubbed environment (``tool_env``) and return
+    ``(returncode, stdout, stderr)``.
 
     When *merge_stderr* is True, stderr is redirected to stdout and the
     returned ``stderr`` string is empty.
@@ -72,6 +74,7 @@ async def run_subprocess(
         stdout=asyncio.subprocess.PIPE,
         stderr=stderr_target,
         cwd=cwd or None,
+        env=tool_env(),
     )
 
     stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)

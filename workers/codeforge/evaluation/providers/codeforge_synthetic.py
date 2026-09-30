@@ -18,6 +18,7 @@ from codeforge.evaluation.providers.base import (
     TaskSpec,
     register_provider,
 )
+from codeforge.subprocess_env import tool_env
 
 if TYPE_CHECKING:
     from codeforge.evaluation.generators.swegen import LLMClient
@@ -99,6 +100,7 @@ def _load_commits(workspace: str, max_commits: int = 150) -> list[CommitInfo]:
             capture_output=True,
             text=True,
             timeout=30,
+            env=tool_env(),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
@@ -131,6 +133,7 @@ def _load_commits(workspace: str, max_commits: int = 150) -> list[CommitInfo]:
                 capture_output=True,
                 text=True,
                 timeout=15,
+                env=tool_env(),
             )
         except (subprocess.TimeoutExpired, FileNotFoundError):
             continue
