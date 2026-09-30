@@ -28,7 +28,7 @@
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
-| **S6** | Trust, compliance, unwired features | KI-15, KI-16, KI-17, KI-25, KI-33, KI-37, KI-38, KI-52, KI-53, KI-54, KI-55, KI-56, KI-57, KI-58, KI-60, KI-62 | L |
+| **S6** | Trust, compliance, unwired features | KI-15, KI-16, KI-17, KI-25, KI-33, KI-37, KI-38, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, KI-55, KI-56, KI-57, KI-58, KI-60, KI-62 | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -128,9 +128,9 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-33** | Clean up teams when their plan finishes |
 | **KI-37** | Verifier metrics use the worker's LiteLLM HTTP client instead of the `litellm` package |
 | **KI-38** | Allowlist uses `handoff_to`; wire or remove `agent.builtin_tools` / `tool_output_max_chars` |
-| **KI-52** | Instantiate `RetentionService`; valid anonymization SQL (`WHERE id IN (SELECT ... LIMIT n)`) |
-| **KI-53** | Scan `admin_email` as nullable |
-| **KI-54** | Disable deepeval telemetry via env in the worker |
+| **KI-52** | **Done (2026-09-30).** Instantiate `RetentionService`; valid anonymization SQL (`WHERE id IN (SELECT ... LIMIT n)`) |
+| **KI-53** | **Done (2026-09-30).** Scan `admin_email` as nullable |
+| **KI-54** | **Done (2026-09-30).** Disable deepeval telemetry via env in the worker |
 | **KI-55** | Wire `GitHubOAuthService` into the handlers (config present) or keep 501 and document it |
 | **KI-56** | Provider names and per-provider config for webhook sync |
 | **KI-57** | Email HITL with configured recipients, public callback URL and POST-safe links (or disabled until configured) |

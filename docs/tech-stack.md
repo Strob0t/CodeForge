@@ -124,7 +124,7 @@
 - numpy ^2.0 — numerical computing for embedding vectors and cosine similarity
 - psycopg ^3.2 — PostgreSQL driver for graph storage (sync+async)
 - psycopg-binary ^3.3.3 — compiled C extension for psycopg (faster I/O)
-- deepeval ^3.0 — LLM-as-judge evaluation framework (GEval, faithfulness, relevancy metrics; telemetry not opted out, KI-54)
+- deepeval ^3.0 — LLM-as-judge evaluation framework (GEval, faithfulness, relevancy metrics; telemetry and Confident AI uploads forced off by the worker)
 - scikit-learn ^1.6 — TF-IDF vectorization and cosine similarity for collaboration metrics
 - opentelemetry-api + opentelemetry-sdk + opentelemetry-exporter-otlp-proto-grpc — always installed; tracing is enabled at runtime via `otel.enabled` / `CODEFORGE_OTEL_ENABLED` (agent execution tracing, tool selection and goal decomposition metrics; metrics are not exported yet, KI-36)
 - Optional extras: `claude-code-sdk` (extra `claudecode`, Claude Code executor), `datasets` (extra `hf`, HuggingFace benchmark datasets)

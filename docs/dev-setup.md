@@ -661,6 +661,12 @@ Example:
 | `notification.smtp_port` | `CODEFORGE_SMTP_PORT` | `587` | SMTP server port; startup rejects ports outside 1-65535 when `smtp_host` is set |
 | `notification.smtp_from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
 | `notification.smtp_password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
+| `retention.interval` | `CODEFORGE_RETENTION_INTERVAL` | `24h` | How often the GDPR retention job runs (also once at startup); `0` disables it ([data-retention.md](data-retention.md)) |
+| `retention.sessions` | `CODEFORGE_RETENTION_SESSIONS` | `720h` | Delete agent sessions idle longer than this (`0` keeps them) |
+| `retention.conversations` | `CODEFORGE_RETENTION_CONVERSATIONS` | `8760h` | Delete conversations (with messages) idle longer than this |
+| `retention.cost_records` | `CODEFORGE_RETENTION_COST_RECORDS` | `8760h` | Delete runs (LLM cost records) idle longer than this |
+| `retention.audit_entries` | `CODEFORGE_RETENTION_AUDIT_ENTRIES` | `61320h` | Delete audit log entries older than this (7 years) |
+| `retention.audit_ip_addresses` | `CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES` | `4320h` | Remove IP addresses from audit entries older than this (180 days); periods under 24h are rejected |
 | `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
 | `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated API keys |
 | `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
@@ -994,12 +1000,17 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_CONVERSATION_TIMEOUT | 3600                                  | Max wall-clock seconds per conversation run |
 | CODEFORGE_WORKER_MEMORY_THRESHOLD_MB | 3500                            | Worker RSS abort threshold (MB)  |
 | DOCKER_SECRETS_DIR          | /run/secrets                              | Docker Secrets directory override |
-| DEEPEVAL_TELEMETRY_OPT_OUT  | (unset)                                  | Set to `YES` to disable deepeval telemetry |
+| DEEPEVAL_TELEMETRY_OPT_OUT  | YES (forced by the worker)               | deepeval telemetry off; see the note below |
 
-**Note on deepeval telemetry:** The `deepeval` Python dependency (used by the benchmark
-evaluation system) sends anonymous usage telemetry by default. In deployment and CI
-environments, set `DEEPEVAL_TELEMETRY_OPT_OUT=YES` to disable this. Add it to your
-`.env` file or Docker Compose environment block.
+**Note on deepeval telemetry:** the `deepeval` dependency (benchmark evaluation) would by
+default look up the public IP, start Sentry/PostHog telemetry, and upload metric results and
+traces to Confident AI when it finds a key. The worker forces these settings before any deepeval
+import (`workers/codeforge/evaluation/_deepeval_env.py`; `Dockerfile.worker` sets them as `ENV`
+too), so an operator setting cannot switch the traffic back on: `DEEPEVAL_TELEMETRY_OPT_OUT=YES`,
+`DEEPEVAL_UPDATE_WARNING_OPT_IN=0`, `CONFIDENT_METRIC_LOGGING_ENABLED=NO`,
+`CONFIDENT_TRACING_ENABLED=NO`, `DEEPEVAL_DISABLE_DOTENV=1`, `DEEPEVAL_DISABLE_LEGACY_KEYFILE=1`.
+Do not set `ERROR_REPORTING` to a true value in the worker environment (deepeval then connects
+to an external host on import).
 
 ### Secret Management
 

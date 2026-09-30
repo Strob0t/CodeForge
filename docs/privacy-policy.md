@@ -6,7 +6,11 @@ CodeForge processes the following data categories:
 - **User accounts:** Email, name, role, password hash
 - **Code and prompts:** Source code, natural language instructions
 - **Agent activity:** Tool calls, conversation history, cost records
-- **Infrastructure:** IP addresses (in audit logs), session tokens
+- **Infrastructure:** IP addresses (in audit logs, removed after 180 days), session tokens
+
+Retention periods and the automated cleanup job are described in [data-retention.md](data-retention.md).
+The evaluation library deepeval is configured so that it sends no telemetry and uploads nothing to
+Confident AI.
 
 ## LLM Provider Data Processing
 
