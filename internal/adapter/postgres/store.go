@@ -138,6 +138,19 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Sta
 	return execExpectOne(tag, err, "update task status %s", id)
 }
 
+const taskExistsSQL = `SELECT EXISTS (SELECT 1 FROM tasks WHERE id = $1 AND tenant_id = $2)`
+
+// QueueTask queues a task for a dispatch unless it is already queued or
+// running: domain.ErrConflict then, domain.ErrNotFound for an unknown task
+// or one of another tenant. The status predicate decides between concurrent
+// dispatches.
+func (s *Store) QueueTask(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE tasks SET status = 'queued' WHERE id = $1 AND tenant_id = $2 AND status NOT IN ('queued', 'running')`,
+		id, tenantFromCtx(ctx))
+	return s.guardedUpdateResult(ctx, tag, err, taskExistsSQL, "queue task", id)
+}
+
 // UpdateTaskResult stores a task's result and cost and sets its status in one
 // statement.
 func (s *Store) UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, costUSD float64) error {

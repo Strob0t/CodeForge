@@ -907,3 +907,5 @@ func (s *testStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPu
 func (s *testStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
 	return nil, nil
 }
+
+func (s *testStore) QueueTask(_ context.Context, _ string) error { return nil }

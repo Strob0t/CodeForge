@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -90,15 +91,21 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 		return err
 	}
 
+	// A task runs once at a time: a second dispatch while it is queued or
+	// running would run it twice on the same workspace. The store's status
+	// guard decides between concurrent dispatches.
+	if t.Status == task.StatusQueued || t.Status == task.StatusRunning {
+		return fmt.Errorf("dispatch task %s: it is %s: %w", taskID, t.Status, domain.ErrConflict)
+	}
+	if err := s.store.QueueTask(ctx, taskID); err != nil {
+		return fmt.Errorf("queue task: %w", err)
+	}
+	t.AgentID = agentID
+
 	// Mark agent as running
 	if err := s.store.UpdateAgentStatus(ctx, agentID, agent.StatusRunning); err != nil {
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
 		return fmt.Errorf("update agent status: %w", err)
-	}
-
-	// Update task with agent assignment and status
-	t.AgentID = agentID
-	if err := s.store.UpdateTaskStatus(ctx, taskID, task.StatusQueued); err != nil {
-		return fmt.Errorf("update task status: %w", err)
 	}
 
 	// Dispatch to backend (async via NATS). The worker echoes the tenant in

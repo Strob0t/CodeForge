@@ -3717,3 +3717,5 @@ func TestGetTrajectory_LoadOK_StatsError_Returns200(t *testing.T) {
 		t.Fatal("response missing 'stats' key")
 	}
 }
+
+func (m *mockStore) QueueTask(_ context.Context, _ string) error { return nil }

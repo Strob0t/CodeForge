@@ -14,6 +14,9 @@ type TaskStore interface {
 	GetTask(ctx context.Context, id string) (*task.Task, error)
 	CreateTask(ctx context.Context, req task.CreateRequest) (*task.Task, error)
 	UpdateTaskStatus(ctx context.Context, id string, status task.Status) error
+	// QueueTask moves a task that is neither queued nor running to queued;
+	// domain.ErrConflict when it is (a dispatch is under way).
+	QueueTask(ctx context.Context, id string) error
 	// UpdateTaskResult stores a task's result and cost together with the status
 	// the result leaves it in.
 	UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, costUSD float64) error
