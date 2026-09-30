@@ -16,4 +16,8 @@ type ChannelStore interface {
 	ListChannelMessages(ctx context.Context, channelID string, cursor string, limit int) ([]channel.Message, error)
 	AddChannelMember(ctx context.Context, m *channel.Member) error
 	UpdateChannelMemberNotify(ctx context.Context, channelID, userID string, notify channel.NotifySetting) error
+	// AnonymizeChannelMessagesForUser replaces the sender name of the user's
+	// messages with channel.ErasedSenderName (GDPR erasure, before the user
+	// row is deleted) and returns how many messages it changed.
+	AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error)
 }

@@ -134,6 +134,20 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, cursor strin
 	})
 }
 
+// AnonymizeChannelMessagesForUser replaces the sender name of the user's
+// messages in the current tenant with channel.ErasedSenderName. Called before
+// the user is deleted (GDPR Art. 17); the foreign key then sets sender_id to
+// NULL, and the messages stay in their channels.
+func (s *Store) AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE channel_messages SET sender_name = $3 WHERE sender_id = $1 AND tenant_id = $2`,
+		userID, tenantFromCtx(ctx), channel.ErasedSenderName)
+	if err != nil {
+		return 0, fmt.Errorf("anonymize channel messages for user: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (s *Store) AddChannelMember(ctx context.Context, m *channel.Member) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO channel_members (channel_id, user_id, role, notify, tenant_id)

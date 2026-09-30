@@ -2622,6 +2622,15 @@ func (m *runtimeMockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time
 	return 0, nil
 }
 
+// GDPR erasure stubs
+func (m *runtimeMockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *runtimeMockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 // Consent stubs (GDPR)
 func (m *runtimeMockStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
 	return false, nil

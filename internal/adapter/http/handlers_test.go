@@ -3546,6 +3546,15 @@ func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, 
 	return 0, nil
 }
 
+// GDPR erasure stubs
+func (m *mockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 // Consent stubs (GDPR)
 func (m *mockStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
 	return false, nil

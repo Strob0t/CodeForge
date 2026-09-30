@@ -44,6 +44,21 @@ func (s *Store) RecordConsent(ctx context.Context, record *database.ConsentRecor
 	return nil
 }
 
+// AnonymizeConsentsForUser clears the IP address and user agent of the user's
+// consent records in the current tenant. Called before the user is deleted
+// (GDPR Art. 17); the foreign key then sets user_id to NULL (migration 093), so
+// the records remain as anonymized proof of consent (Art. 7(1)).
+func (s *Store) AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE user_consents SET ip_address = NULL, user_agent = NULL
+		 WHERE user_id = $1 AND tenant_id = $2`,
+		userID, tenantFromCtx(ctx))
+	if err != nil {
+		return 0, fmt.Errorf("anonymize consents for user: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ListUserConsents returns all consent records for a user in the current tenant.
 func (s *Store) ListUserConsents(ctx context.Context, userID string) ([]database.ConsentRecord, error) {
 	tid := tenantFromCtx(ctx)

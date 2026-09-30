@@ -51,6 +51,10 @@ type Channel struct {
 	CreatedAt   time.Time   `json:"created_at"`
 }
 
+// ErasedSenderName replaces the sender name of the messages of a user whose
+// data was erased (GDPR Art. 17); the messages stay in the channel.
+const ErasedSenderName = "Deleted user"
+
 // Message represents a message in a channel.
 type Message struct {
 	ID         string     `json:"id"`

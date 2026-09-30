@@ -876,6 +876,15 @@ func (s *testStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, 
 	return 0, nil
 }
 
+// GDPR erasure stubs
+func (s *testStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (s *testStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 // Consent stubs (GDPR)
 func (s *testStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
