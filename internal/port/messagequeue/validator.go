@@ -27,10 +27,14 @@ func Validate(subject string, data []byte) error {
 		return fmt.Errorf("invalid JSON on subject %s", subject)
 	}
 
-	// Reject empty JSON objects — a valid payload must carry at least one field.
+	// Reject empty payloads — a valid payload must carry at least one field.
+	// JSON null would otherwise unmarshal into any struct without error.
 	trimmed := strings.TrimSpace(string(data))
 	if trimmed == "{}" {
 		return fmt.Errorf("empty JSON object on subject %s", subject)
+	}
+	if trimmed == "null" {
+		return fmt.Errorf("null payload on subject %s", subject)
 	}
 
 	// Map subject to payload struct for structural validation.
@@ -41,6 +45,40 @@ func Validate(subject string, data []byte) error {
 		target = &TaskResultPayload{}
 	case subject == SubjectTaskCancel:
 		target = &TaskCancelPayload{}
+
+	// --- Run protocol subjects (Phase 4B/4C, heartbeat Phase 3C) ---
+	case subject == SubjectRunStart:
+		target = &RunStartPayload{}
+	case subject == SubjectRunToolCallRequest:
+		target = &ToolCallRequestPayload{}
+	case subject == SubjectRunToolCallResponse:
+		target = &ToolCallResponsePayload{}
+	case subject == SubjectRunToolCallResult:
+		target = &ToolCallResultPayload{}
+	case subject == SubjectRunComplete:
+		target = &RunCompletePayload{}
+	case subject == SubjectRunOutput:
+		target = &RunOutputPayload{}
+	case subject == SubjectRunHeartbeat:
+		target = &RunHeartbeatPayload{}
+	case subject == SubjectQualityGateRequest:
+		target = &QualityGateRequestPayload{}
+	case subject == SubjectQualityGateResult:
+		target = &QualityGateResultPayload{}
+
+	// --- Context subjects (Phase 5D, re-ranking Phase 3) ---
+	case subject == SubjectSharedUpdated:
+		target = &SharedContextUpdatedPayload{}
+	case subject == SubjectContextRerankRequest:
+		target = &ContextRerankRequestPayload{}
+	case subject == SubjectContextRerankResult:
+		target = &ContextRerankResultPayload{}
+
+	// --- RepoMap subjects (Phase 6A) ---
+	case subject == SubjectRepoMapRequest:
+		target = &RepoMapRequestPayload{}
+	case subject == SubjectRepoMapResult:
+		target = &RepoMapResultPayload{}
 
 	// --- Retrieval subjects (Phase 6B) ---
 	case subject == SubjectRetrievalIndexRequest:
