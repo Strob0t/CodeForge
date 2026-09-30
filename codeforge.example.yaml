@@ -161,13 +161,14 @@ auth:
 # A background job applies these periods to all tenants: once at startup, then every
 # `interval`. Sessions, conversations and runs count from their last activity, audit
 # entries from their creation. 0 keeps a category forever; a period below 24h is rejected.
-# Years include their leap days (1 year = 366 days, 7 years = 2557 days).
+# A period of whole 365-day years (8760h, 61320h) counts calendar years: data is kept
+# until the same date that many years later, leap days included.
 # retention:
 #   interval: 24h                 # How often the job runs (default: 24h; 0 disables it)
 #   sessions: 720h                # Agent sessions idle for 30 days (default: 720h)
-#   conversations: 8784h          # Conversations + messages idle for 1 year (default: 8784h)
-#   cost_records: 8784h           # Runs with their cost records idle for 1 year (default: 8784h)
-#   audit_entries: 61368h         # Audit log entries older than 7 years (default: 61368h)
+#   conversations: 8760h          # Conversations + messages idle for 1 year (default: 8760h)
+#   cost_records: 8760h           # Runs with their cost records idle for 1 year (default: 8760h)
+#   audit_entries: 61320h         # Audit log entries older than 7 years (default: 61320h)
 #   audit_ip_addresses: 4320h     # IP addresses in audit entries older than 180 days (default: 4320h)
 #   consent_ip_addresses: 4320h   # IP addresses + user agents in consent records older than 180 days (default: 4320h)
 # Agent events and benchmark results are not purged automatically.

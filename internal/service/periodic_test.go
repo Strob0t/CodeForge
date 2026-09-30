@@ -11,17 +11,23 @@ import (
 // the retention job.
 
 func TestStartPeriodic_RunAtStart(t *testing.T) {
-	for _, runAtStart := range []bool{true, false} {
-		var runs atomic.Int32
-		stop := startPeriodic(context.Background(), time.Hour, runAtStart, func(context.Context) { runs.Add(1) })
-		stop()
-		want := int32(0)
-		if runAtStart {
-			want = 1
-		}
-		if got := runs.Load(); got != want {
-			t.Errorf("runAtStart %v: %d runs before the first tick, want %d", runAtStart, got, want)
-		}
+	ran := make(chan struct{}, 1)
+	stop := startPeriodic(context.Background(), time.Hour, true, func(context.Context) { ran <- struct{}{} })
+	defer stop()
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runAtStart: no run before the first tick")
+	}
+}
+
+func TestStartPeriodic_NoRunAtStart(t *testing.T) {
+	var runs atomic.Int32
+	stop := startPeriodic(context.Background(), time.Hour, false, func(context.Context) { runs.Add(1) })
+	time.Sleep(20 * time.Millisecond)
+	stop()
+	if got := runs.Load(); got != 0 {
+		t.Fatalf("%d runs before the first tick, want 0", got)
 	}
 }
 
@@ -63,5 +69,17 @@ func TestStartPeriodic_EndsWithContext(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if runs.Load() != after {
 		t.Fatal("ran after its context ended")
+	}
+}
+
+// A context that has ended runs nothing, not even the call at start.
+func TestStartPeriodic_EndedContextRunsNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var runs atomic.Int32
+	stop := startPeriodic(ctx, time.Millisecond, true, func(context.Context) { runs.Add(1) })
+	stop()
+	if got := runs.Load(); got != 0 {
+		t.Fatalf("%d runs with an ended context, want 0", got)
 	}
 }

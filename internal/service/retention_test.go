@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -169,20 +170,22 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 		t.Fatalf("sweep order = %v, want %v", order, retentionCategories)
 	}
 
-	want := map[string]time.Duration{
-		"sessions":             policy.Sessions,
-		"conversations":        policy.Conversations,
-		"runs":                 policy.CostRecords,
-		"audit_entries":        policy.AuditEntries,
-		"audit_ip_addresses":   policy.AuditIPAddresses,
-		"consent_ip_addresses": policy.ConsentIPAddresses,
+	// Whole 365-day years count as calendar years (conversations: 1 year,
+	// audit entries: 7 years, over two leap days); other periods are durations.
+	want := map[string]time.Time{
+		"sessions":             now.Add(-policy.Sessions),
+		"conversations":        time.Date(2025, 9, 30, 12, 0, 0, 0, time.UTC),
+		"runs":                 now.Add(-policy.CostRecords),
+		"audit_entries":        time.Date(2019, 9, 30, 12, 0, 0, 0, time.UTC),
+		"audit_ip_addresses":   now.Add(-policy.AuditIPAddresses),
+		"consent_ip_addresses": now.Add(-policy.ConsentIPAddresses),
 	}
 	for _, category := range retentionCategories {
 		calls := store.callsOf(category)
 		if len(calls) != 1 {
 			t.Fatalf("%s: %d calls, want 1", category, len(calls))
 		}
-		if wantBefore := now.Add(-want[category]); !calls[0].before.Equal(wantBefore) {
+		if wantBefore := want[category]; !calls[0].before.Equal(wantBefore) {
 			t.Errorf("%s: cutoff %v, want %v", category, calls[0].before, wantBefore)
 		}
 		wantBatch, wantMessages := retentionBatchSize, 0
@@ -194,6 +197,26 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 		if calls[0].batchSize != wantBatch || calls[0].messageBatch != wantMessages {
 			t.Errorf("%s: batch size %d (messages %d), want %d (%d)",
 				category, calls[0].batchSize, calls[0].messageBatch, wantBatch, wantMessages)
+		}
+	}
+}
+
+// A period of whole 365-day years (8760h, 61320h) keeps data for that many
+// calendar years on every day, leap days included, and not a day longer; any
+// other period is a plain duration.
+func TestRetentionCutoff(t *testing.T) {
+	const day = 24 * time.Hour
+	for d := time.Date(2024, 1, 1, 6, 0, 0, 0, time.UTC); d.Year() < 2032; d = d.AddDate(0, 0, 1) {
+		for years := 1; years <= 7; years += 6 {
+			if got, want := retentionCutoff(d, time.Duration(years)*365*day), d.AddDate(-years, 0, 0); !got.Equal(want) {
+				t.Fatalf("%d year(s) on %s: cutoff %s, want %s", years, d.Format(time.DateOnly), got, want)
+			}
+		}
+	}
+	now := time.Date(2024, 3, 1, 6, 0, 0, 0, time.UTC)
+	for _, period := range []time.Duration{30 * day, 180 * day, 366 * day, 400 * day, 36 * time.Hour} {
+		if got := retentionCutoff(now, period); !got.Equal(now.Add(-period)) {
+			t.Errorf("period %v: cutoff %s, want %s", period, got, now.Add(-period))
 		}
 	}
 }
@@ -291,6 +314,26 @@ func TestRetention_CancelledContextStopsSweep(t *testing.T) {
 			t.Fatalf("calls = %v, want only the first sessions batch", store.calls)
 		}
 	})
+}
+
+// Shutdown during a sweep is a normal stop, not an error.
+func TestRetention_CancelIsNotAnError(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, store := range []*fakeRetentionStore{
+		{lockErr: fmt.Errorf("acquire retention lock connection: %w", context.Canceled)},
+		{errs: map[string]error{"sessions": fmt.Errorf("delete expired sessions: %w", context.Canceled)}},
+	} {
+		newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(ctx)
+	}
+	if strings.Contains(buf.String(), `"level":"ERROR"`) {
+		t.Fatalf("cancelled sweep logged an error:\n%s", buf.String())
+	}
 }
 
 func TestRetention_LogsCountsOnly(t *testing.T) {

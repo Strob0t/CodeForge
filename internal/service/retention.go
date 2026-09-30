@@ -58,10 +58,13 @@ func (s *RetentionService) categories(purge database.RetentionPurger) []retentio
 }
 
 // RunCleanup sweeps once if this replica gets the retention lock; while
-// another replica (or blue-green color) sweeps, it skips.
+// another replica (or blue-green color) sweeps, it skips. A cancelled context
+// (shutdown) ends it without an error.
 func (s *RetentionService) RunCleanup(ctx context.Context) {
 	acquired, err := s.store.WithRetentionLock(ctx, s.sweep)
 	switch {
+	case err != nil && ctx.Err() != nil:
+		slog.Info("retention: sweep stopped", "error", err)
 	case err != nil:
 		slog.Error("retention: sweep skipped, lock failed", "error", err)
 	case !acquired:
@@ -81,7 +84,7 @@ func (s *RetentionService) sweep(ctx context.Context, purge database.RetentionPu
 		if ctx.Err() != nil {
 			return
 		}
-		before := now.Add(-c.maxAge)
+		before := retentionCutoff(now, c.maxAge)
 		n, err := applyInBatches(ctx, before, c.batch, c.apply)
 		if n > 0 {
 			slog.Info("retention: purged expired data",
@@ -91,6 +94,21 @@ func (s *RetentionService) sweep(ctx context.Context, purge database.RetentionPu
 			slog.Error("retention: purge failed", "category", c.name, "error", err)
 		}
 	}
+}
+
+// retentionYear is the 365-day year in which the configuration states
+// periods of years (8760h = 1 year, 61320h = 7 years).
+const retentionYear = 365 * 24 * time.Hour
+
+// retentionCutoff is the time before which data of the given maximum age has
+// expired. A period of whole 365-day years counts calendar years - the same
+// date that many years back - so the data is kept exactly that long, leap
+// days included; any other period is subtracted as a duration.
+func retentionCutoff(now time.Time, maxAge time.Duration) time.Time {
+	if maxAge%retentionYear == 0 {
+		return now.AddDate(-int(maxAge/retentionYear), 0, 0)
+	}
+	return now.Add(-maxAge)
 }
 
 // applyInBatches calls apply until a batch comes back short and returns the
