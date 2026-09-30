@@ -78,8 +78,10 @@ func reconnectOpts() []nats.Option {
 	}
 }
 
-// Connect establishes a connection to NATS and ensures the JetStream stream exists.
-func Connect(ctx context.Context, url string) (*Queue, error) {
+// Connect establishes a connection to NATS and ensures the JetStream stream
+// exists. streamMaxBytes caps the stream's storage (nats.stream_max_bytes); the
+// server refuses the stream when it cannot reserve that much.
+func Connect(ctx context.Context, url string, streamMaxBytes int64) (*Queue, error) {
 	nc, err := nats.Connect(url, reconnectOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("nats connect: %w", err)
@@ -91,22 +93,7 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 		return nil, fmt.Errorf("jetstream init: %w", err)
 	}
 
-	// Ensure the stream exists with subjects matching our topic patterns.
-	// Duplicates enables JetStream message deduplication via Nats-Msg-Id header.
-	_, err = js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:         streamName,
-		Subjects:     []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>", "prompt.>"},
-		Duplicates:   2 * time.Minute,
-		Retention:    jetstream.LimitsPolicy,
-		Storage:      jetstream.FileStorage,
-		MaxAge:       30 * 24 * time.Hour,     // 30 days
-		MaxBytes:     10 * 1024 * 1024 * 1024, // 10 GB safety cap
-		MaxMsgs:      5_000_000,
-		MaxMsgSize:   4 * 1024 * 1024, // 4 MB per message
-		MaxConsumers: 200,
-		Discard:      jetstream.DiscardOld,
-		Compression:  jetstream.S2Compression,
-	})
+	_, err = js.CreateOrUpdateStream(ctx, streamConfig(streamMaxBytes))
 	if err != nil {
 		nc.Close()
 		return nil, fmt.Errorf("jetstream stream create: %w", err)
@@ -117,6 +104,26 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 
 	slog.Info("nats connected", "url", secrets.RedactURL(url), "stream", streamName)
 	return q, nil
+}
+
+// streamConfig describes the CODEFORGE stream. Subjects must cover every
+// subject prefix in port/messagequeue. Duplicates enables JetStream message
+// deduplication via the Nats-Msg-Id header.
+func streamConfig(maxBytes int64) jetstream.StreamConfig {
+	return jetstream.StreamConfig{
+		Name:         streamName,
+		Subjects:     []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "review.>", "prompt.>"},
+		Duplicates:   2 * time.Minute,
+		Retention:    jetstream.LimitsPolicy,
+		Storage:      jetstream.FileStorage,
+		MaxAge:       30 * 24 * time.Hour, // 30 days
+		MaxBytes:     maxBytes,
+		MaxMsgs:      5_000_000,
+		MaxMsgSize:   4 * 1024 * 1024, // 4 MB per message
+		MaxConsumers: 200,
+		Discard:      jetstream.DiscardOld,
+		Compression:  jetstream.S2Compression,
+	}
 }
 
 // startDLQMonitor creates a consumer that subscribes to all dead-letter subjects

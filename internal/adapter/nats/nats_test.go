@@ -17,6 +17,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/logger"
 )
 
+// testStreamMaxBytes matches the production default, so tests never change
+// the limit of a shared CODEFORGE stream.
+const testStreamMaxBytes = 10 << 30
+
 // testConnect connects to NATS or skips the test if NATS_URL is not set.
 func testConnect(t *testing.T) *Queue {
 	t.Helper()
@@ -26,7 +30,7 @@ func testConnect(t *testing.T) *Queue {
 		t.Skip("requires NATS_URL")
 	}
 
-	q, err := Connect(context.Background(), url)
+	q, err := Connect(context.Background(), url, testStreamMaxBytes)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

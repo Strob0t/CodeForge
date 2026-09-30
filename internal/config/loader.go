@@ -185,6 +185,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Postgres.MaxConnIdleTime, "CODEFORGE_PG_MAX_CONN_IDLE_TIME", time.ParseDuration)
 	setTyped(&cfg.Postgres.HealthCheck, "CODEFORGE_PG_HEALTH_CHECK", time.ParseDuration)
 	setString(&cfg.NATS.URL, "NATS_URL")
+	setTyped(&cfg.NATS.StreamMaxBytes, "CODEFORGE_NATS_STREAM_MAX_BYTES", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
 	setString(&cfg.LiteLLM.URL, "LITELLM_BASE_URL")
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
 	setString(&cfg.LiteLLM.ConversationModel, "CODEFORGE_CONVERSATION_MODEL")
@@ -436,6 +437,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.NATS.URL == "" {
 		return errors.New("nats.url is required")
+	}
+	if cfg.NATS.StreamMaxBytes < 1 {
+		return errors.New("nats.stream_max_bytes must be >= 1")
 	}
 	if cfg.Postgres.MaxConns < 1 {
 		return errors.New("postgres.max_conns must be >= 1")

@@ -159,7 +159,7 @@ func run() error {
 	slog.Info("migrations applied")
 
 	// NATS
-	queue, err := cfnats.Connect(ctx, cfg.NATS.URL)
+	queue, err := cfnats.Connect(ctx, cfg.NATS.URL, cfg.NATS.StreamMaxBytes)
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}

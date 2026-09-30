@@ -375,7 +375,8 @@ type Postgres struct {
 
 // NATS holds NATS JetStream configuration.
 type NATS struct {
-	URL string `yaml:"url"`
+	URL            string `yaml:"url"`
+	StreamMaxBytes int64  `yaml:"stream_max_bytes"` // Storage cap of the CODEFORGE JetStream stream (default: 10 GiB)
 }
 
 // LiteLLM holds LiteLLM proxy configuration.
@@ -478,7 +479,8 @@ func Defaults() Config {
 			HealthCheck:     30 * time.Second,
 		},
 		NATS: NATS{
-			URL: "nats://localhost:4222",
+			URL:            "nats://localhost:4222",
+			StreamMaxBytes: 10 << 30,
 		},
 		LiteLLM: LiteLLM{
 			URL:                "http://localhost:4000",
