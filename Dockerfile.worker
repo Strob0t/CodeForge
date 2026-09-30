@@ -35,7 +35,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -r codeforge && useradd -r -g codeforge codeforge
+# Fixed UID/GID shared with the core image: both write the shared workspaces
+# volume mounted at /data/workspaces (created here so a fresh volume gets this
+# ownership).
+RUN groupadd -r -g 10001 codeforge && useradd -r -u 10001 -g codeforge codeforge && \
+    mkdir -p /data/workspaces && chown -R codeforge:codeforge /data
 
 WORKDIR /app
 

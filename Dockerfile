@@ -29,7 +29,12 @@ LABEL org.opencontainers.image.version="${APP_VERSION}" \
 
 RUN apk add --no-cache git ca-certificates tzdata
 
-RUN addgroup -S codeforge && adduser -S codeforge -G codeforge
+# Fixed UID/GID shared with the worker image: both write the shared workspaces
+# volume. /data is created here so fresh named volumes mounted at /data and
+# /data/workspaces are initialized with this ownership (the rootfs is read-only
+# in production).
+RUN addgroup -S -g 10001 codeforge && adduser -S -u 10001 -G codeforge codeforge && \
+    mkdir -p /data/workspaces && chown -R codeforge:codeforge /data
 
 COPY --from=build /codeforge /usr/local/bin/codeforge
 
