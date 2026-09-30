@@ -1,28 +1,35 @@
 #!/usr/bin/env bash
-# Validates the production secrets before a deployment.
+# Validates the production secrets before a deployment of docker-compose.prod.yml.
 #
-# Every secret is checked under the name the services read. Its value comes
-# from, in this order:
-#   1. the environment variable (e.g. CODEFORGE_AUTH_JWT_SECRET)
-#   2. <VAR>_FILE, the path of a file holding it (read by the Go core)
-#   3. the Docker secret file in SECRETS_DIR (default ./secrets) that
-#      docker-compose.prod.yml mounts (e.g. codeforge-auth-jwt-secret)
+# Checks the secret files the compose file mounts (SECRETS_DIR from the
+# environment or .env, default ./secrets next to the compose file) and the
+# compose variables that must agree with them (POSTGRES_USER, POSTGRES_DB).
+# The services never read secret environment variables, so none are checked.
 # Values are never printed.
 #
 # Usage: ./scripts/validate-env.sh
 set -euo pipefail
 
-SECRETS_DIR="${SECRETS_DIR:-./secrets}"
+# shellcheck source=scripts/lib/compose-env.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/compose-env.sh"
+
+SECRETS_DIR="$(compose_path "$(compose_var SECRETS_DIR ./secrets)")"
+PG_USER="$(compose_var POSTGRES_USER codeforge)"
+PG_DB="$(compose_var POSTGRES_DB codeforge)"
 INSECURE_PATTERN='codeforge_dev|sk-codeforge-dev|codeforge-internal-dev|codeforge-dev-jwt-secret|e2e-test-secret'
 
-# variable|secret file|minimum length
-SECRETS=(
-    "POSTGRES_PASSWORD|postgres-password|16"
-    "DATABASE_URL|database-url|1"
-    "NATS_URL|nats-url|1"
-    "LITELLM_MASTER_KEY|litellm-master-key|16"
-    "CODEFORGE_AUTH_JWT_SECRET|codeforge-auth-jwt-secret|32"
-    "CODEFORGE_INTERNAL_KEY|codeforge-internal-key|16"
+# secret file|minimum length
+SECRET_FILES=(
+    "postgres-password|16"
+    "database-url|1"
+    "nats-url|1"
+    "nats-auth.conf|1"
+    "litellm-master-key|16"
+    "codeforge-auth-jwt-secret|32"
+    "codeforge-auth-llm-key-encryption-secret|32"
+    "codeforge-internal-key|16"
+    "postgres-tls.crt|1"
+    "postgres-tls.key|1"
 )
 
 errors=0
@@ -30,60 +37,83 @@ fail() {
     echo "ERROR: $*" >&2
     errors=$((errors + 1))
 }
-
-# resolve <var> <file>: print the value and set SOURCE, or return 1.
-resolve() {
-    local var="$1" file="$2" file_var="${1}_FILE"
-    local env_value="${!var:-}" file_path="${!file_var:-}"
-    if [ -n "$env_value" ] && [ -n "$file_path" ]; then
-        fail "both $var and $file_var are set, set only one"
-        return 1
-    fi
-    if [ -n "$env_value" ]; then
-        SOURCE="$var"
-        VALUE="$env_value"
-        return 0
-    fi
-    if [ -z "$file_path" ] && [ -f "$SECRETS_DIR/$file" ]; then
-        file_path="$SECRETS_DIR/$file"
-        # Compose mounts the host file as is; non-root containers need o+r.
-        local mode
-        if mode="$(stat -c '%a' "$file_path" 2> /dev/null)" && (((8#$mode & 4) == 0)); then
-            fail "$file_path is not readable by the container users (mode $mode), run chmod 644"
-        fi
-    fi
-    if [ -z "$file_path" ]; then
-        fail "$var is not set (no $var, $file_var or $SECRETS_DIR/$file)"
-        return 1
-    fi
-    if [ ! -r "$file_path" ]; then
-        fail "$var: cannot read $file_path"
-        return 1
-    fi
-    SOURCE="$file_path"
-    VALUE="$(< "$file_path")"
-    VALUE="${VALUE%$'\n'}"
-    VALUE="${VALUE%$'\r'}"
+warn() {
+    echo "WARNING: $*" >&2
 }
 
-for entry in "${SECRETS[@]}"; do
-    IFS='|' read -r var file min_len <<< "$entry"
-    SOURCE=""
-    VALUE=""
-    resolve "$var" "$file" || continue
-    if [ -z "$VALUE" ]; then
-        fail "$var is empty ($SOURCE)"
-    elif [ "${#VALUE}" -lt "$min_len" ]; then
-        fail "$var is shorter than $min_len characters ($SOURCE)"
-    elif echo "$VALUE" | grep -qE "$INSECURE_PATTERN"; then
-        fail "$var contains a default/insecure value ($SOURCE)"
-    elif [ "$var" = "DATABASE_URL" ] && [[ "$VALUE" == *sslmode=disable* ]]; then
-        fail "$var uses sslmode=disable, which the core rejects outside development ($SOURCE)"
+# read_secret <name>: print the trimmed content of a secret file.
+read_secret() {
+    local value
+    value="$(< "$SECRETS_DIR/$1")"
+    printf '%s' "${value%$'\r'}"
+}
+
+for entry in "${SECRET_FILES[@]}"; do
+    IFS='|' read -r name min_len <<< "$entry"
+    file="$SECRETS_DIR/$name"
+    if [ ! -f "$file" ]; then
+        fail "$file is missing (run ./scripts/generate-secrets.sh)"
+        continue
+    fi
+    if [ ! -r "$file" ]; then
+        fail "cannot read $file"
+        continue
+    fi
+    # Compose mounts the host file as is; the non-root containers need o+r.
+    if mode="$(stat -c '%a' "$file" 2> /dev/null)" && (((8#$mode & 4) == 0)); then
+        fail "$file is not readable by the container users (mode $mode), run chmod 644"
+    fi
+    value="$(read_secret "$name")"
+    if [ -z "$value" ]; then
+        fail "$file is empty"
+    elif [ "${#value}" -lt "$min_len" ]; then
+        fail "$file is shorter than $min_len characters"
+    elif echo "$value" | grep -qE "$INSECURE_PATTERN"; then
+        fail "$file contains a default/insecure value"
     fi
 done
 
+# database-url must match the user and database the postgres service creates.
+if [ -f "$SECRETS_DIR/database-url" ]; then
+    url="$(read_secret database-url)"
+    if [[ "$url" =~ ^postgres(ql)?://([^:@/]+):([^@/]*)@([^/]+)/([^?]+)(\?(.*))?$ ]]; then
+        url_user="${BASH_REMATCH[2]}"
+        url_pass="${BASH_REMATCH[3]}"
+        url_db="${BASH_REMATCH[5]}"
+        url_query="${BASH_REMATCH[7]}"
+        if [ "$url_user" != "$PG_USER" ]; then
+            fail "database-url connects as '$url_user' but POSTGRES_USER is '$PG_USER'"
+        fi
+        if [ "$url_db" != "$PG_DB" ]; then
+            fail "database-url uses database '$url_db' but POSTGRES_DB is '$PG_DB'"
+        fi
+        if [[ "&$url_query&" == *"&sslmode=disable&"* ]]; then
+            fail "database-url uses sslmode=disable, which the core rejects outside development"
+        fi
+        if [ -f "$SECRETS_DIR/postgres-password" ] && [ "$url_pass" != "$(read_secret postgres-password)" ]; then
+            warn "database-url and postgres-password hold different passwords" \
+                "(fine only if you changed the password in the database after the first start)"
+        fi
+    else
+        fail "database-url is not a postgresql://user:password@host/database URL"
+    fi
+fi
+
+# nats-url must carry the credentials the NATS server accepts.
+if [ -f "$SECRETS_DIR/nats-url" ] && [ -f "$SECRETS_DIR/nats-auth.conf" ]; then
+    url="$(read_secret nats-url)"
+    if [[ "$url" =~ ^nats://([^:@/]+):([^@/]*)@ ]]; then
+        conf="$(< "$SECRETS_DIR/nats-auth.conf")"
+        if [[ "$conf" != *"user: \"${BASH_REMATCH[1]}\""* ]] || [[ "$conf" != *"password: \"${BASH_REMATCH[2]}\""* ]]; then
+            fail "nats-url and nats-auth.conf hold different credentials"
+        fi
+    else
+        fail "nats-url is not a nats://user:password@host URL"
+    fi
+fi
+
 if [ "$errors" -gt 0 ]; then
-    echo "$errors problem(s) found." >&2
+    echo "$errors problem(s) found in $SECRETS_DIR." >&2
     exit 1
 fi
-echo "All required secrets validated."
+echo "All secrets in $SECRETS_DIR validated."
