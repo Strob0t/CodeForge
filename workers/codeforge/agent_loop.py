@@ -39,6 +39,7 @@ from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
 )
+from codeforge.policy_args import canonical_tool
 from codeforge.pricing import resolve_cost
 from codeforge.quality_tracking import (
     IterationQualityTracker,
@@ -227,21 +228,22 @@ class AgentLoopExecutor:
         mode_tools: frozenset[str] | None = None,
         selected_tools: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        """Filter tools based on model capability level and ToolRouter selection."""
+        """Filter tools based on model capability level and ToolRouter selection.
+
+        The mode's tools are always offered on top. Go sends them as canonical
+        policy names (Read, Edit, Bash, ...), so they are compared canonically.
+        """
         if selected_tools is not None:
             allowed: frozenset[str] = frozenset(selected_tools)
-            if mode_tools:
-                allowed = allowed | mode_tools
         else:
             allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
             if not allowed:
                 return tools_array
-            if mode_tools:
-                allowed = allowed | mode_tools
+        mode_canonical = frozenset(canonical_tool(t) for t in mode_tools or ())
 
         def _is_allowed(tool: dict[str, object]) -> bool:
             name = tool.get("function", {}).get("name", "")
-            if name in allowed:
+            if name in allowed or canonical_tool(name) in mode_canonical:
                 return True
             if selected_tools is None and name.startswith("mcp__"):
                 tool_action = name.rsplit("__", 1)[-1]

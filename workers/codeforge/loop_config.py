@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.agent_loop import DEFAULT_MAX_ITERATIONS, LoopConfig
+from codeforge.policy_args import is_builtin_tool
 from codeforge.tools.capability import CapabilityLevel, classify_model
 from codeforge.tools.tool_router import ToolRouter
 
@@ -59,7 +60,9 @@ def build_loop_config(
         task_type=routing.task_type,
         provider_api_key=provider_api_key,
         plan_act_enabled=plan_act_enabled,
-        extra_plan_tools=mode_tools,
+        # The plan phase stays read-only: the mode's built-in tools (Write,
+        # Edit, Bash, ...) are not plan tools, only its other tools are.
+        extra_plan_tools=frozenset(t for t in mode_tools if not is_builtin_tool(t)),
         routing_metadata=routing.routing_metadata,
         capability_level=str(capability_level),
         mode_tools=mode_tools,

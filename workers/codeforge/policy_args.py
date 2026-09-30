@@ -62,6 +62,11 @@ def canonical_tool(name: str) -> str:
     return _TOOL_ALIASES.get(name.lower(), name)
 
 
+def is_builtin_tool(name: str) -> bool:
+    """Whether a tool (any of its names) is one of the file and shell tools a mode's tools list selects from."""
+    return canonical_tool(name) in _BUILTIN_TOOLS
+
+
 def mode_allows_tool(name: str, tools: Iterable[str], denied: Iterable[str]) -> bool:
     """Whether an agent mode's tool lists let it use a tool, as the Go policy decides.
 
