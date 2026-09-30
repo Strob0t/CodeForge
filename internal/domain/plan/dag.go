@@ -97,6 +97,35 @@ func BlockedSteps(steps []Step) []string {
 	return blocked
 }
 
+// DependentSteps returns the IDs of the steps that depend on stepID, directly
+// or through other steps, each once and in plan order.
+func DependentSteps(steps []Step, stepID string) []string {
+	dependent := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for i := range steps {
+			st := &steps[i]
+			if dependent[st.ID] {
+				continue
+			}
+			for _, dep := range st.DependsOn {
+				if dep == stepID || dependent[dep] {
+					dependent[st.ID] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	var ids []string
+	for i := range steps {
+		if dependent[steps[i].ID] {
+			ids = append(ids, steps[i].ID)
+		}
+	}
+	return ids
+}
+
 // AnyFailed returns true if at least one step has failed.
 func AnyFailed(steps []Step) bool {
 	for i := range steps {

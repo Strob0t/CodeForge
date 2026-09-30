@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -14,7 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 )
 
-func (s *OrchestratorService) advanceConsensus(ctx context.Context, p *plan.ExecutionPlan) {
+func (s *OrchestratorService) advanceConsensus(ctx context.Context, p *plan.ExecutionPlan) (startFailed bool) {
 	if plan.AllTerminal(p.Steps) {
 		successCount := 0
 		for i := range p.Steps {
@@ -33,21 +34,23 @@ func (s *OrchestratorService) advanceConsensus(ctx context.Context, p *plan.Exec
 		} else {
 			s.failPlan(ctx, p)
 		}
-		return
+		return false
 	}
 
 	// Launch all pending steps (no dependency constraints in consensus)
 	for i := range p.Steps {
-		if p.Steps[i].Status == plan.StepStatusPending {
-			s.startStep(ctx, p, p.Steps[i].ID)
+		if p.Steps[i].Status == plan.StepStatusPending && !s.startStep(ctx, p, p.Steps[i].ID) {
+			startFailed = true
 		}
 	}
+	return startFailed
 }
 
-// startStep creates a Run for the step and marks it as running.
-// If the review router is enabled, it evaluates the step first and may
-// broadcast a review decision event.
-func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPlan, stepID string) {
+// startStep creates a Run for the step and marks it as running, and reports
+// whether the step started (with a run or a debate). A step whose run cannot
+// be started is marked failed. If the review router is enabled, it evaluates
+// the step first and may start a debate for it instead. The caller holds s.mu.
+func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPlan, stepID string) bool {
 	var step *plan.Step
 	for i := range p.Steps {
 		if p.Steps[i].ID == stepID {
@@ -57,21 +60,22 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	}
 	if step == nil {
 		slog.Error("step not found in plan", "step_id", stepID, "plan_id", p.ID)
-		return
+		return false
 	}
 
 	// Review router evaluation: assess whether this step needs moderated review.
-	// Skip evaluation for steps that already completed a debate.
+	// Skip evaluation for steps that already completed a debate and for the
+	// steps of a debate itself (a debate is never debated again).
 	s.debateMu.Lock()
 	alreadyDebated := s.debatedStepIDs[step.ID]
+	_, isDebateStep := s.debateSteps[p.ID]
 	s.debateMu.Unlock()
 
-	if s.reviewRouter != nil && s.orchCfg.ReviewRouterEnabled && !alreadyDebated {
-		routed := s.evaluateStepReview(ctx, p, step)
-		if routed {
-			s.startDebate(ctx, p, step)
-			return
+	if s.reviewRouter != nil && s.orchCfg.ReviewRouterEnabled && !alreadyDebated && !isDebateStep {
+		if s.evaluateStepReview(ctx, p, step) && s.startDebate(ctx, p, step) {
+			return true
 		}
+		// Not routed, or the debate could not be started: run the step.
 	}
 
 	req := &run.StartRequest{
@@ -94,7 +98,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 			StepID: step.ID,
 			Status: string(plan.StepStatusFailed),
 		})
-		return
+		return false
 	}
 
 	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusRunning, r.ID, ""), "UpdatePlanStepStatus", slog.String("step_id", stepID))
@@ -105,6 +109,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		Name:   step.TaskID,
 	})
 	slog.Info("plan step started", "plan_id", p.ID, "step_id", stepID, "run_id", r.ID)
+	return true
 }
 
 // evaluateStepReview runs the review router against a step and broadcasts the decision.
@@ -153,8 +158,10 @@ func (s *OrchestratorService) evaluateStepReview(ctx context.Context, p *plan.Ex
 }
 
 // startDebate creates a ping_pong sub-plan (proponent + moderator) for a step
-// that the review router flagged for moderated review.
-func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.ExecutionPlan, step *plan.Step) {
+// that the review router flagged for moderated review, and reports whether
+// the debate started. The caller holds s.mu: the sub-plan is started without
+// taking it again.
+func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.ExecutionPlan, step *plan.Step) bool {
 	debateRounds := s.orchCfg.DebateRounds
 	if debateRounds <= 0 {
 		debateRounds = 1
@@ -179,8 +186,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	debatePlan, err := s.CreatePlan(ctx, debateReq)
 	if err != nil {
 		slog.Error("create debate sub-plan", "step_id", step.ID, "error", err)
-		// Fall through to normal execution
-		return
+		return false // the step runs without a debate
 	}
 
 	// Track the debate -> parent step mapping.
@@ -211,18 +217,13 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	s.planMaxRounds[debatePlan.ID] = debateRounds
 	s.debateMu.Unlock()
 
-	_, err = s.StartPlan(ctx, debatePlan.ID)
-
-	if err != nil {
+	if _, err := s.startPlanLocked(ctx, debatePlan.ID); err != nil {
 		slog.Error("start debate sub-plan", "debate_plan_id", debatePlan.ID, "error", err)
-		// Revert step to pending so it can be retried without debate.
-		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
-		s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
-
 		s.debateMu.Lock()
 		delete(s.debateSteps, debatePlan.ID)
 		delete(s.planMaxRounds, debatePlan.ID)
 		s.debateMu.Unlock()
+		return false // the step runs without a debate
 	}
 
 	slog.Info("debate started",
@@ -231,11 +232,14 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 		"step_id", step.ID,
 		"rounds", debateRounds,
 	)
+	return true
 }
 
 // handleDebateComplete is called when a debate sub-plan finishes.
 // It extracts the moderator's synthesis, injects it into shared context,
-// and dispatches the original step's run.
+// and dispatches the original step's run. It runs as a plan completion
+// callback, which completePlan and failPlan call while the plan is advanced
+// under s.mu: the parent plan is advanced without taking the lock again.
 func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePlanID, status string) {
 	s.debateMu.Lock()
 	ds, ok := s.debateSteps[debatePlanID]
@@ -317,10 +321,11 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	s.broadcastStepStatus(ctx, parentPlan, parentStep, plan.StepStatusPending)
 
 	// Re-advance the parent plan to dispatch the original step.
-	s.advancePlan(ctx, parentPlan)
+	s.advancePlanLocked(ctx, parentPlan)
 }
 
-// completePlan marks the plan as completed.
+// completePlan marks the plan as completed. The caller holds s.mu (the plan
+// completion callbacks run under it).
 func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.ExecutionPlan) {
 	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusCompleted); err != nil {
 		logPlanEndFailure(ctx, err, p.ID, plan.StatusCompleted)
@@ -335,7 +340,8 @@ func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.Executio
 	slog.Info("plan completed", "plan_id", p.ID)
 }
 
-// failPlan marks the plan as failed and skips remaining pending steps.
+// failPlan marks the plan as failed and skips remaining pending steps. The
+// caller holds s.mu (the plan completion callbacks run under it).
 func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPlan) {
 	// The plan first: a plan that already ended keeps its steps.
 	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusFailed); err != nil {
@@ -421,28 +427,37 @@ func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event
 }
 
 // ReplanStep gives the plan step of an ended (e.g. stalled) run another
-// attempt (P1-8; not called by stall detection yet, KI-62): it starts a new
-// run for the step. The ended run is never reopened - a terminal run stays
-// terminal (KI-31). Only the step's latest run is re-planned, and only while
-// its plan runs. The new run gets the step's task prompt; stall context is not
-// added to it yet. If the new run cannot be started, startStep marks the step
-// failed.
+// attempt (P1-8; not called by stall detection yet, KI-62). The ended run is
+// never reopened - a terminal run stays terminal (KI-31): the step becomes
+// pending again, the steps skipped because it did not complete become
+// pending too, and the plan's protocol starts the step with a new run.
+//
+// Only a run that ended unsuccessfully (failed, timed out, cancelled) whose
+// step still holds it and ended unsuccessfully is re-planned, and only while
+// its plan runs. This is decided under the scheduling lock, so concurrent
+// re-plans of the same run start one new run, and a step whose completion was
+// not processed yet (still running) is refused. The new run gets the step's
+// task prompt; stall context is not added to it yet. If the new run cannot be
+// started, the step ends failed and the plan is decided again.
 func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) error {
 	r, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("get run for replan: %w", err)
 	}
-	if !r.Status.IsTerminal() {
-		return fmt.Errorf("replan run %s: the run is %s, only an ended run is re-planned: %w", runID, r.Status, domain.ErrConflict)
-	}
-	step, err := s.store.GetPlanStepByRunID(ctx, runID)
-	if err != nil {
-		return fmt.Errorf("replan run %s: no plan step runs it: %w", runID, err)
+	if !r.Status.IsTerminal() || r.Status == run.StatusCompleted {
+		return fmt.Errorf("replan run %s: the run is %s, only a run that ended unsuccessfully is re-planned: %w", runID, r.Status, domain.ErrConflict)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	step, err := s.store.GetPlanStepByRunID(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("replan run %s: no plan step runs it: %w", runID, err)
+	}
+	if step.RunID != runID || !step.Status.Unsuccessful() {
+		return fmt.Errorf("replan run %s: its step %s is %s: %w", runID, step.ID, step.Status, domain.ErrConflict)
+	}
 	p, err := s.store.GetPlan(ctx, step.PlanID)
 	if err != nil {
 		return fmt.Errorf("get plan for replan: %w", err)
@@ -450,19 +465,39 @@ func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) erro
 	if p.Status != plan.StatusRunning {
 		return fmt.Errorf("replan run %s: plan %s is %s: %w", runID, p.ID, p.Status, domain.ErrConflict)
 	}
-	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
-	s.startStep(ctx, p, step.ID)
 
-	slog.Info("re-planned plan step with a new run",
+	if err := s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""); err != nil {
+		return fmt.Errorf("replan run %s: reset step %s: %w", runID, step.ID, err)
+	}
+	s.unblockDependents(ctx, p, step.ID)
+
+	slog.Info("re-planning plan step with a new run",
 		"ended_run_id", runID,
 		"step_id", step.ID,
 		"task_id", r.TaskID,
 	)
-
 	s.hub.BroadcastEvent(ctx, "run_replan", map[string]string{
 		"run_id":  r.ID,
 		"task_id": r.TaskID,
 	})
 
+	s.advancePlanLocked(ctx, p)
 	return nil
+}
+
+// unblockDependents makes the steps that were skipped because stepID did not
+// complete pending again. A dependent that another unsuccessful step still
+// blocks is skipped again when the plan advances.
+func (s *OrchestratorService) unblockDependents(ctx context.Context, p *plan.ExecutionPlan, stepID string) {
+	dependents := plan.DependentSteps(p.Steps, stepID)
+	for i := range p.Steps {
+		st := &p.Steps[i]
+		if st.Status != plan.StepStatusSkipped || st.Error != blockedStepError || !slices.Contains(dependents, st.ID) {
+			continue
+		}
+		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, st.ID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", st.ID))
+		st.Status = plan.StepStatusPending
+		st.Error = ""
+		s.broadcastStepStatus(ctx, p, st, plan.StepStatusPending)
+	}
 }

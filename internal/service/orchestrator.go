@@ -34,7 +34,12 @@ type OrchestratorService struct {
 	sharedCtx               *SharedContextService
 	reviewRouter            *ReviewRouterService
 	onPlanCompleteCallbacks []func(ctx context.Context, planID string, status string)
-	mu                      sync.Mutex // serializes plan advancement
+	// mu serializes plan scheduling: plan and step decisions are made and
+	// steps are started under it. Functions named ...Locked expect it held;
+	// the debate path (startStep -> startDebate -> a sub-plan's start, and a
+	// debate's end -> handleDebateComplete -> the parent's advance) stays
+	// under the lock it runs in and never takes it again.
+	mu sync.Mutex
 
 	// Phase 21D: debate tracking — maps debate planID -> parent step info.
 	debateMu       sync.Mutex
@@ -135,6 +140,13 @@ func (s *OrchestratorService) CreatePlan(ctx context.Context, req *plan.CreatePl
 
 // StartPlan transitions the plan to running and triggers the first scheduling round.
 func (s *OrchestratorService) StartPlan(ctx context.Context, planID string) (*plan.ExecutionPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.startPlanLocked(ctx, planID)
+}
+
+// startPlanLocked is StartPlan; the caller holds s.mu.
+func (s *OrchestratorService) startPlanLocked(ctx context.Context, planID string) (*plan.ExecutionPlan, error) {
 	p, err := s.store.GetPlan(ctx, planID)
 	if err != nil {
 		return nil, err
@@ -153,7 +165,7 @@ func (s *OrchestratorService) StartPlan(ctx context.Context, planID string) (*pl
 
 	slog.Info("plan started", "plan_id", p.ID, "protocol", p.Protocol)
 
-	s.advancePlan(ctx, p)
+	s.advancePlanLocked(ctx, p)
 	return p, nil
 }
 
@@ -293,10 +305,28 @@ func (s *OrchestratorService) RejectStep(ctx context.Context, planID, stepID str
 
 // HandleRunCompleted is the callback invoked by RuntimeService when a run finishes.
 // It finds the corresponding plan step and advances the plan.
+//
+// A run that no plan step runs is ignored before the scheduling lock is
+// taken: a step's run that fails to start ends inside startStep, under the
+// lock, before the step is linked to it. Under the lock the step is read
+// again and moved only while it is still running this run: a re-planned
+// step runs another run, and a step that already ended keeps its status.
 func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID string, status run.Status) {
+	if _, err := s.store.GetPlanStepByRunID(ctx, runID); err != nil {
+		// Run is not part of a plan — normal, ignore silently
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	step, err := s.store.GetPlanStepByRunID(ctx, runID)
 	if err != nil {
-		// Run is not part of a plan — normal, ignore silently
+		return
+	}
+	if step.RunID != runID || step.Status != plan.StepStatusRunning {
+		slog.Info("completion of a run its plan step no longer waits for, skipped",
+			"run_id", runID, "step_id", step.ID, "step_status", step.Status)
 		return
 	}
 
@@ -338,7 +368,7 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 	}
 
 	s.broadcastStepStatus(ctx, p, step, stepStatus)
-	s.advancePlan(ctx, p)
+	s.advancePlanLocked(ctx, p)
 }
 
 // advancePlan is the core scheduling loop. It checks the current state of all steps
@@ -346,34 +376,52 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 func (s *OrchestratorService) advancePlan(ctx context.Context, p *plan.ExecutionPlan) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.advancePlanLocked(ctx, p)
+}
 
-	// Decide from the plan as stored now, read under the lock: CancelPlan
-	// writes its status under the same lock, so no step starts after a cancel.
-	stored, err := s.store.GetPlan(ctx, p.ID)
-	if err != nil {
-		slog.Error("reload plan", "plan_id", p.ID, "error", err)
-		return
+// advancePlanLocked is advancePlan; the caller holds s.mu. When a step could
+// not be started (it ended failed), the plan is decided again at once:
+// nothing else would advance it when no other step runs. Every round turns a
+// pending step into a failed one, so the rounds are bounded by the steps.
+func (s *OrchestratorService) advancePlanLocked(ctx context.Context, p *plan.ExecutionPlan) {
+	for range len(p.Steps) + 1 {
+		// Decide from the plan as stored now, read under the lock: CancelPlan
+		// writes its status under the same lock, so no step starts after a cancel.
+		stored, err := s.store.GetPlan(ctx, p.ID)
+		if err != nil {
+			slog.Error("reload plan", "plan_id", p.ID, "error", err)
+			return
+		}
+		p.Status = stored.Status
+		p.Steps = stored.Steps
+
+		// Check if plan is already terminal
+		if p.Status != plan.StatusRunning {
+			return
+		}
+
+		s.skipBlockedSteps(ctx, p)
+
+		if !s.advanceProtocol(ctx, p) {
+			return
+		}
 	}
-	p.Status = stored.Status
-	p.Steps = stored.Steps
+}
 
-	// Check if plan is already terminal
-	if p.Status != plan.StatusRunning {
-		return
-	}
-
-	s.skipBlockedSteps(ctx, p)
-
+// advanceProtocol makes one scheduling decision by the plan's protocol and
+// reports whether a step could not be started.
+func (s *OrchestratorService) advanceProtocol(ctx context.Context, p *plan.ExecutionPlan) (startFailed bool) {
 	switch p.Protocol {
 	case plan.ProtocolSequential:
-		s.advanceSequential(ctx, p)
+		return s.advanceSequential(ctx, p)
 	case plan.ProtocolParallel:
-		s.advanceParallel(ctx, p)
+		return s.advanceParallel(ctx, p)
 	case plan.ProtocolPingPong:
-		s.advancePingPong(ctx, p)
+		return s.advancePingPong(ctx, p)
 	case plan.ProtocolConsensus:
-		s.advanceConsensus(ctx, p)
+		return s.advanceConsensus(ctx, p)
 	}
+	return false
 }
 
 // blockedStepError is the error of a step skipped because a dependency did
@@ -399,47 +447,48 @@ func (s *OrchestratorService) skipBlockedSteps(ctx context.Context, p *plan.Exec
 
 // advanceSequential: one step at a time. A failed or cancelled step stops the
 // plan.
-func (s *OrchestratorService) advanceSequential(ctx context.Context, p *plan.ExecutionPlan) {
+func (s *OrchestratorService) advanceSequential(ctx context.Context, p *plan.ExecutionPlan) (startFailed bool) {
 	if plan.AnyUnsuccessful(p.Steps) {
 		s.failPlan(ctx, p)
-		return
+		return false
 	}
 	if plan.AllTerminal(p.Steps) {
 		s.completePlan(ctx, p)
-		return
+		return false
 	}
 	if plan.RunningCount(p.Steps) > 0 {
-		return // wait for current step
+		return false // wait for current step
 	}
 
 	// If any step is waiting for approval, do not advance
 	for i := range p.Steps {
 		if p.Steps[i].Status == plan.StepStatusWaitingApproval {
-			return // blocked, waiting for user decision
+			return false // blocked, waiting for user decision
 		}
 	}
 
 	ready := plan.ReadySteps(p.Steps)
 	if len(ready) > 0 {
-		s.startStep(ctx, p, ready[0])
+		return !s.startStep(ctx, p, ready[0])
 	}
+	return false
 }
 
 // advanceParallel: start all ready steps up to MaxParallel.
-func (s *OrchestratorService) advanceParallel(ctx context.Context, p *plan.ExecutionPlan) {
+func (s *OrchestratorService) advanceParallel(ctx context.Context, p *plan.ExecutionPlan) (startFailed bool) {
 	if plan.AllTerminal(p.Steps) {
 		if plan.AnyUnsuccessful(p.Steps) {
 			s.failPlan(ctx, p)
 		} else {
 			s.completePlan(ctx, p)
 		}
-		return
+		return false
 	}
 
 	// If any step is waiting for approval, do not start new steps
 	for i := range p.Steps {
 		if p.Steps[i].Status == plan.StepStatusWaitingApproval {
-			return
+			return false
 		}
 	}
 
@@ -454,17 +503,21 @@ func (s *OrchestratorService) advanceParallel(ctx context.Context, p *plan.Execu
 		if running >= maxP {
 			break
 		}
-		s.startStep(ctx, p, stepID)
-		running++
+		if s.startStep(ctx, p, stepID) {
+			running++
+		} else {
+			startFailed = true
+		}
 	}
+	return startFailed
 }
 
 // advancePingPong: alternate between 2 steps for PingPongMaxRounds each.
-func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.ExecutionPlan) {
+func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.ExecutionPlan) (startFailed bool) {
 	if len(p.Steps) != 2 {
 		slog.Error("ping_pong requires exactly 2 steps", "plan_id", p.ID)
 		s.failPlan(ctx, p)
-		return
+		return false
 	}
 
 	// Check for per-plan override (set by debate sub-plans), falling back to global config.
@@ -483,18 +536,18 @@ func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.Execu
 
 	if s0.Status.Unsuccessful() || s1.Status.Unsuccessful() {
 		s.failPlan(ctx, p)
-		return
+		return false
 	}
 
 	// Check if both have completed their rounds
 	if s0.Round >= maxRounds && s1.Round >= maxRounds &&
 		s0.Status.IsTerminal() && s1.Status.IsTerminal() {
 		s.completePlan(ctx, p)
-		return
+		return false
 	}
 
 	if plan.RunningCount(p.Steps) > 0 {
-		return // wait for current step
+		return false // wait for current step
 	}
 
 	// Determine which step goes next: alternate, starting with step 0
@@ -519,21 +572,21 @@ func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.Execu
 	if next.Round >= maxRounds {
 		// Both at max rounds
 		s.completePlan(ctx, p)
-		return
+		return false
 	}
 
 	// Reset step to pending for next round
 	newRound := next.Round + 1
 	if err := s.store.UpdatePlanStepRound(ctx, next.ID, newRound); err != nil {
 		slog.Error("update step round", "step_id", next.ID, "error", err)
-		return
+		return false
 	}
 	if err := s.store.UpdatePlanStepStatus(ctx, next.ID, plan.StepStatusPending, "", ""); err != nil {
 		slog.Error("reset step to pending", "step_id", next.ID, "error", err)
-		return
+		return false
 	}
 
-	s.startStep(ctx, p, next.ID)
+	return !s.startStep(ctx, p, next.ID)
 }
 
 // advanceConsensus: launch all steps in parallel, evaluate quorum when all done.
