@@ -157,8 +157,8 @@ func (s *ConversationService) beginRun(ctx context.Context, conversationID strin
 		slog.String("conversation_id", conversationID))
 	return turnID, func(dispatched bool) {
 		if !dispatched {
-			logBestEffort(ctx, s.db.EndConversationTurn(ctx, conversationID, turnID), "EndConversationTurn",
-				slog.String("conversation_id", conversationID))
+			_, endErr := s.db.EndConversationTurn(ctx, conversationID, turnID)
+			logBestEffort(ctx, endErr, "EndConversationTurn", slog.String("conversation_id", conversationID))
 		}
 		if s.runTracker == nil {
 			return

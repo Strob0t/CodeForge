@@ -115,19 +115,29 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
 	}
 
-	// Waiters wait for the conversation's active run: the late completion of
-	// a stopped run does not wake them. A completion without turn (a worker
-	// that sends none) counts as the active run's.
-	activeRun := s.runTracker == nil || payload.TurnID == "" ||
-		s.runTracker.IsActiveConversationRun(payload.ConversationID, payload.TurnID)
-
 	// The run ended: the conversation takes its next run. Recorded before the
 	// waiters are woken, which may start that run right away.
+	activeRun := s.runTracker != nil && payload.TurnID != "" &&
+		s.runTracker.IsActiveConversationRun(payload.ConversationID, payload.TurnID)
 	if s.runTracker != nil {
 		s.runTracker.EndConversationRun(payload.ConversationID, payload.TurnID)
 	}
-	logBestEffort(ctx, s.db.EndConversationTurn(ctx, payload.ConversationID, payload.TurnID), "EndConversationTurn",
-		slog.String("conversation_id", payload.ConversationID))
+	storedActive, err := s.db.EndConversationTurn(ctx, payload.ConversationID, payload.TurnID)
+	logBestEffort(ctx, err, "EndConversationTurn", slog.String("conversation_id", payload.ConversationID))
+
+	// Only the completion of the conversation's active turn - the turn this
+	// process dispatched, or the stored one (a restart, another replica) - is
+	// processed, once. A turn that already ended (stopped, ended by the
+	// stuck-work watchdog or after its start was dead-lettered) was completed
+	// then; its late completion would store its messages after the next
+	// turn's, announce the next turn as finished and wake its waiter. A
+	// completion without turn (a worker that sends none) counts as the active
+	// turn's.
+	if payload.TurnID != "" && !activeRun && !storedActive {
+		slog.Info("completion of a conversation turn that already ended, dropped",
+			"conversation_id", payload.ConversationID, "turn_id", payload.TurnID, "status", payload.Status)
+		return nil
+	}
 
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,
@@ -208,9 +218,7 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	})
 
 	// Notify in-process waiters (e.g. autoagent).
-	if activeRun {
-		s.notifyCompletionWaiter(payload.ConversationID, CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD})
-	}
+	s.notifyCompletionWaiter(payload.ConversationID, CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD})
 
 	// Record prompt scores for evolution tracking.
 	if s.scoreCollector != nil && payload.Model != "" {
@@ -333,8 +341,8 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 		s.runTracker.MarkConversationRunCancelled(conversationID)
 	}
 	s.notifyCompletionWaiter(conversationID, CompletionResult{Status: "cancelled", Error: "stopped"})
-	logBestEffort(ctx, s.db.EndConversationTurn(ctx, conversationID, ""), "EndConversationTurn",
-		slog.String("conversation_id", conversationID))
+	_, err := s.db.EndConversationTurn(ctx, conversationID, "")
+	logBestEffort(ctx, err, "EndConversationTurn", slog.String("conversation_id", conversationID))
 
 	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:  conversationID,

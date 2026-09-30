@@ -23,10 +23,11 @@ type ConversationStore interface {
 
 	// Active turn (KI-65): the conversation's active run, set before its start
 	// is published and ended when it ends or is stopped (turnID "" ends any
-	// turn). A heartbeat counts only for the active turn. The list spans all
-	// tenants (watchdog use) and holds only turns that had a heartbeat.
+	// turn; EndConversationTurn reports whether it ended the active turn). A
+	// heartbeat counts only for the active turn. The list spans all tenants
+	// (watchdog use) and holds only turns that had a heartbeat.
 	BeginConversationTurn(ctx context.Context, conversationID, turnID string) error
-	EndConversationTurn(ctx context.Context, conversationID, turnID string) error
+	EndConversationTurn(ctx context.Context, conversationID, turnID string) (bool, error)
 	TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error
 	ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]conversation.ActiveTurn, error)
 }

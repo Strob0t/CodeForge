@@ -62,16 +62,18 @@ func (s *Store) BeginConversationTurn(ctx context.Context, conversationID, turnI
 }
 
 // EndConversationTurn clears the active turn of a conversation of the
-// caller's tenant if it is turnID; turnID "" clears any active turn.
-func (s *Store) EndConversationTurn(ctx context.Context, conversationID, turnID string) error {
-	_, err := s.pool.Exec(ctx,
+// caller's tenant if it is turnID (turnID "" clears any active turn), and
+// reports whether it did: false when the turn already ended or another turn
+// is active.
+func (s *Store) EndConversationTurn(ctx context.Context, conversationID, turnID string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
 		`UPDATE conversations SET active_turn_id = NULL, active_turn_heartbeat_at = NULL
 		 WHERE id = $1 AND tenant_id = $2 AND active_turn_id IS NOT NULL
 		   AND ($3 = '' OR active_turn_id = $3)`, conversationID, tenantFromCtx(ctx), turnID)
 	if err != nil {
-		return fmt.Errorf("end conversation turn %s: %w", conversationID, err)
+		return false, fmt.Errorf("end conversation turn %s: %w", conversationID, err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // TouchConversationTurnHeartbeat records a worker heartbeat of the active

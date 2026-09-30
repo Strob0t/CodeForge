@@ -145,8 +145,12 @@ func TestStore_ConversationTurnHeartbeat(t *testing.T) {
 		t.Fatalf("TouchConversationTurnHeartbeat(other turn): %v", err)
 	}
 	// Ending another turn keeps the active one; ending the active one clears it.
-	if err := a.store.EndConversationTurn(a.ctx, ended.ID, turn()); err != nil {
-		t.Fatalf("EndConversationTurn(other turn): %v", err)
+	if endedIt, err := a.store.EndConversationTurn(a.ctx, ended.ID, turn()); err != nil || endedIt {
+		t.Fatalf("EndConversationTurn(other turn) = %v, %v; want false, nil", endedIt, err)
+	}
+	// Another tenant cannot end a's turn.
+	if endedIt, err := b.store.EndConversationTurn(b.ctx, lost.ID, lostTurn); err != nil || endedIt {
+		t.Fatalf("EndConversationTurn(cross-tenant) = %v, %v; want false, nil", endedIt, err)
 	}
 	for _, id := range []string{lost.ID, ended.ID, foreign.ID} {
 		ageTurn(id)
@@ -180,12 +184,16 @@ func TestStore_ConversationTurnHeartbeat(t *testing.T) {
 		}
 	}
 
-	if err := a.store.EndConversationTurn(a.ctx, ended.ID, endedTurn); err != nil {
-		t.Fatalf("EndConversationTurn: %v", err)
+	if endedIt, err := a.store.EndConversationTurn(a.ctx, ended.ID, endedTurn); err != nil || !endedIt {
+		t.Fatalf("EndConversationTurn = %v, %v; want true, nil", endedIt, err)
+	}
+	// A turn ends once: its second end reports that it had ended already.
+	if endedIt, err := a.store.EndConversationTurn(a.ctx, ended.ID, endedTurn); err != nil || endedIt {
+		t.Fatalf("EndConversationTurn(again) = %v, %v; want false, nil", endedIt, err)
 	}
 	// A stop ends whatever turn is active.
-	if err := b.store.EndConversationTurn(b.ctx, foreign.ID, ""); err != nil {
-		t.Fatalf("EndConversationTurn(any): %v", err)
+	if endedIt, err := b.store.EndConversationTurn(b.ctx, foreign.ID, ""); err != nil || !endedIt {
+		t.Fatalf("EndConversationTurn(any) = %v, %v; want true, nil", endedIt, err)
 	}
 	got = list()
 	for _, conv := range []string{ended.ID, foreign.ID} {

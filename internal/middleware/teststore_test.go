@@ -734,7 +734,9 @@ func (s *testStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duratio
 	return nil, nil
 }
 func (s *testStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
-func (s *testStore) EndConversationTurn(_ context.Context, _, _ string) error   { return nil }
+func (s *testStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 func (s *testStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
 	return nil
 }

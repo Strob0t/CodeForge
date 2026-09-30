@@ -72,13 +72,14 @@ func (m *runtimeMockStore) BeginConversationTurn(ctx context.Context, conversati
 	return nil
 }
 
-func (m *runtimeMockStore) EndConversationTurn(_ context.Context, conversationID, turnID string) error {
+func (m *runtimeMockStore) EndConversationTurn(_ context.Context, conversationID, turnID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if at, ok := m.turns[conversationID]; ok && (turnID == "" || at.turn == turnID) {
 		delete(m.turns, conversationID)
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 func (m *runtimeMockStore) TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error {
