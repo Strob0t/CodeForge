@@ -14,6 +14,8 @@ type chMockStore struct {
 	channels []channel.Channel
 	messages []channel.Message
 	members  []channel.Member
+
+	createMessageErr error
 }
 
 func (m *chMockStore) CreateChannel(_ context.Context, ch *channel.Channel) (*channel.Channel, error) {
@@ -55,6 +57,9 @@ func (m *chMockStore) DeleteChannel(_ context.Context, id string) error {
 }
 
 func (m *chMockStore) CreateChannelMessage(_ context.Context, msg *channel.Message) (*channel.Message, error) {
+	if m.createMessageErr != nil {
+		return nil, m.createMessageErr
+	}
 	msg.ID = "msg-1"
 	m.messages = append(m.messages, *msg)
 	return msg, nil
@@ -132,7 +137,7 @@ func TestChannelService_Create(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{}
-			svc := service.NewChannelService(store)
+			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 			result, err := svc.Create(context.Background(), tt.ch)
 			if tt.wantErr {
 				if err == nil {
@@ -176,7 +181,7 @@ func TestChannelService_Get(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{channels: tt.seed}
-			svc := service.NewChannelService(store)
+			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 			ch, err := svc.Get(context.Background(), tt.id)
 			if tt.wantErr {
 				if err == nil {
@@ -222,7 +227,7 @@ func TestChannelService_List(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{channels: tt.seed}
-			svc := service.NewChannelService(store)
+			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 			channels, err := svc.List(context.Background(), tt.projectID)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -268,7 +273,7 @@ func TestChannelService_Delete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{channels: tt.seed}
-			svc := service.NewChannelService(store)
+			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 			err := svc.Delete(context.Background(), tt.id)
 			if tt.wantErr {
 				if err == nil {
@@ -313,7 +318,7 @@ func TestChannelService_SendMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{}
-			svc := service.NewChannelService(store)
+			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 			msg, err := svc.SendMessage(context.Background(), tt.msg)
 			if tt.wantErr {
 				if err == nil {
@@ -359,7 +364,7 @@ func TestChannelService_ListMessages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{messages: tt.seed}
-			svc := service.NewChannelService(store)
+			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 			messages, err := svc.ListMessages(context.Background(), tt.channelID, "", 50)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -373,7 +378,7 @@ func TestChannelService_ListMessages(t *testing.T) {
 
 func TestChannelService_AddMember(t *testing.T) {
 	store := &chMockStore{}
-	svc := service.NewChannelService(store)
+	svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
 	err := svc.AddMember(context.Background(), &channel.Member{
 		ChannelID: "ch-1",
 		UserID:    "user-1",
@@ -392,7 +397,7 @@ func TestChannelService_AddMember(t *testing.T) {
 }
 
 func TestChannelService_GenerateWebhookKey(t *testing.T) {
-	svc := service.NewChannelService(&chMockStore{})
+	svc := service.NewChannelService(&chMockStore{}, &runtimeMockBroadcaster{})
 	key, err := svc.GenerateWebhookKey()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

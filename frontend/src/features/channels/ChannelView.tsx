@@ -1,9 +1,11 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { Badge } from "~/ui";
 
+import { addMessage, parseChannelMessageEvent } from "./channelEvents";
 import ChannelInput from "./ChannelInput";
 import type { ChannelMessageData } from "./ChannelMessage";
 import ChannelMessage from "./ChannelMessage";
@@ -43,11 +45,21 @@ export default function ChannelView() {
     (id) => api.channels.get(id),
   );
 
-  // Fetch messages
-  const [messages, { refetch: refetchMessages }] = createResource(
+  // Fetch messages (newest first)
+  const [messages, { mutate: mutateMessages }] = createResource(
     () => params.id,
     (id) => api.channels.messages(id),
   );
+
+  // Messages posted by other users, agents and webhooks arrive as channel.message.
+  const { onMessage } = useWebSocket();
+  const unsubscribe = onMessage((msg) => {
+    const incoming = parseChannelMessageEvent(msg);
+    if (!incoming || incoming.channel_id !== params.id) return;
+    mutateMessages((prev) => addMessage(prev, incoming, "start"));
+    setTimeout(scrollToBottom, 50);
+  });
+  onCleanup(unsubscribe);
 
   /** Scroll the message list to the bottom. */
   function scrollToBottom(): void {
@@ -71,8 +83,8 @@ export default function ChannelView() {
     if (sending()) return;
     setSending(true);
     try {
-      await api.channels.send(params.id, content, "User");
-      await refetchMessages();
+      const sent = await api.channels.send(params.id, content, "User");
+      mutateMessages((prev) => addMessage(prev, sent, "start"));
       // Scroll after new message renders
       setTimeout(scrollToBottom, 50);
     } finally {

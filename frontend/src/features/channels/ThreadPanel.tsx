@@ -10,7 +10,10 @@ import {
 import { Portal } from "solid-js/web";
 
 import { api } from "~/api/client";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { Backdrop, Button, Spinner } from "~/ui";
+
+import { addMessage, parseChannelMessageEvent } from "./channelEvents";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,17 +33,6 @@ export interface ThreadPanelProps {
   parentMessage: ThreadParentMessage;
   visible: boolean;
   onClose: () => void;
-}
-
-/** Shape returned by the channel messages API. */
-interface ChannelMessage {
-  id: string;
-  channel_id: string;
-  sender_type: string;
-  sender_name: string;
-  content: string;
-  parent_id: string;
-  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,13 +65,29 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
   const [sending, setSending] = createSignal(false);
 
   // Fetch thread replies — re-fetches whenever the parent message id changes.
-  const [replies, { refetch }] = createResource(
+  // The API lists newest first; a thread reads oldest first.
+  const [replies, { mutate }] = createResource(
     () => (props.visible ? { parentId: props.parentMessage.id, channelId: props.channelId } : null),
     async (source) => {
       const allMessages = await api.channels.messages(source.channelId);
-      return allMessages.filter((m: ChannelMessage) => m.parent_id === source.parentId);
+      return allMessages.filter((m) => m.parent_id === source.parentId).reverse();
     },
   );
+
+  // Replies from other users, agents and webhooks arrive as channel.message;
+  // listen while the panel is open, for the thread it shows.
+  const { onMessage } = useWebSocket();
+  createEffect(() => {
+    if (!props.visible) return;
+    const channelId = props.channelId;
+    const parentId = props.parentMessage.id;
+    const unsubscribe = onMessage((msg) => {
+      const incoming = parseChannelMessageEvent(msg);
+      if (incoming?.channel_id !== channelId || incoming.parent_id !== parentId) return;
+      mutate((prev) => addMessage(prev, incoming, "end"));
+    });
+    onCleanup(unsubscribe);
+  });
 
   // Close on Escape key
   createEffect(() => {
@@ -102,13 +110,13 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
 
     setSending(true);
     try {
-      await api.channels.sendThreadReply(props.channelId, props.parentMessage.id, {
+      const reply = await api.channels.sendThreadReply(props.channelId, props.parentMessage.id, {
         sender_name: "You",
         sender_type: "user",
         content,
       });
       setReplyText("");
-      void refetch();
+      mutate((prev) => addMessage(prev, reply, "end"));
     } finally {
       setSending(false);
     }

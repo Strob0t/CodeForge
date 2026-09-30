@@ -7,6 +7,7 @@ import type {
   AutoAgentStatus,
   BenchmarkRequest,
   BenchmarkResult,
+  ChannelMessageRecord,
   CreateGoalRequest,
   CreateMCPServerRequest,
   CreatePlanRequest,
@@ -311,21 +312,13 @@ export function createChannelsResource(c: CoreClient) {
       if (cursor) params.set("cursor", cursor);
       if (limit) params.set("limit", String(limit));
       const qs = params.toString();
-      return c.get<
-        {
-          id: string;
-          channel_id: string;
-          sender_type: string;
-          sender_name: string;
-          content: string;
-          parent_id: string;
-          created_at: string;
-        }[]
-      >(`/channels/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`);
+      return c.get<ChannelMessageRecord[]>(
+        `/channels/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`,
+      );
     },
 
     send: (id: string, content: string, senderName: string) =>
-      c.post<{ id: string }>(url`/channels/${id}/messages`, {
+      c.post<ChannelMessageRecord>(url`/channels/${id}/messages`, {
         content,
         sender_name: senderName,
         sender_type: "user",
@@ -336,15 +329,7 @@ export function createChannelsResource(c: CoreClient) {
       parentId: string,
       data: { sender_name: string; sender_type: string; content: string },
     ) =>
-      c.post<{
-        id: string;
-        channel_id: string;
-        sender_type: string;
-        sender_name: string;
-        content: string;
-        parent_id: string;
-        created_at: string;
-      }>(url`/channels/${channelId}/messages/${parentId}/thread`, data),
+      c.post<ChannelMessageRecord>(url`/channels/${channelId}/messages/${parentId}/thread`, data),
   };
 }
 

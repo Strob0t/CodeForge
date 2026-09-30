@@ -7,17 +7,20 @@ import (
 	"fmt"
 
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // ChannelService manages channel operations.
 type ChannelService struct {
-	db database.Store
+	db  database.Store
+	hub broadcast.Broadcaster
 }
 
 // NewChannelService creates a new ChannelService.
-func NewChannelService(db database.Store) *ChannelService {
-	return &ChannelService{db: db}
+func NewChannelService(db database.Store, hub broadcast.Broadcaster) *ChannelService {
+	return &ChannelService{db: db, hub: hub}
 }
 
 // Create validates and creates a new channel.
@@ -53,12 +56,22 @@ func (s *ChannelService) Delete(ctx context.Context, id string) error {
 	return s.db.DeleteChannel(ctx, id)
 }
 
-// SendMessage validates and stores a channel message.
+// SendMessage validates and stores a channel message, then broadcasts it to
+// the clients of the tenant in ctx, which owns the channel (the store accepts
+// messages only into a channel of that tenant).
 func (s *ChannelService) SendMessage(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	if msg.Content == "" {
 		return nil, fmt.Errorf("message content is required")
 	}
-	return s.db.CreateChannelMessage(ctx, msg)
+	created, err := s.db.CreateChannelMessage(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	s.hub.BroadcastEvent(ctx, event.EventChannelMessage, event.ChannelMessageEvent{
+		ChannelID: created.ChannelID,
+		Message:   *created,
+	})
+	return created, nil
 }
 
 // ListMessages returns paginated messages for a channel.

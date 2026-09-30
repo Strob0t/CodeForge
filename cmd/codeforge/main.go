@@ -857,7 +857,7 @@ func run() error {
 		Checkpoint:       checkpointSvc,
 		Commands:         service.NewCommandService(),
 		Subscription:     subscriptionSvc,
-		Channels:         service.NewChannelService(store),
+		Channels:         service.NewChannelService(store, hub),
 		Limits:           &cfg.Limits,
 		AgentConfig:      &cfg.Agent,
 		AppEnv:           cfg.AppEnv,

@@ -2077,3 +2077,16 @@ export interface RoutingOutcome {
   prompt_hash?: string;
   created_at: string;
 }
+
+// --- Channels (Phase 9) ---
+
+/** Matches Go domain/channel.Message (Go omits an empty parent_id). */
+export interface ChannelMessageRecord {
+  id: string;
+  channel_id: string;
+  sender_type: string;
+  sender_name: string;
+  content: string;
+  parent_id: string;
+  created_at: string;
+}
