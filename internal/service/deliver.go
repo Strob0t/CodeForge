@@ -199,39 +199,26 @@ func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *
 		if err != nil {
 			return fmt.Errorf("commit-local delivery: %w", err)
 		}
-		hash, err := s.commitWorkspace(ctx, repo, shortID, taskTitle)
+		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
 		if err != nil {
-			return err
+			return fmt.Errorf("commit-local delivery: %w", err)
 		}
-		slog.Info("commit-local delivered", "run_id", r.ID, "hash", hash)
+		if err := rc.advanceHead(ctx, repo); err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
+		rc.syncIndex(ctx, repo)
+		slog.Info("commit-local delivered", "run_id", r.ID, "hash", rc.commit)
 		result = &DeliveryResult{
 			Mode:       run.DeliverModeCommitLocal,
-			CommitHash: hash,
+			CommitHash: rc.commit,
 		}
 		return nil
 	})
 	return result, err
 }
 
-// commitWorkspace commits the whole working tree on the checked-out branch
-// and returns the commit.
-func (s *DeliverService) commitWorkspace(ctx context.Context, repo *git.Repo, shortID, taskTitle string) (string, error) {
-	if _, err := repo.Run(ctx, nil, "add", "-A"); err != nil {
-		return "", fmt.Errorf("git add: %w", err)
-	}
-	var identity []string
-	if !repo.HasConfig("user.name") || !repo.HasConfig("user.email") {
-		identity = deliveryIdentity
-	}
-	msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-	if _, err := repo.Run(ctx, identity, "commit", "--no-verify", "--no-gpg-sign", "-m", msg); err != nil {
-		return "", fmt.Errorf("git commit: %w", err)
-	}
-	hash, err := repo.Run(ctx, nil, "rev-parse", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse: %w", err)
-	}
-	return strings.TrimSpace(hash), nil
+func (s *DeliverService) commitMessage(shortID, taskTitle string) string {
+	return fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
 }
 
 func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
@@ -243,13 +230,15 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 		}
 		branchName := fmt.Sprintf("codeforge/%s", shortID)
 
-		if _, err := repo.Run(ctx, nil, "checkout", "-b", branchName); err != nil {
-			return fmt.Errorf("git checkout -b: %w", err)
-		}
-		commitHash, err := s.commitWorkspace(ctx, repo, shortID, taskTitle)
+		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
 		if err != nil {
-			return err
+			return fmt.Errorf("branch delivery: %w", err)
 		}
+		if err := rc.checkoutNewBranch(ctx, repo, "refs/heads/"+branchName); err != nil {
+			return fmt.Errorf("branch delivery: %w", err)
+		}
+		rc.syncIndex(ctx, repo)
+		commitHash := rc.commit
 
 		// The remote and its transport come from agent-writable config: a
 		// repository that configures transports is not pushed from.

@@ -155,8 +155,18 @@ func TestDeliver_Patch(t *testing.T) {
 	}
 }
 
+// checkpointBeforeChange creates the run's first checkpoint: every delivery
+// is the change since then.
+func checkpointBeforeChange(t *testing.T, dir, runID string) {
+	t.Helper()
+	if err := service.NewCheckpointService(git.NewPool(1)).CreateCheckpoint(context.Background(), runID, dir, "Edit", "call-1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDeliver_CommitLocal(t *testing.T) {
 	dir := initDeliverTestRepo(t)
+	checkpointBeforeChange(t, dir, "run-abcd1234")
 
 	// Make a change
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("committed"), 0o644); err != nil {
@@ -202,6 +212,7 @@ func TestDeliver_CommitLocal(t *testing.T) {
 
 func TestDeliver_Branch(t *testing.T) {
 	dir := initDeliverTestRepo(t)
+	checkpointBeforeChange(t, dir, "run-abcd1234")
 
 	// Make a change
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("branched"), 0o644); err != nil {

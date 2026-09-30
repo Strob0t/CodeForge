@@ -358,7 +358,9 @@ func runGit(ctx context.Context, dir string, env []string, args ...string) (stri
 		if len(args) > 0 {
 			op += " " + args[0]
 		}
-		return "", fmt.Errorf("%s: %s: %w", op, strings.TrimSpace(stderr.String()), err)
+		// Standard output is returned as well: some commands report their
+		// result with a non-zero exit (git merge-tree on conflicts).
+		return stdout.String(), fmt.Errorf("%s: %s: %w", op, strings.TrimSpace(stderr.String()), err)
 	}
 	return stdout.String(), nil
 }

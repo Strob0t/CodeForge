@@ -105,9 +105,9 @@ func TestCheckpointedRun_DeliversTheFullChange(t *testing.T) {
 					}
 				}
 				result, err := deliverer.Deliver(ctx, r, "add feature")
-				if order.cleanupBefore && mode == run.DeliverModePatch {
-					// A patch is the change since the run's base checkpoint;
-					// the runtime delivers before the cleanup.
+				if order.cleanupBefore {
+					// Every delivery is the change since the run's base
+					// checkpoint; the runtime delivers before the cleanup.
 					if !errors.Is(err, service.ErrNoCheckpoints) {
 						t.Fatalf("patch after cleanup = %v, want ErrNoCheckpoints", err)
 					}
