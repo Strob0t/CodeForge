@@ -19,7 +19,13 @@ from nats.errors import NotJSMessageError
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 
-from codeforge.nats_subjects import ACK_WAIT_SECONDS, MAX_DELIVER, STREAM_NAME
+from codeforge.nats_subjects import (
+    ACK_WAIT_SECONDS,
+    HEADER_ORIGINAL_MSG_ID,
+    MAX_DELIVER,
+    MAX_IN_PROGRESS_SECONDS,
+    STREAM_NAME,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -109,19 +115,45 @@ def is_last_attempt(msg: Msg) -> bool:
     return delivery_attempt(msg) >= MAX_DELIVER
 
 
+def dlq_headers(headers: dict[str, str] | None) -> dict[str, str] | None:
+    """Headers for the dead-letter copy of a message with *headers*.
+
+    The JetStream publish-control headers (``Nats-*``) are dropped: with the
+    original ``Nats-Msg-Id`` the stream would discard the copy as a duplicate of
+    the original. The original ID is kept in ``X-Original-Msg-Id``.
+    """
+    if not headers:
+        return None
+    copied = {key: value for key, value in headers.items() if not key.lower().startswith("nats-")}
+    original_id = headers.get("Nats-Msg-Id")
+    if original_id:
+        copied[HEADER_ORIGINAL_MSG_ID] = original_id
+    return copied or None
+
+
 @contextlib.asynccontextmanager
-async def keep_in_progress(msg: Msg, interval: float = PROGRESS_INTERVAL_SECONDS) -> AsyncIterator[None]:
+async def keep_in_progress(
+    msg: Msg,
+    interval: float = PROGRESS_INTERVAL_SECONDS,
+    limit: float = MAX_IN_PROGRESS_SECONDS,
+) -> AsyncIterator[None]:
     """Tell JetStream every *interval* seconds that *msg* is still being handled.
 
-    Stops when the block exits or once the message has been settled (for
-    example acked on accept), so a handler slower than the ack wait is not
-    redelivered to another worker while it runs.
+    Stops when the block exits, once the message has been settled (for example
+    acked on accept), or after *limit* seconds: a handler slower than the ack
+    wait is not redelivered to another worker while it runs, but a hung one is
+    redelivered instead of holding its message forever.
     """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + limit
 
     async def _beat() -> None:
         while True:
             await asyncio.sleep(interval)
             if msg.is_acked:
+                return
+            if loop.time() > deadline:
+                logger.warning("handler exceeded the in-progress limit, JetStream will redeliver", subject=msg.subject)
                 return
             try:
                 await msg.in_progress()

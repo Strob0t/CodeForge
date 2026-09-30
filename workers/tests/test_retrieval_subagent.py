@@ -471,8 +471,10 @@ async def test_handle_retrieval_search_error_publishes_result(workspace: str) ->
     assert result.error == "internal worker error"
     assert len(result.results) == 0
 
-    # Message should be nak'd since the main handler failed.
-    msg.nak.assert_called_once()
+    # The error result answered the Go waiter and settles the request: acked,
+    # not retried (repeating the search would only repeat the LLM cost).
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -516,8 +518,10 @@ async def test_handle_subagent_search_error_publishes_result() -> None:
     assert result.error == "internal worker error"
     assert len(result.results) == 0
 
-    # Message should be nak'd since the main handler failed.
-    msg.nak.assert_called_once()
+    # The error result answered the Go waiter and settles the request: acked,
+    # not retried (repeating the search would only repeat the LLM cost).
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 async def test_parallel_search_all_fail() -> None:

@@ -395,8 +395,10 @@ class HybridRetriever:
         log.info("building retrieval index", workspace=workspace_path)
 
         try:
-            # Collect files with per-file content hashes.
-            per_file = self._chunker.chunk_workspace_by_file(workspace_path, file_extensions)
+            # Collect files with per-file content hashes. Walking and parsing the
+            # workspace is CPU-bound: run it off the event loop, which also keeps
+            # the in-progress acks of this request flowing.
+            per_file = await asyncio.to_thread(self._chunker.chunk_workspace_by_file, workspace_path, file_extensions)
             if not per_file:
                 log.info("index empty, no files found")
                 return IndexStatus(

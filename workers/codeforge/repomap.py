@@ -7,6 +7,7 @@ compact text map that fits within a token budget.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -151,7 +152,20 @@ class RepoMapGenerator:
         workspace_path: str,
         active_files: list[str] | None = None,
     ) -> RepoMapResult:
-        """Generate a repo map for the given workspace."""
+        """Generate a repo map for the given workspace.
+
+        Walking and parsing a large workspace is CPU-bound, so it runs in a
+        worker thread: blocking the event loop would stall the worker's other
+        message loops and the in-progress acks that keep this request from
+        being redelivered.
+        """
+        return await asyncio.to_thread(self._generate_sync, workspace_path, active_files)
+
+    def _generate_sync(
+        self,
+        workspace_path: str,
+        active_files: list[str] | None,
+    ) -> RepoMapResult:
         from codeforge.models import RepoMapResult
 
         active = active_files or []

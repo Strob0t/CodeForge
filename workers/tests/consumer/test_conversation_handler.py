@@ -153,6 +153,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         fake_result = AgentLoopResult(
             final_content="Done",
@@ -170,7 +171,7 @@ class TestHandleConversationRun:
 
         await _run_with_patched_dependencies(handler, msg, fake_execute)
 
-        msg.ack.assert_called_once()
+        msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
         msg.nak.assert_not_called()
         assert tracked_during_exec, "run_id was not tracked in _active_runs during execution"
         # After completion, the run_id should be cleaned up from _active_runs.
@@ -187,13 +188,14 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         async def fake_execute(*_args, **_kwargs):
             return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
 
         runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
 
-        msg.ack.assert_called_once()
+        msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
         assert runtime_cls.call_args.kwargs["tenant_id"] == "aaaaaaaa-0000-0000-0000-000000000001"
 
     @pytest.mark.asyncio
@@ -208,6 +210,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         async def fake_execute(*_args, **_kwargs):
             return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
@@ -227,6 +230,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
         msg.term = AsyncMock()
 
         await handler._handle_conversation_run(msg)
@@ -250,6 +254,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         await handler._handle_conversation_run(msg)
 
@@ -271,6 +276,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         # Without JetStream the handler hits the _js is None guard after dedup,
         # but before that it tries to validate JSON and add to _active_runs.

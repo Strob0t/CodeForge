@@ -8,6 +8,7 @@ at the bottom starts the consumer.
 from __future__ import annotations
 
 import asyncio
+import functools
 import signal
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -94,6 +95,10 @@ _MAX_CONSECUTIVE_ERRORS = get_settings().consumer_max_errors
 _BACKOFF_MULTIPLIER = get_settings().consumer_backoff_multiplier
 _BACKOFF_MAX = get_settings().consumer_backoff_max
 
+# Errors of a fetch on a durable that no longer exists ("no responders" for the
+# pull request, or consumer not found).
+_CONSUMER_GONE_ERRORS = (nats.js.errors.NotFoundError, nats.js.errors.ServiceUnavailableError)
+
 
 class TaskConsumer(
     ConsumerBaseMixin,
@@ -132,6 +137,8 @@ class TaskConsumer(
         self._nc: NATSClient | None = None
         self._js: JetStreamContext | None = None
         self._running = False
+        # Set when a message loop could not recover; main() then exits non-zero.
+        self.failed = False
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
         self._db_url = get_settings().database_url
 
@@ -200,7 +207,8 @@ class TaskConsumer(
             name = consumer_name(subject)
             sub = await ensure_durable(self._js, name, subject)
             logger.info("subscribed", subject=subject, durable=name)
-            loops.append(self._message_loop(sub, handler, subject))
+            reattach = functools.partial(ensure_durable, self._js, name, subject)
+            loops.append(self._message_loop(sub, handler, subject, reattach=reattach))
 
         # Signal to the Docker healthcheck that the worker is connected and
         # all subscriptions are active.
@@ -214,8 +222,14 @@ class TaskConsumer(
         sub: nats.js.client.JetStreamContext.PullSubscription,
         handler: Callable[[nats.aio.msg.Msg], Awaitable[None]],
         label: str,
+        reattach: Callable[[], Awaitable[nats.js.client.JetStreamContext.PullSubscription]] | None = None,
     ) -> None:
-        """Generic message processing loop shared by all subscriptions."""
+        """Generic message processing loop shared by all subscriptions.
+
+        A durable deleted while the worker runs is ensured again through
+        *reattach*. A loop that cannot recover stops the whole worker (see
+        ``_give_up``) instead of leaving a subject without a consumer.
+        """
         consecutive_errors = 0
         max_consecutive_errors = _MAX_CONSECUTIVE_ERRORS
         while self._running:
@@ -237,9 +251,11 @@ class TaskConsumer(
                     consecutive_errors=consecutive_errors,
                 )
                 if consecutive_errors >= max_consecutive_errors:
-                    logger.error("too many consecutive errors, stopping loop", subject=label)
+                    self._give_up(label)
                     break
                 await asyncio.sleep(min(consecutive_errors * _BACKOFF_MULTIPLIER, _BACKOFF_MAX))
+                if reattach is not None and isinstance(exc, _CONSUMER_GONE_ERRORS):
+                    sub = await self._reattach(sub, reattach, label)
                 continue
 
             for msg in msgs:
@@ -270,6 +286,37 @@ class TaskConsumer(
                 finally:
                     otel_metrics.nats_processing.record(_time.monotonic() - msg_start)
                     otel_context.detach(token)
+
+    @staticmethod
+    async def _reattach(
+        old: nats.js.client.JetStreamContext.PullSubscription,
+        reattach: Callable[[], Awaitable[nats.js.client.JetStreamContext.PullSubscription]],
+        label: str,
+    ) -> nats.js.client.JetStreamContext.PullSubscription:
+        """Ensure the durable again (it was deleted) and bind a new subscription to it."""
+        try:
+            fresh = await reattach()
+        except Exception as exc:
+            logger.warning("re-attaching the durable consumer failed", subject=label, error=str(exc))
+            return old
+        try:
+            await old.unsubscribe()
+        except Exception as exc:
+            logger.debug("unsubscribing the old pull subscription failed", subject=label, error=str(exc))
+        logger.info("durable consumer re-attached", subject=label)
+        return fresh
+
+    def _give_up(self, subject: str) -> None:
+        """Stop the worker after a message loop could not recover.
+
+        Every loop ends, the health sentinel is removed and main() exits with
+        status 1, so the container's restart policy starts a fresh worker instead
+        of a "healthy" process that no longer consumes *subject*.
+        """
+        logger.error("message loop cannot recover, stopping the worker", subject=subject)
+        self.failed = True
+        self._running = False
+        _HEALTHY_SENTINEL.unlink(missing_ok=True)
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""
@@ -319,6 +366,9 @@ async def main() -> None:
         loop.add_signal_handler(sig, lambda c=consumer: asyncio.create_task(c.stop()))
 
     await consumer.start()
+    if consumer.failed:
+        await consumer.stop()
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

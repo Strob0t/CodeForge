@@ -93,19 +93,15 @@ class RetrievalHandlerMixin:
                 semantic_weight=request.semantic_weight,
             )
         except Exception as exc:
-            # Publish error result so the Go waiter gets a response, then re-raise
-            # so _handle_request performs the nak.
+            # The error result answers the Go waiter and settles the request:
+            # repeating the search after Go got its answer would only cost money.
             logger.error("retrieval search failed", error=str(exc))
-            await self._publish_error(
-                RetrievalSearchResult(
-                    project_id=request.project_id,
-                    query=request.query,
-                    request_id=request.request_id,
-                    error="internal worker error",
-                ),
-                SUBJECT_RETRIEVAL_SEARCH_RESULT,
+            return RetrievalSearchResult(
+                project_id=request.project_id,
+                query=request.query,
+                request_id=request.request_id,
+                error="internal worker error",
             )
-            raise
 
         result = RetrievalSearchResult(
             project_id=request.project_id,
@@ -149,19 +145,15 @@ class RetrievalHandlerMixin:
                 expansion_prompt=request.expansion_prompt,
             )
         except Exception as exc:
-            # Publish error result so the Go waiter gets a response, then re-raise
-            # so _handle_request performs the nak.
+            # The error result answers the Go waiter and settles the request:
+            # repeating the LLM query expansion after Go got its answer would only cost money.
             logger.error("subagent search failed", error=str(exc))
-            await self._publish_error(
-                SubAgentSearchResult(
-                    project_id=request.project_id,
-                    query=request.query,
-                    request_id=request.request_id,
-                    error="internal worker error",
-                ),
-                SUBJECT_SUBAGENT_SEARCH_RESULT,
+            return SubAgentSearchResult(
+                project_id=request.project_id,
+                query=request.query,
+                request_id=request.request_id,
+                error="internal worker error",
             )
-            raise
 
         cost = self._subagent.last_cost
 

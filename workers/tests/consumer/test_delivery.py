@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING, ClassVar
+from unittest.mock import AsyncMock, MagicMock
 
 import nats.js.errors
 import pytest
@@ -25,6 +26,9 @@ from codeforge.consumer._delivery import (
 )
 from codeforge.nats_subjects import ACK_WAIT_SECONDS, MAX_DELIVER, NAK_DELAY_SECONDS, STREAM_NAME
 from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Durable consumers (KI-18)
@@ -148,8 +152,10 @@ class TestEnsureDurable:
             bound[subject] = name
             return name
 
-        async def fake_loop(*_args: object) -> None:
-            return None
+        reattachers: dict[str, object] = {}
+
+        async def fake_loop(_sub: object, _handler: object, label: str, reattach: object = None) -> None:
+            reattachers[label] = reattach
 
         monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=nc))
         monkeypatch.setattr("codeforge.consumer.ensure_durable", fake_ensure)
@@ -161,6 +167,8 @@ class TestEnsureDurable:
         assert bound["conversation.run.start"] == "codeforge-py-conversation-run-start"
         js.delete_consumer.assert_not_awaited()
         js.pull_subscribe.assert_not_awaited()
+        assert set(reattachers) == set(bound), "every loop can re-attach its durable"
+        assert all(callable(r) for r in reattachers.values())
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +216,16 @@ class TestKeepInProgress:
 
         assert client.settlements() == ["ack"]
 
+    async def test_stops_at_the_limit(self) -> None:
+        """A hung handler is reported in progress only up to the limit, then JetStream redelivers it."""
+        msg, client = jetstream_msg(b"{}")
+
+        async with keep_in_progress(msg, interval=0.01, limit=0.035):
+            await asyncio.sleep(0.15)
+            count = client.settlements().count("progress")
+
+        assert 2 <= count <= 4
+
     async def test_failed_progress_ack_does_not_break_the_handler(self) -> None:
         msg, client = jetstream_msg(b"{}")
 
@@ -248,6 +266,93 @@ class TestMessageLoopHeartbeat:
         settled = client.settlements()
         assert settled[-1] == "ack"
         assert settled.count("progress") >= 2
+
+
+class TestMessageLoopConsumerLifecycle:
+    """The loop re-attaches to a deleted durable and fails the worker when it cannot recover (KI-67)."""
+
+    @pytest.fixture
+    def consumer(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TaskConsumer:
+        sentinel = tmp_path / "codeforge-worker-healthy"
+        sentinel.touch()
+        monkeypatch.setattr("codeforge.consumer._HEALTHY_SENTINEL", sentinel)
+        monkeypatch.setattr("codeforge.consumer._BACKOFF_MULTIPLIER", 0.0)
+        worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
+        worker._running = True
+        return worker
+
+    async def test_reattaches_a_deleted_durable(self, consumer: TaskConsumer) -> None:
+        """A fetch on a deleted durable fails with 'no responders'; the loop ensures it again."""
+        msg, _ = jetstream_msg(b"{}")
+        gone = MagicMock()
+        gone.fetch = AsyncMock(side_effect=nats.js.errors.ServiceUnavailableError())
+        gone.unsubscribe = AsyncMock()
+        batches: list[list[object]] = [[msg]]
+
+        async def fetch(**_kwargs: object) -> list[object]:
+            if batches:
+                return batches.pop(0)
+            consumer._running = False
+            raise TimeoutError
+
+        fresh = MagicMock()
+        fresh.fetch = fetch
+        reattach = AsyncMock(return_value=fresh)
+        handled: list[object] = []
+
+        async def handler(m: object) -> None:
+            handled.append(m)
+
+        await consumer._message_loop(gone, handler, "test.request", reattach=reattach)
+
+        reattach.assert_awaited_once()
+        gone.unsubscribe.assert_awaited_once()
+        assert handled == [msg]
+        assert consumer.failed is False
+
+    async def test_gives_up_and_fails_the_worker(self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After too many errors the worker is marked unhealthy and all loops stop, so it exits and restarts."""
+        import codeforge.consumer as consumer_module
+
+        monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 3)
+        sub = MagicMock()
+        sub.fetch = AsyncMock(side_effect=ConnectionError("connection lost"))
+
+        async def handler(_m: object) -> None:
+            raise AssertionError("no message expected")
+
+        await consumer._message_loop(sub, handler, "test.request")
+
+        assert sub.fetch.await_count == 3
+        assert consumer.failed is True
+        assert consumer._running is False
+        assert not consumer_module._HEALTHY_SENTINEL.exists()
+
+    async def test_main_exits_non_zero_when_the_worker_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import codeforge.consumer as consumer_module
+
+        class _FailedConsumer:
+            instances: ClassVar[list[_FailedConsumer]] = []
+
+            def __init__(self, **_kwargs: object) -> None:
+                self.failed = False
+                self.stopped = False
+                _FailedConsumer.instances.append(self)
+
+            async def start(self) -> None:
+                self.failed = True
+
+            async def stop(self) -> None:
+                self.stopped = True
+
+        monkeypatch.setattr(consumer_module, "TaskConsumer", _FailedConsumer)
+        monkeypatch.setattr(consumer_module, "setup_logging", lambda **_kwargs: None)
+
+        with pytest.raises(SystemExit) as exc_info:
+            await consumer_module.main()
+
+        assert exc_info.value.code == 1
+        assert _FailedConsumer.instances[0].stopped is True
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +526,7 @@ class TestHandleRequest:
         await worker.handle(msg, ack_on_accept=True)
 
         assert acked_when_called == [True]
-        assert client.settlements() == ["ack"]
+        assert client.settlements() == ["ack(sync)"], "accepting a run needs a confirmed (double) ack"
 
     async def test_ack_on_accept_failure_is_not_retried(self) -> None:
         """At-most-once: a failed run is not redelivered or dead-lettered."""
@@ -432,8 +537,27 @@ class TestHandleRequest:
 
         await worker.handle(msg, ack_on_accept=True)
 
-        assert client.settlements() == ["ack"]
+        assert client.settlements() == ["ack(sync)"]
         assert js.published == []
+
+    async def test_unconfirmed_accept_does_not_start_the_work(self) -> None:
+        """If the ack on accept is not confirmed the message may be redelivered: do not run it now."""
+        js = RecordingJetStream()
+        worker = _Worker(js)
+        msg, client = jetstream_msg(VALID)
+        client.fail_requests = True
+
+        await worker.handle(msg, ack_on_accept=True)
+
+        assert worker.calls == []
+        assert client.settlements() == []
+        assert js.published == []
+
+        redelivered, redelivered_client = jetstream_msg(VALID, num_delivered=2)
+        await worker.handle(redelivered, ack_on_accept=True)
+
+        assert worker.calls == ["j1"], "the redelivery must not be skipped as a duplicate"
+        assert redelivered_client.settlements() == ["ack(sync)"]
 
 
 class TestMoveToDlq:
@@ -446,6 +570,31 @@ class TestMoveToDlq:
 
         js.publish.assert_awaited_once_with("tasks.agent.aider.dlq", b"payload", headers={"X-Request-ID": "req-1"})
         assert client.settlements() == ["ack"]
+
+    async def test_drops_publish_control_headers(self) -> None:
+        """The original Nats-Msg-Id would make JetStream discard the copy as a duplicate."""
+        js = RecordingJetStream()
+        worker = _Worker(js)
+        headers = {"Nats-Msg-Id": "orig-1", "Nats-Expected-Stream": "OTHER", "X-Request-ID": "req-1"}
+        msg, client = jetstream_msg(b"payload", subject="tasks.agent.aider", headers=headers)
+
+        await worker._move_to_dlq(msg, terminate=True)
+
+        assert js.published == [("tasks.agent.aider.dlq", b"payload")]
+        assert js.published_headers == [{"X-Request-ID": "req-1", "X-Original-Msg-Id": "orig-1"}]
+        assert msg.headers == headers, "the original message's headers must stay untouched"
+        assert client.settlements() == ["term"]
+
+    @pytest.mark.parametrize("terminate", [False, True])
+    async def test_duplicate_publish_ack_keeps_the_message(self, terminate: bool) -> None:
+        """A PubAck with duplicate=True stored nothing: never settle the original as dead-lettered."""
+        js = RecordingJetStream(duplicates={"tasks.agent.aider.dlq"})
+        worker = _Worker(js)
+        msg, client = jetstream_msg(b"payload", subject="tasks.agent.aider", headers={"Nats-Msg-Id": "orig-1"})
+
+        await worker._move_to_dlq(msg, terminate=terminate)
+
+        assert client.settlements() == [NAK_DELAYED]
 
     async def test_terminate_settles_with_term(self) -> None:
         worker = _Worker(RecordingJetStream())

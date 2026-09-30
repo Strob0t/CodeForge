@@ -33,6 +33,7 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
     msg.headers = {"X-Request-ID": "req-abc-123"}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     backend_result = BackendTaskResult(status="completed", output="Done")
 
@@ -51,7 +52,7 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
     subjects = [call.args[0] for call in consumer._js.publish.call_args_list]
     assert "tasks.output" in subjects
     assert "tasks.result" in subjects
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
     msg.nak.assert_not_called()
 
 
@@ -63,6 +64,7 @@ async def test_handle_message_invalid_json(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
     msg.term = AsyncMock()
 
     consumer._js = AsyncMock()
@@ -92,6 +94,7 @@ async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     backend_result = BackendTaskResult(status="failed", error="LLM timeout")
 
@@ -101,7 +104,7 @@ async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
 
     await consumer._handle_message(msg)
 
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
     msg.nak.assert_not_called()
 
 
@@ -122,6 +125,7 @@ async def test_handle_message_request_id_propagated(consumer: TaskConsumer) -> N
     msg.headers = {"X-Request-ID": "req-propagated-456"}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     backend_result = BackendTaskResult(status="completed", output="OK")
 
@@ -154,6 +158,7 @@ async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
     consumer._executor = MagicMock()
@@ -168,7 +173,7 @@ async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
     assert "src/auth.py" in task_arg.prompt
     assert "def login(): pass" in task_arg.prompt
     assert "step-1 completed OK" in task_arg.prompt
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
 
 
 async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
@@ -185,6 +190,7 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
     consumer._executor = MagicMock()
@@ -196,4 +202,4 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
     task_arg = call_args.args[0]
     assert task_arg.prompt == "Refactor utils module"
     assert "--- Relevant Context ---" not in task_arg.prompt
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)

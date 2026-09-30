@@ -73,6 +73,7 @@ class RuntimeClient:
         self.mode_id = mode_id
         self._metrics = ExecutionMetrics()
         self._cancelled = False
+        self._completed = False
         self._cancel_subs: list[JetStreamContext.PushSubscription] = []
         self._cancel_tasks: list[asyncio.Task[None]] = []
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -96,15 +97,34 @@ class RuntimeClient:
         while not self._cancelled:
             try:
                 msg = await sub.next_msg(timeout=1.0)
-                data = json.loads(msg.data)
-                if data.get("run_id") == self.run_id or data.get("task_id") == self.task_id:
-                    self._cancelled = True
-                    self._log.info("run cancelled by control plane")
             except TimeoutError:
                 continue
             except Exception as exc:
-                logger.debug("cancel listener error", error=str(exc))
-                break
+                # The subscription is closed or the connection is gone.
+                logger.debug("cancel listener stopped", error=str(exc))
+                return
+            if self._is_cancel_for_this_run(msg.data):
+                self._cancelled = True
+                self._log.info("run cancelled by control plane")
+
+    def _is_cancel_for_this_run(self, data: bytes) -> bool:
+        """Whether a cancel message names this run; a malformed one is skipped, not fatal.
+
+        The cancel subjects are shared by every active run, so one bad message
+        must not end the listening. Empty IDs never match (a run without a task
+        ID is not cancelled by a cancel for "no task").
+        """
+        try:
+            payload = json.loads(data)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self._log.warning("ignoring malformed cancel message", error=str(exc))
+            return False
+        if not isinstance(payload, dict):
+            self._log.warning("ignoring malformed cancel message", payload_type=type(payload).__name__)
+            return False
+        run_id = payload.get("run_id")
+        task_id = payload.get("task_id")
+        return (bool(run_id) and run_id == self.run_id) or (bool(task_id) and task_id == self.task_id)
 
     async def stop_cancel_listener(self) -> None:
         """Stop the listener tasks and unsubscribe this run's cancel subscriptions."""
@@ -158,6 +178,11 @@ class RuntimeClient:
     def is_cancelled(self) -> bool:
         """Whether this run has been cancelled."""
         return self._cancelled
+
+    @property
+    def completed(self) -> bool:
+        """Whether this run's completion has been published to the control plane."""
+        return self._completed
 
     @property
     def step_count(self) -> int:
@@ -352,6 +377,7 @@ class RuntimeClient:
             SUBJECT_RUN_COMPLETE,
             msg.model_dump_json().encode(),
         )
+        self._completed = True
         self._log.info(
             "run completed",
             status=status,

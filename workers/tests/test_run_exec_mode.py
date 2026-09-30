@@ -40,6 +40,7 @@ def _run_start_msg(exec_mode: str) -> MagicMock:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
     return msg
 
 
@@ -59,8 +60,8 @@ async def test_run_start_refuses_exec_modes_without_isolation(consumer: TaskCons
     assert len(completions) == 1
     assert completions[0]["status"] == "failed"
     assert "not available yet: tools would run without isolation (KI-13)" in str(completions[0]["error"])
-    # A permanent rejection is acked; a nak would redeliver it forever.
-    msg.ack.assert_called_once()
+    # The run is accepted (acked) and then rejected; a nak would redeliver it forever.
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
     msg.nak.assert_not_called()
 
 
@@ -72,4 +73,4 @@ async def test_run_start_executes_mount_runs(consumer: TaskConsumer, exec_mode: 
 
     consumer._executor.execute_with_runtime.assert_called_once()
     assert _published(consumer, SUBJECT_RUN_COMPLETE) == []
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)

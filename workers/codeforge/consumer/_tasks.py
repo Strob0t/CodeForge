@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._delivery import delivery_attempt
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
 
@@ -22,7 +21,12 @@ class TaskHandlerMixin:
     """Handles task.agent.* messages — backend router dispatch."""
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a single task message: parse, execute via backend router, ack/nack."""
+        """Process a single task message: parse, execute via backend router, report the result.
+
+        Acked on accept (at-most-once): a backend task (Aider, OpenHands, ...)
+        changes the workspace and must not run again on a half-changed one.
+        A failure is reported as a failed task result instead of being retried.
+        """
         request_id = ""
         if msg.headers and HEADER_REQUEST_ID in msg.headers:
             request_id = msg.headers[HEADER_REQUEST_ID]
@@ -42,6 +46,10 @@ class TaskHandlerMixin:
             await msg.ack()
             return
 
+        if not await self._accept(msg):
+            self._clear_processed(dedup_key)
+            return
+
         try:
             log.info("received task", title=task.title)
 
@@ -55,7 +63,6 @@ class TaskHandlerMixin:
                 config=task.config,
                 on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id, task.tenant_id),
             )
-
             result = TaskResult(
                 task_id=task.id,
                 tenant_id=task.tenant_id,
@@ -64,15 +71,24 @@ class TaskHandlerMixin:
                 output=backend_result.output,
                 error=backend_result.error,
             )
-
-            if self._js is not None:
-                await self._js.publish(SUBJECT_RESULT, result.model_dump_json().encode())
-
-            await msg.ack()
-            log.info("task completed", status=result.status, backend=backend_name)
-
         except Exception as exc:
-            log.exception("failed to process message", attempt=delivery_attempt(msg), error=str(exc))
-            # Not processed: the redelivery must not be skipped as a duplicate.
-            self._clear_processed(dedup_key)
-            await self._retry_or_dead_letter(msg)
+            log.exception("task failed", error=str(exc))
+            result = TaskResult(
+                task_id=task.id,
+                tenant_id=task.tenant_id,
+                project_id=task.project_id,
+                status=TaskStatus.FAILED,
+                error=str(exc),
+            )
+
+        await self._publish_task_result(result, log)
+        log.info("task completed", status=result.status, backend=backend_name)
+
+    async def _publish_task_result(self, result: TaskResult, log: structlog.BoundLogger) -> None:
+        """Publish a task result; the task is already accepted, so a lost result is only logged."""
+        if self._js is None:
+            return
+        try:
+            await self._js.publish(SUBJECT_RESULT, result.model_dump_json().encode())
+        except Exception as exc:
+            log.exception("failed to publish task result", status=result.status, error=str(exc))

@@ -9,8 +9,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 import structlog
 from pydantic import ValidationError
 
-from codeforge.consumer._delivery import delivery_attempt, is_last_attempt
-from codeforge.consumer._subjects import DLQ_SUFFIX, HEADER_REQUEST_ID, NAK_DELAY_SECONDS, SUBJECT_OUTPUT
+from codeforge.consumer._delivery import delivery_attempt, dlq_headers, is_last_attempt
+from codeforge.consumer._subjects import (
+    ACK_SYNC_TIMEOUT_SECONDS,
+    DLQ_SUFFIX,
+    HEADER_REQUEST_ID,
+    NAK_DELAY_SECONDS,
+    SUBJECT_OUTPUT,
+)
 from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
@@ -76,16 +82,20 @@ class ConsumerBaseMixin:
     async def _move_to_dlq(self, msg: nats.aio.msg.Msg, *, terminate: bool = False) -> None:
         """Copy *msg* to ``{subject}.dlq``, then settle it: term if *terminate*, else ack.
 
-        If the copy cannot be published the message is NAK'd instead, so it is
-        never acknowledged without a dead-letter copy (after the last attempt
-        JetStream keeps it unacknowledged instead of redelivering it).
+        If no copy was stored (publish error, or a duplicate PubAck) the message
+        is NAK'd instead, so it is never acknowledged without a dead-letter copy
+        (after the last attempt JetStream keeps it unacknowledged instead of
+        redelivering it).
         """
         if self._js is None:
             return
         dlq_subject = msg.subject + DLQ_SUFFIX
-        headers = dict(msg.headers) if msg.headers else {}
         try:
-            await self._js.publish(dlq_subject, msg.data, headers=headers or None)
+            ack = await self._js.publish(dlq_subject, msg.data, headers=dlq_headers(msg.headers))
+            # PubAck.duplicate is None unless the stream discarded the message.
+            if ack.duplicate is True:
+                reason = "dead-letter copy discarded as a duplicate"
+                raise RuntimeError(reason)
         except Exception as exc:
             logger.exception("failed to publish to DLQ, keeping the message", dlq_subject=dlq_subject, error=str(exc))
             await msg.nak(delay=NAK_DELAY_SECONDS)
@@ -95,6 +105,23 @@ class ConsumerBaseMixin:
             await msg.term()
         else:
             await msg.ack()
+
+    @staticmethod
+    async def _accept(msg: nats.aio.msg.Msg) -> bool:
+        """Ack an at-most-once message before its work starts; False if the ack was not confirmed.
+
+        A plain ack is fire-and-forget: if it were lost, JetStream would hand the
+        running work to a second worker after the ack wait. A confirmed (double)
+        ack rules that out. Without the confirmation the work is not started:
+        the message is redelivered, or, if the ack did reach the server, the run
+        is ended by the Go Core's run timeout (ADR-016 section 6).
+        """
+        try:
+            await msg.ack_sync(timeout=ACK_SYNC_TIMEOUT_SECONDS)
+        except Exception as exc:
+            logger.error("ack on accept not confirmed, not starting the work", subject=msg.subject, error=str(exc))
+            return False
+        return True
 
     async def _reject_invalid(self, msg: nats.aio.msg.Msg, error: str) -> None:
         """Dead-letter a payload that can never be processed and stop its redelivery."""
@@ -188,8 +215,9 @@ class ConsumerBaseMixin:
             await msg.ack()
             return
 
-        if ack_on_accept:
-            await msg.ack()
+        if ack_on_accept and not await self._accept(msg):
+            self._clear_processed(key)
+            return
 
         try:
             result = await handler(request, log)

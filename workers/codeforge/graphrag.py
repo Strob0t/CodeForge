@@ -7,6 +7,7 @@ graph search with hop-decay scoring.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections import deque
 from dataclasses import dataclass, field
@@ -234,10 +235,10 @@ class CodeGraphBuilder:
         log.info("building code graph", workspace=workspace_path)
 
         try:
-            ctx = _BuildContext(project_id=project_id)
-
-            files = self._collect_files(workspace_path)
-            if not files:
+            # Walking and parsing the workspace is CPU-bound: run it off the
+            # event loop, which also keeps the in-progress acks of this request flowing.
+            ctx = await asyncio.to_thread(self._extract_graph, project_id, workspace_path)
+            if ctx is None:
                 return GraphBuildResult(
                     project_id=project_id,
                     status="ready",
@@ -245,16 +246,6 @@ class CodeGraphBuilder:
                     edge_count=0,
                 )
 
-            for abs_path in files:
-                rel_path = os.path.relpath(abs_path, workspace_path)
-                _, ext = os.path.splitext(abs_path)
-                language = _EXTENSION_MAP.get(ext)
-                if language is None:
-                    continue
-                ctx.languages.add(language)
-                self._extract_from_file(ctx, rel_path, abs_path, language)
-
-            self._resolve_call_edges(ctx)
             await self._persist(ctx, db_url)
 
             log.info(
@@ -279,6 +270,25 @@ class CodeGraphBuilder:
                 status="error",
                 error=str(exc),
             )
+
+    def _extract_graph(self, project_id: str, workspace_path: str) -> _BuildContext | None:
+        """Parse the workspace into graph nodes and edges; None if it has no source files."""
+        files = self._collect_files(workspace_path)
+        if not files:
+            return None
+
+        ctx = _BuildContext(project_id=project_id)
+        for abs_path in files:
+            rel_path = os.path.relpath(abs_path, workspace_path)
+            _, ext = os.path.splitext(abs_path)
+            language = _EXTENSION_MAP.get(ext)
+            if language is None:
+                continue
+            ctx.languages.add(language)
+            self._extract_from_file(ctx, rel_path, abs_path, language)
+
+        self._resolve_call_edges(ctx)
+        return ctx
 
     # ------------------------------------------------------------------
     # File collection

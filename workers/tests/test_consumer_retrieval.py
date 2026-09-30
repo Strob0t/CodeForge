@@ -154,7 +154,7 @@ async def test_retrieval_search_success() -> None:
 
 
 async def test_retrieval_search_failure_publishes_error() -> None:
-    """Search failure publishes error result so Go waiter gets a response, then naks."""
+    """Search failure publishes one error result so Go waiter gets a response, and settles the request."""
     mixin = _TestMixin()
     mixin._retriever.search = AsyncMock(side_effect=RuntimeError("search fail"))
     msg = _make_msg(_search_payload())
@@ -162,14 +162,16 @@ async def test_retrieval_search_failure_publishes_error() -> None:
     await mixin._handle_retrieval_search(msg)
 
     assert mixin._js is not None
-    error_published = False
-    for call in mixin._js.publish.call_args_list:
-        if call.args[0] == SUBJECT_RETRIEVAL_SEARCH_RESULT:
-            result = json.loads(call.args[1])
-            if result.get("error"):
-                error_published = True
-    assert error_published
-    msg.nak.assert_called_once()
+    error_results = [
+        json.loads(call.args[1])
+        for call in mixin._js.publish.call_args_list
+        if call.args[0] == SUBJECT_RETRIEVAL_SEARCH_RESULT
+    ]
+    assert len(error_results) == 1
+    assert error_results[0]["error"]
+    # The error result answered the Go waiter: acked, not retried.
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 async def test_retrieval_search_error_shape() -> None:
@@ -222,7 +224,7 @@ async def test_subagent_search_success() -> None:
 
 
 async def test_subagent_search_failure() -> None:
-    """Subagent search failure publishes error result and naks."""
+    """Subagent search failure publishes one error result and settles the request."""
     mixin = _TestMixin()
     mixin._subagent.search = AsyncMock(side_effect=RuntimeError("subagent fail"))
     msg = _make_msg(_subagent_payload())
@@ -230,14 +232,16 @@ async def test_subagent_search_failure() -> None:
     await mixin._handle_subagent_search(msg)
 
     assert mixin._js is not None
-    error_published = False
-    for call in mixin._js.publish.call_args_list:
-        if call.args[0] == SUBJECT_SUBAGENT_SEARCH_RESULT:
-            result = json.loads(call.args[1])
-            if result.get("error"):
-                error_published = True
-    assert error_published
-    msg.nak.assert_called_once()
+    error_results = [
+        json.loads(call.args[1])
+        for call in mixin._js.publish.call_args_list
+        if call.args[0] == SUBJECT_SUBAGENT_SEARCH_RESULT
+    ]
+    assert len(error_results) == 1
+    assert error_results[0]["error"]
+    # The error result answered the Go waiter: acked, not retried (no repeated LLM expansion).
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 async def test_subagent_search_duplicate() -> None:
@@ -266,4 +270,4 @@ async def test_retrieval_no_js_error_publish() -> None:
     # Should not raise even with _js=None
     await mixin._handle_retrieval_search(msg)
 
-    msg.nak.assert_called_once()
+    msg.ack.assert_called_once()

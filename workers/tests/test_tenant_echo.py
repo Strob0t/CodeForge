@@ -77,6 +77,7 @@ def _msg(payload: dict) -> MagicMock:
     msg.headers = {}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
     return msg
 
 

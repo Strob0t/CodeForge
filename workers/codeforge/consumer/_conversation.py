@@ -395,8 +395,10 @@ class ConversationHandlerMixin:
             await msg.nak()
             return
 
-        await msg.ack()
         self._active_runs.add(run_id)
+        if not await self._accept(msg):
+            self._active_runs.discard(run_id)
+            return
         try:
             await self._run_conversation(run_msg, log)
         except Exception as exc:

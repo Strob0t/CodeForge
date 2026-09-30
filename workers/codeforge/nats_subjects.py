@@ -134,6 +134,15 @@ MAX_DELIVER = MAX_RETRIES + 1  # first delivery plus retries
 ACK_WAIT_SECONDS = 90.0
 NAK_DELAY_SECONDS = 2.0
 DLQ_SUFFIX = ".dlq"
+# The original Nats-Msg-Id of a dead-lettered message (same name in the Go Core).
+HEADER_ORIGINAL_MSG_ID = "X-Original-Msg-Id"
+# How long the server may take to confirm the ack of an accepted run.
+ACK_SYNC_TIMEOUT_SECONDS = 5.0
+# In-progress acks stop after this long, so a hung handler is redelivered. The
+# longest at-least-once work (indexing or graph builds of large repositories,
+# LLM-based reflection) finishes well within it; runs are acked on accept and
+# need no heartbeat.
+MAX_IN_PROGRESS_SECONDS = 30 * 60.0
 
 
 def consumer_name(subject: str) -> str:

@@ -11,13 +11,19 @@ import asyncio
 import json
 
 from nats.aio.msg import Msg
+from nats.js.api import PubAck
 
 
 class RecordingClient:
-    """Stands in for the NATS client that a Msg uses to send its ack replies."""
+    """Stands in for the NATS client that a Msg uses to send its ack replies.
+
+    ``ack_sync`` (a request to the reply subject) is recorded as ``ack(sync)``;
+    with ``fail_requests`` set it times out like an unconfirmed double ack.
+    """
 
     def __init__(self) -> None:
         self.replies: list[bytes] = []
+        self.fail_requests = False
 
     async def publish(
         self,
@@ -28,8 +34,21 @@ class RecordingClient:
     ) -> None:
         self.replies.append(payload)
 
+    async def request(
+        self,
+        subject: str,
+        payload: bytes = b"",
+        timeout: float = 0.5,
+        old_style: bool = False,
+        headers: dict[str, str] | None = None,
+    ) -> Msg:
+        if self.fail_requests:
+            raise TimeoutError
+        self.replies.append(b"ack(sync)")
+        return Msg(_client=self, subject=subject, data=b"")  # type: ignore[arg-type]
+
     def settlements(self) -> list[str]:
-        """Return the replies as names: ack, nak, nak(<delay s>), term, progress."""
+        """Return the replies as names: ack, ack(sync), nak, nak(<delay s>), term, progress."""
         names: list[str] = []
         for payload in self.replies:
             if payload in (b"", Msg.Ack.Ack):
@@ -63,27 +82,41 @@ def jetstream_msg(
 
 
 class FakeSubscription:
-    """A push subscription that never receives a message and records unsubscribe."""
+    """A push subscription that yields delivered messages and records unsubscribe."""
 
     def __init__(self, subject: str) -> None:
         self.subject = subject
         self.unsubscribed = False
+        self._incoming: asyncio.Queue[Msg] = asyncio.Queue()
+
+    def deliver(self, data: bytes) -> None:
+        """Queue a core NATS message with *data* for the subscriber."""
+        self._incoming.put_nowait(Msg(_client=None, subject=self.subject, data=data))  # type: ignore[arg-type]
 
     async def next_msg(self, timeout: float = 1.0) -> Msg:
-        await asyncio.sleep(min(timeout, 0.01))
-        raise TimeoutError
+        try:
+            return await asyncio.wait_for(self._incoming.get(), timeout=min(timeout, 0.01))
+        except TimeoutError:
+            raise TimeoutError from None
 
     async def unsubscribe(self) -> None:
         self.unsubscribed = True
 
 
 class RecordingJetStream:
-    """Records publishes and subscriptions; publishing to a subject in ``failing`` raises."""
+    """Records publishes and subscriptions.
 
-    def __init__(self, failing: set[str] | None = None) -> None:
+    Publishing to a subject in ``failing`` raises; publishing to a subject in
+    ``duplicates`` returns a PubAck with ``duplicate=True`` (the stream kept
+    nothing), as JetStream does for a repeated Nats-Msg-Id.
+    """
+
+    def __init__(self, failing: set[str] | None = None, duplicates: set[str] | None = None) -> None:
         self.published: list[tuple[str, bytes]] = []
+        self.published_headers: list[dict[str, str] | None] = []
         self.subscriptions: list[FakeSubscription] = []
         self.failing = failing or set()
+        self.duplicates = duplicates or set()
 
     async def subscribe(self, subject: str, config: object = None) -> FakeSubscription:
         sub = FakeSubscription(subject)
@@ -97,11 +130,15 @@ class RecordingJetStream:
         timeout: float | None = None,
         stream: str | None = None,
         headers: dict[str, str] | None = None,
-    ) -> None:
+    ) -> PubAck:
         if subject in self.failing:
             msg = f"publish to {subject} failed"
             raise ConnectionError(msg)
+        if subject in self.duplicates:
+            return PubAck(stream="CODEFORGE", seq=len(self.published), duplicate=True)
         self.published.append((subject, payload))
+        self.published_headers.append(headers)
+        return PubAck(stream="CODEFORGE", seq=len(self.published))
 
     def subjects(self) -> list[str]:
         return [subject for subject, _ in self.published]

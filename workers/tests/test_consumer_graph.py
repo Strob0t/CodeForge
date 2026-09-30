@@ -163,7 +163,7 @@ async def test_graph_search_duplicate() -> None:
 
 
 async def test_graph_search_failure_publishes_error() -> None:
-    """Search failure publishes error result (so Go waiter gets a response) and naks."""
+    """Search failure publishes one error result (so Go waiter gets a response) and settles the request."""
     mixin = _TestMixin()
     mixin._graph_searcher.search = AsyncMock(side_effect=RuntimeError("search fail"))
     msg = _make_msg(_search_payload())
@@ -171,15 +171,16 @@ async def test_graph_search_failure_publishes_error() -> None:
     await mixin._handle_graph_search(msg)
 
     assert mixin._js is not None
-    # Error result should be published before the nak
-    error_published = False
-    for call in mixin._js.publish.call_args_list:
-        if call.args[0] == SUBJECT_GRAPH_SEARCH_RESULT:
-            result = json.loads(call.args[1])
-            if result.get("error"):
-                error_published = True
-    assert error_published
-    msg.nak.assert_called_once()
+    error_results = [
+        json.loads(call.args[1])
+        for call in mixin._js.publish.call_args_list
+        if call.args[0] == SUBJECT_GRAPH_SEARCH_RESULT
+    ]
+    assert len(error_results) == 1
+    assert error_results[0]["error"]
+    # The error result answered the Go waiter: acked, not retried.
+    msg.ack.assert_called_once()
+    msg.nak.assert_not_called()
 
 
 async def test_graph_search_no_js() -> None:
@@ -192,4 +193,4 @@ async def test_graph_search_no_js() -> None:
     # Should not raise even with _js=None
     await mixin._handle_graph_search(msg)
 
-    msg.nak.assert_called_once()
+    msg.ack.assert_called_once()

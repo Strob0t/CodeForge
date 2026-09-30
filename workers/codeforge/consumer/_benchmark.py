@@ -419,7 +419,9 @@ class BenchmarkHandlerMixin:
                 await msg.ack()
                 return
 
-            await msg.ack()
+            if not await self._accept(msg):
+                self._clear_processed(f"bench-{req.run_id}")
+                return
             task = asyncio.create_task(self._execute_benchmark_run(req, log), name=f"benchmark-{req.run_id}")
             task.add_done_callback(_handle_task_exception)
 
@@ -429,7 +431,8 @@ class BenchmarkHandlerMixin:
                 BenchmarkRunResult(run_id=run_id, tenant_id=tenant_id, status="failed", error=str(exc)),
                 SUBJECT_BENCHMARK_RUN_RESULT,
             )
-            await msg.ack()
+            if not msg.is_acked:
+                await msg.ack()
 
     async def _execute_benchmark_run(self, req: object, log: structlog.BoundLogger) -> None:
         from codeforge.evaluation.pipeline import EvaluationPipeline
