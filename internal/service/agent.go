@@ -173,6 +173,11 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 	if result.Error != "" {
 		status = string(task.StatusFailed)
 		evType = event.TypeAgentError
+		// UpdateTaskResult also marks the task completed; an error result
+		// leaves it failed.
+		if err := s.store.UpdateTaskStatus(ctx, taskID, task.StatusFailed); err != nil {
+			return fmt.Errorf("update task status: %w", err)
+		}
 	}
 
 	// The result names no agent: record the task's. A task dispatched without
