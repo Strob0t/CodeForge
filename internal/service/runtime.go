@@ -132,6 +132,12 @@ func (s *RuntimeService) EndConversationRun(conversationID, turnID string) {
 	s.state.EndConversationRun(conversationID, turnID)
 }
 
+// IsActiveConversationRun reports whether the run with turnID is the
+// conversation's active run.
+func (s *RuntimeService) IsActiveConversationRun(conversationID, turnID string) bool {
+	return s.state.IsActiveConversationRun(conversationID, turnID)
+}
+
 // ForgetConversation drops the run state of a deleted conversation.
 func (s *RuntimeService) ForgetConversation(conversationID string) {
 	s.state.ForgetConversation(conversationID)
@@ -651,6 +657,7 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 		{messagequeue.SubjectRunHeartbeat, s.handleHeartbeat, "heartbeat"},
 		{messagequeue.SubjectRunOutput, s.handleRunOutput, "run output"},
 		{messagequeue.SubjectTrajectoryEvent, s.handleTrajectoryEvent, "trajectory events"},
+		{messagequeue.SubjectRunStart + deadLetterSuffix, s.handleDeadLetteredRunStart, "dead-lettered run starts"},
 	}
 
 	var cancels []func()

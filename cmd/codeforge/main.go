@@ -660,6 +660,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("conversation run subscriber: %w", err)
 	}
+	convDeadLetterCancel, err := conversationSvc.StartDeadLetterSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("conversation dead-letter subscriber: %w", err)
+	}
 	convCompactCancel, err := conversationSvc.StartCompactSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("conversation compact subscriber: %w", err)
@@ -1101,6 +1105,7 @@ func run() error {
 	cancelTaskHeartbeats()
 	repoMapCancel()
 	convRunCancel()
+	convDeadLetterCancel()
 	convCompactCancel()
 	for _, cancel := range evoCancels {
 		cancel()

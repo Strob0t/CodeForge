@@ -2239,8 +2239,10 @@ func TestStartSubscribers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSubscribers failed: %v", err)
 	}
-	if len(cancels) != 7 {
-		t.Fatalf("expected 7 cancel functions (7 subscriptions), got %d", len(cancels))
+	// 8: tool call request/result, run complete, gate result, heartbeat,
+	// output, trajectory events and dead-lettered run starts (KI-76).
+	if len(cancels) != 8 {
+		t.Fatalf("expected 8 cancel functions (8 subscriptions), got %d", len(cancels))
 	}
 
 	// Call all cancel functions to ensure no panics
