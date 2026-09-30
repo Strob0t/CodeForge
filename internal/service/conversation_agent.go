@@ -110,6 +110,8 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	if s.runTracker != nil {
 		s.runTracker.EndConversationRun(payload.ConversationID, payload.TurnID)
 	}
+	logBestEffort(ctx, s.db.EndConversationTurn(ctx, payload.ConversationID, payload.TurnID), "EndConversationTurn",
+		slog.String("conversation_id", payload.ConversationID))
 
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,
@@ -256,25 +258,22 @@ func (s *ConversationService) WaitForCompletion(ctx context.Context, conversatio
 	}
 }
 
-// StopConversation cancels an active agentic run by publishing a cancel message to NATS.
+// StopConversation cancels an active agentic run by publishing a cancel
+// message to NATS. The conversation must be one of the caller's tenant
+// (the store is tenant-scoped): the cancel reaches every worker by ID.
 func (s *ConversationService) StopConversation(ctx context.Context, conversationID string) error {
 	if s.queue == nil {
 		return errors.New("stop requires NATS queue")
 	}
-
-	payload := struct {
-		RunID string `json:"run_id"`
-	}{
-		RunID: conversationID,
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal cancel payload: %w", err)
+	if _, err := s.db.GetConversation(ctx, conversationID); err != nil {
+		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunCancel, data); err != nil {
-		return fmt.Errorf("publish conversation run cancel: %w", err)
+	if err := s.publishConversationCancel(ctx, conversationID); err != nil {
+		return err
 	}
+	logBestEffort(ctx, s.db.EndConversationTurn(ctx, conversationID, ""), "EndConversationTurn",
+		slog.String("conversation_id", conversationID))
 
 	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:  conversationID,
@@ -282,6 +281,20 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 	})
 
 	slog.Info("conversation run cancel requested", "conversation_id", conversationID)
+	return nil
+}
+
+// publishConversationCancel tells the workers to stop the conversation's run.
+func (s *ConversationService) publishConversationCancel(ctx context.Context, conversationID string) error {
+	data, err := json.Marshal(struct {
+		RunID string `json:"run_id"`
+	}{RunID: conversationID})
+	if err != nil {
+		return fmt.Errorf("marshal cancel payload: %w", err)
+	}
+	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunCancel, data); err != nil {
+		return fmt.Errorf("publish conversation run cancel: %w", err)
+	}
 	return nil
 }
 

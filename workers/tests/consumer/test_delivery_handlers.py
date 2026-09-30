@@ -174,6 +174,38 @@ class TestTasks:
         assert client.settlements() == ["nak"], "an unconfirmed accept releases the message"
         assert _published(consumer) == []
 
+    @pytest.mark.parametrize("fails", [False, True])
+    async def test_heartbeats_while_the_task_runs(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, fails: bool
+    ) -> None:
+        """The Go Core fails a task whose heartbeats stop (KI-65): a running task sends them, an ended one not."""
+        from codeforge.backends._base import TaskResult as BackendTaskResult
+
+        monkeypatch.setattr("codeforge.consumer._tasks.TASK_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+        payload = TaskMessage(id="task-beat", project_id="p1", tenant_id="tenant-1", title="t", prompt="do it")
+        msg, _ = jetstream_msg(payload.model_dump_json().encode(), subject="tasks.agent.aider")
+
+        def beats() -> list[dict[str, object]]:
+            return [json.loads(d) for s, d in _published(consumer) if s == "tasks.heartbeat"]
+
+        async def execute(**_kwargs: object) -> BackendTaskResult:
+            await asyncio.sleep(0.05)
+            if fails:
+                raise RuntimeError("backend down")
+            return BackendTaskResult(status="completed", output="ok")
+
+        consumer._backend_router = MagicMock()
+        consumer._backend_router.execute = execute
+
+        await consumer._handle_message(msg)
+        sent = beats()
+        await asyncio.sleep(0.05)
+
+        assert len(sent) >= 2, "heartbeats are sent while the task runs"
+        assert {(b["task_id"], b["tenant_id"]) for b in sent} == {("task-beat", "tenant-1")}
+        assert all(isinstance(b["timestamp"], str) for b in sent)
+        assert beats() == sent, "the heartbeat stops when the task ends"
+
     async def test_lost_result_publish_is_retried(
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -489,6 +521,35 @@ class TestRuntimeClose:
         assert all(s.unsubscribed for s in js.subscriptions)
         assert sum(1 for subject, _ in js.published if subject == "runs.heartbeat") == beats
         await runtime.close()  # idempotent
+
+    @pytest.mark.parametrize(
+        ("turn_id", "want"),
+        [
+            ("turn-1", {"run_id": "conv-1", "tenant_id": "tenant-1", "turn_id": "turn-1"}),
+            ("", {"run_id": "conv-1", "tenant_id": "tenant-1"}),
+        ],
+    )
+    async def test_heartbeat_names_the_tenant_and_the_turn(self, turn_id: str, want: dict[str, str]) -> None:
+        """Go records a heartbeat in the run's tenant, and a conversation run's for its turn only (KI-65)."""
+        js = RecordingJetStream()
+        runtime = RuntimeClient(
+            js=js,  # type: ignore[arg-type]
+            run_id="conv-1",
+            task_id="",
+            project_id="p1",
+            termination=TerminationConfig(),
+            tenant_id="tenant-1",
+            turn_id=turn_id,
+        )
+        await runtime.start_heartbeat(interval=0.01)
+        await asyncio.sleep(0.02)
+        await runtime.close()
+
+        beats = [json.loads(data) for subject, data in js.published if subject == "runs.heartbeat"]
+        assert beats
+        for beat in beats:
+            assert isinstance(beat.pop("timestamp"), str)
+            assert beat == want
 
 
 # ---------------------------------------------------------------------------

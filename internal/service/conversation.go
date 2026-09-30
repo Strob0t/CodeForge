@@ -143,15 +143,27 @@ var ErrConversationRunInProgress = fmt.Errorf("conversation run in progress: %w"
 // finish(true) once the run's start was published (an earlier stop's mark is
 // then cleared) and finish(false) otherwise (the conversation is released and
 // the mark stays).
-func (s *ConversationService) beginRun(conversationID string) (turnID string, finish func(dispatched bool), err error) {
+//
+// The turn is also stored as the conversation's active turn before the start
+// is published, so the stuck-work watchdog can end the run if its worker
+// dies (KI-65); an undispatched run's stored turn ends with it.
+func (s *ConversationService) beginRun(ctx context.Context, conversationID string) (turnID string, finish func(dispatched bool), err error) {
 	turnID = uuid.New().String()
-	if s.runTracker == nil {
-		return turnID, func(bool) {}, nil
+	if s.runTracker != nil {
+		if err := s.runTracker.BeginConversationRun(conversationID, turnID); err != nil {
+			return "", nil, err
+		}
 	}
-	if err := s.runTracker.BeginConversationRun(conversationID, turnID); err != nil {
-		return "", nil, err
-	}
+	logBestEffort(ctx, s.db.BeginConversationTurn(ctx, conversationID, turnID), "BeginConversationTurn",
+		slog.String("conversation_id", conversationID))
 	return turnID, func(dispatched bool) {
+		if !dispatched {
+			logBestEffort(ctx, s.db.EndConversationTurn(ctx, conversationID, turnID), "EndConversationTurn",
+				slog.String("conversation_id", conversationID))
+		}
+		if s.runTracker == nil {
+			return
+		}
 		if dispatched {
 			s.runTracker.ConversationRunDispatched(conversationID, turnID)
 		} else {
@@ -313,7 +325,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		}
 	}
 
-	turnID, finishRun, err := s.beginRun(conversationID)
+	turnID, finishRun, err := s.beginRun(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}

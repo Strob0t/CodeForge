@@ -52,7 +52,7 @@ func (s *RuntimeService) handleQualityGateResult(ctx context.Context, data []byt
 	return s.HandleQualityGateResult(ctx, &result)
 }
 
-// handleHeartbeat unmarshals a heartbeat and delegates to HandleHeartbeat.
+// handleHeartbeat unmarshals a worker heartbeat and delegates to HandleHeartbeat.
 func (s *RuntimeService) handleHeartbeat(ctx context.Context, data []byte) error {
 	var hb messagequeue.RunHeartbeatPayload
 	if err := json.Unmarshal(data, &hb); err != nil {
@@ -65,20 +65,31 @@ func (s *RuntimeService) handleHeartbeat(ctx context.Context, data []byte) error
 // a run's quality gate.
 const HeartbeatPhaseQualityGate = "quality_gate"
 
-// HandleHeartbeat records a worker's heartbeat for a run. A quality gate
-// heartbeat also refreshes the run's updated_at in the store while the run
-// waits in quality_gate, which tells the stuck-work watchdog (on any
-// replica, also after a restart) that the gate still runs. Heartbeats are
-// delivered at least once; touching a run twice is harmless.
+// HandleHeartbeat records a worker heartbeat in the store, where the
+// stuck-work watchdog finds the work whose worker died (KI-65). A run's
+// heartbeat is also kept in memory for the termination check of its tool
+// calls. A conversation run's heartbeat names its turn and counts only for
+// the conversation's active turn; it is not kept in memory. A quality gate
+// heartbeat refreshes the run's updated_at while the run waits in
+// quality_gate, which tells the watchdog (on any replica, also after a
+// restart) that the gate still runs. Heartbeats are delivered at least once;
+// recording one twice is harmless. An agent heartbeat that cannot be recorded
+// is logged and dropped: the next one follows.
 func (s *RuntimeService) HandleHeartbeat(ctx context.Context, hb *messagequeue.RunHeartbeatPayload) error {
-	s.state.SetHeartbeat(hb.RunID, time.Now())
-	if hb.Phase != HeartbeatPhaseQualityGate {
+	ctx = withPayloadTenant(ctx, hb.TenantID)
+	if hb.TurnID != "" {
+		logBestEffort(ctx, s.store.TouchConversationTurnHeartbeat(ctx, hb.RunID, hb.TurnID),
+			"TouchConversationTurnHeartbeat", slog.String("conversation_id", hb.RunID), slog.String("turn_id", hb.TurnID))
 		return nil
 	}
-	ctx = withPayloadTenant(ctx, hb.TenantID)
-	if err := s.store.TouchRun(ctx, hb.RunID, run.StatusQualityGate); err != nil {
-		return fmt.Errorf("quality gate heartbeat: %w", err)
+	s.state.SetHeartbeat(hb.RunID, time.Now())
+	if hb.Phase == HeartbeatPhaseQualityGate {
+		if err := s.store.TouchRun(ctx, hb.RunID, run.StatusQualityGate); err != nil {
+			return fmt.Errorf("quality gate heartbeat: %w", err)
+		}
+		return nil
 	}
+	logBestEffort(ctx, s.store.TouchRunHeartbeat(ctx, hb.RunID), "TouchRunHeartbeat", slog.String("run_id", hb.RunID))
 	return nil
 }
 

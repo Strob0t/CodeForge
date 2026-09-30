@@ -27,6 +27,8 @@ type convStopEnv struct {
 	responses *runtimeMockQueue // tool call responses of the runtime
 	starts    *runtimeMockQueue // run starts of the conversation service (nil with a custom queue)
 	convID    string
+	store     *convMockStore
+	hub       *runtimeMockBroadcaster // broadcasts of the conversation service
 }
 
 // newConvStopEnv builds the environment; convQueue is the queue the
@@ -46,7 +48,8 @@ func newConvStopEnv(t *testing.T, projectConfig map[string]string, convQueue mes
 		starts = &runtimeMockQueue{}
 		convQueue = starts
 	}
-	conv := service.NewConversationService(store, &runtimeMockBroadcaster{}, "gpt-4o", service.NewModeService())
+	hub := &runtimeMockBroadcaster{}
+	conv := service.NewConversationService(store, hub, "gpt-4o", service.NewModeService())
 	conv.SetQueue(convQueue)
 	conv.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
 	conv.SetRunTracker(rt)
@@ -55,7 +58,7 @@ func newConvStopEnv(t *testing.T, projectConfig map[string]string, convQueue mes
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	return &convStopEnv{conv: conv, runtime: rt, responses: responses, starts: starts, convID: c.ID}
+	return &convStopEnv{conv: conv, runtime: rt, responses: responses, starts: starts, convID: c.ID, store: store, hub: hub}
 }
 
 // lastTurn returns the turn ID of the latest run start of the conversation.

@@ -315,31 +315,6 @@ func TestBenchmarkProgress_ScopesToPayloadTenant(t *testing.T) {
 
 // --- Background jobs ---
 
-func TestReleaseStaleWork_ScopesEachTaskToItsTenant(t *testing.T) {
-	store := &activeWorkMockStore{releasedTasks: []task.Task{
-		{ID: "t-a", ProjectID: "p-a", TenantID: scopeTenantA},
-		{ID: "t-b", ProjectID: "p-b", TenantID: scopeTenantB},
-		{ID: "t-none", ProjectID: "p-none"},
-	}}
-	hub := &tenantRecorder{}
-	svc := NewActiveWorkService(store, hub)
-
-	if _, err := svc.ReleaseStaleWork(context.Background(), time.Minute); err != nil {
-		t.Fatalf("ReleaseStaleWork: %v", err)
-	}
-
-	got := hub.snapshot()
-	want := []string{scopeTenantA, scopeTenantB, ""}
-	if len(got) != len(want) {
-		t.Fatalf("got %d events, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i].tenant != want[i] {
-			t.Errorf("event %d scoped to %q, want %q", i, got[i].tenant, want[i])
-		}
-	}
-}
-
 func TestAutoAgentLoop_ScopesToTheStartingTenant(t *testing.T) {
 	store := newAutoAgentMockStore()
 	hub := &tenantRecorder{}

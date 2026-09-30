@@ -35,7 +35,7 @@ from codeforge.nats_subjects import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from nats.js.client import JetStreamContext
 
@@ -44,7 +44,48 @@ if TYPE_CHECKING:
 # Maximum length (characters) of the arguments preview sent with a tool call.
 ARGUMENTS_PREVIEW_MAX_CHARS = 1000
 
+# How often a worker reports work it executes as alive (the Go Core's
+# runtime.heartbeat_interval). The Go Core ends accepted work whose heartbeats
+# stop for runtime.heartbeat_timeout (KI-65).
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+
 logger = structlog.get_logger()
+
+
+async def send_heartbeats(
+    js: JetStreamContext,
+    subject: str,
+    payload: dict[str, str],
+    interval: float,
+    until: Callable[[], bool] = lambda: False,
+) -> None:
+    """Publish *payload* with the current time on *subject* every *interval* seconds.
+
+    Runs until cancelled or until *until()* is true. A failed publish is
+    logged; the next heartbeat follows.
+    """
+    while not until():
+        beat = {**payload, "timestamp": datetime.now(UTC).isoformat()}
+        try:
+            await js.publish(subject, json.dumps(beat).encode())
+        except Exception as exc:
+            logger.warning("heartbeat publish failed", subject=subject, error=str(exc), **payload)
+        await asyncio.sleep(interval)
+
+
+@contextlib.asynccontextmanager
+async def heartbeats(
+    js: JetStreamContext, subject: str, payload: dict[str, str], interval: float
+) -> AsyncIterator[None]:
+    """Send heartbeats (see send_heartbeats) while the block runs."""
+    task = asyncio.create_task(send_heartbeats(js, subject, payload, interval), name=f"heartbeat {subject}")
+    try:
+        yield
+    finally:
+        task.cancel()
+        # asyncio.wait: the heartbeat's own cancellation does not end the
+        # caller, a cancellation of the caller still does.
+        await asyncio.wait({task})
 
 
 def notification_consumer() -> ConsumerConfig:
@@ -214,25 +255,18 @@ class RuntimeClient:
         await self.stop_heartbeat()
         await self.stop_cancel_listener()
 
-    async def start_heartbeat(self, interval: float = 30.0) -> None:
-        """Start periodic heartbeat to the control plane."""
+    async def start_heartbeat(self, interval: float = HEARTBEAT_INTERVAL_SECONDS) -> None:
+        """Start the periodic heartbeat to the control plane (stops with close() or a cancel).
 
-        async def _beat() -> None:
-            while not self._cancelled:
-                payload = {
-                    "run_id": self.run_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
-                try:
-                    await self._js.publish(
-                        SUBJECT_RUN_HEARTBEAT,
-                        json.dumps(payload).encode(),
-                    )
-                except Exception as exc:
-                    self._log.warning("heartbeat publish failed", error=str(exc))
-                await asyncio.sleep(interval)
-
-        self._heartbeat_task = asyncio.create_task(_beat())
+        It names the run's tenant, and a conversation run's turn: the Go Core
+        records it for the conversation's active turn only (KI-65).
+        """
+        payload = {"run_id": self.run_id, "tenant_id": self.tenant_id}
+        if self.turn_id:
+            payload["turn_id"] = self.turn_id
+        self._heartbeat_task = asyncio.create_task(
+            send_heartbeats(self._js, SUBJECT_RUN_HEARTBEAT, payload, interval, until=self._is_cancelled)
+        )
 
     async def stop_heartbeat(self) -> None:
         """Stop the heartbeat ticker."""

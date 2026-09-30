@@ -300,6 +300,11 @@ func run() error {
 		return fmt.Errorf("agent output subscriber: %w", err)
 	}
 
+	cancelTaskHeartbeats, err := agentSvc.StartHeartbeatSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("task heartbeat subscriber: %w", err)
+	}
+
 	// --- Secrets Vault ---
 	vault, err := secrets.NewVault(secrets.EnvLoader("LITELLM_MASTER_KEY"))
 	if err != nil {
@@ -1050,15 +1055,16 @@ func run() error {
 		}
 	}()
 
-	// --- Stuck-work watchdog (Phase 24 stale tasks, KI-28 quality gates) ---
-	// Further at-most-once work (conversation runs, backend tasks, KI-65)
-	// joins as one more check.
+	// --- Stuck-work watchdog (KI-28 quality gates, KI-65 lost workers) ---
+	// Work acked on accept whose worker stopped sending heartbeats is ended
+	// through its completion path (runtime.heartbeat_timeout; 0 disables).
 	stopStuckWorkWatchdog := service.NewStuckWorkWatchdog(cfg.Runtime.StaleCheckInterval,
-		service.StuckWorkCheck{Name: "stale tasks", EndStuck: func(ctx context.Context) (int, error) {
-			released, err := activeWorkSvc.ReleaseStaleWork(ctx, cfg.Runtime.StaleWorkThreshold)
-			return len(released), err
+		service.StuckWorkCheck{Name: "lost tasks", EndStuck: func(ctx context.Context) (int, error) {
+			return agentSvc.FailTasksWithLostWorker(ctx, service.LostWorkerAfter(&cfg.Runtime))
 		}},
 		service.StuckWorkCheck{Name: "quality gates", EndStuck: runtimeSvc.FailStuckQualityGates},
+		service.StuckWorkCheck{Name: "lost runs", EndStuck: runtimeSvc.EndRunsWithLostWorker},
+		service.StuckWorkCheck{Name: "lost conversation runs", EndStuck: conversationSvc.EndConversationRunsWithLostWorker},
 	).Start(ctx)
 
 	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
@@ -1092,6 +1098,7 @@ func run() error {
 	cancelResults()
 	cancelOutput()
 	cancelAgentOutput()
+	cancelTaskHeartbeats()
 	repoMapCancel()
 	convRunCancel()
 	convCompactCancel()

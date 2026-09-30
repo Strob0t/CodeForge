@@ -33,6 +33,12 @@ type RunStore interface {
 	// TouchRun records that a run in status is alive (updated_at = now); a
 	// run in another status is left alone.
 	TouchRun(ctx context.Context, id string, status run.Status) error
+	// TouchRunHeartbeat records a worker heartbeat of a running run (KI-65).
+	TouchRunHeartbeat(ctx context.Context, id string) error
+	// ListRunsWithStaleHeartbeat returns up to limit running runs whose last
+	// heartbeat is older than idleFor, across all tenants (watchdog use). Runs
+	// without any heartbeat (not accepted by a worker yet) are not listed.
+	ListRunsWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]run.Run, error)
 
 	// Sessions
 	CreateSession(ctx context.Context, s *run.Session) error

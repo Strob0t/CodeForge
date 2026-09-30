@@ -45,6 +45,8 @@ func Validate(subject string, data []byte) error {
 		target = &TaskResultPayload{}
 	case subject == SubjectTaskCancel:
 		target = &TaskCancelPayload{}
+	case subject == SubjectTaskHeartbeat:
+		target = &TaskHeartbeatPayload{}
 
 	// --- Run protocol subjects (Phase 4B/4C, heartbeat Phase 3C) ---
 	case subject == SubjectRunStart:

@@ -729,7 +729,20 @@ func (s *testStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWo
 func (s *testStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
 	return nil, nil
 }
-func (s *testStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+func (s *testStore) TouchRunHeartbeat(_ context.Context, _ string) error { return nil }
+func (s *testStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (s *testStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
+func (s *testStore) EndConversationTurn(_ context.Context, _, _ string) error   { return nil }
+func (s *testStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
+	return nil
+}
+func (s *testStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
+	return nil, nil
+}
+func (s *testStore) TouchTaskHeartbeat(_ context.Context, _ string) error { return nil }
+func (s *testStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
 

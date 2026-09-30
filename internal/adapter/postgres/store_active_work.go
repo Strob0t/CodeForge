@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -73,29 +72,4 @@ func (s *Store) ClaimTask(ctx context.Context, taskID, agentID string, version i
 	}
 
 	return &task.ClaimResult{Task: &t, Claimed: true}, nil
-}
-
-// ReleaseStaleWork finds tasks stuck in running/queued status longer than the
-// given threshold and resets them to pending with no assigned agent.
-// Returns the list of released tasks.
-//
-// INTENTIONALLY CROSS-TENANT: This is a system-level maintenance operation
-// invoked by the scheduler/watchdog to clean up stale work across all tenants.
-// Scoping to a single tenant would leave orphaned tasks in other tenants.
-// The returned tasks include tenant_id so callers can route follow-up actions.
-func (s *Store) ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error) {
-	const q = `
-		UPDATE tasks
-		SET status = 'pending', agent_id = NULL, version = version + 1, updated_at = NOW()
-		WHERE status IN ('running', 'queued')
-		  AND updated_at < NOW() - $1::interval
-		RETURNING id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at, tenant_id`
-
-	rows, err := s.pool.Query(ctx, q, threshold)
-	if err != nil {
-		return nil, fmt.Errorf("release stale work: %w", err)
-	}
-	return scanRows(rows, func(r pgx.Rows) (task.Task, error) {
-		return scanTenantTask(r)
-	})
 }

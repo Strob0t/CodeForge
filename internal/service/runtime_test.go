@@ -68,6 +68,11 @@ type runtimeMockStore struct {
 	teams          []agent.Team
 	contextPacks   []cfcontext.ContextPack
 	sharedContexts []cfcontext.SharedContext
+	// Worker heartbeats (KI-65), see heartbeat_mock_store_test.go.
+	runBeats  map[string]runBeat
+	turnBeats []turnBeat
+	turns     map[string]activeTurn
+	taskBeats map[string]runBeat
 }
 
 func (m *runtimeMockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -1126,9 +1131,6 @@ func (m *runtimeMockStore) ListActiveWork(_ context.Context, _ string) ([]task.A
 	return nil, nil
 }
 func (m *runtimeMockStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
-	return nil, nil
-}
-func (m *runtimeMockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
 	return nil, nil
 }
 

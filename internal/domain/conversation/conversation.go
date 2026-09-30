@@ -19,6 +19,15 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ActiveTurn is the active run of a conversation (its turn) with the tenant
+// that owns the conversation: what the stuck-work watchdog needs to end a run
+// whose worker stopped sending heartbeats.
+type ActiveTurn struct {
+	ConversationID string
+	TenantID       string
+	TurnID         string
+}
+
 // MessageImage represents an image attached to a conversation message.
 type MessageImage struct {
 	Data      string `json:"data"`       // base64 encoded image data

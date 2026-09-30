@@ -241,7 +241,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		return err
 	}
 
-	turnID, finishRun, err := s.beginRun(conversationID)
+	turnID, finishRun, err := s.beginRun(ctx, conversationID)
 	if err != nil {
 		return err
 	}

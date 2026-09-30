@@ -34,11 +34,12 @@ type Queue interface {
 
 // Subject constants for NATS subjects used by CodeForge.
 const (
-	SubjectTaskAgent   = "tasks.agent"   // tasks.agent.{backend} — dispatched to specific backend
-	SubjectTaskResult  = "tasks.result"  // results from workers
-	SubjectTaskOutput  = "tasks.output"  // streaming output lines from workers
-	SubjectTaskCancel  = "tasks.cancel"  // cancel a running task
-	SubjectAgentOutput = "agents.output" // Python → Go: per-line backend output
+	SubjectTaskAgent     = "tasks.agent"     // tasks.agent.{backend} — dispatched to specific backend
+	SubjectTaskResult    = "tasks.result"    // results from workers
+	SubjectTaskOutput    = "tasks.output"    // streaming output lines from workers
+	SubjectTaskCancel    = "tasks.cancel"    // cancel a running task
+	SubjectTaskHeartbeat = "tasks.heartbeat" // Python → Go: every 30 s while a worker executes a task
+	SubjectAgentOutput   = "agents.output"   // Python → Go: per-line backend output
 
 	// Run protocol subjects (Phase 4B step-by-step execution)
 	SubjectRunStart            = "runs.start"             // Go → Python: start a new run

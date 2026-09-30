@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
@@ -20,12 +19,10 @@ import (
 type activeWorkMockStore struct {
 	mockStore
 
-	activeItems     []task.ActiveWorkItem
-	listActiveErr   error
-	claimResult     *task.ClaimResult
-	claimErr        error
-	releasedTasks   []task.Task
-	releaseStaleErr error
+	activeItems   []task.ActiveWorkItem
+	listActiveErr error
+	claimResult   *task.ClaimResult
+	claimErr      error
 }
 
 func (m *activeWorkMockStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWorkItem, error) {
@@ -56,10 +53,6 @@ func (m *activeWorkMockStore) ClaimTask(_ context.Context, taskID, agentID strin
 		return &task.ClaimResult{Task: &m.tasks[i], Claimed: true}, nil
 	}
 	return nil, domain.ErrNotFound
-}
-
-func (m *activeWorkMockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
-	return m.releasedTasks, m.releaseStaleErr
 }
 
 // --- Tests ---
@@ -218,68 +211,6 @@ func TestActiveWorkServiceClaimVersionMismatch(t *testing.T) {
 	}
 	if len(bc.events) != 0 {
 		t.Errorf("expected 0 broadcasts on version mismatch, got %d", len(bc.events))
-	}
-}
-
-func TestActiveWorkServiceReleaseStaleWorkBroadcastsPerTask(t *testing.T) {
-	released := []task.Task{
-		{ID: "t1", ProjectID: "p1", Title: "Stuck task 1"},
-		{ID: "t2", ProjectID: "p2", Title: "Stuck task 2"},
-	}
-	store := &activeWorkMockStore{releasedTasks: released}
-	bc := &mockBroadcaster{}
-	svc := NewActiveWorkService(store, bc)
-
-	got, err := svc.ReleaseStaleWork(context.Background(), 30*time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 released tasks, got %d", len(got))
-	}
-
-	// Should broadcast one EventActiveWorkReleased per task
-	if len(bc.events) != 2 {
-		t.Fatalf("expected 2 broadcasts, got %d", len(bc.events))
-	}
-	for i, ev := range bc.events {
-		if ev.eventType != event.EventActiveWorkReleased {
-			t.Errorf("event[%d] type = %q, want %q", i, ev.eventType, event.EventActiveWorkReleased)
-		}
-		rel, ok := ev.payload.(event.ActiveWorkReleasedEvent)
-		if !ok {
-			t.Fatalf("event[%d] payload type = %T, want ActiveWorkReleasedEvent", i, ev.payload)
-		}
-		if rel.TaskID != released[i].ID {
-			t.Errorf("event[%d] task_id = %q, want %q", i, rel.TaskID, released[i].ID)
-		}
-	}
-}
-
-func TestActiveWorkServiceReleaseStaleWorkNone(t *testing.T) {
-	store := &activeWorkMockStore{} // no released tasks
-	bc := &mockBroadcaster{}
-	svc := NewActiveWorkService(store, bc)
-
-	got, err := svc.ReleaseStaleWork(context.Background(), 30*time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("expected 0 released tasks, got %d", len(got))
-	}
-	if len(bc.events) != 0 {
-		t.Errorf("expected 0 broadcasts when nothing released, got %d", len(bc.events))
-	}
-}
-
-func TestActiveWorkServiceReleaseStaleWorkError(t *testing.T) {
-	store := &activeWorkMockStore{releaseStaleErr: domain.ErrNotFound}
-	svc := NewActiveWorkService(store, &mockBroadcaster{})
-
-	_, err := svc.ReleaseStaleWork(context.Background(), 30*time.Minute)
-	if err == nil {
-		t.Fatal("expected error, got nil")
 	}
 }
 

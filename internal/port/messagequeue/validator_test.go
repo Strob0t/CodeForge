@@ -145,6 +145,9 @@ func TestValidateRunSubjects(t *testing.T) {
 		// runs.heartbeat (Python -> Go), timestamp is an ISO string
 		{"heartbeat valid", SubjectRunHeartbeat, `{"run_id":"r1","timestamp":"2026-09-30T10:00:00+00:00"}`, ""},
 		{"heartbeat timestamp not a string", SubjectRunHeartbeat, `{"run_id":"r1","timestamp":1727690400}`, schemaErr},
+		{"conversation heartbeat valid", SubjectRunHeartbeat, `{"run_id":"c1","tenant_id":"t1","turn_id":"turn-1","timestamp":"2026-09-30T10:00:00+00:00"}`, ""},
+		{"task heartbeat valid", SubjectTaskHeartbeat, `{"task_id":"t1","tenant_id":"t1","timestamp":"2026-09-30T10:00:00+00:00"}`, ""},
+		{"task heartbeat task_id not a string", SubjectTaskHeartbeat, `{"task_id":7,"timestamp":"2026-09-30T10:00:00+00:00"}`, schemaErr},
 
 		// runs.qualitygate.request (Go -> Python)
 		{"qualitygate request valid", SubjectQualityGateRequest, `{"run_id":"r1","project_id":"p1","workspace_path":"/ws","run_tests":true,"run_lint":false,"test_command":"go test ./..."}`, ""},

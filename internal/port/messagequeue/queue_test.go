@@ -107,6 +107,7 @@ func allSubjectConstants(t *testing.T) map[string]string {
 		"SubjectTaskResult":                     mq.SubjectTaskResult,
 		"SubjectTaskOutput":                     mq.SubjectTaskOutput,
 		"SubjectTaskCancel":                     mq.SubjectTaskCancel,
+		"SubjectTaskHeartbeat":                  mq.SubjectTaskHeartbeat,
 		"SubjectAgentOutput":                    mq.SubjectAgentOutput,
 		"SubjectRunStart":                       mq.SubjectRunStart,
 		"SubjectRunToolCallRequest":             mq.SubjectRunToolCallRequest,

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -69,29 +68,4 @@ func (s *ActiveWorkService) ClaimTask(ctx context.Context, taskID, agentID strin
 	}
 
 	return result, nil
-}
-
-// ReleaseStaleWork finds tasks stuck in running/queued status longer than
-// the given threshold and resets them to pending. Broadcasts an
-// EventActiveWorkReleased event per released task to the task's tenant (the
-// release itself spans all tenants).
-func (s *ActiveWorkService) ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error) {
-	released, err := s.store.ReleaseStaleWork(ctx, threshold)
-	if err != nil {
-		return nil, fmt.Errorf("release stale work: %w", err)
-	}
-
-	for i := range released {
-		s.hub.BroadcastEvent(withEntityTenant(ctx, released[i].TenantID), event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
-			TaskID:    released[i].ID,
-			ProjectID: released[i].ProjectID,
-			Reason:    "stale task released after timeout",
-		})
-	}
-
-	if len(released) > 0 {
-		slog.Info("released stale work", "count", len(released), "threshold", threshold)
-	}
-
-	return released, nil
 }

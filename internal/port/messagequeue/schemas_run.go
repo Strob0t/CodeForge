@@ -55,6 +55,14 @@ type TaskCancelPayload struct {
 	TenantID string `json:"tenant_id,omitempty"`
 }
 
+// TaskHeartbeatPayload is the schema for tasks.heartbeat messages: the worker
+// executing a task sends one every 30 s (KI-65).
+type TaskHeartbeatPayload struct {
+	TaskID    string `json:"task_id"`
+	TenantID  string `json:"tenant_id,omitempty"`
+	Timestamp string `json:"timestamp"`
+}
+
 // --- Run protocol payloads (Phase 4B) ---
 
 // ModePayload carries agent mode metadata to the Python worker.
@@ -178,10 +186,13 @@ type RunOutputPayload struct {
 
 // --- Heartbeat payload (Phase 3C) ---
 
-// RunHeartbeatPayload is the schema for runs.heartbeat messages.
+// RunHeartbeatPayload is the schema for runs.heartbeat messages: the worker
+// executing a run or a conversation run sends one every 30 s. A conversation
+// run names its turn (its run ID is the conversation ID).
 type RunHeartbeatPayload struct {
 	RunID     string `json:"run_id"`
 	TenantID  string `json:"tenant_id,omitempty"` // the run's tenant, echoed from the request
+	TurnID    string `json:"turn_id,omitempty"`
 	Timestamp string `json:"timestamp"`
 	// Phase is "quality_gate" while the worker runs the run's quality gate
 	// (the run's updated_at is refreshed); empty for the agent's run.

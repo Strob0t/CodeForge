@@ -21,5 +21,12 @@ type TaskStore interface {
 	// Active Work Visibility (Phase 24)
 	ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error)
 	ClaimTask(ctx context.Context, taskID, agentID string, version int) (*task.ClaimResult, error)
-	ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error)
+	// TouchTaskHeartbeat records a worker heartbeat of a queued or running
+	// task (KI-65).
+	TouchTaskHeartbeat(ctx context.Context, id string) error
+	// ListTasksWithStaleHeartbeat returns up to limit queued or running tasks
+	// whose last heartbeat is older than idleFor, across all tenants (watchdog
+	// use). Tasks without a heartbeat since their last change (not accepted by
+	// a worker yet) are not listed.
+	ListTasksWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]task.Task, error)
 }

@@ -32,6 +32,8 @@ SUBJECT_AGENT = "tasks.agent.*"
 SUBJECT_RESULT = "tasks.result"
 SUBJECT_OUTPUT = "tasks.output"
 SUBJECT_TASK_CANCEL = "tasks.cancel"
+# Worker -> Go: every HEARTBEAT_INTERVAL_SECONDS while a backend task runs (KI-65)
+SUBJECT_TASK_HEARTBEAT = "tasks.heartbeat"
 
 # Agent output (Python -> Go: per-line backend output for WS broadcast)
 SUBJECT_AGENT_OUTPUT = "agents.output"

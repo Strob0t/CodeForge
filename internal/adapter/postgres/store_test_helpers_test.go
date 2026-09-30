@@ -20,6 +20,12 @@ func readStoreSource(t *testing.T, filename string) string {
 	return string(src)
 }
 
+// readSourceFile is readStoreSource under the name older tests use.
+func readSourceFile(t *testing.T, name string) string {
+	t.Helper()
+	return readStoreSource(t, name)
+}
+
 // methodDocComment returns the doc comment text of the *Store method with the
 // given name, parsed from the store source content. Fails the test if the
 // source does not parse or the method does not exist.

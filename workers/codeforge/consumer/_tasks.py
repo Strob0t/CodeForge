@@ -8,16 +8,21 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL
+from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL, SUBJECT_TASK_HEARTBEAT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
-from codeforge.runtime import listen_for_cancel, notification_consumer
+from codeforge.runtime import HEARTBEAT_INTERVAL_SECONDS, heartbeats, listen_for_cancel, notification_consumer
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import nats.aio.msg
 
     from codeforge.backends._base import TaskResult as BackendTaskResult
 
 logger = structlog.get_logger()
+
+# How often a running task is reported alive to the Go Core (KI-65).
+TASK_HEARTBEAT_INTERVAL_SECONDS = HEARTBEAT_INTERVAL_SECONDS
 
 
 class TaskHandlerMixin:
@@ -69,6 +74,24 @@ class TaskHandlerMixin:
             await self._publish_result(failed(reason), SUBJECT_RESULT)
 
         with self._in_flight.track(f"task {task.id}", report_failure):
+            await self._run_task(task, backend_name, request_id, failed, log)
+
+    async def _run_task(
+        self,
+        task: TaskMessage,
+        backend_name: str,
+        request_id: str,
+        failed: Callable[[str], TaskResult],
+        log: structlog.BoundLogger,
+    ) -> None:
+        """Execute an accepted task and publish its result, reporting it alive meanwhile."""
+        beat = {"task_id": task.id, "tenant_id": task.tenant_id}
+        alive = (
+            heartbeats(self._js, SUBJECT_TASK_HEARTBEAT, beat, TASK_HEARTBEAT_INTERVAL_SECONDS)
+            if self._js is not None
+            else contextlib.nullcontext()
+        )
+        async with alive:
             try:
                 log.info("received task", title=task.title)
 

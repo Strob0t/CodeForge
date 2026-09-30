@@ -1601,7 +1601,20 @@ func (m *mockStore) ClaimTask(_ context.Context, taskID, agentID string, version
 	}
 	return &task.ClaimResult{Claimed: false, Reason: "task already claimed or version mismatch"}, nil
 }
-func (m *mockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+func (m *mockStore) TouchRunHeartbeat(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) EndConversationTurn(_ context.Context, _, _ string) error   { return nil }
+func (m *mockStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
+	return nil, nil
+}
+func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
 

@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 )
@@ -19,4 +20,13 @@ type ConversationStore interface {
 	UpdateConversationMode(ctx context.Context, conversationID, mode string) error
 	UpdateConversationModel(ctx context.Context, conversationID, model string) error
 	SearchConversationMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error)
+
+	// Active turn (KI-65): the conversation's active run, set before its start
+	// is published and ended when it ends or is stopped (turnID "" ends any
+	// turn). A heartbeat counts only for the active turn. The list spans all
+	// tenants (watchdog use) and holds only turns that had a heartbeat.
+	BeginConversationTurn(ctx context.Context, conversationID, turnID string) error
+	EndConversationTurn(ctx context.Context, conversationID, turnID string) error
+	TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error
+	ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]conversation.ActiveTurn, error)
 }
