@@ -742,7 +742,7 @@ func TestHandleQualityGateResult_NotInGateStatus(t *testing.T) {
 }
 
 // TestHandleQualityGateResult_GateFailedNoRollback tests that when quality
-// gates fail without rollback configured, the run still completes.
+// gates fail without rollback configured, the run fails all the same (D9).
 func TestHandleQualityGateResult_GateFailedNoRollback(t *testing.T) {
 	_, store, _, bc := newRuntimeTestEnv()
 	ctx := context.Background()
@@ -787,10 +787,10 @@ func TestHandleQualityGateResult_GateFailedNoRollback(t *testing.T) {
 		t.Fatalf("HandleQualityGateResult: %v", err)
 	}
 
-	// Without rollback, the run should still be marked completed (not failed)
+	// Without rollback the run still fails: a failed gate never completes a run (D9)
 	r, _ := store.GetRun(ctx, "run-gate-nrb")
-	if r.Status != run.StatusCompleted {
-		t.Fatalf("expected completed (no rollback), got %s", r.Status)
+	if r.Status != run.StatusFailed {
+		t.Fatalf("expected failed (no rollback), got %s", r.Status)
 	}
 }
 

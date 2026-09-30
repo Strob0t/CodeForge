@@ -11,7 +11,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // finishRun finalizes a run on a worker message. A run that already ended on
@@ -43,6 +42,13 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if r.Status.IsTerminal() {
 		slog.Info("completion for a run that already ended, usage kept", "run_id", r.ID, "status", r.Status)
 		s.keepWorkerTotals(ctx, r.ID, payload)
+		return nil
+	}
+	// runs.complete is delivered at least once: a run waiting for its quality
+	// gate stored its completion when it entered the gate, and only the gate
+	// result (or the gate watchdog) ends it.
+	if r.Status == run.StatusQualityGate {
+		slog.Info("completion for a run waiting for its quality gate, ignored", "run_id", r.ID)
 		return nil
 	}
 	// The control plane is stopping the run and records its end with the
@@ -95,166 +101,13 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 		}
 	}
 
-	// Check if quality gates should be triggered
+	// A completed run whose policy has quality gates waits for them; any other
+	// run ends now (delivery, if configured, happens when it ends completed).
 	profile, ok := s.policy.GetProfile(r.PolicyProfile)
-	hasGates := ok && status == run.StatusCompleted &&
-		(profile.QualityGate.RequireTestsPass || profile.QualityGate.RequireLintPass)
-
-	if hasGates {
-		// Transition to quality_gate status — do not finalize yet. The run keeps
-		// the worker's outcome for the gate result to finalize it with.
-		if err := s.store.EnterQualityGate(ctx, &run.CompletionRequest{
-			ID: r.ID, Status: run.StatusQualityGate, Output: payload.Output, Error: payload.Error,
-			CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model,
-		}); err != nil {
-			if errors.Is(err, domain.ErrConflict) {
-				s.keepWorkerTotals(ctx, r.ID, payload)
-			}
-			return skipEndedRun(ctx, fmt.Errorf("enter quality gate: %w", err), "EnterQualityGate", r.ID)
-		}
-
-		// Look up project for workspace path
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		workspacePath := ""
-		if projErr == nil {
-			workspacePath = proj.WorkspacePath
-		}
-
-		// Determine commands (project-level → config defaults)
-		testCmd := s.runtimeCfg.DefaultTestCommand
-		lintCmd := s.runtimeCfg.DefaultLintCommand
-
-		// Publish quality gate request
-		gateReq := messagequeue.QualityGateRequestPayload{
-			RunID:         r.ID,
-			ProjectID:     r.ProjectID,
-			TenantID:      tenantctx.FromContext(ctx),
-			WorkspacePath: workspacePath,
-			RunTests:      profile.QualityGate.RequireTestsPass,
-			RunLint:       profile.QualityGate.RequireLintPass,
-			TestCommand:   testCmd,
-			LintCommand:   lintCmd,
-		}
-		if err := s.publishJSON(ctx, messagequeue.SubjectQualityGateRequest, gateReq); err != nil {
-			slog.Error("failed to publish quality gate request, failing run (fail-closed)", "run_id", r.ID, "error", err)
-			s.appendAudit(ctx, r, "qualitygate.error", fmt.Sprintf("Failed to publish quality gate request: %s", err.Error()))
-			// Fail-closed: if we can't run quality gates, don't silently pass.
-			return s.finishRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
-				RunID:     r.ID,
-				TaskID:    r.TaskID,
-				ProjectID: r.ProjectID,
-				Status:    string(run.StatusFailed),
-				Error:     "quality gate unavailable: " + err.Error(),
-				CostUSD:   payload.CostUSD,
-				StepCount: payload.StepCount,
-				TokensIn:  payload.TokensIn,
-				TokensOut: payload.TokensOut,
-				Model:     payload.Model,
-			})
-		}
-
-		// Record event and broadcast
-		s.appendRunEvent(ctx, event.TypeQualityGateStarted, r, map[string]string{
-			"run_tests": fmt.Sprintf("%t", profile.QualityGate.RequireTestsPass),
-			"run_lint":  fmt.Sprintf("%t", profile.QualityGate.RequireLintPass),
-		})
-		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
-			RunID:     r.ID,
-			TaskID:    r.TaskID,
-			ProjectID: r.ProjectID,
-			Status:    "started",
-		})
-		// Use a temporary copy with payload values for the broadcast.
-		gateRun := *r
-		gateRun.StepCount = payload.StepCount
-		gateRun.CostUSD = payload.CostUSD
-		gateRun.TokensIn = payload.TokensIn
-		gateRun.TokensOut = payload.TokensOut
-		gateRun.Model = payload.Model
-		s.broadcastRunStatus(ctx, &gateRun, run.StatusQualityGate)
-
-		slog.Info("quality gate triggered", "run_id", r.ID)
-		return nil // Wait for quality gate result
+	if ok && status == run.StatusCompleted && profile.QualityGate.Enabled() {
+		return s.enterQualityGate(ctx, r, &profile.QualityGate, payload)
 	}
-
-	// No quality gates configured — finalize immediately
 	return s.finishRun(ctx, r, status, payload)
-}
-
-// HandleQualityGateResult processes the outcome of a quality gate execution.
-func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *messagequeue.QualityGateResultPayload) error {
-	ctx, r, err := s.loadRunScoped(ctx, result.RunID, result.TenantID)
-	if err != nil {
-		return fmt.Errorf("get run: %w", err)
-	}
-
-	if r.Status != run.StatusQualityGate {
-		slog.Warn("received quality gate result for non-gated run", "run_id", r.ID, "status", r.Status)
-		return nil
-	}
-	if s.state.IsStopping(r.ID) {
-		slog.Info("quality gate result for a run being stopped, skipped", "run_id", r.ID)
-		return nil
-	}
-
-	profile, _ := s.policy.GetProfile(r.PolicyProfile)
-
-	// Determine if gates passed
-	allPassed := result.Error == "" &&
-		(result.TestsPassed == nil || *result.TestsPassed) &&
-		(result.LintPassed == nil || *result.LintPassed)
-
-	if allPassed {
-		s.appendAudit(ctx, r, "qualitygate.passed", "Quality gate passed")
-		s.appendRunEvent(ctx, event.TypeQualityGatePassed, r, map[string]string{})
-		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
-			RunID:       r.ID,
-			TaskID:      r.TaskID,
-			ProjectID:   r.ProjectID,
-			Status:      "passed",
-			TestsPassed: result.TestsPassed,
-			LintPassed:  result.LintPassed,
-		})
-
-		// Trigger delivery if configured, then finalize as completed
-		s.triggerDelivery(ctx, r)
-		return s.finishRun(ctx, r, run.StatusCompleted, storedOutcome(r, run.StatusCompleted, ""))
-	}
-
-	// Gates failed
-	finalStatus := run.StatusCompleted // gates failed but don't downgrade unless configured
-	errMsg := "quality gate failed"
-	if result.Error != "" {
-		errMsg = result.Error
-	}
-	if profile.QualityGate.RollbackOnGateFail {
-		finalStatus = run.StatusFailed
-		errMsg = "quality gate failed (rollback)"
-		if s.checkpoint != nil {
-			proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-			if projErr == nil {
-				if rwErr := s.checkpoint.RewindToFirst(ctx, r.ID, proj.WorkspacePath); rwErr != nil {
-					slog.Error("checkpoint rollback failed", "run_id", r.ID, "error", rwErr)
-				}
-			}
-		}
-	}
-
-	s.appendAudit(ctx, r, "qualitygate.failed", fmt.Sprintf("Quality gate failed: %s", errMsg))
-	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{
-		"error": errMsg,
-	})
-	s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
-		RunID:       r.ID,
-		TaskID:      r.TaskID,
-		ProjectID:   r.ProjectID,
-		Status:      "failed",
-		TestsPassed: result.TestsPassed,
-		LintPassed:  result.LintPassed,
-		Error:       errMsg,
-	})
-
-	return s.finishRun(ctx, r, finalStatus, storedOutcome(r, finalStatus, errMsg))
 }
 
 // storedOutcome is a completion that ends a run with the outcome stored on it

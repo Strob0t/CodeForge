@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -54,6 +55,9 @@ func NewCheckpointService(pool *git.Pool) *CheckpointService {
 		snapshots:   make(map[string]map[string]fileSnapshot),
 	}
 }
+
+// errNoCheckpoints: the run has no checkpoints (it changed no files).
+var errNoCheckpoints = errors.New("no checkpoints")
 
 // checkpointRef is the ref that keeps a run's checkpoints reachable. It is
 // outside refs/heads and refs/tags, so no branch, push or clone carries it.
@@ -184,7 +188,7 @@ func (s *CheckpointService) checkpointAt(runID string, i int) (Checkpoint, bool)
 func (s *CheckpointService) RewindToFirst(ctx context.Context, runID, workspacePath string) error {
 	first, ok := s.checkpointAt(runID, 0)
 	if !ok {
-		return fmt.Errorf("no checkpoints for run %s", runID)
+		return fmt.Errorf("run %s: %w", runID, errNoCheckpoints)
 	}
 	return s.pool.Run(ctx, func() error {
 		if err := restoreHead(ctx, workspacePath, first.CommitHash); err != nil {
@@ -202,7 +206,7 @@ func (s *CheckpointService) RewindToFirst(ctx context.Context, runID, workspaceP
 func (s *CheckpointService) RewindToLast(ctx context.Context, runID, workspacePath string) error {
 	last, ok := s.checkpointAt(runID, -1)
 	if !ok {
-		return fmt.Errorf("no checkpoints for run %s", runID)
+		return fmt.Errorf("run %s: %w", runID, errNoCheckpoints)
 	}
 	return s.pool.Run(ctx, func() error {
 		if err := restoreWorktree(ctx, workspacePath, last.CommitHash); err != nil {

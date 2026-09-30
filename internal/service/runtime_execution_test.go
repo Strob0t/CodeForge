@@ -652,7 +652,7 @@ func TestHandleQualityGateResult_NonGatedRunIsNoop(t *testing.T) {
 
 func TestHandleQualityGateResult_WithoutRollback(t *testing.T) {
 	// headless-permissive-sandbox has RequireTestsPass but RollbackOnGateFail=false
-	// So gate failure should result in StatusCompleted (not failed).
+	// A failed gate fails the run all the same (D9); only the rollback is skipped.
 	policySvc := service.NewPolicyService("headless-permissive-sandbox", nil)
 	store := &runtimeMockStore{
 		projects: []project.Project{
@@ -702,10 +702,10 @@ func TestHandleQualityGateResult_WithoutRollback(t *testing.T) {
 		t.Fatalf("HandleQualityGateResult: %v", err)
 	}
 
-	// Without rollback, gate failure results in completed (not failed)
+	// Without rollback a failed gate still fails the run (D9)
 	r, _ := store.GetRun(ctx, runID)
-	if r.Status != run.StatusCompleted {
-		t.Errorf("expected completed (no rollback), got %s", r.Status)
+	if r.Status != run.StatusFailed {
+		t.Errorf("expected failed (no rollback), got %s", r.Status)
 	}
 }
 

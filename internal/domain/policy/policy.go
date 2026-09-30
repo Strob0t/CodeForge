@@ -56,6 +56,11 @@ type QualityGate struct {
 	RollbackOnGateFail bool `json:"rollback_on_gate_fail" yaml:"rollback_on_gate_fail"`
 }
 
+// Enabled reports whether a run must pass a gate (tests or lint) to complete.
+func (g QualityGate) Enabled() bool {
+	return g.RequireTestsPass || g.RequireLintPass
+}
+
 // TerminationCondition defines when an agent run should stop.
 type TerminationCondition struct {
 	MaxSteps       int     `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`

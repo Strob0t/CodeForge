@@ -217,7 +217,7 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 		Steps:     payload.StepCount,
 	})
 
-	// Clean up checkpoints (remove shadow commits, keep working state)
+	// Clean up checkpoints (delete their ref, keep working state)
 	if s.checkpoint != nil {
 		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
 		if projErr == nil {
@@ -225,6 +225,14 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 				slog.Warn("checkpoint cleanup failed", "run_id", r.ID, "error", cpErr)
 			}
 		}
+	}
+
+	// A run delivers its change (deliver_mode) once it is recorded completed,
+	// with or without quality gates, before the next plan step can touch the
+	// workspace. A failed, stopped or gate-failed run never delivers (KI-26,
+	// D9).
+	if status == run.StatusCompleted {
+		s.triggerDelivery(ctx, r)
 	}
 
 	// Clean up sandbox
