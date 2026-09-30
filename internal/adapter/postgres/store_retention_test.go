@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // Data retention (KI-52) is one instance-wide policy, so each purge query
@@ -65,56 +67,50 @@ func retentionPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// execAsReplica runs one row update with triggers disabled for this
-// transaction only (the sessions updated_at trigger would reset the date).
-func execAsReplica(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
+// backdated fails the test unless a backdate statement changed exactly one row.
+func backdated(t *testing.T, tag pgconn.CommandTag, err error) {
 	t.Helper()
-	ctx := context.Background()
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
-		t.Skipf("cannot bypass the updated_at trigger: %v", err)
-	}
-	tag, err := tx.Exec(ctx, sql, args...)
 	if err != nil {
 		t.Fatalf("backdate: %v", err)
 	}
 	if tag.RowsAffected() != 1 {
 		t.Fatalf("backdate touched %d rows, want 1", tag.RowsAffected())
 	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
 }
 
 // The backdate helpers date a row's creation past the cutoff and its last
-// activity (updated_at) lastActiveAgo back: retention counts from the last
-// activity, so only rows idle past the cutoff may go.
+// activity lastActiveAgo back: retention counts from the last activity, so
+// only rows idle past the cutoff may go. Plain updates: no timestamp retention
+// reads is set by a trigger.
 
 func backdateSession(t *testing.T, pool *pgxpool.Pool, id, lastActiveAgo string) {
 	t.Helper()
-	execAsReplica(t, pool, `UPDATE sessions SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
+	tag, err := pool.Exec(context.Background(),
+		`UPDATE sessions SET created_at = now() - $2::interval, last_activity_at = now() - $3::interval WHERE id = $1`,
 		id, expired, lastActiveAgo)
+	backdated(t, tag, err)
 }
 
 func backdateConversation(t *testing.T, pool *pgxpool.Pool, id, lastActiveAgo string) {
 	t.Helper()
-	execAsReplica(t, pool, `UPDATE conversations SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
+	tag, err := pool.Exec(context.Background(),
+		`UPDATE conversations SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
 		id, expired, lastActiveAgo)
+	backdated(t, tag, err)
 }
 
 func backdateRun(t *testing.T, pool *pgxpool.Pool, id, lastActiveAgo string) {
 	t.Helper()
-	execAsReplica(t, pool, `UPDATE runs SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
+	tag, err := pool.Exec(context.Background(),
+		`UPDATE runs SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
 		id, expired, lastActiveAgo)
+	backdated(t, tag, err)
 }
 
 func backdateAuditEntry(t *testing.T, pool *pgxpool.Pool, id, createdAgo string) {
 	t.Helper()
-	execAsReplica(t, pool, `UPDATE audit_log SET created_at = now() - $2::interval WHERE id = $1`, id, createdAgo)
+	tag, err := pool.Exec(context.Background(), `UPDATE audit_log SET created_at = now() - $2::interval WHERE id = $1`, id, createdAgo)
+	backdated(t, tag, err)
 }
 
 var existsSQL = map[string]string{
@@ -249,6 +245,53 @@ func TestStore_DeleteExpiredConversations(t *testing.T) {
 	}
 }
 
+// A conversation's session is reused by every message (no other write), so
+// reusing it must count as activity: the session of a conversation in daily
+// use survives however old it is.
+func TestRetention_InUseConversationSessionSurvives(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	conv := f.conversation(t)
+	sessions := service.NewSessionService(f.store, nil)
+
+	sess, err := sessions.EnsureConversationSession(f.ctx, f.project.ID, conv.ID)
+	if err != nil {
+		t.Fatalf("EnsureConversationSession: %v", err)
+	}
+	backdateSession(t, pool, sess.ID, expired)
+
+	reused, err := sessions.EnsureConversationSession(f.ctx, f.project.ID, conv.ID) // the next message
+	if err != nil {
+		t.Fatalf("EnsureConversationSession: %v", err)
+	}
+	if reused.ID != sess.ID {
+		t.Fatalf("reused session %s, want %s", reused.ID, sess.ID)
+	}
+
+	purgeAll(t, "DeleteExpiredSessions", f.store.DeleteExpiredSessions)
+	assertRows(t, pool, "sessions", map[string]string{"session in use": sess.ID}, nil)
+}
+
+// Foreign key actions (SET NULL when a referenced run or conversation is
+// purged) are not activity: an expired session referencing an expired run
+// still goes.
+func TestRetention_ForeignKeyNullingIsNotSessionActivity(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	r := f.newRun(t, run.StatusCompleted)
+	sess := &run.Session{ProjectID: f.project.ID, TaskID: f.task.ID, CurrentRunID: r.ID, Status: run.SessionStatusActive}
+	if err := f.store.CreateSession(f.ctx, sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	backdateSession(t, pool, sess.ID, expired)
+	backdateRun(t, pool, r.ID, expired)
+
+	purgeAll(t, "DeleteExpiredRuns", f.store.DeleteExpiredRuns) // sets the session's current_run_id to NULL
+	purgeAll(t, "DeleteExpiredSessions", f.store.DeleteExpiredSessions)
+
+	assertRows(t, pool, "sessions", nil, map[string]string{"expired session of an expired run": sess.ID})
+}
+
 func TestStore_DeleteExpiredRuns(t *testing.T) {
 	a, b := newStatusFixture(t), newStatusFixture(t)
 	pool := retentionPool(t)
@@ -355,7 +398,8 @@ func (f *statusFixture) consentRecord(t *testing.T, pool *pgxpool.Pool) string {
 
 func backdateConsent(t *testing.T, pool *pgxpool.Pool, id, createdAgo string) {
 	t.Helper()
-	execAsReplica(t, pool, `UPDATE user_consents SET created_at = now() - $2::interval WHERE id = $1`, id, createdAgo)
+	tag, err := pool.Exec(context.Background(), `UPDATE user_consents SET created_at = now() - $2::interval WHERE id = $1`, id, createdAgo)
+	backdated(t, tag, err)
 }
 
 func TestStore_AnonymizeExpiredConsentIPAddresses(t *testing.T) {

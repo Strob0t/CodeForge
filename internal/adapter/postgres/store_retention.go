@@ -18,14 +18,14 @@ import (
 // so a call cannot remove more than the policy allows or hold long locks.
 
 // DeleteExpiredSessions deletes up to batchSize agent sessions that were last
-// updated before the cutoff (idle age, so a session in use is kept) and
-// returns how many it deleted.
+// used before the cutoff (last_activity_at: reuse and status changes count,
+// foreign key actions do not) and returns how many it deleted.
 //
 // INTENTIONALLY CROSS-TENANT: instance-wide retention job (see file comment).
 func (s *Store) DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM sessions WHERE id IN (
-		   SELECT id FROM sessions WHERE updated_at < $1 LIMIT $2
+		   SELECT id FROM sessions WHERE last_activity_at < $1 LIMIT $2
 		 )`, before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("delete expired sessions: %w", err)

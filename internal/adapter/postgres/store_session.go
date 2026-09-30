@@ -74,9 +74,18 @@ func (s *Store) ListSessions(ctx context.Context, projectID string) ([]run.Sessi
 
 func (s *Store) UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE sessions SET status = $1, current_run_id = $2 WHERE id = $3 AND tenant_id = $4`,
+		`UPDATE sessions SET status = $1, current_run_id = $2, last_activity_at = now() WHERE id = $3 AND tenant_id = $4`,
 		string(status), nullIfEmpty(currentRunID), id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update session status %s", id)
+}
+
+// TouchSession records that a session was used (last_activity_at, which the
+// retention job ages sessions by).
+func (s *Store) TouchSession(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE sessions SET last_activity_at = now() WHERE id = $1 AND tenant_id = $2`,
+		id, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "touch session %s", id)
 }
 
 // scanSession scans a single row into a Session.

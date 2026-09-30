@@ -37,6 +37,8 @@ type RunStore interface {
 	GetSessionByConversation(ctx context.Context, conversationID string) (*run.Session, error)
 	ListSessions(ctx context.Context, projectID string) ([]run.Session, error)
 	UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error
+	// TouchSession records that a session was used; retention ages sessions by their last use.
+	TouchSession(ctx context.Context, id string) error
 
 	// Retention: cross-tenant system job (RetentionService), at most batchSize rows per call
 	DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error)

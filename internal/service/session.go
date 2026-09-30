@@ -39,6 +39,9 @@ func (s *SessionService) GetSessionByConversation(ctx context.Context, conversat
 func (s *SessionService) EnsureConversationSession(ctx context.Context, projectID, conversationID string) (*run.Session, error) {
 	existing, err := s.store.GetSessionByConversation(ctx, conversationID)
 	if err == nil && existing != nil && existing.Status == run.SessionStatusActive {
+		// Reuse is the only write a conversation session gets; retention ages
+		// sessions by their last use.
+		logBestEffort(ctx, s.store.TouchSession(ctx, existing.ID), "TouchSession", slog.String("session_id", existing.ID))
 		return existing, nil
 	}
 
