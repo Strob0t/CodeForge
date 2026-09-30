@@ -8,7 +8,6 @@ at the bottom starts the consumer.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import signal
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -28,6 +27,7 @@ from codeforge.consumer._compact import CompactHandlerMixin
 from codeforge.consumer._context import ContextHandlerMixin
 from codeforge.consumer._context_events import ContextEventsHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
+from codeforge.consumer._delivery import PROGRESS_INTERVAL_SECONDS, ensure_durable, keep_in_progress
 from codeforge.consumer._graph import GraphHandlerMixin
 from codeforge.consumer._handoff import HandoffHandlerMixin
 from codeforge.consumer._memory import MemoryHandlerMixin
@@ -117,6 +117,9 @@ class TaskConsumer(
 ):
     """Consumes task messages from NATS JetStream and dispatches them to the executor."""
 
+    # How often a message that is still being handled is reported in progress.
+    _progress_interval: float = PROGRESS_INTERVAL_SECONDS
+
     def __init__(
         self,
         nats_url: str = "nats://localhost:4222",
@@ -195,7 +198,7 @@ class TaskConsumer(
         loops = []
         for subject, handler in subscriptions:
             name = consumer_name(subject)
-            sub = await self._ensure_pull_consumer(name, subject)
+            sub = await ensure_durable(self._js, name, subject)
             logger.info("subscribed", subject=subject, durable=name)
             loops.append(self._message_loop(sub, handler, subject))
 
@@ -205,33 +208,6 @@ class TaskConsumer(
         logger.info("healthcheck sentinel created", path=str(_HEALTHY_SENTINEL))
 
         await asyncio.gather(*loops)
-
-    async def _ensure_pull_consumer(self, name: str, subject: str) -> nats.js.client.JetStreamContext.PullSubscription:
-        """Create (or recreate) a durable pull consumer and bind to it.
-
-        If a consumer with *name* already exists but has incompatible config
-        (e.g. push vs pull, different deliver-group), it is deleted first so
-        the subscription can be recreated cleanly.
-        """
-        try:
-            return await self._js.pull_subscribe(
-                subject,
-                durable=name,
-                stream=STREAM_NAME,
-            )
-        except nats.js.errors.Error:
-            logger.warning(
-                "recreating incompatible consumer",
-                consumer=name,
-                stream=STREAM_NAME,
-            )
-            with contextlib.suppress(nats.js.errors.NotFoundError):
-                await self._js.delete_consumer(STREAM_NAME, name)
-            return await self._js.pull_subscribe(
-                subject,
-                durable=name,
-                stream=STREAM_NAME,
-            )
 
     async def _message_loop(
         self,
@@ -282,7 +258,15 @@ class TaskConsumer(
                 _, token = extract_trace_context(raw_headers)
                 msg_start = _time.monotonic()
                 try:
-                    await handler(msg)
+                    # Handlers may run longer than the ack wait; keep JetStream
+                    # from redelivering the message to another worker meanwhile.
+                    async with keep_in_progress(msg, self._progress_interval):
+                        await handler(msg)
+                except Exception as exc:
+                    # Handlers settle their messages themselves; an escaping error
+                    # must not end the loop. The unsettled message is redelivered
+                    # after the ack wait, at most MAX_DELIVER times in total.
+                    logger.exception("unhandled error in message handler", subject=label, error=str(exc))
                 finally:
                     otel_metrics.nats_processing.record(_time.monotonic() - msg_start)
                     otel_context.detach(token)

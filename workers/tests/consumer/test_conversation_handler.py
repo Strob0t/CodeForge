@@ -1,7 +1,7 @@
 """Tests for ConversationHandlerMixin.
 
 Verifies:
-- _handle_conversation_run: valid message processing, invalid JSON nack, duplicate dedup
+- _handle_conversation_run: valid message processing, invalid JSON dead-lettered, duplicate dedup
 - _publish_completion: correct NATS subject and payload structure
 - _build_system_prompt: returns a non-empty string
 """
@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.models import (
@@ -43,6 +44,10 @@ def _make_valid_run_start(
     )
 
 
+class _Handler(ConversationHandlerMixin, ConsumerBaseMixin):
+    """The conversation mixin with the shared consumer helpers, as in TaskConsumer."""
+
+
 def _make_handler() -> ConversationHandlerMixin:
     """Create a ConversationHandlerMixin instance with mocked dependencies.
 
@@ -51,7 +56,7 @@ def _make_handler() -> ConversationHandlerMixin:
     _js, _llm, _db_url, _litellm_url, _litellm_key, _experience_pool,
     _stamp_trust (staticmethod from ConsumerBaseMixin).
     """
-    handler = ConversationHandlerMixin()
+    handler = _Handler()
     handler._js = AsyncMock()
     handler._js.publish = AsyncMock()
     handler._llm = AsyncMock()
@@ -213,22 +218,23 @@ class TestHandleConversationRun:
         assert runtime_cls.call_args.kwargs["mode_id"] == expected_mode_id
 
     @pytest.mark.asyncio
-    async def test_invalid_json_publishes_error_and_acks(self) -> None:
-        """Invalid JSON data should trigger error publishing and ack (not nak)."""
+    async def test_invalid_json_is_dead_lettered_and_terminated(self) -> None:
+        """Invalid JSON goes to the DLQ and is terminated: never NAK'd, never run."""
         handler = _make_handler()
         msg = MagicMock()
+        msg.subject = "conversation.run.start"
         msg.data = b"not valid json {{"
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.term = AsyncMock()
 
-        # _handle_conversation_run catches Exception, calls _publish_error_result, then acks.
-        with patch.object(handler, "_publish_error_result", new_callable=AsyncMock):
-            # _publish_error_result in _conversation.py has its own signature: just (msg,)
-            await handler._handle_conversation_run(msg)
+        await handler._handle_conversation_run(msg)
 
-        # The handler catches Exception and acks after publishing error.
-        msg.ack.assert_called_once()
+        handler._js.publish.assert_awaited_once_with("conversation.run.start.dlq", b"not valid json {{", headers=None)
+        msg.term.assert_awaited_once()
+        msg.ack.assert_not_called()
+        msg.nak.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_duplicate_run_id_skipped(self) -> None:

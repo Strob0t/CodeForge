@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._prompt_evolution import PromptEvolutionHandlerMixin
 from codeforge.consumer._subjects import (
     SUBJECT_PROMPT_EVOLUTION_PROMOTED,
@@ -27,13 +28,12 @@ class TestSubjectConstants:
         assert SUBJECT_PROMPT_EVOLUTION_REVERTED == "prompt.evolution.reverted"
 
 
-class _FakeHandler(PromptEvolutionHandlerMixin):
+class _FakeHandler(PromptEvolutionHandlerMixin, ConsumerBaseMixin):
     """Minimal concrete class satisfying mixin dependencies."""
 
     def __init__(self) -> None:
         self._js = AsyncMock()
         self._llm = AsyncMock()
-        self._processed_ids: set[str] = set()
 
 
 @pytest.fixture
@@ -69,13 +69,20 @@ class TestHandlePromptPromoted:
         await handler._handle_prompt_promoted(msg)
         msg.ack.assert_awaited_once()
 
-    async def test_acks_on_invalid_json(self, handler: _FakeHandler) -> None:
+    async def test_dead_letters_invalid_json(self, handler: _FakeHandler) -> None:
+        """Invalid JSON goes to the DLQ and is terminated (never NAK'd)."""
         msg = AsyncMock()
+        msg.subject = SUBJECT_PROMPT_EVOLUTION_PROMOTED
         msg.data = b"bad json"
         msg.headers = None
 
         await handler._handle_prompt_promoted(msg)
-        msg.ack.assert_awaited_once()
+        handler._js.publish.assert_awaited_once_with(
+            f"{SUBJECT_PROMPT_EVOLUTION_PROMOTED}.dlq", b"bad json", headers=None
+        )
+        msg.term.assert_awaited_once()
+        msg.ack.assert_not_awaited()
+        msg.nak.assert_not_awaited()
 
 
 class TestHandlePromptReverted:
@@ -106,10 +113,17 @@ class TestHandlePromptReverted:
         await handler._handle_prompt_reverted(msg)
         msg.ack.assert_awaited_once()
 
-    async def test_acks_on_invalid_json(self, handler: _FakeHandler) -> None:
+    async def test_dead_letters_invalid_json(self, handler: _FakeHandler) -> None:
+        """Invalid JSON goes to the DLQ and is terminated (never NAK'd)."""
         msg = AsyncMock()
+        msg.subject = SUBJECT_PROMPT_EVOLUTION_REVERTED
         msg.data = b"not valid"
         msg.headers = None
 
         await handler._handle_prompt_reverted(msg)
-        msg.ack.assert_awaited_once()
+        handler._js.publish.assert_awaited_once_with(
+            f"{SUBJECT_PROMPT_EVOLUTION_REVERTED}.dlq", b"not valid", headers=None
+        )
+        msg.term.assert_awaited_once()
+        msg.ack.assert_not_awaited()
+        msg.nak.assert_not_awaited()

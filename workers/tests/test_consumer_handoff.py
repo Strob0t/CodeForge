@@ -130,20 +130,24 @@ async def test_handoff_stamps_trust() -> None:
     assert published_data["trust"]["origin"] == "internal"
 
 
-async def test_handoff_invalid_json_acks() -> None:
-    """Invalid msg.data is caught and the message is still acked."""
+async def test_handoff_invalid_json_is_dead_lettered() -> None:
+    """Invalid msg.data goes to the DLQ and is terminated; no run is dispatched."""
     mixin = _TestMixin()
     msg = MagicMock()
+    msg.subject = "handoff.request"
     msg.data = b"not valid json"
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
 
     await mixin._handle_handoff_request(msg)
 
-    msg.ack.assert_called_once()
     assert mixin._js is not None
-    mixin._js.publish.assert_not_called()
+    mixin._js.publish.assert_awaited_once_with("handoff.request.dlq", b"not valid json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.ack.assert_not_called()
+    msg.nak.assert_not_called()
 
 
 async def test_handoff_no_js_skips_publish() -> None:

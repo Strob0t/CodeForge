@@ -56,19 +56,22 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
 
 
 async def test_handle_message_invalid_json(consumer: TaskConsumer) -> None:
-    """_handle_message should nack on invalid JSON."""
+    """_handle_message dead-letters invalid JSON and terminates it (a NAK would loop forever)."""
     msg = MagicMock()
     msg.data = b"not valid json"
     msg.subject = "tasks.agent.aider"
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
 
     consumer._js = AsyncMock()
 
     await consumer._handle_message(msg)
 
-    msg.nak.assert_called_once()
+    consumer._js.publish.assert_awaited_once_with("tasks.agent.aider.dlq", b"not valid json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.nak.assert_not_called()
     msg.ack.assert_not_called()
 
 

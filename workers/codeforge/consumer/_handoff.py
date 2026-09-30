@@ -18,8 +18,10 @@ class HandoffHandlerMixin:
 
     async def _handle_handoff_request(self, msg: nats.aio.msg.Msg) -> None:
         """Process a handoff request: create a new agent run with injected context."""
+        payload = await self._parse_json_object(msg)
+        if payload is None:
+            return
         try:
-            payload = json.loads(msg.data)
             target_agent = payload.get("target_agent_id", "")
             context_msg = payload.get("context", "")
             target_mode = payload.get("target_mode_id", "")

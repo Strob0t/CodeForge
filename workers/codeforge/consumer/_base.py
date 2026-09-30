@@ -7,8 +7,10 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import structlog
+from pydantic import ValidationError
 
-from codeforge.consumer._subjects import HEADER_REQUEST_ID, HEADER_RETRY_COUNT, SUBJECT_OUTPUT
+from codeforge.consumer._delivery import delivery_attempt, is_last_attempt
+from codeforge.consumer._subjects import DLQ_SUFFIX, HEADER_REQUEST_ID, NAK_DELAY_SECONDS, SUBJECT_OUTPUT
 from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
@@ -71,28 +73,52 @@ class ConsumerBaseMixin:
         """Remove a message ID so it can be reprocessed (e.g. after a failure)."""
         cls._processed_ids.pop(msg_id, None)
 
-    @staticmethod
-    def _retry_count(msg: nats.aio.msg.Msg) -> int:
-        """Extract the Retry-Count header value, defaulting to 0."""
-        if msg.headers and HEADER_RETRY_COUNT in msg.headers:
-            try:
-                return int(msg.headers[HEADER_RETRY_COUNT])
-            except (ValueError, TypeError):
-                return 0
-        return 0
+    async def _move_to_dlq(self, msg: nats.aio.msg.Msg, *, terminate: bool = False) -> None:
+        """Copy *msg* to ``{subject}.dlq``, then settle it: term if *terminate*, else ack.
 
-    async def _move_to_dlq(self, msg: nats.aio.msg.Msg) -> None:
-        """Publish message to DLQ subject and ack the original."""
+        If the copy cannot be published the message is NAK'd instead, so it is
+        never acknowledged without a dead-letter copy (after the last attempt
+        JetStream keeps it unacknowledged instead of redelivering it).
+        """
         if self._js is None:
             return
-        dlq_subject = msg.subject + ".dlq"
+        dlq_subject = msg.subject + DLQ_SUFFIX
         headers = dict(msg.headers) if msg.headers else {}
         try:
             await self._js.publish(dlq_subject, msg.data, headers=headers or None)
-            logger.warning("message moved to DLQ", dlq_subject=dlq_subject)
         except Exception as exc:
-            logger.exception("failed to publish to DLQ", dlq_subject=dlq_subject, error=str(exc))
-        await msg.ack()
+            logger.exception("failed to publish to DLQ, keeping the message", dlq_subject=dlq_subject, error=str(exc))
+            await msg.nak(delay=NAK_DELAY_SECONDS)
+            return
+        logger.warning("message moved to DLQ", dlq_subject=dlq_subject, attempt=delivery_attempt(msg))
+        if terminate:
+            await msg.term()
+        else:
+            await msg.ack()
+
+    async def _reject_invalid(self, msg: nats.aio.msg.Msg, error: str) -> None:
+        """Dead-letter a payload that can never be processed and stop its redelivery."""
+        logger.error("invalid message payload", subject=msg.subject, error=error)
+        await self._move_to_dlq(msg, terminate=True)
+
+    async def _retry_or_dead_letter(self, msg: nats.aio.msg.Msg) -> None:
+        """Settle a failed message: retry it later, or dead-letter it on the last attempt."""
+        if is_last_attempt(msg):
+            await self._move_to_dlq(msg)
+        else:
+            await msg.nak(delay=NAK_DELAY_SECONDS)
+
+    async def _parse_json_object(self, msg: nats.aio.msg.Msg) -> dict[str, object] | None:
+        """Decode a JSON object payload; dead-letter the message and return None if it is not one."""
+        try:
+            payload = json.loads(msg.data)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            await self._reject_invalid(msg, str(exc))
+            return None
+        if not isinstance(payload, dict):
+            await self._reject_invalid(msg, f"expected a JSON object, got {type(payload).__name__}")
+            return None
+        return payload
 
     @staticmethod
     def _stamp_trust(payload: dict, source_id: str = "python-worker") -> dict:
@@ -124,26 +150,13 @@ class ConsumerBaseMixin:
         except Exception as exc:
             logger.exception("failed to publish error result", subject=subject, error=str(exc))
 
-    async def _publish_error_result(
-        self,
-        msg: nats.aio.msg.Msg,
-        request_model: type,
-        result_model: type,
-        subject: str,
-    ) -> None:
-        """Publish an error result so the Go waiter gets an immediate response, then nak."""
+    async def _parse_request(self, msg: nats.aio.msg.Msg, request_model: type[RequestT]) -> RequestT | None:
+        """Validate the payload; dead-letter the message and return None if it is invalid."""
         try:
-            req = request_model.model_validate_json(msg.data)
-            error_result = result_model(
-                project_id=req.project_id,
-                query=req.query,
-                request_id=req.request_id,
-                error="internal worker error",
-            )
-            await self._publish_error(error_result, subject)
-        except Exception as exc:
-            logger.exception("failed to publish error result", subject=subject, error=str(exc))
-        await msg.nak()
+            return request_model.model_validate_json(msg.data)
+        except ValidationError as exc:
+            await self._reject_invalid(msg, str(exc))
+            return None
 
     async def _handle_request(
         self,
@@ -153,28 +166,44 @@ class ConsumerBaseMixin:
         handler: Callable[[RequestT, structlog.BoundLogger], Awaitable[ResultT | None]],
         result_subject: str | None = None,
         log_context: Callable[[RequestT], dict[str, Any]] | None = None,
+        *,
+        ack_on_accept: bool = False,
     ) -> None:
-        """Generic NATS handler with dedup, processing, and error handling."""
+        """Generic NATS handler with validation, dedup, processing, and delivery settlement.
+
+        Default (at-least-once): the message is acked after the handler
+        succeeded; a failure is retried until the last JetStream delivery and
+        then dead-lettered. With *ack_on_accept* (at-most-once, for runs that
+        are not safe to execute twice) the message is acked before the handler
+        runs and a failure is not retried; the Go Core owns the run's outcome.
+        """
+        request = await self._parse_request(msg, request_model)
+        if request is None:
+            return
+        log = logger.bind(**(log_context(request) if log_context else {}))
+
+        key = dedup_key(request)
+        if self._is_duplicate(key):
+            log.warning("duplicate request, skipping", dedup_key=key)
+            await msg.ack()
+            return
+
+        if ack_on_accept:
+            await msg.ack()
+
         try:
-            request = request_model.model_validate_json(msg.data)
-            bind_kwargs = log_context(request) if log_context else {}
-            log = logger.bind(**bind_kwargs)
-
-            key = dedup_key(request)
-            if self._is_duplicate(key):
-                log.warning("duplicate request, skipping", dedup_key=key)
-                await msg.ack()
-                return
-
             result = await handler(request, log)
-
             if result is not None and result_subject and self._js is not None:
                 result = _echo_tenant(request, result)
                 await self._js.publish(result_subject, result.model_dump_json().encode())
-
-            await msg.ack()
-            log.info("request processed", dedup_key=key)
-
         except Exception as exc:
-            logger.exception("failed to process request", error=str(exc))
-            await msg.nak()
+            log.exception("failed to process request", error=str(exc), attempt=delivery_attempt(msg))
+            if not ack_on_accept:
+                # Not processed: the redelivery must not be skipped as a duplicate.
+                self._clear_processed(key)
+                await self._retry_or_dead_letter(msg)
+            return
+
+        if not ack_on_accept:
+            await msg.ack()
+        log.info("request processed", dedup_key=key)

@@ -163,6 +163,7 @@ class TestRunsHandlerExtraSubjects:
         import codeforge.consumer._runs as runs_module
 
         captured_extra = []
+        closed: list[bool] = []
 
         class MockRuntime:
             def __init__(self, **kwargs: object) -> None:
@@ -171,6 +172,9 @@ class TestRunsHandlerExtraSubjects:
 
             async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
                 captured_extra.extend(extra_subjects or [])
+
+            async def close(self) -> None:
+                closed.append(True)
 
         original_rc = runs_module.RuntimeClient
         runs_module.RuntimeClient = MockRuntime  # type: ignore[assignment,misc]
@@ -183,3 +187,4 @@ class TestRunsHandlerExtraSubjects:
             runs_module.RuntimeClient = original_rc  # type: ignore[assignment,misc]
 
         assert SUBJECT_TASK_CANCEL in captured_extra
+        assert closed == [True], "the run's cancel listeners must be released when it ends"

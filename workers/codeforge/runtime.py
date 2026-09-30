@@ -73,7 +73,8 @@ class RuntimeClient:
         self.mode_id = mode_id
         self._metrics = ExecutionMetrics()
         self._cancelled = False
-        self._cancel_sub: object | None = None
+        self._cancel_subs: list[JetStreamContext.PushSubscription] = []
+        self._cancel_tasks: list[asyncio.Task[None]] = []
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log = logger.bind(run_id=run_id, task_id=task_id)
 
@@ -81,29 +82,49 @@ class RuntimeClient:
         """Subscribe to cancellation messages for this run.
 
         Listens on the default runs.cancel subject plus any extra subjects
-        (e.g. conversation.run.cancel for conversation runs).
+        (e.g. conversation.run.cancel for conversation runs). The subscriptions
+        belong to this run: ``close()`` must be called when the run ends.
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
-        _new_only = ConsumerConfig(deliver_policy=DeliverPolicy.NEW)
-        subs = [await self._js.subscribe(s, config=_new_only) for s in subjects]
-        self._cancel_sub = subs  # type: ignore[assignment]
+        new_only = ConsumerConfig(deliver_policy=DeliverPolicy.NEW)
+        for subject in subjects:
+            sub = await self._js.subscribe(subject, config=new_only)
+            self._cancel_subs.append(sub)
+            self._cancel_tasks.append(asyncio.create_task(self._listen_for_cancel(sub)))
 
-        async def _listen_sub(sub: object) -> None:
-            while not self._cancelled:
-                try:
-                    msg = await sub.next_msg(timeout=1.0)  # type: ignore[attr-defined]
-                    data = json.loads(msg.data)
-                    if data.get("run_id") == self.run_id or data.get("task_id") == self.task_id:
-                        self._cancelled = True
-                        self._log.info("run cancelled by control plane")
-                except TimeoutError:
-                    continue
-                except Exception as exc:
-                    logger.debug("cancel listener error", error=str(exc))
-                    break
+    async def _listen_for_cancel(self, sub: JetStreamContext.PushSubscription) -> None:
+        while not self._cancelled:
+            try:
+                msg = await sub.next_msg(timeout=1.0)
+                data = json.loads(msg.data)
+                if data.get("run_id") == self.run_id or data.get("task_id") == self.task_id:
+                    self._cancelled = True
+                    self._log.info("run cancelled by control plane")
+            except TimeoutError:
+                continue
+            except Exception as exc:
+                logger.debug("cancel listener error", error=str(exc))
+                break
 
+    async def stop_cancel_listener(self) -> None:
+        """Stop the listener tasks and unsubscribe this run's cancel subscriptions."""
+        tasks, self._cancel_tasks = self._cancel_tasks, []
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        subs, self._cancel_subs = self._cancel_subs, []
         for sub in subs:
-            asyncio.create_task(_listen_sub(sub))  # noqa: RUF006
+            try:
+                await sub.unsubscribe()
+            except Exception as exc:
+                self._log.warning("cancel listener unsubscribe failed", error=str(exc))
+
+    async def close(self) -> None:
+        """Release everything this run holds on NATS: heartbeat and cancel listeners."""
+        await self.stop_heartbeat()
+        await self.stop_cancel_listener()
 
     async def start_heartbeat(self, interval: float = 30.0) -> None:
         """Start periodic heartbeat to the control plane."""

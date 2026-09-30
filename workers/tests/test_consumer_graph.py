@@ -109,17 +109,22 @@ async def test_graph_build_failure_naks() -> None:
 
 
 async def test_graph_build_invalid_json() -> None:
-    """Invalid JSON causes nak."""
+    """Invalid JSON is dead-lettered and terminated (a NAK would redeliver it forever)."""
     mixin = _TestMixin()
     msg = MagicMock()
+    msg.subject = "graph.build.request"
     msg.data = b"not json"
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
 
     await mixin._handle_graph_build(msg)
 
-    msg.nak.assert_called_once()
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("graph.build.request.dlq", b"not json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.nak.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ import pytest
 from codeforge.consumer import _base as base_module
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._subjects import (
-    HEADER_RETRY_COUNT,
     SUBJECT_A2A_TASK_CANCEL,
     SUBJECT_A2A_TASK_CREATED,
     SUBJECT_BENCHMARK_RUN_REQUEST,
@@ -97,33 +96,8 @@ class TestIsDuplicate:
 # ---------------------------------------------------------------------------
 
 
-class TestRetryCount:
-    """Tests for ConsumerBaseMixin._retry_count."""
-
-    def test_retry_count_extraction(self) -> None:
-        msg = MagicMock()
-        msg.headers = {HEADER_RETRY_COUNT: "3"}
-        assert ConsumerBaseMixin._retry_count(msg) == 3
-
-    def test_retry_count_default_zero_no_headers(self) -> None:
-        msg = MagicMock()
-        msg.headers = None
-        assert ConsumerBaseMixin._retry_count(msg) == 0
-
-    def test_retry_count_default_zero_missing_key(self) -> None:
-        msg = MagicMock()
-        msg.headers = {"Other-Header": "value"}
-        assert ConsumerBaseMixin._retry_count(msg) == 0
-
-    def test_retry_count_invalid_value_returns_zero(self) -> None:
-        msg = MagicMock()
-        msg.headers = {HEADER_RETRY_COUNT: "not-a-number"}
-        assert ConsumerBaseMixin._retry_count(msg) == 0
-
-    def test_retry_count_none_value_returns_zero(self) -> None:
-        msg = MagicMock()
-        msg.headers = {HEADER_RETRY_COUNT: None}
-        assert ConsumerBaseMixin._retry_count(msg) == 0
+# Retry counting uses JetStream's delivery count (msg.metadata.num_delivered),
+# see tests/consumer/test_delivery.py (TestDeliveryAttempt).
 
 
 class TestStampTrust:
@@ -307,7 +281,7 @@ class TestConversationDispatch:
         from codeforge.consumer._conversation import ConversationHandlerMixin
         from codeforge.models import ConversationRunStartMessage
 
-        mixin = type("_TestMixin", (ConversationHandlerMixin,), {"_active_runs": set()})()
+        mixin = type("_TestMixin", (ConversationHandlerMixin, ConsumerBaseMixin), {"_active_runs": set()})()
 
         run_msg = ConversationRunStartMessage(
             run_id="run-dup",

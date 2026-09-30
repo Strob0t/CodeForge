@@ -126,8 +126,14 @@ SUBJECT_PROMPT_EVOLUTION_REVERTED = "prompt.evolution.reverted"
 
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"
-HEADER_RETRY_COUNT = "Retry-Count"
+
+# Delivery semantics (ADR-016); the Go Core uses the same retry limit
+# (internal/adapter/nats/nats.go). Retries are counted by JetStream.
 MAX_RETRIES = 3
+MAX_DELIVER = MAX_RETRIES + 1  # first delivery plus retries
+ACK_WAIT_SECONDS = 90.0
+NAK_DELAY_SECONDS = 2.0
+DLQ_SUFFIX = ".dlq"
 
 
 def consumer_name(subject: str) -> str:

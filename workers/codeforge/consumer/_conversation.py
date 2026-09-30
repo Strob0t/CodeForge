@@ -373,39 +373,56 @@ class ConversationHandlerMixin:
         return primary_model, routing, fallback_models
 
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a conversation run: agentic loop with tool calling."""
+        """Process a conversation run: agentic loop with tool calling.
+
+        Acked on accept (at-most-once): the run changes the workspace and must
+        not be executed a second time by another worker. Failures are reported
+        to the Go Core as a failed completion instead of being retried.
+        """
+        run_msg = await self._parse_request(msg, ConversationRunStartMessage)
+        if run_msg is None:
+            return
+        run_id = run_msg.run_id
+        log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id, session_id=run_msg.session_id)
+
+        if run_id in self._active_runs:
+            log.warning("duplicate conversation run start, skipping")
+            await msg.ack()
+            return
+
+        if self._js is None:
+            log.error("JetStream not available")
+            await msg.nak()
+            return
+
+        await msg.ack()
+        self._active_runs.add(run_id)
+        try:
+            await self._run_conversation(run_msg, log)
+        except Exception as exc:
+            # Intentional catch-all: outermost handler safety net
+            logger.exception("failed to process conversation run", error=str(exc))
+            await self._publish_error_result(msg)
+        finally:
+            self._active_runs.discard(run_id)
+
+    async def _run_conversation(self, run_msg: ConversationRunStartMessage, log: structlog.stdlib.BoundLogger) -> None:
+        """Execute an accepted conversation run and publish its completion."""
         from codeforge.mcp_workbench import McpWorkbench
         from codeforge.tools import ToolRegistry, build_default_registry
 
+        log.info("received conversation run start")
+        runtime = RuntimeClient(
+            js=self._js,
+            run_id=run_msg.run_id,
+            task_id=run_msg.run_id,
+            project_id=run_msg.project_id,
+            termination=run_msg.termination,
+            tenant_id=run_msg.tenant_id,
+            mode_id=run_msg.mode.id if run_msg.mode else "",
+        )
         workbench: McpWorkbench | None = None
-        run_id: str | None = None
         try:
-            run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
-            run_id = run_msg.run_id
-            log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id, session_id=run_msg.session_id)
-
-            if run_id in self._active_runs:
-                log.warning("duplicate conversation run start, skipping")
-                await msg.ack()
-                return
-            self._active_runs.add(run_id)
-
-            log.info("received conversation run start")
-
-            if self._js is None:
-                log.error("JetStream not available")
-                await msg.nak()
-                return
-
-            runtime = RuntimeClient(
-                js=self._js,
-                run_id=run_msg.run_id,
-                task_id=run_msg.run_id,
-                project_id=run_msg.project_id,
-                termination=run_msg.termination,
-                tenant_id=run_msg.tenant_id,
-                mode_id=run_msg.mode.id if run_msg.mode else "",
-            )
             await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
             await runtime.start_heartbeat()
 
@@ -453,25 +470,16 @@ class ConversationHandlerMixin:
                 result = AgentLoopResult(output="", tool_calls=[], cost=0.0, error="Wall-clock timeout exceeded")
 
             await self._publish_completion(run_msg, result)
-
-            await msg.ack()
             log.info(
                 "conversation run complete",
                 steps=result.step_count,
                 cost=result.total_cost,
                 error=result.error or None,
             )
-
-        except Exception as exc:
-            # Intentional catch-all: outermost handler safety net
-            logger.exception("failed to process conversation run", error=str(exc))
-            await self._publish_error_result(msg)
-            await msg.ack()
         finally:
+            await runtime.close()
             if workbench is not None:
                 await workbench.disconnect_all()
-            if run_id is not None:
-                self._active_runs.discard(run_id)
 
     async def _publish_completion(
         self,

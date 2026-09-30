@@ -115,17 +115,22 @@ async def test_retrieval_index_duplicate() -> None:
 
 
 async def test_retrieval_index_invalid_json() -> None:
-    """Invalid JSON causes nak."""
+    """Invalid JSON is dead-lettered and terminated (a NAK would redeliver it forever)."""
     mixin = _TestMixin()
     msg = MagicMock()
+    msg.subject = "retrieval.index.request"
     msg.data = b"not json"
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.term = AsyncMock()
     msg.headers = {}
 
     await mixin._handle_retrieval_index(msg)
 
-    msg.nak.assert_called_once()
+    assert mixin._js is not None
+    mixin._js.publish.assert_awaited_once_with("retrieval.index.request.dlq", b"not json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.nak.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

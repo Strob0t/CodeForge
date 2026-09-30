@@ -404,12 +404,12 @@ class BenchmarkHandlerMixin:
             await msg.ack()
             return
 
-        run_id = ""
-        tenant_id = ""
+        req = await self._parse_request(msg, BenchmarkRunRequest)
+        if req is None:
+            return
+        run_id = req.run_id
+        tenant_id = req.tenant_id
         try:
-            req = BenchmarkRunRequest.model_validate_json(msg.data)
-            run_id = req.run_id
-            tenant_id = req.tenant_id
             await _validate_model_exists(req.model)
             benchmark_type = req.benchmark_type or "simple"
             log = log.bind(run_id=run_id, benchmark_type=benchmark_type, model=req.model)

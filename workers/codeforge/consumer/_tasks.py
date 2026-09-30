@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._subjects import HEADER_REQUEST_ID, MAX_RETRIES, SUBJECT_RESULT
+from codeforge.consumer._delivery import delivery_attempt
+from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
 
 if TYPE_CHECKING:
@@ -28,17 +29,20 @@ class TaskHandlerMixin:
 
         log = logger.bind(request_id=request_id) if request_id else logger
 
+        task = await self._parse_request(msg, TaskMessage)
+        if task is None:
+            return
+
+        backend_name = msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown"
+        log = log.bind(task_id=task.id, backend=backend_name)
+
+        dedup_key = f"task-{task.id}"
+        if self._is_duplicate(dedup_key):
+            log.warning("duplicate task message, skipping")
+            await msg.ack()
+            return
+
         try:
-            task = TaskMessage.model_validate_json(msg.data)
-
-            backend_name = msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown"
-            log = log.bind(task_id=task.id, backend=backend_name)
-
-            if self._is_duplicate(f"task-{task.id}"):
-                log.warning("duplicate task message, skipping")
-                await msg.ack()
-                return
-
             log.info("received task", title=task.title)
 
             await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id, task.tenant_id)
@@ -68,11 +72,7 @@ class TaskHandlerMixin:
             log.info("task completed", status=result.status, backend=backend_name)
 
         except Exception as exc:
-            retries = self._retry_count(msg)
-            log.exception("failed to process message", retry=retries, error=str(exc))
-
-            if retries >= MAX_RETRIES:
-                log.warning("max retries reached, moving to DLQ", retry=retries)
-                await self._move_to_dlq(msg)
-            else:
-                await msg.nak()
+            log.exception("failed to process message", attempt=delivery_attempt(msg), error=str(exc))
+            # Not processed: the redelivery must not be skipped as a duplicate.
+            self._clear_processed(dedup_key)
+            await self._retry_or_dead_letter(msg)

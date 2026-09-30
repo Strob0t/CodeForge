@@ -24,7 +24,12 @@ class RunHandlerMixin:
     """Handles runs.start messages — runtime protocol execution."""
 
     async def _handle_run_start(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a run start message: parse, create RuntimeClient, execute with runtime."""
+        """Process a run start message: parse, create RuntimeClient, execute with runtime.
+
+        Acked on accept (at-most-once): a run changes the workspace and must not
+        be executed a second time by another worker. If this worker dies, the Go
+        Core's run timeout fails the run.
+        """
         await self._handle_request(
             msg=msg,
             request_model=RunStartMessage,
@@ -32,6 +37,7 @@ class RunHandlerMixin:
             handler=self._do_run_start,
             result_subject=None,
             log_context=lambda r: {"run_id": r.run_id, "task_id": r.task_id},
+            ack_on_accept=True,
         )
 
     async def _do_run_start(self, run_msg: RunStartMessage, log: structlog.BoundLogger) -> None:
@@ -63,8 +69,20 @@ class RunHandlerMixin:
             await runtime.complete_run(status="failed", error=error)
             return
 
-        await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
+        try:
+            await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
+            task = self._build_run_task(run_msg, log)
+            await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
+        finally:
+            await runtime.close()
+        log.info(
+            "run processing complete",
+            mode_id=run_msg.mode.id if run_msg.mode else None,
+        )
 
+    @staticmethod
+    def _build_run_task(run_msg: RunStartMessage, log: structlog.BoundLogger) -> TaskMessage:
+        """Build the executor task, with pre-packed context and microagent prompts in the prompt."""
         # Enrich prompt with pre-packed context entries (Phase 5D)
         enriched_prompt = run_msg.prompt
         if run_msg.context:
@@ -83,16 +101,10 @@ class RunHandlerMixin:
                 count=len(run_msg.microagent_prompts),
             )
 
-        task = TaskMessage(
+        return TaskMessage(
             id=run_msg.task_id,
             project_id=run_msg.project_id,
             title=run_msg.prompt[:80],
             prompt=enriched_prompt,
             config=run_msg.config,
-        )
-
-        await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
-        log.info(
-            "run processing complete",
-            mode_id=run_msg.mode.id if run_msg.mode else None,
         )
