@@ -218,8 +218,8 @@ type Runtime struct {
 	StallMaxRetries        int           `yaml:"stall_max_retries"` // Max re-plan attempts on stall (default: 2)
 	QualityGateTimeout     time.Duration `yaml:"quality_gate_timeout"`
 	DefaultDeliverMode     string        `yaml:"default_deliver_mode"`
-	DefaultTestCommand     string        `yaml:"default_test_command"`
-	DefaultLintCommand     string        `yaml:"default_lint_command"`
+	DefaultTestCommand     string        `yaml:"default_test_command"` // Gate test command for projects without test_command whose language has no default ("" = none)
+	DefaultLintCommand     string        `yaml:"default_lint_command"` // Gate lint command for projects without lint_command whose language has no default ("" = none)
 	DeliveryCommitPrefix   string        `yaml:"delivery_commit_prefix"`
 	HeartbeatInterval      time.Duration `yaml:"heartbeat_interval"`       // Worker heartbeat send interval (default: 30s)
 	HeartbeatTimeout       time.Duration `yaml:"heartbeat_timeout"`        // Max time without heartbeat before kill (default: 120s)
@@ -470,8 +470,8 @@ func Defaults() Config {
 			StallMaxRetries:        2,
 			QualityGateTimeout:     60 * time.Second,
 			DefaultDeliverMode:     "",
-			DefaultTestCommand:     "go test ./...",
-			DefaultLintCommand:     "golangci-lint run ./...",
+			DefaultTestCommand:     "",
+			DefaultLintCommand:     "",
 			DeliveryCommitPrefix:   "codeforge:",
 			HeartbeatInterval:      30 * time.Second,
 			HeartbeatTimeout:       120 * time.Second,

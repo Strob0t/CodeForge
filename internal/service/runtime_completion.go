@@ -103,8 +103,15 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 
 	// A completed run whose policy has quality gates waits for them; any other
 	// run ends now (delivery, if configured, happens when it ends completed).
+	// A run whose profile no longer exists cannot tell whether it needs a
+	// gate, so it does not complete (fail closed).
 	profile, ok := s.policy.GetProfile(r.PolicyProfile)
-	if ok && status == run.StatusCompleted && profile.QualityGate.Enabled() {
+	if status == run.StatusCompleted && !ok {
+		failed := *payload
+		failed.Status, failed.Error = string(run.StatusFailed), unknownGateProfile(r.PolicyProfile)
+		return s.finishRun(ctx, r, run.StatusFailed, &failed)
+	}
+	if status == run.StatusCompleted && profile.QualityGate.Enabled() {
 		return s.enterQualityGate(ctx, r, &profile.QualityGate, payload)
 	}
 	return s.finishRun(ctx, r, status, payload)

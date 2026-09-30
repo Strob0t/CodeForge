@@ -62,8 +62,12 @@ runtime:
   stall_threshold: 5               # consecutive no-progress steps before stall abort
   quality_gate_timeout: "60s"      # max time for test/lint gate execution
   default_deliver_mode: ""         # "": none, "patch", "commit-local", "branch", "pr"
-  default_test_command: "go test ./..."
-  default_lint_command: "golangci-lint run ./..."
+  # Quality gate commands: the project config keys test_command/lint_command,
+  # else the defaults of the detected language (go, rust, typescript,
+  # javascript, python), else these. A required check without a command fails
+  # the gate.
+  default_test_command: ""
+  default_lint_command: ""
   delivery_commit_prefix: "codeforge:"
 
 # Multi-agent orchestrator settings

@@ -8,6 +8,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -244,6 +245,8 @@ func TestQualityGateResult_KeepsTheWorkersOutcome(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, store, _, _, _ := newRunStateEnv()
 			ctx := context.Background()
+			// The env configures no default gate commands: the project names them.
+			store.projects[0].Config = map[string]string{project.ConfigTestCommand: "make test", project.ConfigLintCommand: "make lint"}
 			setStoredRun(store, &run.Run{
 				ID: "run-gated", TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
 				PolicyProfile: "headless-safe-sandbox", Status: run.StatusRunning,

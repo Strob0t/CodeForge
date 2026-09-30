@@ -68,23 +68,17 @@ class QualityGateExecutor:
 
         result = QualityGateResult(run_id=request.run_id)
 
-        if request.run_tests and request.test_command:
-            passed, output = await self._run_command(
-                request.test_command,
-                request.workspace_path,
-                log,
+        # A requested check always reports a result: without a command it
+        # fails instead of being skipped, which would pass the gate (KI-29).
+        if request.run_tests:
+            result.tests_passed, result.test_output = await self._run_check(
+                "test", request.test_command, request.workspace_path, log
             )
-            result.tests_passed = passed
-            result.test_output = output
 
-        if request.run_lint and request.lint_command:
-            passed, output = await self._run_command(
-                request.lint_command,
-                request.workspace_path,
-                log,
+        if request.run_lint:
+            result.lint_passed, result.lint_output = await self._run_check(
+                "lint", request.lint_command, request.workspace_path, log
             )
-            result.lint_passed = passed
-            result.lint_output = output
 
         log.info(
             "quality gate execution completed",
@@ -92,6 +86,19 @@ class QualityGateExecutor:
             lint_passed=result.lint_passed,
         )
         return result
+
+    async def _run_check(
+        self,
+        check: str,
+        command: str,
+        cwd: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> tuple[bool, str]:
+        """Run one requested check; a check without a command fails."""
+        if not command.strip():
+            log.warning("quality gate check has no command", check=check)
+            return False, f"no command for the {check} check"
+        return await self._run_command(command, cwd, log)
 
     async def _run_command(
         self,

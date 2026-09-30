@@ -169,6 +169,44 @@ async def test_execute_no_commands(executor: QualityGateExecutor) -> None:
     assert result.lint_passed is None
 
 
+@pytest.mark.parametrize(
+    ("run_tests", "run_lint", "test_command", "lint_command"),
+    [
+        (True, False, "", ""),
+        (False, True, "", ""),
+        (True, True, "", "ruff check ."),
+        (True, True, "pytest", "   "),
+    ],
+)
+async def test_execute_requested_check_without_command_fails(
+    executor: QualityGateExecutor, run_tests: bool, run_lint: bool, test_command: str, lint_command: str
+) -> None:
+    """A requested check without a command fails instead of being skipped (KI-29)."""
+    request = QualityGateRequest(
+        run_id="run-7",
+        project_id="proj-1",
+        workspace_path="/tmp",
+        run_tests=run_tests,
+        run_lint=run_lint,
+        test_command=test_command,
+        lint_command=lint_command,
+    )
+    with patch(_SPAWN, return_value=_proc("ok", 0)):
+        result = await executor.execute(request)
+
+    for requested, command, passed, output in (
+        (run_tests, test_command, result.tests_passed, result.test_output),
+        (run_lint, lint_command, result.lint_passed, result.lint_output),
+    ):
+        if not requested:
+            assert passed is None
+        elif command.strip():
+            assert passed is True
+        else:
+            assert passed is False
+            assert "no command" in output
+
+
 async def test_handle_quality_gate_message(consumer: TaskConsumer) -> None:
     """Consumer should parse quality gate request and publish result."""
     request = QualityGateRequest(
