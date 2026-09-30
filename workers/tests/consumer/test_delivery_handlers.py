@@ -100,12 +100,12 @@ async def test_invalid_payload_is_dead_lettered_and_terminated(
 
 
 def test_handler_table_covers_every_subscription() -> None:
-    """HANDLERS must list every handler that TaskConsumer.start subscribes."""
+    """HANDLERS must list every handler that TaskConsumer._subscribe_all subscribes."""
     import inspect
 
     import codeforge.consumer as consumer_module
 
-    source = inspect.getsource(consumer_module.TaskConsumer.start)
+    source = inspect.getsource(consumer_module.TaskConsumer._subscribe_all)
     subscribed = {name for name, _ in HANDLERS if f"self.{name})" in source}
     assert subscribed == {name for name, _ in HANDLERS}
     assert source.count("self._handle") == len(HANDLERS)

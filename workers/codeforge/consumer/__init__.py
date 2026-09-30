@@ -77,7 +77,7 @@ from codeforge.tracing import tracing_manager
 from codeforge.tracing.propagation import TracingJetStreamContext
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Coroutine
 
     from nats.aio.client import Client as NATSClient
     from nats.js.client import JetStreamContext
@@ -136,6 +136,8 @@ class TaskConsumer(
         self._nc: NATSClient | None = None
         self._js: JetStreamContext | None = None
         self._running = False
+        # Sticky: once set, start() shuts down instead of starting its loops.
+        self._stop_requested = False
         # Set when a message loop could not recover; main() then exits non-zero.
         self.failed = False
         self._loop_tasks: list[asyncio.Task[None]] = []
@@ -175,18 +177,65 @@ class TaskConsumer(
             and not any(task.done() for task in loops)
         )
 
+    def request_stop(self) -> None:
+        """Ask the worker to stop (signal handler; stop() does the shutdown).
+
+        The request is sticky: a start() that is still connecting or subscribing
+        returns without starting its loops, whenever the request arrived.
+        """
+        self._stop_requested = True
+        self._running = False
+
     async def start(self) -> None:
-        """Connect to NATS and subscribe to task and run subjects."""
+        """Connect to NATS and subscribe to task and run subjects.
+
+        Returns without consuming if a stop was requested meanwhile (see
+        request_stop); otherwise returns once every message loop ended.
+        """
         self._nc = await nats.connect(self.nats_url)
-        self._js = TracingJetStreamContext(self._nc)
+        if self._stop_requested:
+            # stop() may have run while connecting, with no connection to drain.
+            logger.info("stop requested while connecting, the consumer does not start")
+            if self._nc.is_connected:
+                await self._nc.close()
+            return
+        js = self._js = TracingJetStreamContext(self._nc)
         self._running = True
 
         logger.info("connected to NATS", url=redact_url(self.nats_url))
 
         try:
-            await self._js.find_stream_name_by_subject(STREAM_SUBJECTS[0])
+            loops = await self._subscribe_all(js)
+        except Exception:
+            if self._stop_requested:
+                # stop() drained the connection under the subscribing start().
+                logger.info("stop requested while subscribing, the consumer does not start")
+                return
+            raise
+        if self._stop_requested:
+            logger.info("stop requested while subscribing, the consumer does not start")
+            return
+
+        for subject, run_loop in loops:
+            task = asyncio.create_task(run_loop(), name=f"message-loop {subject}")
+            task.add_done_callback(functools.partial(self._loop_ended, subject))
+            self._loop_tasks.append(task)
+
+        # From here on GET /health/ready answers 200 (see ready).
+        logger.info("worker ready", subscriptions=len(self._loop_tasks))
+
+        await asyncio.wait(self._loop_tasks)
+        if self._abort_task is not None:
+            await self._abort_task
+
+    async def _subscribe_all(
+        self, js: JetStreamContext
+    ) -> list[tuple[str, Callable[[], Coroutine[object, object, None]]]]:
+        """Ensure the stream and every durable; return the message loops (not started yet)."""
+        try:
+            await js.find_stream_name_by_subject(STREAM_SUBJECTS[0])
         except nats.js.errors.NotFoundError:
-            await self._js.add_stream(
+            await js.add_stream(
                 name=STREAM_NAME,
                 subjects=STREAM_SUBJECTS,
             )
@@ -219,25 +268,14 @@ class TaskConsumer(
             (SUBJECT_SHARED_UPDATED, self._handle_shared_context_updated),
         ]
 
-        loops = []
+        loops: list[tuple[str, Callable[[], Coroutine[object, object, None]]]] = []
         for subject, handler in subscriptions:
             name = consumer_name(subject)
-            sub = await ensure_durable(self._js, name, subject)
+            sub = await ensure_durable(js, name, subject)
             logger.info("subscribed", subject=subject, durable=name)
-            reattach = functools.partial(ensure_durable, self._js, name, subject)
-            loops.append((subject, self._message_loop(sub, handler, subject, reattach=reattach)))
-
-        for subject, loop in loops:
-            task = asyncio.create_task(loop, name=f"message-loop {subject}")
-            task.add_done_callback(functools.partial(self._loop_ended, subject))
-            self._loop_tasks.append(task)
-
-        # From here on GET /health/ready answers 200 (see ready).
-        logger.info("worker ready", subscriptions=len(self._loop_tasks))
-
-        await asyncio.wait(self._loop_tasks)
-        if self._abort_task is not None:
-            await self._abort_task
+            reattach = functools.partial(ensure_durable, js, name, subject)
+            loops.append((subject, functools.partial(self._message_loop, sub, handler, subject, reattach=reattach)))
+        return loops
 
     def _loop_ended(self, subject: str, task: asyncio.Task[None]) -> None:
         """A loop that ended with an exception leaves its subject unconsumed: stop the worker."""
@@ -359,23 +397,25 @@ class TaskConsumer(
             )
 
     async def stop(self) -> None:
-        """Gracefully shut down: drain with timeout and close."""
-        self._running = False  # /health/ready fails from now on
+        """Gracefully shut down: drain with timeout and close. Safe to call more than once."""
+        self.request_stop()  # /health/ready fails from now on; a start() still setting up stops
         logger.info("stopping consumer")
 
         await self._llm.close()
         await self._retriever.close()
 
+        # start() closes a connection it makes after this point itself.
         if self._nc is not None and self._nc.is_connected:
             try:
                 await asyncio.wait_for(self._nc.drain(), timeout=10.0)
             except TimeoutError:
                 logger.warning("NATS drain timed out after 10s, closing connection")
                 await self._nc.close()
+            except Exception as exc:
+                logger.warning("NATS drain failed", error=str(exc))
 
         tracing_manager.shutdown()
         logger.info("consumer stopped")
-        stop_logging()
 
 
 async def main() -> None:
@@ -410,28 +450,39 @@ async def main() -> None:
     stopping: list[asyncio.Task[None]] = []
 
     def request_stop() -> None:
-        if not stopping:
+        """Signal handler. The request is sticky (see TaskConsumer.request_stop); a
+        signal after a finished stop runs stop() again, so no signal is ignored.
+        """
+        consumer.request_stop()
+        if not stopping or stopping[-1].done():
             stopping.append(asyncio.create_task(consumer.stop(), name="stop consumer"))
 
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
+    signals = (signal.SIGINT, signal.SIGTERM)
+    for sig in signals:
         loop.add_signal_handler(sig, request_stop)
 
     crashed = False
     try:
-        # start() returns once every loop ended: after a stop request or a give-up.
+        # start() returns once every loop ended (after a stop request or a
+        # give-up), or at once when a stop was requested during its setup.
         try:
             await consumer.start()
         except Exception as exc:  # e.g. NATS unreachable at startup
             crashed = True
             logger.exception("worker stopped by an error", error=str(exc))
-        request_stop()
+        if not stopping:
+            request_stop()
         # Awaited, not left to asyncio.run() to cancel: the shutdown drains
-        # NATS and flushes the tracing and log queues.
-        await stopping[0]
+        # NATS and flushes the tracing queue. A signal meanwhile may add a stop.
+        while not all(task.done() for task in stopping):
+            await asyncio.gather(*stopping)
     finally:
+        for sig in signals:
+            loop.remove_signal_handler(sig)
         await asyncio.to_thread(health.shutdown)
         health.server_close()
+        stop_logging()
     if crashed or consumer.failed:
         raise SystemExit(1)
 

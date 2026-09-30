@@ -419,6 +419,9 @@ class TestMessageLoopConsumerLifecycle:
             async def start(self) -> None:
                 self.failed = True
 
+            def request_stop(self) -> None:
+                pass
+
             async def stop(self) -> None:
                 self.stopped = True
 

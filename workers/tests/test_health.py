@@ -205,6 +205,9 @@ class _FakeConsumer:
         self.started.set()
         await self.release.wait()
 
+    def request_stop(self) -> None:
+        pass
+
     async def stop(self) -> None:
         self.stopped = True
         self.release.set()

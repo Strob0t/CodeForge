@@ -263,6 +263,9 @@ async def test_main_logs_the_startup_state_in_the_go_schema(
         async def start(self) -> None:
             return None
 
+        def request_stop(self) -> None:
+            pass
+
         async def stop(self) -> None:
             return None
 
