@@ -427,8 +427,9 @@ func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Get("/llm/available", h.AvailableLLMModels)
 	r.Post("/llm/refresh", h.RefreshLLMModels)
 
-	// Copilot Token Exchange (Phase 22A)
-	r.Post("/copilot/exchange", h.HandleCopilotExchange)
+	// Copilot Token Exchange (Phase 22A): checks the platform credential; the
+	// token itself is never returned (KI-80).
+	r.With(middleware.RequirePlatformAdmin).Post("/copilot/exchange", h.HandleCopilotExchange)
 
 	// LLM Keys
 	r.Get("/llm-keys", h.ListLLMKeys)

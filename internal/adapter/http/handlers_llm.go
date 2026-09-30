@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +22,36 @@ func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "LLM service unavailable")
 		return
 	}
+	// Every user may list the models: their credentials stay on the server.
+	for i := range models {
+		models[i].Params = redactCredentials(models[i].Params)
+	}
 	writeJSONList(w, http.StatusOK, models)
+}
+
+// credentialParamParts mark LiteLLM parameter names that hold credentials:
+// api_key, aws_secret_access_key, vertex_credentials, an Authorization
+// header, a registered Copilot token, ...
+var credentialParamParts = []string{"key", "secret", "token", "password", "credential", "authorization"}
+
+// redactCredentials returns the LiteLLM parameters without credentials,
+// also in nested maps such as extra_headers.
+func redactCredentials(params map[string]any) map[string]any {
+	if params == nil {
+		return nil
+	}
+	out := make(map[string]any, len(params))
+	for name, value := range params {
+		lower := strings.ToLower(name)
+		if slices.ContainsFunc(credentialParamParts, func(part string) bool { return strings.Contains(lower, part) }) {
+			continue
+		}
+		if nested, ok := value.(map[string]any); ok {
+			value = redactCredentials(nested)
+		}
+		out[name] = value
+	}
+	return out
 }
 
 // AddLLMModel handles POST /api/v1/llm/models
@@ -153,19 +183,24 @@ func (h *Handlers) RefreshLLMModels(w http.ResponseWriter, r *http.Request) {
 
 // --- Copilot Token Exchange Handler (Phase 22A) ---
 
-// HandleCopilotExchange handles POST /api/v1/copilot/exchange.
+// HandleCopilotExchange handles POST /api/v1/copilot/exchange (platform
+// admins only): it checks that the platform's GitHub Copilot credential can
+// be exchanged. The bearer token is the platform's credential and never
+// leaves the server (KI-80); the response carries only the status and the
+// expiry.
 func (h *Handlers) HandleCopilotExchange(w http.ResponseWriter, r *http.Request) {
 	if h.TokenExchanger == nil {
 		writeError(w, http.StatusNotFound, "copilot integration not enabled")
 		return
 	}
-	token, expiry, err := h.TokenExchanger.ExchangeToken(r.Context())
+	_, expiry, err := h.TokenExchanger.ExchangeToken(r.Context())
 	if err != nil {
+		slog.Warn("copilot token exchange failed", "error", err)
 		writeError(w, http.StatusBadGateway, "copilot token exchange failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"token":      token,
+		"status":     "ok",
 		"expires_at": expiry.Format(time.RFC3339),
 	})
 }

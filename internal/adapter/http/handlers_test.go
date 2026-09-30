@@ -1693,8 +1693,9 @@ func newTestRouterWithPolicies(store *mockStore, policySvc *service.PolicyServic
 	return newTestRouterWithLLM(store, policySvc, "http://localhost:4000")
 }
 
-// newTestRouterWithLLM is newTestRouterWithPolicies with the LiteLLM proxy at llmURL.
-func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, llmURL string) chi.Router {
+// newTestRouterWithLLM is newTestRouterWithPolicies with the LiteLLM proxy at
+// llmURL; mods adjust the handlers before the routes are mounted.
+func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, llmURL string, mods ...func(*cfhttp.Handlers)) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
@@ -1814,6 +1815,9 @@ func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, ll
 			next.ServeHTTP(w, r)
 		})
 	})
+	for _, mod := range mods {
+		mod(handlers)
+	}
 	mountTestRoutes(r, handlers)
 	return r
 }
