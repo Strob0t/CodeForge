@@ -871,40 +871,19 @@ func (s *testStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]d
 func (s *testStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
-func (s *testStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 func (s *testStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
 
 // GDPR erasure and retention stubs
-func (s *testStore) WithRetentionLock(ctx context.Context, sweep func(context.Context)) (bool, error) {
-	sweep(ctx)
-	return true, nil
-}
 
-func (s *testStore) DeleteExpiredConversationMessages(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
+// WithRetentionLock reports the lock as held by another replica: no test
+// here sweeps.
+func (s *testStore) WithRetentionLock(context.Context, func(context.Context, database.RetentionPurger)) (bool, error) {
+	return false, nil
 }
 
 func (s *testStore) TouchSession(_ context.Context, _ string) error { return nil }
-
-func (s *testStore) AnonymizeExpiredConsentIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 
 func (s *testStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil

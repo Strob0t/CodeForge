@@ -13,6 +13,10 @@ import (
 // holds long locks; a backlog is worked off in several statements.
 const retentionBatchSize = 1000
 
+// retentionConversationBatch limits the conversations one transaction deletes
+// with all their messages (at most retentionBatchSize per statement).
+const retentionConversationBatch = 100
+
 // RetentionService enforces the data retention policy (GDPR Art. 5(1)(e),
 // docs/data-retention.md): it deletes data older than the configured periods
 // and anonymizes the IP addresses of old audit entries and the IP addresses and
@@ -35,19 +39,21 @@ type retentionCategory struct {
 	name   string
 	action string // what happens to expired rows: "deleted" or "anonymized"
 	maxAge time.Duration
+	batch  int // rows (conversations: conversations) per call
 	apply  func(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }
 
-func (s *RetentionService) categories() []retentionCategory {
+func (s *RetentionService) categories(purge database.RetentionPurger) []retentionCategory {
+	deleteConversations := func(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+		return purge.DeleteExpiredConversations(ctx, before, batchSize, retentionBatchSize)
+	}
 	return []retentionCategory{
-		{"sessions", "deleted", s.config.Sessions, s.store.DeleteExpiredSessions},
-		// Messages first, in bounded batches: deleting a conversation cascades to them.
-		{"conversation_messages", "deleted", s.config.Conversations, s.store.DeleteExpiredConversationMessages},
-		{"conversations", "deleted", s.config.Conversations, s.store.DeleteExpiredConversations},
-		{"runs", "deleted", s.config.CostRecords, s.store.DeleteExpiredRuns},
-		{"audit_entries", "deleted", s.config.AuditEntries, s.store.DeleteExpiredAuditEntries},
-		{"audit_ip_addresses", "anonymized", s.config.AuditIPAddresses, s.store.AnonymizeExpiredIPAddresses},
-		{"consent_ip_addresses", "anonymized", s.config.ConsentIPAddresses, s.store.AnonymizeExpiredConsentIPAddresses},
+		{"sessions", "deleted", s.config.Sessions, retentionBatchSize, purge.DeleteExpiredSessions},
+		{"conversations", "deleted", s.config.Conversations, retentionConversationBatch, deleteConversations},
+		{"runs", "deleted", s.config.CostRecords, retentionBatchSize, purge.DeleteExpiredRuns},
+		{"audit_entries", "deleted", s.config.AuditEntries, retentionBatchSize, purge.DeleteExpiredAuditEntries},
+		{"audit_ip_addresses", "anonymized", s.config.AuditIPAddresses, retentionBatchSize, purge.AnonymizeExpiredIPAddresses},
+		{"consent_ip_addresses", "anonymized", s.config.ConsentIPAddresses, retentionBatchSize, purge.AnonymizeExpiredConsentIPAddresses},
 	}
 }
 
@@ -66,9 +72,9 @@ func (s *RetentionService) RunCleanup(ctx context.Context) {
 // sweep applies every category with a positive period once. A failing
 // category is logged and does not stop the others; a cancelled context ends
 // the sweep. The logs carry only categories, row counts and cutoffs.
-func (s *RetentionService) sweep(ctx context.Context) {
+func (s *RetentionService) sweep(ctx context.Context, purge database.RetentionPurger) {
 	now := s.now().UTC()
-	for _, c := range s.categories() {
+	for _, c := range s.categories(purge) {
 		if c.maxAge <= 0 {
 			continue
 		}
@@ -76,7 +82,7 @@ func (s *RetentionService) sweep(ctx context.Context) {
 			return
 		}
 		before := now.Add(-c.maxAge)
-		n, err := applyInBatches(ctx, before, c.apply)
+		n, err := applyInBatches(ctx, before, c.batch, c.apply)
 		if n > 0 {
 			slog.Info("retention: purged expired data",
 				"category", c.name, "action", c.action, "rows", n, "older_than", before.Format(time.RFC3339))
@@ -92,6 +98,7 @@ func (s *RetentionService) sweep(ctx context.Context) {
 func applyInBatches(
 	ctx context.Context,
 	before time.Time,
+	batchSize int,
 	apply func(ctx context.Context, before time.Time, batchSize int) (int64, error),
 ) (int64, error) {
 	var total int64
@@ -99,9 +106,9 @@ func applyInBatches(
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		n, err := apply(ctx, before, retentionBatchSize)
+		n, err := apply(ctx, before, batchSize)
 		total += n
-		if err != nil || n < retentionBatchSize {
+		if err != nil || n < int64(batchSize) {
 			return total, err
 		}
 	}

@@ -3550,40 +3550,19 @@ func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]d
 func (m *mockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 func (m *mockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
 
 // GDPR erasure and retention stubs
-func (m *mockStore) WithRetentionLock(ctx context.Context, sweep func(context.Context)) (bool, error) {
-	sweep(ctx)
-	return true, nil
-}
 
-func (m *mockStore) DeleteExpiredConversationMessages(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
+// WithRetentionLock reports the lock as held by another replica: no test
+// here sweeps.
+func (m *mockStore) WithRetentionLock(context.Context, func(context.Context, database.RetentionPurger)) (bool, error) {
+	return false, nil
 }
 
 func (m *mockStore) TouchSession(_ context.Context, _ string) error { return nil }
-
-func (m *mockStore) AnonymizeExpiredConsentIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 
 func (m *mockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil

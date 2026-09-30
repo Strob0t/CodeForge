@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -34,28 +35,58 @@ const (
 
 var retentionCutoff = time.Now().AddDate(-200, 0, 0)
 
-// purgeFunc is the signature of every retention store method.
+// purgeFunc is a retention purge with one batch size.
 type purgeFunc func(ctx context.Context, before time.Time, batchSize int) (int64, error)
 
-// purgeAll calls a retention method in batches of one row (so several
-// batches run) until a batch comes back short, like RetentionService does.
-// The system job runs without a tenant in the context.
-func purgeAll(t *testing.T, name string, purge purgeFunc) {
-	t.Helper()
-	const batch = 1
-	for range 10_000 {
-		n, err := purge(context.Background(), retentionCutoff, batch)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if n > batch {
-			t.Fatalf("%s changed %d rows in one call, batch size is %d", name, n, batch)
-		}
-		if n < batch {
-			return
+// purgeMethod picks a purge of the purger.
+type purgeMethod func(p database.RetentionPurger) purgeFunc
+
+var (
+	purgeSessions purgeMethod = func(p database.RetentionPurger) purgeFunc { return p.DeleteExpiredSessions }
+	// purgeConversations deletes one message per statement, so a conversation
+	// with several messages needs several.
+	purgeConversations purgeMethod = func(p database.RetentionPurger) purgeFunc {
+		return func(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+			return p.DeleteExpiredConversations(ctx, before, batchSize, 1)
 		}
 	}
-	t.Fatalf("%s did not finish", name)
+	purgeRuns         purgeMethod = func(p database.RetentionPurger) purgeFunc { return p.DeleteExpiredRuns }
+	purgeAuditEntries purgeMethod = func(p database.RetentionPurger) purgeFunc { return p.DeleteExpiredAuditEntries }
+	purgeAuditIPs     purgeMethod = func(p database.RetentionPurger) purgeFunc { return p.AnonymizeExpiredIPAddresses }
+	purgeConsentIPs   purgeMethod = func(p database.RetentionPurger) purgeFunc { return p.AnonymizeExpiredConsentIPAddresses }
+)
+
+// withPurger runs fn under the retention lock, like a sweep. The system job
+// runs without a tenant in the context.
+func withPurger(ctx context.Context, t *testing.T, store *postgres.Store, fn func(ctx context.Context, p database.RetentionPurger)) {
+	t.Helper()
+	acquired, err := store.WithRetentionLock(ctx, fn)
+	if err != nil || !acquired {
+		t.Fatalf("retention lock: acquired %v, err %v", acquired, err)
+	}
+}
+
+// purgeAll calls a retention purge in batches of one row (so several batches
+// run) until a batch comes back short, like RetentionService does.
+func purgeAll(t *testing.T, store *postgres.Store, name string, method purgeMethod) {
+	t.Helper()
+	const batch = 1
+	withPurger(context.Background(), t, store, func(ctx context.Context, p database.RetentionPurger) {
+		purge := method(p)
+		for range 10_000 {
+			n, err := purge(ctx, retentionCutoff, batch)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if n > batch {
+				t.Fatalf("%s changed %d rows in one call, batch size is %d", name, n, batch)
+			}
+			if n < batch {
+				return
+			}
+		}
+		t.Fatalf("%s did not finish", name)
+	})
 }
 
 func retentionPool(t *testing.T) *pgxpool.Pool {
@@ -166,9 +197,10 @@ func (f *statusFixture) conversation(t *testing.T) *conversation.Conversation {
 
 func TestRetentionQueries_IntentionallyCrossTenant(t *testing.T) {
 	methods := map[string][]string{
-		"store_retention.go": {"DeleteExpiredSessions", "DeleteExpiredConversations", "DeleteExpiredRuns", "DeleteExpiredAuditEntries"},
-		"store_audit_log.go": {"AnonymizeExpiredIPAddresses"},
-		"store_consent.go":   {"AnonymizeExpiredConsentIPAddresses"},
+		"store_retention.go": {
+			"WithRetentionLock", "DeleteExpiredSessions", "DeleteExpiredConversations", "DeleteExpiredRuns",
+			"DeleteExpiredAuditEntries", "AnonymizeExpiredIPAddresses", "AnonymizeExpiredConsentIPAddresses",
+		},
 	}
 	for file, names := range methods {
 		src := readStoreSource(t, file)
@@ -193,7 +225,7 @@ func TestStore_DeleteExpiredSessions(t *testing.T) {
 	backdateSession(t, pool, idleA.ID, inside)
 	backdateSession(t, pool, activeA.ID, fresh)
 
-	purgeAll(t, "DeleteExpiredSessions", a.store.DeleteExpiredSessions)
+	purgeAll(t, a.store, "DeleteExpiredSessions", purgeSessions)
 
 	assertRows(t, pool, "sessions",
 		map[string]string{"idle inside retention": idleA.ID, "recently used": activeA.ID, "other tenant, fresh": freshB.ID},
@@ -205,10 +237,7 @@ func TestStore_DeleteExpiredConversations(t *testing.T) {
 	pool := retentionPool(t)
 
 	oldA := a.conversation(t)
-	msg, err := a.store.CreateMessage(a.ctx, &conversation.Message{ConversationID: oldA.ID, Role: "user", Content: "hello"})
-	if err != nil {
-		t.Fatalf("CreateMessage: %v", err)
-	}
+	oldMsgs := map[string]string{"first": a.message(t, oldA.ID), "second": a.message(t, oldA.ID), "third": a.message(t, oldA.ID)}
 	// Every agentic conversation has a session (EnsureConversationSession).
 	// It has no task, so the FK's SET NULL would violate the sessions
 	// check constraint: the purge removes it with its conversation.
@@ -223,17 +252,19 @@ func TestStore_DeleteExpiredConversations(t *testing.T) {
 	}
 	idleA, activeA := a.conversation(t), a.conversation(t)
 	oldB, freshB := b.conversation(t), b.conversation(t)
+	oldMsgs["other tenant"] = b.message(t, oldB.ID)
+	idleMsg := a.message(t, idleA.ID)
 	backdateConversation(t, pool, oldA.ID, expired)
 	backdateConversation(t, pool, oldB.ID, expired)
 	backdateConversation(t, pool, idleA.ID, inside)
 	backdateConversation(t, pool, activeA.ID, fresh) // a message was added recently
 
-	purgeAll(t, "DeleteExpiredConversations", a.store.DeleteExpiredConversations)
+	purgeAll(t, a.store, "DeleteExpiredConversations", purgeConversations)
 
 	assertRows(t, pool, "conversations",
 		map[string]string{"idle inside retention": idleA.ID, "recently used": activeA.ID, "other tenant, fresh": freshB.ID},
 		map[string]string{"expired": oldA.ID, "other tenant, expired": oldB.ID})
-	assertRows(t, pool, "conversation_messages", nil, map[string]string{"message of expired conversation": msg.ID})
+	assertRows(t, pool, "conversation_messages", map[string]string{"inside retention": idleMsg}, oldMsgs)
 	assertRows(t, pool, "sessions",
 		map[string]string{"task session": taskSession.ID},
 		map[string]string{"conversation session": convSession.ID})
@@ -246,88 +277,79 @@ func TestStore_DeleteExpiredConversations(t *testing.T) {
 	}
 }
 
-// The messages of expired conversations go in bounded batches before the
-// conversations, so no single statement cascades over an unbounded number of
-// messages; messages of conversations inside retention stay.
-func TestStore_DeleteExpiredConversationMessages(t *testing.T) {
-	a, b := newStatusFixture(t), newStatusFixture(t)
-	pool := retentionPool(t)
-	message := func(f *statusFixture, convID string) string {
-		t.Helper()
-		m, err := f.store.CreateMessage(f.ctx, &conversation.Message{ConversationID: convID, Role: "user", Content: "hello"})
-		if err != nil {
-			t.Fatalf("CreateMessage: %v", err)
-		}
-		return m.ID
-	}
-	oldA, idleA, oldB := a.conversation(t), a.conversation(t), b.conversation(t)
-	oldMsgs := map[string]string{
-		"first": message(a, oldA.ID), "second": message(a, oldA.ID), "third": message(a, oldA.ID),
-		"other tenant": message(b, oldB.ID),
-	}
-	idleMsg := message(a, idleA.ID)
-	backdateConversation(t, pool, oldA.ID, expired)
-	backdateConversation(t, pool, oldB.ID, expired)
-	backdateConversation(t, pool, idleA.ID, inside)
-
-	purgeAll(t, "DeleteExpiredConversationMessages", a.store.DeleteExpiredConversationMessages)
-
-	assertRows(t, pool, "conversation_messages", map[string]string{"inside retention": idleMsg}, oldMsgs)
-	assertRows(t, pool, "conversations", map[string]string{"expired, removed by its own category": oldA.ID}, nil)
-}
-
-// waitForLockWait returns once a backend runs a statement starting with
-// prefix and waits for a row lock.
-func waitForLockWait(t *testing.T, pool *pgxpool.Pool, prefix string) {
+func (f *statusFixture) message(t *testing.T, convID string) string {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		var waiting int
-		if err := pool.QueryRow(context.Background(),
-			`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND starts_with(ltrim(query), $1)`,
-			prefix).Scan(&waiting); err != nil {
-			t.Fatalf("pg_stat_activity: %v", err)
-		}
-		if waiting > 0 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	m, err := f.store.CreateMessage(f.ctx, &conversation.Message{ConversationID: convID, Role: "user", Content: "hello"})
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
 	}
-	t.Fatalf("no statement %q waited for a lock", prefix)
+	return m.ID
 }
 
-// A conversation that becomes active again while the purge runs is kept: the
-// purge selects its batch from a snapshot, so the delete itself re-checks the
-// age on the row it locks.
-func TestRetention_ConversationReactivatedDuringPurgeIsKept(t *testing.T) {
+// A conversation being written while the purge runs is passed over, not
+// waited for, and keeps its messages: the purge locks its batch with
+// FOR UPDATE SKIP LOCKED (and PostgreSQL re-checks the age of a conversation
+// written after the purge's snapshot).
+func TestRetention_ConversationBeingWrittenIsKept(t *testing.T) {
 	f := newStatusFixture(t)
 	pool := retentionPool(t)
 	conv := f.conversation(t)
+	msg := f.message(t, conv.ID)
 	backdateConversation(t, pool, conv.ID, expired)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	if _, err := tx.Exec(ctx, `UPDATE conversations SET updated_at = now() WHERE id = $1`, conv.ID); err != nil {
 		t.Fatalf("reactivate: %v", err)
 	}
 
-	purged := make(chan error, 1)
-	go func() {
-		_, err := f.store.DeleteExpiredConversations(ctx, retentionCutoff, 1000)
-		purged <- err
-	}()
-	waitForLockWait(t, pool, "DELETE FROM conversations")
+	withPurger(ctx, t, f.store, func(ctx context.Context, p database.RetentionPurger) {
+		if _, err := p.DeleteExpiredConversations(ctx, retentionCutoff, 1000, 1000); err != nil {
+			t.Fatalf("DeleteExpiredConversations waited for the writer or failed: %v", err)
+		}
+	})
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
-	if err := <-purged; err != nil {
-		t.Fatalf("DeleteExpiredConversations: %v", err)
+	assertRows(t, pool, "conversations", map[string]string{"written during the purge": conv.ID}, nil)
+	assertRows(t, pool, "conversation_messages", map[string]string{"its message": msg}, nil)
+}
+
+// A sweep runs its statements on the connection that holds the retention
+// lock, so it works with a pool of a single connection (its statements used
+// to wait for a second one while the lock connection sat idle).
+func TestRetention_SweepNeedsOneConnection(t *testing.T) {
+	setupStore(t) // runs the migrations
+	cfg, err := pgxpool.ParseConfig(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("parse DATABASE_URL: %v", err)
 	}
-	assertRows(t, pool, "conversations", map[string]string{"reactivated during the purge": conv.ID}, nil)
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	store := postgres.NewStore(pool)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	purges := map[string]purgeMethod{
+		"sessions": purgeSessions, "conversations": purgeConversations, "runs": purgeRuns,
+		"audit entries": purgeAuditEntries, "audit IPs": purgeAuditIPs, "consent IPs": purgeConsentIPs,
+	}
+	withPurger(ctx, t, store, func(ctx context.Context, p database.RetentionPurger) {
+		for name, method := range purges {
+			if _, err := method(p)(ctx, retentionCutoff, 1000); err != nil {
+				t.Errorf("%s with a pool of one connection: %v", name, err)
+			}
+		}
+	})
 }
 
 // A conversation's session is reused by every message (no other write), so
@@ -353,7 +375,7 @@ func TestRetention_InUseConversationSessionSurvives(t *testing.T) {
 		t.Fatalf("reused session %s, want %s", reused.ID, sess.ID)
 	}
 
-	purgeAll(t, "DeleteExpiredSessions", f.store.DeleteExpiredSessions)
+	purgeAll(t, f.store, "DeleteExpiredSessions", purgeSessions)
 	assertRows(t, pool, "sessions", map[string]string{"session in use": sess.ID}, nil)
 }
 
@@ -371,8 +393,8 @@ func TestRetention_ForeignKeyNullingIsNotSessionActivity(t *testing.T) {
 	backdateSession(t, pool, sess.ID, expired)
 	backdateRun(t, pool, r.ID, expired)
 
-	purgeAll(t, "DeleteExpiredRuns", f.store.DeleteExpiredRuns) // sets the session's current_run_id to NULL
-	purgeAll(t, "DeleteExpiredSessions", f.store.DeleteExpiredSessions)
+	purgeAll(t, f.store, "DeleteExpiredRuns", purgeRuns) // sets the session's current_run_id to NULL
+	purgeAll(t, f.store, "DeleteExpiredSessions", purgeSessions)
 
 	assertRows(t, pool, "sessions", nil, map[string]string{"expired session of an expired run": sess.ID})
 }
@@ -395,7 +417,7 @@ func TestRetention_RunPurgeKeepsPlanSteps(t *testing.T) {
 	}
 	backdateRun(t, pool, r.ID, expired)
 
-	purgeAll(t, "DeleteExpiredRuns", f.store.DeleteExpiredRuns)
+	purgeAll(t, f.store, "DeleteExpiredRuns", purgeRuns)
 
 	steps, err := f.store.ListPlanSteps(f.ctx, p.ID)
 	if err != nil {
@@ -422,7 +444,7 @@ func TestStore_DeleteExpiredRuns(t *testing.T) {
 	backdateRun(t, pool, idleA.ID, inside)
 	backdateRun(t, pool, activeA.ID, fresh)
 
-	purgeAll(t, "DeleteExpiredRuns", a.store.DeleteExpiredRuns)
+	purgeAll(t, a.store, "DeleteExpiredRuns", purgeRuns)
 
 	assertRows(t, pool, "runs",
 		map[string]string{"idle inside retention": idleA.ID, "recently updated": activeA.ID, "other tenant, fresh": freshB.ID},
@@ -457,7 +479,7 @@ func TestStore_DeleteExpiredAuditEntries(t *testing.T) {
 	backdateAuditEntry(t, pool, oldB, expired)
 	backdateAuditEntry(t, pool, idleA, inside)
 
-	purgeAll(t, "DeleteExpiredAuditEntries", a.store.DeleteExpiredAuditEntries)
+	purgeAll(t, a.store, "DeleteExpiredAuditEntries", purgeAuditEntries)
 
 	assertRows(t, pool, "audit_log",
 		map[string]string{"inside retention": idleA, "other tenant, fresh": freshB},
@@ -474,7 +496,7 @@ func TestStore_AnonymizeExpiredIPAddresses(t *testing.T) {
 	backdateAuditEntry(t, pool, oldB, expired)
 	backdateAuditEntry(t, pool, idleA, inside)
 
-	purgeAll(t, "AnonymizeExpiredIPAddresses", a.store.AnonymizeExpiredIPAddresses)
+	purgeAll(t, a.store, "AnonymizeExpiredIPAddresses", purgeAuditIPs)
 
 	for name, tc := range map[string]struct {
 		id     string
@@ -529,7 +551,7 @@ func TestStore_AnonymizeExpiredConsentIPAddresses(t *testing.T) {
 	backdateConsent(t, pool, oldB, expired)
 	backdateConsent(t, pool, idleA, inside)
 
-	purgeAll(t, "AnonymizeExpiredConsentIPAddresses", a.store.AnonymizeExpiredConsentIPAddresses)
+	purgeAll(t, a.store, "AnonymizeExpiredConsentIPAddresses", purgeConsentIPs)
 
 	for name, tc := range map[string]struct {
 		id         string
@@ -565,8 +587,8 @@ func TestStore_RetentionLockIsExclusive(t *testing.T) {
 	ctx := context.Background()
 
 	var innerRan bool
-	outer, err := first.WithRetentionLock(ctx, func(ctx context.Context) {
-		inner, err := second.WithRetentionLock(ctx, func(context.Context) { innerRan = true })
+	outer, err := first.WithRetentionLock(ctx, func(ctx context.Context, _ database.RetentionPurger) {
+		inner, err := second.WithRetentionLock(ctx, func(context.Context, database.RetentionPurger) { innerRan = true })
 		if err != nil || inner {
 			t.Errorf("second replica got the lock during a sweep: acquired %v, err %v", inner, err)
 		}
@@ -578,7 +600,7 @@ func TestStore_RetentionLockIsExclusive(t *testing.T) {
 		t.Fatal("the second sweep ran while the first held the lock")
 	}
 
-	again, err := second.WithRetentionLock(ctx, func(context.Context) { innerRan = true })
+	again, err := second.WithRetentionLock(ctx, func(context.Context, database.RetentionPurger) { innerRan = true })
 	if err != nil || !again || !innerRan {
 		t.Fatalf("after the first sweep: acquired %v, ran %v, err %v, want the lock released", again, innerRan, err)
 	}

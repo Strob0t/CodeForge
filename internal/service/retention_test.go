@@ -13,26 +13,28 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // KI-52: the retention job applies the instance-wide policy to every
 // category, works off a backlog in bounded batches, keeps going when one
 // category fails, and runs on a ticker that stops with the server.
 
-// retentionCategories in sweep order: the messages of expired conversations
-// go in bounded batches before the conversations cascade to them.
+// retentionCategories in sweep order.
 var retentionCategories = []string{
-	"sessions", "conversation_messages", "conversations", "runs", "audit_entries", "audit_ip_addresses", "consent_ip_addresses",
+	"sessions", "conversations", "runs", "audit_entries", "audit_ip_addresses", "consent_ip_addresses",
 }
 
 type retentionCall struct {
-	category  string
-	before    time.Time
-	batchSize int
+	category     string
+	before       time.Time
+	batchSize    int
+	messageBatch int // conversations only
 }
 
-// fakeRetentionStore records every call. results holds the rows each call
-// of a category reports, in order (then 0); errs fails a category.
+// fakeRetentionStore is the store and the purger of the sweep; it records
+// every purge call. results holds the rows each call of a category reports,
+// in order (then 0); errs fails a category.
 type fakeRetentionStore struct {
 	mu      sync.Mutex
 	calls   []retentionCall
@@ -66,9 +68,10 @@ func TestRetention_SweepsOnlyWithTheLock(t *testing.T) {
 	}
 }
 
-func (f *fakeRetentionStore) record(ctx context.Context, category string, before time.Time, batchSize int) (int64, error) {
+func (f *fakeRetentionStore) record(ctx context.Context, call retentionCall) (int64, error) {
+	category := call.category
 	f.mu.Lock()
-	f.calls = append(f.calls, retentionCall{category, before, batchSize})
+	f.calls = append(f.calls, call)
 	var n int64
 	if rs := f.results[category]; len(rs) > 0 {
 		n, f.results[category] = rs[0], rs[1:]
@@ -84,45 +87,41 @@ func (f *fakeRetentionStore) record(ctx context.Context, category string, before
 	return n, err
 }
 
-// WithRetentionLock runs the sweep unless lockHeld (another replica sweeps)
-// or lockErr is set.
-func (f *fakeRetentionStore) WithRetentionLock(ctx context.Context, sweep func(ctx context.Context)) (bool, error) {
+// WithRetentionLock runs the sweep with the fake as purger unless lockHeld
+// (another replica sweeps) or lockErr is set.
+func (f *fakeRetentionStore) WithRetentionLock(ctx context.Context, sweep func(context.Context, database.RetentionPurger)) (bool, error) {
 	if f.lockErr != nil {
 		return false, f.lockErr
 	}
 	if f.lockHeld {
 		return false, nil
 	}
-	sweep(ctx)
+	sweep(ctx, f)
 	return true, nil
 }
 
 func (f *fakeRetentionStore) DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "sessions", before, batchSize)
+	return f.record(ctx, retentionCall{category: "sessions", before: before, batchSize: batchSize})
 }
 
-func (f *fakeRetentionStore) DeleteExpiredConversationMessages(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "conversation_messages", before, batchSize)
-}
-
-func (f *fakeRetentionStore) DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "conversations", before, batchSize)
+func (f *fakeRetentionStore) DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize, messageBatch int) (int64, error) {
+	return f.record(ctx, retentionCall{category: "conversations", before: before, batchSize: batchSize, messageBatch: messageBatch})
 }
 
 func (f *fakeRetentionStore) DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "runs", before, batchSize)
+	return f.record(ctx, retentionCall{category: "runs", before: before, batchSize: batchSize})
 }
 
 func (f *fakeRetentionStore) DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "audit_entries", before, batchSize)
+	return f.record(ctx, retentionCall{category: "audit_entries", before: before, batchSize: batchSize})
 }
 
 func (f *fakeRetentionStore) AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "audit_ip_addresses", before, batchSize)
+	return f.record(ctx, retentionCall{category: "audit_ip_addresses", before: before, batchSize: batchSize})
 }
 
 func (f *fakeRetentionStore) AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
-	return f.record(ctx, "consent_ip_addresses", before, batchSize)
+	return f.record(ctx, retentionCall{category: "consent_ip_addresses", before: before, batchSize: batchSize})
 }
 
 func (f *fakeRetentionStore) callsOf(category string) []retentionCall {
@@ -171,13 +170,12 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 	}
 
 	want := map[string]time.Duration{
-		"sessions":              policy.Sessions,
-		"conversation_messages": policy.Conversations,
-		"conversations":         policy.Conversations,
-		"runs":                  policy.CostRecords,
-		"audit_entries":         policy.AuditEntries,
-		"audit_ip_addresses":    policy.AuditIPAddresses,
-		"consent_ip_addresses":  policy.ConsentIPAddresses,
+		"sessions":             policy.Sessions,
+		"conversations":        policy.Conversations,
+		"runs":                 policy.CostRecords,
+		"audit_entries":        policy.AuditEntries,
+		"audit_ip_addresses":   policy.AuditIPAddresses,
+		"consent_ip_addresses": policy.ConsentIPAddresses,
 	}
 	for _, category := range retentionCategories {
 		calls := store.callsOf(category)
@@ -187,8 +185,15 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 		if wantBefore := now.Add(-want[category]); !calls[0].before.Equal(wantBefore) {
 			t.Errorf("%s: cutoff %v, want %v", category, calls[0].before, wantBefore)
 		}
-		if calls[0].batchSize != retentionBatchSize {
-			t.Errorf("%s: batch size %d, want %d", category, calls[0].batchSize, retentionBatchSize)
+		wantBatch, wantMessages := retentionBatchSize, 0
+		if category == "conversations" {
+			// Conversations go in small batches with all their messages, the
+			// messages in statements of the usual batch size.
+			wantBatch, wantMessages = retentionConversationBatch, retentionBatchSize
+		}
+		if calls[0].batchSize != wantBatch || calls[0].messageBatch != wantMessages {
+			t.Errorf("%s: batch size %d (messages %d), want %d (%d)",
+				category, calls[0].batchSize, calls[0].messageBatch, wantBatch, wantMessages)
 		}
 	}
 }
@@ -200,7 +205,7 @@ func TestRetention_ZeroPeriodKeepsCategory(t *testing.T) {
 		disabled []string
 	}{
 		{"sessions", func(p *config.Retention) { p.Sessions = 0 }, []string{"sessions"}},
-		{"conversations", func(p *config.Retention) { p.Conversations = 0 }, []string{"conversation_messages", "conversations"}},
+		{"conversations", func(p *config.Retention) { p.Conversations = 0 }, []string{"conversations"}},
 		{"cost_records", func(p *config.Retention) { p.CostRecords = -time.Hour }, []string{"runs"}},
 		{"audit_entries", func(p *config.Retention) { p.AuditEntries = 0 }, []string{"audit_entries"}},
 		{"audit_ip_addresses", func(p *config.Retention) { p.AuditIPAddresses = 0 }, []string{"audit_ip_addresses"}},
@@ -228,7 +233,7 @@ func TestRetention_ZeroPeriodKeepsCategory(t *testing.T) {
 func TestRetention_WorksOffBacklogInBatches(t *testing.T) {
 	store := &fakeRetentionStore{results: map[string][]int64{
 		"sessions":             {retentionBatchSize, retentionBatchSize, 7},
-		"conversations":        {retentionBatchSize, 0},
+		"conversations":        {retentionConversationBatch, 0},
 		"runs":                 {retentionBatchSize - 1},
 		"audit_ip_addresses":   {retentionBatchSize, retentionBatchSize, retentionBatchSize, 1},
 		"consent_ip_addresses": {retentionBatchSize, 5},
@@ -236,7 +241,7 @@ func TestRetention_WorksOffBacklogInBatches(t *testing.T) {
 	newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
 
 	for category, want := range map[string]int{
-		"sessions": 3, "conversation_messages": 1, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4, "consent_ip_addresses": 2,
+		"sessions": 3, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4, "consent_ip_addresses": 2,
 	} {
 		if got := len(store.callsOf(category)); got != want {
 			t.Errorf("%s: %d batches, want %d", category, got, want)
