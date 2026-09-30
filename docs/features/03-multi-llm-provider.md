@@ -33,8 +33,8 @@ CodeForge does not build its own LLM abstraction layer. LiteLLM Proxy handles 12
 | **Scenario Router** | Python Workers | Mode scenario (set in Go mode presets, forwarded in the run payload) to LiteLLM tag via `resolve_scenario()` in `workers/codeforge/llm.py`. |
 | Cost Dashboard | Frontend | Aggregates run costs stored by CodeForge (from LiteLLM's `x-litellm-response-cost`) per project/model/tool/day (`internal/service/cost.go`). Planned: LiteLLM Spend API queries, per-user/agent views. |
 | Local Model Discovery | Go Core | Discovers LiteLLM and Ollama models (`GET /api/v1/llm/discover`); they are served through the `ollama/*` and `lm_studio/*` wildcards instead of being added to the LiteLLM config. |
-| Copilot Token Exchange | Go Core | GitHub OAuth to Copilot bearer token for free model access. |
-| **Subscription Connect** | Go Core | OAuth device flow for Claude Max + GitHub Copilot. Produces API keys stored in `.env`. |
+| Copilot Token Exchange | Go Core | GitHub OAuth to Copilot bearer token. `POST /api/v1/copilot/exchange` is a platform-admin connection check that returns only status and expiry; the token never leaves the server. |
+| **Subscription Connect** | Go Core | OAuth device flow for Claude Max + GitHub Copilot. Produces API keys stored in `.env` (shared by all tenants): connect/disconnect are platform-admin only. |
 
 ### Scenario-Based Routing
 

@@ -415,12 +415,11 @@ When the policy layer returns `DecisionAsk` for a tool call:
 
 ```yaml
 agent:
-  builtin_tools: []             # Default: all; not read yet, the worker registers all tools (KI-38)
   default_model: ""  # Uses project's configured model
   max_context_tokens: 128000    # Only reported to the frontend (GET /api/v1/agent-config)
   max_loop_iterations: 50
   agentic_by_default: true
-  tool_output_max_chars: 10000  # Not read yet, the worker uses a fixed 10000 (KI-38)
+  tool_output_max_chars: 10000  # Sent with conversation.run.start; the worker truncates tool output in the history
   context_enabled: true         # Enable proactive context injection for conversations (default: true)
   context_budget: 2048          # Base token budget for conversation context (adaptive: decays with history length)
   context_prompt_reserve: 512   # Tokens reserved for prompt overhead

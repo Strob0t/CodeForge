@@ -630,11 +630,10 @@ Example:
 | `runtime.default_test_command` | `CODEFORGE_TEST_COMMAND` | `` | Last fallback for the gate test command: project config `test_command` first, then the default of the language whose test runner is set up in the workspace |
 | `runtime.default_lint_command` | `CODEFORGE_LINT_COMMAND` | `` | Last fallback for the gate lint command (project config `lint_command` first, then the language default) |
 | `runtime.delivery_commit_prefix` | `CODEFORGE_COMMIT_PREFIX` | `codeforge:` | Git commit prefix |
-| `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | Agent heartbeat interval |
-| `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout |
+| `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | Expected worker heartbeat interval (the worker sends every 30 s) |
+| `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout; the stuck-work watchdog ends runs, conversation runs and backend tasks without a heartbeat for `heartbeat_timeout + 2 x heartbeat_interval`; `0` disables that check |
 | `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds); also sent to the worker, which waits this long plus 15 s for a tool-call decision |
-| `runtime.stale_check_interval` | (YAML only) | `60s` | How often the stuck-work watchdog runs (stuck quality gates, stale backend tasks); must be > 0 |
-| `runtime.stale_work_threshold` | (YAML only) | `30m` | Age after which a backend task without progress counts as stale |
+| `runtime.stale_check_interval` | (YAML only) | `60s` | How often the stuck-work watchdog runs (stuck quality gates, lost runs, conversation runs and backend tasks); must be > 0 |
 | `idempotency.bucket` | `CODEFORGE_IDEMPOTENCY_BUCKET` | `IDEMPOTENCY` | NATS KV bucket name |
 | `idempotency.ttl` | `CODEFORGE_IDEMPOTENCY_TTL` | `24h` | Idempotency key TTL |
 | `runtime.hybrid.command_image` | `CODEFORGE_HYBRID_IMAGE` | `` | Docker image for hybrid mode |
@@ -679,7 +678,7 @@ Example:
 | `agent.max_context_tokens` | `CODEFORGE_AGENT_MAX_CONTEXT_TOKENS` | `128000` | Max context window tokens |
 | `agent.max_loop_iterations` | `CODEFORGE_AGENT_MAX_LOOP_ITERATIONS` | `50` | Max tool-use loop iterations |
 | `agent.agentic_by_default` | `CODEFORGE_AGENT_AGENTIC_BY_DEFAULT` | `true` | Enable agentic mode by default |
-| `agent.tool_output_max_chars` | `CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS` | `10000` | Max chars per tool output (currently not read; the worker uses its own default, [KI-38](todo.md#known-issues)) |
+| `agent.tool_output_max_chars` | `CODEFORGE_AGENT_TOOL_OUTPUT_MAX_CHARS` | `10000` | Max chars per tool output kept in the conversation history (sent to the worker with `conversation.run.start`) |
 | `agent.conversation_rollout_count` | `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT` | `1` | Conversation rollout count (1-8) |
 | `agent.summarize_threshold` | `CODEFORGE_SUMMARIZE_THRESHOLD` | `0` | Message count to trigger summarization (0 = disabled) |
 | `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |

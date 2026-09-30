@@ -144,6 +144,21 @@ A worker that stops because a message loop gave up fails its own unfinished work
 matter for workers that crash, are killed, or lose the connection to NATS. The gaps are follow-up work, not part of
 this decision.
 
+> **Update (2026-09-30, KI-28, KI-65):** the gaps above are closed by a store-based stuck-work watchdog
+> (`internal/service/stuck_work_watchdog.go`, every `runtime.stale_check_interval`, works across restarts and
+> replicas). The worker sends heartbeats with `tenant_id` for runs (`runs.heartbeat`), conversation runs (with
+> `turn_id`) and backend tasks (`tasks.heartbeat`); Go records them in the store (migration 098). Work whose heartbeats
+> stop for `heartbeat_timeout + 2 x heartbeat_interval` (3 min by default) is ended through its normal path: runs are
+> stopped as `timeout`, conversation runs get a failed completion for their active turn, tasks are failed and their
+> agent reset. Work that never sent a heartbeat (still queued) is not ended by this check. Quality gates send
+> heartbeats with phase `quality_gate` and are failed when silent and nothing is queued (NATS backlog probe).
+> Dead-lettered starts are ended by Go subscribers on `runs.start.dlq` and `conversation.run.start.dlq`. The worker
+> no longer creates the stream (it waits for the Go Core), dedups at-least-once requests per message (key plus stream
+> sequence), keeps a registry of `tasks.cancel` messages so a task cancelled while queued is not started, and on
+> SIGTERM gives accepted work 5 s, then fails it through the in-flight registry before draining NATS (prod compose
+> `stop_grace_period: 45s`). `ReleaseStaleWork` was removed. Every Go publish carries the tenant as the
+> `X-Tenant-ID` header, and the worker echoes it on what it publishes while handling a message (KI-64).
+
 **7. Per-run subscriptions.** A run's cancel listeners (`runs.cancel` plus `tasks.cancel` or
 `conversation.run.cancel`) and its heartbeat belong to the run: `RuntimeClient.close()` releases them and every run
 handler calls it when the run ends, successfully or not. The cancel listeners and the per-call subscription for a

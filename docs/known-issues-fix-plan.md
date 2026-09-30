@@ -28,7 +28,7 @@
 | **S3** | Quality gates and delivery | ~~KI-26~~, ~~KI-27~~, ~~KI-28~~, ~~KI-29~~ | M |
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
-| **S6** | Trust, compliance, unwired features | KI-15, ~~KI-16~~, KI-17, KI-25, KI-33, KI-37, KI-38, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, KI-55, KI-56, KI-57, ~~KI-58~~, KI-60, KI-62 | L |
+| **S6** | Trust, compliance, unwired features | KI-15, ~~KI-16~~, KI-17, KI-25, KI-33, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, KI-55, KI-56, KI-57, ~~KI-58~~, KI-60, KI-62 | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -126,8 +126,8 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-17** | Wire the review pipeline orchestrator and `DiffImpactScorer`, or return 501 until wired (D-S3); fix the event name, payload and auth in RefactorApproval |
 | **KI-25** | `spawn_subagent` starts a real sub-agent run, or the tool is removed from BASE_TOOLS until it does (D-S3) |
 | **KI-33** | Clean up teams when their plan finishes |
-| **KI-37** | Verifier metrics use the worker's LiteLLM HTTP client instead of the `litellm` package |
-| **KI-38** | Allowlist uses `handoff_to`; wire or remove `agent.builtin_tools` / `tool_output_max_chars` |
+| **KI-37** | **Done (2026-09-30).** Verifier metrics use the worker's LiteLLM HTTP client instead of the `litellm` package |
+| **KI-38** | **Done (2026-09-30).** Allowlist uses `handoff_to`; wire or remove `agent.builtin_tools` / `tool_output_max_chars` |
 | **KI-52** | **Done (2026-09-30).** Instantiate `RetentionService`; valid anonymization SQL (`WHERE id IN (SELECT ... LIMIT n)`) |
 | **KI-53** | **Done (2026-09-30).** Scan `admin_email` as nullable |
 | **KI-54** | **Done (2026-09-30).** Disable deepeval telemetry via env in the worker |
@@ -145,11 +145,11 @@ scheduled as follows:
 
 | KI | Summary | Milestone |
 |---|---|---|
-| **KI-63** | Tool-call approvals resolved without a tenant check | S6 |
-| **KI-64** | Tenant propagation over NATS per payload; default-tenant fallback on publish | S6 |
-| **KI-65** | At-most-once work lacks complete Go-side watchdogs (conversations, backend tasks, SIGTERM) | S3 (with the gate watchdog, KI-28) |
-| **KI-66** | Worker dedup keys too coarse | S2 follow-up |
-| **KI-67** | Worker consumer lifecycle gaps (partly fixed) | S2 follow-up |
+| **KI-63** | Tool-call approvals resolved without a tenant check | S6, **done 2026-09-30** |
+| **KI-64** | Tenant propagation over NATS per payload; default-tenant fallback on publish | S6, **done 2026-09-30** |
+| **KI-65** | At-most-once work lacks complete Go-side watchdogs (conversations, backend tasks, SIGTERM) | S3 (with the gate watchdog, KI-28), **done 2026-09-30** (review round in progress) |
+| **KI-66** | Worker dedup keys too coarse | S2 follow-up, **done 2026-09-30** |
+| **KI-67** | Worker consumer lifecycle gaps (partly fixed) | S2 follow-up, **done 2026-09-30** (core-NATS notifications left) |
 | **KI-68** | Policy profiles are one global namespace | S6, **done 2026-09-30** |
 | **KI-69** | Policy follow-ups (tools offered despite mode, clone snapshots, run profile, feedback providers, redirections) | S6, **done 2026-09-30** |
 | **KI-70** | Blue-green overlay does not work | S4 |
@@ -158,11 +158,11 @@ scheduled as follows:
 | **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6 |
 | **KI-74** | Frontend live-update follow-ups | S6 |
 | **KI-75** | LLM models are global across tenants | S6, **done 2026-09-30** (platform admins only) |
-| **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up |
+| **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up, **done 2026-09-30** (review round in progress) |
 | **KI-77** | Go core git calls in agent-writable workspaces are not hardened (fsmonitor, filters, hooks, credential helpers) | S3 review round, **done 2026-09-30** |
 | **KI-78** | Artifact validation events/audit written before the run's end is decided | S6 |
 | **KI-79** | GDPR residuals (quarantine reviewer free text, privacy page wording) | S6 |
-| **KI-80** | Copilot token handed to every authenticated user | S6 (high: do first) |
+| **KI-80** | Copilot token handed to every authenticated user | S6, **done 2026-09-30** |
 | **KI-81** | Auto-agent runs workspace tests inside the Go Core with the core's environment | S3 follow-ups (high: do first) |
 | **KI-82** | Git config allowlist refuses common repositories | S3 follow-ups |
 

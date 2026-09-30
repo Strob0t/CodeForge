@@ -161,7 +161,7 @@ MCP + A2A complementary: "MCP for tools, A2A for agents"
 - **Hybrid Routing (Phase 29):** Enabled by default (`CODEFORGE_ROUTING_ENABLED=true`). Cascade order: (1) ComplexityAnalyzer (rule-based, <1ms, always runs) -> (2) MABModelSelector (UCB1, primary) -> (3) LLMMetaRouter (cold-start fallback) -> (4) Complexity defaults (final fallback). Package: `workers/codeforge/routing/`
 - LiteLLM uses provider wildcards (`openai/*`, `anthropic/*`) — HybridRouter picks exact model
 - Scenario tags (default/background/think/longContext/review/plan) as fallback when routing disabled
-- OpenRouter as optional provider; GitHub Copilot Token Exchange — `internal/adapter/copilot/client.go`, `POST /api/v1/copilot/exchange`
+- OpenRouter as optional provider; GitHub Copilot Token Exchange — `internal/adapter/copilot/client.go`, `POST /api/v1/copilot/exchange` (platform admins only, returns status/expiry, never the token). Platform admin = admin of the default tenant (`user.User.IsPlatformAdmin()`, `middleware.RequirePlatformAdmin`, `is_platform_admin` on the user JSON): only platform admins change shared LLM models and subscription providers; `GET /llm/models` strips credential parameters
 - Local Model Auto-Discovery (Ollama/LM Studio `/v1/models`)
 - Custom: LiteLLM Config Manager, User Key Mapping, Cost Dashboard
 
@@ -269,11 +269,12 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 - One shared durable pull consumer per subject and side (`codeforge-go-*` / `codeforge-py-*`), created with deliver policy `new`, no inactivity threshold, `MaxDeliver` 4 — provisioning: `internal/adapter/nats/nats.go`, `workers/codeforge/consumer/_delivery.py`
 - Workspace-changing work (`runs.start`, `conversation.run.start`, `tasks.agent.*`, `benchmark.run.request`) is at-most-once: accepted with a confirmed double ack (`ack_sync`, retried 3 times; unconfirmed -> NAK, work not started), registered in `self._in_flight`, and its failure is reported as a failed completion; completions go through `_publish_result` / `publish_with_retry` (retries, one `Nats-Msg-Id`). Every other subject is at-least-once and its handler must be idempotent
 - Settle every message exactly once: success or a published error result -> ack; failure -> `_retry_or_dead_letter` (NAK with delay, DLQ + ack on the last attempt, from `num_delivered`); invalid payload -> `_reject_invalid` (DLQ + `term`). Never NAK an invalid payload, never ack without a DLQ copy (DLQ copies drop `Nats-*` headers)
-- Duplicate guards (skip if already `"completed"`); a failed request is removed from the dedup cache
+- Duplicate guards (skip if already `"completed"`); at-least-once requests are deduplicated per message (key plus stream sequence), at-most-once work by run ID; a failed request is removed from the dedup cache
 - Notification subscriptions (per-run and per-task cancel listeners, one `runtime.listen_for_cancel` helper; tool-call responses) use deliver policy `new` and ack policy `none`; Go keeps handlers in progress up to `Queue.SetMaxHandlerDuration` (covers the HITL approval timeout). The worker waits for a tool-call decision up to the approval timeout (`approval_timeout_seconds` on `runs.start` / `conversation.run.start`, default 60 s) plus 15 s
 - Quality gates: `runs.qualitygate.request` carries `timeout_seconds` and `heartbeat_seconds`; while a gate runs the worker sends `runs.heartbeat` (with `tenant_id`, phase `quality_gate`) and keeps the request in progress; a check that could not run is reported as a null verdict plus `error` (only a check that ran and failed rolls back)
 - `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`); backend CLIs run in their own process group, which `tasks.cancel` stops (result status `cancelled`)
-- A worker whose consumer loop gives up fails its unfinished accepted work (30 s grace) and exits 1
+- A worker whose consumer loop gives up fails its unfinished accepted work (30 s grace) and exits 1; on SIGTERM it gives accepted work 5 s, then fails it before draining NATS (prod `stop_grace_period: 45s`). The worker waits for the Go Core to create the stream and must start after it
+- Heartbeats: runs (`runs.heartbeat`, conversation runs with `turn_id`), backend tasks (`tasks.heartbeat`) and quality gates (phase `quality_gate`) carry `tenant_id`; Go stores them and the stuck-work watchdog ends work whose heartbeats stop (`heartbeat_timeout + 2 x heartbeat_interval`); Go subscribes to `runs.start.dlq` / `conversation.run.start.dlq` to end dead-lettered starts; a `tasks.cancel` for a queued task is remembered so the task is not started later
 
 ### Error Handling
 - `except Exception as exc:` (NOT bare), log `error=str(exc)`, publish errors back to NATS, then settle the message as above
@@ -281,7 +282,7 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 ### Tenant Isolation
 - ALL tenant-scoped queries: `AND tenant_id = $N` with `tenantFromCtx(ctx)` (exceptions: user/token/tenant mgmt, and system jobs that must span tenants - the GDPR retention sweep and the stuck-work watchdog's `ListStaleRuns` - whose queries are commented `INTENTIONALLY CROSS-TENANT` with the reason and handle each row in its own tenant's context)
 - LIMIT via `$N` placeholders, not `%d` interpolation
-- NATS payloads MUST carry `tenant_id` for background jobs -> `tenantctx.WithTenant(ctx, payload.TenantID)`
+- NATS payloads MUST carry `tenant_id` for background jobs -> `tenantctx.WithTenant(ctx, payload.TenantID)`; every Go publish also carries the tenant as the `X-Tenant-ID` header (used only when neither request nor payload sets it: request > payload > header), and the worker echoes it on everything it publishes while handling a message. Outgoing payloads take their tenant from the context (`outgoingTenant`; a missing tenant is logged as an error)
 - Reference: `store_project.go:GetProject` (correct), `store_a2a.go` (fixed)
 
 ## TDD (Test-Driven Development)
