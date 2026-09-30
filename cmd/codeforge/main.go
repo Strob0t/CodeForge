@@ -90,7 +90,7 @@ func run() error {
 		return fmt.Errorf("flags: %w", err)
 	}
 
-	cfg, yamlPath, err := config.LoadWithCLI(flags)
+	cfg, _, err := config.LoadWithCLI(flags)
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
 	}
@@ -1030,25 +1030,13 @@ func run() error {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
-	// ConfigHolder for hot reload support.
-	cfgHolder := config.NewHolder(cfg, yamlPath)
-
-	// SIGHUP triggers hot reload of config and secrets vault
+	// SIGHUP reloads the secrets vault and names the changed settings that
+	// need a restart (see reloadOnSIGHUP).
 	sighup := make(chan os.Signal, 1)
 	signal.Notify(sighup, syscall.SIGHUP)
 	go func() {
 		for range sighup {
-			slog.Info("SIGHUP received, reloading config and secrets")
-			if err := cfgHolder.Reload(); err != nil {
-				slog.Error("config reload failed", "error", err)
-			} else {
-				slog.Info("config reloaded successfully")
-			}
-			if err := vault.Reload(); err != nil {
-				slog.Error("secrets reload failed", "error", err)
-			} else {
-				slog.Info("secrets reloaded successfully")
-			}
+			reloadOnSIGHUP(cfg, flags, vault)
 		}
 	}()
 

@@ -78,6 +78,12 @@ func Load() (*Config, error) {
 // defaults < YAML < ENV < CLI flags. The YAML path can be overridden
 // via CLIFlags.ConfigPath.
 func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
+	return loadWithCLI(flags, ensureSecrets)
+}
+
+// loadWithCLI is LoadWithCLI with the step that fills missing secrets
+// (ensureSecrets at startup) passed in.
+func loadWithCLI(flags CLIFlags, fillSecrets func(*Config) error) (*Config, string, error) {
 	yamlPath := DefaultConfigFile
 	if v := os.Getenv("CODEFORGE_CONFIG_FILE"); v != "" {
 		yamlPath = v
@@ -98,7 +104,7 @@ func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
 	}
 	applyCLI(&cfg, flags)
 
-	if err := ensureSecrets(&cfg); err != nil {
+	if err := fillSecrets(&cfg); err != nil {
 		return nil, "", fmt.Errorf("config secrets: %w", err)
 	}
 
@@ -529,6 +535,7 @@ func ensureSecrets(cfg *Config) error {
 			return fmt.Errorf("generate JWT secret: %w", err)
 		}
 		cfg.Auth.JWTSecret = token
+		cfg.Auth.jwtSecretGenerated = true
 		slog.Info("auto-generated JWT secret -- persists only in memory; set CODEFORGE_AUTH_JWT_SECRET env var to stabilize across restarts")
 	}
 	return nil

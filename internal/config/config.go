@@ -4,73 +4,9 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"net/netip"
-	"sync"
 	"time"
-
-	"github.com/Strob0t/CodeForge/internal/secrets"
 )
-
-// ConfigHolder provides thread-safe access to a Config with hot-reload support.
-// Services that hold pointers into the Config (e.g., &cfg.Runtime) will see
-// updated values after a reload because fields are swapped in-place.
-type ConfigHolder struct {
-	mu       sync.RWMutex
-	cfg      Config
-	yamlPath string
-}
-
-// NewHolder creates a ConfigHolder from an initial Config and the YAML path
-// used for reloading.
-func NewHolder(cfg *Config, yamlPath string) *ConfigHolder {
-	return &ConfigHolder{cfg: *cfg, yamlPath: yamlPath}
-}
-
-// Get returns a pointer to the Config. Callers must not store the pointer
-// long-term; read values immediately and release.
-func (h *ConfigHolder) Get() *Config {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return &h.cfg
-}
-
-// Reload re-reads the YAML file and environment variables, validates, and
-// swaps the config in-place. If validation fails, the old config is preserved.
-// Fields that cannot be hot-reloaded (Server.Port, Postgres.DSN, NATS.URL) are
-// logged as warnings if they differ.
-func (h *ConfigHolder) Reload() error {
-	newCfg, err := LoadFrom(h.yamlPath)
-	if err != nil {
-		return fmt.Errorf("reload config: %w", err)
-	}
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Warn about non-hot-reloadable fields.
-	if newCfg.Server.Port != h.cfg.Server.Port {
-		slog.Warn("config reload: server.port changed but requires restart",
-			"old", h.cfg.Server.Port, "new", newCfg.Server.Port)
-	}
-	if newCfg.Postgres.DSN != h.cfg.Postgres.DSN {
-		slog.Warn("config reload: postgres.dsn changed but requires restart",
-			"old", "***", "new", "***")
-	}
-	if newCfg.NATS.URL != h.cfg.NATS.URL {
-		slog.Warn("config reload: nats.url changed but requires restart",
-			"old", secrets.RedactURL(h.cfg.NATS.URL), "new", secrets.RedactURL(newCfg.NATS.URL))
-	}
-
-	// Log level change notification.
-	if newCfg.Logging.Level != h.cfg.Logging.Level {
-		slog.Info("config reload: logging level changed",
-			"old", h.cfg.Logging.Level, "new", newCfg.Logging.Level)
-	}
-
-	h.cfg = *newCfg
-	return nil
-}
 
 // Config holds all runtime configuration for the CodeForge core service.
 type Config struct {
@@ -196,6 +132,8 @@ type Auth struct {
 	InitialPasswordFile         string        `yaml:"initial_password_file"`              // Path for generated password (default: data/initial_admin_password)
 	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`              // Setup wizard timeout in minutes (default: 5)
 	LLMKeyEncryptionSecret      string        `yaml:"llm_key_encryption_secret" json:"-"` // Separate encryption key for LLM user keys (falls back to JWTSecret)
+
+	jwtSecretGenerated bool // JWTSecret was generated at load time, not configured
 }
 
 // Webhook holds VCS/PM webhook verification configuration.
