@@ -37,8 +37,8 @@ func (s *AgentService) StartHeartbeatSubscriber(ctx context.Context) (cancel fun
 // FailTasksWithLostWorker fails the queued or running backend tasks whose
 // worker sent no heartbeat for lostAfter (KI-65; see LostWorkerAfter): the
 // worker is told to stop the task (it may only have lost its connection),
-// the task is failed through the task result path, and its agent is reset to
-// idle, each in the task's tenant. Tasks a worker has not accepted yet have
+// the task is failed through the task result path (which resets its agent to
+// idle), in the task's tenant. Tasks a worker has not accepted yet have
 // no heartbeat and are not failed; lostAfter 0 disables the check. It returns
 // how many lost tasks it failed.
 func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter time.Duration) (int, error) {
@@ -60,9 +60,6 @@ func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter ti
 		if err := s.recordResult(taskCtx, task.StatusFailed, task.Result{Error: reason}, t.ID, t.ProjectID, 0); err != nil {
 			errs = append(errs, fmt.Errorf("task %s: %w", t.ID, err))
 			continue
-		}
-		if t.AgentID != "" {
-			s.resetAgent(taskCtx, t.AgentID, t.ProjectID)
 		}
 		s.hub.BroadcastEvent(taskCtx, event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
 			TaskID:    t.ID,

@@ -160,7 +160,7 @@ func (m *runtimeMockStore) ListTasksWithStaleHeartbeat(_ context.Context, idleFo
 	return stale, nil
 }
 
-func (m *runtimeMockStore) QueueTask(_ context.Context, id string) error {
+func (m *runtimeMockStore) QueueTask(_ context.Context, id, agentID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.tasks {
@@ -171,6 +171,7 @@ func (m *runtimeMockStore) QueueTask(_ context.Context, id string) error {
 			return errMockRunTransition
 		}
 		m.tasks[i].Status = task.StatusQueued
+		m.tasks[i].AgentID = agentID
 		return nil
 	}
 	return errMockNotFound

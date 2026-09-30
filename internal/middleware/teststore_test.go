@@ -908,4 +908,4 @@ func (s *testStore) GetConsentPurpose(_ context.Context, _ string) (*database.Co
 	return nil, nil
 }
 
-func (s *testStore) QueueTask(_ context.Context, _ string) error { return nil }
+func (s *testStore) QueueTask(_ context.Context, _, _ string) error { return nil }

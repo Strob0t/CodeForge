@@ -1730,10 +1730,11 @@ func TestIsAllowedGiteaHost(t *testing.T) {
 }
 
 // QueueTask queues the task (the status guard is in queueTaskStore).
-func (m *mockStore) QueueTask(_ context.Context, id string) error {
+func (m *mockStore) QueueTask(_ context.Context, id, agentID string) error {
 	for i := range m.tasks {
 		if m.tasks[i].ID == id {
 			m.tasks[i].Status = task.StatusQueued
+			m.tasks[i].AgentID = agentID
 			return nil
 		}
 	}

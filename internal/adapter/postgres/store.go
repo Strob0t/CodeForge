@@ -140,14 +140,16 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Sta
 
 const taskExistsSQL = `SELECT EXISTS (SELECT 1 FROM tasks WHERE id = $1 AND tenant_id = $2)`
 
-// QueueTask queues a task for a dispatch unless it is already queued or
-// running: domain.ErrConflict then, domain.ErrNotFound for an unknown task
-// or one of another tenant. The status predicate decides between concurrent
-// dispatches.
-func (s *Store) QueueTask(ctx context.Context, id string) error {
+// QueueTask queues a task for a dispatch to agentID unless it is already
+// queued or running: domain.ErrConflict then, domain.ErrNotFound for an
+// unknown task or one of another tenant. The status predicate decides
+// between concurrent dispatches. The task records its agent, so its result
+// can set the agent idle again.
+func (s *Store) QueueTask(ctx context.Context, id, agentID string) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE tasks SET status = 'queued' WHERE id = $1 AND tenant_id = $2 AND status NOT IN ('queued', 'running')`,
-		id, tenantFromCtx(ctx))
+		`UPDATE tasks SET status = 'queued', agent_id = $3
+		 WHERE id = $1 AND tenant_id = $2 AND status NOT IN ('queued', 'running')`,
+		id, tenantFromCtx(ctx), agentID)
 	return s.guardedUpdateResult(ctx, tag, err, taskExistsSQL, "queue task", id)
 }
 

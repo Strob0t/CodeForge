@@ -97,7 +97,7 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	if t.Status == task.StatusQueued || t.Status == task.StatusRunning {
 		return fmt.Errorf("dispatch task %s: it is %s: %w", taskID, t.Status, domain.ErrConflict)
 	}
-	if err := s.store.QueueTask(ctx, taskID); err != nil {
+	if err := s.store.QueueTask(ctx, taskID, agentID); err != nil {
 		return fmt.Errorf("queue task: %w", err)
 	}
 	t.AgentID = agentID
@@ -244,6 +244,11 @@ func (s *AgentService) recordResult(ctx context.Context, final task.Status, resu
 		ProjectID: projectID,
 		Status:    status,
 	})
+
+	// Dispatch marked the agent running; its task ended.
+	if agentID != "" {
+		s.resetAgent(ctx, agentID, projectID)
+	}
 
 	slog.Info("task result processed", "task_id", taskID, "status", status)
 	return nil

@@ -25,20 +25,20 @@ func TestStore_QueueTask(t *testing.T) {
 		if err := f.store.UpdateTaskStatus(f.ctx, tk.ID, status); err != nil {
 			t.Fatalf("UpdateTaskStatus: %v", err)
 		}
-		if err := f.store.QueueTask(f.ctx, tk.ID); err != nil {
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID); err != nil {
 			t.Fatalf("QueueTask(%s task): %v", status, err)
 		}
 		got, err := f.store.GetTask(f.ctx, tk.ID)
 		if err != nil {
 			t.Fatalf("GetTask: %v", err)
 		}
-		if got.Status != task.StatusQueued {
-			t.Fatalf("%s task queued: status = %s", status, got.Status)
+		if got.Status != task.StatusQueued || got.AgentID != f.agent.ID {
+			t.Fatalf("%s task queued: status = %s, agent = %q; want queued for %s", status, got.Status, got.AgentID, f.agent.ID)
 		}
-		if err := f.store.QueueTask(f.ctx, tk.ID); !errors.Is(err, domain.ErrConflict) {
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID); !errors.Is(err, domain.ErrConflict) {
 			t.Fatalf("second QueueTask = %v, want ErrConflict", err)
 		}
-		if err := other.store.QueueTask(other.ctx, tk.ID); !errors.Is(err, domain.ErrNotFound) {
+		if err := other.store.QueueTask(other.ctx, tk.ID, other.agent.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("QueueTask from another tenant = %v, want ErrNotFound", err)
 		}
 	}
@@ -50,10 +50,10 @@ func TestStore_QueueTask(t *testing.T) {
 	if err := f.store.UpdateTaskStatus(f.ctx, running.ID, task.StatusRunning); err != nil {
 		t.Fatalf("UpdateTaskStatus: %v", err)
 	}
-	if err := f.store.QueueTask(f.ctx, running.ID); !errors.Is(err, domain.ErrConflict) {
+	if err := f.store.QueueTask(f.ctx, running.ID, f.agent.ID); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("QueueTask(running) = %v, want ErrConflict", err)
 	}
-	if err := f.store.QueueTask(f.ctx, uuid.New().String()); !errors.Is(err, domain.ErrNotFound) {
+	if err := f.store.QueueTask(f.ctx, uuid.New().String(), f.agent.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("QueueTask(unknown) = %v, want ErrNotFound", err)
 	}
 }

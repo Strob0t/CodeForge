@@ -20,7 +20,7 @@ type queueTaskStore struct {
 	*mockStore
 }
 
-func (s queueTaskStore) QueueTask(_ context.Context, id string) error {
+func (s queueTaskStore) QueueTask(_ context.Context, id, agentID string) error {
 	for i := range s.tasks {
 		if s.tasks[i].ID != id {
 			continue
@@ -29,6 +29,7 @@ func (s queueTaskStore) QueueTask(_ context.Context, id string) error {
 			return domain.ErrConflict
 		}
 		s.tasks[i].Status = task.StatusQueued
+		s.tasks[i].AgentID = agentID
 		return nil
 	}
 	return domain.ErrNotFound
