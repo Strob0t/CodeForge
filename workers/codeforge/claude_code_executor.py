@@ -11,6 +11,10 @@ Claude Code is an autonomous agent with its own tool loop. This executor:
   rules, HITL approval). The CLI loads no settings files and no MCP servers
   (the workspace is the user's repository) and runs in ``dontAsk`` mode, so
   only the hook's "allow" lets a tool run.
+- Parses the CLI's output as it arrives, so a run that times out or is
+  cancelled keeps its output and usage. ``claudecode_timeout`` limits the
+  run time without the time spent waiting for policy decisions (HITL). On
+  timeout or cancel the CLI's process group is stopped.
 - Returns results in the standard ``AgentLoopResult`` format
 - Guards concurrency with an asyncio semaphore
 """
@@ -29,15 +33,13 @@ import shlex
 import shutil
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from codeforge import claude_code_policy_hook as policy_hook
 from codeforge.config import get_settings
-from codeforge.models import (
-    AgentLoopResult,
-    ConversationMessagePayload,
-)
+from codeforge.models import AgentLoopResult
 from codeforge.policy_args import policy_request_args
 from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
@@ -62,17 +64,56 @@ _CLAUDE_CLI_ENV = (
 )
 
 
+def _count(value: object) -> int:
+    """A token or turn count from CLI output: a non-negative int, anything else is 0."""
+    return value if type(value) is int and value > 0 else 0
+
+
+def _usage(value: object) -> tuple[int, int]:
+    if not isinstance(value, dict):
+        return 0, 0
+    return _count(value.get("input_tokens")), _count(value.get("output_tokens"))
+
+
 @dataclass
 class _RunAccumulator:
-    """Mutable accumulator for token/cost/step data during a run."""
+    """What a run produced so far: kept when the run fails, times out or is cancelled."""
 
+    model: str
     content_parts: list[str] = field(default_factory=list)
-    tool_messages: list[ConversationMessagePayload] = field(default_factory=list)
-    total_cost: float = 0.0
-    total_tokens_in: int = 0
-    total_tokens_out: int = 0
-    step_count: int = 0
-    model: str = ""
+    tool_uses: int = 0
+    turns: int = 0
+    # Usage per API message (largest seen: the CLI repeats a message per
+    # content block), an estimate until a result event reports the totals.
+    message_usage: dict[str, tuple[int, int]] = field(default_factory=dict)
+    result_usage: tuple[int, int] | None = None
+
+    def record_message_usage(self, message: dict[str, object]) -> None:
+        usage = _usage(message.get("usage"))
+        if usage == (0, 0):
+            return
+        message_id = message.get("id")
+        key = message_id if isinstance(message_id, str) else f"#{len(self.message_usage)}"
+        seen = self.message_usage.get(key, (0, 0))
+        self.message_usage[key] = (max(seen[0], usage[0]), max(seen[1], usage[1]))
+
+    def record_result(self, event: dict[str, object]) -> None:
+        tokens_in, tokens_out = _usage(event.get("usage"))
+        previous = self.result_usage or (0, 0)
+        self.result_usage = (previous[0] + tokens_in, previous[1] + tokens_out)
+        model = event.get("model")
+        if isinstance(model, str) and model:
+            self.model = model
+        self.turns = _count(event.get("num_turns")) or self.turns
+
+    def tokens(self) -> tuple[int, int]:
+        if self.result_usage is not None:
+            return self.result_usage
+        return sum(u[0] for u in self.message_usage.values()), sum(u[1] for u in self.message_usage.values())
+
+    @property
+    def step_count(self) -> int:
+        return self.turns or self.tool_uses
 
 
 # The only tools a Claude Code run gets (--tools) and the only ones the policy
@@ -125,7 +166,21 @@ _HIDDEN_CLI_OPTIONS: tuple[str, ...] = ("--max-turns", "--system-prompt-file")
 # Denies every tool call the hook did not allow (nothing is auto-approved).
 _PERMISSION_MODE = "dontAsk"
 _CLI_CHECK_TIMEOUT_SECONDS = 30.0
-_STOP_GRACE_SECONDS = 5.0
+
+# Calls of these tools cannot change the workspace; any other allowed call
+# means a failed run may have left it partly modified.
+_READ_ONLY_TOOLS = frozenset({"Read", "Grep", "Glob", "LS"})
+
+# Largest stream-json line read from the CLI (a tool result can be big); a
+# longer line is skipped.
+_MAX_EVENT_LINE_BYTES = 32 * 1024 * 1024
+_STDERR_TAIL_BYTES = 64 * 1024
+# How often the run is checked for cancellation and its time limit.
+_POLL_SECONDS = 0.5
+# Time the CLI gets to finish writing and exit after its output ended.
+_EXIT_GRACE_SECONDS = 5.0
+# sun_path of AF_UNIX addresses holds 108 bytes including the terminating NUL.
+_MAX_SOCKET_PATH_BYTES = 107
 
 # Default model for cost estimation when Claude Code doesn't report one.
 _DEFAULT_MODEL = "anthropic/claude-sonnet-4"
@@ -192,6 +247,20 @@ def hook_timeouts(policy_wait_seconds: float) -> HookTimeouts:
     )
 
 
+class ClaudeCodeCLIError(Exception):
+    """The Claude Code CLI is missing or cannot enforce the policy on its tool calls."""
+
+
+# Base of the runs' private directories: a long TMPDIR would make the socket
+# path exceed the AF_UNIX limit. mkdtemp creates a fresh 0700 directory in it.
+_SHORT_TMP = "/tmp"  # noqa: S108 - only the base of a mkdtemp() directory
+
+
+def _socket_base_dir() -> str:
+    """Return a short directory for a run's private directory (unix socket paths are short)."""
+    return _SHORT_TMP if os.access(_SHORT_TMP, os.W_OK | os.X_OK) else tempfile.gettempdir()
+
+
 class _BadPolicyRequestError(Exception):
     """A decision request that is denied without asking the policy."""
 
@@ -216,6 +285,11 @@ class PolicySocketServer:
         self._server: asyncio.Server | None = None
         self._handlers: set[asyncio.Task[None]] = set()
         self._closed = False
+        self._pending_decisions = 0
+        self._waiting_since = 0.0
+        self._waited = 0.0
+        # Allowed calls of tools that can change the workspace.
+        self.changes_allowed = 0
 
     @property
     def directory(self) -> str:
@@ -230,9 +304,20 @@ class PolicySocketServer:
     def token(self) -> str:
         return self._token
 
+    def waited_seconds(self) -> float:
+        """Seconds during which at least one decision was pending (HITL approval waits included)."""
+        if self._pending_decisions:
+            return self._waited + time.monotonic() - self._waiting_since
+        return self._waited
+
     async def __aenter__(self) -> PolicySocketServer:
-        self._dir = tempfile.mkdtemp(prefix="codeforge-claude-")
+        self._dir = tempfile.mkdtemp(prefix="cf-cc-", dir=_socket_base_dir())
         try:
+            if len(os.fsencode(self.socket_path)) > _MAX_SOCKET_PATH_BYTES:
+                raise ClaudeCodeCLIError(
+                    f"policy socket path {self.socket_path!r} is too long for a unix socket "
+                    f"(max {_MAX_SOCKET_PATH_BYTES} bytes)"
+                )
             self._server = await asyncio.start_unix_server(
                 self._handle, path=self.socket_path, limit=MAX_POLICY_REQUEST_BYTES
             )
@@ -290,6 +375,9 @@ class PolicySocketServer:
 
         command, path = policy_request_args(tool_name, tool_input, self._workspace)
         preview = arguments_preview(tool_input)
+        if not self._pending_decisions:
+            self._waiting_since = time.monotonic()
+        self._pending_decisions += 1
         try:
             decision = await asyncio.wait_for(
                 self._runtime.request_tool_call(tool=tool_name, command=command, path=path, arguments_preview=preview),
@@ -301,8 +389,14 @@ class PolicySocketServer:
         except Exception as exc:
             logger.error("claude code policy request failed: tool=%s error=%s", tool_name, exc)
             return _DENY, f"policy check failed: {exc}"
+        finally:
+            self._pending_decisions -= 1
+            if not self._pending_decisions:
+                self._waited += time.monotonic() - self._waiting_since
 
         if decision.decision == _ALLOW:
+            if tool_name not in _READ_ONLY_TOOLS:
+                self.changes_allowed += 1
             return _ALLOW, decision.reason
         return _DENY, decision.reason or "denied by policy"
 
@@ -387,10 +481,6 @@ def _write_private_file(directory: str, name: str, content: str) -> str:
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
     return path
-
-
-class ClaudeCodeCLIError(Exception):
-    """The Claude Code CLI is missing or cannot enforce the policy on its tool calls."""
 
 
 # CLI binaries (real path, mtime) that passed the capability check. Only a
@@ -499,20 +589,6 @@ def _missing_cli_options(help_text: str) -> list[str]:
     return missing
 
 
-async def _stop_process(proc: asyncio.subprocess.Process) -> None:
-    """Terminate a subprocess that is still running (kill it if it ignores SIGTERM) and reap it."""
-    if proc.returncode is not None:
-        return
-    with contextlib.suppress(ProcessLookupError):
-        proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=_STOP_GRACE_SECONDS)
-    except TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        await proc.wait()
-
-
 class ClaudeCodeExecutor:
     """Run a conversation turn via the Claude Code CLI.
 
@@ -528,7 +604,6 @@ class ClaudeCodeExecutor:
         self._workspace = workspace_path
         self._runtime = runtime
         self._cancelled = False
-        self._process: asyncio.subprocess.Process | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -549,11 +624,8 @@ class ClaudeCodeExecutor:
             return await self._run_via_cli(messages, model, max_turns, system_prompt)
 
     async def cancel(self) -> None:
-        """Signal cancellation and terminate the subprocess if running."""
+        """Stop the run: its supervision stops the CLI's process group within a poll interval."""
         self._cancelled = True
-        if self._process is not None:
-            with contextlib.suppress(ProcessLookupError):
-                self._process.terminate()
 
     # ------------------------------------------------------------------
     # Message formatting
@@ -603,29 +675,30 @@ class ClaudeCodeExecutor:
     # ------------------------------------------------------------------
 
     async def _parse_cli_event(self, event: dict[str, object], acc: _RunAccumulator) -> None:
-        """Parse a single stream-json event from the CLI output."""
-        event_type = event.get("type", "")
-
-        if event_type == "assistant" and "message" in event:
-            msg = event["message"]
-            if isinstance(msg, dict):
-                for block in msg.get("content", []):
-                    if block.get("type") == "text":
-                        text = block.get("text", "")
-                        acc.content_parts.append(text)
-                        await self._runtime.send_output(text)
-                    elif block.get("type") == "tool_use":
-                        acc.step_count += 1
-
+        """Take the text, tool uses and usage out of one stream-json event; ignore what does not fit."""
+        event_type = event.get("type")
+        if event_type == "assistant":
+            message = event.get("message")
+            if not isinstance(message, dict):
+                return
+            acc.record_message_usage(message)
+            content = message.get("content")
+            for block in content if isinstance(content, list) else []:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    await self._emit_text(block["text"], acc)
+                elif block.get("type") == "tool_use":
+                    acc.tool_uses += 1
         elif event_type == "result":
-            usage = event.get("usage", {})
-            if isinstance(usage, dict):
-                acc.total_tokens_in += usage.get("input_tokens", 0)
-                acc.total_tokens_out += usage.get("output_tokens", 0)
-            if event.get("model"):
-                acc.model = str(event["model"])
-            if event.get("num_turns"):
-                acc.step_count = int(event["num_turns"])
+            acc.record_result(event)
+
+    async def _emit_text(self, text: str, acc: _RunAccumulator) -> None:
+        acc.content_parts.append(text)
+        try:
+            await self._runtime.send_output(text)
+        except Exception as exc:
+            logger.warning("claude code output not streamed: %s", exc)
 
     async def _run_via_cli(
         self,
@@ -634,26 +707,26 @@ class ClaudeCodeExecutor:
         max_turns: int,
         system_prompt: str,
     ) -> AgentLoopResult:
-        """Run via the ``claude`` CLI as a subprocess, every tool call decided by the policy.
+        """Run via the ``claude`` CLI, every tool call decided by the policy.
 
-        Parses ``--output-format stream-json`` output for content and usage.
+        ``fallback_safe`` in the result's metadata tells the caller whether the
+        turn may be re-run on another model: not after a cancel, and not once a
+        tool call that can change the workspace was allowed.
         """
+        acc = _RunAccumulator(model=model or _DEFAULT_MODEL)
         prompt = self._format_messages_as_prompt(messages)
         if not prompt:
-            return AgentLoopResult(error="empty prompt")
-
-        acc = _RunAccumulator(model=model or _DEFAULT_MODEL)
+            return self._result(acc, "empty prompt", fallback_safe=True)
         try:
             cli = await resolve_cli(get_settings().claudecode_path)
         except ClaudeCodeCLIError as exc:
             logger.error("Claude Code run not started: %s", exc)
-            return AgentLoopResult(error=str(exc), model=acc.model, metadata={"executor": _EXECUTOR_NAME})
+            return self._result(acc, str(exc), fallback_safe=True)
 
         timeouts = hook_timeouts(self._runtime.policy_wait_seconds)
-        error_msg = ""
-        stdout = b""
+        policy = PolicySocketServer(self._runtime, self._workspace, timeouts.decision)
         try:
-            async with PolicySocketServer(self._runtime, self._workspace, timeouts.decision) as policy:
+            async with policy:
                 system_prompt_file = _write_private_file(policy.directory, "system-prompt", system_prompt)
                 cmd = build_cli_command(
                     cli, max_turns=max_turns, system_prompt_file=system_prompt_file, timeouts=timeouts
@@ -662,45 +735,47 @@ class ClaudeCodeExecutor:
                     passthrough=_CLAUDE_CLI_ENV,
                     extra={policy_hook.SOCKET_ENV: policy.socket_path, policy_hook.TOKEN_ENV: policy.token},
                 )
-                stdout, stderr, returncode = await self._communicate(cmd, env, prompt)
-                if returncode != 0:
-                    error_msg = stderr.decode(errors="replace").strip() or "non-zero exit"
-        except TimeoutError:
-            return AgentLoopResult(
-                error=f"Claude Code CLI timed out after {get_timeout_seconds()}s",
-                model=acc.model,
-                metadata={"executor": _EXECUTOR_NAME},
+                end = await self._execute(cmd, env, prompt, acc, policy)
+        except (ClaudeCodeCLIError, OSError) as exc:
+            error = f"Failed to start Claude Code CLI: {exc}"
+            logger.error(error)
+            return self._result(acc, error, fallback_safe=policy.changes_allowed == 0)
+
+        error = end.error()
+        if error and end.status != _CANCELLED and policy.changes_allowed:
+            error += (
+                f" The workspace may be partly modified: {policy.changes_allowed} tool call(s) "
+                "that can change files were allowed."
             )
-        except OSError as exc:
-            error_msg = f"Failed to start Claude Code CLI: {exc}"
-            logger.error(error_msg)
+        return self._result(acc, error, fallback_safe=end.status != _CANCELLED and policy.changes_allowed == 0)
 
-        for line in stdout.decode(errors="replace").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(event, dict):
-                await self._parse_cli_event(event, acc)
-
-        total_cost = self._estimate_equivalent_cost(acc.total_tokens_in, acc.total_tokens_out)
-
+    def _result(self, acc: _RunAccumulator, error: str, *, fallback_safe: bool) -> AgentLoopResult:
+        tokens_in, tokens_out = acc.tokens()
         return AgentLoopResult(
             final_content="\n".join(acc.content_parts),
-            total_cost=total_cost,
-            total_tokens_in=acc.total_tokens_in,
-            total_tokens_out=acc.total_tokens_out,
+            total_cost=self._estimate_equivalent_cost(tokens_in, tokens_out),
+            total_tokens_in=tokens_in,
+            total_tokens_out=tokens_out,
             step_count=acc.step_count,
             model=acc.model,
-            error=error_msg,
-            metadata={"executor": _EXECUTOR_NAME},
+            error=error,
+            metadata={"executor": _EXECUTOR_NAME, "fallback_safe": fallback_safe},
         )
 
-    async def _communicate(self, cmd: list[str], env: dict[str, str], prompt: str) -> tuple[bytes, bytes, int]:
-        """Run the CLI with the prompt on stdin; stop and reap it on timeout or cancellation."""
+    async def _execute(
+        self,
+        cmd: list[str],
+        env: dict[str, str],
+        prompt: str,
+        acc: _RunAccumulator,
+        policy: PolicySocketServer,
+    ) -> _RunEnd:
+        """Run the CLI with the prompt on stdin, parsing its output as it arrives.
+
+        The CLI runs in a process group of its own; whatever of the group
+        still runs when the run ends (timeout, cancel, a caller's
+        cancellation) is stopped, including the commands its tools started.
+        """
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
@@ -708,11 +783,130 @@ class ClaudeCodeExecutor:
             stderr=asyncio.subprocess.PIPE,
             cwd=self._workspace,
             env=env,
+            start_new_session=True,
+            limit=_MAX_EVENT_LINE_BYTES,
         )
-        self._process = process
+        feed = asyncio.create_task(_feed_stdin(process, prompt))
+        events = asyncio.create_task(self._read_events(process, acc))
+        errors = asyncio.create_task(_read_tail(process.stderr))
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(prompt.encode()), timeout=get_timeout_seconds())
+            status = await self._watch(process, events, policy)
+            if status == _EXITED:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=_EXIT_GRACE_SECONDS)
+        except BaseException:
+            errors.cancel()
+            raise
         finally:
-            self._process = None
-            await _stop_process(process)
-        return stdout, stderr, process.returncode if process.returncode is not None else -1
+            if process.returncode is None or not events.done():
+                # Still running, or something of its group holds its output open.
+                await terminate_process_group(process)
+            feed.cancel()
+            events.cancel()
+            await asyncio.gather(feed, events, return_exceptions=True)
+        try:
+            stderr = await asyncio.wait_for(errors, timeout=_EXIT_GRACE_SECONDS)
+        except TimeoutError:
+            stderr = ""
+        returncode = process.returncode if process.returncode is not None else -1
+        return _RunEnd(status=status, returncode=returncode, stderr=stderr)
+
+    async def _watch(
+        self, process: asyncio.subprocess.Process, events: asyncio.Task[None], policy: PolicySocketServer
+    ) -> str:
+        """Wait until the CLI's output ends, the run is cancelled or its run time is used up.
+
+        Run time excludes the time spent waiting for policy decisions, so HITL
+        approvals do not count against ``claudecode_timeout``.
+        """
+        limit = get_timeout_seconds()
+        started = time.monotonic()
+        exited = asyncio.ensure_future(process.wait())
+        try:
+            while not events.done():
+                if self._cancelled or self._runtime.is_cancelled:
+                    return _CANCELLED
+                if time.monotonic() - started - policy.waited_seconds() > limit:
+                    return _TIMEOUT
+                if exited.done():
+                    # The CLI is gone: give the reader time to take what it wrote.
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(asyncio.shield(events), timeout=_EXIT_GRACE_SECONDS)
+                    return _EXITED
+                await asyncio.wait({events, exited}, timeout=_POLL_SECONDS)
+            return _EXITED
+        finally:
+            exited.cancel()
+
+    async def _read_events(self, process: asyncio.subprocess.Process, acc: _RunAccumulator) -> None:
+        stdout = process.stdout
+        if stdout is None:
+            return
+        while True:
+            try:
+                raw = await stdout.readline()
+            except ValueError:
+                logger.warning("skipped a Claude Code output line over %d bytes", _MAX_EVENT_LINE_BYTES)
+                continue
+            if not raw:
+                return
+            await self._handle_line(raw, acc)
+
+    async def _handle_line(self, raw: bytes, acc: _RunAccumulator) -> None:
+        try:
+            event = json.loads(raw)
+        except ValueError:
+            return
+        if not isinstance(event, dict):
+            return
+        try:
+            await self._parse_cli_event(event, acc)
+        except Exception as exc:
+            # One odd event must not lose the rest of the turn's output.
+            logger.warning("skipped a Claude Code output event: %s", exc)
+
+
+_EXITED = "exited"
+_TIMEOUT = "timeout"
+_CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True)
+class _RunEnd:
+    """How the CLI run ended: exited (with returncode), timeout or cancelled."""
+
+    status: str
+    returncode: int
+    stderr: str
+
+    def error(self) -> str:
+        if self.status == _CANCELLED:
+            return "cancelled"
+        if self.status == _TIMEOUT:
+            return f"Claude Code CLI timed out after {get_timeout_seconds()}s of run time (approval waits not counted)."
+        if self.returncode != 0:
+            return self.stderr or f"Claude Code CLI exited with code {self.returncode}."
+        return ""
+
+
+async def _feed_stdin(process: asyncio.subprocess.Process, prompt: str) -> None:
+    stdin = process.stdin
+    if stdin is None:
+        return
+    try:
+        stdin.write(prompt.encode())
+        await stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        pass  # the CLI exited early; its exit code and stderr tell why
+    finally:
+        stdin.close()
+
+
+async def _read_tail(stream: asyncio.StreamReader | None) -> str:
+    """Read a stream to its end; return its last _STDERR_TAIL_BYTES as text."""
+    if stream is None:
+        return ""
+    tail = b""
+    while chunk := await stream.read(65536):
+        tail = (tail + chunk)[-_STDERR_TAIL_BYTES:]
+    return tail.decode(errors="replace").strip()

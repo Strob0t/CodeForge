@@ -181,10 +181,15 @@ class _FakeStream:
     async def readline(self) -> bytes:
         return b""
 
+    async def read(self, n: int = -1) -> bytes:
+        return b""
+
 
 class _FakeProc:
     returncode = 0
+    stdin = None
     stdout = _FakeStream()
+    stderr = _FakeStream()
 
     async def communicate(self, input: bytes | None = None) -> tuple[bytes, bytes]:  # noqa: A002 - Process.communicate signature
         return b"", b""

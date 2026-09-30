@@ -43,6 +43,7 @@ class _FakeRuntime:
         self.decision = decision
         self.reason = reason
         self.policy_wait_seconds = 10.0
+        self.is_cancelled = False
         self.calls: list[dict[str, str]] = []
 
     async def request_tool_call(

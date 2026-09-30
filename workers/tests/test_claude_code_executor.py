@@ -8,6 +8,7 @@ import os
 import shlex
 import stat
 import sys
+import tempfile
 import time
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
@@ -61,6 +62,7 @@ class _FakeRuntime:
         self.policy_wait_seconds = policy_wait_seconds
         self.calls: list[dict[str, str]] = []
         self.outputs: list[str] = []
+        self.is_cancelled = False
 
     async def request_tool_call(
         self,
@@ -547,6 +549,12 @@ for call in cfg.get("tool_calls", []):
     record["hooks"].append({{"exit": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}})
 with open(os.path.join(HERE, "record.json"), "w") as f:
     json.dump(record, f)
+if cfg.get("spawn_child"):
+    child = subprocess.Popen(["sleep", "60"])
+    with open(os.path.join(HERE, "child.pid"), "w") as f:
+        f.write(str(child.pid))
+for line in cfg.get("raw", []):
+    print(line, flush=True)
 for event in cfg.get("events", []):
     print(json.dumps(event), flush=True)
 time.sleep(cfg.get("sleep", 0))
@@ -579,6 +587,18 @@ class _FakeCli:
     def help_calls(self) -> int:
         calls = self.dir / "help_calls"
         return len(calls.read_text().splitlines()) if calls.exists() else 0
+
+    def child_alive(self) -> bool:
+        """Whether the background child the fake CLI started still runs (read from /proc, no signal)."""
+        pid = (self.dir / "child.pid").read_text().strip()
+        assert pid.isdigit()
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                proc_stat = f.read()
+        except FileNotFoundError:
+            return False
+        # A zombie waits only for its parent (or init) to reap it: it runs nothing.
+        return proc_stat.rsplit(")", 1)[1].split()[0] != "Z"
 
     @property
     def probe_envs(self) -> list[list[str]]:
@@ -730,6 +750,222 @@ class TestRunWithFakeCli:
         assert all(p.returncode is not None for p in started)
 
 
+def _set_timeout(monkeypatch: pytest.MonkeyPatch, seconds: int) -> None:
+    monkeypatch.setenv("CODEFORGE_CLAUDECODE_TIMEOUT", str(seconds))
+    get_settings.cache_clear()
+
+
+async def _wait_for(predicate: object, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():  # type: ignore[operator]
+        assert time.monotonic() < deadline, "condition not met in time"
+        await asyncio.sleep(0.05)
+
+
+_TEXT = {"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": "partial answer"}]}}
+_USAGE = {
+    "type": "assistant",
+    "message": {
+        "id": "m1",
+        "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+        "usage": {"input_tokens": 1200, "output_tokens": 300},
+    },
+}
+
+
+class TestRunSupervision:
+    """Process group, run-time limit without approval waits, partial results, cancel, fallback safety."""
+
+    async def test_timeout_stops_the_whole_process_group(
+        self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_timeout(monkeypatch, 1)
+        fake_cli.configure(spawn_child=True, sleep=30)
+
+        result = await _run(tmp_path, _FakeRuntime())
+
+        assert "timed out" in result.error
+        await _wait_for(lambda: not fake_cli.child_alive())
+
+    async def test_partial_output_and_usage_survive_a_timeout(
+        self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_timeout(monkeypatch, 1)
+        fake_cli.configure(events=[_TEXT, _USAGE], sleep=30)
+        runtime = _FakeRuntime()
+
+        result = await _run(tmp_path, runtime)
+
+        assert "timed out" in result.error
+        assert result.final_content == "partial answer"
+        assert runtime.outputs == ["partial answer"]
+        assert (result.total_tokens_in, result.total_tokens_out) == (1200, 300)
+        assert result.total_cost == _make_executor()._estimate_equivalent_cost(1200, 300)
+        assert result.step_count == 1
+
+    async def test_result_usage_replaces_the_per_message_estimate(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        result_event = {"type": "result", "usage": {"input_tokens": 5000, "output_tokens": 900}, "num_turns": 4}
+        fake_cli.configure(events=[_TEXT, _USAGE, _USAGE, result_event])
+
+        result = await _run(tmp_path, _FakeRuntime())
+
+        assert (result.total_tokens_in, result.total_tokens_out) == (5000, 900)
+        assert result.step_count == 4
+
+    async def test_approval_wait_does_not_count_against_the_timeout(
+        self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _set_timeout(monkeypatch, 1)
+        fake_cli.configure(events=_RESULT_EVENTS, tool_calls=[{"tool_name": "Write", "tool_input": {"file_path": "a"}}])
+        # Go answers only after a human approved (2 s): longer than the run's time limit.
+        runtime = _FakeRuntime("allow", delay=2.0)
+
+        result = await _run(tmp_path, runtime)
+
+        assert result.error == ""
+        assert result.final_content == "done"
+
+    async def test_runtime_cancel_stops_the_process_group(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        fake_cli.configure(spawn_child=True, events=[_TEXT], sleep=30)
+        runtime = _FakeRuntime()
+
+        async def cancel_soon() -> None:
+            await _wait_for(lambda: (fake_cli.dir / "child.pid").exists())
+            runtime.is_cancelled = True
+
+        t0 = time.monotonic()
+        result, _ = await asyncio.gather(_run(tmp_path, runtime), cancel_soon())
+
+        assert result.error == "cancelled"
+        assert result.final_content == "partial answer"
+        assert result.metadata["fallback_safe"] is False
+        assert time.monotonic() - t0 < 15
+        await _wait_for(lambda: not fake_cli.child_alive())
+
+    async def test_executor_cancel_stops_the_process_group(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        fake_cli.configure(spawn_child=True, sleep=30)
+        executor = ClaudeCodeExecutor(workspace_path=str(tmp_path), runtime=_FakeRuntime())  # type: ignore[arg-type]
+
+        async def cancel_soon() -> None:
+            await _wait_for(lambda: (fake_cli.dir / "child.pid").exists())
+            await executor.cancel()
+
+        result, _ = await asyncio.gather(executor.run([{"role": "user", "content": "go"}], max_turns=3), cancel_soon())
+
+        assert result.error == "cancelled"
+        await _wait_for(lambda: not fake_cli.child_alive())
+
+    async def test_failure_after_an_allowed_change_is_not_safe_to_retry(
+        self, fake_cli: _FakeCli, tmp_path: Path
+    ) -> None:
+        fake_cli.configure(
+            tool_calls=[{"tool_name": "Write", "tool_input": {"file_path": "a.py", "content": "x"}}], exit=1
+        )
+
+        result = await _run(tmp_path, _FakeRuntime("allow"))
+
+        assert result.error
+        assert "workspace may be partly modified" in result.error
+        assert result.metadata["fallback_safe"] is False
+
+    @pytest.mark.parametrize(
+        ("decision", "tool_name"),
+        [("deny", "Write"), ("allow", "Read"), ("allow", "Grep")],
+    )
+    async def test_failure_without_an_applied_change_is_safe_to_retry(
+        self, fake_cli: _FakeCli, tmp_path: Path, decision: str, tool_name: str
+    ) -> None:
+        fake_cli.configure(tool_calls=[{"tool_name": tool_name, "tool_input": {"file_path": "a.py"}}], exit=1)
+
+        result = await _run(tmp_path, _FakeRuntime(decision))
+
+        assert result.error
+        assert "partly modified" not in result.error
+        assert result.metadata["fallback_safe"] is True
+
+    async def test_odd_events_never_lose_the_output(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        odd: list[object] = [
+            {"type": "assistant", "message": "not a dict"},
+            {"type": "assistant", "message": {"content": "not a list"}},
+            {"type": "assistant", "message": {"content": [None, 5, {"type": "text", "text": 7}]}},
+            {"type": "assistant", "message": {"content": [], "usage": {"input_tokens": "9", "output_tokens": None}}},
+            {"type": "assistant", "message": {"content": [], "usage": {"input_tokens": True, "output_tokens": -4}}},
+            {"type": "result", "usage": "x", "num_turns": "3", "model": 5},
+            {"type": 42},
+            {"message": {"content": [{"type": "text", "text": "no type"}]}},
+            _TEXT,
+        ]
+        fake_cli.configure(raw=["garbage", "[1, 2]", '"a string"', "", "{not json"], events=odd)
+        runtime = _FakeRuntime()
+
+        result = await _run(tmp_path, runtime)
+
+        assert result.error == ""
+        assert result.final_content == "partial answer"
+        assert (result.total_tokens_in, result.total_tokens_out) == (0, 0)
+
+    async def test_output_line_over_the_limit_is_skipped(
+        self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cce, "_MAX_EVENT_LINE_BYTES", 64 * 1024)
+        huge = {"type": "user", "message": {"content": [{"type": "tool_result", "content": "x" * 200_000}]}}
+        fake_cli.configure(events=[huge, _TEXT])
+
+        result = await _run(tmp_path, _FakeRuntime())
+
+        assert result.error == ""
+        assert result.final_content == "partial answer"
+
+    async def test_send_output_failure_keeps_the_content(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        fake_cli.configure(events=[_TEXT])
+        runtime = _FakeRuntime()
+        runtime.send_output = AsyncMock(side_effect=RuntimeError("nats down"))  # type: ignore[method-assign]
+
+        result = await _run(tmp_path, runtime)
+
+        assert result.error == ""
+        assert result.final_content == "partial answer"
+
+
+class TestSocketDirectory:
+    async def test_long_tmpdir_does_not_break_the_socket(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        long_dir = tmp_path / ("d" * 120)
+        long_dir.mkdir()
+        monkeypatch.setenv("TMPDIR", str(long_dir))
+        monkeypatch.setattr(tempfile, "tempdir", None)
+
+        async with PolicySocketServer(_FakeRuntime(), _WS, decision_timeout=5) as server:
+            reply = await _ask(server, _request(server, "Read", {"file_path": "/ws/a"}))
+
+        assert len(server.socket_path) < 108
+        assert reply["decision"] == "allow"
+
+    async def test_too_long_socket_path_is_a_clear_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        long_dir = tmp_path / ("d" * 120)
+        long_dir.mkdir()
+        monkeypatch.setattr(cce, "_socket_base_dir", lambda: str(long_dir))
+
+        with pytest.raises(ClaudeCodeCLIError, match="too long"):
+            async with PolicySocketServer(_FakeRuntime(), _WS, decision_timeout=5):
+                pass
+
+        assert os.listdir(long_dir) == []
+
+    async def test_run_reports_a_too_long_socket_path(
+        self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        long_dir = tmp_path / ("d" * 120)
+        long_dir.mkdir()
+        monkeypatch.setattr(cce, "_socket_base_dir", lambda: str(long_dir))
+        fake_cli.configure(events=_RESULT_EVENTS)
+
+        result = await _run(tmp_path, _FakeRuntime())
+
+        assert "too long" in result.error
+        assert not fake_cli.ran
+        assert result.metadata["fallback_safe"] is True
+
+
 class TestCliSupport:
     async def test_supported_cli_is_resolved_and_cached(self, fake_cli: _FakeCli) -> None:
         assert await resolve_cli(str(fake_cli.path)) == str(fake_cli.path)
@@ -774,7 +1010,7 @@ class TestCliSupport:
         assert missing in result.error
         assert "not supported" in result.error
         assert not fake_cli.ran
-        assert result.metadata == {"executor": "claude-code-cli"}
+        assert result.metadata == {"executor": "claude-code-cli", "fallback_safe": True}
 
     async def test_help_failure_fails_closed(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
         fake_cli.configure(help_exit=3)

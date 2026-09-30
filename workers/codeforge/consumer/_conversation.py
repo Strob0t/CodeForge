@@ -567,7 +567,9 @@ class ConversationHandlerMixin:
                 max_turns=run_msg.termination.max_steps or get_default_max_turns(),
                 system_prompt=run_msg.system_prompt,
             )
-            if result.error and fallback_models:
+            # Re-run the turn on another model only when Claude Code applied
+            # nothing and was not stopped; otherwise its error says why.
+            if result.error and fallback_models and result.metadata.get("fallback_safe") is True:
                 next_model = fallback_models[0]
                 remaining = fallback_models[1:]
                 await runtime.send_output(f"\n[Claude Code unavailable. Switching to {next_model}]\n")
