@@ -104,9 +104,13 @@ func TestAllowAlwaysRule(t *testing.T) {
 		wantErr       bool
 	}{
 		{"bash", "git status", "Bash", []string{"git"}, false},
-		{"bash", "/usr/bin/git log && curl x", "Bash", []string{"git"}, false},
-		{"Bash", "FOO=1 npm test", "Bash", []string{"npm"}, false},
+		// Every executable of the approved command, so the same call matches again.
+		{"bash", "cd frontend && npm test", "Bash", []string{"cd", "npm"}, false},
+		{"bash", "/usr/bin/git log | head -5 && git diff", "Bash", []string{"git", "head"}, false},
+		{"bash", "timeout 60 go test ./...", "Bash", []string{"go"}, false},
 		{"command:execute", "make lint", "Bash", []string{"make"}, false},
+		{"Bash", "FOO=1 npm test", "", nil, true},
+		{"bash", "go test ./... && $(curl x)", "", nil, true},
 		{"write_file", `{"file_path": "x"}`, "Write", nil, false},
 		{"mcp__github__create_issue", "", "mcp__github__create_issue", nil, false},
 		{"bash", `{"command":"ls"}`, "", nil, true},

@@ -2,6 +2,7 @@ package policy
 
 import (
 	"path"
+	"slices"
 	"strings"
 )
 
@@ -14,95 +15,103 @@ type shellCommand struct {
 	// segments holds one entry per simple command (split on ;, &, &&, |, ||,
 	// |&, newline and parentheses). Each entry starts with the basename of the
 	// executable, followed by its arguments after quote removal. Keywords,
-	// variable assignments and redirections are dropped.
+	// redirections, comments and here-document bodies are dropped, and
+	// wrappers such as timeout or xargs are replaced by the command they run.
 	segments [][]string
 	opaque   bool
-}
-
-// Commands that execute code given as arguments, a file or stdin, or that
-// change what a later word executes. Their effect cannot be derived from the
-// word list, so a command containing one of them is opaque.
-var opaqueExecutables = map[string]bool{
-	// Shells run their arguments or stdin as a script.
-	"sh": true, "bash": true, "dash": true, "zsh": true, "ksh": true, "mksh": true,
-	"ash": true, "fish": true, "csh": true, "tcsh": true, "busybox": true,
-	// Builtins and keywords that execute strings, redefine commands or
-	// evaluate variable values as arithmetic (which runs $(...) they contain).
-	"eval": true, "source": true, ".": true, "alias": true, "hash": true, "trap": true,
-	"enable": true, "function": true, "coproc": true, "let": true,
-	// Wrappers that run the command given in their arguments.
-	"env": true, "command": true, "builtin": true, "exec": true, "time": true,
-	"nohup": true, "nice": true, "ionice": true, "timeout": true, "stdbuf": true,
-	"setsid": true, "sudo": true, "doas": true, "su": true, "xargs": true,
-	"watch": true, "strace": true, "chroot": true, "unshare": true, "flock": true,
-}
-
-// Shell keywords that may precede a command in the same simple command.
-var leadingKeywords = map[string]bool{
-	"!": true, "{": true, "}": true, "if": true, "then": true, "else": true,
-	"elif": true, "fi": true, "do": true, "done": true, "while": true, "until": true,
-}
-
-// inlineCodeFlags lists, per interpreter, the short option letters that take
-// program text as an argument, and the long options that do the same.
-var inlineCodeFlags = map[string]struct {
-	short string
-	long  []string
-}{
-	"python": {short: "c"},
-	"pypy":   {short: "c"},
-	"perl":   {short: "eE"},
-	"ruby":   {short: "e"},
-	"node":   {short: "ep", long: []string{"--eval", "--print"}},
-	"nodejs": {short: "ep", long: []string{"--eval", "--print"}},
-	"bun":    {short: "ep", long: []string{"--eval", "--print"}},
-	"php":    {short: "r"},
 }
 
 // parseShellCommand splits cmd into simple commands and flags constructs that
 // cannot be analysed statically.
 func parseShellCommand(cmd string) shellCommand {
-	p := shellParser{}
-	p.run(cmd)
+	p := shellParser{cmd: cmd}
+	p.run()
 	return shellCommand{segments: p.segments, opaque: p.opaque}
 }
 
+// wordRole tells endWord what the word being read is used for.
+type wordRole int
+
+const (
+	roleArg            wordRole = iota
+	roleRedirectTarget          // file of <, >, >>, &>, ...
+	roleHereString              // word of <<<
+	roleHeredoc                 // delimiter of <<
+	roleHeredocStrip            // delimiter of <<- (leading tabs stripped)
+)
+
+// heredoc is a here-document whose body follows the current line.
+type heredoc struct {
+	delim  string
+	quoted bool // any part of the delimiter was quoted: the body is not expanded
+	strip  bool
+}
+
 type shellParser struct {
+	cmd      string
 	segments [][]string
 	opaque   bool
 
-	words    []string
-	word     strings.Builder
-	inWord   bool // true once the current word has content or an opening quote
-	dropNext bool // the next word is a redirection target
+	// Words of the simple command being read and whether each one contains
+	// an expansion or an unquoted glob, so its value is not known statically.
+	words   []string
+	dynamic []bool
+
+	word       strings.Builder
+	inWord     bool // the current word has content or an opening quote
+	wordDyn    bool // the current word contains a parameter expansion
+	wordQuoted bool // part of the current word was quoted or escaped
+	// Unquoted glob and brace characters seen in the current word.
+	sawStar, sawOpenBracket, sawCloseBracket, sawOpenBrace, sawCloseBrace bool
+
+	next     wordRole
+	heredocs []heredoc // delimiters read on the current line
+}
+
+func (p *shellParser) add(c byte) {
+	p.word.WriteByte(c)
+	p.inWord = true
+}
+
+func (p *shellParser) resetWord() {
+	p.word.Reset()
+	p.inWord, p.wordDyn, p.wordQuoted = false, false, false
+	p.sawStar, p.sawOpenBracket, p.sawCloseBracket, p.sawOpenBrace, p.sawCloseBrace = false, false, false, false, false
 }
 
 func (p *shellParser) endWord() {
 	if !p.inWord {
 		return
 	}
-	w := p.word.String()
-	p.word.Reset()
-	p.inWord = false
-	if p.dropNext {
-		p.dropNext = false
+	w, quoted := p.word.String(), p.wordQuoted
+	dyn := p.wordDyn || p.sawStar || (p.sawOpenBracket && p.sawCloseBracket) || (p.sawOpenBrace && p.sawCloseBrace)
+	p.resetWord()
+	role := p.next
+	p.next = roleArg
+	switch role {
+	case roleRedirectTarget:
 		// bash opens network connections for /dev/tcp and /dev/udp
 		// redirections; a computed target cannot be checked.
 		clean := path.Clean(w)
-		if strings.Contains(clean, "/dev/tcp/") || strings.Contains(clean, "/dev/udp/") || strings.ContainsAny(w, "$`") {
+		if dyn || strings.Contains(clean, "/dev/tcp/") || strings.Contains(clean, "/dev/udp/") {
 			p.opaque = true
 		}
-		return
+	case roleHereString:
+		// Data on stdin; expansions that run code are caught by the tokenizer.
+	case roleHeredoc, roleHeredocStrip:
+		p.heredocs = append(p.heredocs, heredoc{delim: w, quoted: quoted, strip: role == roleHeredocStrip})
+	default:
+		p.words = append(p.words, w)
+		p.dynamic = append(p.dynamic, dyn)
 	}
-	p.words = append(p.words, w)
 }
 
 func (p *shellParser) endSegment() {
 	p.endWord()
-	p.dropNext = false
-	words := p.words
-	p.words = nil
-	seg, opaque := simpleCommand(words)
+	p.next = roleArg
+	words, dynamic := p.words, p.dynamic
+	p.words, p.dynamic = nil, nil
+	seg, opaque := classifySimpleCommand(words, dynamic)
 	if opaque {
 		p.opaque = true
 		return
@@ -112,35 +121,46 @@ func (p *shellParser) endSegment() {
 	}
 }
 
-func (p *shellParser) add(c byte) {
-	p.word.WriteByte(c)
-	p.inWord = true
-}
-
-// run tokenizes cmd following the bash quoting rules that matter for
-// splitting: single quotes, double quotes, backslash escapes, operators.
-func (p *shellParser) run(cmd string) {
+// run tokenizes the command following the bash rules that matter for
+// splitting: quoting (single, double, ANSI-C $'...'), backslash escapes,
+// comments, operators, redirections and here-documents.
+func (p *shellParser) run() {
 	const (
 		unquoted = iota
 		single
 		double
+		ansiC
 	)
+	cmd := p.cmd
 	state := unquoted
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
-		next := byte(0)
-		if i+1 < len(cmd) {
-			next = cmd[i+1]
-		}
+		next := byteAt(cmd, i+1)
 
-		if state == single {
+		switch state {
+		case single:
 			if c == '\'' {
 				state = unquoted
 			} else {
 				p.add(c)
 			}
 			continue
+		case ansiC:
+			switch c {
+			case '\\':
+				p.add(c)
+				if i+1 < len(cmd) {
+					i++
+					p.add(cmd[i])
+				}
+			case '\'':
+				state = unquoted
+			default:
+				p.add(c)
+			}
+			continue
 		}
+
 		if runsExpansion(cmd, i) {
 			p.opaque = true
 		}
@@ -154,6 +174,9 @@ func (p *shellParser) run(cmd string) {
 					p.add(next)
 				}
 			default:
+				if c == '$' {
+					p.wordDyn = true
+				}
 				p.add(c)
 			}
 			continue
@@ -162,25 +185,52 @@ func (p *shellParser) run(cmd string) {
 		switch c {
 		case '\'':
 			state = single
-			p.inWord = true
+			p.inWord, p.wordQuoted = true, true
 		case '"':
 			state = double
-			p.inWord = true
+			p.inWord, p.wordQuoted = true, true
+		case '$':
+			// $'...' is ANSI-C quoting; its escapes are not decoded, so the
+			// word counts as unknown.
+			p.wordDyn = true
+			p.add(c)
+			if next == '\'' {
+				state = ansiC
+				p.wordQuoted = true
+				i++
+			}
 		case '\\':
 			if next != 0 {
 				i++
 				if next != '\n' {
 					p.add(next)
+					p.wordQuoted = true
 				}
+			}
+		case '#':
+			if p.inWord {
+				p.add(c)
+				continue
+			}
+			// A comment runs to the end of the line.
+			if nl := strings.IndexByte(cmd[i:], '\n'); nl >= 0 {
+				i += nl - 1
+			} else {
+				i = len(cmd)
 			}
 		case ' ', '\t':
 			p.endWord()
+		case '\n':
+			p.endSegment()
+			if len(p.heredocs) > 0 {
+				i = p.readHeredocBodies(i+1) - 1
+			}
 		case '(':
 			if next == '(' { // arithmetic command evaluates variable values
 				p.opaque = true
 			}
 			p.endSegment()
-		case '\n', ';', ')':
+		case ';', ')':
 			p.endSegment()
 		case '|':
 			p.endSegment()
@@ -195,10 +245,10 @@ func (p *shellParser) run(cmd string) {
 			case '>': // &> and &>> redirect stdout and stderr
 				p.endWord()
 				i++
-				if i+1 < len(cmd) && cmd[i+1] == '>' {
+				if byteAt(cmd, i+1) == '>' {
 					i++
 				}
-				p.dropNext = true
+				p.next = roleRedirectTarget
 			default: // background operator
 				p.endSegment()
 			}
@@ -206,110 +256,140 @@ func (p *shellParser) run(cmd string) {
 			if next == '(' { // process substitution
 				p.opaque = true
 			}
-			i = p.redirection(cmd, i)
+			i = p.redirection(i)
+		case '*', '?':
+			p.sawStar = true
+			p.add(c)
+		case '[', ']', '{', '}':
+			p.sawOpenBracket = p.sawOpenBracket || c == '['
+			p.sawCloseBracket = p.sawCloseBracket || c == ']'
+			p.sawOpenBrace = p.sawOpenBrace || c == '{'
+			p.sawCloseBrace = p.sawCloseBrace || c == '}'
+			p.add(c)
 		default:
 			p.add(c)
 		}
 	}
-	if state != unquoted {
+	if state != unquoted || len(p.heredocs) > 0 {
 		p.opaque = true
 	}
 	p.endSegment()
 }
 
-// runsExpansion reports whether unquoted or double-quoted text at cmd[i]
-// starts an expansion that runs code: command substitution (`...` or $(...),
-// which includes arithmetic expansion $((...))) or prompt expansion ${x@P}.
-func runsExpansion(cmd string, i int) bool {
-	rest := cmd[i:]
-	return strings.HasPrefix(rest, "`") || strings.HasPrefix(rest, "$(") || strings.HasPrefix(rest, "@P}")
+func byteAt(s string, i int) byte {
+	if i < len(s) {
+		return s[i]
+	}
+	return 0
 }
 
-// redirection consumes a redirection operator (<, <<, <<<, <&, <>, >, >>,
-// >&, >|) starting at cmd[i] and returns the index of its last byte. A
-// preceding all-digit word is the file descriptor and is discarded; the
-// following word is the target (or here-doc delimiter) and is discarded as
-// well. Only the exact operator forms are consumed so that a pipe or list
+// runsExpansion reports whether unquoted or double-quoted text at s[i]
+// starts an expansion that runs code or evaluates variable values as code:
+// command substitution (`...`, $(...), including arithmetic $((...))), the
+// old arithmetic form $[...] and every ${...} other than a plain ${name}
+// (substring offsets, array subscripts, @P and nested expansions all do).
+func runsExpansion(s string, i int) bool {
+	rest := s[i:]
+	switch {
+	case strings.HasPrefix(rest, "`"), strings.HasPrefix(rest, "$("), strings.HasPrefix(rest, "$["):
+		return true
+	case strings.HasPrefix(rest, "${"):
+		end := strings.IndexByte(rest, '}')
+		return end < 0 || !isPlainParameter(rest[2:end])
+	}
+	return false
+}
+
+// isPlainParameter reports whether name is a variable name, a positional
+// parameter or a special parameter.
+func isPlainParameter(name string) bool {
+	if len(name) == 1 && strings.IndexByte("@*#?-$!", name[0]) >= 0 {
+		return true
+	}
+	return isDigits(name) || isVariableName(name)
+}
+
+// redirection consumes a redirection operator (<, <<, <<-, <<<, <&, <>, >,
+// >>, >&, >|) starting at cmd[i] and returns the index of its last byte. A
+// preceding all-digit word is the file descriptor and is discarded; the role
+// of the following word (file, here-string or here-document delimiter) is
+// recorded. Only the exact operator forms are consumed so that a pipe or list
 // operator right after a redirection still splits the command.
-func (p *shellParser) redirection(cmd string, i int) int {
+func (p *shellParser) redirection(i int) int {
+	cmd := p.cmd
 	if p.inWord && isDigits(p.word.String()) {
-		p.word.Reset()
-		p.inWord = false
+		p.resetWord()
 	} else {
 		p.endWord()
 	}
-	at := func(j int) byte {
-		if j < len(cmd) {
-			return cmd[j]
-		}
-		return 0
-	}
+	role := roleRedirectTarget
 	switch {
-	case cmd[i] == '<' && at(i+1) == '<':
+	case cmd[i] == '<' && byteAt(cmd, i+1) == '<':
 		i++
-		if at(i+1) == '<' {
+		switch byteAt(cmd, i+1) {
+		case '<':
 			i++
+			role = roleHereString
+		case '-':
+			i++
+			role = roleHeredocStrip
+		default:
+			role = roleHeredoc
 		}
-	case cmd[i] == '<' && (at(i+1) == '&' || at(i+1) == '>'):
+	case cmd[i] == '<' && (byteAt(cmd, i+1) == '&' || byteAt(cmd, i+1) == '>'):
 		i++
-	case cmd[i] == '>' && (at(i+1) == '>' || at(i+1) == '&' || at(i+1) == '|'):
+	case cmd[i] == '>' && (byteAt(cmd, i+1) == '>' || byteAt(cmd, i+1) == '&' || byteAt(cmd, i+1) == '|'):
 		i++
 	}
-	p.dropNext = true
+	p.next = role
 	return i
 }
 
-// simpleCommand strips leading keywords, assignments and the executable path
-// from words. It reports opaque when the executable is not a literal word or
-// runs code that the word list does not show.
-func simpleCommand(words []string) (seg []string, opaque bool) {
-	i := 0
-	for i < len(words) && (leadingKeywords[words[i]] || isAssignment(words[i])) {
-		i++
-	}
-	if i == len(words) {
-		return nil, false
-	}
-	exe := words[i]
-	if !isLiteralWord(exe) {
-		return nil, true
-	}
-	name := path.Base(exe)
-	args := words[i+1:]
-	if opaqueExecutables[name] || runsInlineCode(name, args) || findRunsCommand(name, args) || evaluatesArithmetic(name, args) {
-		return nil, true
-	}
-	seg = make([]string, 0, len(args)+1)
-	seg = append(seg, name)
-	return append(seg, args...), false
-}
-
-// isLiteralWord reports whether the shell uses w verbatim as a command name,
-// i.e. it contains no expansion or glob characters.
-func isLiteralWord(w string) bool {
-	if w == "" {
-		return false
-	}
-	if w == "[" || w == "[[" {
-		return true
-	}
-	return !strings.ContainsAny(w, "$`*?[]{}")
-}
-
-func isAssignment(w string) bool {
-	eq := strings.IndexByte(w, '=')
-	if eq <= 0 {
-		return false
-	}
-	name := strings.TrimSuffix(w[:eq], "+")
-	for j := 0; j < len(name); j++ {
-		c := name[j]
-		isAlpha := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-		if !isAlpha && (j == 0 || c < '0' || c > '9') {
-			return false
+// readHeredocBodies skips the bodies of the here-documents opened on the
+// line that ended just before start and returns the index of the first byte
+// after the last delimiter line. Bodies are data: they are not split into
+// commands, but a body with an unquoted delimiter is expanded by bash, so an
+// expansion that runs code makes the command opaque. A missing delimiter
+// makes the command opaque as well.
+func (p *shellParser) readHeredocBodies(start int) int {
+	cmd := p.cmd
+	pos := start
+	for _, h := range p.heredocs {
+		for {
+			if pos >= len(cmd) {
+				p.opaque = true
+				p.heredocs = nil
+				return len(cmd)
+			}
+			lineEnd := len(cmd)
+			if nl := strings.IndexByte(cmd[pos:], '\n'); nl >= 0 {
+				lineEnd = pos + nl
+			}
+			line := cmd[pos:lineEnd]
+			pos = lineEnd + 1
+			check := line
+			if h.strip {
+				check = strings.TrimLeft(line, "\t")
+			}
+			if check == h.delim {
+				break
+			}
+			if !h.quoted && lineRunsCode(line) {
+				p.opaque = true
+			}
 		}
 	}
-	return name != ""
+	p.heredocs = nil
+	return min(pos, len(cmd))
+}
+
+func lineRunsCode(line string) bool {
+	for i := range line {
+		if runsExpansion(line, i) {
+			return true
+		}
+	}
+	return false
 }
 
 func isDigits(s string) bool {
@@ -322,86 +402,6 @@ func isDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-// runsInlineCode reports whether an interpreter invocation executes program
-// text from its arguments or from stdin instead of a script file.
-func runsInlineCode(name string, args []string) bool {
-	flags, ok := inlineCodeFlags[strings.TrimRight(name, "0123456789.")]
-	if !ok {
-		return false
-	}
-	hasProgram := false
-	for _, a := range args {
-		switch {
-		case a == "-":
-			return true // program read from stdin
-		case strings.HasPrefix(a, "--"):
-			for _, l := range flags.long {
-				if a == l || strings.HasPrefix(a, l+"=") {
-					return true
-				}
-			}
-		case strings.HasPrefix(a, "-"):
-			if shortFlagCluster(a[1:], flags.short) {
-				return true
-			}
-		default:
-			hasProgram = true
-		}
-	}
-	return !hasProgram // no script argument: program read from stdin
-}
-
-// shortFlagCluster reports whether a cluster of single-letter options such
-// as "Bc" or "ne" contains one of the letters in want before the first
-// non-letter (option arguments may be attached, e.g. -c'code').
-func shortFlagCluster(cluster, want string) bool {
-	for j := 0; j < len(cluster); j++ {
-		c := cluster[j]
-		if strings.IndexByte(want, c) >= 0 {
-			return true
-		}
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
-			return false
-		}
-	}
-	return false
-}
-
-// evaluatesArithmetic reports whether the command evaluates its operands as
-// arithmetic, which expands $(...) held in variable values: integer
-// comparisons in [[ ]] and integer declarations.
-func evaluatesArithmetic(name string, args []string) bool {
-	switch name {
-	case "[[":
-		for _, a := range args {
-			switch a {
-			case "-eq", "-ne", "-lt", "-le", "-gt", "-ge":
-				return true
-			}
-		}
-	case "declare", "typeset", "local":
-		for _, a := range args {
-			if strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && shortFlagCluster(a[1:], "i") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func findRunsCommand(name string, args []string) bool {
-	if name != "find" {
-		return false
-	}
-	for _, a := range args {
-		switch a {
-		case "-exec", "-execdir", "-ok", "-okdir":
-			return true
-		}
-	}
-	return false
 }
 
 // allowedBy reports whether every simple command matches one of the
@@ -464,13 +464,19 @@ func wordEqual(a, b string, foldCase bool) bool {
 	return a == b
 }
 
-// CommandExecutable returns the basename of the executable of the first
-// simple command in cmd. It reports false when cmd is empty or cannot be
-// analysed statically.
-func CommandExecutable(cmd string) (string, bool) {
+// CommandExecutables returns the executable basenames of all simple commands
+// in cmd, deduplicated in order of appearance. It reports false when cmd is
+// empty or cannot be analysed statically.
+func CommandExecutables(cmd string) ([]string, bool) {
 	c := parseShellCommand(cmd)
 	if c.opaque || len(c.segments) == 0 {
-		return "", false
+		return nil, false
 	}
-	return c.segments[0][0], true
+	var exes []string
+	for _, seg := range c.segments {
+		if !slices.Contains(exes, seg[0]) {
+			exes = append(exes, seg[0])
+		}
+	}
+	return exes, true
 }

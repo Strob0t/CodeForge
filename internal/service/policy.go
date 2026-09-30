@@ -314,11 +314,11 @@ func allowAlwaysRule(tool, command string) (policy.PermissionRule, error) {
 		Decision:  policy.DecisionAllow,
 	}
 	if canonical == policy.ToolBash {
-		exe, ok := policy.CommandExecutable(command)
+		exes, ok := policy.CommandExecutables(command)
 		if !ok {
 			return policy.PermissionRule{}, fmt.Errorf("%w: cannot derive an allow-always rule from command %q", domain.ErrValidation, command)
 		}
-		rule.CommandAllow = []string{exe}
+		rule.CommandAllow = exes
 	}
 	return rule, nil
 }
