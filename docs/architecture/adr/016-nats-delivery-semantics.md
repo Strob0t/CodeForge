@@ -47,40 +47,61 @@ durable, so each message is processed by one instance. Settings: explicit ack, `
   starts after the old consumer's ack floor (or at new messages if it never acked one).
 
 The Go health monitor checks its durables every 30 s and recreates a deleted one the same way (deliver policy
-`new`), replacing the consume context of the subscription.
+`new`), replacing the consume context of the subscription. The worker ensures a durable again when a fetch shows it
+is gone (no responders / not found); a message loop that cannot recover within `consumer_max_errors` consecutive
+errors stops the whole worker (health sentinel removed, exit status 1), so the container is restarted instead of a
+"healthy" process that no longer consumes the subject.
 
 **3. Two acknowledgement modes.**
 
 | Mode | Subjects | Ack | Failure | Crashed instance |
 |---|---|---|---|---|
-| at-most-once (ack on accept) | worker: `runs.start`, `conversation.run.start`, `benchmark.run.request` (already ran in the background) | before the handler runs | reported as a failed completion (`runs.complete`, `conversation.run.complete`, `benchmark.run.result`), never retried | run is failed by the Go Core (section 6) |
+| at-most-once (ack on accept) | worker: `runs.start`, `conversation.run.start`, `tasks.agent.*`, `benchmark.run.request` (runs in the background) | confirmed (double) ack before the handler runs | reported as a failed completion or result (`runs.complete`, `conversation.run.complete`, `tasks.result`, `benchmark.run.result`), never retried | run is failed by the Go Core (section 6) |
 | at-least-once | all other subjects, Go and worker | after the handler succeeded | retried, then dead-lettered (section 4) | redelivered after `AckWait` |
 
-Agent and conversation runs change the workspace and are not idempotent: a redelivery would execute a partially
-applied run a second time on another worker. Everything else is a request whose repetition is harmless (index,
-search, repo map, quality gate, memory, review trigger, ...). While an at-least-once handler runs, its consumer sends
-an in-progress ack (`+WPI`) every `AckWait / 3` (Go: in `handleMessage`; worker: in the message loop around every
-handler, stopping as soon as the message is settled), so a handler that is slower than `AckWait` is not redelivered
-to another instance, while a crashed instance stops the heartbeat and its message is redelivered.
+Agent runs, conversation runs and backend tasks (Aider, OpenHands, ...) change the workspace and are not idempotent:
+a redelivery would execute a partially applied run a second time on another worker. The accept ack is confirmed by
+the server (`ack_sync`): a plain ack is fire-and-forget, and a lost one would hand the running work to a second
+worker after `AckWait`. Without the confirmation the work is not started and its dedup key is released: the message
+is redelivered, or, if the ack did reach the server, the run is ended by the Go Core (section 6). An exception after
+the accept is reported as a failed completion (unless the run already reported its outcome).
+
+Everything else is a request whose repetition is harmless (index, search, repo map, quality gate, memory, review
+trigger, ...). While an at-least-once handler runs, its consumer sends an in-progress ack (`+WPI`) every
+`AckWait / 3` (Go: a timer in `handleMessage` that is only armed after `AckWait / 3`, so fast handlers send nothing;
+worker: in the message loop around every handler, stopping as soon as the message is settled), so a handler that is
+slower than `AckWait` is not redelivered to another instance, while a crashed instance stops the heartbeat and its
+message is redelivered. The heartbeat is capped (Go 10 min, ten times the default HITL approval wait; worker 30 min,
+above the longest indexing or LLM request): a hung handler stops reporting progress and its message is redelivered
+instead of holding a `MaxAckPending` slot forever. CPU-bound worker handlers (repo map, retrieval chunking, graph
+extraction) run in a thread so they do not starve the event loop that sends the heartbeats.
+
+A request/response handler that answers with an **error result** (context rerank, retrieval, sub-agent and graph
+search) has settled the request: the Go waiter got its answer, so the message is acked rather than retried.
 
 **4. Retries and dead letters (both sides).**
 
 - The attempt number is JetStream's delivery count (`NumDelivered` / `metadata.num_delivered`, 1-based). The
-  `Retry-Count` header is gone.
+  `Retry-Count` header is gone. If the Go side cannot read the delivery count, a failure is dead-lettered at once
+  (the remaining retries are unknown).
 - A failure before attempt 4 is NAK'd with a 2 s delay.
-- A failure on attempt 4 is published to `{subject}.dlq` (headers kept) and then acked.
+- A failure on attempt 4 is published to `{subject}.dlq` and then acked.
 - An **invalid payload** (Go: validator; worker: schema validation error, a payload that is not a JSON object, or a
   missing required field) is published to `{subject}.dlq` at once and **terminated** (`Term`): it is never NAK'd
   and never redelivered.
-- If the dead-letter publish fails, the message is NAK'd with the delay instead of being settled, so it is never
-  acknowledged without a dead-letter copy. After the last attempt JetStream then keeps it unacknowledged (visible
-  as pending in the consumer info and in the max-deliveries advisory) instead of redelivering it.
+- The dead-letter copy keeps the headers except the JetStream publish-control headers (`Nats-*`): with the original
+  `Nats-Msg-Id` the stream would discard the copy as a duplicate of the original. The original ID is kept in
+  `X-Original-Msg-Id`.
+- If the dead-letter publish fails, or the stream reports it as a duplicate (`PubAck.Duplicate`, nothing stored),
+  the message is NAK'd with the delay instead of being settled, so it is never acknowledged without a dead-letter
+  copy. After the last attempt JetStream then keeps it unacknowledged (visible as pending in the consumer info and
+  in the max-deliveries advisory) instead of redelivering it.
 - The Go DLQ monitor (`codeforge-go-dlq-monitor`, durable, filters `*.*.dlq` to `*.*.*.*.*.dlq`) logs every dead
   letter and forwards it to the notifier.
 
 **5. Dedup.** The worker's in-process dedup cache marks a request key when the request is accepted. A request whose
-handler failed is removed from the cache again, so its redelivery is processed instead of being acked as a
-duplicate. Go handlers stay idempotent, as at-least-once delivery requires.
+handler failed (or whose accept ack was not confirmed) is removed from the cache again, so its redelivery is
+processed instead of being acked as a duplicate. Go handlers stay idempotent, as at-least-once delivery requires.
 
 **6. Crashed workers and the Go-side run timeout.** At-most-once runs rely on the Go Core to end a run whose worker
 died. What exists (checked on `staging`, 2026-09-30):
@@ -96,7 +117,9 @@ These gaps are follow-up work, not part of this decision.
 
 **7. Per-run subscriptions.** A run's cancel listeners (`runs.cancel` plus `tasks.cancel` or
 `conversation.run.cancel`, ephemeral consumers with deliver policy `new`) and its heartbeat belong to the run:
-`RuntimeClient.close()` releases them and every run handler calls it when the run ends, successfully or not.
+`RuntimeClient.close()` releases them and every run handler calls it when the run ends, successfully or not. The
+cancel subjects are shared by all active runs, so a malformed cancel message is skipped, never fatal to the listener,
+and empty run or task IDs never match.
 
 **8. Payload validation.** The Go validator checks every `runs.*`, `context.*` and `repomap.*` subject that has a
 port struct against it, like the other subject families (`runs.start`, `runs.toolcall.request/response/result`,
@@ -125,9 +148,12 @@ consumer provisioning, delivery count and heartbeat in `workers/codeforge/consum
 
 #### Negative
 
-- Runs are at-most-once: if a worker dies mid-run, the run is not retried. For `runs.start` the Go run timeout
-  fails it (within the gaps listed in section 6); a conversation run stays "running" until the user stops it,
-  because no Go-side watchdog exists yet.
+- Runs and backend tasks are at-most-once: if a worker dies mid-run, the run is not retried. For `runs.start` the
+  Go run timeout fails it (within the gaps listed in section 6); a conversation run stays "running" until the user
+  stops it, because no Go-side watchdog exists yet. The same holds when the server applied an accept ack whose
+  confirmation was lost: the work never starts.
+- A request/response handler that answered with an error result is not retried, even if the cause was transient;
+  the Go caller decides whether to ask again.
 - A message published while its durable does not exist (before the worker's first start on a new deployment, or
   after an external deletion until the durable is recreated) is not delivered to that consumer.
 - A message whose dead-letter publish failed on the last attempt stays unacknowledged in the stream without a DLQ
