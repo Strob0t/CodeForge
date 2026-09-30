@@ -138,6 +138,24 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-60** | Inject the tiered cache where the docs say it is used, or document it as unused (D-S3) |
 | **KI-62** | Call `ReplanStep` from stall detection, or document re-planning as planned |
 
+## Follow-up Known Issues (found while fixing, 2026-09-30)
+
+Reviews of the S1, S2 and S4 fixes found further defects. They are tracked in [todo.md](todo.md#known-issues) and
+scheduled as follows:
+
+| KI | Summary | Milestone |
+|---|---|---|
+| **KI-63** | Tool-call approvals resolved without a tenant check | S6 |
+| **KI-64** | Tenant propagation over NATS per payload; default-tenant fallback on publish | S6 |
+| **KI-65** | At-most-once work lacks complete Go-side watchdogs (conversations, backend tasks, SIGTERM) | S3 (with the gate watchdog, KI-28) |
+| **KI-66** | Worker dedup keys too coarse | S2 follow-up |
+| **KI-67** | Worker consumer lifecycle gaps (partly fixed) | S2 follow-up |
+| **KI-68** | Policy profiles are one global namespace | S6 |
+| **KI-69** | Policy follow-ups (tools offered despite mode, clone snapshots, run profile, feedback providers, redirections) | S6 |
+| **KI-70** | Blue-green overlay does not work | S4 |
+| **KI-71** | Agent tools can read the worker's secrets (same UID) | S6 (with KI-13) |
+| **KI-72** | Claude Code runs bypass the policy layer | S6 (high: do first) |
+
 ## Decisions
 
 Accepted principles from the earlier (main-based) fix plan that the project owner approved on 2026-09-29 apply

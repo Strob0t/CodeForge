@@ -1026,7 +1026,7 @@ docker compose -f docker-compose.prod.yml up -d
 Rotation: `codeforge-internal-key`, `nats-user` and `nats-pass` rotate by deleting the file and re-running;
 `postgres-password` must be changed in the database first (`ALTER USER`), then in `postgres-password` and
 `database-url`; the JWT secret (logs everyone out, VCS tokens become unreadable), the LLM key encryption secret and the
-LiteLLM master key are never regenerated for a directory in use (the script stops and explains). For an existing
+LiteLLM master key are never regenerated for a directory in use (the script stops and explains). A directory counts as in use once any file only the script creates exists (derived files, JWT or LLM key secret, TLS pair); a directory with only operator pre-seeded files (e.g. your own `postgres-password`) is treated as new. For an existing
 installation the LLM key encryption secret is created with the JWT secret's value, so stored LLM keys stay readable.
 `validate-env.sh` checks presence, readability by the non-root containers, length, known dev defaults, that
 `database-url` matches `POSTGRES_USER`/`POSTGRES_DB` and does not disable TLS, and that `nats-url` matches
@@ -1126,7 +1126,7 @@ Backups are stored in `./backups/postgres/` (gitignored) as compressed `pg_dump 
 
 The restore script asks for confirmation, then drops and recreates the database.
 
-The script drops the database with `dropdb --force` (PostgreSQL 13+), which terminates open connections. Stop the core, worker and LiteLLM before restoring, so they cannot reconnect to the new empty database while the dump is restored.
+Stop the core, worker and LiteLLM first (`docker compose -f docker-compose.prod.yml stop core worker litellm`): the script refuses to run while other sessions use the database, checks again after `createdb` (a client reconnecting to the empty database aborts the restore before `pg_restore`), and drops the database with `dropdb --force` (PostgreSQL 13+).
 
 #### Scheduled Backups (cron)
 

@@ -27,7 +27,7 @@ If you discover a security vulnerability, please report it responsibly:
 - **Secrets:** Environment variables (development and, currently, production), never hardcoded; file-based Docker Secrets are only partly wired (see [Secret Management](#secret-management))
 - **SSRF Protection:** Private IP range blocking (IPv4 + IPv6)
 
-> **Known gaps (2026-09-29):** policy profiles not tenant-scoped (KI-68), tool-call approvals not tenant-checked (KI-63), experience pool not tenant-scoped (KI-16), agent tools can read the worker's secrets (KI-71), GDPR retention job never runs (KI-52) - see [Known Issues](todo.md#known-issues).
+> **Known gaps (2026-09-29):** policy profiles not tenant-scoped (KI-68), tool-call approvals not tenant-checked (KI-63), Claude Code runs bypass the policy layer (KI-72), experience pool not tenant-scoped (KI-16), agent tools can read the worker's secrets (KI-71), GDPR retention job never runs (KI-52) - see [Known Issues](todo.md#known-issues).
 
 ## Secret Management
 
@@ -47,10 +47,16 @@ config, LiteLLM and the worker export their values from the files in an entrypoi
 3. **Deploy:** `docker compose -f docker-compose.prod.yml up -d`
 4. **Rotate:** per secret, see the header of `scripts/generate-secrets.sh` and [dev-setup.md](dev-setup.md#secret-management); the JWT secret, the LLM key encryption secret, the LiteLLM master key and the PostgreSQL password cannot be rotated by regenerating the file (data loss or a password mismatch), the script refuses to
 
-Agent tool subprocesses (bash, search, quality gates, git, benchmark commands, CLI backends, the Claude Code CLI) run
-with an allowlisted environment (`workers/codeforge/subprocess_env.py`): no `CODEFORGE_*`, database, NATS or LiteLLM
-credentials. They still run as the worker's UID and can read `/run/secrets/*` and `/proc/1/environ` (KI-71); real
-isolation needs the sandbox execution mode (KI-13). URL userinfo is redacted in all Go and worker logs.
+Agent tool subprocesses (bash, search, quality gates, git, benchmark commands and providers, CLI backends, the Claude
+Code CLI) run with an allowlisted environment (`workers/codeforge/subprocess_env.py`): basics (PATH, HOME, locale,
+TERM, TZ, temp dirs), proxy and CA-bundle variables, toolchain settings (GOPATH/GOPROXY/GOFLAGS/..., XDG dirs,
+`npm_config_*`, pip index URLs, NODE_OPTIONS, CI); any allowed name containing KEY, TOKEN, SECRET, PASSWORD, PASSWD,
+AUTH or CREDENTIAL is dropped; never `CODEFORGE_*`, `LITELLM_*`, `DATABASE_URL` or `NATS_URL`. CLI backends
+additionally receive the provider key/endpoint list `PROVIDER_ENV` and their own prefix (`AIDER_*`, `GOOSE_*`,
+`OPENCODE_*`, `PLANDEX_*`, `SWE_AGENT_*`); anything else goes through the backend's `extra_env`. Claude Code always
+runs through the CLI (the SDK passes the full worker environment); it has no per-tool policy check yet (KI-72).
+Credentials embedded in proxy or index URLs are passed as-is. They still run as the worker's UID and can read `/run/secrets/*` and `/proc/1/environ` (KI-71); real
+isolation needs the sandbox execution mode (KI-13). URL userinfo is redacted in all Go and worker logs (Go `secrets.RedactURL` in the log handler, including error and Stringer values; worker structlog processor and a filter on stdlib records; an `@` in a URL path or query is redacted as well).
 
 ### Hierarchy (highest priority first)
 
