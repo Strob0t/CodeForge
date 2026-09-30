@@ -89,12 +89,22 @@ const workerStopTimeout = 5 * time.Second
 // While the stop is under way the run is marked stopping: the completion the
 // worker sends when it stops only raises the usage totals (HandleRunComplete),
 // so the run ends with the stop's status and reason, not the worker's
-// "cancelled".
+// "cancelled". If the stop cannot record the run's end, that completion ends
+// the run instead (KI-76); without it the run would stay running.
 func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Status, reason string) error {
 	s.state.BeginStop(r.ID)
-	defer s.state.EndStop(r.ID)
 	s.tellWorkerToStop(ctx, r.ID)
-	return s.finalizeRun(ctx, r, status, storedOutcome(r, status, reason))
+	err := s.finalizeRun(ctx, r, status, storedOutcome(r, status, reason))
+	completion := s.state.EndStop(r.ID)
+	if err == nil || completion == nil || errors.Is(err, domain.ErrConflict) {
+		return err
+	}
+	slog.WarnContext(ctx, "stop could not record the run's end, ending it with the worker's completion",
+		"run_id", r.ID, "stop_status", status, "error", err)
+	if cerr := s.HandleRunComplete(ctx, completion); cerr != nil {
+		return errors.Join(err, cerr)
+	}
+	return nil
 }
 
 // tellWorkerToStop publishes runs.cancel before the run is completed: the

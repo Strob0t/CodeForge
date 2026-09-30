@@ -58,6 +58,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if s.state.IsStopping(r.ID) {
 		slog.Info("completion for a run being stopped, usage kept", "run_id", r.ID, "status", payload.Status)
 		s.keepWorkerTotals(ctx, r.ID, payload)
+		s.state.DeferCompletion(r.ID, payload)
 		return nil
 	}
 

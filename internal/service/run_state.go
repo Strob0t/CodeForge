@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // RunStateManager encapsulates the sync.Map fields that track ephemeral
@@ -25,8 +26,9 @@ type RunStateManager struct {
 	bypassedConvs    sync.Map // map[conversationID]bool
 	runSpans         sync.Map // map[runID]trace.Span
 
-	stopsMu sync.Mutex
-	stops   map[string]int // runID -> control-plane stops of the run under way
+	stopsMu         sync.Mutex
+	stops           map[string]int                              // runID -> control-plane stops of the run under way
+	stopCompletions map[string]*messagequeue.RunCompletePayload // runID -> worker completion received during its stops
 
 	convMu   sync.Mutex
 	convRuns map[string]*convRunState // conversationID -> run state (see Conversation Runs)
@@ -157,15 +159,33 @@ func (m *RunStateManager) BeginStop(runID string) {
 	m.stops[runID]++
 }
 
-// EndStop records that a stop of the run is over.
-func (m *RunStateManager) EndStop(runID string) {
+// DeferCompletion keeps the completion a worker reported while its run was
+// being stopped; the last EndStop of the run returns it.
+func (m *RunStateManager) DeferCompletion(runID string, payload *messagequeue.RunCompletePayload) {
 	m.stopsMu.Lock()
 	defer m.stopsMu.Unlock()
-	if m.stops[runID] <= 1 {
-		delete(m.stops, runID)
+	if m.stops[runID] == 0 {
 		return
 	}
-	m.stops[runID]--
+	if m.stopCompletions == nil {
+		m.stopCompletions = make(map[string]*messagequeue.RunCompletePayload)
+	}
+	m.stopCompletions[runID] = payload
+}
+
+// EndStop records that a stop of the run is over. The last one returns the
+// worker's completion that arrived during the stops, if any.
+func (m *RunStateManager) EndStop(runID string) *messagequeue.RunCompletePayload {
+	m.stopsMu.Lock()
+	defer m.stopsMu.Unlock()
+	if m.stops[runID] > 1 {
+		m.stops[runID]--
+		return nil
+	}
+	delete(m.stops, runID)
+	deferred := m.stopCompletions[runID]
+	delete(m.stopCompletions, runID)
+	return deferred
 }
 
 // IsStopping reports whether the control plane is stopping the run.

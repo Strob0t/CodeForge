@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -181,5 +182,76 @@ func TestCancelRun_QualityGateRunKeepsItsOutcome(t *testing.T) {
 	}
 	if tsk.Result == nil || tsk.Result.Output != "all done" {
 		t.Errorf("task result = %+v, want the worker's output", tsk.Result)
+	}
+}
+
+// failingEndStore fails the first write that ends a run.
+type failingEndStore struct {
+	*runtimeMockStore
+	mu     sync.Mutex
+	failed bool
+}
+
+func (s *failingEndStore) CompleteRun(ctx context.Context, req *run.CompletionRequest) error {
+	s.mu.Lock()
+	first := !s.failed
+	s.failed = true
+	s.mu.Unlock()
+	if first {
+		return errors.New("database unavailable")
+	}
+	return s.runtimeMockStore.CompleteRun(ctx, req)
+}
+
+// TestStop_FailedEndWriteUsesTheWorkersCompletion: the stop could not record
+// the run's end, and the worker's completion, which arrived during the stop,
+// was reduced to its usage: the run stayed running (KI-76). The completion
+// now ends the run once the stop failed.
+func TestStop_FailedEndWriteUsesTheWorkersCompletion(t *testing.T) {
+	_, mock, _, bc := newRuntimeTestEnv()
+	store := &failingEndStore{runtimeMockStore: mock}
+	queue := &workerCompletesOnCancel{totals: messagequeue.RunCompletePayload{
+		RunID: "run-stop-fails", Status: "cancelled", Error: "cancelled by control plane", CostUSD: 0.7, StepCount: 3,
+	}}
+	svc := service.NewRuntimeService(store, queue, bc, &runtimeMockEventStore{}, service.NewPolicyService("headless-safe-sandbox", nil), &config.Runtime{})
+	queue.svc = svc
+	setStoredRun(mock, &run.Run{
+		ID: "run-stop-fails", TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
+		PolicyProfile: "headless-safe-sandbox", Status: run.StatusRunning,
+	})
+
+	if err := svc.CancelRun(context.Background(), "run-stop-fails"); err != nil {
+		t.Fatalf("CancelRun: %v", err)
+	}
+
+	r := storedRun(t, mock, "run-stop-fails")
+	if r.Status != run.StatusCancelled {
+		t.Fatalf("run = %s %q, want cancelled by the worker's completion", r.Status, r.Error)
+	}
+	if r.CostUSD != 0.7 || r.StepCount != 3 {
+		t.Errorf("usage = %.2f %d steps, want the worker's totals", r.CostUSD, r.StepCount)
+	}
+}
+
+// TestStop_FailedEndWriteWithoutCompletionReportsTheError: without a
+// completion from the worker the failed stop is reported, and a completion
+// that arrives later ends the run normally.
+func TestStop_FailedEndWriteWithoutCompletionReportsTheError(t *testing.T) {
+	_, mock, queue, bc := newRuntimeTestEnv()
+	store := &failingEndStore{runtimeMockStore: mock}
+	svc := service.NewRuntimeService(store, queue, bc, &runtimeMockEventStore{}, service.NewPolicyService("headless-safe-sandbox", nil), &config.Runtime{})
+	setStoredRun(mock, &run.Run{
+		ID: "run-stop-later", TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
+		PolicyProfile: "headless-safe-sandbox", Status: run.StatusRunning,
+	})
+
+	if err := svc.CancelRun(context.Background(), "run-stop-later"); err == nil {
+		t.Fatal("CancelRun succeeded although the run's end was not recorded")
+	}
+	if err := svc.HandleRunComplete(context.Background(), &messagequeue.RunCompletePayload{RunID: "run-stop-later", Status: "cancelled"}); err != nil {
+		t.Fatalf("HandleRunComplete: %v", err)
+	}
+	if r := storedRun(t, mock, "run-stop-later"); r.Status != run.StatusCancelled {
+		t.Fatalf("run = %s, want cancelled", r.Status)
 	}
 }
