@@ -5,7 +5,8 @@
 .remember/
 
 # -- Secrets (production, generated) ---------------
-secrets/
+# Anchored: internal/secrets is source code.
+/secrets/
 
 # -- Dependencies ---------------------------------
 .venv/
