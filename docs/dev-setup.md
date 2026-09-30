@@ -326,6 +326,10 @@ PostgreSQL, NATS and docs-mcp data live in the named Docker volumes `codeforge-p
 
 ### Ports
 
+All ports published by `docker-compose.yml` bind to `127.0.0.1` (the dev services run without authentication or with
+default credentials, KI-14); reach them from another machine through an SSH tunnel. Containers and the devcontainer use the
+container names on the `codeforge` network.
+
 | Port | Service              | Purpose                          |
 |------|----------------------|----------------------------------|
 | 3000 | Frontend Dev Server  | Web GUI                          |

@@ -675,6 +675,7 @@ paths:
                 exec_mode:
                   type: string
                   enum: [mount, sandbox, hybrid]
+                  description: sandbox and hybrid are rejected with 400 until tools run inside the container
                 deliver_mode:
                   type: string
                   enum: ["", patch, commit-local, branch, pr]
@@ -2299,7 +2300,8 @@ components:
             type: string
           description: |
             Project config map. Common keys:
-            autonomy_level (1-5), policy_preset, execution_mode (mount/sandbox)
+            autonomy_level (1-5), policy_preset, execution_mode (default exec mode for runs and
+            agentic conversations; only mount is accepted until sandbox isolation exists)
 
     Conversation:
       type: object

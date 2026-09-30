@@ -376,7 +376,7 @@ Termination enforcement checks max steps, max cost, timeout, and stall detection
 
 **Docker Sandbox** (`internal/service/sandbox.go`) manages container lifecycle for isolated agent execution. It supports a Create, Start, Exec, Stop, Remove lifecycle via Docker CLI (`os/exec`). Resource limits include memory, CPU quota, PID limit, and network mode (default: `none`). A three-layer limit hierarchy applies: config defaults, then policy limits, then agent limits, capped at ceiling. The root filesystem is read-only with tmpfs `/tmp`.
 
-> **Implementation status (2026-09-29):** A container is created and started per sandbox/hybrid run, but `SandboxService.Exec` has no callers and the worker runs tools locally, so sandbox and hybrid modes provide no isolation yet; a `cpu_quota` below 1000 becomes `--cpus=0` (unlimited). See [Known Issues](todo.md#known-issues) KI-13.
+> **Implementation status (2026-09-30):** `SandboxService` can create and start per-run containers with resource limits (`--cpus` formatted as a decimal, non-positive quotas rejected), but `SandboxService.Exec` has no callers and the worker runs tools locally, so runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`. See [Known Issues](todo.md#known-issues) KI-13.
 
 #### Agentic Conversation Loop (Phase 17)
 
@@ -527,7 +527,7 @@ Sandbox Mode runs a Docker container per task (Docker-in-Docker). The repo is co
 
 **Hybrid Mode** runs a container with a mounted volume. Mount permissions are configurable: read-only source + write workspace copy. The agent can read, but changes go into a copy. The user reviews and merges manually.
 
-> **Implementation status (2026-09-29):** Runs accept `exec_mode` (`mount`, `sandbox`, `hybrid`), but tools always run locally in the worker against the workspace, i.e. only mount semantics exist today; see [Known Issues](todo.md#known-issues) KI-13.
+> **Implementation status (2026-09-30):** Only mount semantics exist today: runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`.
 
 #### Tool Provisioning for Sandbox Agents
 

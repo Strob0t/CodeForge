@@ -75,7 +75,7 @@ The control plane manages three execution modes:
 | Sandbox | Go Core creates Docker container, Python worker runs tools via `docker exec` | Resource limits (memory, CPU, PIDs, network) |
 | Hybrid | Container with mounted volumes (deferred) | Configurable read/write permissions |
 
-> **Implementation status (2026-09-29):** Sandbox and hybrid runs get a per-run container with resource limits (`SandboxService.Create` / `CreateHybrid` in `internal/service/sandbox.go`, started from `internal/service/runtime.go`), but no tool call is executed in it: `SandboxService.Exec` has no callers, and the Python worker ignores `exec_mode` and runs tools as local subprocesses (e.g. `workers/codeforge/tools/bash.py`), see [Known Issues](../../todo.md#known-issues) KI-13. Go evaluates every tool call as designed, but the worker's tool names never match the preset rules (KI-4). `runs.start` is still a single LLM completion without a tool loop (KI-21); the agentic tool loop runs on the `conversation.run.*` subjects.
+> **Implementation status (2026-09-30):** `SandboxService.Create` / `CreateHybrid` (`internal/service/sandbox.go`) exist, but no tool call is executed in a container (`SandboxService.Exec` has no callers), so runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`. See [Known Issues](../../todo.md#known-issues) KI-13.
 
 ### Consequences
 

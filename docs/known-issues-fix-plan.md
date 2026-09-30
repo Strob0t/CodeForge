@@ -1,6 +1,6 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3; KI-11 from S1 done early), next: S1.
+> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 in progress** (KI-11, KI-13, KI-14 done).
 > **Scope:** the verified defects KI-1 to KI-62 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
@@ -23,7 +23,7 @@
 | Milestone | Theme | Known Issues | Effort |
 |---|---|---|---|
 | **S0** | Green CI with complete gates | KI-1, KI-2, KI-3 | M |
-| **S1** | Policy and security enforcement | KI-4, KI-5, KI-6, KI-7, KI-8, KI-9, KI-10, ~~KI-11~~, KI-12, KI-13, KI-14 | L |
+| **S1** | Policy and security enforcement | KI-4, KI-5, KI-6, KI-7, KI-8, KI-9, KI-10, ~~KI-11~~, KI-12, ~~KI-13~~, ~~KI-14~~ | L |
 | **S2** | Reliable messaging and runtime | KI-18, KI-19, KI-20, KI-21, KI-22, KI-23, KI-24, KI-30, KI-31, KI-32 | L |
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
 | **S4** | Operations and deployment | KI-34, KI-35, KI-36, KI-43, KI-44, KI-45, KI-46, KI-47, KI-48, KI-49, KI-50, KI-51, KI-59, KI-61 | M |
@@ -62,8 +62,8 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-10** | Mode tool lists not enforced | Mode `Tools`/`DeniedTools` use canonical names and are enforced in the Go evaluation (deny wins) | Read-only modes cannot write or run bash |
 | **KI-11** | `chimw.RealIP` before limiters | **Done (S0).** `middleware.ClientIP` trusts forwarding headers only from `server.trusted_proxies`; IPv6 keyed by /64 | `clientip_test.go`, `TestRateLimitKeyGroupsIPv6By64`, config tests |
 | **KI-12** | Tenant-blind broadcast, blocking writes, ticket endpoint unwired | `BroadcastToTenant` for all tenant events; per-client buffered send queue with write timeout (slow client dropped, not blocking); wire `WSTickets` and stop sending the JWT in the URL | Hub tests with two tenants and a stalled client; ticket handler test |
-| **KI-13** | Sandbox container unused | Fail closed: runs in `sandbox`/`hybrid` exec mode are rejected with a clear error until tools execute inside the container (see D-S3); fix `--cpus` float formatting | Run-start test; sandbox args test |
-| **KI-14** | Dev compose publishes DB/NATS on 0.0.0.0 | Bind to `127.0.0.1` in `docker-compose.yml` | Compose config check |
+| **KI-13** | Sandbox container unused | **Done (2026-09-30).** Fail closed: runs in `sandbox`/`hybrid` exec mode are rejected with a clear error until tools execute inside the container (see D-S3); fix `--cpus` float formatting | Run-start test; sandbox args test |
+| **KI-14** | Dev compose publishes DB/NATS on 0.0.0.0 | **Done (2026-09-30).** Bind to `127.0.0.1` in `docker-compose.yml` | Compose config check |
 
 ## S2 - Reliable Messaging and Runtime
 

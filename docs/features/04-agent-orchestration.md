@@ -82,7 +82,7 @@ class BackendExecutor(Protocol):
 | Mount | Low (direct file access) | High | Trusted agents, local dev |
 | Hybrid | Medium (controlled access) | Medium | Review workflows, CI-like |
 
-> **Implementation status (2026-09-29):** Mount is the default (`POST /api/v1/runs` without `exec_mode`). For sandbox and hybrid runs the Go Core creates a per-run container (`internal/service/runtime.go`, `internal/service/sandbox.go`), but the worker still runs tools locally (e.g. `bash -c` in `workers/codeforge/tools/bash.py`), so there is no isolation yet (see [Known Issues](../todo.md#known-issues) KI-13).
+> **Implementation status (2026-09-30):** Mount is the default (`POST /api/v1/runs` without `exec_mode`, else the project config `execution_mode`). The sandbox code (`internal/service/sandbox.go`) creates per-run containers, but the worker runs tools locally (`bash -c` in `workers/codeforge/tools/bash.py`), so runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`.
 
 ### Agent Workflow
 
@@ -293,7 +293,8 @@ sequenceDiagram
 - [x] Policy layer: 5 presets, YAML custom policies, first-match-wins evaluation, REST API + frontend PolicyPanel (defects: see [Known Issues](../todo.md#known-issues) KI-4 to KI-9).
 - [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement (`runs.start` is still a single LLM completion, KI-21).
 - [x] Checkpoint system: shadow Git commits for safe rollback (checkpoint commits corrupt delivery, KI-27).
-- [x] Docker Sandbox: container lifecycle management with resource limits (tools do not run inside it yet, KI-13).
+- [x] Docker Sandbox: container lifecycle management with resource limits (use gated: tools do not run inside it yet, so sandbox/hybrid runs are rejected, KI-13).
+- [ ] Execute agent tools inside the sandbox container (`SandboxService.Exec`), then lift the KI-13 gate
 - [x] Stall detection: FNV-64a hash ring buffer, configurable threshold.
 - [x] Quality gate enforcement: test/lint gates via NATS request/result protocol (KI-26, KI-28, KI-29).
 - [x] 5 deliver modes: none, patch, commit-local, branch, PR (KI-26, KI-27).

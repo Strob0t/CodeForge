@@ -60,7 +60,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - **logBestEffort pattern** (`internal/service/log_best_effort.go`) for non-fatal store errors -- logs with structured context instead of silencing
 
 ### Agent System
-- **Execution Modes:** Sandbox (isolated container), Mount (direct file access), Hybrid — sandbox/hybrid isolation not effective yet, see [Known Issues](docs/todo.md#known-issues) KI-13
+- **Execution Modes:** Sandbox (isolated container), Mount (direct file access), Hybrid — sandbox/hybrid are rejected at start (HTTP 400) until tools run inside the container (KI-13, fail closed); the project config key `execution_mode` (only `mount` accepted) sets the default
 - **Safety Layer (8):** Budget Limiter, Command Safety Evaluator, Branch Isolation, Test/Lint Gate, Max Steps, Rollback, Path Blocklist, Stall Detection
 - **Workflow:** Plan -> Approve -> Execute -> Review -> Deliver (configurable)
 - **Autonomy Levels:** 1=supervised (approve all), 2=semi-auto (approve destructive), 3=auto-edit (approve terminal/deploy), 4=full-auto (safety rules replace user), 5=headless (CI/CD, cron, API)
@@ -347,7 +347,7 @@ Testplan: `docs/testing/autonomous-goal-to-program-testplan.md` | Tool complexit
 **Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (override default=true; avoids router picking unhealthy models in test), auth field: `access_token` (NOT `token`)
 
 **Project setup:**
-- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (the only project config key the backend reads; autonomy comes from the selected mode, see [Known Issues](docs/todo.md#known-issues) KI-41) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
+- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (besides `execution_mode`, which only accepts `mount`, the only project config key the backend reads; autonomy comes from the selected mode, see [Known Issues](docs/todo.md#known-issues) KI-41) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
 - Alternatively: `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` as separate call
 - TestRepo clone fails often — use local workspace creation instead
 - Auto-onboarding disabled (ChatPanel.tsx)
