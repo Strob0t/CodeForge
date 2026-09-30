@@ -115,6 +115,12 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
 	}
 
+	// Waiters wait for the conversation's active run: the late completion of
+	// a stopped run does not wake them. A completion without turn (a worker
+	// that sends none) counts as the active run's.
+	activeRun := s.runTracker == nil || payload.TurnID == "" ||
+		s.runTracker.IsActiveConversationRun(payload.ConversationID, payload.TurnID)
+
 	// The run ended: the conversation takes its next run. Recorded before the
 	// waiters are woken, which may start that run right away.
 	if s.runTracker != nil {
@@ -201,16 +207,10 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		Steps:     payload.StepCount,
 	})
 
-	// Notify in-process waiters (e.g. autoagent). A waiter takes one result;
-	// a further completion is dropped instead of blocking under the lock.
-	s.completionWaitersMu.Lock()
-	if ch, ok := s.completionWaiters[payload.ConversationID]; ok {
-		select {
-		case ch <- CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD}:
-		default:
-		}
+	// Notify in-process waiters (e.g. autoagent).
+	if activeRun {
+		s.notifyCompletionWaiter(payload.ConversationID, CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD})
 	}
-	s.completionWaitersMu.Unlock()
 
 	// Record prompt scores for evolution tracking.
 	if s.scoreCollector != nil && payload.Model != "" {
@@ -286,6 +286,20 @@ func (w *CompletionWaiter) Close() {
 	})
 }
 
+// notifyCompletionWaiter hands result to the conversation's waiter. A waiter
+// takes one result; a further one is dropped instead of blocking under the
+// lock.
+func (s *ConversationService) notifyCompletionWaiter(conversationID string, result CompletionResult) {
+	s.completionWaitersMu.Lock()
+	defer s.completionWaitersMu.Unlock()
+	if ch, ok := s.completionWaiters[conversationID]; ok {
+		select {
+		case ch <- result:
+		default:
+		}
+	}
+}
+
 // WaitForCompletion blocks until the conversation run finishes or the context
 // is cancelled. It misses a run that ended before it was called: to dispatch
 // and wait, register with ExpectCompletion first.
@@ -313,10 +327,12 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 		return err
 	}
 	// The run ends now: its remaining tool calls are rejected and the
-	// conversation takes its next message.
+	// conversation takes its next message. Its own completion no longer
+	// reaches a waiter (it is not the active run), so the stop ends the wait.
 	if s.runTracker != nil {
 		s.runTracker.MarkConversationRunCancelled(conversationID)
 	}
+	s.notifyCompletionWaiter(conversationID, CompletionResult{Status: "cancelled", Error: "stopped"})
 	logBestEffort(ctx, s.db.EndConversationTurn(ctx, conversationID, ""), "EndConversationTurn",
 		slog.String("conversation_id", conversationID))
 

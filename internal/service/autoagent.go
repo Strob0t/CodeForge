@@ -368,8 +368,8 @@ func (s *AutoAgentService) waitForCompletion(
 
 	aa.TotalCostUSD += result.CostUSD
 
-	if result.Status == "failed" {
-		return fmt.Errorf("conversation run failed: %s", result.Error)
+	if result.Status != "completed" {
+		return fmt.Errorf("conversation run %s: %s", result.Status, result.Error)
 	}
 	return nil
 }
