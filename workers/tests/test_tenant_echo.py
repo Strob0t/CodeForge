@@ -26,6 +26,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_QG_RESULT,
     SUBJECT_REPOMAP_RESULT,
     SUBJECT_RESULT,
+    SUBJECT_TASK_HEARTBEAT,
 )
 from codeforge.consumer._tasks import TaskHandlerMixin
 from codeforge.models import (
@@ -322,7 +323,8 @@ async def test_backend_task_output_and_result_echo_tenant() -> None:
     await handler._handle_message(msg)
 
     published = _published(handler._js)
-    assert {subject for subject, _ in published} == {SUBJECT_OUTPUT, SUBJECT_RESULT}
+    # The heartbeat (KI-65) names the tenant too: Go records it in the task's tenant.
+    assert {subject for subject, _ in published} == {SUBJECT_OUTPUT, SUBJECT_RESULT, SUBJECT_TASK_HEARTBEAT}
     for subject, payload in published:
         assert payload["tenant_id"] == TENANT, subject
     result = next(payload for subject, payload in published if subject == SUBJECT_RESULT)
