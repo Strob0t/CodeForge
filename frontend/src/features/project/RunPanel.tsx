@@ -1,14 +1,16 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent, DeliverMode, Run, Task, ToolCallEvent } from "~/api/types";
 import { StepProgress } from "~/components/StepProgress";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { getVariant, runStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, Select } from "~/ui";
 
+import { applyRunStatus, parseToolCall, payloadString } from "./liveEvents";
 import TrajectoryPanel from "./TrajectoryPanel";
 
 interface RunPanelProps {
@@ -45,6 +47,25 @@ export default function RunPanel(props: RunPanelProps) {
     () => selectedTaskId(),
     (taskId) => (taskId ? api.runs.listByTask(taskId) : []),
   );
+
+  // Live updates: the active run's status, metrics and tool calls, and the run
+  // history of the selected task.
+  const { onMessage } = useWebSocket();
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const unsubscribe = onMessage((msg) => {
+    const run = activeRun();
+    if (run) {
+      const updated = applyRunStatus(run, msg);
+      if (updated) setActiveRun(updated);
+      const call = parseToolCall(msg);
+      if (call?.run_id === run.id) setToolCalls((prev) => [...prev.slice(-49), call]);
+    }
+    const taskId = selectedTaskId();
+    if (msg.type === "run.status" && taskId && payloadString(msg.payload, "task_id") === taskId) {
+      refetchRuns();
+    }
+  });
+  onCleanup(unsubscribe);
 
   const pendingTasks = () =>
     props.tasks.filter((task) => task.status === "pending" || task.status === "queued");

@@ -492,6 +492,7 @@ func (s *RuntimeService) broadcastRunStatus(ctx context.Context, r *run.Run, sta
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
+		AgentID:   r.AgentID,
 		Status:    string(status),
 		StepCount: r.StepCount,
 		CostUSD:   r.CostUSD,

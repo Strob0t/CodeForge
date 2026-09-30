@@ -1,4 +1,4 @@
-import { createMemo, createResource, createSignal, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
@@ -14,6 +14,7 @@ import type {
   Task,
 } from "~/api/types";
 import { StepProgress } from "~/components/StepProgress";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { getVariant, planStatusVariant, stepStatusVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
@@ -21,6 +22,7 @@ import { Badge, Button, Card, Checkbox, FormField, Input, Select, Textarea } fro
 import { ModelCombobox } from "~/ui/composites/ModelCombobox";
 
 import AgentFlowGraph from "./AgentFlowGraph";
+import { planEventEffect } from "./liveEvents";
 import StepDetailPanel from "./StepDetailPanel";
 
 interface PlanPanelProps {
@@ -63,7 +65,7 @@ export default function PlanPanel(props: PlanPanelProps) {
 
   const [showForm, setShowForm] = createSignal(false);
   const [selectedPlanId, setSelectedPlanId] = createSignal<string | null>(null);
-  const [selectedPlan] = createResource(
+  const [selectedPlan, { refetch: refetchSelectedPlan }] = createResource(
     () => selectedPlanId(),
     (id) => api.plans.get(id),
   );
@@ -128,7 +130,7 @@ export default function PlanPanel(props: PlanPanelProps) {
   const [selectedStepId, setSelectedStepId] = createSignal<string | null>(null);
 
   // Fetch plan graph data when flow graph is shown
-  const [planGraph] = createResource(
+  const [planGraph, { refetch: refetchPlanGraph }] = createResource(
     () => (showFlowGraph() && selectedPlanId() ? selectedPlanId() : undefined),
     (id) => api.plans.graph(id as string),
   );
@@ -230,11 +232,30 @@ export default function PlanPanel(props: PlanPanelProps) {
   >({});
 
   // Track debate status per step (populated via WS debate.status events)
-  const [debateStatuses] = createSignal<Record<string, DebateStatusEvent>>({});
+  const [debateStatuses, setDebateStatuses] = createSignal<Record<string, DebateStatusEvent>>({});
 
   const setStepReviewDecision = (stepId: string, decision: ReviewDecisionSnapshot) => {
     setReviewDecisions((prev) => ({ ...prev, [stepId]: decision }));
   };
+
+  // Live updates: plan and step status, review routing and debates.
+  const { onMessage } = useWebSocket();
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const unsubscribe = onMessage((msg) => {
+    const effect = planEventEffect(msg, props.projectId, selectedPlanId());
+    if (!effect) return;
+    if (effect.refetchPlans) refetch();
+    if (effect.refetchSelected) {
+      refetchSelectedPlan();
+      if (showFlowGraph()) refetchPlanGraph();
+    }
+    if (effect.reviewDecision) {
+      setStepReviewDecision(effect.reviewDecision.stepId, effect.reviewDecision.decision);
+    }
+    const debate = effect.debate;
+    if (debate) setDebateStatuses((prev) => ({ ...prev, [debate.step_id]: debate }));
+  });
+  onCleanup(unsubscribe);
 
   const handleEvaluateStep = async (planId: string, stepId: string) => {
     try {

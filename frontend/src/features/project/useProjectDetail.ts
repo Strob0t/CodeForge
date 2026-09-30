@@ -1,4 +1,4 @@
-import { createResource, createSignal, onCleanup } from "solid-js";
+import { createEffect, createResource, createSignal, onCleanup } from "solid-js";
 
 import { api } from "~/api/client";
 import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
@@ -7,6 +7,7 @@ import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
 
+import { createProjectTaskIndex, parseTaskOutput } from "./liveEvents";
 import type { OutputLine } from "./LiveOutput";
 import type { AgentTerminal } from "./MultiTerminal";
 
@@ -84,9 +85,21 @@ export function useProjectDetail(projectId: () => string) {
 
   // ---- WS event handling ----
 
+  // task.output names only its task: attribute it through the project's tasks.
+  let taskIndex = createProjectTaskIndex(projectId());
+  createEffect(() => {
+    const id = projectId();
+    if (taskIndex.projectId !== id) taskIndex = createProjectTaskIndex(id);
+    if (!tasks.error) taskIndex.addTasks(tasks() ?? []);
+  });
+  const agentName = (agentId: string): string =>
+    (agents.error ? undefined : agents())?.find((a) => a.id === agentId)?.name ?? agentId;
+
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
   const cleanup = onMessage((msg) => {
     const payload = msg.payload;
     const pid = projectId();
+    taskIndex.observe(msg);
 
     switch (msg.type) {
       case "task.status": {
@@ -99,6 +112,10 @@ export function useProjectDetail(projectId: () => string) {
       }
       case "run.status": {
         if ((payload.project_id as string) === pid) {
+          // A run starting or ending also moves its task and agent, which
+          // broadcast no status of their own on this path.
+          refetchTasks();
+          refetchAgents();
           const status = payload.status as string;
           if (status === "completed") toast("info", t("detail.toast.runCompleted"));
           else if (status === "failed") toast("error", t("detail.toast.runFailed"));
@@ -142,38 +159,35 @@ export function useProjectDetail(projectId: () => string) {
         break;
       }
       case "task.output": {
-        if ((payload.project_id as string) === pid) {
-          const taskId = (payload.task_id as string) ?? null;
-          const line = payload.line as string;
-          const stream = (payload.stream as "stdout" | "stderr") ?? "stdout";
-          const agentId = payload.agent_id as string | undefined;
-          const agentName = payload.agent_name as string | undefined;
+        const output = parseTaskOutput(msg);
+        if (!output || !taskIndex.owns(output.taskId)) break;
+        const { taskId, line, stream } = output;
+        const agentId = taskIndex.agentOf(taskId);
 
-          setLiveOutputTaskId(taskId);
-          setLiveOutputLines((prev) => [...prev, { line, stream, timestamp: Date.now() }]);
+        setLiveOutputTaskId(taskId);
+        setLiveOutputLines((prev) => [...prev, { line, stream, timestamp: Date.now() }]);
 
-          if (agentId) {
-            setAgentTerminals((prev) => {
-              const idx = prev.findIndex((at) => at.agentId === agentId);
-              const entry: AgentTerminal =
-                idx >= 0
-                  ? {
-                      ...prev[idx],
-                      lines: [...prev[idx].lines, { line, stream, timestamp: Date.now() }],
-                    }
-                  : {
-                      agentId,
-                      agentName: agentName ?? agentId,
-                      lines: [{ line, stream, timestamp: Date.now() }],
-                    };
-              if (idx >= 0) {
-                const next = [...prev];
-                next[idx] = entry;
-                return next;
-              }
-              return [...prev, entry];
-            });
-          }
+        if (agentId) {
+          setAgentTerminals((prev) => {
+            const idx = prev.findIndex((at) => at.agentId === agentId);
+            const entry: AgentTerminal =
+              idx >= 0
+                ? {
+                    ...prev[idx],
+                    lines: [...prev[idx].lines, { line, stream, timestamp: Date.now() }],
+                  }
+                : {
+                    agentId,
+                    agentName: agentName(agentId),
+                    lines: [{ line, stream, timestamp: Date.now() }],
+                  };
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = entry;
+              return next;
+            }
+            return [...prev, entry];
+          });
         }
         break;
       }

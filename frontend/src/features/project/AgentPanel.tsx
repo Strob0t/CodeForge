@@ -1,13 +1,16 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { CreateAgentRequest, Task } from "~/api/types";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { agentStatusVariant, getVariant } from "~/config/statusVariants";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Button, Card, FormField, Input, Select } from "~/ui";
+
+import { isProjectEvent } from "./liveEvents";
 
 interface AgentPanelProps {
   projectId: string;
@@ -24,6 +27,20 @@ export default function AgentPanel(props: AgentPanelProps) {
     (id) => api.agents.list(id),
   );
   const [backends] = createResource(() => api.providers.agent());
+
+  // Agent status changes with dispatch, stop and every run start and end.
+  const { onMessage } = useWebSocket();
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const unsubscribe = onMessage((msg) => {
+    if (
+      (msg.type === "agent.status" || msg.type === "run.status") &&
+      isProjectEvent(msg, props.projectId)
+    ) {
+      refetch();
+    }
+  });
+  onCleanup(unsubscribe);
+
   const [showForm, setShowForm] = createSignal(false);
   const [name, setName] = createSignal("");
   const [backend, setBackend] = createSignal("");

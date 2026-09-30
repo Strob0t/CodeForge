@@ -3,6 +3,8 @@ import { createEffect, createSignal, For, onCleanup } from "solid-js";
 import type { Agent } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
 
+import { type AgentWork, parseTaskOutput, parseToolCall } from "./liveEvents";
+
 interface ToolCall {
   callId: string;
   tool: string;
@@ -14,43 +16,32 @@ interface OutputLine {
   stream: string;
 }
 
-export default function AgentLane(props: { agent: Agent }) {
+/**
+ * One agent's live lane. `work` names the run and task the agent works on
+ * (WarRoom follows it from the agent's events); the lane shows only that
+ * task's output and that run's tool calls.
+ */
+export default function AgentLane(props: { agent: Agent; work: AgentWork }) {
   const { onMessage } = useWebSocket();
   const [toolCalls, setToolCalls] = createSignal<ToolCall[]>([]);
   const [outputs, setOutputs] = createSignal<OutputLine[]>([]);
-  const [stepCount, setStepCount] = createSignal(0);
-  const [costUsd, setCostUsd] = createSignal(0);
 
   createEffect(() => {
-    const agentId = props.agent.id;
+    const { runId, taskId } = props.work;
     const unsub = onMessage((msg) => {
-      const p = msg.payload;
-
-      switch (msg.type) {
-        case "run.toolcall": {
-          if ((p.agent_id as string) !== agentId) {
-            break;
-          }
-          setToolCalls((prev) => [
-            ...prev.slice(-19),
-            { callId: p.call_id as string, tool: p.tool as string, phase: p.phase as string },
-          ]);
-          break;
+      const output = parseTaskOutput(msg);
+      if (output) {
+        if (taskId && output.taskId === taskId) {
+          setOutputs((prev) => [...prev.slice(-49), { line: output.line, stream: output.stream }]);
         }
-        case "run.status": {
-          if ((p.agent_id as string) === agentId) {
-            setStepCount(p.step_count as number);
-            setCostUsd((p.cost_usd as number) ?? 0);
-          }
-          break;
-        }
-        case "task.output": {
-          setOutputs((prev) => [
-            ...prev.slice(-49),
-            { line: p.line as string, stream: p.stream as string },
-          ]);
-          break;
-        }
+        return;
+      }
+      const call = parseToolCall(msg);
+      if (call && runId && call.run_id === runId) {
+        setToolCalls((prev) => [
+          ...prev.slice(-19),
+          { callId: call.call_id, tool: call.tool, phase: call.phase },
+        ]);
       }
     });
     onCleanup(unsub);
@@ -99,8 +90,8 @@ export default function AgentLane(props: { agent: Agent }) {
 
       {/* Footer */}
       <div class="flex items-center justify-between px-3 py-1.5 border-t border-cf-border text-xs text-cf-text-muted flex-shrink-0">
-        <span>Steps: {stepCount()}</span>
-        <span>${costUsd().toFixed(4)}</span>
+        <span>Steps: {props.work.steps}</span>
+        <span>${props.work.costUsd.toFixed(4)}</span>
       </div>
     </div>
   );

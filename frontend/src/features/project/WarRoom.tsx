@@ -1,11 +1,19 @@
 import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Agent } from "~/api/types";
+import type { Agent, Run } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
 
 import AgentLane from "./AgentLane";
+import {
+  type AgentWork,
+  agentWorkFromRuns,
+  IDLE_WORK,
+  isProjectEvent,
+  payloadString,
+  reduceAgentWork,
+} from "./liveEvents";
 import MessageFlow from "./MessageFlow";
 import SharedContextPanel from "./SharedContextPanel";
 
@@ -30,34 +38,67 @@ export default function WarRoom(props: WarRoomProps) {
     },
   );
 
+  // The project's recent runs attach a lane opened mid-run to its agent's run.
+  const [recentRuns, { refetch: refetchRuns }] = createResource(
+    () => props.projectId,
+    async (id) => {
+      try {
+        return await api.costs.recentRuns(id, 50);
+      } catch {
+        return [] as Run[];
+      }
+    },
+  );
+
+  // What each agent works on, followed from the project's events. Kept here and
+  // not in the lanes: a lane mounts only after the agent list is refetched,
+  // after the run.status that names the agent's run.
+  const [works, setWorks] = createSignal<Record<string, AgentWork>>({});
+  const workOf = (agentId: string): AgentWork =>
+    works()[agentId] ?? agentWorkFromRuns(recentRuns() ?? [], agentId) ?? IDLE_WORK;
+
+  // Lanes are keyed by agent ID so a refetch keeps their collected output.
+  const agentIds = () => (agents() ?? []).map((a) => a.id);
+  const agentById = (id: string) => (agents() ?? []).find((a) => a.id === id);
+
   // Debounced refetch on WS events
   const [refetchTimer, setRefetchTimer] = createSignal<ReturnType<typeof setTimeout> | null>(null);
   function debouncedRefetch() {
     const existing = refetchTimer();
     if (existing) clearTimeout(existing);
-    setRefetchTimer(setTimeout(() => refetch(), 500));
+    setRefetchTimer(
+      setTimeout(() => {
+        refetch();
+        refetchRuns();
+      }, 500),
+    );
   }
 
   createEffect(() => {
     const projectId = props.projectId;
+    setWorks({});
     // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
     const unsub = onMessage((msg) => {
+      if (!isProjectEvent(msg, projectId)) return;
       const p = msg.payload;
 
+      const agentId = payloadString(p, "agent_id");
+      if (agentId) {
+        setWorks((prev) => {
+          const current =
+            prev[agentId] ?? agentWorkFromRuns(recentRuns() ?? [], agentId) ?? IDLE_WORK;
+          const next = reduceAgentWork(current, msg, agentId);
+          return next === current ? prev : { ...prev, [agentId]: next };
+        });
+      }
+
       switch (msg.type) {
-        case "agent.status": {
-          if ((p.project_id as string) === projectId) debouncedRefetch();
-          break;
-        }
-        case "run.status": {
-          if ((p.project_id as string) === projectId) debouncedRefetch();
-          break;
-        }
+        case "agent.status":
+        case "run.status":
         case "activework.claimed":
-        case "activework.released": {
-          if ((p.project_id as string) === projectId) debouncedRefetch();
+        case "activework.released":
+          debouncedRefetch();
           break;
-        }
       }
     });
     onCleanup(unsub);
@@ -98,11 +139,15 @@ export default function WarRoom(props: WarRoomProps) {
           }
         >
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <For each={agents() ?? []}>
-              {(agent) => (
-                <div data-agent-id={agent.id}>
-                  <AgentLane agent={agent} />
-                </div>
+            <For each={agentIds()}>
+              {(id) => (
+                <Show when={agentById(id)}>
+                  {(agent) => (
+                    <div data-agent-id={id}>
+                      <AgentLane agent={agent()} work={workOf(id)} />
+                    </div>
+                  )}
+                </Show>
               )}
             </For>
           </div>

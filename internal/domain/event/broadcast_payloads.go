@@ -47,6 +47,7 @@ type RunStatusEvent struct {
 	RunID     string  `json:"run_id"`
 	TaskID    string  `json:"task_id"`
 	ProjectID string  `json:"project_id"`
+	AgentID   string  `json:"agent_id,omitempty"`
 	Status    string  `json:"status"`
 	StepCount int     `json:"step_count"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
