@@ -186,7 +186,7 @@ class _FakeProc:
     returncode = 0
     stdout = _FakeStream()
 
-    async def communicate(self) -> tuple[bytes, bytes]:
+    async def communicate(self, input: bytes | None = None) -> tuple[bytes, bytes]:  # noqa: A002 - Process.communicate signature
         return b"", b""
 
     async def wait(self) -> int:
@@ -258,13 +258,28 @@ async def _cli_backend_without_extra_env(ws: Path) -> None:
 
 
 async def _claude_code(ws: Path) -> None:
-    from unittest.mock import MagicMock
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     from codeforge.claude_code_executor import ClaudeCodeExecutor
 
     runtime = MagicMock()
     runtime.is_cancelled = False
-    await ClaudeCodeExecutor(str(ws), runtime).run([{"role": "user", "content": "hi"}], "", 1, "")
+    runtime.policy_wait_seconds = 75.0
+    # The CLI capability check (its own spawn of `claude --help`) is covered by
+    # test_claude_code_executor; here only the run's spawn is recorded.
+    with patch("codeforge.claude_code_executor.resolve_cli", AsyncMock(return_value="claude")):
+        await ClaudeCodeExecutor(str(ws), runtime).run([{"role": "user", "content": "hi"}], "", 1, "")
+
+
+async def _claude_code_cli_check(ws: Path) -> None:
+    import contextlib
+    from unittest.mock import patch
+
+    from codeforge.claude_code_executor import ClaudeCodeCLIError, resolve_cli
+
+    # The fake process prints no --help text, so the check fails after its spawn.
+    with patch("codeforge.claude_code_executor._cli_support_cache", {}), contextlib.suppress(ClaudeCodeCLIError):
+        await resolve_cli(sys.executable)
 
 
 async def _benchmark_test_command(ws: Path) -> None:
@@ -298,6 +313,7 @@ SPAWN_SITES: list[tuple[str, Callable[[Path], Awaitable[None]]]] = [
     ("cli_backend", _cli_backend),
     ("cli_backend_without_extra_env", _cli_backend_without_extra_env),
     ("claude_code", _claude_code),
+    ("claude_code_cli_check", _claude_code_cli_check),
     ("benchmark_test_command", _benchmark_test_command),
     ("functional_test", _functional_test),
     ("synthetic_benchmark_git", _synthetic_benchmark_git),

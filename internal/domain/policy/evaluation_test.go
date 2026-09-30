@@ -31,6 +31,7 @@ func TestEvaluate_DenyListsIgnoreRuleOrder(t *testing.T) {
 		{"allowed path", ToolCall{Tool: "edit_file", Path: "a/b.go"}, DecisionAllow, 0},
 		{"denied command", ToolCall{Tool: "bash", Command: "ls; curl x"}, DecisionDeny, 3},
 		{"allowed command", ToolCall{Tool: "bash", Command: "ls"}, DecisionAllow, 1},
+		{"denied command via Claude Code Monitor", ToolCall{Tool: "Monitor", Command: "curl x"}, DecisionDeny, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -56,6 +57,7 @@ func TestEvaluate_DenyListsFailClosedWithoutValue(t *testing.T) {
 		{Tool: ToolBash},
 		{Tool: ToolBash, Command: "   "},
 		{Tool: ToolBash, Command: "FOO=1"},
+		{Tool: "Monitor"},
 	} {
 		res := p.Evaluate(call)
 		if res.Decision != DecisionDeny {
@@ -231,6 +233,7 @@ func TestEvaluate_ModeTools(t *testing.T) {
 		{"architect write denied", ToolCall{Tool: "write_file", Path: "a.go"}, architect, DecisionDeny},
 		{"architect edit denied", ToolCall{Tool: "edit_file", Path: "a.go"}, architect, DecisionDeny},
 		{"architect bash denied", ToolCall{Tool: "bash", Command: "ls"}, architect, DecisionDeny},
+		{"architect Claude Code Monitor denied", ToolCall{Tool: "Monitor", Command: "tail -f log"}, architect, DecisionDeny},
 		{"architect llm allowed", ToolCall{Tool: "LLM"}, architect, DecisionAllow},
 		{"architect mcp governed by profile", ToolCall{Tool: "mcp__fs__read"}, architect, DecisionAllow},
 		{"coder bash", ToolCall{Tool: "bash", Command: "ls"}, coder, DecisionAllow},

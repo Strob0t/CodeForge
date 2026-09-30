@@ -36,6 +36,9 @@ var toolAliases = map[string]string{
 	"notebookedit": ToolEdit,
 	"search":       ToolGrep,
 	"ls":           ToolListDir,
+	// Claude Code's Monitor runs a shell command in the background, so the
+	// Bash rules (command lists, mode tool lists) apply to it.
+	"monitor": ToolBash,
 
 	"command:execute": ToolBash,
 	"file:read":       ToolRead,

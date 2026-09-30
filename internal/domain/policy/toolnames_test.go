@@ -27,6 +27,8 @@ func TestCanonicalTool(t *testing.T) {
 		{"Search", ToolGrep},
 		{"LS", ToolListDir},
 		{"ListDir", ToolListDir},
+		// Monitor runs a shell command in the background.
+		{"Monitor", ToolBash},
 		// Legacy Claude Code executor categories.
 		{"command:execute", ToolBash},
 		{"file:read", ToolRead},
