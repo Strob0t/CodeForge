@@ -660,10 +660,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("prompt evolution subscribers: %w", err)
 	}
-	reviewTriggerCancel, err := queue.Subscribe(ctx, messagequeue.SubjectReviewTriggerComplete, reviewTriggerSvc.HandleReviewTriggerComplete)
-	if err != nil {
-		return fmt.Errorf("review trigger complete subscriber: %w", err)
-	}
 	gemmasCancel, err := evalSvc.StartGemmasResultSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("gemmas result subscriber: %w", err)
@@ -1114,7 +1110,6 @@ func run() error {
 	for _, cancel := range evoCancels {
 		cancel()
 	}
-	reviewTriggerCancel()
 	gemmasCancel()
 	reviewApprovalCancel()
 	benchmarkRunCancel()

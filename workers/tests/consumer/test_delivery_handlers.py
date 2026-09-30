@@ -71,7 +71,6 @@ HANDLERS = [
     ("_handle_a2a_task_created", "a2a.task.created"),
     ("_handle_a2a_task_cancel", "a2a.task.cancel"),
     ("_handle_backend_health", "backends.health.request"),
-    ("_handle_review_trigger", "review.trigger.request"),
     ("_handle_prompt_evolution_reflect", "prompt.evolution.reflect"),
     ("_handle_prompt_promoted", "prompt.evolution.promoted"),
     ("_handle_prompt_reverted", "prompt.evolution.reverted"),

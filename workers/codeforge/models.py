@@ -678,15 +678,6 @@ class A2ATaskCompleteMessage(BaseModel):
 # --- Review/Refactor Models (Phase 31) ---
 
 
-class ReviewTriggerRequestPayload(BaseModel):
-    """Request to trigger a review run on a project (matches Go ReviewTriggerRequestPayload)."""
-
-    project_id: str
-    tenant_id: str
-    commit_sha: str
-    source: str
-
-
 class BoundaryEntry(BaseModel):
     """A single detected layer boundary (matches Go ReviewBoundaryEntry)."""
 

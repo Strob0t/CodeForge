@@ -489,28 +489,9 @@ func sampleConversationCompactCompletePayload() mq.ConversationCompactCompletePa
 	}
 }
 
-func sampleReviewTriggerCompletePayload() mq.ReviewTriggerCompletePayload {
-	return mq.ReviewTriggerCompletePayload{
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		CommitSHA: "abcdef1234567890abcdef1234567890",
-		Status:    "dispatched",
-		RunID:     "550e8400-e29b-41d4-a716-446655440025",
-	}
-}
-
 // FIX-086: Additional sample factories for previously uncovered subjects.
 // The remaining subjects (tasks.*, runs.*, mcp.*, memory.*, handoff.*)
 // still need coverage — tracked in a follow-up TODO below.
-
-func sampleReviewTriggerRequestPayload() mq.ReviewTriggerRequestPayload {
-	return mq.ReviewTriggerRequestPayload{
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		CommitSHA: "abcdef1234567890abcdef1234567890",
-		Source:    "branch-merge",
-	}
-}
 
 func sampleReviewApprovalRequiredPayload() mq.ReviewApprovalRequiredPayload {
 	return mq.ReviewApprovalRequiredPayload{
@@ -638,8 +619,6 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectA2ATaskCreated, sampleA2ATaskCreatedPayload()},
 		{mq.SubjectA2ATaskComplete, sampleA2ATaskCompletePayload()},
 		// FIX-086: Review/Refactor subjects (Phase 31)
-		{mq.SubjectReviewTriggerRequest, sampleReviewTriggerRequestPayload()},
-		{mq.SubjectReviewTriggerComplete, sampleReviewTriggerCompletePayload()},
 		{mq.SubjectReviewApprovalRequired, sampleReviewApprovalRequiredPayload()},
 		// FIX-086: Prompt evolution subjects (Phase 33)
 		{mq.SubjectPromptEvolutionReflect, samplePromptEvolutionReflectPayload()},
@@ -736,8 +715,6 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectA2ATaskCreated:              {"task_id", "tenant_id", "skill_id", "prompt"},
 		mq.SubjectA2ATaskComplete:             {"task_id", "state"},
 		// FIX-086: Review/Refactor subjects
-		mq.SubjectReviewTriggerRequest:   {"project_id", "tenant_id", "commit_sha", "source"},
-		mq.SubjectReviewTriggerComplete:  {"project_id", "tenant_id", "commit_sha", "status", "run_id"},
 		mq.SubjectReviewApprovalRequired: {"run_id", "project_id", "tenant_id", "impact_level"},
 		// FIX-086: Prompt evolution subjects
 		mq.SubjectPromptEvolutionReflect:         {"tenant_id", "mode_id", "model_family", "current_prompt"},

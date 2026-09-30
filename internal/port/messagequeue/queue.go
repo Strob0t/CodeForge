@@ -121,8 +121,6 @@ const (
 	SubjectBackendHealthResult  = "backends.health.result"  // Python → Go: health check results
 
 	// Review/Refactor subjects (Phase 31)
-	SubjectReviewTriggerRequest   = "review.trigger.request"   // Go → Python: trigger a review run
-	SubjectReviewTriggerComplete  = "review.trigger.complete"  // Python → Go: review run finished
 	SubjectReviewApprovalRequired = "review.approval.required" // Python → Go: human approval needed
 
 	// Prompt evolution subjects (Phase 33)
