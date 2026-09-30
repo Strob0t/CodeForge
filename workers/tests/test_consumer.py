@@ -231,3 +231,30 @@ async def test_handle_run_start_passes_workspace_and_backend(consumer: TaskConsu
     assert task_arg.workspace_path == "/data/workspaces/proj-1"
     assert task_arg.backend == "aider"
     assert task_arg.agent_id == "agent-1"
+
+
+async def test_handle_run_start_passes_mcp_servers(consumer: TaskConsumer) -> None:
+    """The MCP servers of the run start are merged into the run's tools (KI-21)."""
+    from codeforge.mcp_models import MCPServerDef
+
+    server = MCPServerDef(id="mcp-1", name="docs", transport="stdio", command="docs-mcp")
+    run_msg = RunStartMessage(
+        run_id="run-4",
+        task_id="task-4",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="Look it up",
+        mcp_servers=[server],
+    )
+    msg = MagicMock()
+    msg.data = run_msg.model_dump_json().encode()
+    msg.headers = None
+    msg.ack_sync = AsyncMock()
+
+    consumer._js = AsyncMock()
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = AsyncMock()
+
+    await consumer._handle_run_start(msg)
+
+    assert consumer._executor.execute_with_runtime.call_args.kwargs["mcp_servers"] == [server]

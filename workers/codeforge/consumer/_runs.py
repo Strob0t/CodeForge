@@ -76,7 +76,9 @@ class RunHandlerMixin:
             try:
                 await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
                 task = self._build_run_task(run_msg, log)
-                await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
+                await self._executor.execute_with_runtime(
+                    task, runtime, mode=run_msg.mode, mcp_servers=run_msg.mcp_servers
+                )
             except Exception as exc:
                 # The run was acked on accept and is never redelivered: end it as
                 # failed instead of leaving it running until the Go run timeout.
