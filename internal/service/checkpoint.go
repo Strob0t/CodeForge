@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/proctemp"
 )
 
 // Checkpoint records a single git shadow commit for rollback.
@@ -79,7 +80,7 @@ func (s *CheckpointService) lockRun(runID string) func() {
 func (s *CheckpointService) runIndex(ctx context.Context, repo *git.Repo, runID string) (*privateIndex, error) {
 	s.mu.Lock()
 	if s.indexDir == "" {
-		dir, err := os.MkdirTemp("", "codeforge-checkpoints-*")
+		dir, err := proctemp.MkdirTemp("checkpoints-*")
 		if err != nil {
 			s.mu.Unlock()
 			return nil, fmt.Errorf("create checkpoint index directory: %w", err)

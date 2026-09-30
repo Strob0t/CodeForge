@@ -378,7 +378,7 @@ func TestCheckpoints_PrivateIndexKeptAcrossTheRun(t *testing.T) {
 // runIndexes lists the per-run private index files under tmp.
 func runIndexes(t *testing.T, tmp string) []string {
 	t.Helper()
-	matches, err := filepath.Glob(filepath.Join(tmp, "codeforge-checkpoints-*", "*.index"))
+	matches, err := filepath.Glob(filepath.Join(tmp, "codeforge-core-*", "checkpoints-*", "*.index"))
 	if err != nil {
 		t.Fatal(err)
 	}

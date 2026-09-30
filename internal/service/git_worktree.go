@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/proctemp"
 )
 
 // privateIndex is an index file of a workspace repository outside the
@@ -29,7 +30,7 @@ type privateIndex struct {
 // newPrivateIndex returns a private index of repo in a new temporary
 // directory, seeded with a copy of the user's index.
 func newPrivateIndex(repo *git.Repo) (*privateIndex, error) {
-	dir, err := os.MkdirTemp("", "codeforge-index-*")
+	dir, err := proctemp.MkdirTemp("index-*")
 	if err != nil {
 		return nil, fmt.Errorf("create private index: %w", err)
 	}

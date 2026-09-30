@@ -57,6 +57,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/proctemp"
 	"github.com/Strob0t/CodeForge/internal/resilience"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -251,6 +252,14 @@ func run() error {
 	runtimeSvc.SetMetrics(metrics)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
 	runtimeSvc.SetDeliverService(deliverSvc)
+
+	// Private temporary files (checkpoint indexes, svn config) live in one
+	// directory per process; those of earlier processes are removed.
+	if removed, err := proctemp.RemoveStale(os.TempDir()); err != nil {
+		slog.Warn("stale temp directories not removed", "error", err)
+	} else if removed > 0 {
+		slog.Info("stale temp directories removed", "count", removed)
+	}
 
 	// Checkpoint Service (Phase 4A/4C)
 	checkpointSvc := service.NewCheckpointService(gitPool)

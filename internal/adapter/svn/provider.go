@@ -37,6 +37,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
+	"github.com/Strob0t/CodeForge/internal/proctemp"
 )
 
 const providerName = "svn"
@@ -367,7 +368,7 @@ func (p *Provider) checkRepositoryURL(raw string) error {
 // config returns the private, empty client configuration directory.
 func (p *Provider) config() (string, error) {
 	p.configOnce.Do(func() {
-		p.configDir, p.configErr = os.MkdirTemp("", "codeforge-svn-config-*")
+		p.configDir, p.configErr = proctemp.MkdirTemp("svn-config-*")
 	})
 	return p.configDir, p.configErr
 }

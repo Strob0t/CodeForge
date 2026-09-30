@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/proctemp"
 )
 
 // runCommit is the commit of a run's change, built on top of HEAD without
@@ -228,7 +229,7 @@ func (rc *runCommit) syncIndex(ctx context.Context, repo *git.Repo) {
 }
 
 func resetPaths(ctx context.Context, repo *git.Repo, commit string, paths []string) error {
-	dir, err := os.MkdirTemp("", "codeforge-paths-*")
+	dir, err := proctemp.MkdirTemp("paths-*")
 	if err != nil {
 		return err
 	}
