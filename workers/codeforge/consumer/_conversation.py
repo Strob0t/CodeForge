@@ -303,7 +303,7 @@ class ConversationHandlerMixin:
             context_limit=_context_cap,
         )
 
-        wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url)
+        wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url, tenant_id=run_msg.tenant_id)
         register_handoff_tool(
             registry,
             run_msg.run_id,

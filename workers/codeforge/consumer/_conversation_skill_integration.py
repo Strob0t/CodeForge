@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
+
+if TYPE_CHECKING:
+    from codeforge.tools.create_skill import SaveFn
 
 logger = structlog.get_logger()
 
@@ -13,8 +18,14 @@ def wire_skill_tools(
     project_id: str,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
+    *,
+    tenant_id: str,
 ) -> None:
-    """Populate search_skills and create_skill tools with loaded data."""
+    """Populate search_skills and create_skill tools with loaded data.
+
+    create_skill saves drafts in the conversation's tenant and project;
+    without a tenant it gets no storage and fails when called.
+    """
     from codeforge.tools.create_skill import CreateSkillTool
     from codeforge.tools.search_skills import SearchSkillsTool
 
@@ -23,12 +34,18 @@ def wire_skill_tools(
             executor.set_skills(skills)
             log.debug("search_skills tool populated", skill_count=len(skills))
         elif isinstance(executor, CreateSkillTool) and executor._save_fn is None:
-            executor._save_fn = make_skill_save_fn(project_id, db_url)
+            if not tenant_id:
+                log.warning("create_skill has no storage: the conversation carries no tenant")
+                continue
+            executor._save_fn = make_skill_save_fn(project_id, db_url, tenant_id=tenant_id)
             log.debug("create_skill tool save_fn wired")
 
 
-def make_skill_save_fn(project_id: str, db_url: str) -> object:
-    """Create an async callback that saves a skill draft to the database."""
+def make_skill_save_fn(project_id: str, db_url: str, *, tenant_id: str) -> SaveFn:
+    """Create an async callback that saves a skill draft of the tenant's project to the database."""
+    if not tenant_id:
+        msg = "skill drafts need a tenant_id"
+        raise ValueError(msg)
     import psycopg
 
     async def save_fn(skill_data: dict) -> str:
@@ -43,7 +60,7 @@ def make_skill_save_fn(project_id: str, db_url: str) -> object:
                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (
                         skill_id,
-                        "",  # tenant_id set by trigger or default
+                        tenant_id,
                         project_id,
                         skill_data["name"],
                         skill_data["type"],
