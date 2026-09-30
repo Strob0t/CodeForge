@@ -1,6 +1,6 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18, KI-19, KI-20 done).
+> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18, KI-19, KI-20 done); **S4 in progress** (KI-43 to KI-46, KI-48 to KI-50, KI-59 done).
 > **Scope:** the verified defects KI-1 to KI-62 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
@@ -26,7 +26,7 @@
 | **S1** | Policy and security enforcement | ~~KI-4~~, ~~KI-5~~, ~~KI-6~~, ~~KI-7~~, ~~KI-8~~, ~~KI-9~~, ~~KI-10~~, ~~KI-11~~, ~~KI-12~~, ~~KI-13~~, ~~KI-14~~ | L |
 | **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, KI-21, KI-22, KI-23, KI-24, KI-30, KI-31, KI-32 | L |
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
-| **S4** | Operations and deployment | KI-34, KI-35, KI-36, KI-43, KI-44, KI-45, KI-46, KI-47, KI-48, KI-49, KI-50, KI-51, KI-59, KI-61 | M |
+| **S4** | Operations and deployment | KI-34, KI-35, KI-36, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, KI-51, ~~KI-59~~, KI-61 | M |
 | **S5** | Frontend correctness | KI-39, KI-40, KI-41, KI-42 | M |
 | **S6** | Trust, compliance, unwired features | KI-15, KI-16, KI-17, KI-25, KI-33, KI-37, KI-38, KI-52, KI-53, KI-54, KI-55, KI-56, KI-57, KI-58, KI-60, KI-62 | L |
 
@@ -96,16 +96,16 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-34** | Worker health: HTTP `/health` + `/health/ready` from the worker (port of the main-based fix), or sentinel on a tmpfs; compose healthchecks use it |
 | **KI-35** | Worker logs in the Go schema (`time`, `level`, `msg`, `service`) for structlog and stdlib loggers (port of the main-based fix) |
 | **KI-36** | Go OTEL exporter honors `CODEFORGE_OTEL_INSECURE`; Python metrics exporter wired; trace context injected on publish |
-| **KI-43** | Mount PG 18 data at `/var/lib/postgresql` in both compose files (with a migration note for existing volumes) |
-| **KI-44** | Prod Postgres: either provision certificates or `ssl=off` behind the internal network, documented |
-| **KI-45** | Writable workspace volume for the prod core (read-only rootfs stays) |
-| **KI-46** | Go reads `*_FILE` secrets via the existing file provider; prod compose passes files instead of env; JWT secret and internal key wired; `validate-env.sh` checks the real names |
-| **KI-47** | Traefik frontend service port 8080 |
-| **KI-48** | Image scan uses a tag that is pushed |
-| **KI-49** | Restore script terminates connections with a working psql invocation |
-| **KI-50** | Devcontainer sets `LITELLM_BASE_URL` |
+| **KI-43** | **Done (2026-09-30).** Mount PG 18 data at `/var/lib/postgresql` in both compose files (with a migration note for existing volumes) |
+| **KI-44** | **Done (2026-09-30).** Prod Postgres: either provision certificates or `ssl=off` behind the internal network, documented |
+| **KI-45** | **Done (2026-09-30).** Writable workspace volume for the prod core (read-only rootfs stays) |
+| **KI-46** | **Done (2026-09-30).** Go reads `*_FILE` secrets via the existing file provider; prod compose passes files instead of env; JWT secret and internal key wired; `validate-env.sh` checks the real names |
+| **KI-47** | **Port done (2026-09-30); overlay blockers: KI-70.** Traefik frontend service port 8080 |
+| **KI-48** | **Done (2026-09-30).** Image scan uses a tag that is pushed |
+| **KI-49** | **Done (2026-09-30).** Restore script terminates connections with a working psql invocation |
+| **KI-50** | **Done (2026-09-30).** Devcontainer sets `LITELLM_BASE_URL` |
 | **KI-51** | Config drift items fixed individually (Ollama api_base from env, DOCS_MCP vars, logs.sh name, example yaml comments, SMTP default 587, resolve-docker-ips.sh safe to source, one history token default) |
-| **KI-59** | Replace non-ASCII characters in the listed config files and scripts |
+| **KI-59** | **Done (2026-09-30).** Replace non-ASCII characters in the listed config files and scripts |
 | **KI-61** | Services read hot-reloadable settings through the `ConfigHolder`, or SIGHUP is documented as secrets-only |
 
 ## S5 - Frontend Correctness

@@ -137,20 +137,24 @@ docker volume rm codeforge_postgres_data
 
 # Create fresh volume and restore base backup
 docker volume create codeforge_postgres_data
+# PostgreSQL 18 images keep the cluster in /var/lib/postgresql/18/docker (the volume is mounted at /var/lib/postgresql)
 docker run --rm \
-  -v codeforge_postgres_data:/var/lib/postgresql/data \
+  -v codeforge_postgres_data:/var/lib/postgresql \
   -v ${BACKUP_DIR}/basebackup_${TIMESTAMP}:/backup:ro \
-  postgres:18 \
-  bash -c "tar xzf /backup/base.tar.gz -C /var/lib/postgresql/data"
+  postgres:18-alpine \
+  sh -c "mkdir -p /var/lib/postgresql/18/docker && \
+    tar xzf /backup/base.tar.gz -C /var/lib/postgresql/18/docker && \
+    chown -R postgres:postgres /var/lib/postgresql && chmod 700 /var/lib/postgresql/18/docker"
 
 # Create recovery signal file with target time
 docker run --rm \
-  -v codeforge_postgres_data:/var/lib/postgresql/data \
-  postgres:18 \
-  bash -c "cat > /var/lib/postgresql/data/recovery.signal && \
-    echo \"restore_command = 'cp /backups/postgres/wal/%f %p'\" >> /var/lib/postgresql/data/postgresql.auto.conf && \
-    echo \"recovery_target_time = '${TARGET_TIME}'\" >> /var/lib/postgresql/data/postgresql.auto.conf && \
-    echo \"recovery_target_action = 'promote'\" >> /var/lib/postgresql/data/postgresql.auto.conf"
+  -v codeforge_postgres_data:/var/lib/postgresql \
+  postgres:18-alpine \
+  sh -c "touch /var/lib/postgresql/18/docker/recovery.signal && \
+    echo \"restore_command = 'cp /backups/postgres/wal/%f %p'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    echo \"recovery_target_time = '${TARGET_TIME}'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    echo \"recovery_target_action = 'promote'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    chown postgres:postgres /var/lib/postgresql/18/docker/recovery.signal /var/lib/postgresql/18/docker/postgresql.auto.conf"
 
 # Start PostgreSQL -- it will replay WAL up to TARGET_TIME
 docker compose -f docker-compose.prod.yml up -d postgres

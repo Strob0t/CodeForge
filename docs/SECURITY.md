@@ -27,7 +27,7 @@ If you discover a security vulnerability, please report it responsibly:
 - **Secrets:** Environment variables (development and, currently, production), never hardcoded; file-based Docker Secrets are only partly wired (see [Secret Management](#secret-management))
 - **SSRF Protection:** Private IP range blocking (IPv4 + IPv6)
 
-> **Known gaps (2026-09-29):** policy profiles not tenant-scoped (KI-68), tool-call approvals not tenant-checked (KI-63), experience pool not tenant-scoped (KI-16), production secrets (KI-46), GDPR retention job never runs (KI-52) - see [Known Issues](todo.md#known-issues).
+> **Known gaps (2026-09-29):** policy profiles not tenant-scoped (KI-68), tool-call approvals not tenant-checked (KI-63), experience pool not tenant-scoped (KI-16), agent tools can read the worker's secrets (KI-71), GDPR retention job never runs (KI-52) - see [Known Issues](todo.md#known-issues).
 
 ## Secret Management
 
@@ -38,39 +38,47 @@ The default dev key `sk-codeforge-dev` is used for LiteLLM in development only.
 
 ### Production
 
-Target design (planned): secrets are stored as Docker Secrets and mounted at `/run/secrets/`.
+Secrets are Docker secret files mounted at `/run/secrets/` (implemented 2026-09-30, KI-46). The core receives only
+`*_FILE` paths (nothing secret in `docker inspect`); PostgreSQL uses `POSTGRES_PASSWORD_FILE`, NATS a generated auth
+config, LiteLLM and the worker export their values from the files in an entrypoint wrapper.
 
-> **Implementation status (2026-09-29):** `docker-compose.prod.yml` mounts the files from `generate-secrets.sh` under `/run/secrets/`, but also requires every secret as an environment variable (`${VAR:?}`) and passes them to the containers as env vars / connection URLs (visible in `docker inspect`). The Go Core reads secrets from env only; the Python worker reads only `LITELLM_MASTER_KEY` from its secret file. Neither the JWT secret nor `CODEFORGE_INTERNAL_KEY` is passed to core. See [Known Issues](todo.md#known-issues) KI-46.
-
-1. **Generate:** `./scripts/generate-secrets.sh ./secrets`
-2. **Export (required today):** `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`, `NATS_USER`, `NATS_PASS` (e.g. from the files in `./secrets`) - otherwise compose aborts with `POSTGRES_PASSWORD is required`
+1. **Generate:** `./scripts/generate-secrets.sh` (hex values, PostgreSQL TLS pair, derived `database-url`, `nats-url`, `nats-auth.conf`)
+2. **Validate:** `./scripts/validate-env.sh` (checks the mounted files)
 3. **Deploy:** `docker compose -f docker-compose.prod.yml up -d`
-4. **Rotate:** Update the secret file and the exported variable, recreate the affected service
+4. **Rotate:** per secret, see the header of `scripts/generate-secrets.sh` and [dev-setup.md](dev-setup.md#secret-management); the JWT secret, the LLM key encryption secret, the LiteLLM master key and the PostgreSQL password cannot be rotated by regenerating the file (data loss or a password mismatch), the script refuses to
+
+Agent tool subprocesses (bash, search, quality gates, git, benchmark commands, CLI backends, the Claude Code CLI) run
+with an allowlisted environment (`workers/codeforge/subprocess_env.py`): no `CODEFORGE_*`, database, NATS or LiteLLM
+credentials. They still run as the worker's UID and can read `/run/secrets/*` and `/proc/1/environ` (KI-71); real
+isolation needs the sandbox execution mode (KI-13). URL userinfo is redacted in all Go and worker logs.
 
 ### Hierarchy (highest priority first)
 
-Target design (planned); today only the Python worker applies step 1, and only for `LITELLM_MASTER_KEY`:
-
-1. Docker Secrets (`/run/secrets/*`) -- production, file-based, not visible in `docker inspect`
-2. Environment variables -- development and CI, or fallback when secrets files are missing
+1. Docker Secrets (`/run/secrets/*`, referenced by `<KEY>_FILE`) -- production, file-based, not visible in `docker inspect`; setting both `KEY` and `KEY_FILE` is a startup error
+2. Environment variables -- development and CI
 3. Config file defaults (codeforge.yaml) -- NEVER for actual secret values
 
 ### Implementation
 
 | Layer | Module | Pattern |
 |-------|--------|---------|
-| Go Core | `internal/secrets/` | Env only today: `Vault` + `EnvLoader("LITELLM_MASTER_KEY")` (`cmd/codeforge/main.go`); `Provider` interface with `FileProvider` (Docker Secrets) and `Auto()` selector exists in `provider.go` but is not wired in (tests only) |
-| Python Worker | `workers/codeforge/secrets.py` | `get_secret()`: file-first, env var fallback; used for `LITELLM_MASTER_KEY` only (`DATABASE_URL`/`NATS_URL` come from env) |
-| Docker | `docker-compose.prod.yml` | Top-level `secrets:` block, per-service mounts; the same values are also required as env vars |
+| Go Core | `internal/secrets/`, `internal/config/loader.go` | `LookupFileEnv`: `<KEY>_FILE` for every secret setting (`loadSecretFiles` after the env layer); the SIGHUP-reloaded `EnvLoader` honours `_FILE` too; `RedactURL` in the log handler |
+| Python Worker | `workers/codeforge/secrets.py`, prod entrypoint | `get_secret()` file-first for `LITELLM_MASTER_KEY`; the prod entrypoint exports `DATABASE_URL`, `NATS_URL`, `CODEFORGE_INTERNAL_KEY` from the files; tool subprocesses get `tool_env()` |
+| Docker | `docker-compose.prod.yml` | Top-level `secrets:` block, per-service mounts, `*_FILE` environment only |
 
 ### Managed Secrets
 
 | Secret | File Name | Services |
 |--------|-----------|----------|
 | `LITELLM_MASTER_KEY` | `litellm-master-key` | core, worker, litellm |
-| `POSTGRES_PASSWORD` | `postgres-password` | core, worker, litellm |
-| `NATS_USER` | `nats-user` | core, worker |
-| `NATS_PASS` | `nats-pass` | core, worker |
+| `POSTGRES_PASSWORD` | `postgres-password` | postgres (initdb only) |
+| PostgreSQL TLS pair | `postgres-tls.crt`, `postgres-tls.key` | postgres |
+| `DATABASE_URL` (derived) | `database-url` | core, worker, litellm |
+| `NATS_USER` / `NATS_PASS` | `nats-user`, `nats-pass` (inputs) | nats via `nats-auth.conf` (derived) |
+| `NATS_URL` (derived) | `nats-url` | core, worker |
+| `CODEFORGE_AUTH_JWT_SECRET` | `codeforge-auth-jwt-secret` | core |
+| `CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET` | `codeforge-auth-llm-key-encryption-secret` | core |
+| `CODEFORGE_INTERNAL_KEY` | `codeforge-internal-key` | core, worker |
 
 ## GDPR Compliance
 

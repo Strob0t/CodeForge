@@ -30,9 +30,9 @@ Start the devcontainer by opening VS Code (`code .`), then run `Ctrl+Shift+P` an
 
 **Infrastructure services start automatically** via `setup.sh` (`docker compose up -d`). The devcontainer is connected to the `codeforge` Docker network so the Go backend can reach services by container name (`codeforge-postgres`, `codeforge-nats`, `codeforge-litellm`). `devcontainer.json` sets `DATABASE_URL` and `NATS_URL` to these container names (the password in `DATABASE_URL` is hardcoded to `codeforge_dev`, so keep `POSTGRES_PASSWORD` unset or matching). `LITELLM_MASTER_KEY` is taken from the host environment (`${localEnv:LITELLM_MASTER_KEY}`): export it on the host or in the terminal (compose LiteLLM default: `sk-codeforge-dev`).
 
-> **Known issue ([KI-50](todo.md#known-issues)):** the devcontainer sets `LITELLM_URL`, but the Go Core and the worker read `LITELLM_BASE_URL` and fall back to `http://localhost:4000`, which is unreachable from the devcontainer. Run `export LITELLM_BASE_URL=http://codeforge-litellm:4000` before `go run` / starting the worker, or use the VS Code launch configs (e.g. "CodeForge: Launch All (F5)"), which set it.
+The devcontainer also sets `LITELLM_BASE_URL=http://codeforge-litellm:4000`.
 
-> **Known issue ([KI-43](todo.md#known-issues)):** `postgres:18-alpine` refuses to start with the `pgdata` volume mounted at `/var/lib/postgresql/data` (PG 18 images expect `/var/lib/postgresql`), so PostgreSQL and LiteLLM (which waits for it) do not come up. Until fixed, change the volume target in your local `docker-compose.yml` to `/var/lib/postgresql`.
+**PostgreSQL 18 volume layout:** both compose files mount the data volume at `/var/lib/postgresql` (the PG 18 image keeps its cluster in `/var/lib/postgresql/18/docker`; the dev WAL archive is `/var/lib/postgresql/archive`). A volume created before 2026-09-30 holds a PG <= 17 cluster at its root, and the PG 18 entrypoint refuses to start with it ("there appears to be PostgreSQL data in /var/lib/postgresql"). Migrate it: start the old image on the old volume (`postgres:17-alpine`, mount at `/var/lib/postgresql/data`) and `pg_dumpall` it, remove the volume, start the new stack and restore the dump; or upgrade in place with `pg_upgrade --link`.
 
 ### Claude Code on the Web (SessionStart Hook)
 
@@ -566,7 +566,8 @@ Example:
 | `postgres.dsn` | `DATABASE_URL` | `postgres://codeforge:...` | PostgreSQL DSN |
 | `postgres.max_conns` | `CODEFORGE_PG_MAX_CONNS` | `50` | Max DB connections |
 | `postgres.min_conns` | `CODEFORGE_PG_MIN_CONNS` | `10` | Min DB connections |
-| `nats.url` | `NATS_URL` | `nats://localhost:4222` | NATS server URL |
+| `nats.url` | `NATS_URL` | `nats://localhost:4222` | NATS server URL (also `NATS_URL_FILE`) |
+| `nats.stream_max_bytes` | `CODEFORGE_NATS_STREAM_MAX_BYTES` | `10737418240` (10 GiB) | Size limit of the `CODEFORGE` JetStream stream. JetStream reserves it against `max_file_store` (default 75% of free disk); lower it on small hosts, or the core exits with "insufficient storage resources" |
 | `litellm.url` | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
 | `litellm.conversation_model` | `CODEFORGE_CONVERSATION_MODEL` | (auto-detect) | LLM model for chat conversations (empty = auto-select strongest) |
@@ -597,6 +598,7 @@ Example:
 | `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
 | `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `true` | Enable JWT authentication |
 | `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | `` (random per start) | HMAC-SHA256 signing key; empty = auto-generated in memory at every start (sessions lost on restart). Must be >= 32 chars; well-known values are rejected unless `APP_ENV=development` |
+| `auth.llm_key_encryption_secret` | `CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET` | `` (falls back to the JWT secret) | Key material for encrypting stored LLM provider keys; set it to decouple them from the JWT secret (rotating it makes stored LLM keys unreadable). Every secret setting also accepts `<KEY>_FILE` |
 | `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_EXPIRY` | `15m` | Access token lifetime |
 | `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_EXPIRY` | `168h` | Refresh token lifetime (7d) |
 | `auth.bcrypt_cost` | `CODEFORGE_AUTH_BCRYPT_COST` | `12` | Bcrypt work factor |
@@ -905,18 +907,13 @@ docker compose -f docker-compose.prod.yml down
 
 Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
-> **Known issues (2026-09-29):** the production stack does not start as shipped. Workarounds until fixed ([Known Issues](todo.md#known-issues)):
-> - **KI-43:** PostgreSQL refuses the volume at `/var/lib/postgresql/data`; mount `postgres_data` at `/var/lib/postgresql`.
-> - **KI-44:** `ssl=on` points at `server.crt`/`server.key` files nothing creates, so PostgreSQL does not start; mount a certificate/key pair and point `ssl_cert_file`/`ssl_key_file` at it (the DSNs use `sslmode=require`).
-> - **KI-45:** `core` runs `read_only: true` without a writable volume, so cloning repositories and writing the initial admin password fail; mount a volume writable by the `codeforge` user at `/data` (the relative defaults `data/workspaces` and `data/initial_admin_password` resolve there).
-> - **KI-34:** the worker crashes at startup because it cannot write its health sentinel `/tmp/codeforge-worker-healthy` on the read-only filesystem, and the compose healthcheck (`import codeforge.consumer`) reports healthy anyway; add `tmpfs: [/tmp]` to the `worker` service.
-> - **KI-46:** secrets must be passed as env vars, see [Secret Management](#secret-management).
+Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path), tmpfs `/tmp` for core and worker, images running as UID/GID 10001, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Remaining gap: the worker healthcheck only tests importability ([KI-34](todo.md#known-issues)); the blue-green overlay does not work ([KI-70](todo.md#known-issues)).
 
 #### CI/CD
 
 CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build, `go vet -tags=integration`, unit tests with `-race`, `integration`-tagged tests against PostgreSQL + NATS, golangci-lint v2.11.4; Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`); frontend lint, format check, type check (`npm run typecheck`), unit tests (`npm run test`, vitest) and build; Lighthouse CI, contract tests and security scanning; smoke tests and feature verification run only on pushes to `staging`/`main`.
 
-GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`. Its Grype image scan job currently fails because it pulls a `sha-<full sha>` tag that is never pushed (images are tagged with the short SHA), so image scanning does not run ([KI-48](todo.md#known-issues)).
+GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`. Each build job records the pushed image by digest and the Grype scan job scans exactly those references.
 
 ### Environment Variables
 
@@ -929,7 +926,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_TRUSTED_PROXIES | (empty)                                   | Trusted reverse proxies (IPs/CIDRs) for client IP headers |
 | DATABASE_URL              | postgres://...@codeforge-postgres:5432/codeforge (devcontainer) | PostgreSQL connection string |
 | NATS_URL                  | nats://codeforge-nats:4222 (devcontainer) | NATS server URL                 |
-| LITELLM_BASE_URL          | http://localhost:4000                    | LiteLLM Proxy URL (the devcontainer does not set it, export `http://codeforge-litellm:4000` there, [KI-50](todo.md#known-issues)) |
+| LITELLM_BASE_URL          | http://localhost:4000                    | LiteLLM Proxy URL (the devcontainer sets `http://codeforge-litellm:4000`) |
 | LITELLM_MASTER_KEY        | empty (Go Core); sk-codeforge-dev (worker, dev LiteLLM container) | Master Key for LiteLLM Proxy (the devcontainer forwards the host value) |
 | DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint (currently ignored: docker-compose.yml hardcodes the docs-mcp embedding settings, [KI-51](todo.md#known-issues)) |
 | DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings (currently ignored) |
@@ -1007,33 +1004,33 @@ environments, set `DEEPEVAL_TELEMETRY_OPT_OUT=YES` to disable this. Add it to yo
 ### Secret Management
 
 In development, secrets are loaded from environment variables (`.env` file).
-In production, only the Python worker reads a Docker Secrets file: `/run/secrets/litellm-master-key`
-(`workers/codeforge/secrets.py`, falling back to `LITELLM_MASTER_KEY`). The Go helper in
-`internal/secrets/provider.go` (file first, then env var) exists but is not wired yet; all Go Core
-values and all other worker values come from environment variables.
 
-> **Known issue ([KI-46](todo.md#known-issues)):** `docker-compose.prod.yml` requires `POSTGRES_PASSWORD`,
-> `NATS_USER`, `NATS_PASS` and `LITELLM_MASTER_KEY` as env vars (`${VAR:?}`), so `up` aborts unless they are
-> exported, whether or not the secret files exist; it also passes neither `CODEFORGE_AUTH_JWT_SECRET` nor
-> `CODEFORGE_INTERNAL_KEY` to `core` (add both via an override, the internal key to `worker` as well; otherwise
-> users are logged out on every restart and worker-to-core calls get 401).
-> `scripts/validate-env.sh` checks the unused `CODEFORGE_JWT_SECRET`.
-
-To generate production secrets and start the stack (the script writes base64 values, which can contain `/` and
-then break the credentials embedded in the `NATS_URL` and `DATABASE_URL` URLs, so pre-create those as hex; the
-script skips existing files):
+In production, every secret comes from a Docker secret file. The Go Core reads `<KEY>_FILE` for its secret settings
+(`CODEFORGE_INTERNAL_KEY`, `DATABASE_URL`, `NATS_URL`, `LITELLM_MASTER_KEY`, `CODEFORGE_AUTH_JWT_SECRET`,
+`CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET`, the admin password, webhook secrets, GitHub client secret, SMTP password,
+Plane token, A2A keys; `internal/secrets.LookupFileEnv`). Setting both `KEY` and `KEY_FILE` stops the core at startup;
+a missing or empty file is an error; a trailing newline is trimmed; list settings (A2A keys) split on commas and
+newlines. PostgreSQL uses `POSTGRES_PASSWORD_FILE`, NATS a generated `nats-auth.conf`, and LiteLLM and the worker export
+their values from the files in an entrypoint wrapper. Agent tool subprocesses never inherit these values (scrubbed
+environment, `workers/codeforge/subprocess_env.py`). URL credentials are redacted in all logs.
 
 ```bash
-mkdir -p secrets
-openssl rand -hex 16 > secrets/nats-user
-openssl rand -hex 24 > secrets/nats-pass
-openssl rand -hex 24 > secrets/postgres-password
-./scripts/generate-secrets.sh ./secrets
-export POSTGRES_PASSWORD="$(cat secrets/postgres-password)" \
-  NATS_USER="$(cat secrets/nats-user)" NATS_PASS="$(cat secrets/nats-pass)" \
-  LITELLM_MASTER_KEY="$(cat secrets/litellm-master-key)"
+./scripts/generate-secrets.sh        # writes ./secrets next to docker-compose.prod.yml (or SECRETS_DIR from env/.env)
+./scripts/validate-env.sh            # checks the files the compose file mounts
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+`generate-secrets.sh` creates missing secrets as hex values, a PostgreSQL TLS pair and the derived `database-url`,
+`nats-url` and `nats-auth.conf` (written only when missing or when their inputs were just generated, so edits such as
+`sslmode=verify-full` survive). It reads `POSTGRES_USER`/`POSTGRES_DB` like compose (environment, then `.env`).
+Rotation: `codeforge-internal-key`, `nats-user` and `nats-pass` rotate by deleting the file and re-running;
+`postgres-password` must be changed in the database first (`ALTER USER`), then in `postgres-password` and
+`database-url`; the JWT secret (logs everyone out, VCS tokens become unreadable), the LLM key encryption secret and the
+LiteLLM master key are never regenerated for a directory in use (the script stops and explains). For an existing
+installation the LLM key encryption secret is created with the JWT secret's value, so stored LLM keys stay readable.
+`validate-env.sh` checks presence, readability by the non-root containers, length, known dev defaults, that
+`database-url` matches `POSTGRES_USER`/`POSTGRES_DB` and does not disable TLS, and that `nats-url` matches
+`nats-auth.conf`.
 
 See `docs/SECURITY.md` for the full secret management policy.
 
@@ -1129,7 +1126,7 @@ Backups are stored in `./backups/postgres/` (gitignored) as compressed `pg_dump 
 
 The restore script asks for confirmation, then drops and recreates the database.
 
-> **Known issue ([KI-49](todo.md#known-issues)):** the connection-termination step does not work (`psql -c` does not substitute `:'dbname'` and the error is hidden), so `dropdb` fails while clients are connected. Stop the core, worker and LiteLLM (or close all connections) before restoring.
+The script drops the database with `dropdb --force` (PostgreSQL 13+), which terminates open connections. Stop the core, worker and LiteLLM before restoring, so they cannot reconnect to the new empty database while the dump is restored.
 
 #### Scheduled Backups (cron)
 

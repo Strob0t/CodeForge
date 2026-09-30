@@ -265,9 +265,11 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 
 ### Delivery & Idempotency (ADR-016)
 - One shared durable pull consumer per subject and side (`codeforge-go-*` / `codeforge-py-*`), created with deliver policy `new`, no inactivity threshold, `MaxDeliver` 4 — provisioning: `internal/adapter/nats/nats.go`, `workers/codeforge/consumer/_delivery.py`
-- Long runs (`runs.start`, `conversation.run.start`, `benchmark.run.request`) are acked on accept (at-most-once) and report failures as completions; every other subject is at-least-once and its handler must be idempotent
-- Settle every message exactly once: success -> ack; failure -> `_retry_or_dead_letter` (NAK with delay, DLQ + ack on the last attempt, from `num_delivered`); invalid payload -> `_reject_invalid` (DLQ + `term`). Never NAK an invalid payload, never ack without a DLQ copy
+- Workspace-changing work (`runs.start`, `conversation.run.start`, `tasks.agent.*`, `benchmark.run.request`) is at-most-once: accepted with a confirmed double ack (`ack_sync`, retried 3 times; unconfirmed -> NAK, work not started), registered in `self._in_flight`, and its failure is reported as a failed completion; completions go through `_publish_result` / `publish_with_retry` (retries, one `Nats-Msg-Id`). Every other subject is at-least-once and its handler must be idempotent
+- Settle every message exactly once: success or a published error result -> ack; failure -> `_retry_or_dead_letter` (NAK with delay, DLQ + ack on the last attempt, from `num_delivered`); invalid payload -> `_reject_invalid` (DLQ + `term`). Never NAK an invalid payload, never ack without a DLQ copy (DLQ copies drop `Nats-*` headers)
 - Duplicate guards (skip if already `"completed"`); a failed request is removed from the dedup cache
+- Notification subscriptions (per-run cancel listeners, tool-call responses) use deliver policy `new` and ack policy `none`; Go keeps handlers in progress up to `Queue.SetMaxHandlerDuration` (covers the HITL approval timeout)
+- A worker whose consumer loop gives up fails its unfinished accepted work (30 s grace) and exits 1
 
 ### Error Handling
 - `except Exception as exc:` (NOT bare), log `error=str(exc)`, publish errors back to NATS, then settle the message as above
@@ -308,7 +310,6 @@ cd frontend && npx playwright test
 
 - `/health` exposes `dev_mode: true/false` | Backend: 8080, Frontend: 3000
 - Credentials: `admin@localhost` / `Changeme123` (seeded only when `CODEFORGE_AUTH_ADMIN_PASS` is set, otherwise the backend waits for the setup wizard; the admin is created with `must_change_password`, which `frontend/e2e/global-setup.ts` handles) | Playwright: chromium, workers:1, retries:1
-- The `postgres:18-alpine` container refuses to start with the current data volume mount: see [Known Issues](docs/todo.md#known-issues) KI-43
 
 ### LLM E2E Tests (API-Level, no browser)
 

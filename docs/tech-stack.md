@@ -58,7 +58,7 @@
 
 #### Docker Compose (Dev Services)
 
-- postgres (Port 5432) — PostgreSQL 18, shared instance (CodeForge + LiteLLM); the volume mount path does not fit the PG 18 image (KI-43)
+- postgres (Port 5432) — PostgreSQL 18, shared instance (CodeForge + LiteLLM); data volume at `/var/lib/postgresql` (PG 18 layout)
 - nats (Port 4222/8222) — NATS JetStream message queue
 - litellm (Port 4000) — LLM Routing and Multi-Provider Gateway
 - docs-mcp (Port 6280) — Documentation indexing for LLM context
@@ -70,8 +70,8 @@
 - `Dockerfile` — Go Core multi-stage build (golang:1.25-alpine to alpine:3.21)
 - `Dockerfile.worker` — Python Workers (python:3.12-slim, poetry, non-root)
 - `Dockerfile.frontend` — Frontend (node:22-alpine build to nginxinc/nginx-unprivileged:1.27-alpine serve)
-- `docker-compose.prod.yml` — 6 services (core, worker, frontend, postgres, nats, litellm); does not start as shipped, see KI-43, KI-44, KI-45, KI-46
-- `.github/workflows/docker-build.yml` — CI with 3 parallel image builds to ghcr.io (the image scan job pulls a tag that is never pushed, KI-48)
+- `docker-compose.prod.yml` — 6 services (core, worker, frontend, postgres, nats, litellm); Docker secret files, PostgreSQL TLS, read-only core with `core_data`/`workspaces` volumes
+- `.github/workflows/docker-build.yml` — CI with 3 parallel image builds to ghcr.io; the Grype scan scans the pushed images by digest
 
 #### MCP Server
 
@@ -155,7 +155,7 @@
 
 - NATS JetStream (Port 4222/8222) — message queue between Go Core and Python Workers (Image: `nats:2-alpine`, subject-based routing, JetStream persistence, built-in KV store; ADR: [001-nats-jetstream-message-queue.md](architecture/adr/001-nats-jetstream-message-queue.md))
 - PostgreSQL 18 (Port 5432) — primary database for App + LiteLLM (Image: `postgres:18-alpine`, shared instance, both CodeForge and LiteLLM use `public` schema (LiteLLM tables prefixed with `LiteLLM_`); Go Driver: pgx v5, Migrations: goose, Python Driver: psycopg3; ADR: [002-postgresql-database.md](architecture/adr/002-postgresql-database.md))
-- LiteLLM Proxy (Docker Sidecar, Port 4000) — central LLM gateway (Dev image: `docker.litellm.ai/berriai/litellm:main-stable`; Prod image: `ghcr.io/berriai/litellm:v1.63.2` (pinned); 127+ providers, 6 routing strategies, budget management; Config: hand-maintained `litellm/config.yaml` with provider-level wildcard entries, mounted into the container; Go Core adds/removes models at runtime via the LiteLLM admin API; Dependencies: PostgreSQL shared instance, Redis optional for multi-instance only)
+- LiteLLM Proxy (Docker Sidecar, Port 4000) — central LLM gateway (Dev image: `docker.litellm.ai/berriai/litellm:main-stable`; Prod image: `ghcr.io/berriai/litellm:v1.103.1` (pinned; v1.63.2 no longer exists); 127+ providers, 6 routing strategies, budget management; Config: hand-maintained `litellm/config.yaml` with provider-level wildcard entries, mounted into the container; Go Core adds/removes models at runtime via the LiteLLM admin API; Dependencies: PostgreSQL shared instance, Redis optional for multi-instance only)
 
 #### TypeScript Frontend
 
