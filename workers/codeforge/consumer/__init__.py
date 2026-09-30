@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import os
 import signal
+import sys
+import traceback
 from typing import TYPE_CHECKING
 
 import nats
@@ -106,6 +109,11 @@ _GIVE_UP_GRACE_SECONDS = 30.0
 # kills the process and the completions are lost.
 _SHUTDOWN_GRACE_SECONDS = 5.0
 _DRAIN_TIMEOUT_SECONDS = 10.0
+
+# The Go Core creates and configures the CODEFORGE stream (limits, retention,
+# dedup window); a worker that starts first waits this long for it.
+_STREAM_WAIT_SECONDS = 120.0
+_STREAM_POLL_SECONDS = 2.0
 
 
 class TaskConsumer(
@@ -249,15 +257,8 @@ class TaskConsumer(
     async def _subscribe_all(
         self, js: JetStreamContext
     ) -> list[tuple[str, Callable[[], Coroutine[object, object, None]]]]:
-        """Ensure the stream and every durable; return the message loops (not started yet)."""
-        try:
-            await js.find_stream_name_by_subject(STREAM_SUBJECTS[0])
-        except nats.js.errors.NotFoundError:
-            await js.add_stream(
-                name=STREAM_NAME,
-                subjects=STREAM_SUBJECTS,
-            )
-            logger.info("created JetStream stream", stream=STREAM_NAME)
+        """Wait for the stream, ensure every durable; return the message loops (not started yet)."""
+        await self._wait_for_stream(js)
 
         subscriptions: list[tuple[str, Callable[[nats.aio.msg.Msg], Awaitable[None]]]] = [
             (SUBJECT_AGENT, self._handle_message),
@@ -294,6 +295,27 @@ class TaskConsumer(
             reattach = functools.partial(ensure_durable, js, name, subject)
             loops.append((subject, functools.partial(self._message_loop, sub, handler, subject, reattach=reattach)))
         return loops
+
+    async def _wait_for_stream(self, js: JetStreamContext) -> None:
+        """Wait until the Go Core has created the CODEFORGE stream (KI-67).
+
+        The worker does not create it: a stream with default settings (no size
+        limit, no dedup window) would stay in place with the wrong
+        configuration. Raises RuntimeError if the stream does not appear in
+        time; the container's restart policy then starts the worker again.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _STREAM_WAIT_SECONDS
+        while True:
+            try:
+                await js.find_stream_name_by_subject(STREAM_SUBJECTS[0])
+                return
+            except nats.js.errors.NotFoundError:
+                if self._stop_requested or loop.time() >= deadline:
+                    msg = f"JetStream stream {STREAM_NAME} not found: the Go Core creates it, start the Go Core first"
+                    raise RuntimeError(msg) from None
+                logger.info("waiting for the Go Core to create the JetStream stream", stream=STREAM_NAME)
+                await asyncio.sleep(_STREAM_POLL_SECONDS)
 
     def _loop_ended(self, subject: str, task: asyncio.Task[None]) -> None:
         """A loop that ended with an exception leaves its subject unconsumed: stop the worker."""
@@ -523,8 +545,37 @@ async def main() -> None:
         raise SystemExit(1)
 
 
+def run() -> None:
+    """Run the worker (``python -m codeforge.consumer``) and exit once main() shut it down.
+
+    Threads that still run CPU-bound work (repo map, retrieval index, code
+    graph) cannot be cancelled. asyncio.run() would wait for them (the
+    executor shutdown, then the interpreter's thread join) and delay the exit
+    after a give-up or SIGTERM for as long as the indexing runs (KI-67). The
+    process exits without them: their messages are at-least-once and are
+    redelivered.
+    """
+    loop = asyncio.new_event_loop()
+    code = 0
+    try:
+        loop.run_until_complete(main())
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+    except BaseException:
+        traceback.print_exc()
+        code = 1
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        finally:
+            loop.close()  # shuts the default executor down without waiting for its threads
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()
 
 
-__all__ = ["TaskConsumer", "main"]
+__all__ = ["TaskConsumer", "main", "run"]
