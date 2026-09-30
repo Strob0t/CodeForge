@@ -11,16 +11,18 @@ import (
 func TestToolCallRequestPayload_WorkerContract(t *testing.T) {
 	t.Parallel()
 
-	data := []byte(`{"run_id":"conv-1","call_id":"c-1","tool":"bash","command":"go test ./... && ls","path":"","mode_id":"architect"}`)
+	// Keys exactly as workers/codeforge/runtime.py RuntimeClient.request_tool_call sends them.
+	data := []byte(`{"run_id":"conv-1","call_id":"c-1","tenant_id":"t-1","tool":"bash","command":"go test ./... && ls","path":"","mode_id":"architect","arguments_preview":"{\"command\": \"go test ./... && ls\"}"}`)
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	var got ToolCallRequestPayload
 	if err := dec.Decode(&got); err != nil {
 		t.Fatalf("decode worker payload: %v", err)
 	}
-	want := ToolCallRequestPayload{RunID: "conv-1", CallID: "c-1", Tool: "bash", Command: "go test ./... && ls", ModeID: "architect"}
-	if got.RunID != want.RunID || got.CallID != want.CallID || got.Tool != want.Tool ||
-		got.Command != want.Command || got.Path != want.Path || got.ModeID != want.ModeID {
+	want := ToolCallRequestPayload{RunID: "conv-1", CallID: "c-1", TenantID: "t-1", Tool: "bash", Command: "go test ./... && ls", ModeID: "architect",
+		ArgumentsPreview: `{"command": "go test ./... && ls"}`}
+	if got.RunID != want.RunID || got.CallID != want.CallID || got.TenantID != want.TenantID || got.Tool != want.Tool ||
+		got.Command != want.Command || got.Path != want.Path || got.ModeID != want.ModeID || got.ArgumentsPreview != want.ArgumentsPreview {
 		t.Fatalf("decoded %+v, want %+v", got, want)
 	}
 

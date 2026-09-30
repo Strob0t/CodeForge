@@ -40,7 +40,21 @@ if TYPE_CHECKING:
 
 RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
 
+# Maximum length (characters) of the arguments preview sent with a tool call.
+ARGUMENTS_PREVIEW_MAX_CHARS = 1000
+
 logger = structlog.get_logger()
+
+
+def arguments_preview(arguments: dict[str, object]) -> str:
+    """Render tool call arguments as truncated JSON for the human approver.
+
+    Display only: the Go policy layer never evaluates the preview.
+    """
+    text = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
+    if len(text) <= ARGUMENTS_PREVIEW_MAX_CHARS:
+        return text
+    return text[: ARGUMENTS_PREVIEW_MAX_CHARS - 3] + "..."
 
 
 class RuntimeClient:
@@ -199,11 +213,13 @@ class RuntimeClient:
         tool: str,
         command: str = "",
         path: str = "",
+        arguments_preview: str = "",
     ) -> ToolCallDecision:
         """Request permission from the control plane to execute a tool call.
 
         Publishes a request to NATS, then waits for the response.
-        Returns the decision (allow/deny/ask).
+        Returns the decision (allow/deny/ask). ``arguments_preview`` is shown
+        to a human approver only; the policy evaluates tool, command and path.
         """
         if self._cancelled:
             return ToolCallDecision(
@@ -221,6 +237,7 @@ class RuntimeClient:
             "command": command,
             "path": path,
             "mode_id": self.mode_id,
+            "arguments_preview": arguments_preview,
         }
 
         start_time = time.monotonic()

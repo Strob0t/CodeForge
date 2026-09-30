@@ -21,6 +21,7 @@ from codeforge.loop_helpers import (
     build_tool_result_message,
     build_tool_result_text,
 )
+from codeforge.runtime import arguments_preview
 from codeforge.tracing import metrics as otel_metrics
 
 if TYPE_CHECKING:
@@ -102,8 +103,11 @@ class ToolExecutor:
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
-        command, path = policy_request_args(tc.name, arguments if isinstance(arguments, dict) else {})
-        decision = await self._runtime.request_tool_call(tool=tc.name, command=command, path=path)
+        policy_args = arguments if isinstance(arguments, dict) else {}
+        command, path = policy_request_args(tc.name, policy_args)
+        decision = await self._runtime.request_tool_call(
+            tool=tc.name, command=command, path=path, arguments_preview=arguments_preview(policy_args)
+        )
 
         if decision.decision != "allow":
             result_text = f"Permission denied: {decision.reason}"

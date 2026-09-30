@@ -24,6 +24,7 @@ from codeforge.models import (
     ConversationToolCallPayload,
 )
 from codeforge.pricing import resolve_cost
+from codeforge.runtime import arguments_preview
 
 if TYPE_CHECKING:
     from codeforge.runtime import RuntimeClient
@@ -405,8 +406,10 @@ class ClaudeCodeExecutor:
 
             command = ""
             path = ""
+            preview = ""
 
             if isinstance(tool_input, dict):
+                preview = arguments_preview(tool_input)
                 if tool_name == "Bash":
                     value = tool_input.get("command", "")
                     command = value if isinstance(value, str) else ""
@@ -420,6 +423,7 @@ class ClaudeCodeExecutor:
                 tool=tool_name,
                 command=command,
                 path=path,
+                arguments_preview=preview,
             )
 
             if decision.decision == "allow":

@@ -84,6 +84,9 @@ type ToolCallRequestPayload struct {
 	Path     string            `json:"path"`
 	ModeID   string            `json:"mode_id,omitempty"`
 	Trust    *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
+	// ArgumentsPreview is truncated JSON of the tool arguments, shown to a
+	// human approver. Display only: the policy never evaluates it.
+	ArgumentsPreview string `json:"arguments_preview,omitempty"`
 }
 
 // ToolCallResponsePayload is the schema for runs.toolcall.response messages.

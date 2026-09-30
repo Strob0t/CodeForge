@@ -214,7 +214,9 @@ async def test_cancellation_during_tool_execution() -> None:
     """Cancel between tool calls: remaining get 'Cancelled' placeholder."""
     call_count = 0
 
-    async def _cancel_after_first(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+    async def _cancel_after_first(
+        tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+    ) -> ToolCallDecision:
         nonlocal call_count
         call_count += 1
         if call_count > 1:

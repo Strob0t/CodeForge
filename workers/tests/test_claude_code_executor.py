@@ -13,6 +13,7 @@ import pytest
 from codeforge.claude_code_executor import ClaudeCodeExecutor
 from codeforge.config import get_settings
 from codeforge.models import ToolCallDecision
+from codeforge.runtime import arguments_preview
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -141,6 +142,7 @@ class TestPolicyCallback:
             tool="Read",
             command="",
             path="/tmp/foo.py",
+            arguments_preview='{"file_path": "/tmp/foo.py"}',
         )
         assert isinstance(result, _FakePermissionResultAllow)
 
@@ -162,6 +164,7 @@ class TestPolicyCallback:
             tool="Bash",
             command="rm -rf /",
             path="",
+            arguments_preview='{"command": "rm -rf /", "description": "cleanup"}',
         )
         assert isinstance(result, _FakePermissionResultDeny)
         assert result.message == "blocked"
@@ -179,10 +182,12 @@ class TestPolicyCallback:
         callback = executor._make_policy_callback()
         result = await callback("SomeNewTool", {"arg": "val", "command": "curl x"})
 
+        # The arguments are shown to the approver, never evaluated.
         runtime.request_tool_call.assert_awaited_once_with(
             tool="SomeNewTool",
             command="",
             path="",
+            arguments_preview='{"arg": "val", "command": "curl x"}',
         )
         assert isinstance(result, _FakePermissionResultAllow)
 
@@ -208,7 +213,9 @@ class TestPolicyCallback:
         executor = ClaudeCodeExecutor(workspace_path="/ws", runtime=runtime)
         await executor._make_policy_callback()(tool, tool_input)
 
-        runtime.request_tool_call.assert_awaited_once_with(tool=tool, command="", path=expected_path)
+        runtime.request_tool_call.assert_awaited_once_with(
+            tool=tool, command="", path=expected_path, arguments_preview=arguments_preview(tool_input)
+        )
 
 
 # ---------------------------------------------------------------------------

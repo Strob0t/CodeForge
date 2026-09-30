@@ -14,6 +14,8 @@ export interface PermissionRequestCardProps {
   command?: string;
   path?: string;
   profile?: string;
+  /** Truncated JSON of the tool arguments (display only). */
+  argumentsPreview?: string;
   timeoutSeconds?: number;
   onResolved?: (decision: "allow" | "deny") => void;
 }
@@ -120,6 +122,14 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
           <div class="flex gap-2">
             <span class="text-cf-text-muted w-20">Path:</span>
             <span class="font-mono text-cf-text-primary break-all">{props.path}</span>
+          </div>
+        </Show>
+        <Show when={props.argumentsPreview}>
+          <div class="flex gap-2">
+            <span class="text-cf-text-muted w-20 shrink-0">Arguments:</span>
+            <pre class="font-mono text-xs text-cf-text-primary whitespace-pre-wrap break-all max-h-40 overflow-y-auto min-w-0">
+              {props.argumentsPreview}
+            </pre>
           </div>
         </Show>
       </div>
