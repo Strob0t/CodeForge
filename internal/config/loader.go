@@ -241,11 +241,6 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.Sandbox.NetworkMode, "CODEFORGE_SANDBOX_NETWORK")
 	setString(&cfg.Runtime.Sandbox.Image, "CODEFORGE_SANDBOX_IMAGE")
 
-	// Cache
-	setTyped(&cfg.Cache.L1MaxSizeMB, "CODEFORGE_CACHE_L1_SIZE_MB", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
-	setString(&cfg.Cache.L2Bucket, "CODEFORGE_CACHE_L2_BUCKET")
-	setTyped(&cfg.Cache.L2TTL, "CODEFORGE_CACHE_L2_TTL", time.ParseDuration)
-
 	// Orchestrator
 	setTyped(&cfg.Orchestrator.MaxParallel, "CODEFORGE_ORCH_MAX_PARALLEL", strconv.Atoi)
 	setTyped(&cfg.Orchestrator.PingPongMaxRounds, "CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS", strconv.Atoi)

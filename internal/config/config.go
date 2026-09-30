@@ -23,7 +23,6 @@ type Config struct {
 	Policy       Policy       `yaml:"policy"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Orchestrator Orchestrator `yaml:"orchestrator"`
-	Cache        Cache        `yaml:"cache"`
 	Idempotency  Idempotency  `yaml:"idempotency"`
 	Webhook      Webhook      `yaml:"webhook"`
 	Notification Notification `yaml:"notification"`
@@ -281,13 +280,6 @@ type SandboxConfig struct {
 	Image       string `yaml:"image"`
 }
 
-// Cache holds tiered cache configuration.
-type Cache struct {
-	L1MaxSizeMB int64         `yaml:"l1_max_size_mb"`
-	L2Bucket    string        `yaml:"l2_bucket"`
-	L2TTL       time.Duration `yaml:"l2_ttl"`
-}
-
 // Policy holds policy engine configuration.
 type Policy struct {
 	DefaultProfile string `yaml:"default_profile"`
@@ -514,11 +506,6 @@ func Defaults() Config {
 				CommandImage: "",
 				MountMode:    "rw",
 			},
-		},
-		Cache: Cache{
-			L1MaxSizeMB: 100,
-			L2Bucket:    "CACHE",
-			L2TTL:       10 * time.Minute,
 		},
 		Idempotency: Idempotency{
 			Bucket: "IDEMPOTENCY",

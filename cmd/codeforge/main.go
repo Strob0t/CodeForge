@@ -30,16 +30,13 @@ import (
 	lspAdapter "github.com/Strob0t/CodeForge/internal/adapter/lsp"
 	cfmcp "github.com/Strob0t/CodeForge/internal/adapter/mcp"
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
-	"github.com/Strob0t/CodeForge/internal/adapter/natskv"
 	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
 	"github.com/Strob0t/CodeForge/internal/adapter/openhands"
 	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
-	ristrettoAdapter "github.com/Strob0t/CodeForge/internal/adapter/ristretto"
 	slackAdapter "github.com/Strob0t/CodeForge/internal/adapter/slack"
-	"github.com/Strob0t/CodeForge/internal/adapter/tiered"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/crypto"
@@ -172,20 +169,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("idempotency kv: %w", err)
 	}
-
-	// --- Cache Layer ---
-	l1Cache, err := ristrettoAdapter.New(cfg.Cache.L1MaxSizeMB * 1024 * 1024)
-	if err != nil {
-		return fmt.Errorf("ristretto cache: %w", err)
-	}
-	defer l1Cache.Close()
-	cacheKV, err := queue.KeyValue(ctx, cfg.Cache.L2Bucket, cfg.Cache.L2TTL)
-	if err != nil {
-		return fmt.Errorf("cache kv: %w", err)
-	}
-	l2Cache := natskv.New(cacheKV)
-	_ = tiered.New(l1Cache, l2Cache, 5*time.Minute) // appCache available for future service injection
-	slog.Info("cache layer initialized", "l1_max_mb", cfg.Cache.L1MaxSizeMB, "l2_bucket", cfg.Cache.L2Bucket)
 
 	// --- Circuit Breakers ---
 	natsBreaker := resilience.NewBreaker(cfg.Breaker.MaxFailures, cfg.Breaker.Timeout)
