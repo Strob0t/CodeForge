@@ -606,23 +606,19 @@ class TestInjectSessionContext:
 
 
 # ---------------------------------------------------------------------------
-# _publish_error_result (conversation-specific override)
+# _publish_failed_completion (last-resort failed completion)
 # ---------------------------------------------------------------------------
 
 
-class TestPublishErrorResult:
-    """Tests for the conversation-specific _publish_error_result."""
+class TestPublishFailedCompletion:
+    """Tests for the failed completion of a run that could not publish its own."""
 
     @pytest.mark.asyncio
     async def test_publishes_failed_status(self) -> None:
-        """_publish_error_result should publish a failed completion message."""
         handler = _make_handler()
         run_msg = _make_valid_run_start(run_id="run-err-001", conversation_id="conv-err-001")
 
-        msg = MagicMock()
-        msg.data = run_msg.model_dump_json().encode()
-
-        await handler._publish_error_result(msg)
+        await handler._publish_failed_completion(run_msg, "internal worker error")
 
         handler._js.publish.assert_called_once()
         call_args = handler._js.publish.call_args
@@ -634,23 +630,19 @@ class TestPublishErrorResult:
 
     @pytest.mark.asyncio
     async def test_no_crash_without_jetstream(self) -> None:
-        """_publish_error_result should not crash when _js is None."""
         handler = _make_handler()
         handler._js = None
-        run_msg = _make_valid_run_start()
-
-        msg = MagicMock()
-        msg.data = run_msg.model_dump_json().encode()
 
         # Should not raise.
-        await handler._publish_error_result(msg)
+        await handler._publish_failed_completion(_make_valid_run_start(), "internal worker error")
 
     @pytest.mark.asyncio
-    async def test_no_crash_on_invalid_data(self) -> None:
-        """_publish_error_result should swallow exceptions from invalid data."""
+    async def test_publish_failure_is_logged_not_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         handler = _make_handler()
-        msg = MagicMock()
-        msg.data = b"invalid"
+        handler._js.publish = AsyncMock(side_effect=ConnectionError("nats down"))
 
-        # Should not raise -- the method has its own try/except.
-        await handler._publish_error_result(msg)
+        # Should not raise: this is the last resort, the error is logged.
+        await handler._publish_failed_completion(_make_valid_run_start(), "internal worker error")
+
+        assert handler._js.publish.await_count == 3

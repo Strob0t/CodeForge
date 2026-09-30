@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
@@ -10,13 +11,16 @@ import structlog
 from pydantic import ValidationError
 
 from codeforge.consumer._delivery import delivery_attempt, dlq_headers, is_last_attempt
+from codeforge.consumer._in_flight import InFlightWork
 from codeforge.consumer._subjects import (
+    ACCEPT_ATTEMPTS,
     ACK_SYNC_TIMEOUT_SECONDS,
     DLQ_SUFFIX,
     HEADER_REQUEST_ID,
     NAK_DELAY_SECONDS,
     SUBJECT_OUTPUT,
 )
+from codeforge.nats_publish import publish_with_retry
 from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
@@ -106,22 +110,37 @@ class ConsumerBaseMixin:
         else:
             await msg.ack()
 
+    @functools.cached_property
+    def _in_flight(self) -> InFlightWork:
+        """Accepted at-most-once work and background tasks, failed and cancelled if the worker must stop."""
+        return InFlightWork()
+
     @staticmethod
     async def _accept(msg: nats.aio.msg.Msg) -> bool:
         """Ack an at-most-once message before its work starts; False if the ack was not confirmed.
 
         A plain ack is fire-and-forget: if it were lost, JetStream would hand the
         running work to a second worker after the ack wait. A confirmed (double)
-        ack rules that out. Without the confirmation the work is not started:
-        the message is redelivered, or, if the ack did reach the server, the run
-        is ended by the Go Core's run timeout (ADR-016 section 6).
+        ack rules that out. An unanswered double ack is repeated: the server
+        confirms an ack it already applied. If none is confirmed, the work is
+        not started and the message is NAK'd, so a message whose ack never
+        arrived goes to the next worker at once (the server ignores the NAK of
+        a message whose ack did arrive; that run is ended by the Go Core,
+        ADR-016 section 6).
         """
+        for attempt in range(1, ACCEPT_ATTEMPTS + 1):
+            try:
+                await msg.ack_sync(timeout=ACK_SYNC_TIMEOUT_SECONDS)
+            except Exception as exc:
+                logger.warning("ack on accept not confirmed", subject=msg.subject, attempt=attempt, error=str(exc))
+            else:
+                return True
+        logger.error("ack on accept not confirmed, releasing the message", subject=msg.subject)
         try:
-            await msg.ack_sync(timeout=ACK_SYNC_TIMEOUT_SECONDS)
+            await msg.nak()
         except Exception as exc:
-            logger.error("ack on accept not confirmed, not starting the work", subject=msg.subject, error=str(exc))
-            return False
-        return True
+            logger.warning("releasing the unaccepted message failed", subject=msg.subject, error=str(exc))
+        return False
 
     async def _reject_invalid(self, msg: nats.aio.msg.Msg, error: str) -> None:
         """Dead-letter a payload that can never be processed and stop its redelivery."""
@@ -169,13 +188,19 @@ class ConsumerBaseMixin:
             headers[HEADER_REQUEST_ID] = request_id
         await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers or None)
 
-    async def _publish_error(self, result: BaseModel, subject: str) -> None:
-        """Publish a pre-built error result model to NATS."""
+    async def _publish_result(self, result: BaseModel, subject: str) -> None:
+        """Publish the result or completion of accepted work, retrying transient failures.
+
+        Accepted work is never redelivered, so this is the only way the Go Core
+        learns its outcome; a result that could not be published is logged.
+        """
+        if self._js is None:
+            logger.error("JetStream not available, result not published", subject=subject)
+            return
         try:
-            if self._js is not None:
-                await self._js.publish(subject, result.model_dump_json().encode())
+            await publish_with_retry(self._js, subject, result.model_dump_json().encode())
         except Exception as exc:
-            logger.exception("failed to publish error result", subject=subject, error=str(exc))
+            logger.exception("failed to publish result", subject=subject, error=str(exc))
 
     async def _parse_request(self, msg: nats.aio.msg.Msg, request_model: type[RequestT]) -> RequestT | None:
         """Validate the payload; dead-letter the message and return None if it is invalid."""

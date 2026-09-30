@@ -133,6 +133,7 @@ class TestRunsHandlerExtraSubjects:
 
     async def test_start_cancel_listener_called_with_tasks_cancel(self) -> None:
         """_do_run_start should call start_cancel_listener with tasks.cancel in extra_subjects."""
+        from codeforge.consumer._base import ConsumerBaseMixin
         from codeforge.consumer._runs import RunHandlerMixin
         from codeforge.consumer._subjects import SUBJECT_TASK_CANCEL
         from codeforge.models import RunStartMessage, TerminationConfig
@@ -150,7 +151,7 @@ class TestRunsHandlerExtraSubjects:
         )
 
         # Create handler with mock dependencies
-        handler = type("Handler", (RunHandlerMixin,), {})()
+        handler = type("Handler", (RunHandlerMixin, ConsumerBaseMixin), {})()
         mock_js = AsyncMock()
         mock_js.subscribe = AsyncMock(return_value=AsyncMock())
         handler._js = mock_js

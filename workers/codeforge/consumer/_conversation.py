@@ -25,12 +25,14 @@ from codeforge.consumer._conversation_skill_integration import (
 )
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
+from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient
 
 if TYPE_CHECKING:
     import nats.aio.msg
 
     from codeforge.agent_loop import LoopConfig
+    from codeforge.consumer._in_flight import AcceptedWork
     from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
     from codeforge.models import ContextEntry
@@ -399,17 +401,30 @@ class ConversationHandlerMixin:
         if not await self._accept(msg):
             self._active_runs.discard(run_id)
             return
+
+        async def report_failure(reason: str) -> None:
+            await self._publish_failed_completion(run_msg, reason)
+
         try:
-            await self._run_conversation(run_msg, log)
-        except Exception as exc:
-            # Intentional catch-all: outermost handler safety net
-            logger.exception("failed to process conversation run", error=str(exc))
-            await self._publish_error_result(msg)
+            with self._in_flight.track(f"conversation run {run_id}", report_failure) as work:
+                try:
+                    await self._run_conversation(run_msg, log, work)
+                except Exception as exc:
+                    # Intentional catch-all: outermost handler safety net. A run
+                    # whose completion was already published is not failed again.
+                    logger.exception("failed to process conversation run", error=str(exc))
+                    if not work.completed:
+                        await self._publish_failed_completion(run_msg, "internal worker error")
         finally:
             self._active_runs.discard(run_id)
 
-    async def _run_conversation(self, run_msg: ConversationRunStartMessage, log: structlog.stdlib.BoundLogger) -> None:
-        """Execute an accepted conversation run and publish its completion."""
+    async def _run_conversation(
+        self,
+        run_msg: ConversationRunStartMessage,
+        log: structlog.stdlib.BoundLogger,
+        work: AcceptedWork,
+    ) -> None:
+        """Execute an accepted conversation run and publish its completion (then *work* is completed)."""
         from codeforge.mcp_workbench import McpWorkbench
         from codeforge.tools import ToolRegistry, build_default_registry
 
@@ -473,6 +488,7 @@ class ConversationHandlerMixin:
                 result = AgentLoopResult(output="", tool_calls=[], cost=0.0, error="Wall-clock timeout exceeded")
 
             await self._publish_completion(run_msg, result)
+            work.completed = True
             log.info(
                 "conversation run complete",
                 steps=result.step_count,
@@ -506,32 +522,37 @@ class ConversationHandlerMixin:
             tenant_id=run_msg.tenant_id,
         )
         stamped = self._stamp_trust(complete_msg.model_dump())
-        await self._js.publish(
+        # One message ID for all attempts: the Go Core deduplicates completions
+        # by Nats-Msg-Id only (a retry must not store the assistant message twice).
+        await publish_with_retry(
+            self._js,
             SUBJECT_CONVERSATION_RUN_COMPLETE,
             json.dumps(stamped).encode(),
             headers={"Nats-Msg-Id": f"conv-complete-{uuid.uuid4()}"},
         )
 
-    async def _publish_error_result(self, msg: nats.aio.msg.Msg) -> None:
-        """Best-effort publish of an error completion when the main handler fails."""
+    async def _publish_failed_completion(self, run_msg: ConversationRunStartMessage, error: str) -> None:
+        """Last-resort failed completion of an accepted run whose own completion was not published."""
+        if self._js is None:
+            logger.error("JetStream not available, conversation run not failed", run_id=run_msg.run_id)
+            return
+        error_complete = ConversationRunCompleteMessage(
+            run_id=run_msg.run_id,
+            conversation_id=run_msg.conversation_id,
+            session_id=run_msg.session_id,
+            status="failed",
+            error=error,
+            tenant_id=run_msg.tenant_id,
+        )
         try:
-            run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
-            if self._js is not None:
-                error_complete = ConversationRunCompleteMessage(
-                    run_id=run_msg.run_id,
-                    conversation_id=run_msg.conversation_id,
-                    session_id=run_msg.session_id,
-                    status="failed",
-                    error="internal worker error",
-                    tenant_id=run_msg.tenant_id,
-                )
-                await self._js.publish(
-                    SUBJECT_CONVERSATION_RUN_COMPLETE,
-                    error_complete.model_dump_json().encode(),
-                    headers={"Nats-Msg-Id": f"conv-error-{uuid.uuid4()}"},
-                )
+            await publish_with_retry(
+                self._js,
+                SUBJECT_CONVERSATION_RUN_COMPLETE,
+                error_complete.model_dump_json().encode(),
+                headers={"Nats-Msg-Id": f"conv-error-{uuid.uuid4()}"},
+            )
         except Exception as exc:  # Intentional catch-all: last-resort error notification
-            logger.exception("failed to publish conversation error result", error=str(exc))
+            logger.exception("failed to publish conversation error result", run_id=run_msg.run_id, error=str(exc))
 
     async def _execute_conversation_run(
         self,

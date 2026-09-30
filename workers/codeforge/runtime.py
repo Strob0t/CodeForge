@@ -16,11 +16,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
-from nats.js.api import ConsumerConfig, DeliverPolicy
+from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 
 from codeforge.constants import NATS_RESPONSE_TIMEOUT_SECONDS
 from codeforge.metrics import ExecutionMetrics
 from codeforge.models import RunCompleteMessage, ToolCallDecision
+from codeforge.nats_publish import publish_with_retry
 from codeforge.nats_subjects import (
     SUBJECT_AGENT_OUTPUT,
     SUBJECT_RUN_CANCEL,
@@ -44,6 +45,16 @@ RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
 ARGUMENTS_PREVIEW_MAX_CHARS = 1000
 
 logger = structlog.get_logger()
+
+
+def _notification_consumer() -> ConsumerConfig:
+    """Settings of the ephemeral consumers a run listens on (cancel messages, tool-call responses).
+
+    They see new messages only and are never acked: with explicit acks
+    JetStream would redeliver every message after the ack wait and stop
+    delivering once MaxAckPending messages were outstanding.
+    """
+    return ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=AckPolicy.NONE)
 
 
 def arguments_preview(arguments: dict[str, object]) -> str:
@@ -106,9 +117,8 @@ class RuntimeClient:
         belong to this run: ``close()`` must be called when the run ends.
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
-        new_only = ConsumerConfig(deliver_policy=DeliverPolicy.NEW)
         for subject in subjects:
-            sub = await self._js.subscribe(subject, config=new_only)
+            sub = await self._js.subscribe(subject, config=_notification_consumer())
             self._cancel_subs.append(sub)
             self._cancel_tasks.append(asyncio.create_task(self._listen_for_cancel(sub)))
 
@@ -250,13 +260,9 @@ class RuntimeClient:
         self._log.debug("requesting tool call", tool=tool, call_id=call_id)
 
         # Subscribe BEFORE publishing to avoid a race condition where Go
-        # responds before the subscription is established.
-        # Use DeliverNew to skip old messages in the stream — we only care
-        # about the response to the request we are about to publish.
-        sub = await self._js.subscribe(
-            SUBJECT_TOOLCALL_RESPONSE,
-            config=ConsumerConfig(deliver_policy=DeliverPolicy.NEW),
-        )
+        # responds before the subscription is established. Only new messages
+        # matter: the response to the request we are about to publish.
+        sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE, config=_notification_consumer())
         try:
             try:
                 await self._js.publish(
@@ -396,10 +402,9 @@ class RuntimeClient:
             tokens_out=self._metrics.total_tokens_out,
             model=self._metrics.model,
         )
-        await self._js.publish(
-            SUBJECT_RUN_COMPLETE,
-            msg.model_dump_json().encode(),
-        )
+        # The run was acked on accept and is never redelivered: its completion
+        # must not be lost to a transient publish failure (ADR-016).
+        await publish_with_retry(self._js, SUBJECT_RUN_COMPLETE, msg.model_dump_json().encode())
         self._completed = True
         self._log.info(
             "run completed",

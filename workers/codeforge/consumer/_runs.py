@@ -69,17 +69,20 @@ class RunHandlerMixin:
             await runtime.complete_run(status="failed", error=error)
             return
 
-        try:
-            await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
-            task = self._build_run_task(run_msg, log)
-            await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
-        except Exception as exc:
-            # The run was acked on accept and is never redelivered: end it as
-            # failed instead of leaving it running until the Go run timeout.
-            log.exception("run failed", error=str(exc))
-            await self._report_run_failure(runtime, str(exc), log)
-        finally:
-            await runtime.close()
+        with self._in_flight.track(
+            f"run {run_msg.run_id}", lambda reason: self._report_run_failure(runtime, reason, log)
+        ):
+            try:
+                await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
+                task = self._build_run_task(run_msg, log)
+                await self._executor.execute_with_runtime(task, runtime, mode=run_msg.mode)
+            except Exception as exc:
+                # The run was acked on accept and is never redelivered: end it as
+                # failed instead of leaving it running until the Go run timeout.
+                log.exception("run failed", error=str(exc))
+                await self._report_run_failure(runtime, str(exc), log)
+            finally:
+                await runtime.close()
         log.info(
             "run processing complete",
             mode_id=run_msg.mode.id if run_msg.mode else None,

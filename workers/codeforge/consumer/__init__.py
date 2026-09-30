@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import nats
-import nats.errors
 import nats.js.client
 import nats.js.errors
 import structlog
@@ -95,9 +94,15 @@ _MAX_CONSECUTIVE_ERRORS = get_settings().consumer_max_errors
 _BACKOFF_MULTIPLIER = get_settings().consumer_backoff_multiplier
 _BACKOFF_MAX = get_settings().consumer_backoff_max
 
-# Errors of a fetch on a durable that no longer exists ("no responders" for the
-# pull request, or consumer not found).
-_CONSUMER_GONE_ERRORS = (nats.js.errors.NotFoundError, nats.js.errors.ServiceUnavailableError)
+# A pull request to a durable that no longer exists has no responders, which
+# nats-py raises as ServiceUnavailableError (status 503). A pending pull whose
+# durable is deleted gets "409 Consumer Deleted", which nats-py reports as a
+# timeout; the next fetch then fails with the 503.
+_CONSUMER_GONE_ERRORS = (nats.js.errors.ServiceUnavailableError,)
+
+# After a message loop gave up, accepted at-most-once work may finish within
+# this time; what is still running then is cancelled and reported as failed.
+_GIVE_UP_GRACE_SECONDS = 30.0
 
 
 class TaskConsumer(
@@ -139,6 +144,9 @@ class TaskConsumer(
         self._running = False
         # Set when a message loop could not recover; main() then exits non-zero.
         self.failed = False
+        self._loop_tasks: list[asyncio.Task[None]] = []
+        # Fails the accepted work and stops the loops after a loop gave up.
+        self._abort_task: asyncio.Task[None] | None = None
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
         self._db_url = get_settings().database_url
 
@@ -208,14 +216,28 @@ class TaskConsumer(
             sub = await ensure_durable(self._js, name, subject)
             logger.info("subscribed", subject=subject, durable=name)
             reattach = functools.partial(ensure_durable, self._js, name, subject)
-            loops.append(self._message_loop(sub, handler, subject, reattach=reattach))
+            loops.append((subject, self._message_loop(sub, handler, subject, reattach=reattach)))
+
+        for subject, loop in loops:
+            task = asyncio.create_task(loop, name=f"message-loop {subject}")
+            task.add_done_callback(functools.partial(self._loop_ended, subject))
+            self._loop_tasks.append(task)
 
         # Signal to the Docker healthcheck that the worker is connected and
         # all subscriptions are active.
         _HEALTHY_SENTINEL.touch()
         logger.info("healthcheck sentinel created", path=str(_HEALTHY_SENTINEL))
 
-        await asyncio.gather(*loops)
+        await asyncio.wait(self._loop_tasks)
+        if self._abort_task is not None:
+            await self._abort_task
+
+    def _loop_ended(self, subject: str, task: asyncio.Task[None]) -> None:
+        """A loop that ended with an exception leaves its subject unconsumed: stop the worker."""
+        if task.cancelled() or task.exception() is None:
+            return
+        logger.error("message loop crashed", subject=subject, error=str(task.exception()))
+        self._give_up(subject)
 
     async def _message_loop(
         self,
@@ -237,8 +259,9 @@ class TaskConsumer(
                 msgs = await sub.fetch(batch=1, timeout=1)
                 consecutive_errors = 0
             except TimeoutError:
-                continue
-            except nats.errors.TimeoutError:
+                # nats.errors.TimeoutError is a TimeoutError: the server answered
+                # that there is nothing to fetch, the consumer is healthy.
+                consecutive_errors = 0
                 continue
             except Exception as exc:
                 if not self._running:
@@ -255,7 +278,10 @@ class TaskConsumer(
                     break
                 await asyncio.sleep(min(consecutive_errors * _BACKOFF_MULTIPLIER, _BACKOFF_MAX))
                 if reattach is not None and isinstance(exc, _CONSUMER_GONE_ERRORS):
-                    sub = await self._reattach(sub, reattach, label)
+                    fresh = await self._reattach(sub, reattach, label)
+                    if fresh is not None:
+                        sub = fresh
+                        consecutive_errors = 0
                 continue
 
             for msg in msgs:
@@ -292,13 +318,13 @@ class TaskConsumer(
         old: nats.js.client.JetStreamContext.PullSubscription,
         reattach: Callable[[], Awaitable[nats.js.client.JetStreamContext.PullSubscription]],
         label: str,
-    ) -> nats.js.client.JetStreamContext.PullSubscription:
-        """Ensure the durable again (it was deleted) and bind a new subscription to it."""
+    ) -> nats.js.client.JetStreamContext.PullSubscription | None:
+        """Ensure the durable again (it was deleted) and bind a new subscription to it; None if that failed."""
         try:
             fresh = await reattach()
         except Exception as exc:
             logger.warning("re-attaching the durable consumer failed", subject=label, error=str(exc))
-            return old
+            return None
         try:
             await old.unsubscribe()
         except Exception as exc:
@@ -311,12 +337,20 @@ class TaskConsumer(
 
         Every loop ends, the health sentinel is removed and main() exits with
         status 1, so the container's restart policy starts a fresh worker instead
-        of a "healthy" process that no longer consumes *subject*.
+        of a "healthy" process that no longer consumes *subject*. Accepted
+        at-most-once work gets a bounded grace period; what is still running
+        then is cancelled and reported as failed (ADR-016), so the exit is not
+        delayed by a long run and the Go Core does not wait for its timeout.
         """
         logger.error("message loop cannot recover, stopping the worker", subject=subject)
         self.failed = True
         self._running = False
         _HEALTHY_SENTINEL.unlink(missing_ok=True)
+        if self._abort_task is None:
+            reason = f"worker stopped before the work finished: message loop for {subject} could not recover"
+            self._abort_task = asyncio.create_task(
+                self._in_flight.abort(self._loop_tasks, _GIVE_UP_GRACE_SECONDS, reason), name="abort accepted work"
+            )
 
     async def stop(self) -> None:
         """Gracefully shut down: drain with timeout and close."""

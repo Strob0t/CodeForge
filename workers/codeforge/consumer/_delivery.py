@@ -28,7 +28,7 @@ from codeforge.nats_subjects import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from nats.aio.msg import Msg
     from nats.js.api import ConsumerInfo
@@ -136,23 +136,25 @@ async def keep_in_progress(
     msg: Msg,
     interval: float = PROGRESS_INTERVAL_SECONDS,
     limit: float = MAX_IN_PROGRESS_SECONDS,
+    clock: Callable[[], float] | None = None,
 ) -> AsyncIterator[None]:
     """Tell JetStream every *interval* seconds that *msg* is still being handled.
 
     Stops when the block exits, once the message has been settled (for example
-    acked on accept), or after *limit* seconds: a handler slower than the ack
-    wait is not redelivered to another worker while it runs, but a hung one is
-    redelivered instead of holding its message forever.
+    acked on accept), or after *limit* seconds measured with *clock* (the event
+    loop's clock by default): a handler slower than the ack wait is not
+    redelivered to another worker while it runs, but a hung one is redelivered
+    instead of holding its message forever.
     """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + limit
+    now = clock or asyncio.get_running_loop().time
+    deadline = now() + limit
 
     async def _beat() -> None:
         while True:
             await asyncio.sleep(interval)
             if msg.is_acked:
                 return
-            if loop.time() > deadline:
+            if now() > deadline:
                 logger.warning("handler exceeded the in-progress limit, JetStream will redeliver", subject=msg.subject)
                 return
             try:

@@ -38,6 +38,8 @@ from codeforge.models import GemmasEvalRequest, GemmasEvalResult
 if TYPE_CHECKING:
     import nats.aio.msg
 
+    from codeforge.consumer._in_flight import AcceptedWork
+
 
 logger = structlog.get_logger()
 
@@ -393,22 +395,26 @@ class BenchmarkHandlerMixin:
         request_id = (msg.headers or {}).get(HEADER_REQUEST_ID, "")
         log = logger.bind(request_id=request_id)
 
+        req = await self._parse_request(msg, BenchmarkRunRequest)
+        if req is None:
+            return
+        run_id = req.run_id
+        tenant_id = req.tenant_id
+
         if not await _wait_for_litellm(self._llm, log):
-            log.error("LiteLLM not available, aborting benchmark run")
-            await self._publish_error(
+            log.error("LiteLLM not available, aborting benchmark run", run_id=run_id)
+            await self._publish_result(
                 BenchmarkRunResult(
-                    run_id="", status="failed", error="LiteLLM proxy not available after health check retries"
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    status="failed",
+                    error="LiteLLM proxy not available after health check retries",
                 ),
                 SUBJECT_BENCHMARK_RUN_RESULT,
             )
             await msg.ack()
             return
 
-        req = await self._parse_request(msg, BenchmarkRunRequest)
-        if req is None:
-            return
-        run_id = req.run_id
-        tenant_id = req.tenant_id
         try:
             await _validate_model_exists(req.model)
             benchmark_type = req.benchmark_type or "simple"
@@ -422,17 +428,35 @@ class BenchmarkHandlerMixin:
             if not await self._accept(msg):
                 self._clear_processed(f"bench-{req.run_id}")
                 return
-            task = asyncio.create_task(self._execute_benchmark_run(req, log), name=f"benchmark-{req.run_id}")
+
+            async def report_failure(reason: str) -> None:
+                await self._publish_result(
+                    BenchmarkRunResult(run_id=run_id, tenant_id=tenant_id, status="failed", error=reason),
+                    SUBJECT_BENCHMARK_RUN_RESULT,
+                )
+
+            work = self._in_flight.accept(f"benchmark run {run_id}", report_failure)
+            task = self._in_flight.start_background(
+                self._run_accepted_benchmark(req, log, work), name=f"benchmark-{req.run_id}"
+            )
             task.add_done_callback(_handle_task_exception)
 
         except Exception as exc:
             log.exception("benchmark run failed")
-            await self._publish_error(
+            await self._publish_result(
                 BenchmarkRunResult(run_id=run_id, tenant_id=tenant_id, status="failed", error=str(exc)),
                 SUBJECT_BENCHMARK_RUN_RESULT,
             )
             if not msg.is_acked:
                 await msg.ack()
+
+    async def _run_accepted_benchmark(self, req: object, log: structlog.BoundLogger, work: AcceptedWork) -> None:
+        """Run an accepted benchmark in the background; it publishes its own result unless cancelled."""
+        try:
+            await self._execute_benchmark_run(req, log)
+            work.completed = True
+        finally:
+            self._in_flight.release(work)
 
     async def _execute_benchmark_run(self, req: object, log: structlog.BoundLogger) -> None:
         from codeforge.evaluation.pipeline import EvaluationPipeline
@@ -480,8 +504,7 @@ class BenchmarkHandlerMixin:
                     total_tokens=summary.get("total_tokens_in", 0) + summary.get("total_tokens_out", 0),
                     total_duration_ms=summary.get("elapsed_ms", 0),
                 )
-                if self._js is not None:
-                    await self._js.publish(SUBJECT_BENCHMARK_RUN_RESULT, result.model_dump_json().encode())
+                await self._publish_result(result, SUBJECT_BENCHMARK_RUN_RESULT)
                 log.info(
                     "benchmark run completed",
                     task_count=len(results),
@@ -491,7 +514,7 @@ class BenchmarkHandlerMixin:
 
             except Exception as exc:
                 log.exception("benchmark run failed")
-                await self._publish_error(
+                await self._publish_result(
                     BenchmarkRunResult(run_id=req.run_id, tenant_id=req.tenant_id, status="failed", error=str(exc)),
                     SUBJECT_BENCHMARK_RUN_RESULT,
                 )

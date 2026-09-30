@@ -11,14 +11,24 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
+import nats.errors
 import pytest
+from nats.js.api import AckPolicy, DeliverPolicy
 
 from codeforge.config import get_settings
 from codeforge.consumer import TaskConsumer
-from codeforge.models import ConversationRunStartMessage, RunStartMessage, TaskMessage, TerminationConfig
+from codeforge.models import (
+    AgentLoopResult,
+    ConversationRunStartMessage,
+    RunStartMessage,
+    TaskMessage,
+    TerminationConfig,
+)
 from codeforge.runtime import RuntimeClient
 from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
 
@@ -162,8 +172,24 @@ class TestTasks:
         await consumer._handle_message(msg)
 
         consumer._backend_router.execute.assert_not_awaited()
-        assert client.settlements() == []
+        assert client.settlements() == ["nak"], "an unconfirmed accept releases the message"
         assert _published(consumer) == []
+
+    async def test_lost_result_publish_is_retried(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The task is never redelivered: its result is the only way the Go Core learns the outcome."""
+        from codeforge.backends._base import TaskResult as BackendTaskResult
+
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+        consumer._js = RecordingJetStream(failing_times={"tasks.result": 2})  # type: ignore[assignment]
+        consumer._backend_router = MagicMock()
+        consumer._backend_router.execute = AsyncMock(return_value=BackendTaskResult(status="completed", output="ok"))
+        msg, _ = jetstream_msg(_task_payload("task-retry"), subject="tasks.agent.aider")
+
+        await consumer._handle_message(msg)
+
+        assert [(r["task_id"], r["status"]) for r in _task_results(consumer)] == [("task-retry", "completed")]
 
 
 # ---------------------------------------------------------------------------
@@ -255,8 +281,26 @@ class TestRunStart:
         await consumer._handle_run_start(msg)
 
         consumer._executor.execute_with_runtime.assert_not_awaited()
-        assert client.settlements() == []
+        assert client.settlements() == ["nak"], "an unconfirmed accept releases the message"
         assert _published(consumer) == []
+
+    async def test_lost_completion_publish_is_retried(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+        consumer._js = RecordingJetStream(failing_times={"runs.complete": 1})  # type: ignore[assignment]
+        msg, _ = jetstream_msg(_run_start_payload("run-retry"), subject="runs.start")
+
+        async def complete(_task: object, runtime: RuntimeClient, **_kwargs: object) -> None:
+            await runtime.complete_run(status="completed", output="done")
+
+        consumer._executor = MagicMock()
+        consumer._executor.execute_with_runtime = complete
+
+        await consumer._handle_run_start(msg)
+
+        completions = [json.loads(data) for subject, data in _published(consumer) if subject == "runs.complete"]
+        assert [(c["run_id"], c["status"]) for c in completions] == [("run-retry", "completed")]
 
     @pytest.mark.parametrize("fails", [False, True])
     async def test_cancel_listeners_are_released_when_the_run_ends(self, consumer: TaskConsumer, fails: bool) -> None:
@@ -286,6 +330,21 @@ def _conversation_payload(run_id: str = "conv-1") -> bytes:
     )
 
 
+def _patch_conversation_pipeline(consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the run's collaborators (LLM, routing, tools); keep the handler's own completion logic."""
+    monkeypatch.setattr("codeforge.tools.build_default_registry", MagicMock)
+    monkeypatch.setattr(consumer, "_maybe_prefetch_docs", AsyncMock())
+    monkeypatch.setattr(consumer, "_build_conversation_messages", AsyncMock(return_value=[]))
+    monkeypatch.setattr(consumer, "_resolve_routing_and_fallbacks", AsyncMock(return_value=("m", MagicMock(), [])))
+    monkeypatch.setattr(
+        consumer, "_execute_conversation_run", AsyncMock(return_value=AgentLoopResult(final_content="done"))
+    )
+
+
+def _conversation_completions(worker: TaskConsumer) -> list[dict[str, object]]:
+    return [json.loads(data) for subject, data in _published(worker) if subject == "conversation.run.complete"]
+
+
 class TestConversationRun:
     async def test_acked_on_accept_before_execution(
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
@@ -313,7 +372,7 @@ class TestConversationRun:
         await consumer._handle_conversation_run(msg)
 
         run.assert_not_awaited()
-        assert client.settlements() == []
+        assert client.settlements() == ["nak"], "an unconfirmed accept releases the message"
         assert _published(consumer) == []
         assert "conv-1" not in consumer._active_runs, "the redelivery must be accepted"
 
@@ -330,6 +389,48 @@ class TestConversationRun:
         ]
         assert [(c["run_id"], c["status"]) for c in completions] == [("conv-err", "failed")]
         assert client.settlements() == ["ack(sync)"]
+
+    async def test_failure_after_the_completion_is_not_reported_twice(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run whose completion was published is over: a later cleanup error must not fail it again."""
+        _patch_conversation_pipeline(consumer, monkeypatch)
+        original_stop = RuntimeClient.stop_cancel_listener
+
+        async def stop_then_fail(runtime: RuntimeClient) -> None:
+            await original_stop(runtime)
+            raise RuntimeError("unsubscribe failed")
+
+        monkeypatch.setattr(RuntimeClient, "stop_cancel_listener", stop_then_fail)
+        msg, _ = jetstream_msg(_conversation_payload("conv-done"), subject="conversation.run.start")
+
+        await consumer._handle_conversation_run(msg)
+
+        completions = _conversation_completions(consumer)
+        assert [(c["run_id"], c["status"]) for c in completions] == [("conv-done", "completed")]
+
+    async def test_lost_completion_publish_is_retried_with_one_message_id(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Go Core deduplicates completions by Nats-Msg-Id only, so a retry must repeat it."""
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+        js = RecordingJetStream(failing_times={"conversation.run.complete": 1})
+        consumer._js = js  # type: ignore[assignment]
+        _patch_conversation_pipeline(consumer, monkeypatch)
+        msg, _ = jetstream_msg(_conversation_payload("conv-retry"), subject="conversation.run.start")
+
+        await consumer._handle_conversation_run(msg)
+
+        completions = _conversation_completions(consumer)
+        assert [(c["run_id"], c["status"]) for c in completions] == [("conv-retry", "completed")]
+        ids = [
+            (headers or {}).get("Nats-Msg-Id")
+            for subject, headers in zip(js.attempts, js.attempt_headers, strict=True)
+            if subject == "conversation.run.complete"
+        ]
+        assert len(ids) == 2
+        assert ids[0]
+        assert ids[0] == ids[1]
 
     async def test_runtime_is_closed_when_the_run_fails(
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
@@ -429,10 +530,18 @@ async def test_message_loop_survives_a_handler_error(consumer: TaskConsumer) -> 
 # ---------------------------------------------------------------------------
 
 
-def _benchmark_payload() -> bytes:
+def _benchmark_payload(tenant_id: str = "") -> bytes:
     from codeforge.models import BenchmarkRunRequest
 
-    return BenchmarkRunRequest(run_id="bench-1", dataset_path="/data/b.yaml", model="m").model_dump_json().encode()
+    return (
+        BenchmarkRunRequest(run_id="bench-1", tenant_id=tenant_id, dataset_path="/data/b.yaml", model="m")
+        .model_dump_json()
+        .encode()
+    )
+
+
+def _benchmark_results(worker: TaskConsumer) -> list[dict[str, object]]:
+    return [json.loads(data) for subject, data in _published(worker) if subject == "benchmark.run.result"]
 
 
 class TestBenchmarkRun:
@@ -473,7 +582,40 @@ class TestBenchmarkRun:
         await asyncio.sleep(0.02)
 
         execute.assert_not_awaited()
-        assert client.settlements() == []
+        assert client.settlements() == ["nak"], "an unconfirmed accept releases the message"
+
+    async def test_litellm_unavailable_fails_the_requested_run(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The failed result must name the run and its tenant, or the Go Core cannot end the run."""
+        monkeypatch.setattr("codeforge.consumer._benchmark._wait_for_litellm", AsyncMock(return_value=False))
+        msg, client = jetstream_msg(_benchmark_payload(tenant_id="t1"), subject="benchmark.run.request")
+
+        await consumer._handle_benchmark_run(msg)
+
+        results = _benchmark_results(consumer)
+        assert [(r["run_id"], r["tenant_id"], r["status"]) for r in results] == [("bench-1", "t1", "failed")]
+        assert "LiteLLM" in str(results[0]["error"])
+        assert client.settlements() == ["ack"]
+
+    async def test_lost_failure_result_is_retried(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import structlog
+
+        from codeforge.models import BenchmarkRunRequest
+
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+        consumer._js = RecordingJetStream(failing_times={"benchmark.run.result": 1})  # type: ignore[assignment]
+        monkeypatch.setattr(
+            "codeforge.consumer._benchmark._build_evaluators", MagicMock(side_effect=RuntimeError("no evaluator"))
+        )
+        request = BenchmarkRunRequest.model_validate_json(_benchmark_payload(tenant_id="t1"))
+
+        await consumer._execute_benchmark_run(request, structlog.get_logger())
+
+        results = _benchmark_results(consumer)
+        assert [(r["run_id"], r["tenant_id"], r["status"]) for r in results] == [("bench-1", "t1", "failed")]
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +752,35 @@ class TestRuntimeCancelListener:
         assert not runtime.is_cancelled
         await runtime.close()
 
+    async def test_cancel_subscriptions_need_no_acks(self) -> None:
+        """The listener never acks: with explicit acks JetStream would redeliver every cancel
+        message and stop delivering once MaxAckPending messages are outstanding."""
+        js = RecordingJetStream()
+        runtime = RuntimeClient(js=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+        await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
+        configs = [sub.config for sub in js.subscriptions]
+        await runtime.close()
+
+        assert [(c.ack_policy, c.deliver_policy) for c in configs] == [(AckPolicy.NONE, DeliverPolicy.NEW)] * 2
+
+    async def test_tool_call_response_subscription_needs_no_acks(self) -> None:
+        js = RecordingJetStream()
+        runtime = RuntimeClient(js=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+
+        request = asyncio.create_task(runtime.request_tool_call("read_file", path="a.py"))
+        for _ in range(500):
+            if js.published:
+                break
+            await asyncio.sleep(0.001)
+        call_id = json.loads(js.published[0][1])["call_id"]
+        js.subscriptions[0].deliver(json.dumps({"call_id": call_id, "decision": "allow"}).encode())
+        decision = await asyncio.wait_for(request, timeout=2)
+
+        assert decision.decision == "allow"
+        config = js.subscriptions[0].config
+        assert (config.ack_policy, config.deliver_policy) == (AckPolicy.NONE, DeliverPolicy.NEW)
+        assert js.subscriptions[0].unsubscribed
+
 
 # ---------------------------------------------------------------------------
 # CPU-bound indexing must not block the event loop (heartbeats, other loops)
@@ -653,6 +824,46 @@ class TestIndexingRunsOffTheEventLoop:
         assert status.status == "empty"
         assert on_main_thread == [False]
 
+    async def test_retrieval_index_is_built_in_a_worker_thread(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """BM25 indexing and embedding decoding scale with the repository; full and incremental builds."""
+        import httpx
+
+        from codeforge import retrieval
+
+        (tmp_path / "a.py").write_text("def alpha():\n    return 1\n")
+        retriever = retrieval.HybridRetriever()
+
+        async def post(_url: str, json: dict[str, object]) -> httpx.Response:
+            vectors = [{"index": i, "embedding": [0.1, 0.2, 0.3]} for i in range(len(json["input"]))]  # type: ignore[arg-type]
+            return httpx.Response(200, json={"data": vectors}, request=httpx.Request("POST", "http://litellm"))
+
+        monkeypatch.setattr(retriever, "_get_client", lambda: SimpleNamespace(post=post))
+        tokenized_on_main: list[bool] = []
+        decoded_on_main: list[bool] = []
+        real_tokenize = retrieval.bm25s.tokenize
+        real_decode = retrieval._decode_embeddings
+
+        def tokenize(*args: object, **kwargs: object) -> object:
+            tokenized_on_main.append(threading.current_thread() is threading.main_thread())
+            return real_tokenize(*args, **kwargs)
+
+        def decode(*args: object) -> object:
+            decoded_on_main.append(threading.current_thread() is threading.main_thread())
+            return real_decode(*args)
+
+        monkeypatch.setattr(retrieval.bm25s, "tokenize", tokenize)
+        monkeypatch.setattr(retrieval, "_decode_embeddings", decode)
+
+        full = await retriever.build_index(project_id="p1", workspace_path=str(tmp_path))
+        (tmp_path / "b.py").write_text("def beta():\n    return 2\n")
+        incremental = await retriever.build_index(project_id="p1", workspace_path=str(tmp_path))
+
+        assert (full.status, incremental.status, incremental.incremental) == ("ready", "ready", True)
+        assert tokenized_on_main == [False, False]
+        assert decoded_on_main == [False, False]
+
     async def test_graph_extraction_runs_in_a_worker_thread(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -666,3 +877,192 @@ class TestIndexingRunsOffTheEventLoop:
 
         assert result.status == "ready"
         assert on_main_thread == [False]
+
+
+# ---------------------------------------------------------------------------
+# A worker that gives up exits promptly and fails its accepted work (ADR-016)
+# ---------------------------------------------------------------------------
+
+_FAILING_SUBJECT = "graph.search.request"
+
+
+class _Work:
+    """Stands in for accepted work: runs until it is cancelled, or for *seconds* and then returns *returns*."""
+
+    def __init__(self, seconds: float | None = None, returns: object = None) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = False
+        self._seconds = seconds
+        self._returns = returns
+
+    async def __call__(self, *_args: object, **_kwargs: object) -> object:
+        self.started.set()
+        try:
+            if self._seconds is None:
+                await asyncio.Event().wait()
+            else:
+                await asyncio.sleep(self._seconds)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        return self._returns
+
+
+def _install_task_work(consumer: TaskConsumer, _monkeypatch: pytest.MonkeyPatch, work: _Work) -> None:
+    consumer._backend_router = MagicMock()
+    consumer._backend_router.execute = work
+
+
+def _install_run_work(consumer: TaskConsumer, _monkeypatch: pytest.MonkeyPatch, work: _Work) -> None:
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = work
+
+
+def _install_conversation_work(consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, work: _Work) -> None:
+    monkeypatch.setattr(consumer, "_run_conversation", work)
+
+
+def _install_benchmark_work(consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, work: _Work) -> None:
+    monkeypatch.setenv("APP_ENV", "development")
+    get_settings.cache_clear()
+    monkeypatch.setattr("codeforge.consumer._benchmark._wait_for_litellm", AsyncMock(return_value=True))
+    monkeypatch.setattr("codeforge.consumer._benchmark._validate_model_exists", AsyncMock())
+    monkeypatch.setattr(consumer, "_execute_benchmark_run", work)
+
+
+async def _start_until_given_up(
+    consumer: TaskConsumer,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    subscription: str,
+    msg: object,
+    work: _Work,
+    grace: float,
+) -> float:
+    """Run TaskConsumer.start: *msg* is accepted on *subscription*, then another loop fails for good.
+
+    Returns how long start() took.
+    """
+    monkeypatch.setattr("codeforge.consumer._HEALTHY_SENTINEL", tmp_path / "codeforge-worker-healthy")
+    monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 2)
+    monkeypatch.setattr("codeforge.consumer._BACKOFF_MULTIPLIER", 0.0)
+    monkeypatch.setattr("codeforge.consumer._GIVE_UP_GRACE_SECONDS", grace)
+    monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+    js = consumer._js
+    js.find_stream_name_by_subject = AsyncMock(return_value="CODEFORGE")  # type: ignore[union-attr]
+    nc = MagicMock()
+    nc.jetstream = MagicMock(return_value=js)
+    monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=nc))
+    pending = [msg]
+
+    async def ensure(_js: object, _name: str, subject: str) -> MagicMock:
+        async def fetch(**_kwargs: object) -> list[object]:
+            if subject == subscription and pending:
+                return [pending.pop()]
+            if subject == _FAILING_SUBJECT:
+                await work.started.wait()
+                raise ConnectionError("connection lost")
+            await asyncio.sleep(0.01)
+            raise nats.errors.TimeoutError
+
+        sub = MagicMock()
+        sub.fetch = fetch
+        sub.unsubscribe = AsyncMock()
+        return sub
+
+    monkeypatch.setattr("codeforge.consumer.ensure_durable", ensure)
+    started_at = time.monotonic()
+    await asyncio.wait_for(consumer.start(), timeout=10)
+    return time.monotonic() - started_at
+
+
+ACCEPTED_WORK = [
+    pytest.param(
+        "tasks.agent.*",
+        "tasks.agent.aider",
+        _task_payload("task-hang"),
+        _install_task_work,
+        "tasks.result",
+        "task_id",
+        "task-hang",
+        id="tasks.agent",
+    ),
+    pytest.param(
+        "runs.start",
+        "runs.start",
+        _run_start_payload("run-hang"),
+        _install_run_work,
+        "runs.complete",
+        "run_id",
+        "run-hang",
+        id="runs.start",
+    ),
+    pytest.param(
+        "conversation.run.start",
+        "conversation.run.start",
+        _conversation_payload("conv-hang"),
+        _install_conversation_work,
+        "conversation.run.complete",
+        "run_id",
+        "conv-hang",
+        id="conversation.run.start",
+    ),
+    pytest.param(
+        "benchmark.run.request",
+        "benchmark.run.request",
+        _benchmark_payload(),
+        _install_benchmark_work,
+        "benchmark.run.result",
+        "run_id",
+        "bench-1",
+        id="benchmark.run.request",
+    ),
+]
+
+
+class TestGiveUpFailsAcceptedWork:
+    @pytest.mark.parametrize(
+        ("subscription", "subject", "payload", "install", "result_subject", "id_field", "work_id"), ACCEPTED_WORK
+    )
+    async def test_unfinished_work_is_failed_and_the_worker_exits(
+        self,
+        consumer: TaskConsumer,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        subscription: str,
+        subject: str,
+        payload: bytes,
+        install: object,
+        result_subject: str,
+        id_field: str,
+        work_id: str,
+    ) -> None:
+        """Accepted work is never redelivered: without a failed completion the Go Core waits for a timeout."""
+        work = _Work()
+        install(consumer, monkeypatch, work)  # type: ignore[operator]
+        msg, client = jetstream_msg(payload, subject=subject)
+
+        await _start_until_given_up(consumer, monkeypatch, tmp_path, subscription, msg, work, grace=0.05)
+
+        assert consumer.failed is True
+        assert work.cancelled, "the work must not outlive the worker"
+        results = [json.loads(data) for published, data in _published(consumer) if published == result_subject]
+        assert [(r[id_field], r["status"]) for r in results] == [(work_id, "failed")]
+        assert "worker stopped" in str(results[0]["error"])
+        assert client.settlements()[0] == "ack(sync)"
+
+    async def test_work_that_finishes_within_the_grace_period_is_not_failed(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from codeforge.backends._base import TaskResult as BackendTaskResult
+
+        work = _Work(seconds=0.05, returns=BackendTaskResult(status="completed", output="ok"))
+        _install_task_work(consumer, monkeypatch, work)
+        msg, _ = jetstream_msg(_task_payload("task-quick"), subject="tasks.agent.aider")
+
+        elapsed = await _start_until_given_up(consumer, monkeypatch, tmp_path, "tasks.agent.*", msg, work, grace=5.0)
+
+        assert consumer.failed is True
+        assert not work.cancelled
+        assert [(r["task_id"], r["status"]) for r in _task_results(consumer)] == [("task-quick", "completed")]
+        assert elapsed < 5.0, "the worker exits as soon as its accepted work is done, not after the whole grace period"

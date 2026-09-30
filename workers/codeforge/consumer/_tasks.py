@@ -50,45 +50,45 @@ class TaskHandlerMixin:
             self._clear_processed(dedup_key)
             return
 
-        try:
-            log.info("received task", title=task.title)
-
-            await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id, task.tenant_id)
-
-            backend_result: BackendTaskResult = await self._backend_router.execute(
-                backend_name=backend_name,
-                task_id=task.id,
-                prompt=task.prompt,
-                workspace_path=task.config.get("workspace_path", ""),
-                config=task.config,
-                on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id, task.tenant_id),
-            )
-            result = TaskResult(
-                task_id=task.id,
-                tenant_id=task.tenant_id,
-                project_id=task.project_id,
-                status=TaskStatus.COMPLETED if backend_result.status == "completed" else TaskStatus.FAILED,
-                output=backend_result.output,
-                error=backend_result.error,
-            )
-        except Exception as exc:
-            log.exception("task failed", error=str(exc))
-            result = TaskResult(
+        def failed(error: str) -> TaskResult:
+            return TaskResult(
                 task_id=task.id,
                 tenant_id=task.tenant_id,
                 project_id=task.project_id,
                 status=TaskStatus.FAILED,
-                error=str(exc),
+                error=error,
             )
 
-        await self._publish_task_result(result, log)
-        log.info("task completed", status=result.status, backend=backend_name)
+        async def report_failure(reason: str) -> None:
+            await self._publish_result(failed(reason), SUBJECT_RESULT)
 
-    async def _publish_task_result(self, result: TaskResult, log: structlog.BoundLogger) -> None:
-        """Publish a task result; the task is already accepted, so a lost result is only logged."""
-        if self._js is None:
-            return
-        try:
-            await self._js.publish(SUBJECT_RESULT, result.model_dump_json().encode())
-        except Exception as exc:
-            log.exception("failed to publish task result", status=result.status, error=str(exc))
+        with self._in_flight.track(f"task {task.id}", report_failure):
+            try:
+                log.info("received task", title=task.title)
+
+                await self._publish_output(
+                    task.id, f"Starting task: {task.title}", "stdout", request_id, task.tenant_id
+                )
+
+                backend_result: BackendTaskResult = await self._backend_router.execute(
+                    backend_name=backend_name,
+                    task_id=task.id,
+                    prompt=task.prompt,
+                    workspace_path=task.config.get("workspace_path", ""),
+                    config=task.config,
+                    on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id, task.tenant_id),
+                )
+                result = TaskResult(
+                    task_id=task.id,
+                    tenant_id=task.tenant_id,
+                    project_id=task.project_id,
+                    status=TaskStatus.COMPLETED if backend_result.status == "completed" else TaskStatus.FAILED,
+                    output=backend_result.output,
+                    error=backend_result.error,
+                )
+            except Exception as exc:
+                log.exception("task failed", error=str(exc))
+                result = failed(str(exc))
+
+            await self._publish_result(result, SUBJECT_RESULT)
+        log.info("task completed", status=result.status, backend=backend_name)

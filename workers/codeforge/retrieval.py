@@ -352,6 +352,25 @@ def _file_sha256(path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# CPU-bound index helpers (run in worker threads, they touch no shared state)
+# ---------------------------------------------------------------------------
+
+
+def _build_bm25(corpus: list[str]) -> bm25s.BM25:
+    """Tokenize *corpus* and build its BM25 index."""
+    bm25 = bm25s.BM25()
+    bm25.index(bm25s.tokenize(corpus))
+    return bm25
+
+
+def _decode_embeddings(resp: httpx.Response) -> np.ndarray:
+    """Decode a /v1/embeddings response into a matrix ordered by input index."""
+    embeddings_data: list[dict[str, object]] = resp.json().get("data", [])
+    embeddings_data.sort(key=lambda d: int(d.get("index", 0)))
+    return np.array([item["embedding"] for item in embeddings_data], dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------
 # HybridRetriever -- BM25 + semantic search with RRF fusion
 # ---------------------------------------------------------------------------
 
@@ -464,11 +483,9 @@ class HybridRetriever:
                 embedding_model=embedding_model,
             )
 
-        # Build BM25
+        # Build BM25 off the event loop: it scales with the repository.
         corpus = [c.content for c in chunks]
-        corpus_tokens = bm25s.tokenize(corpus)
-        bm25 = bm25s.BM25()
-        bm25.index(corpus_tokens)
+        bm25 = await asyncio.to_thread(_build_bm25, corpus)
 
         # Embed all chunks
         embeddings = await self._embed_texts(corpus, embedding_model)
@@ -580,14 +597,13 @@ class HybridRetriever:
                 files_unchanged=files_unchanged,
             )
 
-        # Concatenate embeddings.
-        all_embeddings = np.concatenate(embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
-
-        # Rebuild BM25 (always full — it's fast).
+        # Concatenate embeddings and rebuild BM25 (always full) off the event
+        # loop: both scale with the repository.
+        all_embeddings = (
+            await asyncio.to_thread(np.concatenate, embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
+        )
         corpus = [c.content for c in chunks]
-        corpus_tokens = bm25s.tokenize(corpus)
-        bm25 = bm25s.BM25()
-        bm25.index(corpus_tokens)
+        bm25 = await asyncio.to_thread(_build_bm25, corpus)
 
         index = ProjectIndex(
             project_id=project_id,
@@ -722,14 +738,8 @@ class HybridRetriever:
             json={"input": texts, "model": model},
         )
         resp.raise_for_status()
-        data = resp.json()
-
-        # Sort by index to ensure correct ordering
-        embeddings_data: list[dict[str, object]] = data.get("data", [])
-        embeddings_data.sort(key=lambda d: int(d.get("index", 0)))
-
-        vectors = [item["embedding"] for item in embeddings_data]
-        return np.array(vectors, dtype=np.float32)
+        # Decoding a whole corpus' vectors is CPU-bound: keep it off the event loop.
+        return await asyncio.to_thread(_decode_embeddings, resp)
 
     @staticmethod
     def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:

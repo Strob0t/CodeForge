@@ -7,10 +7,12 @@ settlement (ack, nak, term, in-progress), see ``tests.jetstream_fakes``.
 from __future__ import annotations
 
 import asyncio
+import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
+import nats.errors
 import nats.js.errors
 import pytest
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
@@ -24,8 +26,9 @@ from codeforge.consumer._delivery import (
     is_last_attempt,
     keep_in_progress,
 )
-from codeforge.nats_subjects import ACK_WAIT_SECONDS, MAX_DELIVER, NAK_DELAY_SECONDS, STREAM_NAME
-from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
+from codeforge.nats_publish import PUBLISH_ATTEMPTS
+from codeforge.nats_subjects import ACCEPT_ATTEMPTS, ACK_WAIT_SECONDS, MAX_DELIVER, NAK_DELAY_SECONDS, STREAM_NAME
+from tests.jetstream_fakes import RecordingClient, RecordingJetStream, jetstream_msg
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -195,36 +198,51 @@ class TestDeliveryAttempt:
 # ---------------------------------------------------------------------------
 
 
+async def _wait_for_progress(client: RecordingClient, count: int) -> None:
+    """Wait until *count* in-progress acks were sent; the deadline only bounds a broken implementation."""
+    deadline = time.monotonic() + 5.0
+    while client.settlements().count("progress") < count:
+        if time.monotonic() > deadline:
+            pytest.fail(f"in-progress acks: {client.settlements().count('progress')}, want at least {count}")
+        await asyncio.sleep(0.001)
+
+
 class TestKeepInProgress:
     async def test_reports_progress_while_the_block_runs(self) -> None:
         msg, client = jetstream_msg(b"{}")
 
-        async with keep_in_progress(msg, interval=0.02):
-            await asyncio.sleep(0.11)
+        async with keep_in_progress(msg, interval=0.005):
+            await _wait_for_progress(client, 3)
         count = client.settlements().count("progress")
-        await asyncio.sleep(0.06)
+        await asyncio.sleep(0.04)  # eight intervals
 
-        assert count >= 3
         assert client.settlements().count("progress") == count, "no progress after the block exits"
 
     async def test_stops_once_the_message_is_settled(self) -> None:
         msg, client = jetstream_msg(b"{}")
 
-        async with keep_in_progress(msg, interval=0.02):
+        async with keep_in_progress(msg, interval=0.005):
             await msg.ack()
-            await asyncio.sleep(0.08)
+            await asyncio.sleep(0.04)  # eight intervals
 
         assert client.settlements() == ["ack"]
 
     async def test_stops_at_the_limit(self) -> None:
-        """A hung handler is reported in progress only up to the limit, then JetStream redelivers it."""
+        """A hung handler is reported in progress only up to the limit, then JetStream redelivers it.
+
+        The limit is measured with an injected clock, so the test does not depend on scheduling.
+        """
+        now = [0.0]
         msg, client = jetstream_msg(b"{}")
 
-        async with keep_in_progress(msg, interval=0.01, limit=0.035):
-            await asyncio.sleep(0.15)
+        async with keep_in_progress(msg, interval=0.005, limit=60.0, clock=lambda: now[0]):
+            await _wait_for_progress(client, 2)
+            now[0] = 60.5
             count = client.settlements().count("progress")
+            await asyncio.sleep(0.04)  # eight intervals
+            after = client.settlements().count("progress")
 
-        assert 2 <= count <= 4
+        assert after == count
 
     async def test_failed_progress_ack_does_not_break_the_handler(self) -> None:
         msg, client = jetstream_msg(b"{}")
@@ -258,7 +276,7 @@ class TestMessageLoopHeartbeat:
         sub.fetch = fetch
 
         async def slow_handler(m: object) -> None:
-            await asyncio.sleep(0.1)
+            await _wait_for_progress(client, 2)
             await msg.ack()
 
         await consumer._message_loop(sub, slow_handler, "test.request")
@@ -322,11 +340,67 @@ class TestMessageLoopConsumerLifecycle:
             raise AssertionError("no message expected")
 
         await consumer._message_loop(sub, handler, "test.request")
+        await consumer._abort_task
 
         assert sub.fetch.await_count == 3
         assert consumer.failed is True
         assert consumer._running is False
         assert not consumer_module._HEALTHY_SENTINEL.exists()
+
+    async def test_idle_fetches_reset_the_error_count(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An answered fetch without messages is a healthy idle: separate error episodes do not add up."""
+        monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 3)
+        idle = nats.errors.TimeoutError()
+        script: list[BaseException] = [ConnectionError("blip"), ConnectionError("blip"), idle] * 3
+
+        async def fetch(**_kwargs: object) -> list[object]:
+            if not script:
+                consumer._running = False
+                raise idle
+            raise script.pop(0)
+
+        sub = MagicMock()
+        sub.fetch = fetch
+
+        async def handler(_m: object) -> None:
+            raise AssertionError("no message expected")
+
+        await consumer._message_loop(sub, handler, "test.request")
+
+        assert consumer.failed is False
+
+    async def test_reattach_resets_the_error_count(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A durable that was deleted and re-attached successfully is healthy again."""
+        monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 2)
+        deletions = 3
+
+        async def fetch(**_kwargs: object) -> list[object]:
+            nonlocal deletions
+            if deletions:
+                deletions -= 1
+                raise nats.js.errors.ServiceUnavailableError()
+            consumer._running = False
+            raise nats.errors.TimeoutError
+
+        def subscription() -> MagicMock:
+            sub = MagicMock()
+            sub.fetch = fetch
+            sub.unsubscribe = AsyncMock()
+            return sub
+
+        reattach = AsyncMock(side_effect=lambda: subscription())
+
+        async def handler(_m: object) -> None:
+            raise AssertionError("no message expected")
+
+        await consumer._message_loop(subscription(), handler, "test.request", reattach=reattach)
+
+        assert reattach.await_count == 3
+        assert consumer.failed is False
 
     async def test_main_exits_non_zero_when_the_worker_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import codeforge.consumer as consumer_module
@@ -540,8 +614,25 @@ class TestHandleRequest:
         assert client.settlements() == ["ack(sync)"]
         assert js.published == []
 
+    async def test_unconfirmed_ack_is_retried(self) -> None:
+        """Repeating the double ack is idempotent: the server confirms an ack it already applied."""
+        js = RecordingJetStream()
+        worker = _Worker(js)
+        msg, client = jetstream_msg(VALID)
+        client.failing_requests = ACCEPT_ATTEMPTS - 1
+
+        await worker.handle(msg, ack_on_accept=True)
+
+        assert worker.calls == ["j1"]
+        assert client.request_count == ACCEPT_ATTEMPTS
+        assert client.settlements() == ["ack(sync)"]
+
     async def test_unconfirmed_accept_does_not_start_the_work(self) -> None:
-        """If the ack on accept is not confirmed the message may be redelivered: do not run it now."""
+        """If the ack on accept is never confirmed the work is not started and the message is released.
+
+        The NAK hands a message whose ack never arrived to the next worker at
+        once; the server ignores it for a message whose ack did arrive.
+        """
         js = RecordingJetStream()
         worker = _Worker(js)
         msg, client = jetstream_msg(VALID)
@@ -550,7 +641,8 @@ class TestHandleRequest:
         await worker.handle(msg, ack_on_accept=True)
 
         assert worker.calls == []
-        assert client.settlements() == []
+        assert client.request_count == ACCEPT_ATTEMPTS
+        assert client.settlements() == ["nak"]
         assert js.published == []
 
         redelivered, redelivered_client = jetstream_msg(VALID, num_delivered=2)
@@ -603,3 +695,35 @@ class TestMoveToDlq:
         await worker._move_to_dlq(msg, terminate=True)
 
         assert client.settlements() == ["term"]
+
+
+# ---------------------------------------------------------------------------
+# Results and completions that must not be lost (ADR-016)
+# ---------------------------------------------------------------------------
+
+
+class TestPublishResult:
+    @pytest.fixture(autouse=True)
+    def _no_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+
+    async def test_transient_failure_is_retried(self) -> None:
+        js = RecordingJetStream(failing_times={"test.result": 1})
+        worker = _Worker(js)
+
+        await worker._publish_result(_Result(job_id="j1", ok=False), "test.result")
+
+        assert js.attempts == ["test.result", "test.result"]
+        assert js.published == [("test.result", _Result(job_id="j1", ok=False).model_dump_json().encode())]
+
+    async def test_final_failure_is_logged_not_raised(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        js = RecordingJetStream(failing={"test.result"})
+        worker = _Worker(js)
+        log = MagicMock()
+        monkeypatch.setattr("codeforge.consumer._base.logger", log)
+
+        await worker._publish_result(_Result(job_id="j1"), "test.result")
+
+        assert js.attempts == ["test.result"] * PUBLISH_ATTEMPTS
+        log.exception.assert_called_once()
+        assert log.exception.call_args.kwargs["subject"] == "test.result"

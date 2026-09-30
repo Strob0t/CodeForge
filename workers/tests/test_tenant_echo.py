@@ -148,8 +148,12 @@ async def test_runtime_client_without_tenant_sends_empty_tenant() -> None:
         assert payload["tenant_id"] == ""
 
 
+class _RunHandler(RunHandlerMixin, ConsumerBaseMixin):
+    """The run mixin with the shared consumer helpers, as in TaskConsumer."""
+
+
 async def test_run_start_passes_tenant_to_runtime_client() -> None:
-    handler = RunHandlerMixin()
+    handler = _RunHandler()
     handler._js = _js()
     handler._executor = SimpleNamespace(execute_with_runtime=AsyncMock())
     run_msg = RunStartMessage(
