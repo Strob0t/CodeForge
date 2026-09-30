@@ -84,8 +84,10 @@ services:
       POSTGRES_DB: codeforge
       POSTGRES_USER: codeforge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeforge_dev}
+    # PostgreSQL 18+ images keep PGDATA in /var/lib/postgresql/18/docker and
+    # refuse to start with a mount at /var/lib/postgresql/data: mount the parent.
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     shm_size: 256mb
     command: >
       postgres
@@ -95,7 +97,7 @@ services:
         -c log_line_prefix='%t [%p] %q%u@%d '
         -c wal_level=replica
         -c archive_mode=on
-        -c archive_command='mkdir -p /var/lib/postgresql/data/archive && test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f'
+        -c archive_command='mkdir -p /var/lib/postgresql/archive && test ! -f /var/lib/postgresql/archive/%f && cp %p /var/lib/postgresql/archive/%f'
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U codeforge" ]
       interval: 5s
