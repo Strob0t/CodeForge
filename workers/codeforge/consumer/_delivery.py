@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import hashlib
 from typing import TYPE_CHECKING
 
 import structlog
@@ -119,6 +120,17 @@ def stream_sequence(msg: Msg) -> int | None:
         return int(msg.metadata.sequence.stream)
     except NotJSMessageError:
         return None
+
+
+def message_identity(msg: Msg) -> str:
+    """Identify one published message: its stream position, which its redeliveries share.
+
+    A message without JetStream metadata is identified by its content.
+    """
+    seq = stream_sequence(msg)
+    if seq is not None:
+        return str(seq)
+    return hashlib.sha256(msg.data).hexdigest()[:16]
 
 
 def is_last_attempt(msg: Msg) -> bool:

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 import structlog
 from pydantic import ValidationError
 
-from codeforge.consumer._delivery import delivery_attempt, dlq_headers, is_last_attempt
+from codeforge.consumer._delivery import delivery_attempt, dlq_headers, is_last_attempt, message_identity
 from codeforge.consumer._in_flight import InFlightWork
 from codeforge.consumer._subjects import (
     ACCEPT_ATTEMPTS,
@@ -228,6 +228,12 @@ class ConsumerBaseMixin:
         then dead-lettered. With *ack_on_accept* (at-most-once, for runs that
         are not safe to execute twice) the message is acked before the handler
         runs and a failure is not retried; the Go Core owns the run's outcome.
+
+        Duplicates: at-least-once work is deduplicated per message (its
+        redeliveries), so a second request with the same *dedup_key* (a new
+        repo map for the same project) runs again (KI-66); its handler is
+        idempotent. At-most-once work is deduplicated by *dedup_key* (the run
+        ID), so no second message ever executes the same run.
         """
         request = await self._parse_request(msg, request_model)
         if request is None:
@@ -235,6 +241,8 @@ class ConsumerBaseMixin:
         log = logger.bind(**(log_context(request) if log_context else {}))
 
         key = dedup_key(request)
+        if not ack_on_accept:
+            key = f"{key}@{message_identity(msg)}"
         if self._is_duplicate(key):
             log.warning("duplicate request, skipping", dedup_key=key)
             await msg.ack()

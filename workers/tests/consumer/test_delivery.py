@@ -560,6 +560,35 @@ class TestHandleRequest:
         assert worker.calls == ["j1"]
         assert again_client.settlements() == ["ack"]
 
+    async def test_a_new_request_with_the_same_key_is_processed(self) -> None:
+        """Deduplication is per request (KI-66): a second repo map or index request for the same project
+        is a new message (its own stream position) and runs; only redeliveries of one message are skipped."""
+        js = RecordingJetStream()
+        worker = _Worker(js)
+        first, _ = jetstream_msg(VALID, stream_seq=10)
+        await worker.handle(first)
+        second, second_client = jetstream_msg(VALID, stream_seq=11)
+        await worker.handle(second)
+        redelivered, redelivered_client = jetstream_msg(VALID, stream_seq=11, num_delivered=2)
+        await worker.handle(redelivered)
+
+        assert worker.calls == ["j1", "j1"]
+        assert second_client.settlements() == ["ack"]
+        assert redelivered_client.settlements() == ["ack"]
+        assert js.subjects() == ["test.result", "test.result"]
+
+    async def test_at_most_once_work_is_deduplicated_by_its_key(self) -> None:
+        """A run must never execute twice: a second message for the same run is a duplicate."""
+        js = RecordingJetStream()
+        worker = _Worker(js)
+        first, _ = jetstream_msg(VALID, stream_seq=10)
+        await worker.handle(first, ack_on_accept=True)
+        second, second_client = jetstream_msg(VALID, stream_seq=11)
+        await worker.handle(second, ack_on_accept=True)
+
+        assert worker.calls == ["j1"]
+        assert second_client.settlements() == ["ack"]
+
     async def test_failure_on_last_attempt_is_dead_lettered_and_acked(self) -> None:
         js = RecordingJetStream()
         worker = _Worker(js)

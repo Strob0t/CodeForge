@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.consumer._delivery import message_identity
+
 if TYPE_CHECKING:
     import nats.aio.msg
 
@@ -42,7 +44,8 @@ class HandoffHandlerMixin:
                 target_mode=target_mode,
             )
 
-            if self._is_duplicate(f"handoff-{source_run}-{target_agent}"):
+            # Per request (KI-66): a later handoff between the same run and agent is a new one.
+            if self._is_duplicate(f"handoff-{source_run}-{target_agent}@{message_identity(msg)}"):
                 log.warning("duplicate handoff request, skipping")
                 await msg.ack()
                 return
