@@ -85,6 +85,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - Config: `MaxLoopIterations` (50), `MaxContextTokens` (128K), `ContextEnabled` (true), `ContextBudget` (2048), `ContextPromptReserve` (512), `ApprovalTimeoutSeconds` (60)
 - **Adaptive Context Budget:** Linear decay from `ContextBudget` to 0 over 60 messages — `internal/service/context_budget.go`
 - **Auto-Indexing:** Clone/Adopt/Setup trigger RepoMap + Retrieval Index + GraphRAG — `internal/service/project.go` (`AutoIndex`), called from `internal/adapter/http/handlers_project.go`
+- Runs (`runs.start`) use the same loop in the run's project workspace (shared setup: `workers/codeforge/loop_config.py` `build_loop_config`, `resolve_model_and_fallbacks`; no skill tools, no Claude Code models), with heartbeats and a Go decision per LLM and tool call
 - Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`, `internal/service/runtime_execution.go`, `internal/service/runtime_lifecycle.go`
 
 ### Chat Enhancements — **implemented**
@@ -269,7 +270,8 @@ When modifying code that crosses the Go/Python boundary via NATS, verify ALL:
 - Workspace-changing work (`runs.start`, `conversation.run.start`, `tasks.agent.*`, `benchmark.run.request`) is at-most-once: accepted with a confirmed double ack (`ack_sync`, retried 3 times; unconfirmed -> NAK, work not started), registered in `self._in_flight`, and its failure is reported as a failed completion; completions go through `_publish_result` / `publish_with_retry` (retries, one `Nats-Msg-Id`). Every other subject is at-least-once and its handler must be idempotent
 - Settle every message exactly once: success or a published error result -> ack; failure -> `_retry_or_dead_letter` (NAK with delay, DLQ + ack on the last attempt, from `num_delivered`); invalid payload -> `_reject_invalid` (DLQ + `term`). Never NAK an invalid payload, never ack without a DLQ copy (DLQ copies drop `Nats-*` headers)
 - Duplicate guards (skip if already `"completed"`); a failed request is removed from the dedup cache
-- Notification subscriptions (per-run cancel listeners, tool-call responses) use deliver policy `new` and ack policy `none`; Go keeps handlers in progress up to `Queue.SetMaxHandlerDuration` (covers the HITL approval timeout)
+- Notification subscriptions (per-run and per-task cancel listeners, one `runtime.listen_for_cancel` helper; tool-call responses) use deliver policy `new` and ack policy `none`; Go keeps handlers in progress up to `Queue.SetMaxHandlerDuration` (covers the HITL approval timeout). The worker waits for a tool-call decision up to the approval timeout (`approval_timeout_seconds` on `runs.start` / `conversation.run.start`, default 60 s) plus 15 s
+- `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`); backend CLIs run in their own process group, which `tasks.cancel` stops (result status `cancelled`)
 - A worker whose consumer loop gives up fails its unfinished accepted work (30 s grace) and exits 1
 
 ### Error Handling

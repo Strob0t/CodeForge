@@ -688,7 +688,9 @@ paths:
       summary: Start a new agent run
       description: |
         Creates and starts a new run for a given task and agent.
-        Requires admin or editor role.
+        Requires admin or editor role. Rejected with 400 before anything is
+        created when the project has no workspace, or when the task or the
+        agent belongs to another project.
       operationId: startRun
       security:
         - bearerAuth: []

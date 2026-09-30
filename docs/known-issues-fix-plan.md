@@ -24,7 +24,7 @@
 |---|---|---|---|
 | **S0** | Green CI with complete gates | KI-1, KI-2, KI-3 | M |
 | **S1** | Policy and security enforcement | ~~KI-4~~, ~~KI-5~~, ~~KI-6~~, ~~KI-7~~, ~~KI-8~~, ~~KI-9~~, ~~KI-10~~, ~~KI-11~~, ~~KI-12~~, ~~KI-13~~, ~~KI-14~~ | L |
-| **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, KI-21, KI-22, KI-23, ~~KI-24~~, ~~KI-30~~, ~~KI-31~~, ~~KI-32~~ | L |
+| **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, ~~KI-21~~, ~~KI-22~~, ~~KI-23~~, ~~KI-24~~, ~~KI-30~~, ~~KI-31~~, ~~KI-32~~ | L |
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
@@ -72,9 +72,9 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-18** | **Done (2026-09-30, [ADR-016](architecture/adr/016-nats-delivery-semantics.md)).** Durable work consumers without inactivity threshold and with `DeliverNew` on first creation; notification subjects via core NATS; long work acked on accept + Go run watchdog (ADR-016, adapting the main-based D1-D4); per-run cancel listeners unsubscribed | Integration test against real NATS: restart does not replay; two workers do not double-execute |
 | **KI-19** | **Done (2026-09-30, [ADR-016](architecture/adr/016-nats-delivery-semantics.md)).** Python retry via JetStream `num_delivered`, `max_deliver`, DLQ publish on the last attempt; invalid payloads terminated, not NAK'd | Worker tests with a fake message |
 | **KI-20** | **Done (2026-09-30, [ADR-016](architecture/adr/016-nats-delivery-semantics.md)).** Validate `runs.*`, `context.*`, `repomap.*` payloads against their structs | Validator table test |
-| **KI-21** | Worker policy wait >= Go HITL timeout (derive both from one config value); run path uses the agent loop instead of one completion (follow-up item if large) | Timeout test; run-path integration test |
-| **KI-22** | `tasks.cancel` stops backend processes; remove or publish `review.trigger.request` | Backend cancel test |
-| **KI-23** | `workspace_path` and backend in run/backend-task payloads; shared workspace volume in prod compose | Contract fixture round trip |
+| **KI-21** | **Done (2026-09-30).** Worker policy wait >= Go HITL timeout (derive both from one config value); run path uses the agent loop instead of one completion (follow-up item if large) | Timeout test; run-path integration test |
+| **KI-22** | **Done (2026-09-30).** `tasks.cancel` stops backend processes; remove or publish `review.trigger.request` | Backend cancel test |
+| **KI-23** | **Done (2026-09-30).** `workspace_path` and backend in run/backend-task payloads; shared workspace volume in prod compose | Contract fixture round trip |
 | **KI-24** | **Done (2026-09-30).** Clear the conversation cancel flag when a new run starts | Service test |
 | **KI-30** | **Done (2026-09-30).** Termination, stall and cancel paths call `onRunComplete` | Orchestrator test per path |
 | **KI-31** | **Done (2026-09-30).** Status predicates / version checks on run, plan and team updates; no write-back from `cancelled` | Store integration test |

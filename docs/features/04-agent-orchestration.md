@@ -291,7 +291,7 @@ sequenceDiagram
 ### Completed (Phase 4 -- Agent Execution Engine)
 
 - [x] Policy layer: 5 presets, YAML custom policies, deny lists win then first-match-wins (ADR-015), REST API + frontend PolicyPanel (KI-4 to KI-10 fixed 2026-09-30; open: KI-68, KI-69).
-- [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement (`runs.start` is still a single LLM completion, KI-21).
+- [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement. `runs.start` runs the agent loop (`AgentLoopExecutor`) in the project workspace named by the run start; Go decides every LLM and tool call (KI-21 fixed 2026-09-30).
 - [x] Checkpoint system: shadow Git commits for safe rollback (checkpoint commits corrupt delivery, KI-27).
 - [x] Docker Sandbox: container lifecycle management with resource limits (use gated: tools do not run inside it yet, so sandbox/hybrid runs are rejected, KI-13).
 - [ ] Execute agent tools inside the sandbox container (`SandboxService.Exec`), then lift the KI-13 gate
