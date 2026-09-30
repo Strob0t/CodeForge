@@ -22,15 +22,37 @@ func TestRetentionDefaultsMatchPolicy(t *testing.T) {
 	}{
 		{"interval (daily job)", r.Interval, day},
 		{"sessions (30 days)", r.Sessions, 30 * day},
-		{"conversations (1 year)", r.Conversations, 365 * day},
-		{"cost_records (1 year)", r.CostRecords, 365 * day},
-		{"audit_entries (7 years)", r.AuditEntries, 7 * 365 * day},
 		{"audit_ip_addresses (180 days)", r.AuditIPAddresses, 180 * day},
 		{"consent_ip_addresses (180 days)", r.ConsentIPAddresses, 180 * day},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {
 			t.Errorf("retention %s default = %v, want %v", tt.name, tt.got, tt.want)
+		}
+	}
+}
+
+// Periods stated in years are kept for at least that calendar period on every
+// day of a leap cycle: 365 days per year would purge a day early after a
+// 29 February.
+func TestRetentionDefaultsCoverCalendarYears(t *testing.T) {
+	r := Defaults().Retention
+	tests := []struct {
+		name   string
+		period time.Duration
+		years  int
+	}{
+		{"conversations (1 year)", r.Conversations, 1},
+		{"cost_records (1 year)", r.CostRecords, 1},
+		{"audit_entries (7 years)", r.AuditEntries, 7},
+	}
+	for _, tt := range tests {
+		for d := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC); d.Year() < 2032; d = d.AddDate(0, 0, 1) {
+			if cutoff, calendar := d.Add(-tt.period), d.AddDate(-tt.years, 0, 0); cutoff.After(calendar) {
+				t.Errorf("%s default %v purges data from %s on %s, before %d calendar year(s)",
+					tt.name, tt.period, cutoff.Format(time.DateOnly), d.Format(time.DateOnly), tt.years)
+				break
+			}
 		}
 	}
 }
