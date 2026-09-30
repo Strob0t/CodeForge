@@ -301,19 +301,27 @@ func TestRetention_LogsCountsOnly(t *testing.T) {
 	newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
 
 	allowed := map[string]bool{"time": true, "level": true, "msg": true, "category": true, "action": true, "rows": true, "older_than": true, "error": true}
-	purged := map[string]float64{}
+	purged := map[string]int64{}
 	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
-		var rec map[string]any
-		if err := json.Unmarshal(line, &rec); err != nil {
+		var keys map[string]json.RawMessage
+		if err := json.Unmarshal(line, &keys); err != nil {
 			t.Fatalf("log line %q: %v", line, err)
 		}
-		for key := range rec {
+		for key := range keys {
 			if !allowed[key] {
 				t.Errorf("retention log has attribute %q (%s); only counts and cutoffs are logged", key, line)
 			}
 		}
-		if rec["msg"] == "retention: purged expired data" {
-			purged[rec["category"].(string)] = rec["rows"].(float64)
+		var rec struct {
+			Msg      string `json:"msg"`
+			Category string `json:"category"`
+			Rows     int64  `json:"rows"`
+		}
+		if err := json.Unmarshal(line, &rec); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		if rec.Msg == "retention: purged expired data" {
+			purged[rec.Category] = rec.Rows
 		}
 	}
 	if purged["sessions"] != 3 || purged["audit_ip_addresses"] != 2 || len(purged) != 2 {

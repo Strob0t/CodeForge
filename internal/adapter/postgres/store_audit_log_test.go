@@ -35,7 +35,9 @@ func createAuditTestUser(t *testing.T, store *postgres.Store, tenantID string) *
 	if err := store.CreateUser(context.Background(), u); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	t.Cleanup(func() { _ = store.DeleteUser(context.Background(), u.ID) })
+	// DeleteUser is tenant-scoped: clean up in the user's tenant.
+	tenantCtx := ctxWithTenant(t, tenantID)
+	t.Cleanup(func() { _ = store.DeleteUser(tenantCtx, u.ID) })
 	return u
 }
 
@@ -54,9 +56,13 @@ func insertAuditEntryFor(ctx context.Context, t *testing.T, store *postgres.Stor
 	}
 }
 
+// auditJSON is one audit log entry as JSON: field name -> raw value, so an
+// explicit null is told apart from a missing field.
+type auditJSON map[string]json.RawMessage
+
 // auditJSONByAdmin lists the audit log through the HTTP handler and returns
 // the JSON objects keyed by admin_id.
-func auditJSONByAdmin(ctx context.Context, t *testing.T, store *postgres.Store) map[string]map[string]any {
+func auditJSONByAdmin(ctx context.Context, t *testing.T, store *postgres.Store) map[string]auditJSON {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/audit-logs?limit=500", http.NoBody).WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -64,13 +70,16 @@ func auditJSONByAdmin(ctx context.Context, t *testing.T, store *postgres.Store) 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/v1/audit-logs = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
-	var entries []map[string]any
+	var entries []auditJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &entries); err != nil {
 		t.Fatalf("decode audit log: %v", err)
 	}
-	byAdmin := make(map[string]map[string]any, len(entries))
+	byAdmin := make(map[string]auditJSON, len(entries))
 	for _, e := range entries {
-		id, _ := e["admin_id"].(string)
+		var id string
+		if err := json.Unmarshal(e["admin_id"], &id); err != nil {
+			t.Fatalf("decode admin_id: %v", err)
+		}
 		byAdmin[id] = e
 	}
 	return byAdmin
@@ -98,19 +107,19 @@ func TestStore_AuditLogListsEntriesOfErasedUsers(t *testing.T) {
 			t.Fatalf("erased admin's entry is missing from the audit log (the entry must be kept)")
 		}
 		email, present := got["admin_email"]
-		if !present || email != nil {
-			t.Fatalf("erased admin_email = %#v (present %v), want JSON null", email, present)
+		if !present || string(email) != "null" {
+			t.Fatalf("erased admin_email = %s (present %v), want JSON null", email, present)
 		}
 		if ip, has := got["ip_address"]; has {
-			t.Fatalf("erased ip_address = %#v, want it omitted", ip)
+			t.Fatalf("erased ip_address = %s, want it omitted", ip)
 		}
 
 		other := byAdmin[kept.ID]
-		if other["admin_email"] != kept.Email {
-			t.Fatalf("other admin_email = %#v, want %q (erasure must touch only the erased user)", other["admin_email"], kept.Email)
+		if want := `"` + kept.Email + `"`; string(other["admin_email"]) != want {
+			t.Fatalf("other admin_email = %s, want %s (erasure must touch only the erased user)", other["admin_email"], want)
 		}
-		if other["ip_address"] != "198.51.100.9" {
-			t.Fatalf("other ip_address = %#v, want 198.51.100.9", other["ip_address"])
+		if string(other["ip_address"]) != `"198.51.100.9"` {
+			t.Fatalf("other ip_address = %s, want 198.51.100.9", other["ip_address"])
 		}
 	})
 
