@@ -369,13 +369,13 @@ func (s *ReviewService) appendEvent(ctx context.Context, evType event.Type, r *r
 	if s.events == nil {
 		return
 	}
-	_ = s.events.Append(ctx, &event.AgentEvent{
+	logBestEffort(ctx, s.events.Append(ctx, &event.AgentEvent{
 		ID:        crypto.GenerateUUIDv4(),
 		TaskID:    r.ID,
 		ProjectID: r.ProjectID,
 		Type:      evType,
 		CreatedAt: time.Now().UTC(),
-	})
+	}), "AppendEvent", slog.String("type", string(evType)), slog.String("review_id", r.ID))
 }
 
 // GetReview retrieves a review by ID.

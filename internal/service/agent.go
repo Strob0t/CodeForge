@@ -175,8 +175,16 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 		evType = event.TypeAgentError
 	}
 
-	// Record event (agentID not available here, use empty string)
-	s.appendEvent(ctx, evType, "", taskID, projectID, map[string]string{
+	// The result names no agent: record the task's. A task dispatched without
+	// an assignment has none, and the event is stored without agent.
+	agentID := ""
+	t, err := s.store.GetTask(ctx, taskID)
+	logBestEffort(ctx, err, "GetTask", slog.String("task_id", taskID))
+	if err == nil {
+		agentID = t.AgentID
+	}
+
+	s.appendEvent(ctx, evType, agentID, taskID, projectID, map[string]string{
 		"status": status,
 		"cost":   fmt.Sprintf("%.6f", costUSD),
 		"output": truncate(result.Output, 200),
@@ -309,9 +317,7 @@ func (s *AgentService) appendEvent(ctx context.Context, evType event.Type, agent
 		RequestID: logger.RequestID(ctx),
 		Version:   1,
 	}
-	if err := s.events.Append(ctx, &ev); err != nil {
-		slog.Error("failed to append event", "type", evType, "task_id", taskID, "error", err)
-	}
+	logBestEffort(ctx, s.events.Append(ctx, &ev), "AppendEvent", slog.String("type", string(evType)), slog.String("task_id", taskID))
 }
 
 func truncate(s string, maxLen int) string {

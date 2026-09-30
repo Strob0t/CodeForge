@@ -80,14 +80,15 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 
 // Append inserts a new event into the agent_events table.
 // The database assigns sequence_number via the sequence default; the assigned value
-// is written back to ev.SequenceNumber.
+// is written back to ev.SequenceNumber. An event without agent, task or run
+// (plan events, task results without an assigned agent) stores NULL for it.
 func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 	tid := middleware.TenantIDFromContext(ctx)
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO agent_events (tenant_id, agent_id, task_id, project_id, run_id, event_type, payload, request_id, version, tool_name, model, tokens_in, tokens_out, cost_usd)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING sequence_number`,
-		tid, ev.AgentID, ev.TaskID, ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version,
+		tid, nullIfEmpty(ev.AgentID), nullIfEmpty(ev.TaskID), ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version,
 		ev.ToolName, ev.Model, ev.TokensIn, ev.TokensOut, ev.CostUSD).Scan(&ev.SequenceNumber)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
@@ -96,7 +97,7 @@ func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 }
 
 // eventColumns is the SELECT column list for agent_events queries.
-const eventColumns = `id, agent_id, task_id, project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, sequence_number, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
+const eventColumns = `id, COALESCE(agent_id::text, ''), COALESCE(task_id::text, ''), project_id, COALESCE(run_id::text, ''), event_type, payload, request_id, version, sequence_number, created_at, tool_name, model, tokens_in, tokens_out, cost_usd`
 
 // scanEvent scans a row into an AgentEvent including per-tool token columns.
 func scanEvent(scanner interface{ Scan(dest ...any) error }, ev *event.AgentEvent) error {

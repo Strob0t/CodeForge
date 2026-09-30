@@ -412,13 +412,12 @@ func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event
 		return
 	}
 
-	_ = s.events.Append(ctx, &event.AgentEvent{
-		AgentID:   "",
-		TaskID:    "",
+	// A plan has no agent or task of its own; the event store keeps them NULL.
+	logBestEffort(ctx, s.events.Append(ctx, &event.AgentEvent{
 		ProjectID: p.ProjectID,
 		Type:      evtType,
 		Payload:   payload,
-	})
+	}), "AppendEvent", slog.String("type", string(evtType)), slog.String("plan_id", p.ID))
 }
 
 // ReplanStep restarts a stalled run step with a modified prompt that includes
