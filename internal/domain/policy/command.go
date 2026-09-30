@@ -19,14 +19,28 @@ type shellCommand struct {
 	// wrappers such as timeout or xargs are replaced by the command they run.
 	segments [][]string
 	opaque   bool
+
+	// Files that bash opens for redirections, as written in the command:
+	// writes for >, >>, >|, &>, &>>, >& and <>, reads for <, <& and <>. A
+	// relative target is listed once per directory the command may have
+	// changed to before it (see targetPaths). Duplicated or closed file
+	// descriptors, here-documents and here-strings are no files.
+	writes, reads []string
+	// A written or read target is not known statically: it contains an
+	// expansion or glob, starts with ~, is a network pseudo-file, or is
+	// relative after a directory change that cannot be followed.
+	unknownWrite, unknownRead bool
 }
 
 // parseShellCommand splits cmd into simple commands and flags constructs that
 // cannot be analysed statically.
-func parseShellCommand(cmd string) shellCommand {
+func parseShellCommand(cmd string) *shellCommand {
 	p := shellParser{cmd: cmd}
 	p.run()
-	return shellCommand{segments: p.segments, opaque: p.opaque}
+	return &shellCommand{
+		segments: p.segments, opaque: p.opaque,
+		writes: p.writes, reads: p.reads, unknownWrite: p.unknownWrite, unknownRead: p.unknownRead,
+	}
 }
 
 // wordRole tells endWord what the word being read is used for.
@@ -66,6 +80,17 @@ type shellParser struct {
 
 	next     wordRole
 	heredocs []heredoc // delimiters read on the current line
+
+	// Direction of the pending redirection; dup marks >& and <&, whose
+	// target may be a file descriptor instead of a file.
+	redirWrite, redirRead, redirDup bool
+	writes, reads                   []string
+	unknownWrite, unknownRead       bool
+
+	// Directories that cd and pushd changed to, in order, and whether a
+	// command changed the directory in a way that cannot be followed.
+	dirs       []string
+	dirUnknown bool
 }
 
 func (p *shellParser) add(c byte) {
@@ -90,12 +115,7 @@ func (p *shellParser) endWord() {
 	p.next = roleArg
 	switch role {
 	case roleRedirectTarget:
-		// bash opens network connections for /dev/tcp and /dev/udp
-		// redirections; a computed target cannot be checked.
-		clean := path.Clean(w)
-		if dyn || strings.Contains(clean, "/dev/tcp/") || strings.Contains(clean, "/dev/udp/") {
-			p.opaque = true
-		}
+		p.redirectTarget(w, dyn)
 	case roleHereString:
 		// Data on stdin; expansions that run code are caught by the tokenizer.
 	case roleHeredoc, roleHeredocStrip:
@@ -111,6 +131,7 @@ func (p *shellParser) endSegment() {
 	p.next = roleArg
 	words, dynamic := p.words, p.dynamic
 	p.words, p.dynamic = nil, nil
+	p.trackDirectoryChange(words, dynamic)
 	seg, opaque := classifySimpleCommand(words, dynamic)
 	if opaque {
 		p.opaque = true
@@ -249,6 +270,7 @@ func (p *shellParser) run() {
 					i++
 				}
 				p.next = roleRedirectTarget
+				p.redirWrite, p.redirRead, p.redirDup = true, false, false
 			default: // background operator
 				p.endSegment()
 			}
@@ -323,6 +345,7 @@ func (p *shellParser) redirection(i int) int {
 		p.endWord()
 	}
 	role := roleRedirectTarget
+	p.redirWrite, p.redirRead, p.redirDup = cmd[i] == '>', cmd[i] == '<', false
 	switch {
 	case cmd[i] == '<' && byteAt(cmd, i+1) == '<':
 		i++
@@ -338,11 +361,150 @@ func (p *shellParser) redirection(i int) int {
 		}
 	case cmd[i] == '<' && (byteAt(cmd, i+1) == '&' || byteAt(cmd, i+1) == '>'):
 		i++
+		p.redirDup = cmd[i] == '&'
+		p.redirWrite = cmd[i] == '>'
 	case cmd[i] == '>' && (byteAt(cmd, i+1) == '>' || byteAt(cmd, i+1) == '&' || byteAt(cmd, i+1) == '|'):
 		i++
+		p.redirDup = cmd[i] == '&'
 	}
 	p.next = role
 	return i
+}
+
+// redirectTarget records the file of the pending redirection. The target of
+// >& or <& that is a file descriptor number or - (2>&1, >&-) is no file.
+func (p *shellParser) redirectTarget(w string, dyn bool) {
+	write, read, dup := p.redirWrite, p.redirRead, p.redirDup
+	p.redirWrite, p.redirRead, p.redirDup = false, false, false
+	if dup && !dyn && (isDigits(w) || w == "-") {
+		return
+	}
+	// bash opens network connections for /dev/tcp and /dev/udp
+	// redirections; a computed target cannot be checked.
+	clean := path.Clean(w)
+	network := strings.Contains(clean, "/dev/tcp/") || strings.Contains(clean, "/dev/udp/")
+	if dyn || network {
+		p.opaque = true
+	}
+	targets, known := p.targetPaths(w)
+	if dyn || network || !known {
+		p.unknownWrite = p.unknownWrite || write
+		p.unknownRead = p.unknownRead || read
+		return
+	}
+	if write {
+		p.writes = append(p.writes, targets...)
+	}
+	if read {
+		p.reads = append(p.reads, targets...)
+	}
+}
+
+// maxDirChanges bounds the directory combinations a relative redirection
+// target is resolved against; more changes make the target unknown.
+const maxDirChanges = 4
+
+// targetPaths returns the paths a redirection target may denote. An absolute
+// target is used as is and a relative one is relative to the directory the
+// command started in, unless cd or pushd changed it before. A subshell or a
+// pipeline stage undoes its changes and popd returns to an earlier
+// directory, so the shell may be in the directory reached by any ordered
+// subset of the changes: the target is listed relative to each of them.
+func (p *shellParser) targetPaths(w string) ([]string, bool) {
+	switch {
+	case strings.HasPrefix(w, "~"): // tilde expansion
+		return nil, false
+	case path.IsAbs(w):
+		return []string{w}, true
+	case p.dirUnknown || len(p.dirs) > maxDirChanges:
+		return nil, false
+	}
+	paths := []string{w}
+	for subset := 1; subset < 1<<len(p.dirs); subset++ {
+		dir := ""
+		for j, d := range p.dirs {
+			switch {
+			case subset&(1<<j) == 0:
+			case path.IsAbs(d):
+				dir = d
+			default:
+				dir = path.Join(dir, d)
+			}
+		}
+		if t := path.Join(dir, w); !slices.Contains(paths, t) {
+			paths = append(paths, t)
+		}
+	}
+	return paths, true
+}
+
+// runsInCurrentShell lists builtins that run code in the current shell and
+// so may change its directory in a way the word list does not show.
+var runsInCurrentShell = map[string]bool{
+	"eval": true, "source": true, ".": true, "builtin": true, "trap": true, "enable": true,
+}
+
+// trackDirectoryChange records the directory that a simple command changes
+// to with cd or pushd, or marks the directory unknown when the change cannot
+// be followed: no or a computed operand, a computed command name, or a
+// builtin that runs code in the current shell. popd, cd - and pushd without
+// a directory return to a directory reached before and need no record.
+func (p *shellParser) trackDirectoryChange(words []string, dynamic []bool) {
+	i := 0
+	for i < len(words) && (leadingKeywords[words[i]] || isAssignment(words[i])) {
+		i++
+	}
+	// time and command run a builtin in the current shell.
+	for i < len(words) && !dynamic[i] && (words[i] == "time" || words[i] == "command") {
+		i++
+		for i < len(words) && strings.HasPrefix(words[i], "-") {
+			i++
+		}
+	}
+	if i == len(words) {
+		return
+	}
+	name := words[i]
+	if dynamic[i] || !isLiteralWord(name) || runsInCurrentShell[name] {
+		p.dirUnknown = true
+		return
+	}
+	if name != "cd" && name != "pushd" {
+		return
+	}
+	if slices.Contains(dynamic[i+1:], true) {
+		p.dirUnknown = true
+		return
+	}
+	dir, ok := directoryOperand(words[i+1:])
+	switch {
+	case !ok:
+		if name == "cd" { // cd without a directory goes to $HOME
+			p.dirUnknown = true
+		}
+	case strings.HasPrefix(dir, "-"), name == "pushd" && strings.HasPrefix(dir, "+"): // cd -, pushd +N/-N
+	case strings.HasPrefix(dir, "~"):
+		p.dirUnknown = true
+	default:
+		p.dirs = append(p.dirs, dir)
+	}
+}
+
+// directoryOperand returns the first operand after the options of cd or
+// pushd.
+func directoryOperand(args []string) (string, bool) {
+	for j, a := range args {
+		switch {
+		case a == "--":
+			if j+1 < len(args) {
+				return args[j+1], true
+			}
+			return "", false
+		case a == "-" || !strings.HasPrefix(a, "-") || isDigits(a[1:]):
+			return a, true
+		}
+	}
+	return "", false
 }
 
 // readHeredocBodies skips the bodies of the here-documents opened on the
@@ -406,7 +568,7 @@ func isDigits(s string) bool {
 
 // allowedBy reports whether every simple command matches one of the
 // patterns. Opaque and empty commands never match.
-func (c shellCommand) allowedBy(patterns []string) bool {
+func (c *shellCommand) allowedBy(patterns []string) bool {
 	if c.opaque || len(c.segments) == 0 {
 		return false
 	}
@@ -421,7 +583,7 @@ func (c shellCommand) allowedBy(patterns []string) bool {
 // deniedBy reports whether the command must be denied by a deny list: when
 // it is opaque, empty, or any simple command matches one of the patterns.
 // Deny matching ignores case so that it errs on the side of denying.
-func (c shellCommand) deniedBy(patterns []string) bool {
+func (c *shellCommand) deniedBy(patterns []string) bool {
 	if c.opaque || len(c.segments) == 0 {
 		return true
 	}

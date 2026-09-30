@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
@@ -77,7 +78,9 @@ func WithModeTools(modeID string, tools, denied []string) EvalOption {
 //     path that leaves the workspace is denied.
 //  4. Deny lists are blocklists: if any rule for the tool has a path_deny or
 //     command_deny list that matches the call, or the call carries no value
-//     for that list, the call is denied regardless of rule order.
+//     for that list, the call is denied regardless of rule order. The files
+//     a Bash command redirects to or from are checked against the path_deny
+//     lists of the Write and Edit or the Read rules (redirectionDenyReason).
 //  5. Otherwise the first rule whose specifier and allow lists match decides.
 //  6. If no rule matches, the profile's permission mode decides.
 func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationResult {
@@ -118,6 +121,11 @@ func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationRe
 			continue
 		}
 		if reason := rule.denyListReason(path, cmd); reason != "" {
+			return decide(DecisionDeny, i, fmt.Sprintf("denied by rule %d in profile %q: %s", i, p.Name, reason))
+		}
+	}
+	if tool == ToolBash {
+		if i, reason := p.redirectionDenyReason(cmd, ctx.workspace); reason != "" {
 			return decide(DecisionDeny, i, fmt.Sprintf("denied by rule %d in profile %q: %s", i, p.Name, reason))
 		}
 	}
@@ -180,7 +188,7 @@ func (m *modeRestriction) deniedReason(tool string) string {
 
 // denyListReason explains why the rule's deny lists deny the call, or
 // returns "". A deny list fails closed when the call has no value for it.
-func (r *PermissionRule) denyListReason(path string, cmd shellCommand) string {
+func (r *PermissionRule) denyListReason(path string, cmd *shellCommand) string {
 	if len(r.PathDeny) > 0 {
 		if path == "" {
 			return "path_deny is set and the call has no path"
@@ -202,12 +210,52 @@ func (r *PermissionRule) denyListReason(path string, cmd shellCommand) string {
 	return ""
 }
 
+// redirectionDenyReason checks the files a shell command redirects to or
+// from against the path_deny lists of the tools that access files the same
+// way: written targets against Write and Edit rules, read targets against
+// Read rules. A target that is not known statically is denied when such a
+// list exists (fail closed); a target outside the workspace is skipped like
+// every path that no workspace glob can match. It returns the index of the
+// denying rule and the reason, or -1 and "".
+func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspace string) (ruleIndex int, reason string) {
+	checks := []struct {
+		tools   []string
+		targets []string
+		unknown bool
+		access  string
+	}{
+		{[]string{ToolWrite, ToolEdit}, cmd.writes, cmd.unknownWrite, "writes"},
+		{[]string{ToolRead}, cmd.reads, cmd.unknownRead, "reads"},
+	}
+	for i := range p.Rules {
+		rule := &p.Rules[i]
+		if len(rule.PathDeny) == 0 {
+			continue
+		}
+		for _, c := range checks {
+			if !slices.ContainsFunc(c.tools, func(t string) bool { return rule.matchesTool(t, t, true) }) {
+				continue
+			}
+			if c.unknown {
+				return i, fmt.Sprintf("path_deny is set and a file the command %s cannot be analysed statically", c.access)
+			}
+			for _, target := range c.targets {
+				rel, ok := NormalizePath(workspace, target)
+				if ok && matchesAnyGlob(rule.PathDeny, rel, true) {
+					return i, fmt.Sprintf("redirection to %q matches path_deny", rel)
+				}
+			}
+		}
+	}
+	return -1, ""
+}
+
 // subPatternMatches matches the specifier's sub-pattern (a glob over each
 // simple command, e.g. "git *") against the command. A permissive rule
 // (allOf) needs every simple command to match and never matches a command
 // that cannot be analysed; a restrictive rule matches if any simple command
 // matches, and always matches an unanalysable command.
-func (r *PermissionRule) subPatternMatches(cmd shellCommand, allOf bool) bool {
+func (r *PermissionRule) subPatternMatches(cmd *shellCommand, allOf bool) bool {
 	pattern := r.Specifier.SubPattern
 	if pattern == "" {
 		return true
