@@ -26,6 +26,7 @@ func TestRetentionDefaultsMatchPolicy(t *testing.T) {
 		{"cost_records (1 year)", r.CostRecords, 365 * day},
 		{"audit_entries (7 years)", r.AuditEntries, 7 * 365 * day},
 		{"audit_ip_addresses (180 days)", r.AuditIPAddresses, 180 * day},
+		{"consent_ip_addresses (180 days)", r.ConsentIPAddresses, 180 * day},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {
@@ -38,6 +39,7 @@ func TestRetentionEnv(t *testing.T) {
 	cfg := Defaults()
 	t.Setenv("CODEFORGE_RETENTION_INTERVAL", "12h")
 	t.Setenv("CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES", "2160h")
+	t.Setenv("CODEFORGE_RETENTION_CONSENT_IP_ADDRESSES", "720h")
 	t.Setenv("CODEFORGE_RETENTION_SESSIONS", "0s")
 	loadEnv(&cfg)
 	if cfg.Retention.Interval != 12*time.Hour {
@@ -45,6 +47,9 @@ func TestRetentionEnv(t *testing.T) {
 	}
 	if cfg.Retention.AuditIPAddresses != 90*day {
 		t.Errorf("audit_ip_addresses = %v, want 2160h", cfg.Retention.AuditIPAddresses)
+	}
+	if cfg.Retention.ConsentIPAddresses != 30*day {
+		t.Errorf("consent_ip_addresses = %v, want 720h", cfg.Retention.ConsentIPAddresses)
 	}
 	if cfg.Retention.Sessions != 0 {
 		t.Errorf("sessions = %v, want 0 (category disabled)", cfg.Retention.Sessions)
@@ -87,6 +92,8 @@ func TestValidate_Retention(t *testing.T) {
 		{"negative period", func(r *Retention) { r.CostRecords = -day }, "retention.cost_records"},
 		{"audit entries below one day", func(r *Retention) { r.AuditEntries = time.Hour }, "retention.audit_entries"},
 		{"audit IPs below one day", func(r *Retention) { r.AuditIPAddresses = time.Nanosecond }, "retention.audit_ip_addresses"},
+		{"consent IPs below one day", func(r *Retention) { r.ConsentIPAddresses = 12 * time.Hour }, "retention.consent_ip_addresses"},
+		{"consent IPs kept", func(r *Retention) { r.ConsentIPAddresses = 0 }, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

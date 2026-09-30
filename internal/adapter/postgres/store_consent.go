@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -55,6 +56,27 @@ func (s *Store) AnonymizeConsentsForUser(ctx context.Context, userID string) (in
 		userID, tenantFromCtx(ctx))
 	if err != nil {
 		return 0, fmt.Errorf("anonymize consents for user: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// AnonymizeExpiredConsentIPAddresses clears the IP address and user agent of
+// up to batchSize consent records created before the cutoff and returns how
+// many it changed; the records (user, purpose, decision) are kept as proof of
+// consent.
+//
+// INTENTIONALLY CROSS-TENANT: part of the instance-wide retention job (see
+// store_retention.go): one policy for all tenants, and the only predicate is
+// the record's age against the cutoff the caller computed from it.
+func (s *Store) AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE user_consents SET ip_address = NULL, user_agent = NULL WHERE id IN (
+		   SELECT id FROM user_consents
+		   WHERE (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1 LIMIT $2
+		 )`,
+		before, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("anonymize expired consent ip addresses: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }

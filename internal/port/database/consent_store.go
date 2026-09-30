@@ -53,4 +53,9 @@ type ConsentStore interface {
 	// user's consent records (GDPR erasure, before the user row is deleted;
 	// the records stay as proof of consent) and returns how many it changed.
 	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
+
+	// AnonymizeExpiredConsentIPAddresses clears the IP address and user agent
+	// of consent records created before the cutoff. Retention: cross-tenant
+	// system job (RetentionService), at most batchSize rows per call.
+	AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -170,6 +171,7 @@ func TestRetentionQueries_IntentionallyCrossTenant(t *testing.T) {
 	methods := map[string][]string{
 		"store_retention.go": {"DeleteExpiredSessions", "DeleteExpiredConversations", "DeleteExpiredRuns", "DeleteExpiredAuditEntries"},
 		"store_audit_log.go": {"AnonymizeExpiredIPAddresses"},
+		"store_consent.go":   {"AnonymizeExpiredConsentIPAddresses"},
 	}
 	for file, names := range methods {
 		src := readStoreSource(t, file)
@@ -334,6 +336,62 @@ func TestStore_AnonymizeExpiredIPAddresses(t *testing.T) {
 		}
 		if email == nil {
 			t.Errorf("%s: admin_email was removed, only the IP address expires", name)
+		}
+	}
+}
+
+// consentRecord records a consent with IP address and user agent for a new
+// user of the fixture's tenant and returns the record's ID.
+func (f *statusFixture) consentRecord(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	u := createAuditTestUser(t, f.store, middleware.TenantIDFromContext(f.ctx))
+	recordConsent(f.ctx, t, f.store, u.ID)
+	var id string
+	if err := pool.QueryRow(context.Background(), `SELECT id FROM user_consents WHERE user_id = $1`, u.ID).Scan(&id); err != nil {
+		t.Fatalf("find consent: %v", err)
+	}
+	return id
+}
+
+func backdateConsent(t *testing.T, pool *pgxpool.Pool, id, createdAgo string) {
+	t.Helper()
+	execAsReplica(t, pool, `UPDATE user_consents SET created_at = now() - $2::interval WHERE id = $1`, id, createdAgo)
+}
+
+func TestStore_AnonymizeExpiredConsentIPAddresses(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+
+	oldA, oldB := a.consentRecord(t, pool), b.consentRecord(t, pool)
+	idleA, freshB := a.consentRecord(t, pool), b.consentRecord(t, pool)
+	backdateConsent(t, pool, oldA, expired)
+	backdateConsent(t, pool, oldB, expired)
+	backdateConsent(t, pool, idleA, inside)
+
+	purgeAll(t, "AnonymizeExpiredConsentIPAddresses", a.store.AnonymizeExpiredConsentIPAddresses)
+
+	for name, tc := range map[string]struct {
+		id         string
+		wantClient bool
+	}{
+		"expired":               {oldA, false},
+		"other tenant, expired": {oldB, false},
+		"inside retention":      {idleA, true},
+		"other tenant, fresh":   {freshB, true},
+	} {
+		var ip *netip.Addr
+		var userAgent, userID *string
+		var granted bool
+		if err := pool.QueryRow(context.Background(),
+			`SELECT ip_address, user_agent, user_id::text, granted FROM user_consents WHERE id = $1`, tc.id).
+			Scan(&ip, &userAgent, &userID, &granted); err != nil {
+			t.Fatalf("%s: consent record must be kept: %v", name, err)
+		}
+		if (ip != nil) != tc.wantClient || (userAgent != nil) != tc.wantClient {
+			t.Errorf("%s: ip_address = %v, user_agent = %v, want kept %v", name, ip, userAgent, tc.wantClient)
+		}
+		if userID == nil || !granted {
+			t.Errorf("%s: user or decision removed, only IP address and user agent expire", name)
 		}
 	}
 }

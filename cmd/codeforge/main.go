@@ -1071,6 +1071,7 @@ func run() error {
 			"cost_records", cfg.Retention.CostRecords,
 			"audit_entries", cfg.Retention.AuditEntries,
 			"audit_ip_addresses", cfg.Retention.AuditIPAddresses,
+			"consent_ip_addresses", cfg.Retention.ConsentIPAddresses,
 		)
 	} else {
 		slog.Warn("retention.interval is 0: the retention job is disabled and expired data is kept")

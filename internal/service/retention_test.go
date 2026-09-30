@@ -17,7 +17,7 @@ import (
 // category, works off a backlog in bounded batches, keeps going when one
 // category fails, and runs on a ticker that stops with the server.
 
-var retentionCategories = []string{"sessions", "conversations", "runs", "audit_entries", "audit_ip_addresses"}
+var retentionCategories = []string{"sessions", "conversations", "runs", "audit_entries", "audit_ip_addresses", "consent_ip_addresses"}
 
 type retentionCall struct {
 	category  string
@@ -74,6 +74,10 @@ func (f *fakeRetentionStore) AnonymizeExpiredIPAddresses(ctx context.Context, be
 	return f.record(ctx, "audit_ip_addresses", before, batchSize)
 }
 
+func (f *fakeRetentionStore) AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	return f.record(ctx, "consent_ip_addresses", before, batchSize)
+}
+
 func (f *fakeRetentionStore) callsOf(category string) []retentionCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -89,12 +93,13 @@ func (f *fakeRetentionStore) callsOf(category string) []retentionCall {
 func testRetentionPolicy() config.Retention {
 	const day = 24 * time.Hour
 	return config.Retention{
-		Interval:         day,
-		Sessions:         30 * day,
-		Conversations:    365 * day,
-		CostRecords:      400 * day,
-		AuditEntries:     7 * 365 * day,
-		AuditIPAddresses: 180 * day,
+		Interval:           day,
+		Sessions:           30 * day,
+		Conversations:      365 * day,
+		CostRecords:        400 * day,
+		AuditEntries:       7 * 365 * day,
+		AuditIPAddresses:   180 * day,
+		ConsentIPAddresses: 90 * day,
 	}
 }
 
@@ -111,11 +116,12 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 	newTestRetentionService(store, policy, now).RunCleanup(context.Background())
 
 	want := map[string]time.Duration{
-		"sessions":           policy.Sessions,
-		"conversations":      policy.Conversations,
-		"runs":               policy.CostRecords,
-		"audit_entries":      policy.AuditEntries,
-		"audit_ip_addresses": policy.AuditIPAddresses,
+		"sessions":             policy.Sessions,
+		"conversations":        policy.Conversations,
+		"runs":                 policy.CostRecords,
+		"audit_entries":        policy.AuditEntries,
+		"audit_ip_addresses":   policy.AuditIPAddresses,
+		"consent_ip_addresses": policy.ConsentIPAddresses,
 	}
 	for _, category := range retentionCategories {
 		calls := store.callsOf(category)
@@ -133,11 +139,12 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 
 func TestRetention_ZeroPeriodKeepsCategory(t *testing.T) {
 	disable := map[string]func(*config.Retention){
-		"sessions":           func(p *config.Retention) { p.Sessions = 0 },
-		"conversations":      func(p *config.Retention) { p.Conversations = 0 },
-		"runs":               func(p *config.Retention) { p.CostRecords = -time.Hour },
-		"audit_entries":      func(p *config.Retention) { p.AuditEntries = 0 },
-		"audit_ip_addresses": func(p *config.Retention) { p.AuditIPAddresses = 0 },
+		"sessions":             func(p *config.Retention) { p.Sessions = 0 },
+		"conversations":        func(p *config.Retention) { p.Conversations = 0 },
+		"runs":                 func(p *config.Retention) { p.CostRecords = -time.Hour },
+		"audit_entries":        func(p *config.Retention) { p.AuditEntries = 0 },
+		"audit_ip_addresses":   func(p *config.Retention) { p.AuditIPAddresses = 0 },
+		"consent_ip_addresses": func(p *config.Retention) { p.ConsentIPAddresses = 0 },
 	}
 	for disabled, modify := range disable {
 		t.Run(disabled, func(t *testing.T) {
@@ -160,15 +167,16 @@ func TestRetention_ZeroPeriodKeepsCategory(t *testing.T) {
 
 func TestRetention_WorksOffBacklogInBatches(t *testing.T) {
 	store := &fakeRetentionStore{results: map[string][]int64{
-		"sessions":           {retentionBatchSize, retentionBatchSize, 7},
-		"conversations":      {retentionBatchSize, 0},
-		"runs":               {retentionBatchSize - 1},
-		"audit_ip_addresses": {retentionBatchSize, retentionBatchSize, retentionBatchSize, 1},
+		"sessions":             {retentionBatchSize, retentionBatchSize, 7},
+		"conversations":        {retentionBatchSize, 0},
+		"runs":                 {retentionBatchSize - 1},
+		"audit_ip_addresses":   {retentionBatchSize, retentionBatchSize, retentionBatchSize, 1},
+		"consent_ip_addresses": {retentionBatchSize, 5},
 	}}
 	newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
 
 	for category, want := range map[string]int{
-		"sessions": 3, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4,
+		"sessions": 3, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4, "consent_ip_addresses": 2,
 	} {
 		if got := len(store.callsOf(category)); got != want {
 			t.Errorf("%s: %d batches, want %d", category, got, want)

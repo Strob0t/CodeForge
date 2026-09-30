@@ -382,6 +382,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Retention.CostRecords, "CODEFORGE_RETENTION_COST_RECORDS", time.ParseDuration)
 	setTyped(&cfg.Retention.AuditEntries, "CODEFORGE_RETENTION_AUDIT_ENTRIES", time.ParseDuration)
 	setTyped(&cfg.Retention.AuditIPAddresses, "CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES", time.ParseDuration)
+	setTyped(&cfg.Retention.ConsentIPAddresses, "CODEFORGE_RETENTION_CONSENT_IP_ADDRESSES", time.ParseDuration)
 
 	// Env file override
 	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
@@ -562,6 +563,7 @@ func validateRetention(r *Retention) error {
 		{"retention.cost_records", r.CostRecords},
 		{"retention.audit_entries", r.AuditEntries},
 		{"retention.audit_ip_addresses", r.AuditIPAddresses},
+		{"retention.consent_ip_addresses", r.ConsentIPAddresses},
 	}
 	for _, p := range periods {
 		if p.period < 0 || (p.period > 0 && p.period < minRetentionPeriod) {

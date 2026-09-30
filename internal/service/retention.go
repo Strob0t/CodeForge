@@ -22,12 +22,15 @@ type retentionStore interface {
 	DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }
 
 // RetentionService enforces the data retention policy (GDPR Art. 5(1)(e),
 // docs/data-retention.md): it deletes data older than the configured periods
-// and anonymizes the IP addresses of old audit entries. The policy is one
-// configuration for the whole instance, so a sweep covers all tenants.
+// and anonymizes the IP addresses of old audit entries and the IP addresses and
+// user agents of old consent records. The policy is one configuration for the
+// whole instance, so a sweep covers all tenants. Agent events and benchmark
+// results are not purged: their retention needs a decision about trajectories.
 type RetentionService struct {
 	store  retentionStore
 	config config.Retention
@@ -54,6 +57,7 @@ func (s *RetentionService) categories() []retentionCategory {
 		{"runs", "deleted", s.config.CostRecords, s.store.DeleteExpiredRuns},
 		{"audit_entries", "deleted", s.config.AuditEntries, s.store.DeleteExpiredAuditEntries},
 		{"audit_ip_addresses", "anonymized", s.config.AuditIPAddresses, s.store.AnonymizeExpiredIPAddresses},
+		{"consent_ip_addresses", "anonymized", s.config.ConsentIPAddresses, s.store.AnonymizeExpiredConsentIPAddresses},
 	}
 }
 

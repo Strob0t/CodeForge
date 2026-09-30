@@ -52,12 +52,13 @@ type Config struct {
 // docs/data-retention.md) that the retention job applies to all tenants.
 // A zero period keeps that category forever; a zero interval disables the job.
 type Retention struct {
-	Interval         time.Duration `yaml:"interval"`           // How often the retention job runs (default: 24h; 0 disables it)
-	Sessions         time.Duration `yaml:"sessions"`           // Max idle age of agent sessions (default: 30 days)
-	Conversations    time.Duration `yaml:"conversations"`      // Max idle age of conversations + messages (default: 365 days)
-	CostRecords      time.Duration `yaml:"cost_records"`       // Max idle age of runs with their cost records (default: 365 days)
-	AuditEntries     time.Duration `yaml:"audit_entries"`      // Max age of audit log entries (default: 7 years)
-	AuditIPAddresses time.Duration `yaml:"audit_ip_addresses"` // Max age of IP addresses in audit entries (default: 180 days)
+	Interval           time.Duration `yaml:"interval"`             // How often the retention job runs (default: 24h; 0 disables it)
+	Sessions           time.Duration `yaml:"sessions"`             // Max idle age of agent sessions (default: 30 days)
+	Conversations      time.Duration `yaml:"conversations"`        // Max idle age of conversations + messages (default: 365 days)
+	CostRecords        time.Duration `yaml:"cost_records"`         // Max idle age of runs with their cost records (default: 365 days)
+	AuditEntries       time.Duration `yaml:"audit_entries"`        // Max age of audit log entries (default: 7 years)
+	AuditIPAddresses   time.Duration `yaml:"audit_ip_addresses"`   // Max age of IP addresses in audit entries (default: 180 days)
+	ConsentIPAddresses time.Duration `yaml:"consent_ip_addresses"` // Max age of IP addresses + user agents in consent records (default: 180 days)
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).
@@ -610,12 +611,13 @@ func Defaults() Config {
 			Enabled: true,
 		},
 		Retention: Retention{
-			Interval:         24 * time.Hour,
-			Sessions:         30 * 24 * time.Hour,      // 30 days
-			Conversations:    365 * 24 * time.Hour,     // 1 year
-			CostRecords:      365 * 24 * time.Hour,     // 1 year
-			AuditEntries:     7 * 365 * 24 * time.Hour, // 7 years (SOC 2)
-			AuditIPAddresses: 180 * 24 * time.Hour,     // 180 days (CNIL)
+			Interval:           24 * time.Hour,
+			Sessions:           30 * 24 * time.Hour,      // 30 days
+			Conversations:      365 * 24 * time.Hour,     // 1 year
+			CostRecords:        365 * 24 * time.Hour,     // 1 year
+			AuditEntries:       7 * 365 * 24 * time.Hour, // 7 years (SOC 2)
+			AuditIPAddresses:   180 * 24 * time.Hour,     // 180 days (CNIL)
+			ConsentIPAddresses: 180 * 24 * time.Hour,     // 180 days, like audit IP addresses
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,
