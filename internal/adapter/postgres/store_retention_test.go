@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -290,6 +291,38 @@ func TestRetention_ForeignKeyNullingIsNotSessionActivity(t *testing.T) {
 	purgeAll(t, "DeleteExpiredSessions", f.store.DeleteExpiredSessions)
 
 	assertRows(t, pool, "sessions", nil, map[string]string{"expired session of an expired run": sess.ID})
+}
+
+// The cost-record retention deletes runs, not the plan steps that ran them:
+// a plan step keeps its status and error, only its run reference goes.
+func TestRetention_RunPurgeKeepsPlanSteps(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	p := &plan.ExecutionPlan{
+		ProjectID: f.project.ID, Name: "retention", Protocol: plan.ProtocolSequential, Status: plan.StatusCompleted, MaxParallel: 1,
+		Steps: []plan.Step{{TaskID: f.task.ID, AgentID: f.agent.ID, Status: plan.StepStatusPending}},
+	}
+	if err := f.store.CreatePlan(f.ctx, p); err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	r := f.newRun(t, run.StatusFailed)
+	if err := f.store.UpdatePlanStepStatus(f.ctx, p.Steps[0].ID, plan.StepStatusFailed, r.ID, "gate failed"); err != nil {
+		t.Fatalf("UpdatePlanStepStatus: %v", err)
+	}
+	backdateRun(t, pool, r.ID, expired)
+
+	purgeAll(t, "DeleteExpiredRuns", f.store.DeleteExpiredRuns)
+
+	steps, err := f.store.ListPlanSteps(f.ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ListPlanSteps: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("plan has %d steps after the run purge, want 1", len(steps))
+	}
+	if st := steps[0]; st.RunID != "" || st.Status != plan.StepStatusFailed || st.Error != "gate failed" {
+		t.Fatalf("step = run %q status %q error %q, want no run, failed, gate failed", st.RunID, st.Status, st.Error)
+	}
 }
 
 func TestStore_DeleteExpiredRuns(t *testing.T) {

@@ -52,8 +52,11 @@ func (s *Store) DeleteExpiredConversations(ctx context.Context, before time.Time
 }
 
 // DeleteExpiredRuns deletes up to batchSize runs - with their cost and token
-// records - that were last updated before the cutoff and returns how many it
-// deleted.
+// records, which are columns of the run - that were last updated before the
+// cutoff and returns how many it deleted. Nothing else goes with them: plan
+// steps and sessions that reference a run only lose the reference (ON DELETE
+// SET NULL, migration 095), and tables that record a run_id without a foreign
+// key (agent_events, feedback_audit, ...) keep their rows.
 //
 // INTENTIONALLY CROSS-TENANT: instance-wide retention job (see file comment).
 func (s *Store) DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error) {
