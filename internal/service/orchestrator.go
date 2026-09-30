@@ -33,6 +33,7 @@ type OrchestratorService struct {
 	orchCfg                 *config.Orchestrator
 	sharedCtx               *SharedContextService
 	reviewRouter            *ReviewRouterService
+	stepGate                StepGate
 	onPlanCompleteCallbacks []func(ctx context.Context, planID string, status string)
 	// mu serializes plan scheduling: plan and step decisions are made and
 	// steps are started under it. Functions named ...Locked expect it held;
@@ -69,6 +70,20 @@ func (s *OrchestratorService) SetOnPlanComplete(fn func(ctx context.Context, pla
 // SetSharedContext sets the shared context service for auto-populating run outputs.
 func (s *OrchestratorService) SetSharedContext(sc *SharedContextService) {
 	s.sharedCtx = sc
+}
+
+// StepGate decides the status of a plan step whose run completed
+// successfully: plan.StepStatusCompleted, or plan.StepStatusWaitingApproval
+// to hold the plan until ApproveStep or RejectStep. It runs under the
+// scheduling lock, so it must not call back into the orchestrator.
+type StepGate func(ctx context.Context, step *plan.Step) plan.StepStatus
+
+// SetStepGate installs the step gate (the review pipeline's threshold HITL,
+// KI-17).
+func (s *OrchestratorService) SetStepGate(gate StepGate) {
+	s.mu.Lock()
+	s.stepGate = gate
+	s.mu.Unlock()
 }
 
 // SetReviewRouter sets the review router service for confidence-based step evaluation.
@@ -351,6 +366,9 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 		}
 	case run.StatusCancelled:
 		stepStatus = plan.StepStatusCancelled
+	}
+	if stepStatus == plan.StepStatusCompleted && s.stepGate != nil {
+		stepStatus = s.stepGate(ctx, step)
 	}
 
 	if err := s.store.UpdatePlanStepStatus(ctx, step.ID, stepStatus, "", errMsg); err != nil {

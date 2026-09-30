@@ -47,6 +47,7 @@ const (
 	// Phase 12I: review events
 	EventReviewStatus           = "review.status"
 	EventReviewApprovalRequired = "review.approval_required"
+	EventReviewRefactorApplied  = "review.refactor_applied"
 
 	// Phase 13.5A: conversation events
 	EventConversationMessage = "conversation.message"

@@ -168,6 +168,21 @@ func orValue(v, fallback string) string {
 // tree as the run's first checkpoint. The ref is created only if it does not
 // exist: a base another process wrote first is kept.
 func createBaseCheckpoint(ctx context.Context, repo *git.Repo, runID, tree, callID string) (string, error) {
+	hash, err := writeBaseCommit(ctx, repo, checkpointSubject(callID), tree)
+	if err != nil {
+		return "", err
+	}
+	if _, err := repo.Run(ctx, nil, "update-ref", "-m", "codeforge checkpoint", checkpointRef(runID), hash, ""); err != nil {
+		return "", fmt.Errorf("checkpoint ref: %w", err)
+	}
+	return hash, nil
+}
+
+// writeBaseCommit writes tree as a base commit and returns it: its parent is
+// the commit checked out, and its trailers record where HEAD pointed and what
+// the user's index held (resolveBase reads them back). The run checkpoints and
+// the review pipeline's baseline (review_workspace.go) are such commits.
+func writeBaseCommit(ctx context.Context, repo *git.Repo, subject, tree string) (string, error) {
 	headRef, headCommit, err := headState(ctx, repo)
 	if err != nil {
 		return "", err
@@ -176,7 +191,7 @@ func createBaseCheckpoint(ctx context.Context, repo *git.Repo, runID, tree, call
 	if err != nil {
 		return "", err
 	}
-	msg := checkpointSubject(callID) + "\n\n" +
+	msg := subject + "\n\n" +
 		trailerHeadRef + ": " + orValue(headRef, detachedHead) + "\n" +
 		trailerHeadCommit + ": " + orValue(headCommit, noValue) + "\n" +
 		trailerIndexTree + ": " + orValue(indexTree, noValue) + "\n"
@@ -188,11 +203,7 @@ func createBaseCheckpoint(ctx context.Context, repo *git.Repo, runID, tree, call
 	if err != nil {
 		return "", fmt.Errorf("checkpoint commit: %w", err)
 	}
-	hash := trimLine(out)
-	if _, err := repo.Run(ctx, nil, "update-ref", "-m", "codeforge checkpoint", checkpointRef(runID), hash, ""); err != nil {
-		return "", fmt.Errorf("checkpoint ref: %w", err)
-	}
-	return hash, nil
+	return trimLine(out), nil
 }
 
 // appendCheckpoint adds tree to the chain whose tip is tip, unless the tip

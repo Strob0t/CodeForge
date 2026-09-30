@@ -191,6 +191,26 @@ type ArtifactValidationEvent struct {
 	Errors       []string `json:"errors,omitempty"`
 }
 
+// ReviewImpactEvent is broadcast when the refactoring step of a review
+// pipeline has been scored (Phase 31 threshold HITL):
+// EventReviewApprovalRequired for a high impact - the step waits until
+// POST /runs/{run_id}/approve or /reject with plan_id and step_id - and
+// EventReviewRefactorApplied for a medium impact (applied, notification).
+// Reason says why approval is needed when the change could not be measured.
+type ReviewImpactEvent struct {
+	RunID        string `json:"run_id"`
+	PlanID       string `json:"plan_id"`
+	StepID       string `json:"step_id"`
+	ProjectID    string `json:"project_id"`
+	ImpactLevel  string `json:"impact_level"`
+	FilesChanged int    `json:"files_changed"`
+	LinesAdded   int    `json:"lines_added"`
+	LinesRemoved int    `json:"lines_removed"`
+	CrossLayer   bool   `json:"cross_layer"`
+	Structural   bool   `json:"structural"`
+	Reason       string `json:"reason,omitempty"`
+}
+
 // ReviewStatusEvent is broadcast when a review's status changes.
 type ReviewStatusEvent struct {
 	ReviewID  string `json:"review_id"`
