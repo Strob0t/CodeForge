@@ -354,6 +354,6 @@ Milestones of [known-issues-fix-plan.md](known-issues-fix-plan.md) on `staging` 
 
 - **S0 (CI) done:** golangci-lint v2.11.4, CI on pull requests to `staging`, integration-tagged tests, frontend typecheck/tests, test repairs (KI-1, KI-2, KI-3).
 - **S1 (policy and security) done:** policy enforcement per [ADR-015](architecture/adr/015-policy-deny-lists-and-tool-names.md) (KI-4 to KI-10), trusted-proxy client IP (KI-11), tenant-scoped WebSocket fan-out with ticket auth (KI-12), sandbox/hybrid exec modes rejected until isolated (KI-13), loopback-only dev ports (KI-14).
-- **S2 (messaging and runtime) in progress:** NATS delivery semantics per [ADR-016](architecture/adr/016-nats-delivery-semantics.md) (KI-18 to KI-20) done; runtime state (KI-24, KI-30 to KI-32) and run path (KI-21 to KI-23) in progress.
+- **S2 (messaging and runtime) in progress:** NATS delivery semantics per [ADR-016](architecture/adr/016-nats-delivery-semantics.md) (KI-18 to KI-20) and runtime state (KI-24, KI-30 to KI-32) done; run path (KI-21 to KI-23) in progress.
 - **S4 (operations) in progress:** deployment fixes KI-43 to KI-50, KI-59 done; worker health, logs, OTEL, config drift, SIGHUP (KI-34 to KI-36, KI-51, KI-61) in progress.
 - **S5 (frontend) done:** live updates (KI-39), model delete route (KI-40), config merge (KI-41), channel broadcasts (KI-42).

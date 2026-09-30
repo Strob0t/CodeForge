@@ -81,6 +81,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - `AgentLoopExecutor` (Python): streaming LLM, per-tool policy, cost tracking
 - `ConversationHistoryManager`: head-and-tail token budget, tool result truncation
 - HITL: `DecisionAsk` -> WS `agui.permission_request` -> HTTP approve/deny -> channel resume
+- One run per conversation: a second message while a run is active gets 409; each dispatch has a `turn_id` (on `conversation.run.start`, `runs.toolcall.request`, `conversation.run.complete`) so calls of a stopped run are denied
 - Config: `MaxLoopIterations` (50), `MaxContextTokens` (128K), `ContextEnabled` (true), `ContextBudget` (2048), `ContextPromptReserve` (512), `ApprovalTimeoutSeconds` (60)
 - **Adaptive Context Budget:** Linear decay from `ContextBudget` to 0 over 60 messages — `internal/service/context_budget.go`
 - **Auto-Indexing:** Clone/Adopt/Setup trigger RepoMap + Retrieval Index + GraphRAG — `internal/service/project.go` (`AutoIndex`), called from `internal/adapter/http/handlers_project.go`

@@ -116,7 +116,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 - **Path Blocklist** -- sensitive files protected.
 - Stall Detection -- re-planning or abort.
 
-> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and shadow-Git rollback in `runtime_completion.go`, `deliver.go` and `checkpoint.go`. Policy evaluation follows ADR-015 (canonical tool names, deny lists win, shell-aware command matching). Gaps: gate, delivery and checkpoint defects (KI-26, KI-27, KI-28, KI-29); termination-limit and stall paths leave plan steps hanging (KI-30). See [Known Issues](../todo.md#known-issues).
+> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and shadow-Git rollback in `runtime_completion.go`, `deliver.go` and `checkpoint.go`. Policy evaluation follows ADR-015 (canonical tool names, deny lists win, shell-aware command matching). Gaps: gate, delivery and checkpoint defects (KI-26, KI-27, KI-28, KI-29). Stops (cancel, timeout, termination limit, budget, stall) end runs through the common completion path and advance plans (KI-30, fixed). See [Known Issues](../todo.md#known-issues).
 
 ### Quality Layer (4 Tiers)
 
@@ -301,7 +301,7 @@ sequenceDiagram
 
 ### Completed (Phase 5 -- Multi-Agent Orchestration)
 
-- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (steps hang when a run ends via termination limit, stall or user cancel, see [Known Issues](../todo.md#known-issues) KI-30).
+- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (a failed or cancelled step ends sequential/parallel plans as failed and skips blocked dependents; follow-ups: [Known Issues](../todo.md#known-issues) KI-62, KI-76).
 - [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection.
 - [x] Agent teams: internal team assembly by the orchestrator/task planner (`PoolManagerService`, `internal/service/pool_manager.go`); the team CRUD REST API and Teams page were removed (only `/teams/{teamId}/shared-context` remains). Teams are never cleaned up (KI-33).
 - [x] Context optimizer: token budget management, workspace scanning, context packing.

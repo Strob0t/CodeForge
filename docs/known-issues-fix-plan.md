@@ -1,6 +1,6 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18, KI-19, KI-20 done); **S4 in progress** (KI-43 to KI-46, KI-48 to KI-50, KI-59 done); **S5 done** (KI-39 to KI-42).
+> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18 to KI-20, KI-24, KI-30 to KI-32 done); **S4 in progress** (KI-43 to KI-46, KI-48 to KI-50, KI-59 done); **S5 done** (KI-39 to KI-42).
 > **Scope:** the verified defects KI-1 to KI-62 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
@@ -24,7 +24,7 @@
 |---|---|---|---|
 | **S0** | Green CI with complete gates | KI-1, KI-2, KI-3 | M |
 | **S1** | Policy and security enforcement | ~~KI-4~~, ~~KI-5~~, ~~KI-6~~, ~~KI-7~~, ~~KI-8~~, ~~KI-9~~, ~~KI-10~~, ~~KI-11~~, ~~KI-12~~, ~~KI-13~~, ~~KI-14~~ | L |
-| **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, KI-21, KI-22, KI-23, KI-24, KI-30, KI-31, KI-32 | L |
+| **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, KI-21, KI-22, KI-23, ~~KI-24~~, ~~KI-30~~, ~~KI-31~~, ~~KI-32~~ | L |
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
 | **S4** | Operations and deployment | KI-34, KI-35, KI-36, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, KI-51, ~~KI-59~~, KI-61 | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
@@ -75,10 +75,10 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-21** | Worker policy wait >= Go HITL timeout (derive both from one config value); run path uses the agent loop instead of one completion (follow-up item if large) | Timeout test; run-path integration test |
 | **KI-22** | `tasks.cancel` stops backend processes; remove or publish `review.trigger.request` | Backend cancel test |
 | **KI-23** | `workspace_path` and backend in run/backend-task payloads; shared workspace volume in prod compose | Contract fixture round trip |
-| **KI-24** | Clear the conversation cancel flag when a new run starts | Service test |
-| **KI-30** | Termination, stall and cancel paths call `onRunComplete` | Orchestrator test per path |
-| **KI-31** | Status predicates / version checks on run, plan and team updates; no write-back from `cancelled` | Store integration test |
-| **KI-32** | Persist result and plan events with real IDs or nullable columns; do not discard errors | Event store integration test |
+| **KI-24** | **Done (2026-09-30).** Clear the conversation cancel flag when a new run starts | Service test |
+| **KI-30** | **Done (2026-09-30).** Termination, stall and cancel paths call `onRunComplete` | Orchestrator test per path |
+| **KI-31** | **Done (2026-09-30).** Status predicates / version checks on run, plan and team updates; no write-back from `cancelled` | Store integration test |
+| **KI-32** | **Done (2026-09-30).** Persist result and plan events with real IDs or nullable columns; do not discard errors | Event store integration test |
 
 ## S3 - Quality Gates and Delivery
 
@@ -158,6 +158,7 @@ scheduled as follows:
 | **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6 |
 | **KI-74** | Frontend live-update follow-ups | S6 |
 | **KI-75** | LLM models are global across tenants | S6 |
+| **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up |
 
 ## Decisions
 
