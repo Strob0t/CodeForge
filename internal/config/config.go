@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // ConfigHolder provides thread-safe access to a Config with hot-reload support.
@@ -57,7 +59,7 @@ func (h *ConfigHolder) Reload() error {
 	}
 	if newCfg.NATS.URL != h.cfg.NATS.URL {
 		slog.Warn("config reload: nats.url changed but requires restart",
-			"old", h.cfg.NATS.URL, "new", newCfg.NATS.URL)
+			"old", secrets.RedactURL(h.cfg.NATS.URL), "new", secrets.RedactURL(newCfg.NATS.URL))
 	}
 
 	// Log level change notification.

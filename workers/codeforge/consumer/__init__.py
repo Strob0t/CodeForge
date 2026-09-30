@@ -72,7 +72,7 @@ from codeforge.consumer._tasks import TaskHandlerMixin
 from codeforge.executor import AgentExecutor
 from codeforge.graphrag import CodeGraphBuilder, GraphSearcher
 from codeforge.llm import LiteLLMClient
-from codeforge.logger import setup_logging, stop_logging
+from codeforge.logger import redact_url, setup_logging, stop_logging
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
@@ -163,7 +163,7 @@ class TaskConsumer(
         self._js = self._nc.jetstream()
         self._running = True
 
-        logger.info("connected to NATS", url=self.nats_url)
+        logger.info("connected to NATS", url=redact_url(self.nats_url))
 
         try:
             await self._js.find_stream_name_by_subject(STREAM_SUBJECTS[0])

@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // sensitivePatterns matches common secret and PII formats in log output.
@@ -75,7 +77,10 @@ func (h *RedactHandler) WithGroup(name string) slog.Handler {
 }
 
 // redactString replaces sensitive patterns in a string with [REDACTED].
+// URL userinfo goes first: the email pattern would otherwise eat
+// "password@host" and leave the user name while dropping the host.
 func redactString(s string) string {
+	s = secrets.RedactURL(s)
 	for _, p := range sensitivePatterns {
 		s = p.ReplaceAllString(s, redacted)
 	}

@@ -8,12 +8,38 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import sys
 from logging.handlers import QueueHandler, QueueListener
 
 import structlog
 
 _listener: QueueListener | None = None
+
+# "scheme://userinfo@host[:port]" up to the end of the authority; the shortest
+# userinfo that is followed by a host, so passwords containing "@", ":" or an
+# unencoded "/" are covered and each URL of a server list is matched on its own.
+# Mirrors secrets.RedactURL in the Go core.
+_URL_USERINFO = re.compile(
+    r"([A-Za-z][A-Za-z0-9+.-]*://)[^\s?#]*?@([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])((?::[0-9]+)?(?:[/?#,\s]|$))"
+)
+
+
+def redact_url(text: str) -> str:
+    """Replace the userinfo (user, password or token) of every URL in *text*."""
+    return _URL_USERINFO.sub(r"\1[REDACTED]@\2\3", text)
+
+
+def redact_urls_processor(
+    _logger: structlog.types.WrappedLogger,
+    _method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> structlog.types.EventDict:
+    """structlog processor: redact URL userinfo in every string value."""
+    for key, value in event_dict.items():
+        if isinstance(value, str):
+            event_dict[key] = redact_url(value)
+    return event_dict
 
 
 def setup_logging(service: str = "codeforge-worker", level: str = "info") -> None:
@@ -50,6 +76,7 @@ def setup_logging(service: str = "codeforge-worker", level: str = "info") -> Non
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
             _add_service(service),
+            redact_urls_processor,
             structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,

@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/resilience"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // Delivery semantics (ADR-016): every subscription is a shared durable pull
@@ -69,7 +70,7 @@ func reconnectOpts() []nats.Option {
 			}
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
-			slog.Info("nats reconnected", "url", nc.ConnectedUrl())
+			slog.Info("nats reconnected", "url", secrets.RedactURL(nc.ConnectedUrl()))
 		}),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			slog.Error("nats async error", "error", err)
@@ -114,7 +115,7 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 	q := &Queue{nc: nc, js: js, ackWait: defaultAckWait}
 	q.startDLQMonitor(ctx)
 
-	slog.Info("nats connected", "url", url, "stream", streamName)
+	slog.Info("nats connected", "url", secrets.RedactURL(url), "stream", streamName)
 	return q, nil
 }
 
