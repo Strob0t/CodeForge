@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from codeforge.constants import MAX_SEARCH_MATCHES
+from codeforge.subprocess_env import tool_env
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class SearchFilesTool(ToolExecutor):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_path,
+                env=tool_env(),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
         except TimeoutError:

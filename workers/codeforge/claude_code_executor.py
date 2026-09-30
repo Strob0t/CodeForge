@@ -25,11 +25,21 @@ from codeforge.models import (
 )
 from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
+from codeforge.subprocess_env import tool_env
 
 if TYPE_CHECKING:
     from codeforge.runtime import RuntimeClient
 
 logger = logging.getLogger(__name__)
+
+# The CLI's own credentials and settings; it gets nothing else from the worker.
+_CLAUDE_CLI_ENV = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CONFIG_DIR",
+)
 
 
 @dataclass
@@ -338,6 +348,7 @@ class ClaudeCodeExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._workspace,
+                env=tool_env(passthrough=_CLAUDE_CLI_ENV),
             )
 
             stdout, stderr = await asyncio.wait_for(

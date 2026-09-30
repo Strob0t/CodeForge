@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
+from codeforge.subprocess_env import tool_env
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,7 @@ class BashTool(ToolExecutor):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_path,
+                env=tool_env(),
             )
         except OSError as exc:
             return ToolResult(output="", error=str(exc), success=False)

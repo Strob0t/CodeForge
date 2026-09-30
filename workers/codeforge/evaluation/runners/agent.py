@@ -18,6 +18,7 @@ import structlog
 
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
+from codeforge.subprocess_env import tool_env
 
 if TYPE_CHECKING:
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -71,6 +72,7 @@ async def _run_test_command(test_command: str, workspace: Path, timeout: int = 6
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(workspace),
+            env=tool_env(),
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         output = stdout.decode("utf-8", errors="replace") if stdout else ""

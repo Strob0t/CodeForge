@@ -12,6 +12,7 @@ import asyncio
 import structlog
 
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
+from codeforge.subprocess_env import tool_env
 
 logger = structlog.get_logger()
 
@@ -87,6 +88,7 @@ class FunctionalTestEvaluator:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=self._working_dir,
+            env=tool_env(),
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self._timeout)
         output = stdout.decode("utf-8", errors="replace") if stdout else ""

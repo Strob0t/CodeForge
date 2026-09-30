@@ -13,6 +13,7 @@ import structlog
 
 from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
 from codeforge.models import QualityGateRequest, QualityGateResult
+from codeforge.subprocess_env import tool_env
 
 logger = structlog.get_logger()
 
@@ -110,6 +111,7 @@ class QualityGateExecutor:
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                env=tool_env(),
             )
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(),

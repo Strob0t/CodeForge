@@ -49,6 +49,7 @@ from codeforge.quality_tracking import (
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
 from codeforge.stall_detection import StallDetector
+from codeforge.subprocess_env import tool_env
 from codeforge.tool_executor import ToolExecutor
 from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
@@ -881,6 +882,7 @@ async def _run_git(workspace_path: str, *args: str) -> None:
         cwd=workspace_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=tool_env(),
     )
     _, stderr = await proc.communicate()
     if proc.returncode:

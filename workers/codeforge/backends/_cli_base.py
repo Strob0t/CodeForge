@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from abc import ABC, abstractmethod
 from typing import TypedDict
 
 from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
 from codeforge.config import resolve_backend_path
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
+from codeforge.subprocess_env import tool_env
 from codeforge.subprocess_utils import check_cli_available, graceful_terminate
 
 logger = logging.getLogger(__name__)
@@ -86,15 +86,13 @@ class CLIBackendExecutor(ABC):
 
         logger.info("%s exec task=%s cmd=%s cwd=%s", name, task_id, cmd[:4], cwd)
 
-        merged_env = {**os.environ, **extra_env} if extra_env else None
-
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=cwd or None,
-                env=merged_env,
+                env=tool_env(extra=extra_env),
             )
         except OSError as exc:
             return TaskResult(status="failed", error=f"Failed to start {name}: {exc}")
