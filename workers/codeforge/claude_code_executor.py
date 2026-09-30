@@ -38,6 +38,7 @@ from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
 )
+from codeforge.policy_args import policy_request_args
 from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
 from codeforge.subprocess_env import tool_env
@@ -72,15 +73,6 @@ class _RunAccumulator:
     step_count: int = 0
     model: str = ""
 
-
-# Claude Code tool arguments that name the file or directory a tool works on,
-# in order of preference. Tool names are sent unchanged: the Go policy layer
-# maps them to canonical names (internal/domain/policy/toolnames.go).
-_POLICY_PATH_KEYS: tuple[str, ...] = ("file_path", "notebook_path", "path")
-
-# Claude Code tools that run a shell command (Go maps both to Bash): their
-# command is evaluated by the command rules.
-_COMMAND_TOOLS: frozenset[str] = frozenset({"Bash", "Monitor"})
 
 # The only tools a Claude Code run gets (--tools) and the only ones the policy
 # socket lets Go decide: those the Go policy maps to a built-in tool
@@ -174,25 +166,6 @@ def _get_semaphore() -> asyncio.Semaphore:
 # ----------------------------------------------------------------------
 
 
-def policy_request_args(tool_name: str, tool_input: dict[str, object]) -> tuple[str, str, str]:
-    """Return the (command, path, arguments preview) sent with a Claude Code tool call.
-
-    Only tools that run a shell command send one; file tools send the file or
-    directory they work on. The preview is shown to a human approver only.
-    """
-    command = ""
-    if tool_name in _COMMAND_TOOLS:
-        value = tool_input.get("command", "")
-        command = value if isinstance(value, str) else ""
-    path = ""
-    for key in _POLICY_PATH_KEYS:
-        value = tool_input.get(key)
-        if isinstance(value, str) and value:
-            path = value
-            break
-    return command, path, arguments_preview(tool_input)
-
-
 @dataclass(frozen=True)
 class HookTimeouts:
     """How long each step of a tool call decision may take, in seconds.
@@ -233,8 +206,9 @@ class PolicySocketServer:
     takes longer than ``decision_timeout`` is a deny.
     """
 
-    def __init__(self, runtime: RuntimeClient, decision_timeout: float) -> None:
+    def __init__(self, runtime: RuntimeClient, workspace: str, decision_timeout: float) -> None:
         self._runtime = runtime
+        self._workspace = workspace
         self._decision_timeout = decision_timeout
         self._token = secrets.token_urlsafe(32)
         self._dir = ""
@@ -308,7 +282,8 @@ class PolicySocketServer:
             logger.warning("claude code tool %s is not available, denied", tool_name)
             return _DENY, f"tool {tool_name} is not available in CodeForge Claude Code runs"
 
-        command, path, preview = policy_request_args(tool_name, tool_input)
+        command, path = policy_request_args(tool_name, tool_input, self._workspace)
+        preview = arguments_preview(tool_input)
         try:
             decision = await asyncio.wait_for(
                 self._runtime.request_tool_call(tool=tool_name, command=command, path=path, arguments_preview=preview),
@@ -624,7 +599,9 @@ class ClaudeCodeExecutor:
         error_msg = ""
         stdout = b""
         try:
-            async with PolicySocketServer(self._runtime, hook_timeouts(policy_wait).decision) as policy:
+            async with PolicySocketServer(
+                self._runtime, self._workspace, hook_timeouts(policy_wait).decision
+            ) as policy:
                 env = tool_env(
                     passthrough=_CLAUDE_CLI_ENV,
                     extra={policy_hook.SOCKET_ENV: policy.socket_path, policy_hook.TOKEN_ENV: policy.token},
