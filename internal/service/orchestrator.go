@@ -129,8 +129,8 @@ func (s *OrchestratorService) CreatePlan(ctx context.Context, req *plan.CreatePl
 		p.Steps = append(p.Steps, plan.Step{
 			TaskID:        sr.TaskID,
 			AgentID:       sr.AgentID,
-			PolicyProfile: sr.PolicyProfile,
 			ModeID:        sr.ModeID,
+			PolicyProfile: sr.PolicyProfile,
 			DeliverMode:   sr.DeliverMode,
 			DependsOn:     sr.DependsOn, // indices; DB adapter remaps to UUIDs
 			Status:        plan.StepStatusPending,

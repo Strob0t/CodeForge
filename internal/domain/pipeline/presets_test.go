@@ -37,3 +37,25 @@ func TestBuiltinTemplatesContainReviewRefactor(t *testing.T) {
 		t.Error("review-refactor template not found in BuiltinTemplates()")
 	}
 }
+
+// A step's deliver mode must be one a run accepts; custom templates with an
+// unknown one are refused at registration instead of failing every run.
+func TestTemplateValidate_DeliverMode(t *testing.T) {
+	for _, tt := range []struct {
+		mode    string
+		wantErr bool
+	}{
+		{"", false},
+		{"patch", false},
+		{"commit-local", false},
+		{"append", true},
+		{"diff", true},
+	} {
+		tmpl := Template{ID: "t", Name: "T", Protocol: plan.ProtocolSequential,
+			Steps: []Step{{Name: "S", ModeID: "coder", DeliverMode: tt.mode}}}
+		err := tmpl.Validate()
+		if (err != nil) != tt.wantErr {
+			t.Errorf("deliver mode %q: Validate() = %v, wantErr %v", tt.mode, err, tt.wantErr)
+		}
+	}
+}
