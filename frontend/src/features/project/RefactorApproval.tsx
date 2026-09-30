@@ -1,28 +1,34 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 
+import { api } from "~/api/client";
+import type { ReviewImpactEvent } from "~/api/types";
+import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useFocusTrap } from "~/hooks/useFocusTrap";
 import { Button } from "~/ui";
 
-interface ApprovalRequest {
-  run_id: string;
-  plan_id: string;
-  step_id: string;
-  files_changed: number;
-  lines_added: number;
-  lines_removed: number;
-  cross_layer: boolean;
-  structural: boolean;
+function isReviewImpact(p: unknown): p is ReviewImpactEvent {
+  return (
+    typeof p === "object" &&
+    p !== null &&
+    "run_id" in p &&
+    "plan_id" in p &&
+    "step_id" in p &&
+    "project_id" in p
+  );
 }
 
-function isApprovalRequest(p: unknown): p is ApprovalRequest {
-  return typeof p === "object" && p !== null && "run_id" in p && "plan_id" in p && "step_id" in p;
-}
-
-export default function RefactorApproval() {
-  const [request, setRequest] = createSignal<ApprovalRequest | null>(null);
+/**
+ * Threshold HITL of the review pipeline (KI-17): a high-impact refactoring
+ * (review.approval_required) waits here for approval or rejection; a
+ * medium-impact one was applied and is announced (review.refactor_applied).
+ */
+export default function RefactorApproval(props: { projectId: string }) {
+  const [request, setRequest] = createSignal<ReviewImpactEvent | null>(null);
   const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal("");
   const { onMessage } = useWebSocket();
+  const { show: toast } = useToast();
   let dialogRef: HTMLDivElement | undefined;
 
   const { onKeyDown: trapKeyDown } = useFocusTrap(
@@ -30,40 +36,37 @@ export default function RefactorApproval() {
     () => request() !== null,
   );
 
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
   const cleanup = onMessage((msg) => {
-    if (msg.type === "refactor.approval_required" && isApprovalRequest(msg.payload)) {
+    if (!isReviewImpact(msg.payload) || msg.payload.project_id !== props.projectId) return;
+    if (msg.type === "review.approval_required") {
+      setError("");
       setRequest(msg.payload);
+    } else if (msg.type === "review.refactor_applied") {
+      const p = msg.payload;
+      toast(
+        "info",
+        `Review refactoring applied: ${p.files_changed} file(s), +${p.lines_added} -${p.lines_removed}`,
+      );
     }
   });
   onCleanup(cleanup);
 
-  const handleApprove = async () => {
+  const decide = async (approve: boolean) => {
     const req = request();
     if (!req) return;
     setLoading(true);
+    setError("");
+    const step = { plan_id: req.plan_id, step_id: req.step_id };
     try {
-      await fetch(`/api/v1/runs/${req.run_id}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_id: req.plan_id, step_id: req.step_id }),
-      });
+      if (approve) {
+        await api.runs.approveRefactor(req.run_id, step);
+      } else {
+        await api.runs.rejectRefactor(req.run_id, step);
+      }
       setRequest(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleReject = async () => {
-    const req = request();
-    if (!req) return;
-    setLoading(true);
-    try {
-      await fetch(`/api/v1/runs/${req.run_id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_id: req.plan_id, step_id: req.step_id }),
-      });
-      setRequest(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -89,6 +92,11 @@ export default function RefactorApproval() {
             </h3>
 
             <div class="mb-4 space-y-2 text-sm text-cf-text-secondary">
+              <Show when={req().reason}>
+                <div class="rounded bg-cf-warning-bg px-2 py-1 text-cf-warning-fg">
+                  {req().reason}
+                </div>
+              </Show>
               <div class="flex justify-between">
                 <span>Files changed:</span>
                 <span class="font-mono">{req().files_changed}</span>
@@ -108,31 +116,40 @@ export default function RefactorApproval() {
               </Show>
               <Show when={req().structural}>
                 <div class="rounded bg-cf-danger-bg px-2 py-1 text-cf-danger-fg">
-                  Structural changes (file moves/deletes)
+                  Structural changes (files added, deleted or renamed)
                 </div>
               </Show>
+              <p class="text-xs text-cf-text-muted">
+                Rejecting restores the workspace to its state before the review.
+              </p>
             </div>
+
+            <Show when={error()}>
+              <p class="mb-3 text-sm text-cf-danger-fg" role="alert">
+                {error()}
+              </p>
+            </Show>
 
             <div class="flex gap-3">
               <Button
                 variant="primary"
                 size="sm"
-                onClick={handleApprove}
+                onClick={() => void decide(true)}
                 disabled={loading()}
                 loading={loading()}
                 class="flex-1 bg-cf-success hover:opacity-90"
               >
-                {loading() ? "..." : "Approve"}
+                Approve
               </Button>
               <Button
                 variant="danger"
                 size="sm"
-                onClick={handleReject}
+                onClick={() => void decide(false)}
                 disabled={loading()}
                 loading={loading()}
                 class="flex-1"
               >
-                {loading() ? "..." : "Reject"}
+                Reject
               </Button>
             </div>
           </div>

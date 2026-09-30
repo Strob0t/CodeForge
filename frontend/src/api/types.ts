@@ -1860,6 +1860,39 @@ export interface BoundaryConfig {
   version: number;
 }
 
+/** Answer of a review trigger: the started plan, or triggered false when deduplicated. */
+export interface ReviewTriggerResponse {
+  triggered: boolean;
+  plan_id?: string;
+}
+
+/**
+ * Impact of a review pipeline's refactoring (WS `review.approval_required`,
+ * `review.refactor_applied`; Go event.ReviewImpactEvent).
+ */
+export interface ReviewImpactEvent {
+  run_id: string;
+  plan_id: string;
+  step_id: string;
+  project_id: string;
+  impact_level: "low" | "medium" | "high";
+  files_changed: number;
+  lines_added: number;
+  lines_removed: number;
+  cross_layer: boolean;
+  structural: boolean;
+  /** Why the refactoring needs approval although it could not be scored. */
+  reason?: string;
+}
+
+/** A slash command offered by the backend (GET /commands). */
+export interface CommandInfo {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+}
+
 // --- Quarantine types (Phase 23) ---
 
 /** Quarantine message status (matches Go domain/quarantine.Status) */

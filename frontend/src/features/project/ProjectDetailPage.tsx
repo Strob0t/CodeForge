@@ -840,7 +840,7 @@ export default function ProjectDetailPage() {
               </Show>
 
               {/* Global overlay: refactor approval dialog */}
-              <RefactorApproval />
+              <RefactorApproval projectId={params.id} />
 
               {/* Design Canvas modal overlay */}
               <CanvasModal

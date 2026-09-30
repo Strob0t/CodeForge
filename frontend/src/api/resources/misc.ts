@@ -8,6 +8,7 @@ import type {
   BenchmarkRequest,
   BenchmarkResult,
   ChannelMessageRecord,
+  CommandInfo,
   CreateGoalRequest,
   CreateMCPServerRequest,
   CreatePlanRequest,
@@ -86,6 +87,18 @@ export function createRunsResource(c: CoreClient) {
       c.post<{ status: string; decision: string }>(
         `${url`/feedback/${runId}/${callId}`}?decision=${decision}`,
       ),
+    /** Keep the refactoring of a review step that waits for approval. */
+    approveRefactor: (runId: string, step: { plan_id: string; step_id: string }) =>
+      c.post<{ status: string }>(url`/runs/${runId}/approve`, step),
+    /** Undo the refactoring of a review step that waits for approval; the step fails. */
+    rejectRefactor: (runId: string, step: { plan_id: string; step_id: string }) =>
+      c.post<{ status: string }>(url`/runs/${runId}/reject`, step),
+  };
+}
+
+export function createCommandsResource(c: CoreClient) {
+  return {
+    list: () => c.get<CommandInfo[]>("/commands"),
   };
 }
 
