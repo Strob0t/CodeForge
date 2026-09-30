@@ -50,16 +50,32 @@ _ALLOWED_COMMANDS: frozenset[str] = frozenset(
 )
 
 
+def _split_command(command: str) -> list[str] | None:
+    """Split a command like a POSIX shell; None when it cannot be split."""
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return None
+
+
 def _is_command_allowed(command: str) -> bool:
-    """Return True if the command's base executable is on the allowlist."""
-    parts = shlex.split(command)
+    """Return True if the command splits and its executable is on the allowlist."""
+    parts = _split_command(command)
     if not parts:
         return False
     return parts[0] in _ALLOWED_COMMANDS
 
 
 class QualityGateExecutor:
-    """Executes test and lint commands and returns pass/fail results."""
+    """Executes test and lint commands and returns pass/fail results.
+
+    A check that ran reports whether it passed (the command's exit code). A
+    check that could not run or did not finish (no command, a command that
+    is invalid, not allowed or cannot start, a timeout) has no verdict: its
+    ``*_passed`` stays None and the reason goes to ``error``, which fails
+    the gate without counting as a failed check - the Go Core then neither
+    rolls the workspace back nor counts it against the agent.
+    """
 
     def __init__(self, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._timeout = timeout_seconds
@@ -71,23 +87,30 @@ class QualityGateExecutor:
 
         result = QualityGateResult(run_id=request.run_id)
         timeout = request.timeout_seconds or self._timeout
+        errors: list[str] = []
 
-        # A requested check always reports a result: without a command it
-        # fails instead of being skipped, which would pass the gate (KI-29).
+        # A requested check is never skipped: without a command it fails the
+        # gate instead of passing it (KI-29).
         if request.run_tests:
             result.tests_passed, result.test_output = await self._run_check(
                 "test", request.test_command, request.workspace_path, log, timeout
             )
+            if result.tests_passed is None:
+                errors.append(f"test check could not run: {result.test_output}")
 
         if request.run_lint:
             result.lint_passed, result.lint_output = await self._run_check(
                 "lint", request.lint_command, request.workspace_path, log, timeout
             )
+            if result.lint_passed is None:
+                errors.append(f"lint check could not run: {result.lint_output}")
 
+        result.error = "; ".join(errors)
         log.info(
             "quality gate execution completed",
             tests_passed=result.tests_passed,
             lint_passed=result.lint_passed,
+            error=result.error,
         )
         return result
 
@@ -98,11 +121,11 @@ class QualityGateExecutor:
         cwd: str,
         log: structlog.stdlib.BoundLogger,
         timeout_seconds: int,
-    ) -> tuple[bool, str]:
-        """Run one requested check; a check without a command fails."""
+    ) -> tuple[bool | None, str]:
+        """Run one requested check; a check without a command has no verdict."""
         if not command.strip():
             log.warning("quality gate check has no command", check=check)
-            return False, f"no command for the {check} check"
+            return None, f"no command for the {check} check"
         return await self._run_command(command, cwd, log, timeout_seconds)
 
     async def _run_command(
@@ -111,8 +134,8 @@ class QualityGateExecutor:
         cwd: str,
         log: structlog.stdlib.BoundLogger,
         timeout_seconds: int | None = None,
-    ) -> tuple[bool, str]:
-        """Run a command and return (passed, output).
+    ) -> tuple[bool | None, str]:
+        """Run a command and return (passed, output); passed is None without a verdict.
 
         The command runs in a process group of its own (start_new_session):
         on timeout, and whenever the gate stops waiting for it, the whole group
@@ -120,13 +143,17 @@ class QualityGateExecutor:
         or keeps its output pipe open (KI-28).
         """
         timeout = timeout_seconds or self._timeout
+        argv = _split_command(command)
+        if argv is None:
+            log.warning("quality gate command rejected: invalid", command=command)
+            return None, f"invalid command: {command!r}"
         if not _is_command_allowed(command):
             log.warning("quality gate command rejected: not on allowlist", command=command)
-            return False, f"command not allowed: {command!r}. Only approved commands may run."
+            return None, f"command not allowed: {command!r}. Only approved commands may run."
         log.debug("running gate command", command=command, cwd=cwd, timeout_seconds=timeout)
         try:
             proc = await asyncio.create_subprocess_exec(
-                *shlex.split(command),
+                *argv,
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -135,18 +162,18 @@ class QualityGateExecutor:
             )
         except Exception as exc:
             log.error("gate command error", command=command, error=str(exc))
-            return False, str(exc)
+            return None, f"command could not start: {exc}"
 
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except TimeoutError:
             log.warning("gate command timed out, killing its process group", command=command, timeout_seconds=timeout)
             await _kill_process_group(proc, log)
-            return False, f"command timed out after {timeout}s"
+            return None, f"command timed out after {timeout}s"
         except Exception as exc:
             log.error("gate command error", command=command, error=str(exc))
             await _kill_process_group(proc, log)
-            return False, str(exc)
+            return None, str(exc)
         finally:
             # Cancelled (worker shutdown) or failed while waiting: leave nothing behind.
             if proc.returncode is None:

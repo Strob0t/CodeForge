@@ -39,11 +39,11 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 
 	proj, err := s.store.GetProject(ctx, r.ProjectID)
 	if err != nil {
-		return s.failQualityGate(ctx, gated, gate, "project unavailable: "+err.Error(), nil)
+		return s.failQualityGate(ctx, gated, gate, gateVerdict{reason: "project unavailable: " + err.Error()}, nil)
 	}
 	cmds := s.gateCommands(proj)
 	if missing := missingGateCommands(gate, cmds); missing != "" {
-		return s.failQualityGate(ctx, gated, gate, fmt.Sprintf("no command for the required checks; set %s in the project config", missing), nil)
+		return s.failQualityGate(ctx, gated, gate, gateVerdict{reason: fmt.Sprintf("no command for the required checks; set %s in the project config", missing)}, nil)
 	}
 	gateReq := messagequeue.QualityGateRequestPayload{
 		RunID:         r.ID,
@@ -59,7 +59,7 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 	}
 	if err := s.publishJSON(ctx, messagequeue.SubjectQualityGateRequest, gateReq); err != nil {
 		slog.Error("quality gate request not published, failing the gate", "run_id", r.ID, "error", err)
-		return s.failQualityGate(ctx, gated, gate, "request not published: "+err.Error(), nil)
+		return s.failQualityGate(ctx, gated, gate, gateVerdict{reason: "request not published: " + err.Error()}, nil)
 	}
 
 	s.appendRunEvent(ctx, event.TypeQualityGateStarted, gated, map[string]string{
@@ -141,23 +141,27 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 
 	profile, ok := s.policy.GetProfile(r.PolicyProfile)
 	if !ok {
-		return s.failQualityGate(ctx, r, &policy.QualityGate{}, unknownGateProfile(r.PolicyProfile), result)
+		return s.failQualityGate(ctx, r, &policy.QualityGate{}, gateVerdict{reason: unknownGateProfile(r.PolicyProfile)}, result)
 	}
-	if reason := gateFailure(&profile.QualityGate, result); reason != "" {
-		return s.failQualityGate(ctx, r, &profile.QualityGate, reason, result)
+	if verdict := judgeGate(&profile.QualityGate, result); verdict.reason != "" {
+		return s.failQualityGate(ctx, r, &profile.QualityGate, verdict, result)
 	}
 
-	s.appendAudit(ctx, r, "qualitygate.passed", "Quality gate passed")
-	s.appendRunEvent(ctx, event.TypeQualityGatePassed, r, map[string]string{})
-	s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
-		RunID:       r.ID,
-		TaskID:      r.TaskID,
-		ProjectID:   r.ProjectID,
-		Status:      "passed",
-		TestsPassed: result.TestsPassed,
-		LintPassed:  result.LintPassed,
-	})
-	return s.finishRun(ctx, r, run.StatusCompleted, storedOutcome(r, run.StatusCompleted, ""), agentEnd)
+	// Announced only by the path whose record ends the run (runEnd.ended).
+	announce := func(ctx context.Context) {
+		s.appendAudit(ctx, r, "qualitygate.passed", "Quality gate passed")
+		s.appendRunEvent(ctx, event.TypeQualityGatePassed, r, map[string]string{})
+		s.hub.BroadcastEvent(ctx, event.EventQualityGate, event.QualityGateEvent{
+			RunID:       r.ID,
+			TaskID:      r.TaskID,
+			ProjectID:   r.ProjectID,
+			Status:      "passed",
+			TestsPassed: result.TestsPassed,
+			LintPassed:  result.LintPassed,
+		})
+	}
+	return s.finishRun(ctx, r, run.StatusCompleted, storedOutcome(r, run.StatusCompleted, ""),
+		runEnd{agentWorked: true, ended: announce})
 }
 
 // unknownGateProfile is the failure of a gate whose policy profile no longer
@@ -166,41 +170,52 @@ func unknownGateProfile(name string) string {
 	return fmt.Sprintf("unknown policy profile %q, its quality gate cannot be checked", name)
 }
 
-// gateFailure tells why a gate result fails the gate; "" means it passed. A
-// required check without a result fails (KI-29), as does any failed check.
-func gateFailure(gate *policy.QualityGate, result *messagequeue.QualityGateResultPayload) string {
-	if result.Error != "" {
-		return result.Error
-	}
-	var failed []string
-	if reason := checkFailure(gate.RequireTestsPass, result.TestsPassed, "no test result", "tests failed"); reason != "" {
-		failed = append(failed, reason)
-	}
-	if reason := checkFailure(gate.RequireLintPass, result.LintPassed, "no lint result", "lint failed"); reason != "" {
-		failed = append(failed, reason)
-	}
-	return strings.Join(failed, ", ")
+// gateVerdict is why a gate fails ("" when it passed) and whether a check ran
+// and failed: only then did the agent's work fail the gate. A gate that could
+// not run (no command, a command that is not allowed or not found, a timeout,
+// a lost request or result, a missing project or profile) fails the run too,
+// but it is an infrastructure or configuration failure.
+type gateVerdict struct {
+	reason      string
+	checkFailed bool
 }
 
-// checkFailure is the failure of one check of a gate result, "" if none.
-func checkFailure(required bool, passed *bool, missing, failed string) string {
-	switch {
-	case passed == nil && required:
-		return missing
-	case passed != nil && !*passed:
-		return failed
-	default:
-		return ""
+// judgeGate returns the verdict on a gate result. A required check without a
+// result fails the gate (KI-29), as does a failed check or a gate error.
+func judgeGate(gate *policy.QualityGate, result *messagequeue.QualityGateResultPayload) gateVerdict {
+	var failed, notRun []string
+	for _, c := range []struct {
+		required        bool
+		passed          *bool
+		failed, missing string
+	}{
+		{gate.RequireTestsPass, result.TestsPassed, "tests failed", "no test result"},
+		{gate.RequireLintPass, result.LintPassed, "lint failed", "no lint result"},
+	} {
+		switch {
+		case c.passed != nil && !*c.passed:
+			failed = append(failed, c.failed)
+		case c.passed == nil && c.required && result.Error == "":
+			notRun = append(notRun, c.missing)
+		}
 	}
+	reasons := failed
+	if result.Error != "" {
+		reasons = append(reasons, result.Error)
+	}
+	reasons = append(reasons, notRun...)
+	return gateVerdict{reason: strings.Join(reasons, ", "), checkFailed: len(failed) > 0}
 }
 
 // failQualityGate ends a run waiting for its gate as failed (D9), with the
-// outcome stored on it and reason; it is never delivered. If the policy says
-// so, the workspace is rolled back once the failed record is written, so only
-// the path that ends the run rolls back (runEnd.rollBack). result is the
-// worker's gate result, nil when the gate did not run.
-func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *policy.QualityGate, reason string, result *messagequeue.QualityGateResultPayload) error {
-	errMsg := "quality gate failed: " + reason
+// outcome stored on it and the verdict's reason; it is never delivered. Only
+// a check that ran and failed counts against the agent and, if the policy
+// says so, rolls the workspace back; both happen only on the path whose
+// record ends the run (runEnd), as do the gate's audit entry, event and
+// broadcast. result is the worker's gate result, nil when the gate did not
+// run.
+func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *policy.QualityGate, verdict gateVerdict, result *messagequeue.QualityGateResultPayload) error {
+	errMsg := "quality gate failed: " + verdict.reason
 	gateEvent := event.QualityGateEvent{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
@@ -211,12 +226,19 @@ func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *
 	if result != nil {
 		gateEvent.TestsPassed, gateEvent.LintPassed = result.TestsPassed, result.LintPassed
 	}
-	s.appendAudit(ctx, r, "qualitygate.failed", errMsg)
-	s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{"error": errMsg})
-	s.hub.BroadcastEvent(ctx, event.EventQualityGate, gateEvent)
-
-	return s.finishRun(ctx, r, run.StatusFailed, storedOutcome(r, run.StatusFailed, errMsg),
-		runEnd{agentWorked: true, rollBack: gate.RollbackOnGateFail})
+	announce := func(ctx context.Context) {
+		s.appendAudit(ctx, r, "qualitygate.failed", errMsg)
+		s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{"error": errMsg})
+		s.hub.BroadcastEvent(ctx, event.EventQualityGate, gateEvent)
+	}
+	if !verdict.checkFailed {
+		slog.Warn("quality gate could not run, failing the run without rollback", "run_id", r.ID, "reason", verdict.reason)
+	}
+	return s.finishRun(ctx, r, run.StatusFailed, storedOutcome(r, run.StatusFailed, errMsg), runEnd{
+		agentWorked: verdict.checkFailed,
+		rollBack:    verdict.checkFailed && gate.RollbackOnGateFail,
+		ended:       announce,
+	})
 }
 
 // qualityGateMargin is how long past the longest possible gate (both

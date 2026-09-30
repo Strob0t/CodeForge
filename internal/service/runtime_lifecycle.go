@@ -129,6 +129,10 @@ type runEnd struct {
 	// path wrote the run's terminal record, so a run another path ended (a
 	// passed gate that delivered, a cancel) is never rolled back.
 	rollBack bool
+	// ended announces how the run ended (audit entry, event, broadcast of a
+	// gate's outcome); it runs right after this path wrote the run's
+	// terminal record, never on a path that lost the run's end to another.
+	ended func(ctx context.Context)
 }
 
 // agentEnd is the end of a run the agent worked on.
@@ -159,6 +163,9 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 		return fmt.Errorf("complete run: %w", err)
 	}
 	s.cleanupRunState(r.ID)
+	if end.ended != nil {
+		end.ended(ctx)
+	}
 
 	if s.metrics != nil {
 		metricAttrs := []string{"project.id", r.ProjectID, "status", string(status)}

@@ -228,7 +228,7 @@ func TestHandleQualityGateResult_FailedGateFailsTheRunAndNeverDelivers(t *testin
 	}{
 		{name: "tests fail, rollback", profile: "headless-safe-sandbox", result: messagequeue.QualityGateResultPayload{TestsPassed: &failed, LintPassed: &passed}, wantRollback: true, wantError: "quality gate failed"},
 		{name: "lint fails, rollback", profile: "headless-safe-sandbox", result: messagequeue.QualityGateResultPayload{TestsPassed: &passed, LintPassed: &failed}, wantRollback: true, wantError: "quality gate failed"},
-		{name: "gate error, rollback", profile: "headless-safe-sandbox", result: messagequeue.QualityGateResultPayload{Error: "runner crashed"}, wantRollback: true, wantError: "runner crashed"},
+		{name: "gate error, no rollback although configured", profile: "headless-safe-sandbox", result: messagequeue.QualityGateResultPayload{Error: "runner crashed"}, wantError: "runner crashed"},
 		{name: "tests fail, no rollback", profile: gateNoRollback.Name, result: messagequeue.QualityGateResultPayload{TestsPassed: &failed}, wantError: "quality gate failed"},
 		{name: "preset without rollback", profile: "headless-permissive-sandbox", result: messagequeue.QualityGateResultPayload{TestsPassed: &failed}, wantError: "quality gate failed"},
 		{name: "gate error, no rollback", profile: gateNoRollback.Name, result: messagequeue.QualityGateResultPayload{Error: "runner crashed"}, wantError: "runner crashed"},

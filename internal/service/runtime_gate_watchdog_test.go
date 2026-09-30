@@ -138,8 +138,10 @@ func TestFailStuckQualityGates(t *testing.T) {
 	if runs, _ := env.deliverer.deliveries(); len(runs) != 0 {
 		t.Fatalf("delivered %v", runs)
 	}
-	if rw := env.checkpoints.rewound(); len(rw) != 1 || rw[0] != "run-stuck" {
-		t.Fatalf("rollbacks = %v, want the stuck run rolled back (rollback_on_gate_fail)", rw)
+	// A lost gate is no failed check: the workspace keeps the run's work
+	// (S3 review, finding 5).
+	if rw := env.checkpoints.rewound(); len(rw) != 0 {
+		t.Fatalf("rollbacks = %v, want none for a gate that never reported", rw)
 	}
 	for _, ev := range bc.snapshot() {
 		if se, ok := ev.Data.(event.RunStatusEvent); ok && se.RunID == "run-stuck" && ev.Tenant != "tenant-stuck" {

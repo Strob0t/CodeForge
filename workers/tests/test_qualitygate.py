@@ -17,7 +17,7 @@ import pytest
 from codeforge.consumer import TaskConsumer
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.models import QualityGateRequest, QualityGateResult
-from codeforge.qualitygate import QualityGateExecutor
+from codeforge.qualitygate import QualityGateExecutor, _is_command_allowed
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -97,8 +97,75 @@ async def test_execute_rejects_command_not_on_allowlist(executor: QualityGateExe
         result = await executor.execute(request)
 
     spawn.assert_not_called()
-    assert result.tests_passed is False
+    # The check did not run: no verdict, the gate fails with an error
+    # (no rollback, no agent failure; S3 review finding 5).
+    assert result.tests_passed is None
     assert "not allowed" in result.test_output
+    assert "test check could not run" in result.error
+    assert "not allowed" in result.error
+
+
+@pytest.mark.parametrize("command", ["pytest 'unterminated", 'ruff check "tests', "pytest \\"])
+def test_is_command_allowed_rejects_unparseable_commands(command: str) -> None:
+    """A command shlex cannot split is not allowed; it never raises (S3 review finding 9)."""
+    assert _is_command_allowed(command) is False
+
+
+async def test_execute_invalid_command_fails_the_check_without_raising(executor: QualityGateExecutor) -> None:
+    """An unparseable command reports "invalid command" as a check that could not run."""
+    request = QualityGateRequest(
+        run_id="run-invalid",
+        project_id="proj-1",
+        workspace_path="/tmp",
+        run_tests=True,
+        run_lint=True,
+        test_command="pytest 'unterminated",
+        lint_command="ruff check .",
+    )
+    with patch(_SPAWN, return_value=_proc("lint ok", 0)) as spawn:
+        result = await executor.execute(request)
+
+    assert spawn.call_count == 1  # only the lint command ran
+    assert result.tests_passed is None
+    assert "invalid command" in result.test_output
+    assert "invalid command" in result.error
+    assert result.lint_passed is True
+
+
+async def test_execute_command_that_cannot_start_has_no_verdict(executor: QualityGateExecutor) -> None:
+    """A command that cannot be started (not installed) is no failed check."""
+    request = QualityGateRequest(
+        run_id="run-missing",
+        project_id="proj-1",
+        workspace_path="/tmp",
+        run_tests=True,
+        test_command="pytest",
+    )
+    with patch(_SPAWN, side_effect=FileNotFoundError("pytest")):
+        result = await executor.execute(request)
+
+    assert result.tests_passed is None
+    assert "pytest" in result.error
+
+
+async def test_execute_failed_check_and_check_that_could_not_run(executor: QualityGateExecutor) -> None:
+    """A failed check keeps its verdict next to the error of a check that could not run."""
+    request = QualityGateRequest(
+        run_id="run-mixed",
+        project_id="proj-1",
+        workspace_path="/tmp",
+        run_tests=True,
+        run_lint=True,
+        test_command="pytest",
+        lint_command="echo lint",
+    )
+    with patch(_SPAWN, return_value=_proc("1 failed", 1)):
+        result = await executor.execute(request)
+
+    assert result.tests_passed is False
+    assert result.lint_passed is None
+    assert "lint check could not run" in result.error
+    assert "test check" not in result.error
 
 
 async def test_execute_lint_pass(executor: QualityGateExecutor) -> None:
@@ -161,8 +228,9 @@ async def test_execute_timeout(executor: QualityGateExecutor) -> None:
     with patch(_SPAWN, return_value=hanging) as spawn, patch("codeforge.qualitygate.os.killpg") as killpg:
         result = await short_executor.execute(request)
 
-    assert result.tests_passed is False
+    assert result.tests_passed is None
     assert "timed out" in result.test_output
+    assert "timed out" in result.error
     assert spawn.call_args.kwargs["start_new_session"] is True
     killpg.assert_called_once_with(hanging.pid, signal.SIGKILL)
     hanging.wait.assert_awaited_once()
@@ -207,8 +275,9 @@ async def test_execute_timeout_kills_the_whole_process_group(tmp_path: Path, mon
     result = await executor.execute(request)
     elapsed = time.monotonic() - started
 
-    assert result.tests_passed is False
+    assert result.tests_passed is None
     assert "timed out after 1s" in result.test_output
+    assert "timed out after 1s" in result.error
     assert elapsed < 15, f"the gate took {elapsed:.1f}s, the request's 1s timeout was not applied"
     grandchild = int(pid_file.read_text())
     deadline = time.monotonic() + 5
@@ -264,7 +333,10 @@ async def test_execute_no_commands(executor: QualityGateExecutor) -> None:
 async def test_execute_requested_check_without_command_fails(
     executor: QualityGateExecutor, run_tests: bool, run_lint: bool, test_command: str, lint_command: str
 ) -> None:
-    """A requested check without a command fails instead of being skipped (KI-29)."""
+    """A requested check without a command fails the gate instead of being skipped (KI-29).
+
+    It did not run, so it has no verdict and the gate reports an error.
+    """
     request = QualityGateRequest(
         run_id="run-7",
         project_id="proj-1",
@@ -286,8 +358,9 @@ async def test_execute_requested_check_without_command_fails(
         elif command.strip():
             assert passed is True
         else:
-            assert passed is False
+            assert passed is None
             assert "no command" in output
+            assert "no command" in result.error
 
 
 async def test_handle_quality_gate_message(consumer: TaskConsumer) -> None:
