@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -212,6 +213,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
 	setString(&cfg.Workspace.PipelineDir, "CODEFORGE_WORKSPACE_PIPELINE_DIR")
+	setStringSlice(&cfg.Workspace.AdoptRoots, "CODEFORGE_WORKSPACE_ADOPT_ROOTS")
 	setTyped(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD", strconv.Atoi)
 	setTyped(&cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES", strconv.Atoi)
 	setTyped(&cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT", time.ParseDuration)
@@ -472,6 +474,11 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Runtime.StaleCheckInterval <= 0 {
 		return errors.New("runtime.stale_check_interval must be > 0")
+	}
+	for _, root := range cfg.Workspace.AdoptRoots {
+		if !filepath.IsAbs(root) || filepath.Clean(root) == "/" {
+			return fmt.Errorf("workspace.adopt_roots: %q must be an absolute directory other than /", root)
+		}
 	}
 	// The default gate commands follow the rules of the project config keys
 	// test_command / lint_command: the worker would refuse them at every gate.

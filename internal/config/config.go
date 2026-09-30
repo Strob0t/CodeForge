@@ -282,6 +282,11 @@ type Policy struct {
 type Workspace struct {
 	Root        string `yaml:"root"`         // Base directory for cloned repos (default: data/workspaces)
 	PipelineDir string `yaml:"pipeline_dir"` // Custom pipeline YAML directory
+	// AdoptRoots are absolute directories whose subdirectories admins may
+	// adopt as workspaces (local_path, POST /projects/{id}/adopt) or clone
+	// local repositories from; everyone else only adopts inside their
+	// tenant's directory of Root. Default: none.
+	AdoptRoots []string `yaml:"adopt_roots"`
 }
 
 // Server holds HTTP server configuration.

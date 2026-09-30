@@ -214,6 +214,7 @@ func run() error {
 	eventStore := postgres.NewEventStore(pool)
 	osFS := osfs.New()
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
+	projectSvc.SetAdoptRoots(cfg.Workspace.AdoptRoots)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
 	agentSvc.SetEventStore(eventStore)

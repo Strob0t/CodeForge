@@ -47,6 +47,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Ensure mockStore implements database.Store at compile time.
@@ -1247,7 +1248,7 @@ func TestProjectService_IsUnderWorkspaceRoot(t *testing.T) {
 
 func TestProjectServiceAdopt(t *testing.T) {
 	wsRoot := t.TempDir()
-	adoptDir := filepath.Join(wsRoot, "myproject")
+	adoptDir := filepath.Join(wsRoot, tenantctx.DefaultTenantID, "myproject") // the caller's tenant area (S3 follow-up 1f)
 	if err := os.MkdirAll(adoptDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1256,7 +1257,7 @@ func TestProjectServiceAdopt(t *testing.T) {
 	}
 	svc := NewProjectService(store, wsRoot)
 
-	p, err := svc.Adopt(context.Background(), "p1", adoptDir)
+	p, err := svc.Adopt(context.Background(), "p1", adoptDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1271,7 +1272,7 @@ func TestProjectServiceAdoptEmptyPath(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Adopt(context.Background(), "p1", "")
+	_, err := svc.Adopt(context.Background(), "p1", "", false)
 	if err == nil {
 		t.Fatal("expected error for empty path")
 	}
@@ -1284,7 +1285,7 @@ func TestProjectServiceAdoptOutsideWorkspaceRoot(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir()) // different root than outsideDir
 
-	_, err := svc.Adopt(context.Background(), "p1", outsideDir)
+	_, err := svc.Adopt(context.Background(), "p1", outsideDir, true)
 	if err == nil {
 		t.Fatal("expected error for path outside workspace root")
 	}
@@ -1299,7 +1300,7 @@ func TestProjectServiceAdoptNonexistentDir(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Adopt(context.Background(), "p1", "/nonexistent/path/12345")
+	_, err := svc.Adopt(context.Background(), "p1", "/nonexistent/path/12345", false)
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
 	}

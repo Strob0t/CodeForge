@@ -49,6 +49,7 @@ type projectStore interface {
 type ProjectService struct {
 	store           projectStore
 	workspaceRoot   string
+	adoptRoots      []string // resolved workspace.adopt_roots (admins adopt/clone from there)
 	specDetector    SpecDetector
 	goalDiscovery   *GoalDiscoveryService
 	repoMap         RepoMapIndexer
