@@ -455,6 +455,7 @@ const en = {
   "policy.storage": "Storage:",
   "policy.network": "Network:",
   "policy.testEval": "Test Evaluation",
+  "policy.allowAlwaysFailed": "Allowed once, but the allow-always rule was not saved: {{error}}",
   "policy.toolPlaceholder": "Tool (e.g. Bash)",
   "policy.commandPlaceholder": "Command (optional)",
   "policy.pathPlaceholder": "Path (optional)",

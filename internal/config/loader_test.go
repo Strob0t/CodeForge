@@ -279,8 +279,11 @@ func TestPolicyDefaults(t *testing.T) {
 	if cfg.Policy.DefaultProfile != "headless-safe-sandbox" {
 		t.Errorf("expected default profile 'headless-safe-sandbox', got %q", cfg.Policy.DefaultProfile)
 	}
-	if cfg.Policy.CustomDir != "" {
-		t.Errorf("expected empty custom dir, got %q", cfg.Policy.CustomDir)
+	// Zero-config (review finding 12): an empty default disabled Allow-Always
+	// (409) and kept API-created profiles in memory only. The default sits
+	// next to the other persistent data (data/workspaces).
+	if cfg.Policy.CustomDir != "data/policies" {
+		t.Errorf("expected custom dir 'data/policies', got %q", cfg.Policy.CustomDir)
 	}
 }
 

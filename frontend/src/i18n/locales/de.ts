@@ -448,6 +448,8 @@ const de: Translations = {
   "policy.storage": "Festplatte:",
   "policy.network": "Netzwerk:",
   "policy.testEval": "Auswertung testen",
+  "policy.allowAlwaysFailed":
+    "Einmal erlaubt, aber die Immer-erlauben-Regel wurde nicht gespeichert: {{error}}",
   "policy.toolPlaceholder": "Werkzeug (z.B. Bash)",
   "policy.commandPlaceholder": "Befehl (optional)",
   "policy.pathPlaceholder": "Pfad (optional)",

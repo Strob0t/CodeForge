@@ -52,7 +52,10 @@ git:
 #   headless-permissive-sandbox, trusted-mount-autonomous
 policy:
   default_profile: "headless-safe-sandbox"
-  custom_dir: ""   # Directory with custom .yaml policy files
+  # Directory with custom .yaml policy files. Profiles created via the API
+  # and Allow-Always rules are written here. "" keeps them in memory only
+  # and disables Allow-Always.
+  custom_dir: "data/policies"
 
 # Agent execution engine settings
 runtime:

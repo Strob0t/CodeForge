@@ -318,7 +318,7 @@ type Cache struct {
 // Policy holds policy engine configuration.
 type Policy struct {
 	DefaultProfile string `yaml:"default_profile"`
-	CustomDir      string `yaml:"custom_dir"`
+	CustomDir      string `yaml:"custom_dir"` // Custom profiles, API and Allow-Always writes (default: data/policies; "" = memory only)
 }
 
 // Workspace holds workspace directory configuration.
@@ -504,6 +504,7 @@ func Defaults() Config {
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",
+			CustomDir:      "data/policies",
 		},
 		Workspace: Workspace{
 			Root: "data/workspaces",

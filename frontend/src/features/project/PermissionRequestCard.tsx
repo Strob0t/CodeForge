@@ -1,8 +1,12 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 
+import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
+
 import { api } from "../../api/client";
 
-interface PermissionRequestCardProps {
+export interface PermissionRequestCardProps {
   projectId: string;
   runId: string;
   callId: string;
@@ -15,6 +19,8 @@ interface PermissionRequestCardProps {
 }
 
 export default function PermissionRequestCard(props: PermissionRequestCardProps) {
+  const { t } = useI18n();
+  const { show: toast } = useToast();
   const timeout = () => props.timeoutSeconds ?? 60;
   const [remaining, setRemaining] = createSignal(timeout());
   const [resolved, setResolved] = createSignal<"allow" | "deny" | null>(null);
@@ -51,8 +57,9 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
     await handleDecision("allow");
     try {
       await api.policies.allowAlways(props.projectId, props.tool, props.command, props.profile);
-    } catch {
-      // Best-effort: current call already approved, persistence failure is non-blocking
+    } catch (err) {
+      // The current call is approved; tell the user the rule was not saved.
+      toast("error", t("policy.allowAlwaysFailed", { error: extractErrorMessage(err) }));
     }
   }
 
