@@ -19,6 +19,63 @@ from __future__ import annotations
 import itertools
 import os
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+# Canonical tool names (ADR-007) and the lower-cased names that map to them:
+# a copy of toolAliases in internal/domain/policy/toolnames.go, kept equal by
+# tests/test_mode_tool_lists.py.
+_TOOL_ALIASES: dict[str, str] = {
+    "read": "Read",
+    "write": "Write",
+    "edit": "Edit",
+    "bash": "Bash",
+    "grep": "Grep",
+    "glob": "Glob",
+    "listdir": "ListDir",
+    "llm": "LLM",
+    "read_file": "Read",
+    "write_file": "Write",
+    "edit_file": "Edit",
+    "search_files": "Grep",
+    "glob_files": "Glob",
+    "list_directory": "ListDir",
+    "multiedit": "Edit",
+    "notebookedit": "Edit",
+    "search": "Grep",
+    "ls": "ListDir",
+    "monitor": "Bash",
+    "command:execute": "Bash",
+    "file:read": "Read",
+    "file:write": "Write",
+    "file:edit": "Edit",
+}
+
+# The file and shell tools that a mode's tools list selects from.
+_BUILTIN_TOOLS = frozenset({"Read", "Write", "Edit", "Bash", "Grep", "Glob", "ListDir"})
+
+
+def canonical_tool(name: str) -> str:
+    """Return the canonical policy name of a tool, ignoring case; other names unchanged."""
+    return _TOOL_ALIASES.get(name.lower(), name)
+
+
+def mode_allows_tool(name: str, tools: Iterable[str], denied: Iterable[str]) -> bool:
+    """Whether an agent mode's tool lists let it use a tool, as the Go policy decides.
+
+    A tool in *denied* is not allowed; a built-in tool missing from a non-empty
+    *tools* list is not allowed; other tools (MCP, propose_goal, ...) are only
+    restricted by *denied*. Names are compared canonically
+    (internal/domain/policy: WithModeTools).
+    """
+    tool = canonical_tool(name)
+    if any(canonical_tool(d) == tool for d in denied):
+        return False
+    listed = {canonical_tool(t) for t in tools}
+    return not listed or tool not in _BUILTIN_TOOLS or tool in listed
+
 
 _COMMAND_TOOLS = frozenset({"bash", "Bash", "Monitor"})
 

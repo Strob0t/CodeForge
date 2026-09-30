@@ -425,6 +425,8 @@ class ConversationHandlerMixin:
             await runtime.start_heartbeat()
 
             registry: ToolRegistry = build_default_registry()
+            if run_msg.mode:
+                registry.restrict_to_mode(run_msg.mode.tools, run_msg.mode.denied_tools)
 
             if run_msg.mcp_servers:
                 workbench = McpWorkbench()

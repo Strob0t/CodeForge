@@ -171,6 +171,8 @@ class AgentExecutor:
             # No skill tools: search_skills would find nothing and create_skill
             # would not save without the conversation path's skill wiring.
             registry = build_default_registry(skill_tools=False)
+            if mode:
+                registry.restrict_to_mode(mode.tools, mode.denied_tools)
             if mcp_servers:
                 workbench = McpWorkbench()
                 await workbench.connect_servers(mcp_servers)
