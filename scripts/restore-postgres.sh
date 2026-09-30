@@ -4,6 +4,10 @@
 #   ./scripts/restore-postgres.sh <backup-file>
 #   ./scripts/restore-postgres.sh latest
 #
+# Stop the services that use the database first and start them again after
+# the restore; the script refuses to run while other sessions are connected:
+#   docker compose -f docker-compose.prod.yml stop core worker litellm
+#
 # Environment:
 #   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE (standard libpq vars)
 #   BACKUP_DIR (default: ./backups/postgres)
@@ -32,16 +36,43 @@ if [[ ! -f "$TARGET" ]]; then
   exit 1
 fi
 
+# other_sessions: print "<count>|<clients>" for the sessions on $DB other
+# than this one. psql substitutes :'dbname' (quoted) only in SQL from stdin.
+other_sessions() {
+  psql -X -q -At -d postgres -v ON_ERROR_STOP=1 -v dbname="$DB" <<'SQL'
+SELECT count(*) || '|' || coalesce(string_agg(DISTINCT coalesce(nullif(application_name, ''), host(client_addr), 'local'), ', '), '')
+FROM pg_stat_activity
+WHERE datname = :'dbname' AND pid <> pg_backend_pid();
+SQL
+}
+
+# A running core, worker or LiteLLM reconnects at once and would work on (or
+# migrate) the empty database while pg_restore fills it.
+sessions="$(other_sessions)"
+if [[ "${sessions%%|*}" != "0" ]]; then
+  echo "ERROR: ${sessions%%|*} session(s) are connected to $DB (${sessions#*|})." >&2
+  echo "Stop the services that use it and start them after the restore, e.g.:" >&2
+  echo "  docker compose -f docker-compose.prod.yml stop core worker litellm" >&2
+  exit 1
+fi
+
 echo "Restoring from: $TARGET"
 echo "Target database: $DB"
 echo "WARNING: This will DROP and recreate the database."
 read -r -p "Continue? [y/N] " confirm
 [[ "$confirm" =~ ^[Yy]$ ]] || exit 0
 
-# --force (PostgreSQL 13+) terminates the sessions of connected clients such
-# as the core, the worker and LiteLLM; errors abort the restore (set -e).
+# --force (PostgreSQL 13+) also ends sessions opened since the check above;
+# errors abort the restore (set -e).
 dropdb --if-exists --force "$DB"
 createdb "$DB"
+
+sessions="$(other_sessions)"
+if [[ "${sessions%%|*}" != "0" ]]; then
+  echo "ERROR: a client connected to the new, empty $DB (${sessions#*|}); nothing was restored." >&2
+  echo "Stop it and run the restore again." >&2
+  exit 1
+fi
 
 pg_restore \
   --dbname="$DB" \
