@@ -891,6 +891,8 @@ export interface User {
   tenant_id: string;
   enabled: boolean;
   must_change_password?: boolean;
+  /** Admin of the default tenant: manages what all tenants share (LLM models, provider credentials). */
+  is_platform_admin: boolean;
   created_at: string;
   updated_at: string;
 }

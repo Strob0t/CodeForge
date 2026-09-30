@@ -222,6 +222,8 @@ const de: Translations = {
   // -- Models ---------------------------------------------------------------
   "models.title": "LLM-Modelle",
   "models.addModel": "Modell hinzuf\u00fcgen",
+  "models.platformAdminOnly":
+    "Nur Plattform-Admins k\u00f6nnen Modelle hinzuf\u00fcgen oder entfernen.",
   "models.form.displayName": "Anzeigename",
   "models.form.litellmModel": "LiteLLM-Modell",
   "models.form.apiBase": "API-Basis (optional)",
@@ -1190,6 +1192,8 @@ const de: Translations = {
   "settings.subscriptionProviders.title": "Abo-Anbieter",
   "settings.subscriptionProviders.subtitle":
     "Bestehende Abonnements verbinden, um deren Modelle zu nutzen",
+  "settings.subscriptionProviders.platformAdminOnly":
+    "Nur Plattform-Admins k\u00f6nnen Anbieter verbinden oder trennen.",
   "settings.subscriptionProviders.connect": "Verbinden",
   "settings.subscriptionProviders.disconnect": "Trennen",
   "settings.subscriptionProviders.connected": "Verbunden",

@@ -230,6 +230,7 @@ const en = {
   // -- Models ---------------------------------------------------------------
   "models.title": "LLM Models",
   "models.addModel": "Add Model",
+  "models.platformAdminOnly": "Only platform admins can add or remove models.",
   "models.form.displayName": "Display Name",
   "models.form.litellmModel": "LiteLLM Model",
   "models.form.apiBase": "API Base (optional)",
@@ -1184,6 +1185,8 @@ const en = {
   // -- Subscription Providers ---------------------------------------------------
   "settings.subscriptionProviders.title": "Subscription Providers",
   "settings.subscriptionProviders.subtitle": "Connect existing subscriptions to use their models",
+  "settings.subscriptionProviders.platformAdminOnly":
+    "Only platform admins can connect or disconnect providers.",
   "settings.subscriptionProviders.connect": "Connect",
   "settings.subscriptionProviders.disconnect": "Disconnect",
   "settings.subscriptionProviders.connected": "Connected",

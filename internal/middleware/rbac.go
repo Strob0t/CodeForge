@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/Strob0t/CodeForge/internal/domain/user"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // RequireRole returns middleware that restricts access to users with one of the given roles.
@@ -44,7 +43,7 @@ func RequirePlatformAdmin(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"authorization required"}`, http.StatusUnauthorized)
 			return
 		}
-		if u.Role != user.RoleAdmin || u.TenantID != tenantctx.DefaultTenantID {
+		if !u.IsPlatformAdmin() {
 			http.Error(w, `{"error":"forbidden: platform admin required"}`, http.StatusForbidden)
 			return
 		}

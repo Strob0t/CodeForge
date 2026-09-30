@@ -2,11 +2,14 @@
 package user
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/mail"
 	"time"
 	"unicode"
+
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Role represents the authorization level of a user.
@@ -47,6 +50,28 @@ type User struct {
 	LockedUntil        time.Time `json:"-"` // account locked until this time
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// IsPlatformAdmin reports whether u administers the platform: an admin of
+// the default (bootstrap) tenant. Platform admins manage what all tenants
+// share, such as the LiteLLM models and the provider credentials.
+func (u *User) IsPlatformAdmin() bool {
+	return u.Role == RoleAdmin && u.TenantID == tenantctx.DefaultTenantID
+}
+
+// userFields has the fields of User without its methods, so that
+// MarshalJSON does not call itself.
+type userFields User
+
+// MarshalJSON adds the derived is_platform_admin flag, which the frontend
+// uses to show platform-wide actions only to those who may use them.
+//
+//nolint:gocritic // hugeParam: a value receiver also marshals User fields held by value (LoginResponse.User)
+func (u User) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		userFields
+		IsPlatformAdmin bool `json:"is_platform_admin"`
+	}{userFields(u), u.IsPlatformAdmin()})
 }
 
 // IsLocked returns true if the account is currently locked due to
