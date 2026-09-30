@@ -13,6 +13,11 @@ import (
 
 func (s *Store) CreateSession(ctx context.Context, sess *run.Session) error {
 	tid := tenantFromCtx(ctx)
+	// metadata is jsonb: an empty string is not JSON, so store the column
+	// default (conversation sessions carry no metadata).
+	if sess.Metadata == "" {
+		sess.Metadata = "{}"
+	}
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO sessions (tenant_id, project_id, task_id, conversation_id, parent_session_id, parent_run_id, current_run_id, status, metadata)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
