@@ -556,3 +556,51 @@ func TestStore_AnonymizeExpiredConsentIPAddresses(t *testing.T) {
 		}
 	}
 }
+
+// Every retention batch is selected through an index on its age predicate
+// (with sequential scans disabled, the plan names the retention index).
+func TestRetention_BatchSelectionUsesIndexes(t *testing.T) {
+	setupStore(t) // runs the migrations
+	pool := retentionPool(t)
+	tests := []struct {
+		query string
+		index string
+	}{
+		{`SELECT id FROM sessions WHERE last_activity_at < $1 LIMIT 1000`, "idx_retention_sessions_last_activity"},
+		{`SELECT id FROM conversations WHERE updated_at < $1 LIMIT 1000`, "idx_retention_conversations_updated"},
+		{`SELECT id FROM runs WHERE updated_at < $1 LIMIT 1000`, "idx_retention_runs_updated"},
+		{`SELECT id FROM audit_log WHERE created_at < $1 LIMIT 1000`, "idx_retention_audit_log_created"},
+		{`SELECT id FROM audit_log WHERE ip_address IS NOT NULL AND created_at < $1 LIMIT 1000`, "idx_retention_audit_log_ip_created"},
+		{`SELECT id FROM user_consents WHERE (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1 LIMIT 1000`,
+			"idx_retention_user_consents_client_created"},
+	}
+	ctx := context.Background()
+	for _, tt := range tests {
+		t.Run(tt.index, func(t *testing.T) {
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin: %v", err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+				t.Fatalf("disable seqscan: %v", err)
+			}
+			rows, err := tx.Query(ctx, `EXPLAIN `+tt.query, retentionCutoff)
+			if err != nil {
+				t.Fatalf("explain: %v", err)
+			}
+			var explained strings.Builder
+			for rows.Next() {
+				var line string
+				if err := rows.Scan(&line); err != nil {
+					t.Fatalf("scan plan: %v", err)
+				}
+				explained.WriteString(line + "\n")
+			}
+			rows.Close()
+			if !strings.Contains(explained.String(), tt.index) {
+				t.Fatalf("plan does not use %s:\n%s", tt.index, explained.String())
+			}
+		})
+	}
+}
