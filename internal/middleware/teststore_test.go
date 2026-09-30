@@ -249,6 +249,7 @@ func (s *testStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, erro
 func (s *testStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
 	return nil, nil
 }
+func (s *testStore) TouchRun(_ context.Context, _ string, _ run.Status) error { return nil }
 
 // Plan stubs
 func (s *testStore) CreatePlan(_ context.Context, _ *plan.ExecutionPlan) error { return nil }

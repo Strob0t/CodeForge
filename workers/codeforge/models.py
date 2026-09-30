@@ -184,6 +184,9 @@ class QualityGateRequest(BaseModel):
     lint_command: str = ""
     # Per-command timeout (runtime.quality_gate_timeout); 0 = the worker's default.
     timeout_seconds: int = Field(default=0, ge=0)
+    # How often to report the running gate (runs.heartbeat, phase
+    # quality_gate); 0 = the worker's default.
+    heartbeat_seconds: int = Field(default=0, ge=0)
 
 
 class QualityGateResult(BaseModel):

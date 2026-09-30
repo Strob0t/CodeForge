@@ -7,5 +7,6 @@
   "run_lint": true,
   "test_command": "pytest",
   "lint_command": "ruff check .",
-  "timeout_seconds": 60
+  "timeout_seconds": 60,
+  "heartbeat_seconds": 30
 }

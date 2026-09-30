@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shlex
 import signal
@@ -361,6 +362,63 @@ async def test_execute_requested_check_without_command_fails(
             assert passed is None
             assert "no command" in output
             assert "no command" in result.error
+
+
+async def test_handle_quality_gate_reports_the_running_gate(
+    consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While a gate runs the worker sends gate heartbeats and keeps the request in progress.
+
+    The heartbeats (runs.heartbeat, phase quality_gate, the run's tenant) keep
+    the Go Core's watchdog from taking a long or queued-then-started gate for
+    lost; in-progress acks keep JetStream from redelivering the request to
+    another worker while it runs (S3 review finding 4).
+    """
+    monkeypatch.setattr("codeforge.consumer._quality_gate.DEFAULT_GATE_HEARTBEAT_SECONDS", 0.05)
+    request = QualityGateRequest(
+        run_id="run-hb",
+        project_id="proj-1",
+        tenant_id="tenant-1",
+        workspace_path="/tmp",
+        run_tests=True,
+        test_command="pytest",
+    )
+    msg = MagicMock()
+    msg.data = request.model_dump_json().encode()
+    msg.ack = AsyncMock()
+    msg.nak = AsyncMock()
+    msg.in_progress = AsyncMock()
+    msg.is_acked = False
+    consumer._js = AsyncMock()
+
+    async def slow_gate(_request: QualityGateRequest) -> QualityGateResult:
+        await asyncio.sleep(0.3)
+        return QualityGateResult(run_id="run-hb", tests_passed=True)
+
+    with patch.object(consumer._gate_executor, "execute", side_effect=slow_gate):
+        await consumer._handle_quality_gate(msg)
+
+    heartbeats = [json.loads(c.args[1]) for c in consumer._js.publish.call_args_list if c.args[0] == "runs.heartbeat"]
+    assert len(heartbeats) >= 3, heartbeats
+    assert all(hb["run_id"] == "run-hb" for hb in heartbeats)
+    assert all(hb["tenant_id"] == "tenant-1" for hb in heartbeats)
+    assert all(hb["phase"] == "quality_gate" for hb in heartbeats)
+    assert msg.in_progress.await_count >= 2
+    msg.ack.assert_called_once()
+
+    # No heartbeat after the gate finished.
+    sent = len(heartbeats)
+    await asyncio.sleep(0.15)
+    assert len([c for c in consumer._js.publish.call_args_list if c.args[0] == "runs.heartbeat"]) == sent
+
+
+async def test_gate_heartbeat_interval_comes_from_the_request(consumer: TaskConsumer) -> None:
+    """The Go Core sets the interval its watchdog expects; 0 (an older Go Core) uses the default."""
+    from codeforge.consumer._quality_gate import DEFAULT_GATE_HEARTBEAT_SECONDS, gate_heartbeat_interval
+
+    base = {"run_id": "r", "project_id": "p", "workspace_path": "/tmp"}
+    assert gate_heartbeat_interval(QualityGateRequest(**base, heartbeat_seconds=30)) == 30
+    assert gate_heartbeat_interval(QualityGateRequest(**base)) == DEFAULT_GATE_HEARTBEAT_SECONDS
 
 
 async def test_handle_quality_gate_message(consumer: TaskConsumer) -> None:

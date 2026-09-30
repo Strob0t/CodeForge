@@ -47,6 +47,12 @@ type runtimeCheckpointer interface {
 	RewindToFirst(ctx context.Context, runID, workspacePath string) error
 }
 
+// runtimeBacklogProbe reports how many messages of a subject its durable
+// consumers have not settled yet (not delivered, or delivered and not acked).
+type runtimeBacklogProbe interface {
+	Backlog(ctx context.Context, subject string) (int, error)
+}
+
 // runtimeSandboxManager is the subset of SandboxService used by RuntimeService.
 type runtimeSandboxManager interface {
 	Create(ctx context.Context, runID, workspacePath string, overrides ...resource.Limits) (*Sandbox, error)

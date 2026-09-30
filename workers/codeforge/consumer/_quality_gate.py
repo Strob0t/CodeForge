@@ -2,17 +2,78 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._subjects import SUBJECT_QG_RESULT
+from codeforge.consumer._subjects import SUBJECT_QG_RESULT, SUBJECT_RUN_HEARTBEAT
 from codeforge.models import QualityGateRequest, QualityGateResult
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     import nats.aio.msg
+    import nats.js.client
 
 logger = structlog.get_logger()
+
+# Heartbeat interval when the request does not set one (an older Go Core).
+DEFAULT_GATE_HEARTBEAT_SECONDS: float = 30.0
+
+# Phase of the heartbeats sent while a gate runs (Go: HeartbeatPhaseQualityGate).
+HEARTBEAT_PHASE_QUALITY_GATE = "quality_gate"
+
+
+def gate_heartbeat_interval(request: QualityGateRequest) -> float:
+    """Seconds between two heartbeats of the request's gate."""
+    return float(request.heartbeat_seconds) if request.heartbeat_seconds > 0 else DEFAULT_GATE_HEARTBEAT_SECONDS
+
+
+@contextlib.asynccontextmanager
+async def gate_heartbeat(
+    js: nats.js.client.JetStreamContext | None,
+    msg: nats.aio.msg.Msg,
+    request: QualityGateRequest,
+    log: structlog.BoundLogger,
+) -> AsyncIterator[None]:
+    """Report the gate as running while the block runs.
+
+    A runs.heartbeat (phase quality_gate, the run's tenant) right away and then
+    every interval tells the Go Core's watchdog the gate is alive, from the
+    moment it starts; an in-progress ack keeps JetStream from redelivering the
+    request to another worker while the gate runs (the gate's own timeouts
+    bound it, so this never keeps a hung handler alive).
+    """
+    interval = gate_heartbeat_interval(request)
+
+    async def _beat() -> None:
+        while True:
+            payload = {
+                "run_id": request.run_id,
+                "tenant_id": request.tenant_id,
+                "phase": HEARTBEAT_PHASE_QUALITY_GATE,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+            try:
+                if js is not None:
+                    await js.publish(SUBJECT_RUN_HEARTBEAT, json.dumps(payload).encode())
+                if not msg.is_acked:
+                    await msg.in_progress()
+            except Exception as exc:
+                log.warning("quality gate heartbeat failed", error=str(exc))
+            await asyncio.sleep(interval)
+
+    task = asyncio.create_task(_beat())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 class QualityGateHandlerMixin:
@@ -20,11 +81,16 @@ class QualityGateHandlerMixin:
 
     async def _handle_quality_gate(self, msg: nats.aio.msg.Msg) -> None:
         """Process a quality gate request: run tests/lint and publish result."""
+
+        async def run_gate(request: QualityGateRequest, log: structlog.BoundLogger) -> QualityGateResult:
+            async with gate_heartbeat(self._js, msg, request, log):
+                return await self._do_quality_gate(request, log)
+
         await self._handle_request(
             msg=msg,
             request_model=QualityGateRequest,
             dedup_key=lambda r: f"qgate-{r.run_id}",
-            handler=self._do_quality_gate,
+            handler=run_gate,
             result_subject=SUBJECT_QG_RESULT,
             log_context=lambda r: {"run_id": r.run_id},
         )
@@ -37,5 +103,6 @@ class QualityGateHandlerMixin:
             "quality gate completed",
             tests_passed=result.tests_passed,
             lint_passed=result.lint_passed,
+            error=result.error,
         )
         return result

@@ -30,6 +30,9 @@ type RunStore interface {
 	// ListStaleRuns returns up to limit runs in status that were not updated
 	// for idleFor, oldest first, across all tenants (watchdog use).
 	ListStaleRuns(ctx context.Context, status run.Status, idleFor time.Duration, limit int) ([]run.Run, error)
+	// TouchRun records that a run in status is alive (updated_at = now); a
+	// run in another status is left alone.
+	TouchRun(ctx context.Context, id string, status run.Status) error
 
 	// Sessions
 	CreateSession(ctx context.Context, s *run.Session) error

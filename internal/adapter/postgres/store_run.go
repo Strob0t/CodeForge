@@ -180,6 +180,19 @@ func (s *Store) ListStaleRuns(ctx context.Context, status run.Status, idleFor ti
 	})
 }
 
+// TouchRun sets updated_at of a run that is in status: the worker reports a
+// quality gate that still runs, so the watchdog does not take it for lost. A
+// run in another status (it ended meanwhile) is left alone.
+func (s *Store) TouchRun(ctx context.Context, id string, status run.Status) error {
+	tid := tenantFromCtx(ctx)
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE runs SET updated_at = now() WHERE id = $1 AND status = $2 AND tenant_id = $3`,
+		id, string(status), tid); err != nil {
+		return fmt.Errorf("touch run %s: %w", id, err)
+	}
+	return nil
+}
+
 func scanRun(row scannable) (run.Run, error) {
 	var r run.Run
 	var artifactErrorsJSON []byte

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -51,13 +52,33 @@ func (s *RuntimeService) handleQualityGateResult(ctx context.Context, data []byt
 	return s.HandleQualityGateResult(ctx, &result)
 }
 
-// handleHeartbeat records the latest heartbeat timestamp for a run.
-func (s *RuntimeService) handleHeartbeat(_ context.Context, data []byte) error {
+// handleHeartbeat unmarshals a heartbeat and delegates to HandleHeartbeat.
+func (s *RuntimeService) handleHeartbeat(ctx context.Context, data []byte) error {
 	var hb messagequeue.RunHeartbeatPayload
 	if err := json.Unmarshal(data, &hb); err != nil {
 		return fmt.Errorf("unmarshal heartbeat: %w", err)
 	}
+	return s.HandleHeartbeat(ctx, &hb)
+}
+
+// HeartbeatPhaseQualityGate marks the heartbeats a worker sends while it runs
+// a run's quality gate.
+const HeartbeatPhaseQualityGate = "quality_gate"
+
+// HandleHeartbeat records a worker's heartbeat for a run. A quality gate
+// heartbeat also refreshes the run's updated_at in the store while the run
+// waits in quality_gate, which tells the stuck-work watchdog (on any
+// replica, also after a restart) that the gate still runs. Heartbeats are
+// delivered at least once; touching a run twice is harmless.
+func (s *RuntimeService) HandleHeartbeat(ctx context.Context, hb *messagequeue.RunHeartbeatPayload) error {
 	s.state.SetHeartbeat(hb.RunID, time.Now())
+	if hb.Phase != HeartbeatPhaseQualityGate {
+		return nil
+	}
+	ctx = withPayloadTenant(ctx, hb.TenantID)
+	if err := s.store.TouchRun(ctx, hb.RunID, run.StatusQualityGate); err != nil {
+		return fmt.Errorf("quality gate heartbeat: %w", err)
+	}
 	return nil
 }
 

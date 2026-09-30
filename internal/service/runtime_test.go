@@ -355,6 +355,16 @@ func (m *runtimeMockStore) ListStaleRuns(_ context.Context, status run.Status, i
 	}
 	return stale, nil
 }
+func (m *runtimeMockStore) TouchRun(_ context.Context, id string, status run.Status) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.runs {
+		if m.runs[i].ID == id && m.runs[i].Status == status {
+			m.runs[i].UpdatedAt = time.Now()
+		}
+	}
+	return nil
+}
 
 // --- Plan stub methods (satisfy database.Store interface) ---
 

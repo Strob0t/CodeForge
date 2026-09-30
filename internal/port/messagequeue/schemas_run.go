@@ -181,7 +181,11 @@ type RunOutputPayload struct {
 // RunHeartbeatPayload is the schema for runs.heartbeat messages.
 type RunHeartbeatPayload struct {
 	RunID     string `json:"run_id"`
+	TenantID  string `json:"tenant_id,omitempty"` // the run's tenant, echoed from the request
 	Timestamp string `json:"timestamp"`
+	// Phase is "quality_gate" while the worker runs the run's quality gate
+	// (the run's updated_at is refreshed); empty for the agent's run.
+	Phase string `json:"phase,omitempty"`
 }
 
 // --- Quality Gate payloads (Phase 4C) ---
@@ -199,6 +203,10 @@ type QualityGateRequestPayload struct {
 	// TimeoutSeconds bounds each command (runtime.quality_gate_timeout); the
 	// worker kills a command's process group when it expires.
 	TimeoutSeconds int `json:"timeout_seconds"`
+	// HeartbeatSeconds is how often the worker reports the running gate
+	// (runs.heartbeat, phase quality_gate); the stuck-work watchdog takes a
+	// gate that stopped reporting for lost.
+	HeartbeatSeconds int `json:"heartbeat_seconds"`
 }
 
 // QualityGateResultPayload is published with the outcome of a quality gate execution.

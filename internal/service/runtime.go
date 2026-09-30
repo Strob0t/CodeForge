@@ -41,6 +41,7 @@ type RuntimeService struct {
 	deliver       runtimeDeliverer
 	contextOpt    runtimeContextOptimizer
 	checkpoint    runtimeCheckpointer
+	backlog       runtimeBacklogProbe
 	sandbox       runtimeSandboxManager
 	mcpSvc        runtimeMCPResolver
 	microagentSvc runtimeMicroagentMatcher
@@ -158,6 +159,13 @@ func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
 // SetCheckpointService sets the checkpoint service for shadow git commits.
 func (s *RuntimeService) SetCheckpointService(cp runtimeCheckpointer) {
 	s.checkpoint = cp
+}
+
+// SetBacklogProbe sets the probe the quality gate watchdog asks whether gate
+// requests or results are still queued (FailStuckQualityGates). Without one
+// only the watchdog's hard cap applies.
+func (s *RuntimeService) SetBacklogProbe(p runtimeBacklogProbe) {
+	s.backlog = p
 }
 
 // SetSandboxService sets the sandbox service for containerized execution.

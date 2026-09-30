@@ -255,6 +255,9 @@ func run() error {
 	// Checkpoint Service (Phase 4A/4C)
 	checkpointSvc := service.NewCheckpointService(gitPool)
 	runtimeSvc.SetCheckpointService(checkpointSvc)
+	// The quality gate watchdog tells queued gates from lost ones by the
+	// backlog of the gate subjects.
+	runtimeSvc.SetBacklogProbe(queue)
 
 	// Sandbox Service (Phase 4B)
 	sandboxSvc := service.NewSandboxService(service.SandboxConfig{

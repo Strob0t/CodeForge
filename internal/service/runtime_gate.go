@@ -55,7 +55,8 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 		TestCommand:   cmds.Test,
 		LintCommand:   cmds.Lint,
 		// Whole seconds, never shorter than configured (KI-28).
-		TimeoutSeconds: int(math.Ceil(s.runtimeCfg.QualityGateTimeout.Seconds())),
+		TimeoutSeconds:   int(math.Ceil(s.runtimeCfg.QualityGateTimeout.Seconds())),
+		HeartbeatSeconds: int(gateHeartbeatInterval / time.Second),
 	}
 	if err := s.publishJSON(ctx, messagequeue.SubjectQualityGateRequest, gateReq); err != nil {
 		slog.Error("quality gate request not published, failing the gate", "run_id", r.ID, "error", err)
@@ -241,49 +242,109 @@ func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *
 	})
 }
 
-// qualityGateMargin is how long past the longest possible gate (both
-// commands running into the timeout) a run may wait for its gate result:
-// queueing, worker restarts and the result's delivery.
-const qualityGateMargin = time.Minute
+// Liveness of a quality gate (KI-28, S3 review finding 4). A run waiting in
+// quality_gate is alive while its updated_at is recent: EnterQualityGate sets
+// it, and the worker refreshes it with a heartbeat every
+// gateHeartbeatInterval while it runs the gate (HandleHeartbeat). A gate
+// request that waits in the queue behind other gates, or for its redelivery
+// after a worker died, sends no heartbeats; a lost one neither. The watchdog
+// tells them apart with the backlog of the gate subjects (requests the
+// workers have not settled, results the Go Core has not settled):
+//   - no backlog: nothing is queued or being handled, so a gate silent for
+//     gateSilenceLimit is lost (request or result lost, dead-lettered);
+//   - a backlog, or no way to know: the gate may be queued; it is failed
+//     only after qualityGateMaxWait.
+//
+// Failing a healthy queued gate is worse than holding a lost one longer, and
+// the cap is what bounds a lost gate while other gates are queued.
+const (
+	gateHeartbeatInterval = 30 * time.Second
+	// qualityGateMargin covers publishing, the Go Core's handling and the
+	// store write around a heartbeat or a result.
+	qualityGateMargin = time.Minute
+	gateSilenceLimit  = 2*gateHeartbeatInterval + qualityGateMargin
+	// gateDeliveries and gateAckWait are the delivery limits of the gate
+	// request (ADR-016: MaxDeliver 4, AckWait 90 s).
+	gateDeliveries     = 4
+	gateAckWait        = 90 * time.Second
+	qualityGateWaitCap = time.Hour
+	// qualityGateEndTimeout bounds ending one stuck run: the watchdog's stop
+	// does not abort an end under way (store writes, events, the plan's next
+	// step), and waits at most this long for it.
+	qualityGateEndTimeout = 2 * time.Minute
+)
 
 // staleRunBatch bounds the runs one watchdog sweep ends.
 const staleRunBatch = 100
 
-// qualityGateDeadline is how long a run may wait in quality_gate before the
-// watchdog fails it: a gate runs at most the test and the lint command, each
-// bounded by runtime.quality_gate_timeout on the worker.
-func (s *RuntimeService) qualityGateDeadline() time.Duration {
-	return 2*s.runtimeCfg.QualityGateTimeout + qualityGateMargin
+// qualityGateMaxWait is how long a gate may stay silent while gates are
+// queued: at least qualityGateWaitCap, and never shorter than a gate that is
+// delivered gateDeliveries times, each time running the test and the lint
+// command into runtime.quality_gate_timeout and waiting gateAckWait for its
+// redelivery.
+func (s *RuntimeService) qualityGateMaxWait() time.Duration {
+	perDelivery := 2*s.runtimeCfg.QualityGateTimeout + gateAckWait
+	return max(qualityGateWaitCap, gateDeliveries*perDelivery+qualityGateMargin)
 }
 
-// FailStuckQualityGates fails the runs that have waited in quality_gate
-// longer than their gate can take (KI-28): the gate request or result was
-// lost, or the worker died. Each is ended as a failed gate through the gate
-// result path (fresh status check, rollback if configured, never delivered),
-// in its own tenant; a run another replica or a late result ended meanwhile is
-// skipped by the store's status predicate. It returns how many stuck runs it
-// handled. Runs are found in the store, so the sweep also covers runs that
-// entered their gate before a Go Core restart.
+// gateBacklog returns how many gate requests and results are not settled
+// yet; ok is false when that is unknown.
+func (s *RuntimeService) gateBacklog(ctx context.Context) (queued int, ok bool) {
+	if s.backlog == nil {
+		return 0, false
+	}
+	for _, subject := range []string{messagequeue.SubjectQualityGateRequest, messagequeue.SubjectQualityGateResult} {
+		n, err := s.backlog.Backlog(ctx, subject)
+		if err != nil {
+			slog.Warn("quality gate watchdog: backlog unknown, only the hard cap applies", "subject", subject, "error", err)
+			return 0, false
+		}
+		queued += n
+	}
+	return queued, true
+}
+
+// FailStuckQualityGates fails the runs whose quality gate is lost (KI-28):
+// see the liveness rules above. Each is ended as a gate that could not run
+// through the gate result path (fresh status check, never delivered, no
+// rollback, no agent failure), in its own tenant and with a context the
+// watchdog's stop does not cancel; a run another replica or a late result
+// ended meanwhile is skipped by the store's status predicate. A stop ends
+// the sweep before the next run. It returns how many stuck runs it handled.
+// Runs are found in the store, so the sweep also covers runs that entered
+// their gate before a Go Core restart.
 func (s *RuntimeService) FailStuckQualityGates(ctx context.Context) (int, error) {
-	deadline := s.qualityGateDeadline()
-	stale, err := s.store.ListStaleRuns(ctx, run.StatusQualityGate, deadline, staleRunBatch)
+	silentFor := s.qualityGateMaxWait()
+	if queued, ok := s.gateBacklog(ctx); ok && queued == 0 {
+		silentFor = gateSilenceLimit
+	}
+	stale, err := s.store.ListStaleRuns(ctx, run.StatusQualityGate, silentFor, staleRunBatch)
 	if err != nil {
 		return 0, fmt.Errorf("list runs stuck in quality_gate: %w", err)
 	}
 	handled := 0
 	var errs []error
 	for i := range stale {
+		if ctx.Err() != nil {
+			break // stopped: the remaining runs are left for the next sweep
+		}
 		r := &stale[i]
-		slog.Warn("quality gate result missing, failing the run", "run_id", r.ID, "deadline", deadline)
-		if err := s.HandleQualityGateResult(ctx, &messagequeue.QualityGateResultPayload{
-			RunID:    r.ID,
-			TenantID: r.TenantID,
-			Error:    fmt.Sprintf("no quality gate result within %s", deadline),
-		}); err != nil {
+		slog.Warn("quality gate lost, failing the run", "run_id", r.ID, "silent_for", silentFor)
+		if err := s.endStuckQualityGate(ctx, r, silentFor); err != nil {
 			errs = append(errs, fmt.Errorf("run %s: %w", r.ID, err))
 			continue
 		}
 		handled++
 	}
 	return handled, errors.Join(errs...)
+}
+
+func (s *RuntimeService) endStuckQualityGate(ctx context.Context, r *run.Run, silentFor time.Duration) error {
+	endCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), qualityGateEndTimeout)
+	defer cancel()
+	return s.HandleQualityGateResult(endCtx, &messagequeue.QualityGateResultPayload{
+		RunID:    r.ID,
+		TenantID: r.TenantID,
+		Error:    fmt.Sprintf("no quality gate result: the gate was not heard of for %s", silentFor),
+	})
 }

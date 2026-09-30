@@ -234,6 +234,7 @@ func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, erro
 func (m *mockStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
 	return nil, nil
 }
+func (m *mockStore) TouchRun(_ context.Context, _ string, _ run.Status) error { return nil }
 
 // --- Plan stub methods (satisfy database.Store interface) ---
 

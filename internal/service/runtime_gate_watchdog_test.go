@@ -24,16 +24,20 @@ import (
 // wait in quality_gate longer than the gate can take are failed through the
 // gate's completion path by the stuck-work watchdog.
 
-func newWatchdogEnv(gateTimeout time.Duration) (*gateDeliveryEnv, *runtimeMockBroadcaster) {
-	_, store, queue, _ := newRuntimeTestEnv()
-	bc := &runtimeMockBroadcaster{}
-	policySvc := service.NewPolicyService("headless-safe-sandbox", []policy.PolicyProfile{gateNoRollback})
-	svc := service.NewRuntimeService(store, queue, bc, &runtimeMockEventStore{}, policySvc, &config.Runtime{
+func newWatchdogConfig(gateTimeout time.Duration) *config.Runtime {
+	return &config.Runtime{
 		StallThreshold:     5,
 		QualityGateTimeout: gateTimeout,
 		DefaultTestCommand: "go test ./...",
 		DefaultLintCommand: "golangci-lint run ./...",
-	})
+	}
+}
+
+func newWatchdogEnv(gateTimeout time.Duration) (*gateDeliveryEnv, *runtimeMockBroadcaster) {
+	_, store, queue, _ := newRuntimeTestEnv()
+	bc := &runtimeMockBroadcaster{}
+	policySvc := service.NewPolicyService("headless-safe-sandbox", []policy.PolicyProfile{gateNoRollback})
+	svc := service.NewRuntimeService(store, queue, bc, &runtimeMockEventStore{}, policySvc, newWatchdogConfig(gateTimeout))
 	env := &gateDeliveryEnv{svc: svc, store: store, queue: queue, deliverer: &recordingDeliverer{store: store}, checkpoints: &recordingCheckpointer{}}
 	svc.SetDeliverService(env.deliverer)
 	svc.SetCheckpointService(env.checkpoints)
@@ -91,9 +95,9 @@ func setRunUpdatedAt(store *runtimeMockStore, id string, at time.Time) {
 }
 
 func TestFailStuckQualityGates(t *testing.T) {
-	env, bc := newWatchdogEnv(time.Minute) // deadline: 2 commands x 1m + margin
+	env, bc := newWatchdogEnv(time.Minute) // no backlog probe: only the hard cap (1h) applies
 	ctx := context.Background()
-	long := time.Now().Add(-time.Hour)
+	long := time.Now().Add(-2 * time.Hour) // beyond the hard cap (1h here)
 	for _, r := range []struct {
 		id      string
 		status  run.Status
@@ -167,7 +171,7 @@ func TestFailStuckQualityGates(t *testing.T) {
 func TestFailStuckQualityGates_EndsARunOnce(t *testing.T) {
 	env, _ := newWatchdogEnv(time.Minute)
 	env.addRun("run-stuck", "headless-safe-sandbox", run.StatusQualityGate, run.DeliverModeNone)
-	setRunUpdatedAt(env.store, "run-stuck", time.Now().Add(-time.Hour))
+	setRunUpdatedAt(env.store, "run-stuck", time.Now().Add(-2*time.Hour))
 	var completions atomic.Int32
 	env.svc.SetOnRunComplete(func(context.Context, string, run.Status) { completions.Add(1) })
 

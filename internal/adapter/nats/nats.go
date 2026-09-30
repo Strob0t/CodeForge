@@ -319,6 +319,28 @@ func (q *Queue) durableConfig(subject string) jetstream.ConsumerConfig {
 	}
 }
 
+// Backlog returns how many messages of subject are not settled yet by the
+// durable consumers of the subject, the Go Core's and the Python worker's:
+// not delivered yet, or delivered and neither acked nor terminated (being
+// handled, or waiting for redelivery). A durable that does not exist counts
+// as empty; with deliver policy new it only receives later messages.
+func (q *Queue) Backlog(ctx context.Context, subject string) (int, error) {
+	total := 0
+	for _, prefix := range []string{"codeforge-go-", "codeforge-py-"} {
+		name := sanitizeConsumerName(prefix, subject)
+		cons, err := q.js.Consumer(ctx, streamName, name)
+		if errors.Is(err, jetstream.ErrConsumerNotFound) {
+			continue
+		}
+		if err != nil {
+			return 0, fmt.Errorf("nats consumer lookup %s: %w", name, err)
+		}
+		info := cons.CachedInfo()
+		total += int(info.NumPending) + info.NumAckPending //nolint:gosec // G115: a stream's message count fits an int
+	}
+	return total, nil
+}
+
 // consumeHandle holds the active ConsumeContext of a subscription. The health
 // monitor replaces it when it recreates a deleted consumer; stop ends whichever
 // one is current, including one installed after stop was called.
