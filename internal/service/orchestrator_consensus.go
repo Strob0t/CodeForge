@@ -420,21 +420,42 @@ func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event
 	}), "AppendEvent", slog.String("type", string(evtType)), slog.String("plan_id", p.ID))
 }
 
-// ReplanStep restarts a stalled run step with a modified prompt that includes
-// stall context, enabling the agent to try a different approach (P1-8).
+// ReplanStep gives the plan step of an ended (e.g. stalled) run another
+// attempt (P1-8; not called by stall detection yet, KI-62): it starts a new
+// run for the step. The ended run is never reopened - a terminal run stays
+// terminal (KI-31). Only the step's latest run is re-planned, and only while
+// its plan runs. The new run gets the step's task prompt; stall context is not
+// added to it yet. If the new run cannot be started, startStep marks the step
+// failed.
 func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) error {
 	r, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("get run for replan: %w", err)
 	}
-
-	// Reset run status to pending so it can be re-dispatched.
-	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusPending, 0, 0, 0, 0); err != nil {
-		return fmt.Errorf("update run for replan: %w", err)
+	if !r.Status.IsTerminal() {
+		return fmt.Errorf("replan run %s: the run is %s, only an ended run is re-planned: %w", runID, r.Status, domain.ErrConflict)
+	}
+	step, err := s.store.GetPlanStepByRunID(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("replan run %s: no plan step runs it: %w", runID, err)
 	}
 
-	slog.Info("re-planning stalled run step",
-		"run_id", runID,
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, err := s.store.GetPlan(ctx, step.PlanID)
+	if err != nil {
+		return fmt.Errorf("get plan for replan: %w", err)
+	}
+	if p.Status != plan.StatusRunning {
+		return fmt.Errorf("replan run %s: plan %s is %s: %w", runID, p.ID, p.Status, domain.ErrConflict)
+	}
+	logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
+	s.startStep(ctx, p, step.ID)
+
+	slog.Info("re-planned plan step with a new run",
+		"ended_run_id", runID,
+		"step_id", step.ID,
 		"task_id", r.TaskID,
 	)
 
