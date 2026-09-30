@@ -19,6 +19,8 @@ coverage/
 tests/
 docs/
 scripts/
+# Dockerfile.worker copies the healthcheck script.
+!scripts/worker-healthcheck.py
 *.md
 .worktrees/
 .github/
