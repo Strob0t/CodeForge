@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -167,3 +168,37 @@ def test_stdlib_logger_output_is_redacted(capsys: pytest.CaptureFixture[str]) ->
     out = capsys.readouterr().out
     assert "tok-789" not in out
     assert "https://[REDACTED]@api.example.com/v1" in out
+
+
+@pytest.mark.usefixtures("_logging_restored")
+def test_structlog_output_is_redacted(capsys: pytest.CaptureFixture[str]) -> None:
+    """Message, attributes and positional arguments of structlog lines (Go-schema formatter, KI-35)."""
+    import structlog
+
+    setup_logging(service="test-worker", level="info")
+    structlog.get_logger("s").warning(
+        "connect to %s failed", "nats://u:pw-1@nats:4222", dsn="postgresql://cf:pw-2@postgres:5432/cf"
+    )
+    stop_logging()
+    line = json.loads(capsys.readouterr().out)
+    assert line["msg"] == "connect to nats://[REDACTED]@nats:4222 failed"
+    assert line["dsn"] == "postgresql://[REDACTED]@postgres:5432/cf"
+
+
+@pytest.mark.usefixtures("_logging_restored")
+@pytest.mark.parametrize("source", ["structlog", "stdlib"])
+def test_exception_text_is_redacted(capsys: pytest.CaptureFixture[str], source: str) -> None:
+    import structlog
+
+    setup_logging(service="test-worker", level="info")
+    try:
+        raise ConnectionError("dial postgresql://cf:pw-456@postgres:5432/cf refused")
+    except ConnectionError:
+        if source == "structlog":
+            structlog.get_logger("s").exception("database down")
+        else:
+            logging.getLogger("psycopg").exception("database down")
+    stop_logging()
+    out = capsys.readouterr().out
+    assert "pw-456" not in out
+    assert "postgresql://[REDACTED]@postgres:5432/cf" in json.loads(out)["exception"]

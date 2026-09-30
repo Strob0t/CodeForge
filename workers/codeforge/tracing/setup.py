@@ -13,7 +13,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.semconv.resource import ResourceAttributes
 from opentelemetry.trace import StatusCode
 
@@ -128,13 +128,20 @@ class TracingManager:
         self._provider: TracerProvider | None = None
         self._meter_provider: MeterProvider | None = None
         self._initialized = False
+        self._config: OTELConfig | None = None
+        self._exporter_error = ""
 
     def init(self) -> None:
-        """Initialize the tracer based on OTEL config."""
+        """Initialize tracing and metrics from the OTEL config.
+
+        Modules call get_tracer() at import time to decorate their functions,
+        so this runs before the worker sets up logging and must not log: the
+        entry point calls log_status() once logging is ready.
+        """
         cfg = OTELConfig.from_env()
+        self._config = cfg
 
         if not cfg.enabled:
-            logger.info("otel tracing disabled (CODEFORGE_OTEL_ENABLED != true)")
             self._tracer = _NoOpTracer()
             self._initialized = True
             return
@@ -152,20 +159,15 @@ class TracingManager:
 
         self._provider = TracerProvider(resource=resource, sampler=sampler)
 
-        if cfg.endpoint:
-            try:
-                from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        try:
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
-                otlp_exporter = OTLPSpanExporter(
-                    endpoint=cfg.endpoint,
-                    insecure=cfg.insecure,
-                )
-                self._provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
-            except Exception as exc:
-                logger.warning("otlp exporter setup failed, using console", error=str(exc))
-                self._provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
-        else:
-            self._provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+            otlp_exporter = OTLPSpanExporter(endpoint=cfg.endpoint, insecure=cfg.insecure)
+            self._provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        except Exception as exc:
+            # Spans are recorded but not exported; log_status() reports why. (A
+            # console exporter would write multi-line JSON between the log lines.)
+            self._exporter_error = str(exc)
 
         trace.set_tracer_provider(self._provider)
         self._meter_provider = _otlp_meter_provider(cfg, resource)
@@ -175,11 +177,21 @@ class TracingManager:
         otel_tracer = trace.get_tracer(TRACER_NAME)
         self._tracer = _OTELTracer(otel_tracer)
         self._initialized = True
+
+    def log_status(self) -> None:
+        """Log whether and where OTEL data is exported (init() cannot log, see there)."""
+        cfg = self._config
+        if cfg is None or not cfg.enabled:
+            logger.info("otel tracing and metrics disabled", enable_with="CODEFORGE_OTEL_ENABLED=true")
+            return
+        if self._exporter_error:
+            logger.error("otlp span exporter setup failed, spans are not exported", error=self._exporter_error)
         logger.info(
-            "otel tracing and metrics initialized",
+            "otel tracing and metrics enabled",
             service=cfg.service_name,
             endpoint=cfg.endpoint,
             insecure=cfg.insecure,
+            sample_rate=cfg.sample_rate,
         )
 
     def get_tracer(self) -> TracerProtocol:

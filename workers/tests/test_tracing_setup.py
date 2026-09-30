@@ -203,6 +203,19 @@ class _RecordingMetricExporter(MetricExporter):
         self.shut_down = True
 
 
+class _RecordingLogger:
+    """Records (level, event, fields) of the calls made to the module logger."""
+
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, str, dict[str, object]]] = []
+
+    def info(self, event: str, **fields: object) -> None:
+        self.entries.append(("info", event, fields))
+
+    def error(self, event: str, **fields: object) -> None:
+        self.entries.append(("error", event, fields))
+
+
 class TestTracingManagerMetrics:
     """KI-36: with OTEL enabled the worker exports its metrics (codeforge.tracing.metrics) via OTLP."""
 
@@ -239,6 +252,42 @@ class TestTracingManagerMetrics:
         finally:
             tm.shutdown()
         assert exporter.shut_down, "shutdown() must flush and stop the metric exporter"
+
+    def test_span_exporter_failure_is_reported_not_printed(
+        self, monkeypatch: pytest.MonkeyPatch, installed: list[object], capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """init() runs before logging is set up: no console exporter, log_status() reports the error."""
+
+        def broken_exporter(**_kwargs: object) -> None:
+            raise ValueError("invalid endpoint")
+
+        monkeypatch.setattr("opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter", broken_exporter)
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "true")
+        logs = _RecordingLogger()
+        monkeypatch.setattr("codeforge.tracing.setup.logger", logs)
+        tm = TracingManager()
+        tm.init()
+        try:
+            assert tm.enabled
+            assert logs.entries == [], "init() runs before logging is set up and must not log"
+            assert capsys.readouterr().out == "", "init() must not print"
+            tm.log_status()
+        finally:
+            tm.shutdown()
+        errors = [fields for level, _event, fields in logs.entries if level == "error"]
+        assert errors == [{"error": "invalid endpoint"}]
+
+    def test_log_status_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CODEFORGE_OTEL_ENABLED", "false")
+        logs = _RecordingLogger()
+        monkeypatch.setattr("codeforge.tracing.setup.logger", logs)
+        tm = TracingManager()
+        tm.init()
+        assert logs.entries == []
+        tm.log_status()
+        assert [(level, event) for level, event, _fields in logs.entries] == [
+            ("info", "otel tracing and metrics disabled")
+        ]
 
     def test_disabled_installs_no_meter_provider(
         self, monkeypatch: pytest.MonkeyPatch, installed: list[object]

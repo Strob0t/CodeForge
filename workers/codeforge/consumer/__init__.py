@@ -18,7 +18,7 @@ import nats.js.client
 import nats.js.errors
 import structlog
 
-from codeforge.config import WorkerSettings, get_settings
+from codeforge.config import DEV_LITELLM_MASTER_KEY, WorkerSettings, get_settings
 from codeforge.consumer._a2a import A2AHandlerMixin
 from codeforge.consumer._backend_health import BackendHealthHandlerMixin
 from codeforge.consumer._base import ConsumerBaseMixin
@@ -382,6 +382,9 @@ async def main() -> None:
 
     # Docker Secrets override: prefer /run/secrets/* files, fall back to env/config.
     litellm_key = get_secret("LITELLM_MASTER_KEY") or settings.litellm_api_key
+    if litellm_key == DEV_LITELLM_MASTER_KEY:
+        logger.warning("using the development LiteLLM master key - set LITELLM_MASTER_KEY for production")
+    tracing_manager.log_status()
 
     consumer = TaskConsumer(
         nats_url=settings.nats_url,

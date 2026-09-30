@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_FILE = "codeforge.yaml"
 
+# LiteLLM master key of the development compose file; never valid in production.
+DEV_LITELLM_MASTER_KEY = "sk-codeforge-dev"
+
 
 def _find_config_file() -> Path | None:
     """Locate the YAML config file via env var or auto-discovery."""
@@ -185,9 +188,8 @@ class WorkerSettings:
 
         self.nats_url = _resolve_str("NATS_URL", nats_cfg.get("url"), "nats://localhost:4222")
         self.litellm_url = _resolve_str("LITELLM_BASE_URL", litellm_cfg.get("url"), "http://localhost:4000")
-        self.litellm_api_key = _resolve_str("LITELLM_MASTER_KEY", litellm_cfg.get("master_key"), "sk-codeforge-dev")
-        if self.litellm_api_key == "sk-codeforge-dev":
-            logger.warning("using default LiteLLM key 'sk-codeforge-dev' - set LITELLM_MASTER_KEY for production")
+        # The worker entry point warns about the development key once logging is set up.
+        self.litellm_api_key = _resolve_str("LITELLM_MASTER_KEY", litellm_cfg.get("master_key"), DEV_LITELLM_MASTER_KEY)
         self.log_level = _resolve_str("CODEFORGE_WORKER_LOG_LEVEL", logging_cfg.get("level"), "info")
         self.log_service = _resolve_str("CODEFORGE_WORKER_LOG_SERVICE", None, "codeforge-worker")
         self.health_port = _resolve_int("CODEFORGE_WORKER_HEALTH_PORT", None, 8081)
