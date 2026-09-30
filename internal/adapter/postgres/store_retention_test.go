@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -710,24 +711,29 @@ func TestStore_RetentionLockIsExclusive(t *testing.T) {
 
 // The retention batches of audit entries and consent records are selected
 // through an index on their creation (with sequential scans disabled, the
-// plan names the retention index). Sessions, conversations and runs age by an
-// activity timestamp that every update changes; they are scanned, so that
-// their updates stay HOT (migration 096).
+// plan names a retention index). The IP address batch can use the partial
+// index or the plain one; the planner picks by the table's statistics, so
+// either counts. Sessions, conversations and runs age by an activity
+// timestamp that every update changes; they are scanned, so that their
+// updates stay HOT (migration 096).
 func TestRetention_BatchSelectionUsesIndexes(t *testing.T) {
 	setupStore(t) // runs the migrations
 	pool := retentionPool(t)
 	tests := []struct {
-		query string
-		index string
+		name    string
+		query   string
+		indexes []string
 	}{
-		{`SELECT id FROM audit_log WHERE created_at < $1 LIMIT 1000`, "idx_retention_audit_log_created"},
-		{`SELECT id FROM audit_log WHERE ip_address IS NOT NULL AND created_at < $1 LIMIT 1000`, "idx_retention_audit_log_ip_created"},
-		{`SELECT id FROM user_consents WHERE (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1 LIMIT 1000`,
-			"idx_retention_user_consents_client_created"},
+		{"audit entries", `SELECT id FROM audit_log WHERE created_at < $1 LIMIT 1000`,
+			[]string{"idx_retention_audit_log_created"}},
+		{"audit IP addresses", `SELECT id FROM audit_log WHERE ip_address IS NOT NULL AND created_at < $1 LIMIT 1000`,
+			[]string{"idx_retention_audit_log_ip_created", "idx_retention_audit_log_created"}},
+		{"consent IP addresses", `SELECT id FROM user_consents WHERE (ip_address IS NOT NULL OR user_agent IS NOT NULL) AND created_at < $1 LIMIT 1000`,
+			[]string{"idx_retention_user_consents_client_created"}},
 	}
 	ctx := context.Background()
 	for _, tt := range tests {
-		t.Run(tt.index, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			tx, err := pool.Begin(ctx)
 			if err != nil {
 				t.Fatalf("begin: %v", err)
@@ -749,8 +755,8 @@ func TestRetention_BatchSelectionUsesIndexes(t *testing.T) {
 				explained.WriteString(line + "\n")
 			}
 			rows.Close()
-			if !strings.Contains(explained.String(), tt.index) {
-				t.Fatalf("plan does not use %s:\n%s", tt.index, explained.String())
+			if !slices.ContainsFunc(tt.indexes, func(index string) bool { return strings.Contains(explained.String(), index) }) {
+				t.Fatalf("plan uses none of %v:\n%s", tt.indexes, explained.String())
 			}
 		})
 	}
