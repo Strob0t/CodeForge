@@ -241,6 +241,13 @@ func (s *ConversationService) dispatchAgenticRun(
 		return err
 	}
 
+	turnID, finishRun, err := s.beginRun(conversationID)
+	if err != nil {
+		return err
+	}
+	dispatched := false
+	defer func() { finishRun(dispatched) }()
+
 	// Store user message.
 	userMsg := &conversation.Message{
 		ConversationID: conversationID,
@@ -336,7 +343,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		Reminders:          reminders,
 		RolloutCount:       rolloutCount,
 		SummarizeThreshold: s.summarizeThreshold(),
-		TurnID:             uuid.New().String(),
+		TurnID:             turnID,
 	}
 
 	data, err := json.Marshal(payload)
@@ -369,7 +376,7 @@ func (s *ConversationService) dispatchAgenticRun(
 			return fmt.Errorf("publish conversation run start: %w", err)
 		}
 	}
-	s.markRunStarted(conversationID, payload.TurnID)
+	dispatched = true
 
 	if opts.recordMetrics && s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)

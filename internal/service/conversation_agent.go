@@ -105,6 +105,12 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
 	}
 
+	// The run ended: the conversation takes its next run. Recorded before the
+	// waiters are woken, which may start that run right away.
+	if s.runTracker != nil {
+		s.runTracker.EndConversationRun(payload.ConversationID, payload.TurnID)
+	}
+
 	slog.Info("conversation run complete received",
 		"run_id", payload.RunID,
 		"conversation_id", payload.ConversationID,

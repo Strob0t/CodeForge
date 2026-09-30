@@ -520,6 +520,7 @@ class ConversationHandlerMixin:
             step_count=result.step_count,
             model=result.model,
             tenant_id=run_msg.tenant_id,
+            turn_id=run_msg.turn_id,
         )
         stamped = self._stamp_trust(complete_msg.model_dump())
         # One message ID for all attempts: the Go Core deduplicates completions
@@ -543,6 +544,7 @@ class ConversationHandlerMixin:
             status="failed",
             error=error,
             tenant_id=run_msg.tenant_id,
+            turn_id=run_msg.turn_id,
         )
         try:
             await publish_with_retry(

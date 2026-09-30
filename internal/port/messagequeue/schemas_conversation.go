@@ -107,6 +107,9 @@ type ConversationRunCompletePayload struct {
 	StepCount        int                          `json:"step_count"`
 	Model            string                       `json:"model"`
 	TenantID         string                       `json:"tenant_id,omitempty"`
+	// TurnID is the turn of the run start this completion ends; Go ends the
+	// conversation's run only when it is the conversation's current turn.
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 // ConversationCompactCompletePayload is the schema for conversation.compact.complete messages.

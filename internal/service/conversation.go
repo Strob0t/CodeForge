@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -127,15 +128,35 @@ func (s *ConversationService) SetQueue(q messagequeue.Queue) { s.queue = q }
 // conversation starts.
 func (s *ConversationService) SetRunTracker(t convRunTracker) { s.runTracker = t }
 
-// markRunStarted tells the runtime that a new run of the conversation started
-// with turnID, so that a stop of an earlier run no longer rejects the new
-// run's tool calls (KI-24) while the earlier run's calls stay rejected.
-// Callers invoke it only after the run start was published: a dispatch that
-// fails starts no run, and the stopped run's tool calls stay rejected.
-func (s *ConversationService) markRunStarted(conversationID, turnID string) {
-	if s.runTracker != nil {
-		s.runTracker.MarkConversationRunStarted(conversationID, turnID)
+// ErrConversationRunInProgress refuses a new run of a conversation while one
+// of its runs is active: conversation runs share the conversation ID as run
+// ID, the worker runs one run per ID, and the new run's start would leave the
+// active run burning tokens with its tool calls denied. Stop the active run
+// first.
+var ErrConversationRunInProgress = fmt.Errorf("conversation run in progress: %w", domain.ErrConflict)
+
+// beginRun makes a new run with a new turn the conversation's active run,
+// before anything is stored or dispatched for it, so that the run's tool
+// calls are recognized from its first one on. It returns
+// ErrConversationRunInProgress while another run is active. The caller calls
+// finish(true) once the run's start was published (an earlier stop's mark is
+// then cleared) and finish(false) otherwise (the conversation is released and
+// the mark stays).
+func (s *ConversationService) beginRun(conversationID string) (turnID string, finish func(dispatched bool), err error) {
+	turnID = uuid.New().String()
+	if s.runTracker == nil {
+		return turnID, func(bool) {}, nil
 	}
+	if err := s.runTracker.BeginConversationRun(conversationID, turnID); err != nil {
+		return "", nil, err
+	}
+	return turnID, func(dispatched bool) {
+		if dispatched {
+			s.runTracker.ConversationRunDispatched(conversationID, turnID)
+		} else {
+			s.runTracker.AbortConversationRun(conversationID, turnID)
+		}
+	}, nil
 }
 
 // SetAgentConfig configures agent loop defaults.
@@ -236,9 +257,15 @@ func (s *ConversationService) ListByProject(ctx context.Context, projectID strin
 	return s.db.ListConversationsByProject(ctx, projectID)
 }
 
-// Delete removes a conversation.
+// Delete removes a conversation and the run state held for it.
 func (s *ConversationService) Delete(ctx context.Context, id string) error {
-	return s.db.DeleteConversation(ctx, id)
+	if err := s.db.DeleteConversation(ctx, id); err != nil {
+		return err
+	}
+	if s.runTracker != nil {
+		s.runTracker.ForgetConversation(id)
+	}
+	return nil
 }
 
 // ListMessages returns all messages in a conversation.
@@ -280,6 +307,13 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
 	}
+
+	turnID, finishRun, err := s.beginRun(conversationID)
+	if err != nil {
+		return nil, err
+	}
+	dispatched := false
+	defer func() { finishRun(dispatched) }()
 
 	// Store user message.
 	userMsg := &conversation.Message{
@@ -327,7 +361,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		},
 		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
 		TenantID:       tenantctx.FromContext(ctx),
-		TurnID:         uuid.New().String(),
+		TurnID:         turnID,
 	}
 
 	data, err := json.Marshal(payload)
@@ -351,7 +385,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		})
 		return nil, fmt.Errorf("publish conversation run start: %w", err)
 	}
-	s.markRunStarted(conversationID, payload.TurnID)
+	dispatched = true
 
 	if s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation", "project.id", conv.ProjectID)

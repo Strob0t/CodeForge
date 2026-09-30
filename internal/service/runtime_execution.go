@@ -176,14 +176,20 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		)
 	}()
 
-	// Fast-reject: if this conversation run was cancelled, deny immediately.
-	if s.state.IsConversationCancelled(req.RunID) {
-		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run cancelled")
-	}
-	// A call of an earlier run of the conversation (the worker reports the
-	// run's turn): that run was stopped or replaced by the current one.
-	if turn, ok := s.state.ConversationTurn(req.RunID); ok && req.TurnID != "" && req.TurnID != turn {
+	// Conversation runs reuse the conversation ID as run ID; the worker reports
+	// the run's turn. A call of the conversation's active run is evaluated,
+	// also while an earlier stop's mark still holds (the run is recognized
+	// before its start is published). A call of another run is rejected: that
+	// run was stopped or replaced. Calls without a turn, and calls of a
+	// conversation without an active run here (a restart, another replica),
+	// are rejected while a stop's mark holds.
+	turn, active := s.state.ActiveConversationTurn(req.RunID)
+	ofActiveRun := active && req.TurnID != "" && req.TurnID == turn
+	if active && req.TurnID != "" && !ofActiveRun {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run ended")
+	}
+	if !ofActiveRun && s.state.IsConversationCancelled(req.RunID) {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run cancelled")
 	}
 
 	conv, err := s.store.GetConversation(ctx, req.RunID)

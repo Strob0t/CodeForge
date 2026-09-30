@@ -223,7 +223,11 @@ func TestConversationStop_ConcurrentStopsStartsAndToolCalls(t *testing.T) {
 				case 0:
 					env.runtime.MarkConversationRunCancelled(env.convID)
 				case 1:
-					env.runtime.MarkConversationRunStarted(env.convID, fmt.Sprintf("turn-%d-%d", w, i))
+					// A run start; refused while another run is active.
+					turn := fmt.Sprintf("turn-%d-%d", w, i)
+					if env.runtime.BeginConversationRun(env.convID, turn) == nil {
+						env.runtime.ConversationRunDispatched(env.convID, turn)
+					}
 				default:
 					req := messagequeue.ToolCallRequestPayload{
 						RunID: env.convID, CallID: fmt.Sprintf("call-%d-%d", w, i), Tool: "Read", Path: "main.go",
@@ -245,7 +249,10 @@ func TestConversationStop_ConcurrentStopsStartsAndToolCalls(t *testing.T) {
 	if resp := env.toolCall(t, "call-after-last-stop"); resp.Decision != "deny" {
 		t.Fatalf("after the last stop: decision %q, want deny", resp.Decision)
 	}
-	env.runtime.MarkConversationRunStarted(env.convID, "turn-last")
+	if err := env.runtime.BeginConversationRun(env.convID, "turn-last"); err != nil {
+		t.Fatalf("last start: %v", err)
+	}
+	env.runtime.ConversationRunDispatched(env.convID, "turn-last")
 	if resp := env.toolCall(t, "call-after-last-start"); resp.Decision != "allow" {
 		t.Fatalf("after the last start: decision %q (%s), want allow", resp.Decision, resp.Reason)
 	}

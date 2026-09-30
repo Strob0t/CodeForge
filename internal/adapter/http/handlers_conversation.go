@@ -1,12 +1,14 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 func (h *Handlers) CreateConversation(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +94,11 @@ func (h *Handlers) SendConversationMessage(w http.ResponseWriter, r *http.Reques
 		err = h.Conversations.SendMessageAgentic(r.Context(), id, &req)
 	} else {
 		_, err = h.Conversations.SendMessage(r.Context(), id, &req)
+	}
+	if errors.Is(err, service.ErrConversationRunInProgress) {
+		// One run per conversation: the client stops the active run first.
+		writeError(w, http.StatusConflict, "conversation run in progress")
+		return
 	}
 	if err != nil {
 		writeDomainError(w, err, "send message")

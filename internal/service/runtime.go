@@ -92,23 +92,47 @@ func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.S
 
 // MarkConversationRunCancelled records that a conversation-based run has been
 // cancelled so that its remaining tool-call requests are rejected immediately
-// without waiting for policy evaluation, until the next run of the
-// conversation starts (MarkConversationRunStarted).
+// without waiting for policy evaluation, until the next run's start of the
+// conversation is published or the stopped run reports its end. The
+// conversation has no active run afterwards.
 func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
 	s.state.SetCancelledConversation(conversationID)
 	s.cleanupRunState(conversationID)
 	slog.Info("conversation run marked cancelled", "conversation_id", conversationID)
 }
 
-// MarkConversationRunStarted records that a new run of the conversation
-// started with turnID: conversation runs reuse the conversation ID as run ID,
-// so the mark set by MarkConversationRunCancelled is cleared here and tool
-// calls are evaluated again (KI-24). Calls that report another turn - late
-// calls of the stopped run - stay rejected. The new turn is recorded before
-// the mark is cleared, so no stale call passes in between.
-func (s *RuntimeService) MarkConversationRunStarted(conversationID, turnID string) {
-	s.state.SetConversationTurn(conversationID, turnID)
-	s.state.ClearCancelledConversation(conversationID)
+// BeginConversationRun makes the run with turnID the conversation's active
+// run before its start is dispatched. A conversation runs one run at a time:
+// while another run is active it returns ErrConversationRunInProgress.
+// Conversation runs reuse the conversation ID as run ID; the turn tells the
+// active run's tool calls from those of a stopped run (KI-24).
+func (s *RuntimeService) BeginConversationRun(conversationID, turnID string) error {
+	if !s.state.BeginConversationRun(conversationID, turnID) {
+		return ErrConversationRunInProgress
+	}
+	return nil
+}
+
+// ConversationRunDispatched records that the run's start was published: the
+// mark of an earlier stop is cleared (the stopped run's calls report another
+// turn and stay rejected).
+func (s *RuntimeService) ConversationRunDispatched(conversationID, turnID string) {
+	s.state.ConversationRunDispatched(conversationID, turnID)
+}
+
+// AbortConversationRun releases a run whose start was not published.
+func (s *RuntimeService) AbortConversationRun(conversationID, turnID string) {
+	s.state.AbortConversationRun(conversationID, turnID)
+}
+
+// EndConversationRun records a conversation run's reported end.
+func (s *RuntimeService) EndConversationRun(conversationID, turnID string) {
+	s.state.EndConversationRun(conversationID, turnID)
+}
+
+// ForgetConversation drops the run state of a deleted conversation.
+func (s *RuntimeService) ForgetConversation(conversationID string) {
+	s.state.ForgetConversation(conversationID)
 }
 
 // RegisterFeedbackProvider adds a feedback provider for HITL fan-out.

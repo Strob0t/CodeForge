@@ -22,13 +22,14 @@ type RunStateManager struct {
 	budgetAlerts     sync.Map // map["runID:threshold"]bool
 	pendingApprovals sync.Map // map["runID:callID"]chan string
 	toolResults      sync.Map // map["runID:callID"]bool: results of running runs already handled
-	cancelledConvs   sync.Map // map[conversationID]bool
-	convTurns        sync.Map // map[conversationID]string: turn of the conversation's current run
 	bypassedConvs    sync.Map // map[conversationID]bool
 	runSpans         sync.Map // map[runID]trace.Span
 
 	stopsMu sync.Mutex
 	stops   map[string]int // runID -> control-plane stops of the run under way
+
+	convMu   sync.Mutex
+	convRuns map[string]*convRunState // conversationID -> run state (see Conversation Runs)
 }
 
 // NewRunStateManager creates a zero-value RunStateManager ready for use.
@@ -174,38 +175,155 @@ func (m *RunStateManager) IsStopping(runID string) bool {
 	return m.stops[runID] > 0
 }
 
-// --- Cancelled Conversations ---
+// --- Conversation Runs ---
+//
+// Conversation runs reuse the conversation ID as run ID; the turn of each run
+// start tells them apart. A conversation has at most one active run: the run
+// whose start is being dispatched or was published and has not ended or been
+// stopped. A stop cancels the conversation: tool calls that are not calls of
+// the active run are rejected until the next run's start is published or the
+// stopped run reports its end (KI-24). An entry exists only while a run is
+// active or a stop's mark holds, so the state does not grow with the number
+// of conversations.
 
-func (m *RunStateManager) SetCancelledConversation(convID string) {
-	m.cancelledConvs.Store(convID, true)
+// convRunState is the run state of one conversation; convMu guards it.
+type convRunState struct {
+	active    string // turn of the active run, "" when none
+	stopped   string // turn of the run a stop ended, until it reports its end
+	cancelled bool   // calls that are not of the active run are rejected
 }
 
-// ClearCancelledConversation forgets the cancel mark of a conversation. A new
-// run of the conversation reuses its ID as run ID, so the mark of a stopped
-// run must not outlive the start of the next one (KI-24).
-func (m *RunStateManager) ClearCancelledConversation(convID string) {
-	m.cancelledConvs.Delete(convID)
-}
-
-// SetConversationTurn records the turn of the conversation's current run.
-func (m *RunStateManager) SetConversationTurn(convID, turnID string) {
-	m.convTurns.Store(convID, turnID)
-}
-
-// ConversationTurn returns the turn of the conversation's current run, if
-// this process started one.
-func (m *RunStateManager) ConversationTurn(convID string) (string, bool) {
-	v, ok := m.convTurns.Load(convID)
-	if !ok {
-		return "", false
+// convRun returns the conversation's state, creating it; the caller holds convMu.
+func (m *RunStateManager) convRun(convID string) *convRunState {
+	if m.convRuns == nil {
+		m.convRuns = make(map[string]*convRunState)
 	}
-	turn, _ := v.(string)
-	return turn, true
+	st, ok := m.convRuns[convID]
+	if !ok {
+		st = &convRunState{}
+		m.convRuns[convID] = st
+	}
+	return st
+}
+
+// dropIdleConvRun removes a conversation's state that holds nothing; the
+// caller holds convMu.
+func (m *RunStateManager) dropIdleConvRun(convID string) {
+	if st, ok := m.convRuns[convID]; ok && st.active == "" && st.stopped == "" && !st.cancelled {
+		delete(m.convRuns, convID)
+	}
+}
+
+// BeginConversationRun makes turnID the conversation's active run before its
+// start is dispatched, so the run's first tool calls are recognized however
+// fast they come. It reports false, and changes nothing, while another run of
+// the conversation is active.
+func (m *RunStateManager) BeginConversationRun(convID, turnID string) bool {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	st := m.convRun(convID)
+	if st.active != "" {
+		return false
+	}
+	st.active = turnID
+	return true
+}
+
+// ConversationRunDispatched records that the start of run turnID was
+// published: a stop's mark no longer holds. A stop that ended the run while
+// its start was dispatched keeps its mark.
+func (m *RunStateManager) ConversationRunDispatched(convID, turnID string) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	st, ok := m.convRuns[convID]
+	if !ok || st.active != turnID {
+		return
+	}
+	st.cancelled = false
+	st.stopped = ""
+}
+
+// AbortConversationRun releases run turnID, whose start was not published:
+// no run of the conversation is active, and a stop's mark stays.
+func (m *RunStateManager) AbortConversationRun(convID, turnID string) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	if st, ok := m.convRuns[convID]; ok && st.active == turnID {
+		st.active = ""
+		m.dropIdleConvRun(convID)
+	}
+}
+
+// EndConversationRun records the reported end of run turnID: the active run
+// ends, or the mark of the stop that ended it no longer holds (its calls are
+// over). A report without turn (a worker that does not send turns) ends the
+// active run.
+func (m *RunStateManager) EndConversationRun(convID, turnID string) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	st, ok := m.convRuns[convID]
+	if !ok {
+		return
+	}
+	switch turnID {
+	case "", st.active:
+		st.active = ""
+	case st.stopped:
+		st.stopped = ""
+		st.cancelled = false
+	}
+	m.dropIdleConvRun(convID)
+}
+
+// SetCancelledConversation records a stop of the conversation's run: the
+// active run ends and tool calls of the conversation are rejected until the
+// next run's start is published or the stopped run reports its end.
+func (m *RunStateManager) SetCancelledConversation(convID string) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	st := m.convRun(convID)
+	st.cancelled = true
+	if st.active != "" {
+		st.stopped = st.active
+		st.active = ""
+	}
+}
+
+// ClearCancelledConversation forgets the cancel mark of a conversation.
+func (m *RunStateManager) ClearCancelledConversation(convID string) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	if st, ok := m.convRuns[convID]; ok {
+		st.cancelled = false
+		st.stopped = ""
+		m.dropIdleConvRun(convID)
+	}
+}
+
+// ActiveConversationTurn returns the turn of the conversation's active run,
+// if this process dispatched one.
+func (m *RunStateManager) ActiveConversationTurn(convID string) (string, bool) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	if st, ok := m.convRuns[convID]; ok && st.active != "" {
+		return st.active, true
+	}
+	return "", false
 }
 
 func (m *RunStateManager) IsConversationCancelled(convID string) bool {
-	_, ok := m.cancelledConvs.Load(convID)
-	return ok
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	st, ok := m.convRuns[convID]
+	return ok && st.cancelled
+}
+
+// ForgetConversation drops all state of a deleted conversation.
+func (m *RunStateManager) ForgetConversation(convID string) {
+	m.convMu.Lock()
+	delete(m.convRuns, convID)
+	m.convMu.Unlock()
+	m.bypassedConvs.Delete(convID)
 }
 
 // --- Bypassed Conversations ---

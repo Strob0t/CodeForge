@@ -1700,6 +1700,7 @@ func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, ll
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
 	conversationSvc := service.NewConversationService(store, bc, "", nil)
 	conversationSvc.SetQueue(queue)
+	conversationSvc.SetRunTracker(runtimeSvc) // as in main.go
 	authCfg := &config.Auth{
 		Enabled:            true,
 		JWTSecret:          "test-secret-key-32bytes-handler!",
@@ -1822,6 +1823,7 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 	vcsAccountSvc := service.NewVCSAccountService(store, []byte("test-encryption-key-32bytes!!!!!"))
 	conversationSvc := service.NewConversationService(store, bc, model, nil)
 	conversationSvc.SetQueue(queue)
+	conversationSvc.SetRunTracker(runtimeSvc) // as in main.go
 	authCfg := &config.Auth{
 		Enabled:            true,
 		JWTSecret:          "test-secret-key-32bytes-handler!",

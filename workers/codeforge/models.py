@@ -527,6 +527,8 @@ class ConversationRunCompleteMessage(BaseModel):
     step_count: int = 0
     model: str = ""
     tenant_id: str = ""
+    # The turn of the run start this completion ends (echoed from it).
+    turn_id: str = ""
 
 
 class AgentLoopResult(BaseModel):

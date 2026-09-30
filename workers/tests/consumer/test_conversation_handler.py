@@ -377,6 +377,21 @@ class TestPublishCompletion:
         assert payload["error"] == ""
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("turn_id", ["turn-9", ""])
+    async def test_completion_reports_the_turn(self, turn_id: str) -> None:
+        """The completion names the run's turn: Go ends the conversation's run
+        only when the completion belongs to it (review 2, finding 12)."""
+        handler = _make_handler()
+        handler._stamp_trust = staticmethod(lambda p, **kw: p)  # type: ignore[assignment]
+        run_msg = _make_valid_run_start()
+        run_msg.turn_id = turn_id
+
+        await handler._publish_completion(run_msg, AgentLoopResult(final_content="ok", step_count=1, model="m"))
+
+        payload = json.loads(handler._js.publish.call_args.args[1].decode())
+        assert payload["turn_id"] == turn_id
+
+    @pytest.mark.asyncio
     async def test_failed_status_on_error(self) -> None:
         """When the result contains an error, status should be 'failed'."""
         handler = _make_handler()
@@ -627,6 +642,17 @@ class TestPublishFailedCompletion:
         assert payload["status"] == "failed"
         assert payload["error"] == "internal worker error"
         assert payload["run_id"] == "run-err-001"
+
+    @pytest.mark.asyncio
+    async def test_reports_the_turn(self) -> None:
+        handler = _make_handler()
+        run_msg = _make_valid_run_start()
+        run_msg.turn_id = "turn-failed"
+
+        await handler._publish_failed_completion(run_msg, "internal worker error")
+
+        payload = json.loads(handler._js.publish.call_args.args[1].decode())
+        assert payload["turn_id"] == "turn-failed"
 
     @pytest.mark.asyncio
     async def test_no_crash_without_jetstream(self) -> None:
