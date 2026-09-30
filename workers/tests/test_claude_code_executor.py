@@ -121,9 +121,12 @@ def _mock_claude_code_sdk(monkeypatch: pytest.MonkeyPatch):
 class TestPolicyCallback:
     """Tests for ``ClaudeCodeExecutor._make_policy_callback``."""
 
+    # The callback sends Claude Code's own tool names; the Go policy layer maps
+    # them to canonical names (Read, Edit, Bash, ...), so a Read request must
+    # no longer be sent as a "file:read" category that no preset rule matches.
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_mock_claude_code_sdk")
-    async def test_allow_maps_read_to_file_read(self) -> None:
+    async def test_allow_sends_read_with_file_path(self) -> None:
         runtime = AsyncMock()
         runtime.request_tool_call.return_value = ToolCallDecision(
             call_id="c1",
@@ -135,7 +138,7 @@ class TestPolicyCallback:
         result = await callback("Read", {"file_path": "/tmp/foo.py"})
 
         runtime.request_tool_call.assert_awaited_once_with(
-            tool="file:read",
+            tool="Read",
             command="",
             path="/tmp/foo.py",
         )
@@ -143,7 +146,7 @@ class TestPolicyCallback:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_mock_claude_code_sdk")
-    async def test_deny_maps_bash_to_command_execute(self) -> None:
+    async def test_deny_sends_bash_command(self) -> None:
         runtime = AsyncMock()
         runtime.request_tool_call.return_value = ToolCallDecision(
             call_id="c2",
@@ -153,10 +156,10 @@ class TestPolicyCallback:
 
         executor = ClaudeCodeExecutor(workspace_path="/tmp", runtime=runtime)
         callback = executor._make_policy_callback()
-        result = await callback("Bash", {"command": "rm -rf /"})
+        result = await callback("Bash", {"command": "rm -rf /", "description": "cleanup"})
 
         runtime.request_tool_call.assert_awaited_once_with(
-            tool="command:execute",
+            tool="Bash",
             command="rm -rf /",
             path="",
         )
@@ -165,7 +168,7 @@ class TestPolicyCallback:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_mock_claude_code_sdk")
-    async def test_unknown_tool_gets_claude_code_prefix(self) -> None:
+    async def test_unknown_tool_keeps_its_name(self) -> None:
         runtime = AsyncMock()
         runtime.request_tool_call.return_value = ToolCallDecision(
             call_id="c3",
@@ -174,14 +177,38 @@ class TestPolicyCallback:
 
         executor = ClaudeCodeExecutor(workspace_path="/tmp", runtime=runtime)
         callback = executor._make_policy_callback()
-        result = await callback("SomeNewTool", {"arg": "val"})
+        result = await callback("SomeNewTool", {"arg": "val", "command": "curl x"})
 
         runtime.request_tool_call.assert_awaited_once_with(
-            tool="claude-code:SomeNewTool",
+            tool="SomeNewTool",
             command="",
             path="",
         )
         assert isinstance(result, _FakePermissionResultAllow)
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("_mock_claude_code_sdk")
+    @pytest.mark.parametrize(
+        ("tool", "tool_input", "expected_path"),
+        [
+            ("Edit", {"file_path": "/ws/.env", "old_string": "a", "new_string": "b"}, "/ws/.env"),
+            ("MultiEdit", {"file_path": "/ws/a.go", "edits": []}, "/ws/a.go"),
+            ("Write", {"file_path": "/ws/b.go", "content": "x"}, "/ws/b.go"),
+            ("NotebookEdit", {"notebook_path": "/ws/n.ipynb", "new_source": "x"}, "/ws/n.ipynb"),
+            ("Grep", {"pattern": "TODO", "path": "/ws/src"}, "/ws/src"),
+            ("Glob", {"pattern": "**/*.go"}, ""),
+            ("LS", {"path": "/ws"}, "/ws"),
+            ("Edit", {"file_path": 42}, ""),
+        ],
+    )
+    async def test_sends_path_argument(self, tool: str, tool_input: dict[str, object], expected_path: str) -> None:
+        runtime = AsyncMock()
+        runtime.request_tool_call.return_value = ToolCallDecision(call_id="c4", decision="allow")
+
+        executor = ClaudeCodeExecutor(workspace_path="/ws", runtime=runtime)
+        await executor._make_policy_callback()(tool, tool_input)
+
+        runtime.request_tool_call.assert_awaited_once_with(tool=tool, command="", path=expected_path)
 
 
 # ---------------------------------------------------------------------------

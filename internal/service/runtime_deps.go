@@ -22,7 +22,7 @@ import (
 type runtimePolicyEvaluator interface {
 	DefaultProfile() string
 	GetProfile(name string) (policy.PolicyProfile, bool)
-	EvaluateWithReason(ctx context.Context, profileName string, call policy.ToolCall) (*policy.EvaluationResult, error)
+	EvaluateWithReason(ctx context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (*policy.EvaluationResult, error)
 }
 
 // runtimeModeProvider is the subset of ModeService used by RuntimeService.

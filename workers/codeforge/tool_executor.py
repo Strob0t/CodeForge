@@ -34,6 +34,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Argument that names the file a file tool reads or writes.
+_FILE_PATH_TOOLS: frozenset[str] = frozenset({"read_file", "write_file", "edit_file"})
+# Tools that work on a directory given by their optional "path" argument.
+_DIRECTORY_TOOLS: frozenset[str] = frozenset({"search_files", "list_directory"})
+
+
+def _str_arg(arguments: dict[str, object], key: str, default: str = "") -> str:
+    value = arguments.get(key, default)
+    return value if isinstance(value, str) else ""
+
+
+def policy_request_args(tool_name: str, arguments: dict[str, object]) -> tuple[str, str]:
+    """Return the (command, path) the Go policy layer evaluates for a tool call.
+
+    Only the bash tool has a command (sent in full: the policy splits it into
+    its simple commands). File tools send the file path; directory tools send
+    the directory they search (the workspace root by default). Every other
+    tool is evaluated by name only.
+    """
+    if tool_name == "bash":
+        return _str_arg(arguments, "command"), ""
+    if tool_name in _FILE_PATH_TOOLS:
+        return "", _str_arg(arguments, "file_path")
+    if tool_name in _DIRECTORY_TOOLS:
+        return "", _str_arg(arguments, "path", ".")
+    if tool_name == "glob_files":
+        return "", "."
+    return "", ""
+
+
 def _payload_to_dict(msg: ConversationMessagePayload) -> dict[str, object]:
     """Convert a ConversationMessagePayload to a dict for the messages list."""
     from codeforge.loop_helpers import payload_to_dict
@@ -72,9 +102,8 @@ class ToolExecutor:
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
-        decision = await self._runtime.request_tool_call(
-            tool=tc.name, command=tc.arguments[:200] if tc.arguments else ""
-        )
+        command, path = policy_request_args(tc.name, arguments if isinstance(arguments, dict) else {})
+        decision = await self._runtime.request_tool_call(tool=tc.name, command=command, path=path)
 
         if decision.decision != "allow":
             result_text = f"Permission denied: {decision.reason}"

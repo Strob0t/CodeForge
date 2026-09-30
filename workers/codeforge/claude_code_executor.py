@@ -44,17 +44,10 @@ class _RunAccumulator:
     model: str = ""
 
 
-# Claude Code tool name -> CodeForge policy category
-_MAP_TOOL_TO_POLICY: dict[str, str] = {
-    "Bash": "command:execute",
-    "Read": "file:read",
-    "Write": "file:write",
-    "Edit": "file:edit",
-    "MultiEdit": "file:edit",
-    "Search": "file:read",
-    "Glob": "file:read",
-    "ListDir": "file:read",
-}
+# Claude Code tool arguments that name the file or directory a tool works on,
+# in order of preference. Tool names are sent unchanged: the Go policy layer
+# maps them to canonical names (internal/domain/policy/toolnames.go).
+_POLICY_PATH_KEYS: tuple[str, ...] = ("file_path", "notebook_path", "path")
 
 # Default model for cost estimation when Claude Code doesn't report one.
 _DEFAULT_MODEL = "anthropic/claude-sonnet-4"
@@ -410,16 +403,21 @@ class ClaudeCodeExecutor:
         ):
             from claude_code_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-            category = _MAP_TOOL_TO_POLICY.get(tool_name, f"claude-code:{tool_name}")
             command = ""
             path = ""
 
             if isinstance(tool_input, dict):
-                command = str(tool_input.get("command", ""))
-                path = str(tool_input.get("path", tool_input.get("file_path", "")))
+                if tool_name == "Bash":
+                    value = tool_input.get("command", "")
+                    command = value if isinstance(value, str) else ""
+                for key in _POLICY_PATH_KEYS:
+                    value = tool_input.get(key)
+                    if isinstance(value, str) and value:
+                        path = value
+                        break
 
             decision = await runtime.request_tool_call(
-                tool=category,
+                tool=tool_name,
                 command=command,
                 path=path,
             )

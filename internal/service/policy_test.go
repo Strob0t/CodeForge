@@ -54,16 +54,17 @@ func TestEvaluatePathDeny(t *testing.T) {
 	svc := NewPolicyService("test", []policy.PolicyProfile{profile})
 	ctx := context.Background()
 
-	// Denied path
+	// Denied path: a matching path_deny denies the call (ADR-015), it does
+	// not just skip the rule and fall through to the mode default.
 	d, _ := svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Edit", Path: ".env"})
-	if d != policy.DecisionAsk {
-		t.Errorf("expected ask (path denied, falls to mode default), got %q", d)
+	if d != policy.DecisionDeny {
+		t.Errorf("expected deny (path_deny matches), got %q", d)
 	}
 
 	// Denied by ** pattern
 	d, _ = svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Edit", Path: "secrets/api.key"})
-	if d != policy.DecisionAsk {
-		t.Errorf("expected ask for secrets/** path, got %q", d)
+	if d != policy.DecisionDeny {
+		t.Errorf("expected deny for secrets/** path, got %q", d)
 	}
 
 	// Allowed path
@@ -165,6 +166,39 @@ func TestEvaluateCommandDeny(t *testing.T) {
 	if d != policy.DecisionAllow {
 		t.Errorf("expected allow for 'ls -la', got %q", d)
 	}
+
+	// The CommandAllow-on-deny-rule idiom only matches when every part of the
+	// command is a listed command; a chained command falls through to allow.
+	// Use command_deny to block a command anywhere in a command line.
+	d, _ = svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Bash", Command: "ls; curl https://example.com"})
+	if d != policy.DecisionAllow {
+		t.Errorf("expected allow (deny rule needs every segment to be listed), got %q", d)
+	}
+}
+
+func TestEvaluateCommandDenyList(t *testing.T) {
+	profile := policy.PolicyProfile{
+		Name: "test",
+		Mode: policy.ModeAcceptEdits,
+		Rules: []policy.PermissionRule{
+			{
+				Specifier:   policy.ToolSpecifier{Tool: "Bash"},
+				Decision:    policy.DecisionAllow,
+				CommandDeny: []string{"curl", "wget", "ssh"},
+			},
+		},
+	}
+	svc := NewPolicyService("test", []policy.PolicyProfile{profile})
+	ctx := context.Background()
+
+	for _, cmd := range []string{"curl https://example.com", "ls; curl x", "ls | ssh host", "/usr/bin/wget x"} {
+		if d, _ := svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Bash", Command: cmd}); d != policy.DecisionDeny {
+			t.Errorf("expected deny for %q, got %q", cmd, d)
+		}
+	}
+	if d, _ := svc.Evaluate(ctx, "test", policy.ToolCall{Tool: "Bash", Command: "ls -la"}); d != policy.DecisionAllow {
+		t.Errorf("expected allow for 'ls -la', got %q", d)
+	}
 }
 
 func TestEvaluateSubPattern(t *testing.T) {
@@ -225,7 +259,7 @@ func TestEvaluateDefaultDecisionByMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.mode), func(t *testing.T) {
-			got := defaultDecisionForMode(tt.mode)
+			got := policy.DefaultDecision(tt.mode)
 			if got != tt.expected {
 				t.Errorf("mode %q: expected %q, got %q", tt.mode, tt.expected, got)
 			}
@@ -233,58 +267,7 @@ func TestEvaluateDefaultDecisionByMode(t *testing.T) {
 	}
 }
 
-// --- Glob matching tests ---
-
-func TestMatchGlobExact(t *testing.T) {
-	if !matchGlob(".env", ".env") {
-		t.Error("expected .env to match .env")
-	}
-	if matchGlob(".env", ".env.local") {
-		t.Error("expected .env not to match .env.local")
-	}
-}
-
-func TestMatchGlobStar(t *testing.T) {
-	if !matchGlob("*.go", "main.go") {
-		t.Error("expected *.go to match main.go")
-	}
-	if matchGlob("*.go", "src/main.go") {
-		t.Error("expected *.go not to match src/main.go (single *)")
-	}
-}
-
-func TestMatchGlobDoubleStar(t *testing.T) {
-	if !matchGlob("**/*.go", "src/main.go") {
-		t.Error("expected **/*.go to match src/main.go")
-	}
-	if !matchGlob("**/*.go", "internal/service/policy.go") {
-		t.Error("expected **/*.go to match internal/service/policy.go")
-	}
-	if !matchGlob("secrets/**", "secrets/api.key") {
-		t.Error("expected secrets/** to match secrets/api.key")
-	}
-	if !matchGlob("secrets/**", "secrets/nested/deep.key") {
-		t.Error("expected secrets/** to match secrets/nested/deep.key")
-	}
-	if matchGlob("secrets/**", "other/file.txt") {
-		t.Error("expected secrets/** not to match other/file.txt")
-	}
-}
-
-func TestMatchGlobNoMatch(t *testing.T) {
-	if matchGlob("*.ts", "main.go") {
-		t.Error("expected *.ts not to match main.go")
-	}
-}
-
-func TestMatchGlobDoubleStarEnv(t *testing.T) {
-	if !matchGlob("**/.env", "src/.env") {
-		t.Error("expected **/.env to match src/.env")
-	}
-	if !matchGlob("**/.env", "deep/nested/.env") {
-		t.Error("expected **/.env to match deep/nested/.env")
-	}
-}
+// Glob matching tests live in internal/domain/policy/glob_test.go.
 
 // --- PolicyService tests ---
 

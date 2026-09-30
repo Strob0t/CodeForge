@@ -22,66 +22,209 @@ type EvaluationResult struct {
 	Decision    Decision `json:"decision"`
 	Profile     string   `json:"profile"`
 	Scope       Scope    `json:"scope"`
-	RuleIndex   int      `json:"rule_index"`   // -1 if no rule matched (mode default)
+	RuleIndex   int      `json:"rule_index"`   // -1 if no rule decided (mode default, mode restriction, path outside workspace)
 	MatchedRule string   `json:"matched_rule"` // human-readable rule description
 	Reason      string   `json:"reason"`       // explanation of why this decision was made
 }
 
 // evalContext holds optional evaluation parameters.
 type evalContext struct {
-	trust *trust.Annotation
+	trust     *trust.Annotation
+	workspace string
+	mode      *modeRestriction
+}
+
+// modeRestriction carries the tool lists of the agent mode a call runs in.
+type modeRestriction struct {
+	id     string
+	tools  []string
+	denied []string
 }
 
 // EvalOption configures optional parameters for Evaluate.
 type EvalOption func(*evalContext)
 
-// WithTrust attaches a trust annotation to the evaluation context.
+// WithTrust attaches a trust annotation to the evaluation context. Rules
+// with a TrustMinimum above the annotation's level do not decide the call.
 func WithTrust(t *trust.Annotation) EvalOption {
 	return func(c *evalContext) { c.trust = t }
 }
 
-// Evaluate checks a ToolCall against the profile's rules using first-match-wins.
-// If no rule matches, the default decision is "deny" (deny-by-default).
-// Optional EvalOption parameters extend evaluation (e.g., WithTrust for trust filtering).
+// WithWorkspace sets the workspace root that call paths are resolved against.
+func WithWorkspace(dir string) EvalOption {
+	return func(c *evalContext) { c.workspace = dir }
+}
+
+// WithModeTools restricts the call to the tool lists of an agent mode: a
+// tool in denied is denied, and a built-in tool (see BuiltinTools) that is
+// missing from a non-empty tools list is denied. Tools that are not built
+// in (LLM, MCP tools, propose_goal, ...) are only restricted by denied.
+func WithModeTools(modeID string, tools, denied []string) EvalOption {
+	return func(c *evalContext) {
+		c.mode = &modeRestriction{id: modeID, tools: tools, denied: denied}
+	}
+}
+
+// Evaluate decides a ToolCall against the profile (ADR-007, deny-list
+// semantics amended by ADR-015):
+//
+//  1. The tool name is mapped to its canonical name (CanonicalTool); rule
+//     and mode tool names are canonicalized the same way.
+//  2. Mode restrictions (WithModeTools) deny tools the mode may not use.
+//  3. The path is normalized relative to the workspace (WithWorkspace); a
+//     path that leaves the workspace is denied.
+//  4. Deny lists are blocklists: if any rule for the tool has a path_deny or
+//     command_deny list that matches the call, or the call carries no value
+//     for that list, the call is denied regardless of rule order.
+//  5. Otherwise the first rule whose specifier and allow lists match decides.
+//  6. If no rule matches, the profile's permission mode decides.
 func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationResult {
 	var ctx evalContext
 	for _, o := range opts {
 		o(&ctx)
 	}
+	scope := p.Scope
+	if scope == "" {
+		scope = ScopeGlobal
+	}
+	decide := func(d Decision, ruleIndex int, reason string) EvaluationResult {
+		res := EvaluationResult{Decision: d, Profile: p.Name, Scope: scope, RuleIndex: ruleIndex, Reason: reason}
+		if ruleIndex >= 0 {
+			r := &p.Rules[ruleIndex]
+			res.MatchedRule = fmt.Sprintf("rule[%d]: %s %s -> %s", ruleIndex, r.Specifier.Tool, r.Specifier.SubPattern, r.Decision)
+		}
+		return res
+	}
+
+	tool := CanonicalTool(call.Tool)
+
+	if ctx.mode != nil {
+		if reason := ctx.mode.deniedReason(tool); reason != "" {
+			return decide(DecisionDeny, -1, reason)
+		}
+	}
+
+	path, ok := NormalizePath(ctx.workspace, call.Path)
+	if !ok {
+		return decide(DecisionDeny, -1, fmt.Sprintf("path %q is outside the workspace", call.Path))
+	}
+	cmd := parseShellCommand(call.Command)
 
 	for i := range p.Rules {
 		rule := &p.Rules[i]
-		if !matchTool(rule.Specifier.Tool, call.Tool) {
+		if !matchTool(CanonicalTool(rule.Specifier.Tool), tool) || !rule.subPatternMatches(cmd, false) {
 			continue
 		}
-		if rule.Specifier.SubPattern != "" && call.Command != "" {
-			if !matchTool(rule.Specifier.SubPattern, call.Command) {
-				continue
-			}
-		}
-		// If rule requires a minimum trust level, check the annotation.
-		if rule.TrustMinimum != "" && ctx.trust != nil {
-			if !ctx.trust.MeetsMinimum(rule.TrustMinimum) {
-				continue
-			}
-		}
-		return EvaluationResult{
-			Decision:    rule.Decision,
-			Profile:     p.Name,
-			Scope:       p.Scope,
-			RuleIndex:   i,
-			MatchedRule: fmt.Sprintf("%s → %s", rule.Specifier.Tool, rule.Decision),
-			Reason:      fmt.Sprintf("matched rule[%d]: tool=%q", i, rule.Specifier.Tool),
+		if reason := rule.denyListReason(path, cmd); reason != "" {
+			return decide(DecisionDeny, i, fmt.Sprintf("denied by rule %d in profile %q: %s", i, p.Name, reason))
 		}
 	}
-	return EvaluationResult{
-		Decision:    DecisionDeny,
-		Profile:     p.Name,
-		Scope:       p.Scope,
-		RuleIndex:   -1,
-		MatchedRule: "",
-		Reason:      "no matching rule; deny by default",
+
+	for i := range p.Rules {
+		rule := &p.Rules[i]
+		if !matchTool(CanonicalTool(rule.Specifier.Tool), tool) || !rule.subPatternMatches(cmd, rule.Decision == DecisionAllow) {
+			continue
+		}
+		if len(rule.PathAllow) > 0 && (path == "" || !matchesAnyGlob(rule.PathAllow, path, false)) {
+			continue
+		}
+		if len(rule.CommandAllow) > 0 && !cmd.allowedBy(rule.CommandAllow) {
+			continue
+		}
+		if rule.TrustMinimum != "" && ctx.trust != nil && !ctx.trust.MeetsMinimum(rule.TrustMinimum) {
+			continue
+		}
+		reason := fmt.Sprintf("matched rule %d in profile %q: tool=%s", i, p.Name, rule.Specifier.Tool)
+		if rule.Specifier.SubPattern != "" {
+			reason += " sub_pattern=" + rule.Specifier.SubPattern
+		}
+		return decide(rule.Decision, i, reason)
 	}
+
+	d := DefaultDecision(p.Mode)
+	return decide(d, -1, fmt.Sprintf("no rule matched, using mode default %q -> %s", p.Mode, d))
+}
+
+// DefaultDecision returns the decision for calls that no rule matches.
+func DefaultDecision(mode PermissionMode) Decision {
+	switch mode {
+	case ModePlan:
+		return DecisionDeny
+	case ModeAcceptEdits, ModeDelegate:
+		return DecisionAllow
+	default:
+		return DecisionAsk
+	}
+}
+
+// deniedReason explains why the mode forbids tool, or returns "".
+func (m *modeRestriction) deniedReason(tool string) string {
+	for _, d := range m.denied {
+		if CanonicalTool(d) == tool {
+			return fmt.Sprintf("tool %s is denied by mode %q", tool, m.id)
+		}
+	}
+	if len(m.tools) == 0 || !IsBuiltinTool(tool) {
+		return ""
+	}
+	for _, t := range m.tools {
+		if CanonicalTool(t) == tool {
+			return ""
+		}
+	}
+	return fmt.Sprintf("tool %s is not in the tools of mode %q", tool, m.id)
+}
+
+// denyListReason explains why the rule's deny lists deny the call, or
+// returns "". A deny list fails closed when the call has no value for it.
+func (r *PermissionRule) denyListReason(path string, cmd shellCommand) string {
+	if len(r.PathDeny) > 0 {
+		if path == "" {
+			return "path_deny is set and the call has no path"
+		}
+		if matchesAnyGlob(r.PathDeny, path, true) {
+			return fmt.Sprintf("path %q matches path_deny", path)
+		}
+	}
+	if len(r.CommandDeny) > 0 && cmd.deniedBy(r.CommandDeny) {
+		switch {
+		case cmd.opaque:
+			return "command_deny is set and the command cannot be analysed statically"
+		case len(cmd.segments) == 0:
+			return "command_deny is set and the call has no command"
+		default:
+			return "command matches command_deny"
+		}
+	}
+	return ""
+}
+
+// subPatternMatches matches the specifier's sub-pattern (a glob over each
+// simple command, e.g. "git *") against the command. A permissive rule
+// (allOf) needs every simple command to match and never matches a command
+// that cannot be analysed; a restrictive rule matches if any simple command
+// matches, and always matches an unanalysable command.
+func (r *PermissionRule) subPatternMatches(cmd shellCommand, allOf bool) bool {
+	pattern := r.Specifier.SubPattern
+	if pattern == "" {
+		return true
+	}
+	if cmd.opaque {
+		return !allOf
+	}
+	if len(cmd.segments) == 0 {
+		return false
+	}
+	for _, seg := range cmd.segments {
+		matched := matchWildcard(pattern, joinWords(seg), !allOf)
+		if allOf && !matched {
+			return false
+		}
+		if !allOf && matched {
+			return true
+		}
+	}
+	return allOf
 }
 
 // matchTool checks whether a tool specifier pattern matches a tool name.
@@ -95,8 +238,5 @@ func matchTool(pattern, name string) bool {
 		return true
 	}
 	matched, err := filepath.Match(pattern, name)
-	if err == nil && matched {
-		return true
-	}
-	return false
+	return err == nil && matched
 }

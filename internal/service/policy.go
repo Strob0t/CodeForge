@@ -44,8 +44,8 @@ func NewPolicyService(defaultProfile string, custom []policy.PolicyProfile) *Pol
 }
 
 // Evaluate checks a ToolCall against a named PolicyProfile and returns a Decision.
-func (s *PolicyService) Evaluate(ctx context.Context, profileName string, call policy.ToolCall) (policy.Decision, error) {
-	result, err := s.EvaluateWithReason(ctx, profileName, call)
+func (s *PolicyService) Evaluate(ctx context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (policy.Decision, error) {
+	result, err := s.EvaluateWithReason(ctx, profileName, call, opts...)
 	if err != nil {
 		return policy.DecisionDeny, err
 	}
@@ -53,13 +53,15 @@ func (s *PolicyService) Evaluate(ctx context.Context, profileName string, call p
 }
 
 // EvaluateWithReason checks a ToolCall against a named PolicyProfile and returns
-// the full evaluation result including which rule matched and why.
-func (s *PolicyService) EvaluateWithReason(_ context.Context, profileName string, call policy.ToolCall) (*policy.EvaluationResult, error) {
+// the full evaluation result including which rule matched and why. Tool names
+// are canonicalized by the profile evaluation (policy.CanonicalTool).
+func (s *PolicyService) EvaluateWithReason(_ context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (*policy.EvaluationResult, error) {
 	p, ok := s.profiles[profileName]
 	if !ok {
 		return nil, fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, profileName)
 	}
-	return evaluateWithReason(&p, profileName, call), nil
+	result := p.Evaluate(call, opts...)
+	return &result, nil
 }
 
 // ResolveProfile determines the effective policy profile name using scope resolution:
@@ -118,7 +120,7 @@ func (s *PolicyService) DefaultProfile() string {
 
 // PrependRule adds a PermissionRule to the front of a named profile's rule list.
 // Returns an error if the profile is unknown or a built-in preset.
-// If a rule with the same specifier already exists, it is a no-op (idempotent).
+// If an identical rule already exists, it is a no-op (idempotent).
 func (s *PolicyService) PrependRule(profileName string, rule *policy.PermissionRule) error {
 	if policy.IsPreset(profileName) {
 		return fmt.Errorf("cannot modify built-in preset %q", profileName)
@@ -130,7 +132,7 @@ func (s *PolicyService) PrependRule(profileName string, rule *policy.PermissionR
 	if !ok {
 		return fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, profileName)
 	}
-	if p.HasRuleForSpecifier(rule.Specifier) {
+	if p.HasRule(rule) {
 		return nil // idempotent
 	}
 	p.Rules = append([]policy.PermissionRule{*rule}, p.Rules...)
@@ -203,198 +205,4 @@ func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyR
 
 	result, _ := s.GetProfile(effectiveProfile)
 	return &result, nil
-}
-
-// evaluateWithReason performs first-match rule evaluation against a profile,
-// recording which rule matched and why.
-func evaluateWithReason(profile *policy.PolicyProfile, profileName string, call policy.ToolCall) *policy.EvaluationResult {
-	scope := profile.Scope
-	if scope == "" {
-		scope = policy.ScopeGlobal
-	}
-
-	for i := range profile.Rules {
-		rule := &profile.Rules[i]
-		if !matchesSpecifier(rule.Specifier, call) {
-			continue
-		}
-		if !matchesPathConstraints(rule, call.Path) {
-			continue
-		}
-		if !matchesCommandConstraints(rule, call.Command) {
-			continue
-		}
-
-		matchedRule := fmt.Sprintf("rule[%d]: %s %s -> %s", i, rule.Specifier.Tool, rule.Specifier.SubPattern, rule.Decision)
-		reason := fmt.Sprintf("matched rule %d in profile %q: tool=%s", i, profileName, rule.Specifier.Tool)
-		if rule.Specifier.SubPattern != "" {
-			reason += fmt.Sprintf(" sub_pattern=%s", rule.Specifier.SubPattern)
-		}
-
-		return &policy.EvaluationResult{
-			Decision:    rule.Decision,
-			Profile:     profileName,
-			Scope:       scope,
-			RuleIndex:   i,
-			MatchedRule: matchedRule,
-			Reason:      reason,
-		}
-	}
-
-	defaultDecision := defaultDecisionForMode(profile.Mode)
-	return &policy.EvaluationResult{
-		Decision:    defaultDecision,
-		Profile:     profileName,
-		Scope:       scope,
-		RuleIndex:   -1,
-		MatchedRule: "",
-		Reason:      fmt.Sprintf("no rule matched, using mode default %q -> %s", profile.Mode, defaultDecision),
-	}
-}
-
-// matchesSpecifier checks if a ToolCall matches a ToolSpecifier.
-func matchesSpecifier(spec policy.ToolSpecifier, call policy.ToolCall) bool {
-	if spec.Tool != call.Tool {
-		return false
-	}
-	if spec.SubPattern == "" {
-		return true
-	}
-	return matchGlob(spec.SubPattern, call.Command)
-}
-
-// matchesPathConstraints checks path_allow/path_deny glob patterns.
-// Rules: if path_deny matches, the rule does NOT match (skip to next rule).
-// If path_allow is set and path does NOT match, the rule does NOT match.
-// This means deny lists take precedence, and empty lists match everything.
-func matchesPathConstraints(rule *policy.PermissionRule, path string) bool {
-	if path == "" {
-		return true
-	}
-	path = filepath.Clean(path)
-
-	// Path deny: if any pattern matches, skip this rule.
-	for _, pattern := range rule.PathDeny {
-		if matchGlob(pattern, path) {
-			return false
-		}
-	}
-
-	// Path allow: if set, at least one must match.
-	if len(rule.PathAllow) > 0 {
-		for _, pattern := range rule.PathAllow {
-			if matchGlob(pattern, path) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return true
-}
-
-// matchesCommandConstraints checks command_allow/command_deny patterns.
-// If command_deny matches, the rule does NOT match (skip).
-// If command_allow is set, the command must match at least one pattern.
-func matchesCommandConstraints(rule *policy.PermissionRule, command string) bool {
-	if command == "" {
-		return true
-	}
-
-	// Command deny: if any matches, skip this rule.
-	for _, pattern := range rule.CommandDeny {
-		if matchCommandPattern(pattern, command) {
-			return false
-		}
-	}
-
-	// Command allow: if set, at least one must match.
-	if len(rule.CommandAllow) > 0 {
-		for _, pattern := range rule.CommandAllow {
-			if matchCommandPattern(pattern, command) {
-				return true
-			}
-		}
-		return false
-	}
-
-	return true
-}
-
-// matchCommandPattern matches a command against a pattern.
-// The pattern matches if the command starts with it (prefix match).
-func matchCommandPattern(pattern, command string) bool {
-	return command == pattern || strings.HasPrefix(command, pattern+" ")
-}
-
-// matchGlob matches a string against a glob pattern. Supports:
-// - Standard filepath.Match patterns (*, ?)
-// - ** for recursive directory matching
-// Paths are cleaned before matching to prevent traversal bypasses.
-func matchGlob(pattern, value string) bool {
-	value = filepath.Clean(value)
-	// Handle ** patterns by splitting on path separator.
-	if strings.Contains(pattern, "**") {
-		return matchDoubleStar(pattern, value)
-	}
-	matched, _ := filepath.Match(pattern, value)
-	return matched
-}
-
-// matchDoubleStar handles ** glob patterns for recursive path matching.
-func matchDoubleStar(pattern, value string) bool {
-	// Split pattern and value into segments.
-	patParts := strings.Split(pattern, "/")
-	valParts := strings.Split(value, "/")
-	return matchSegments(patParts, valParts)
-}
-
-// matchSegments recursively matches pattern segments against value segments.
-func matchSegments(pat, val []string) bool {
-	for len(pat) > 0 && len(val) > 0 {
-		if pat[0] == "**" {
-			// ** matches zero or more path segments.
-			pat = pat[1:]
-			if len(pat) == 0 {
-				return true // trailing ** matches everything
-			}
-			// Try matching remaining pattern at each position.
-			for i := 0; i <= len(val); i++ {
-				if matchSegments(pat, val[i:]) {
-					return true
-				}
-			}
-			return false
-		}
-		matched, _ := filepath.Match(pat[0], val[0])
-		if !matched {
-			return false
-		}
-		pat = pat[1:]
-		val = val[1:]
-	}
-
-	// Remaining pattern segments must all be ** (or pattern is empty).
-	for _, p := range pat {
-		if p != "**" {
-			return false
-		}
-	}
-	return len(val) == 0
-}
-
-// defaultDecisionForMode returns the fallback decision when no rule matches.
-func defaultDecisionForMode(mode policy.PermissionMode) policy.Decision {
-	switch mode {
-	case policy.ModePlan:
-		return policy.DecisionDeny
-	case policy.ModeDefault:
-		return policy.DecisionAsk
-	case policy.ModeAcceptEdits:
-		return policy.DecisionAllow
-	case policy.ModeDelegate:
-		return policy.DecisionAllow
-	default:
-		return policy.DecisionAsk
-	}
 }
