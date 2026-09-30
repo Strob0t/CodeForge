@@ -76,12 +76,17 @@ type runCancelPayload struct {
 	RunID string `json:"run_id"`
 }
 
+// workerStopTimeout bounds the runs.cancel publish of a stop.
+const workerStopTimeout = 5 * time.Second
+
 // stopRun ends a run that the control plane terminates while the worker still
 // executes it: user cancel, context-level timeout, termination limits, the
-// post-execution budget and stall detection. The run goes through the same
-// completion path as a run the worker finished (KI-30), with r's counters as
-// its final numbers and reason as its error; then the worker is told to stop.
+// post-execution budget and stall detection. The worker is told to stop
+// first, then the run goes through the same completion path as a run the
+// worker finished (KI-30), with r's counters as its final numbers and reason
+// as its error.
 func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Status, reason string) error {
+	s.tellWorkerToStop(ctx, r.ID)
 	outcome := &messagequeue.RunCompletePayload{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
@@ -94,12 +99,20 @@ func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Sta
 		TokensOut: r.TokensOut,
 		Model:     r.Model,
 	}
-	if err := s.finalizeRun(ctx, r, status, outcome); err != nil {
-		return err
-	}
-	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, runCancelPayload{RunID: r.ID}),
-		"publishJSON", slog.String("subject", messagequeue.SubjectRunCancel), slog.String("run_id", r.ID))
-	return nil
+	return s.finalizeRun(ctx, r, status, outcome)
+}
+
+// tellWorkerToStop publishes runs.cancel before the run is completed: the
+// worker stops editing the workspace before checkpoints are cleaned up and
+// the next plan step starts, and it stops even when the run record cannot be
+// completed. The publish does not depend on the caller's context (a
+// disconnected HTTP client must not keep the worker running); it keeps the
+// context's values (tenant) and has its own timeout.
+func (s *RuntimeService) tellWorkerToStop(ctx context.Context, runID string) {
+	pubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerStopTimeout)
+	defer cancel()
+	logBestEffort(pubCtx, s.publishJSON(pubCtx, messagequeue.SubjectRunCancel, runCancelPayload{RunID: runID}),
+		"publishJSON", slog.String("subject", messagequeue.SubjectRunCancel), slog.String("run_id", runID))
 }
 
 // finalizeRun is the one completion path of a run, whichever way it ended:
@@ -120,11 +133,17 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		}
 	}
 
-	s.cleanupRunState(r.ID)
-
+	// The terminal record comes first, then the run state is released: a HITL
+	// waiter woken before the record commits would count a step on a still
+	// running run and record a policy denial. A conflict means another path
+	// ended the run; the state this process holds for it is released as well.
 	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: status, Output: payload.Output, Error: payload.Error, CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model}); err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			s.cleanupRunState(r.ID)
+		}
 		return fmt.Errorf("complete run: %w", err)
 	}
+	s.cleanupRunState(r.ID)
 
 	if s.metrics != nil {
 		metricAttrs := []string{"project.id", r.ProjectID, "status", string(status)}
@@ -148,9 +167,13 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	// Set agent back to idle
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 
-	// Accumulate agent identity stats (Phase 23C).
-	if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
-		slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
+	// Agent identity stats (Phase 23C) record how the agent's runs turned out.
+	// A cancel is the user's (or the plan's) decision, not an outcome of the
+	// agent's work, and is not counted; timeouts and stalls are failures.
+	if status != run.StatusCancelled {
+		if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
+			slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
+		}
 	}
 
 	// Record event

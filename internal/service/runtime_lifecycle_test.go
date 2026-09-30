@@ -541,6 +541,7 @@ func TestFinalizeRun(t *testing.T) {
 		wantTaskStatus    task.Status
 		wantAgentStatus   agent.Status
 		wantAgentSuccess  bool
+		wantNoAgentStats  bool // a cancel does not count in the agent's statistics
 		wantBroadcastMin  int  // minimum number of broadcast events
 		wantCallbackFired bool // onRunComplete called
 	}{
@@ -631,7 +632,7 @@ func TestFinalizeRun(t *testing.T) {
 			wantRunStatus:     run.StatusCancelled,
 			wantTaskStatus:    task.StatusCancelled, // same as a user cancel (KI-30)
 			wantAgentStatus:   agent.StatusIdle,
-			wantAgentSuccess:  false,
+			wantNoAgentStats:  true,
 			wantBroadcastMin:  3,
 			wantCallbackFired: true,
 		},
@@ -710,7 +711,11 @@ func TestFinalizeRun(t *testing.T) {
 			}
 
 			// Verify agent stats incremented.
-			if stats, ok := store.agentStats[tt.run.AgentID]; !ok {
+			if stats, ok := store.agentStats[tt.run.AgentID]; tt.wantNoAgentStats {
+				if ok {
+					t.Errorf("expected no agent stats for a cancelled run, got %+v", stats)
+				}
+			} else if !ok {
 				t.Error("expected agent stats to be incremented")
 			} else if stats.success != tt.wantAgentSuccess {
 				t.Errorf("expected agent stats success=%v, got %v", tt.wantAgentSuccess, stats.success)

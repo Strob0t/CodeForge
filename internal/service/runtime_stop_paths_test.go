@@ -153,8 +153,14 @@ func TestRunStopPaths_UseTheCompletionPath(t *testing.T) {
 			if got := store.agentStatuses[r.AgentID]; got != agent.StatusIdle {
 				t.Errorf("agent status = %q, want idle", got)
 			}
-			if stats, ok := store.agentStats[r.AgentID]; !ok || stats.success {
-				t.Errorf("agent stats = %+v (recorded %v), want one unsuccessful run", stats, ok)
+			// A cancel is the user's decision, not an outcome of the agent's
+			// work: it does not count in the agent's statistics.
+			stats, counted := store.agentStats[r.AgentID]
+			switch {
+			case tc.wantStatus == run.StatusCancelled && counted:
+				t.Errorf("agent stats = %+v, want a cancelled run not counted", stats)
+			case tc.wantStatus != run.StatusCancelled && (!counted || stats.success):
+				t.Errorf("agent stats = %+v (recorded %v), want one unsuccessful run", stats, counted)
 			}
 
 			if _, ok := svc.state.GetHeartbeat(r.ID); ok {

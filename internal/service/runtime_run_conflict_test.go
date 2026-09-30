@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -42,13 +43,15 @@ func (s *endedRunStore) CountRunStep(_ context.Context, id string) error {
 func TestRunEndedElsewhere_CompletionPathsSkip(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
-		name        string
-		status      run.Status // status the loaded (stale) run has
-		profile     string
-		stepCount   int
-		act         func(svc *RuntimeService, runID string) error
-		wantErr     bool // a conflict the caller must see (HTTP 409)
-		wantPublish string
+		name      string
+		status    run.Status // status the loaded (stale) run has
+		profile   string
+		stepCount int
+		act       func(svc *RuntimeService, runID string) error
+		wantErr   bool // a conflict the caller must see (HTTP 409)
+		// Subjects the path may publish. A control-plane stop tells the worker
+		// to stop before it completes the run, whatever the completion does.
+		wantPublish []string
 	}{
 		{
 			name: "worker completion", status: run.StatusRunning, profile: "plan-readonly",
@@ -73,27 +76,30 @@ func TestRunEndedElsewhere_CompletionPathsSkip(t *testing.T) {
 			act: func(svc *RuntimeService, runID string) error {
 				return svc.HandleToolCallRequest(ctx, &messagequeue.ToolCallRequestPayload{RunID: runID, CallID: "c1", Tool: "Read"})
 			},
-			wantPublish: messagequeue.SubjectRunToolCallResponse,
+			wantPublish: []string{messagequeue.SubjectRunCancel, messagequeue.SubjectRunToolCallResponse},
 		},
 		{
 			name: "post-execution budget", status: run.StatusRunning, profile: "headless-safe-sandbox",
 			act: func(svc *RuntimeService, runID string) error {
 				return svc.HandleToolCallResult(ctx, &messagequeue.ToolCallResultPayload{RunID: runID, CallID: "c1", Tool: "Read", Success: true, CostUSD: 9})
 			},
+			wantPublish: []string{messagequeue.SubjectRunCancel},
 		},
 		{
 			name: "user cancel", status: run.StatusRunning, profile: "headless-safe-sandbox",
 			act: func(svc *RuntimeService, runID string) error {
 				return svc.CancelRun(ctx, runID)
 			},
-			wantErr: true,
+			wantErr:     true,
+			wantPublish: []string{messagequeue.SubjectRunCancel},
 		},
 		{
 			name: "context-level timeout", status: run.StatusRunning, profile: "headless-safe-sandbox",
 			act: func(svc *RuntimeService, runID string) error {
 				return svc.cancelRunWithReason(ctx, runID, "context-level timeout")
 			},
-			wantErr: true,
+			wantErr:     true,
+			wantPublish: []string{messagequeue.SubjectRunCancel},
 		},
 	}
 
@@ -141,7 +147,7 @@ func TestRunEndedElsewhere_CompletionPathsSkip(t *testing.T) {
 			q.mu.Lock()
 			defer q.mu.Unlock()
 			for _, msg := range q.messages {
-				if msg.subject != tc.wantPublish {
+				if !slices.Contains(tc.wantPublish, msg.subject) {
 					t.Errorf("unexpected publish on %s", msg.subject)
 				}
 			}
