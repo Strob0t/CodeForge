@@ -329,7 +329,9 @@ func TestRetention_StartSweepsAtOnceAndOnEveryTick(t *testing.T) {
 		}
 		return nil
 	}}
-	stop := NewRetentionService(store, testRetentionPolicy()).Start(context.Background(), 20*time.Millisecond)
+	policy := testRetentionPolicy()
+	policy.Interval = 20 * time.Millisecond
+	stop := NewRetentionService(store, policy).Start(context.Background())
 	defer stop()
 
 	for i := range 3 {
@@ -356,7 +358,7 @@ func TestRetention_StopWaitsForRunningSweep(t *testing.T) {
 		mu.Unlock()
 		return ctx.Err()
 	}}
-	stop := NewRetentionService(store, testRetentionPolicy()).Start(context.Background(), time.Hour)
+	stop := NewRetentionService(store, testRetentionPolicy()).Start(context.Background()) // interval: one day
 
 	select {
 	case <-started:
@@ -371,5 +373,19 @@ func TestRetention_StopWaitsForRunningSweep(t *testing.T) {
 	}
 	if got := len(store.callsOf("conversations")); got != 0 {
 		t.Fatalf("sweep continued after stop: %d conversations calls", got)
+	}
+}
+
+// retention.interval 0 disables the job: Start runs nothing.
+func TestRetention_ZeroIntervalDisablesJob(t *testing.T) {
+	for _, interval := range []time.Duration{0, -time.Hour} {
+		store := &fakeRetentionStore{}
+		policy := testRetentionPolicy()
+		policy.Interval = interval
+		stop := NewRetentionService(store, policy).Start(context.Background())
+		stop()
+		if len(store.calls) != 0 {
+			t.Fatalf("interval %v: %d store calls, want none", interval, len(store.calls))
+		}
 	}
 }

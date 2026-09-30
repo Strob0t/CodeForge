@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"time"
 )
 
@@ -47,24 +46,5 @@ func (w *StuckWorkWatchdog) RunOnce(ctx context.Context) {
 // Start runs the checks every interval until ctx ends or the returned stop
 // is called; stop waits for a sweep under way to finish.
 func (w *StuckWorkWatchdog) Start(ctx context.Context) (stop func()) {
-	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(w.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				w.RunOnce(ctx)
-			}
-		}
-	}()
-	return func() {
-		cancel()
-		wg.Wait()
-	}
+	return startPeriodic(ctx, w.interval, false, w.RunOnce)
 }

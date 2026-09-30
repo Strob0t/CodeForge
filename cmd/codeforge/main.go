@@ -1061,21 +1061,7 @@ func run() error {
 	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
 	// Its own daily ticker: the stuck-work watchdog ticks every
 	// stale_check_interval and reports what it ends as stuck work.
-	stopRetention := func() {}
-	if cfg.Retention.Interval > 0 {
-		stopRetention = service.NewRetentionService(store, cfg.Retention).Start(ctx, cfg.Retention.Interval)
-		slog.Info("retention job started",
-			"interval", cfg.Retention.Interval,
-			"sessions", cfg.Retention.Sessions,
-			"conversations", cfg.Retention.Conversations,
-			"cost_records", cfg.Retention.CostRecords,
-			"audit_entries", cfg.Retention.AuditEntries,
-			"audit_ip_addresses", cfg.Retention.AuditIPAddresses,
-			"consent_ip_addresses", cfg.Retention.ConsentIPAddresses,
-		)
-	} else {
-		slog.Warn("retention.interval is 0: the retention job is disabled and expired data is kept")
-	}
+	stopRetention := service.NewRetentionService(store, cfg.Retention).Start(ctx)
 
 	<-done
 

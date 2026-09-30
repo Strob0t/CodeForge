@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -108,26 +107,23 @@ func applyInBatches(
 	}
 }
 
-// Start sweeps now and then every interval until ctx ends or the returned
-// stop is called; stop cancels a sweep under way and waits for it to end.
-// The first sweep runs at start so that restarts cannot postpone the purge.
-func (s *RetentionService) Start(ctx context.Context, interval time.Duration) (stop func()) {
-	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			s.RunCleanup(ctx)
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	})
-	return func() {
-		cancel()
-		wg.Wait()
+// Start sweeps now and then every retention.interval until ctx ends or the
+// returned stop is called; stop cancels a sweep under way and waits for it to
+// end. The first sweep runs at start so that restarts cannot postpone the
+// purge. An interval of 0 disables the job.
+func (s *RetentionService) Start(ctx context.Context) (stop func()) {
+	if s.config.Interval <= 0 {
+		slog.Warn("retention.interval is 0: the retention job is disabled and expired data is kept")
+		return func() {}
 	}
+	slog.Info("retention job started",
+		"interval", s.config.Interval,
+		"sessions", s.config.Sessions,
+		"conversations", s.config.Conversations,
+		"cost_records", s.config.CostRecords,
+		"audit_entries", s.config.AuditEntries,
+		"audit_ip_addresses", s.config.AuditIPAddresses,
+		"consent_ip_addresses", s.config.ConsentIPAddresses,
+	)
+	return startPeriodic(ctx, s.config.Interval, true, s.RunCleanup)
 }
