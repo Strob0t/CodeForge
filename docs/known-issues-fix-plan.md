@@ -146,6 +146,6 @@ unchanged: deny lists win and evaluation fails closed (D6), a failed quality gat
 
 | ID | Decision | Rationale |
 |---|---|---|
-| **D-S1** | Record the deny-list semantics as ADR-015 (amends ADR-007) and the NATS delivery topology as ADR-016 (refines ADR-001) | ADR-007's own text already says a PathDeny match denies; the code contradicts it |
+| **D-S1** | Record the deny-list semantics as [ADR-015](architecture/adr/015-policy-deny-lists-and-tool-names.md) (amends ADR-007, written 2026-09-30) and the NATS delivery topology as ADR-016 (refines ADR-001) | ADR-007's own text already says a PathDeny match denies; the code contradicts it |
 | **D-S2** | Canonical tool names live in the Go policy domain; presets keep ADR-007 names; workers keep their tool names | One mapping, one place; LLM-facing tool names stay stable |
 | **D-S3** | Features that report success without doing anything (sandbox isolation, `spawn_subagent`, review-refactor trigger) fail visibly until implemented; roadmap items stay | Follows D6/D11; silent no-ops are worse than a clear error |

@@ -189,6 +189,7 @@ Details: `docs/architecture.md` | Framework comparison: `docs/research/market-an
 | 012 | Hybrid routing cascade for model selection | `docs/architecture/adr/012-hybrid-routing-cascade.md` |
 | 013 | Service layer config sub-struct imports | `docs/architecture/adr/013-config-import-in-services.md` |
 | 014 | Store interface segregation plan | `docs/architecture/adr/014-store-interface-segregation.md` |
+| 015 | Policy deny lists are blocklists; canonical tool names (amends 007) | `docs/architecture/adr/015-policy-deny-lists-and-tool-names.md` |
 
 **Infrastructure Principles:**
 - **Zero-config startup** — system runs with defaults; CLI flags have highest precedence
@@ -404,7 +405,7 @@ docs/
 ├── plans/                  # Implementation plans (*-plan.md)
 ├── testing/                # Test plans + reports
 ├── audits/                 # Schema, UX, code audits
-├── architecture/adr/       # ADRs 001-014 (use _template.md)
+├── architecture/adr/       # ADRs 001-015 (use _template.md)
 ├── research/               # Market research
 └── prompts/                # Claude Code audit/discovery prompts
 ```

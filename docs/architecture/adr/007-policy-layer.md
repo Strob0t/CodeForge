@@ -1,6 +1,6 @@
 # ADR-007: Policy Layer -- Permission Rules, Quality Gates, and Termination Conditions
 
-> **Status:** accepted
+> **Status:** accepted; deny-list semantics and tool names amended by [ADR-015](015-policy-deny-lists-and-tool-names.md) (2026-09-30)
 > **Date:** 2026-02-17
 > **Deciders:** Project lead + Claude Code analysis
 
