@@ -1,9 +1,10 @@
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { createSignal, type JSX, onMount } from "solid-js";
 
 import { useAuth } from "~/components/AuthProvider";
 import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { safeNextPath } from "~/lib/safeNextPath";
 import { Button, Card, ErrorBanner, FormField, Input } from "~/ui";
 
 export default function LoginPage(): JSX.Element {
@@ -17,9 +18,11 @@ export default function LoginPage(): JSX.Element {
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
 
+  const [params] = useSearchParams();
   const { run, loading, error, clearError } = useAsyncAction(async () => {
     await login(email(), password());
-    const target = user()?.must_change_password ? "/change-password" : "/";
+    const next = typeof params.next === "string" ? safeNextPath(params.next) : null;
+    const target = user()?.must_change_password ? "/change-password" : (next ?? "/");
     navigate(target, { replace: true });
   });
 

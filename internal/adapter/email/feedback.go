@@ -1,28 +1,37 @@
 package email
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"html"
+	"html/template"
 	"net/url"
 	"strings"
 
 	fb "github.com/Strob0t/CodeForge/internal/domain/feedback"
 )
 
-// FeedbackProvider sends approval requests via email with callback links.
-type FeedbackProvider struct {
-	notifier    *Notifier
-	recipients  []string
-	callbackURL string // Base URL for approval callback (e.g. "https://codeforge.local/api/v1/feedback")
+// sender delivers one email (Notifier).
+type sender interface {
+	Send(ctx context.Context, to, subject, body string) error
 }
 
-// NewFeedbackProvider creates a new email feedback provider.
-func NewFeedbackProvider(notifier *Notifier, recipients []string, callbackURL string) *FeedbackProvider {
+// FeedbackProvider emails approval requests to the configured recipients.
+// The email links to the web UI's approval page, where a signed-in user
+// sees the request and decides; the email itself decides nothing.
+type FeedbackProvider struct {
+	sender     sender
+	recipients []string
+	webUIURL   string // base URL of the web UI, e.g. "https://codeforge.example.com"
+}
+
+// NewFeedbackProvider creates an email feedback provider.
+func NewFeedbackProvider(s sender, recipients []string, webUIURL string) *FeedbackProvider {
 	return &FeedbackProvider{
-		notifier:    notifier,
-		recipients:  recipients,
-		callbackURL: callbackURL,
+		sender:     s,
+		recipients: recipients,
+		webUIURL:   strings.TrimRight(webUIURL, "/"),
 	}
 }
 
@@ -31,49 +40,63 @@ func (p *FeedbackProvider) Name() string {
 	return "email"
 }
 
-// RequestFeedback sends an email with approve/deny links.
+// approvalMail is the body: what the web approval card shows, with the
+// deciding profile and the arguments preview. html/template escapes
+// everything the agent asks (tool, command, path, arguments) - it is
+// untrusted text.
+var approvalMail = template.Must(template.New("approval").Parse(`<h2>Tool approval required</h2>
+<p><strong>Run:</strong> {{.RunID}}</p>
+<p><strong>Tool:</strong> {{.Tool}}</p>
+{{if .Command}}<p><strong>Command:</strong> <code>{{.Command}}</code></p>
+{{end}}{{if .Path}}<p><strong>Path:</strong> <code>{{.Path}}</code></p>
+{{end}}{{if .Profile}}<p><strong>Profile:</strong> {{.Profile}}</p>
+{{end}}{{if .ArgumentsPreview}}<p><strong>Arguments:</strong> <code>{{.ArgumentsPreview}}</code></p>
+{{end}}<p><a href="{{.Link}}">Review the request in CodeForge</a> (sign-in required) to approve or deny it before it times out.</p>
+`))
+
+// RequestFeedback emails every recipient a link to the approval page. It
+// returns no decision: the decision arrives through the web UI.
 //
 //nolint:gocritic // hugeParam: req must be passed by value to match feedback.Provider interface
 func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackRequest) (fb.FeedbackResult, error) {
-	approveURL := fmt.Sprintf("%s/%s/%s?decision=allow", p.callbackURL, url.PathEscape(req.RunID), url.PathEscape(req.CallID))
-	denyURL := fmt.Sprintf("%s/%s/%s?decision=deny", p.callbackURL, url.PathEscape(req.RunID), url.PathEscape(req.CallID))
-	subject, body := approvalEmail(req, approveURL, denyURL)
+	var body bytes.Buffer
+	err := approvalMail.Execute(&body, struct {
+		RunID, Tool, Command, Path, Profile, ArgumentsPreview string
+		Link                                                  template.URL
+	}{
+		RunID:            req.RunID,
+		Tool:             req.Tool,
+		Command:          req.Command,
+		Path:             req.Path,
+		Profile:          req.Profile,
+		ArgumentsPreview: req.ArgumentsPreview,
+		// The base URL comes from validated config; the IDs are escaped.
+		Link: template.URL(p.webUIURL + "/approvals/" + url.PathEscape(req.RunID) + "/" + url.PathEscape(req.CallID)), //nolint:gosec // G203: config base URL plus path-escaped IDs
+	})
+	if err != nil {
+		return fb.FeedbackResult{}, fmt.Errorf("render approval email: %w", err)
+	}
+	subject := "[CodeForge] Approval required: " + subjectSafe(req.Tool)
 
+	var errs []error
 	for _, to := range p.recipients {
-		if err := p.notifier.Send(ctx, to, subject, body); err != nil {
-			return fb.FeedbackResult{}, fmt.Errorf("send email to %s: %w", to, err)
+		if err := p.sender.Send(ctx, to, subject, body.String()); err != nil {
+			errs = append(errs, fmt.Errorf("send approval email to %s: %w", to, err))
 		}
 	}
-
-	return fb.FeedbackResult{
-		Provider: fb.ProviderEmail,
-	}, nil
+	return fb.FeedbackResult{Provider: fb.ProviderEmail}, errors.Join(errs...)
 }
 
-// approvalEmail renders the subject and HTML body of an approval request:
-// what the web approval card shows, with the deciding profile and the
-// arguments preview. The values come from the agent, so the body escapes
-// them and the subject (a mail header) gets no line breaks.
-//
-//nolint:gocritic // hugeParam: the request is passed by value like in RequestFeedback
-func approvalEmail(req fb.FeedbackRequest, approveURL, denyURL string) (subject, body string) {
-	esc := html.EscapeString
-	body = fmt.Sprintf(`<h2>Tool Approval Required</h2>
-<p><strong>Run:</strong> %s</p>
-<p><strong>Tool:</strong> %s</p>
-<p><strong>Command:</strong> %s</p>
-<p><strong>Path:</strong> %s</p>
-<p><strong>Profile:</strong> %s</p>
-<p><strong>Arguments:</strong> <code>%s</code></p>
-<p>
-  <a href="%s" style="background:green;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;">Approve</a>
-  &nbsp;
-  <a href="%s" style="background:red;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;">Deny</a>
-</p>`,
-		esc(req.RunID), esc(req.Tool), esc(req.Command), esc(req.Path), esc(req.Profile), esc(req.ArgumentsPreview),
-		esc(approveURL), esc(denyURL))
-	subject = headerLineBreaks.Replace(fmt.Sprintf("[CodeForge] Approval required: %s on %s", req.Tool, req.Path))
-	return subject, body
+// subjectSafe keeps a short, printable tool name for the subject header.
+func subjectSafe(tool string) string {
+	clean := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, tool)
+	if runes := []rune(clean); len(runes) > 64 {
+		clean = string(runes[:64])
+	}
+	return clean
 }
-
-var headerLineBreaks = strings.NewReplacer("\r", " ", "\n", " ")

@@ -1301,6 +1301,19 @@ const de: Translations = {
   "mcp.tools.inputSchema": "Eingabeschema",
 
   // -- Not Found / Error pages ------------------------------------------------
+  "approval.title": "Tool-Freigabe",
+  "approval.notPending":
+    "Dieser Tool-Aufruf wartet nicht mehr auf eine Entscheidung (beantwortet, abgelaufen oder der Lauf ist beendet), oder die Entscheidung steht Ihnen nicht zu.",
+  "approval.run": "Lauf",
+  "approval.tool": "Tool",
+  "approval.command": "Befehl",
+  "approval.path": "Pfad",
+  "approval.profile": "Richtlinienprofil",
+  "approval.arguments": "Argumente",
+  "approval.approve": "Freigeben",
+  "approval.deny": "Ablehnen",
+  "approval.approved": "Freigegeben.",
+  "approval.denied": "Abgelehnt.",
   "notFound.title": "Seite nicht gefunden",
   "notFound.message": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
   "notFound.backToDashboard": "Zurueck zum Dashboard",

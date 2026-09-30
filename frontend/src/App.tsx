@@ -448,7 +448,8 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const isKnownRoute = (): boolean =>
     isPublicPage() ||
     KNOWN_ROUTES.has(location.pathname) ||
-    location.pathname.startsWith("/projects/");
+    location.pathname.startsWith("/projects/") ||
+    location.pathname.startsWith("/approvals/");
 
   return (
     <ToastProvider>

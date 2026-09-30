@@ -7,6 +7,7 @@ import { render } from "solid-js/web";
 import App from "./App.tsx";
 import A2APage from "./features/a2a/A2APage.tsx";
 import ActivityPage from "./features/activity/ActivityPage.tsx";
+import ApprovalPage from "./features/approvals/ApprovalPage.tsx";
 import ChangePasswordPage from "./features/auth/ChangePasswordPage.tsx";
 import ForgotPasswordPage from "./features/auth/ForgotPasswordPage.tsx";
 import LoginPage from "./features/auth/LoginPage.tsx";
@@ -49,6 +50,7 @@ render(
       <Route path="/projects/:id" component={ProjectDetailPage} />
       <Route path="/costs" component={CostDashboardPage} />
       <Route path="/activity" component={ActivityPage} />
+      <Route path="/approvals/:runId/:callId" component={ApprovalPage} />
       <Route path="/ai" component={AIConfigPage} />
       <Route path="/knowledge" component={KnowledgePage} />
       <Route path="/mcp" component={MCPServersPage} />

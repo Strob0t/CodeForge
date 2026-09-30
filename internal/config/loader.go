@@ -283,6 +283,8 @@ func loadEnv(cfg *Config) {
 	// Notification
 	setString(&cfg.Notification.SlackWebhookURL, "CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL")
 	setString(&cfg.Notification.DiscordWebhookURL, "CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL")
+	setStringSlice(&cfg.Notification.ApprovalRecipients, "CODEFORGE_NOTIFICATION_APPROVAL_RECIPIENTS")
+	setString(&cfg.Notification.WebUIURL, "CODEFORGE_NOTIFICATION_WEB_UI_URL")
 
 	// OpenTelemetry
 	setTyped(&cfg.OTEL.Enabled, "CODEFORGE_OTEL_ENABLED", strconv.ParseBool)
@@ -492,6 +494,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := validateGitHubWebFlow(&cfg.GitHub); err != nil {
+		return err
+	}
+	if err := validateEmailApprovals(&cfg.Notification); err != nil {
 		return err
 	}
 

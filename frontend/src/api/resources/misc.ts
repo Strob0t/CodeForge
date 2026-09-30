@@ -43,6 +43,7 @@ import type {
   TrajectoryPage,
   UpdateGoalRequest,
 } from "../types";
+import type { AGUIPermissionRequest } from "../websocket";
 
 export function createHealthResource() {
   return {
@@ -77,6 +78,14 @@ export function createRunsResource(c: CoreClient) {
       ),
     revert: (runId: string, callId: string) =>
       c.post<{ status: string }>(url`/runs/${runId}/revert/${callId}`),
+    /** The tool call awaiting a decision (404 when it is no longer pending). */
+    pendingApproval: (runId: string, callId: string) =>
+      c.get<AGUIPermissionRequest>(url`/runs/${runId}/approvals/${callId}`),
+    /** Decide a pending tool call from the approval page (recorded in the feedback audit). */
+    decideApproval: (runId: string, callId: string, decision: "allow" | "deny") =>
+      c.post<{ status: string; decision: string }>(
+        `${url`/feedback/${runId}/${callId}`}?decision=${decision}`,
+      ),
   };
 }
 

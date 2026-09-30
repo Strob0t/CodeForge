@@ -155,6 +155,12 @@ type Notification struct {
 	SMTPPort          int      `yaml:"smtp_port"`              // SMTP server port (default: 587)
 	SMTPFrom          string   `yaml:"smtp_from"`              // Sender email address
 	SMTPPassword      string   `yaml:"smtp_password" json:"-"` // SMTP authentication password
+	// ApprovalRecipients receive an email for each tool call awaiting
+	// approval (with smtp_host and web_ui_url set; default: none).
+	ApprovalRecipients []string `yaml:"approval_recipients"`
+	// WebUIURL is the base URL of the web UI; approval emails link to its
+	// approval page (<web_ui_url>/approvals/<run>/<call>).
+	WebUIURL string `yaml:"web_ui_url"`
 }
 
 // Copilot holds GitHub Copilot token exchange configuration.

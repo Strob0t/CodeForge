@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
@@ -22,6 +23,7 @@ type RunStateManager struct {
 	runTimeouts      sync.Map // map[runID]context.CancelFunc
 	budgetAlerts     sync.Map // map["runID:threshold"]bool
 	pendingApprovals sync.Map // map["runID:callID"]chan string
+	pendingRequests  sync.Map // map["runID:callID"]pendingApprovalRequest
 	toolResults      sync.Map // map["runID:callID"]bool: results of running runs already handled
 	bypassedConvs    sync.Map // map[conversationID]bool
 	runSpans         sync.Map // map[runID]trace.Span
@@ -106,11 +108,35 @@ func (m *RunStateManager) SetPendingApproval(key string, ch chan string) {
 	m.pendingApprovals.Store(key, ch)
 }
 
+// pendingApprovalRequest is what a pending approval asks, and for which
+// tenant (the approval page shows it).
+type pendingApprovalRequest struct {
+	tenantID string
+	req      event.AGUIPermissionRequestEvent
+}
+
+// SetPendingApprovalRequest records what the pending approval of key asks.
+func (m *RunStateManager) SetPendingApprovalRequest(key, tenantID string, req *event.AGUIPermissionRequestEvent) {
+	m.pendingRequests.Store(key, pendingApprovalRequest{tenantID: tenantID, req: *req})
+}
+
+// PendingApprovalRequest returns what the pending approval of key asks.
+func (m *RunStateManager) PendingApprovalRequest(key string) (tenantID string, req event.AGUIPermissionRequestEvent, ok bool) {
+	v, found := m.pendingRequests.Load(key)
+	if !found {
+		return "", event.AGUIPermissionRequestEvent{}, false
+	}
+	p, _ := v.(pendingApprovalRequest)
+	return p.tenantID, p.req, true
+}
+
 func (m *RunStateManager) DeletePendingApproval(key string) {
 	m.pendingApprovals.Delete(key)
+	m.pendingRequests.Delete(key)
 }
 
 func (m *RunStateManager) LoadAndDeletePendingApproval(key string) (chan string, bool) {
+	m.pendingRequests.Delete(key)
 	v, ok := m.pendingApprovals.LoadAndDelete(key)
 	if !ok {
 		return nil, false

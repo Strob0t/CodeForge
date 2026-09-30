@@ -161,6 +161,18 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetPendingApproval handles GET /api/v1/runs/{id}/approvals/{callId}: the
+// tool call awaiting a decision, for the web UI's approval page (approval
+// emails link there). 404 when it is not pending in the caller's tenant.
+func (h *Handlers) GetPendingApproval(w http.ResponseWriter, r *http.Request) {
+	req, err := h.Runtime.PendingApproval(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "callId"))
+	if err != nil {
+		writeDomainError(w, err, "no pending approval for this run/call (answered, timed out or ended)")
+		return
+	}
+	writeJSON(w, http.StatusOK, req)
+}
+
 // BypassConversationApprovals handles POST /api/v1/conversations/{id}/bypass-approvals.
 // Only the caller's tenant's conversations can be bypassed: the bypass flag is
 // keyed by conversation ID alone, so an unchecked ID would lift another

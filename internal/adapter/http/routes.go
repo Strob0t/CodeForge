@@ -303,6 +303,8 @@ func mountRunRoutes(r chi.Router, h *Handlers) {
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Get("/runs/{id}/approvals/{callId}", h.GetPendingApproval)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/runs/{id}/revert/{callId}", h.RevertToolCall)
 
 	// Trajectory (nested under runs)

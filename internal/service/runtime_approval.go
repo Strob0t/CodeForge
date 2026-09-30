@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -42,6 +44,7 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	// ctx is scoped to the tenant that owns the run or conversation.
 	key := approvalKey(tenantctx.FromContext(ctx), runID, callID)
 	s.state.SetPendingApproval(key, ch)
+	s.state.SetPendingApprovalRequest(key, tenantctx.FromContext(ctx), req)
 	defer s.state.DeletePendingApproval(key)
 
 	// Broadcast permission request to connected WebSocket clients.
@@ -108,6 +111,19 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	case <-ctx.Done():
 		return policy.DecisionDeny
 	}
+}
+
+// PendingApproval returns the tool call of runID/callID that awaits a
+// decision, if it does and the run belongs to the caller's tenant
+// (domain.ErrNotFound otherwise: answered, timed out, the run ended, or
+// another tenant's). The web UI's approval page shows it.
+func (s *RuntimeService) PendingApproval(ctx context.Context, runID, callID string) (*event.AGUIPermissionRequestEvent, error) {
+	tenant := tenantctx.FromContext(ctx)
+	tenantID, req, ok := s.state.PendingApprovalRequest(approvalKey(tenant, runID, callID))
+	if !ok || tenantID != tenant {
+		return nil, fmt.Errorf("no pending approval for run %s call %s: %w", runID, callID, domain.ErrNotFound)
+	}
+	return &req, nil
 }
 
 // ResolveApproval is called from the HTTP handler when a user approves or denies

@@ -24,7 +24,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	cfauth "github.com/Strob0t/CodeForge/internal/adapter/auth"
 	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
-	emailAdapter "github.com/Strob0t/CodeForge/internal/adapter/email"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
@@ -798,17 +797,12 @@ func run() error {
 		runtimeSvc.RegisterFeedbackProvider(slackFB)
 		slog.Info("slack feedback provider registered")
 	}
-	if cfg.Notification.SMTPHost != "" {
-		emailNotifier := emailAdapter.NewNotifier(emailAdapter.SMTPConfig{
-			Host:     cfg.Notification.SMTPHost,
-			Port:     cfg.Notification.SMTPPort,
-			From:     cfg.Notification.SMTPFrom,
-			Password: cfg.Notification.SMTPPassword,
-		})
-		callbackURL := fmt.Sprintf("http://localhost:%s/api/v1/feedback", cfg.Server.Port)
-		emailFB := emailAdapter.NewFeedbackProvider(emailNotifier, nil, callbackURL)
+	if emailFB, why := emailApprovalProvider(&cfg.Notification); emailFB != nil {
 		runtimeSvc.RegisterFeedbackProvider(emailFB)
-		slog.Info("email feedback provider registered")
+		slog.Info("email feedback provider registered",
+			"recipients", len(cfg.Notification.ApprovalRecipients), "web_ui_url", cfg.Notification.WebUIURL)
+	} else {
+		slog.Info(why)
 	}
 
 	benchmarkSuiteSvc := service.NewBenchmarkSuiteService(store, cfg.Benchmark.DatasetsDir)

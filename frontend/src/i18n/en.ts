@@ -1294,6 +1294,19 @@ const en = {
   "mcp.tools.inputSchema": "Input Schema",
 
   // -- Not Found / Error pages ------------------------------------------------
+  "approval.title": "Tool approval",
+  "approval.notPending":
+    "This tool call is no longer waiting for a decision (answered, timed out or the run ended), or it is not yours to decide.",
+  "approval.run": "Run",
+  "approval.tool": "Tool",
+  "approval.command": "Command",
+  "approval.path": "Path",
+  "approval.profile": "Policy profile",
+  "approval.arguments": "Arguments",
+  "approval.approve": "Approve",
+  "approval.deny": "Deny",
+  "approval.approved": "Approved.",
+  "approval.denied": "Denied.",
   "notFound.title": "Page not found",
   "notFound.message": "The page you are looking for does not exist or has been moved.",
   "notFound.backToDashboard": "Back to Dashboard",
