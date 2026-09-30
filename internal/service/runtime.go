@@ -476,7 +476,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 					return
 				}
 				slog.Warn("context-level timeout, cancelling run", "run_id", runID, "timeout", timeout)
-				_ = s.cancelRunWithReason(runCtx, runID, "context-level timeout")
+				logRunUpdate(runCtx, s.cancelRunWithReason(runCtx, runID, "context-level timeout"), "cancelRunWithReason", runID)
 			case <-timeoutCtx.Done():
 				return
 			}

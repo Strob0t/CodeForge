@@ -1,7 +1,10 @@
 // Package plan defines the ExecutionPlan domain entity for multi-agent orchestration.
 package plan
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Protocol defines the scheduling strategy for an execution plan.
 type Protocol string
@@ -23,6 +26,17 @@ const (
 	StatusFailed    Status = "failed"
 	StatusCancelled Status = "cancelled"
 )
+
+// TerminalStatuses returns the states an execution plan never leaves: the
+// store refuses status updates of a plan in one of them.
+func TerminalStatuses() []Status {
+	return []Status{StatusCompleted, StatusFailed, StatusCancelled}
+}
+
+// IsTerminal reports whether s is a state the plan never leaves.
+func (s Status) IsTerminal() bool {
+	return slices.Contains(TerminalStatuses(), s)
+}
 
 // StepStatus represents the lifecycle state of an individual step.
 type StepStatus string

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -38,6 +40,23 @@ func (s *RuntimeService) loadRunScoped(ctx context.Context, runID, payloadTenant
 		return ctx, nil, err
 	}
 	return withEntityTenant(ctx, r.TenantID), r, nil
+}
+
+// skipEndedRun drops the domain.ErrConflict with which the store refuses to
+// update a run that already ended (KI-31): the path that ended the run did
+// the work, so the caller skips it instead of failing. Other errors pass.
+func skipEndedRun(ctx context.Context, err error, op, runID string) error {
+	if errors.Is(err, domain.ErrConflict) {
+		slog.InfoContext(ctx, "run already ended, skipped", "operation", op, "run_id", runID)
+		return nil
+	}
+	return err
+}
+
+// logRunUpdate logs the error of a best-effort run update; a run that already
+// ended is skipped (skipEndedRun).
+func logRunUpdate(ctx context.Context, err error, op, runID string) {
+	logBestEffort(ctx, skipEndedRun(ctx, err, op, runID), op, slog.String("run_id", runID))
 }
 
 // cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).

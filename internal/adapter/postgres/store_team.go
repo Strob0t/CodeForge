@@ -94,11 +94,18 @@ func (s *Store) ListTeamsByProject(ctx context.Context, projectID string) ([]age
 	return teams, nil
 }
 
+// teamTerminalStatuses parameterizes the status predicate of team updates.
+var teamTerminalStatuses = statusStrings(agent.TerminalTeamStatuses())
+
+const teamExistsSQL = `SELECT EXISTS (SELECT 1 FROM agent_teams WHERE id = $1 AND tenant_id = $2)`
+
+// UpdateTeamStatus sets the status of a team that has not ended. It returns
+// domain.ErrConflict when the team already ended.
 func (s *Store) UpdateTeamStatus(ctx context.Context, id string, status agent.TeamStatus) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_teams SET status = $2 WHERE id = $1 AND tenant_id = $3`,
-		id, string(status), tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update team status %s", id)
+		`UPDATE agent_teams SET status = $2 WHERE id = $1 AND tenant_id = $3 AND status <> ALL($4)`,
+		id, string(status), tenantFromCtx(ctx), teamTerminalStatuses)
+	return s.guardedUpdateResult(ctx, tag, err, teamExistsSQL, "update team status", id)
 }
 
 func (s *Store) DeleteTeam(ctx context.Context, id string) error {

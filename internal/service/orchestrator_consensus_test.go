@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -80,6 +81,9 @@ func newOrchTestStore() *orchTestStore {
 }
 
 func (s *orchTestStore) UpdatePlanStatus(_ context.Context, id string, status plan.Status) error {
+	if s.planStatuses[id].IsTerminal() {
+		return fmt.Errorf("mock: plan already ended: %w", domain.ErrConflict)
+	}
 	s.planStatuses[id] = status
 	return nil
 }

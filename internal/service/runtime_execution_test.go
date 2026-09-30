@@ -330,10 +330,9 @@ func TestHandleRunComplete_AlreadyCompletedRun(t *testing.T) {
 	svc, store, _, _ := newRuntimeTestEnv()
 	ctx := context.Background()
 
-	// A run that is already completed should error from GetRun status checks
-	// but finalizeRun still proceeds (the store accepts the update).
-	// Actually, HandleRunComplete does not check r.Status before finalizing.
-	// Let's verify it does not error.
+	// A late run.complete for a run that already ended: the store refuses the
+	// second completion (KI-31) and the handler skips it without an error, so
+	// the message is not redelivered and the first result stays.
 	runID := "run-already-completed"
 	store.mu.Lock()
 	store.runs = append(store.runs, run.Run{
@@ -357,6 +356,9 @@ func TestHandleRunComplete_AlreadyCompletedRun(t *testing.T) {
 	// HandleRunComplete should succeed (idempotent)
 	if err := svc.HandleRunComplete(ctx, &payload); err != nil {
 		t.Fatalf("HandleRunComplete on already completed run: %v", err)
+	}
+	if r, _ := store.GetRun(ctx, runID); r.Status != run.StatusCompleted || r.Output != "" {
+		t.Errorf("run = %s with output %q, want the first completion unchanged", r.Status, r.Output)
 	}
 }
 

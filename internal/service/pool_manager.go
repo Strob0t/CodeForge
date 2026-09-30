@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -182,6 +183,11 @@ func (s *PoolManagerService) CleanupTeam(ctx context.Context, teamID string, fai
 	}
 
 	if err := s.store.UpdateTeamStatus(ctx, teamID, status); err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			// Cleaned up before (KI-31): its agents may work for another team by now.
+			slog.InfoContext(ctx, "team already ended, cleanup skipped", "team_id", teamID)
+			return nil
+		}
 		return fmt.Errorf("update team status: %w", err)
 	}
 

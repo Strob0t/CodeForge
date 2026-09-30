@@ -1,7 +1,10 @@
 // Package run defines the Run domain entity for agent execution attempts.
 package run
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Status represents the current state of a run.
 type Status string
@@ -15,6 +18,17 @@ const (
 	StatusTimeout     Status = "timeout"
 	StatusQualityGate Status = "quality_gate" // Quality gate check in progress
 )
+
+// TerminalStatuses returns the states a run never leaves: the store refuses
+// status updates of a run in one of them.
+func TerminalStatuses() []Status {
+	return []Status{StatusCompleted, StatusFailed, StatusCancelled, StatusTimeout}
+}
+
+// IsTerminal reports whether s is a state the run never leaves.
+func (s Status) IsTerminal() bool {
+	return slices.Contains(TerminalStatuses(), s)
+}
 
 // ExecMode defines how the agent accesses the project filesystem.
 type ExecMode string

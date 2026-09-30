@@ -107,6 +107,43 @@ func unmarshalJSONField[T any](data []byte, target *T, field string) error {
 	return nil
 }
 
+// Status predicates: run, plan and team updates carry `status <> ALL(<terminal
+// states>)` in their WHERE clause, so an entity that ended is never written
+// back to an earlier state (KI-31). PostgreSQL re-evaluates the predicate
+// after waiting for a concurrent writer's row lock, which makes the terminal
+// update win the race.
+
+// statusStrings converts domain statuses into the text[] parameter of a
+// status predicate.
+func statusStrings[S ~string](statuses []S) []string {
+	out := make([]string, len(statuses))
+	for i, st := range statuses {
+		out[i] = string(st)
+	}
+	return out
+}
+
+// guardedUpdateResult interprets the result of an UPDATE guarded by a status
+// predicate. When no row changed, existsSQL (parameters: id, tenant) tells a
+// row the predicate refused - domain.ErrConflict - from a missing row or
+// another tenant's - domain.ErrNotFound.
+func (s *Store) guardedUpdateResult(ctx context.Context, tag pgconn.CommandTag, err error, existsSQL, op, id string) error {
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", op, id, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, existsSQL, id, tenantFromCtx(ctx)).Scan(&exists); err != nil {
+		return fmt.Errorf("%s %s: %w", op, id, err)
+	}
+	if exists {
+		return fmt.Errorf("%s %s: %w", op, id, domain.ErrConflict)
+	}
+	return fmt.Errorf("%s %s: %w", op, id, domain.ErrNotFound)
+}
+
 // execExpectOne verifies that an Exec affected exactly one row. If not
 // (and err is nil), it returns domain.ErrNotFound with the given message.
 func execExpectOne(tag pgconn.CommandTag, err error, format string, args ...any) error {

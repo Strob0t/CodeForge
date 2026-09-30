@@ -165,12 +165,18 @@ func (m *runtimeMockStore) CreateRun(_ context.Context, r *run.Run) error {
 	m.runs = append(m.runs, *r)
 	return nil
 }
+
+// errMockRunEnded mirrors the store: a run in a terminal state is not updated.
+var errMockRunEnded = fmt.Errorf("mock: run already ended: %w", domain.ErrConflict)
+
+// GetRun returns a copy, like the store: callers never share the mock's rows.
 func (m *runtimeMockStore) GetRun(_ context.Context, id string) (*run.Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
 		if m.runs[i].ID == id {
-			return &m.runs[i], nil
+			r := m.runs[i]
+			return &r, nil
 		}
 	}
 	return nil, errMockNotFound
@@ -181,6 +187,9 @@ func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status 
 	for i := range m.runs {
 		if m.runs[i].ID != id {
 			continue
+		}
+		if m.runs[i].Status.IsTerminal() {
+			return errMockRunEnded
 		}
 		m.runs[i].Status = status
 		m.runs[i].StepCount = stepCount
@@ -197,6 +206,9 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, req *run.CompletionReq
 	for i := range m.runs {
 		if m.runs[i].ID != req.ID {
 			continue
+		}
+		if m.runs[i].Status.IsTerminal() {
+			return errMockRunEnded
 		}
 		m.runs[i].Status = req.Status
 		m.runs[i].Output = req.Output
@@ -304,6 +316,9 @@ func (m *runtimeMockStore) UpdateTeamStatus(_ context.Context, id string, status
 	defer m.mu.Unlock()
 	for i := range m.teams {
 		if m.teams[i].ID == id {
+			if m.teams[i].Status.IsTerminal() {
+				return fmt.Errorf("mock: team already ended: %w", domain.ErrConflict)
+			}
 			m.teams[i].Status = status
 			return nil
 		}

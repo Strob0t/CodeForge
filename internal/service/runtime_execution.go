@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -47,7 +49,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
-		logBestEffort(ctx, s.stopRun(ctx, r, run.StatusTimeout, reason), "stopRun", slog.String("run_id", r.ID))
+		logRunUpdate(ctx, s.stopRun(ctx, r, run.StatusTimeout, reason), "stopRun", r.ID)
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
 
@@ -104,6 +106,16 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		}
 	}
 
+	// Count the step. A run that ended while the call waited for approval
+	// (cancel, timeout) is not moved back to running, and its call is denied
+	// like any call of a run that is not running (KI-31).
+	err = s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, r.StepCount+1, r.CostUSD, r.TokensIn, r.TokensOut)
+	if errors.Is(err, domain.ErrConflict) {
+		slog.Info("run ended while the tool call was pending, denying", "run_id", r.ID, "call_id", req.CallID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "run is not running")
+	}
+	logBestEffort(ctx, err, "UpdateRunStatus", slog.String("run_id", r.ID))
+
 	// Record event
 	evType := event.TypeToolCallApproved
 	if decision != policy.DecisionAllow {
@@ -142,10 +154,6 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 			slog.Warn("checkpoint creation failed", "run_id", r.ID, "error", cpErr)
 		}
 	}
-
-	// Increment step count
-	newSteps := r.StepCount + 1
-	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
 }
@@ -318,7 +326,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	newCost := r.CostUSD + result.CostUSD
 	newTokensIn := r.TokensIn + result.TokensIn
 	newTokensOut := r.TokensOut + result.TokensOut
-	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
+	logRunUpdate(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", r.ID)
 
 	// The run's counters including this tool call, final numbers for the paths
 	// below that end the run.
@@ -338,7 +346,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			logBestEffort(ctx, s.stopRun(ctx, &counted, run.StatusTimeout, reason), "stopRun", slog.String("run_id", r.ID))
+			logRunUpdate(ctx, s.stopRun(ctx, &counted, run.StatusTimeout, reason), "stopRun", r.ID)
 			return nil
 		}
 
@@ -368,7 +376,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			logBestEffort(ctx, s.stopRun(ctx, &counted, run.StatusFailed, "stall detected: agent not making progress"), "stopRun", slog.String("run_id", r.ID))
+			logRunUpdate(ctx, s.stopRun(ctx, &counted, run.StatusFailed, "stall detected: agent not making progress"), "stopRun", r.ID)
 			return nil
 		}
 	}

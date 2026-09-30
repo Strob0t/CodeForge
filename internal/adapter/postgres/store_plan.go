@@ -106,11 +106,18 @@ func (s *Store) ListPlansByProject(ctx context.Context, projectID string) ([]pla
 	})
 }
 
+// planTerminalStatuses parameterizes the status predicate of plan updates.
+var planTerminalStatuses = statusStrings(plan.TerminalStatuses())
+
+const planExistsSQL = `SELECT EXISTS (SELECT 1 FROM execution_plans WHERE id = $1 AND tenant_id = $2)`
+
+// UpdatePlanStatus sets the status of a plan that has not ended. It returns
+// domain.ErrConflict when the plan already ended.
 func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Status) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE execution_plans SET status = $2 WHERE id = $1 AND tenant_id = $3`,
-		id, string(status), tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update plan status %s", id)
+		`UPDATE execution_plans SET status = $2 WHERE id = $1 AND tenant_id = $3 AND status <> ALL($4)`,
+		id, string(status), tenantFromCtx(ctx), planTerminalStatuses)
+	return s.guardedUpdateResult(ctx, tag, err, planExistsSQL, "update plan status", id)
 }
 
 func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {

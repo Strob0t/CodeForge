@@ -12,6 +12,13 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// finishRun finalizes a run on a worker message. A run that already ended on
+// another path is skipped instead of failing the handler, which would have
+// the message redelivered (KI-31).
+func (s *RuntimeService) finishRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
+	return skipEndedRun(ctx, s.finalizeRun(ctx, r, status, payload), "finalizeRun", r.ID)
+}
+
 // HandleRunComplete processes a run completion message from a worker.
 func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *messagequeue.RunCompletePayload) error {
 	ctx, r, err := s.loadRunScoped(ctx, payload.RunID, payload.TenantID)
@@ -68,7 +75,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if hasGates {
 		// Transition to quality_gate status — do not finalize yet
 		if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusQualityGate, payload.StepCount, payload.CostUSD, payload.TokensIn, payload.TokensOut); err != nil {
-			return fmt.Errorf("update run to quality_gate: %w", err)
+			return skipEndedRun(ctx, fmt.Errorf("update run to quality_gate: %w", err), "UpdateRunStatus", r.ID)
 		}
 
 		// Look up project for workspace path
@@ -97,7 +104,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 			slog.Error("failed to publish quality gate request, failing run (fail-closed)", "run_id", r.ID, "error", err)
 			s.appendAudit(ctx, r, "qualitygate.error", fmt.Sprintf("Failed to publish quality gate request: %s", err.Error()))
 			// Fail-closed: if we can't run quality gates, don't silently pass.
-			return s.finalizeRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
+			return s.finishRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
 				RunID:     r.ID,
 				TaskID:    r.TaskID,
 				ProjectID: r.ProjectID,
@@ -136,7 +143,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	}
 
 	// No quality gates configured — finalize immediately
-	return s.finalizeRun(ctx, r, status, payload)
+	return s.finishRun(ctx, r, status, payload)
 }
 
 // HandleQualityGateResult processes the outcome of a quality gate execution.
@@ -172,7 +179,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 
 		// Trigger delivery if configured, then finalize as completed
 		s.triggerDelivery(ctx, r)
-		return s.finalizeRun(ctx, r, run.StatusCompleted, &messagequeue.RunCompletePayload{
+		return s.finishRun(ctx, r, run.StatusCompleted, &messagequeue.RunCompletePayload{
 			RunID:     r.ID,
 			TaskID:    r.TaskID,
 			ProjectID: r.ProjectID,
@@ -215,7 +222,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		Error:       errMsg,
 	})
 
-	return s.finalizeRun(ctx, r, finalStatus, &messagequeue.RunCompletePayload{
+	return s.finishRun(ctx, r, finalStatus, &messagequeue.RunCompletePayload{
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,

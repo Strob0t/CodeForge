@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -321,7 +323,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 // completePlan marks the plan as completed.
 func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.ExecutionPlan) {
 	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusCompleted); err != nil {
-		slog.Error("complete plan", "plan_id", p.ID, "error", err)
+		logPlanEndFailure(ctx, err, p.ID, plan.StatusCompleted)
 		return
 	}
 	p.Status = plan.StatusCompleted
@@ -335,16 +337,16 @@ func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.Executio
 
 // failPlan marks the plan as failed and skips remaining pending steps.
 func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPlan) {
+	// The plan first: a plan that already ended keeps its steps.
+	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusFailed); err != nil {
+		logPlanEndFailure(ctx, err, p.ID, plan.StatusFailed)
+		return
+	}
 	for i := range p.Steps {
 		if p.Steps[i].Status == plan.StepStatusPending {
 			logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, p.Steps[i].ID, plan.StepStatusSkipped, "", "plan failed"), "UpdatePlanStepStatus", slog.String("step_id", p.Steps[i].ID))
 			s.broadcastStepStatus(ctx, p, &p.Steps[i], plan.StepStatusSkipped)
 		}
-	}
-
-	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusFailed); err != nil {
-		slog.Error("fail plan", "plan_id", p.ID, "error", err)
-		return
 	}
 	p.Status = plan.StatusFailed
 	s.appendPlanEvent(ctx, event.TypePlanFailed, p)
@@ -356,6 +358,17 @@ func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPla
 }
 
 // --- helpers ---
+
+// logPlanEndFailure logs why a plan could not be completed or failed. A plan
+// that already ended on another path (e.g. cancelled while its last run
+// finished) is refused by the store (KI-31) and skipped.
+func logPlanEndFailure(ctx context.Context, err error, planID string, status plan.Status) {
+	if errors.Is(err, domain.ErrConflict) {
+		slog.InfoContext(ctx, "plan already ended, skipped", "plan_id", planID, "status", status)
+		return
+	}
+	slog.ErrorContext(ctx, "end plan", "plan_id", planID, "status", status, "error", err)
+}
 
 func (s *OrchestratorService) broadcastPlanStatus(ctx context.Context, p *plan.ExecutionPlan) {
 	s.hub.BroadcastEvent(ctx, event.EventPlanStatus, event.PlanStatusEvent{

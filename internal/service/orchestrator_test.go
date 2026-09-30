@@ -81,6 +81,9 @@ func (m *orchMockStore) UpdatePlanStatus(_ context.Context, id string, status pl
 	defer m.mu.Unlock()
 	for i := range m.plans {
 		if m.plans[i].ID == id {
+			if m.plans[i].Status.IsTerminal() {
+				return fmt.Errorf("mock: plan already ended: %w", domain.ErrConflict)
+			}
 			m.plans[i].Status = status
 			return nil
 		}

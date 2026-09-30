@@ -214,3 +214,44 @@ func TestCleanupTeam_ReleasesAgents(t *testing.T) {
 		t.Fatalf("expected agent idle after cleanup, got %s", ag.Status)
 	}
 }
+
+// TestCleanupTeam_EndedTeamIsSkipped: a second cleanup of a team that already
+// ended must not change its status or release agents that may work for
+// another team by now (KI-31).
+func TestCleanupTeam_EndedTeamIsSkipped(t *testing.T) {
+	svc, store := newPoolManagerTestEnv()
+	ctx := context.Background()
+
+	team, err := svc.CreateTeam(ctx, &agent.CreateTeamRequest{
+		ProjectID: "proj-1",
+		Name:      "Ended Team",
+		Protocol:  "sequential",
+		Members:   []agent.CreateMemberRequest{{AgentID: "a1", Role: agent.RoleCoder}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	if err := svc.CleanupTeam(ctx, team.ID, false); err != nil {
+		t.Fatalf("first CleanupTeam: %v", err)
+	}
+
+	// The agent joined another team meanwhile.
+	store.mu.Lock()
+	for i := range store.agents {
+		if store.agents[i].ID == "a1" {
+			store.agents[i].Status = agent.StatusRunning
+		}
+	}
+	store.mu.Unlock()
+
+	if err := svc.CleanupTeam(ctx, team.ID, true); err != nil {
+		t.Fatalf("second CleanupTeam: %v, want nil (skip)", err)
+	}
+	got, _ := store.GetTeam(ctx, team.ID)
+	if got.Status != agent.TeamStatusCompleted {
+		t.Errorf("team status = %s, want completed", got.Status)
+	}
+	if ag, _ := store.GetAgent(ctx, "a1"); ag.Status != agent.StatusRunning {
+		t.Errorf("agent status = %s, want running (not released again)", ag.Status)
+	}
+}

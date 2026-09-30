@@ -178,3 +178,28 @@ func TestAllExecModes(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusIsTerminal(t *testing.T) {
+	tests := []struct {
+		status run.Status
+		want   bool
+	}{
+		{run.StatusPending, false},
+		{run.StatusRunning, false},
+		{run.StatusQualityGate, false},
+		{run.StatusCompleted, true},
+		{run.StatusFailed, true},
+		{run.StatusCancelled, true},
+		{run.StatusTimeout, true},
+		{"", false},
+		{"Completed", false},
+	}
+	for _, tc := range tests {
+		if got := tc.status.IsTerminal(); got != tc.want {
+			t.Errorf("%q.IsTerminal() = %v, want %v", tc.status, got, tc.want)
+		}
+	}
+	if n := len(run.TerminalStatuses()); n != 4 {
+		t.Errorf("TerminalStatuses() has %d entries, want 4", n)
+	}
+}

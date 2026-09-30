@@ -35,21 +35,30 @@ func (s *Store) GetRun(ctx context.Context, id string) (*run.Run, error) {
 	return &r, nil
 }
 
+// runTerminalStatuses parameterizes the status predicate of run updates.
+var runTerminalStatuses = statusStrings(run.TerminalStatuses())
+
+const runExistsSQL = `SELECT EXISTS (SELECT 1 FROM runs WHERE id = $1 AND tenant_id = $2)`
+
+// UpdateRunStatus updates an active run. It returns domain.ErrConflict when
+// the run already ended: a run is never moved back from a terminal state.
 func (s *Store) UpdateRunStatus(ctx context.Context, id string, status run.Status, stepCount int, costUSD float64, tokensIn, tokensOut int64) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, step_count = $3, cost_usd = $4, tokens_in = $5, tokens_out = $6, updated_at = now()
-		 WHERE id = $1 AND tenant_id = $7`,
-		id, string(status), stepCount, costUSD, tokensIn, tokensOut, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update run status %s", id)
+		 WHERE id = $1 AND tenant_id = $7 AND status <> ALL($8)`,
+		id, string(status), stepCount, costUSD, tokensIn, tokensOut, tenantFromCtx(ctx), runTerminalStatuses)
+	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "update run status", id)
 }
 
+// CompleteRun ends an active run. It returns domain.ErrConflict when the run
+// already ended, so a run is completed exactly once.
 func (s *Store) CompleteRun(ctx context.Context, req *run.CompletionRequest) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE runs SET status = $2, output = $3, error = $4, cost_usd = $5, step_count = $6,
 		 tokens_in = $7, tokens_out = $8, model = $9, completed_at = now(), updated_at = now()
-		 WHERE id = $1 AND tenant_id = $10`,
-		req.ID, string(req.Status), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "complete run %s", req.ID)
+		 WHERE id = $1 AND tenant_id = $10 AND status <> ALL($11)`,
+		req.ID, string(req.Status), req.Output, req.Error, req.CostUSD, req.StepCount, req.TokensIn, req.TokensOut, req.Model, tenantFromCtx(ctx), runTerminalStatuses)
+	return s.guardedUpdateResult(ctx, tag, err, runExistsSQL, "complete run", req.ID)
 }
 
 func (s *Store) UpdateRunArtifact(ctx context.Context, id, artifactType string, valid *bool, errs []string) error {
