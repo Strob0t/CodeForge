@@ -77,11 +77,15 @@ export default function PrivacyPolicy(): JSX.Element {
           <h2 class="mb-2 text-lg font-semibold text-cf-text-primary">Data Retention</h2>
           <ul class="list-inside list-disc space-y-1 text-sm text-cf-text-secondary">
             <li>Account data -- lifetime of account + 30 days after deletion</li>
-            <li>Conversations -- 90 days after last activity (configurable)</li>
-            <li>Audit log entries -- 2 years (action/resource preserved, PII anonymized)</li>
+            <li>Conversations and their messages -- 1 year after last activity (configurable)</li>
+            <li>Agent sessions -- 30 days after last activity (configurable)</li>
+            <li>
+              Agent runs with their cost/usage data -- 1 year after last activity (configurable)
+            </li>
+            <li>Audit log entries -- 7 years (action/resource preserved, PII anonymized)</li>
             <li>IP addresses in audit logs -- 180 days (per CNIL guidance)</li>
-            <li>Cost/usage data -- 7 years (tax/accounting requirements)</li>
             <li>Consent records -- indefinite (proof-of-consent per GDPR Art. 7(1))</li>
+            <li>IP addresses and browser user agents in consent records -- 180 days</li>
           </ul>
         </section>
 
