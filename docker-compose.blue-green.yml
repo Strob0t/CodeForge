@@ -56,7 +56,7 @@ services:
       - "traefik.http.routers.frontend-blue.entrypoints=websecure"
       - "traefik.http.routers.frontend-blue.tls.certresolver=letsencrypt"
       - "traefik.http.routers.frontend-blue.middlewares=security-headers@file"
-      - "traefik.http.services.frontend-blue.loadbalancer.server.port=80"
+      - "traefik.http.services.frontend-blue.loadbalancer.server.port=8080"
       - "traefik.http.routers.frontend-blue.priority=5"
     ports: []
 
@@ -69,7 +69,7 @@ services:
       - "traefik.http.routers.frontend-green.entrypoints=websecure"
       - "traefik.http.routers.frontend-green.tls.certresolver=letsencrypt"
       - "traefik.http.routers.frontend-green.middlewares=security-headers@file"
-      - "traefik.http.services.frontend-green.loadbalancer.server.port=80"
+      - "traefik.http.services.frontend-green.loadbalancer.server.port=8080"
       - "traefik.http.routers.frontend-green.priority=1"
     ports: []
 
