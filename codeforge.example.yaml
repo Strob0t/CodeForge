@@ -108,7 +108,7 @@ auth:
   jwt_secret: ""                      # Required. Set via CODEFORGE_AUTH_JWT_SECRET env var or auto-generated on first boot.
   access_token_expiry: "15m"          # Access token lifetime (default: 15m)
   refresh_token_expiry: "168h"        # Refresh token lifetime (default: 7 days)
-  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, min: 4)
+  bcrypt_cost: 12                     # Bcrypt work factor (default: 12, allowed: 12-31)
   default_admin_email: "admin@localhost"  # Seed admin email on first start
   default_admin_pass: ""                  # Leave empty: setup wizard or auto_generate_initial_password will handle this.
 
@@ -118,7 +118,6 @@ auth:
 # Metrics: correctness, tool_correctness, faithfulness, answer_relevancy, contextual_precision.
 # benchmark:
 #   datasets_dir: "configs/benchmarks"   # Directory with benchmark dataset YAML files
-#   dashboard_port: 0                    # AgentNeo dashboard port (0 = disabled)
 
 # OpenTelemetry tracing & metrics
 # otel:
@@ -143,7 +142,7 @@ auth:
 # When enabled, Python HybridRouter selects exact model name; LiteLLM uses wildcards.
 # When disabled, falls back to scenario-based tag routing.
 # routing:
-#   enabled: false                # Master switch (default: false)
+#   enabled: true                 # Master switch (default: true; env CODEFORGE_ROUTING_ENABLED)
 #   complexity_enabled: true      # Layer 1: rule-based prompt analysis (default: true)
 #   mab_enabled: true             # Layer 2: UCB1 multi-armed bandit (default: true)
 #   llm_meta_enabled: true        # Layer 3: LLM classification cold-start (default: true)
@@ -152,4 +151,4 @@ auth:
 #   cost_weight: 0.3              # Reward weight for cost (default: 0.3)
 #   quality_weight: 0.5           # Reward weight for quality (default: 0.5)
 #   latency_weight: 0.2           # Reward weight for latency (default: 0.2)
-#   meta_router_model: "groq/llama-3.1-8b-instant"  # Model for Layer 3 (default: groq/llama-3.1-8b-instant)
+#   meta_router_model: "groq/llama-3.1-8b-instant"  # Model for Layer 3 (default: "" = the worker's default model)

@@ -162,9 +162,10 @@ services:
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
       LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
+      OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     volumes:
       - ./litellm:/app/data:ro
-    # LM_STUDIO_API_BASE defaults to the host; Linux needs the explicit mapping.
+    # The local model servers default to the host; Linux needs the explicit mapping.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # LiteLLM reads its master key and database URL only from the environment.

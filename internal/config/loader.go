@@ -458,6 +458,9 @@ func validate(cfg *Config) error {
 	if cfg.Rate.Burst < 1 {
 		return errors.New("rate.burst must be >= 1")
 	}
+	if cfg.Notification.SMTPHost != "" && (cfg.Notification.SMTPPort < 1 || cfg.Notification.SMTPPort > 65535) {
+		return fmt.Errorf("notification.smtp_port must be 1-65535 when smtp_host is set (got %d)", cfg.Notification.SMTPPort)
+	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
 	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {

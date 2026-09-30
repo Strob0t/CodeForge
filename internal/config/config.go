@@ -530,7 +530,7 @@ func Defaults() Config {
 			GraphHopDecay:             0.7,
 		},
 		Webhook:      Webhook{},
-		Notification: Notification{},
+		Notification: Notification{SMTPPort: 587},
 		OTEL: OTEL{
 			Enabled:     false,
 			Endpoint:    "localhost:4317",

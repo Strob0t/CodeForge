@@ -347,3 +347,9 @@ def test_sanitize_dedup_assistant_messages_with_same_tool_calls() -> None:
     assert len(tool_msgs) == 1
     assistant_with_tc = [m for m in msgs if m.get("role") == "assistant" and m.get("tool_calls")]
     assert len(assistant_with_tc) == 1
+
+
+def test_default_context_budget_matches_the_go_core() -> None:
+    """KI-51: one default for the history token budget, Go's agent.max_context_tokens (128000)."""
+    assert HistoryConfig().max_context_tokens == 128_000
+    assert ConversationHistoryManager()._config.max_context_tokens == 128_000
