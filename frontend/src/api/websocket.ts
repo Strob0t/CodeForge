@@ -126,6 +126,8 @@ export interface AGUIPermissionRequest {
   tool: string;
   command?: string;
   path?: string;
+  /** Policy profile that asked; Allow-Always extends the project's copy of it. */
+  profile?: string;
 }
 export interface AGUIActionSuggestion {
   run_id: string;

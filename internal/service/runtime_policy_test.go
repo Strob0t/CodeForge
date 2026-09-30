@@ -9,6 +9,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -24,6 +25,21 @@ func newConversationPolicyEnv(p *project.Project, convMode, defaultProfile strin
 }
 
 func newConversationPolicyEnvWith(p *project.Project, convMode string, policySvc *service.PolicyService) (*service.RuntimeService, *runtimeMockQueue) {
+	env := newConversationPolicyTestEnv(p, convMode, policySvc)
+	return env.svc, env.queue
+}
+
+// conversationPolicyTestEnv exposes the mocks behind a conversation policy
+// environment: the store (projects), the queue (tool call responses) and
+// the hub (permission requests).
+type conversationPolicyTestEnv struct {
+	svc   *service.RuntimeService
+	queue *runtimeMockQueue
+	store *extRuntimeMockStore
+	hub   *runtimeMockBroadcaster
+}
+
+func newConversationPolicyTestEnv(p *project.Project, convMode string, policySvc *service.PolicyService) *conversationPolicyTestEnv {
 	proj := *p
 	proj.ID = "proj-pol"
 	proj.WorkspacePath = policyTestWorkspace
@@ -34,10 +50,11 @@ func newConversationPolicyEnvWith(p *project.Project, convMode string, policySvc
 		},
 	}
 	queue := &runtimeMockQueue{}
-	svc := service.NewRuntimeService(store, queue, &runtimeMockBroadcaster{}, &runtimeMockEventStore{},
+	hub := &runtimeMockBroadcaster{}
+	svc := service.NewRuntimeService(store, queue, hub, &runtimeMockEventStore{},
 		policySvc, &config.Runtime{ApprovalTimeoutSeconds: 1})
 	svc.SetModeService(service.NewModeService())
-	return svc, queue
+	return &conversationPolicyTestEnv{svc: svc, queue: queue, store: store, hub: hub}
 }
 
 // toolCallDecision sends a tool call request and returns the decision and
@@ -173,16 +190,20 @@ func TestConversationToolCall_PermissiveSandboxWorkerPayloads(t *testing.T) {
 
 // KI-7: the dispatch sends the profile that the tool-call evaluation uses.
 func TestSendMessageAgentic_PolicyProfileMatchesEvaluation(t *testing.T) {
+	projectClone := policy.PolicyProfile{Name: "trusted-mount-autonomous-custom-proj-1", Mode: policy.ModeAcceptEdits}
 	tests := []struct {
 		name   string
 		proj   project.Project
 		modeID string
+		custom []policy.PolicyProfile
 		want   string
 	}{
-		{"config preset wins over mode", project.Project{Config: map[string]string{"policy_preset": "plan-readonly"}}, "prototyper", "plan-readonly"},
-		{"project field wins over mode", project.Project{PolicyProfile: "supervised-ask-all"}, "coder", "supervised-ask-all"},
-		{"mode autonomy 4", project.Project{}, "prototyper", "trusted-mount-autonomous"},
-		{"default mode coder", project.Project{}, "", "headless-safe-sandbox"},
+		{"config preset wins over mode", project.Project{Config: map[string]string{"policy_preset": "plan-readonly"}}, "prototyper", nil, "plan-readonly"},
+		{"project field wins over mode", project.Project{PolicyProfile: "supervised-ask-all"}, "coder", nil, "supervised-ask-all"},
+		{"mode autonomy 4", project.Project{}, "prototyper", nil, "trusted-mount-autonomous"},
+		{"default mode coder", project.Project{}, "", nil, "headless-safe-sandbox"},
+		{"allow-always clone of the resolved preset", project.Project{}, "prototyper", []policy.PolicyProfile{projectClone}, projectClone.Name},
+		{"clone of another preset does not apply", project.Project{}, "coder", []policy.PolicyProfile{projectClone}, "headless-safe-sandbox"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -195,7 +216,7 @@ func TestSendMessageAgentic_PolicyProfileMatchesEvaluation(t *testing.T) {
 			svc := service.NewConversationService(store, &mockBroadcaster{}, "gpt-4o", service.NewModeService())
 			svc.SetQueue(q)
 			svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
-			svc.SetPolicyService(service.NewPolicyService("plan-readonly", nil))
+			svc.SetPolicyService(service.NewPolicyService("plan-readonly", tt.custom))
 			ctx := context.Background()
 			conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: "policy"})
 			if err != nil {

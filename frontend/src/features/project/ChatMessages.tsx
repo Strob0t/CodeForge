@@ -270,6 +270,7 @@ export default function ChatMessages(props: ChatMessagesProps) {
                 tool={pr.tool}
                 command={pr.command}
                 path={pr.path}
+                profile={pr.profile}
                 onResolved={() => {
                   props.setResolvedPermissions((prev) => new Set([...prev, pr.call_id]));
                 }}

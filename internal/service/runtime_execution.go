@@ -42,8 +42,10 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "run is not running")
 	}
 
-	// Load policy profile for termination checks
-	profile, ok := s.policy.GetProfile(r.PolicyProfile)
+	// Load policy profile for termination checks: the run's profile, or the
+	// project's Allow-Always clone of it.
+	profileName := effectivePolicyProfile(s.policy, r.PolicyProfile, r.ProjectID)
+	profile, ok := s.policy.GetProfile(profileName)
 	if !ok {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "unknown policy profile")
 	}
@@ -70,7 +72,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call, policyEvalOptions(workspace, m, req.Trust)...)
+	result, err := s.policy.EvaluateWithReason(ctx, profileName, call, policyEvalOptions(workspace, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -94,10 +96,10 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 				"run_id", r.ID,
 				"call_id", req.CallID,
 				"tool", req.Tool,
-				"profile", r.PolicyProfile,
+				"profile", profileName,
 			)
 		} else {
-			decision = s.waitForApproval(ctx, r.ID, req.CallID, req.Tool, req.Command, req.Path)
+			decision = s.waitForApproval(ctx, permissionRequest(r.ID, req, r.PolicyProfile))
 			slog.Info("HITL approval resolved",
 				"run_id", r.ID,
 				"call_id", req.CallID,
@@ -213,7 +215,8 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if m != nil {
 		modeAutonomy = m.Autonomy
 	}
-	policyProfile := conversationPolicyProfile(proj, modeAutonomy, s.policy.DefaultProfile())
+	baseProfile := conversationPolicyProfile(proj, modeAutonomy, s.policy.DefaultProfile())
+	policyProfile := effectivePolicyProfile(s.policy, baseProfile, proj.ID)
 
 	if _, ok := s.policy.GetProfile(policyProfile); !ok {
 		slog.Warn("unknown policy profile for conversation, denying", "profile", policyProfile, "conversation_id", req.RunID)
@@ -260,7 +263,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 				"profile", policyProfile,
 			)
 		} else {
-			decision = s.waitForApproval(ctx, req.RunID, req.CallID, req.Tool, req.Command, req.Path)
+			decision = s.waitForApproval(ctx, permissionRequest(req.RunID, req, baseProfile))
 			slog.Info("conversation HITL resolved",
 				"conversation_id", req.RunID,
 				"call_id", req.CallID,
@@ -300,6 +303,21 @@ func denialReason(decision policy.Decision, result *policy.EvaluationResult) str
 		return "not approved by a human reviewer"
 	default:
 		return result.Reason
+	}
+}
+
+// permissionRequest builds the HITL permission request for a tool call that
+// the policy profile asks about. profile is the profile the call resolved to
+// before the project's Allow-Always clone was applied: Allow-Always extends
+// the project's clone of it.
+func permissionRequest(runID string, req *messagequeue.ToolCallRequestPayload, profile string) *event.AGUIPermissionRequestEvent {
+	return &event.AGUIPermissionRequestEvent{
+		RunID:   runID,
+		CallID:  req.CallID,
+		Tool:    req.Tool,
+		Command: req.Command,
+		Path:    req.Path,
+		Profile: profile,
 	}
 }
 

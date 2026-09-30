@@ -93,12 +93,14 @@ const AGUIActionSuggestion = "agui.action_suggestion"
 const AGUIRoadmapProposal = "agui.roadmap_proposal"
 
 // AGUIPermissionRequestEvent signals that a tool call requires user approval.
+// Profile names the policy profile that asked; Allow-Always extends it.
 type AGUIPermissionRequestEvent struct {
 	RunID   string `json:"run_id"`
 	CallID  string `json:"call_id"`
 	Tool    string `json:"tool"`
 	Command string `json:"command,omitempty"`
 	Path    string `json:"path,omitempty"`
+	Profile string `json:"profile,omitempty"`
 }
 
 // AGUIActionSuggestionEvent is sent when the agent suggests a follow-up action.

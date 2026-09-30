@@ -252,19 +252,24 @@ func (s *PolicyService) profilePath(name string) (string, error) {
 	return filepath.Join(s.dir, name+".yaml"), nil
 }
 
-// projectPolicyResolver provides the project-level operations needed by AllowAlways.
+// projectPolicyResolver provides the project lookup needed by AllowAlways.
+// AllowAlways never changes a project's profile selection.
 type projectPolicyResolver interface {
 	Get(ctx context.Context, id string) (*project.Project, error)
-	SetPolicyProfile(ctx context.Context, projectID, profile string) error
 }
 
-// AllowAlways adds a persistent "allow" rule for a tool to a project's policy
-// profile. If the project uses a built-in preset, a custom clone is created.
-// The rule uses the canonical tool name; for Bash it only allows commands
-// whose every part runs the executable of the approved command. The profile
-// is written to the policy directory before the project points at it, so
-// the reference survives a restart.
-func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyResolver, projectID, tool, command string) (*policy.PolicyProfile, error) {
+// AllowAlways adds a persistent "allow" rule for an approved tool call to the
+// policy profile that decided it (profile, as named by the permission
+// request; when empty, the project's explicit profile, else the service
+// default). The rule goes into the project's clone of that profile
+// ({profile}-custom-{projectID}), which replaces the profile for this
+// project's calls only (effectivePolicyProfile); only a custom profile the
+// project selects explicitly is extended in place. The project's profile
+// selection never changes, so a call is never decided by a broader profile
+// than before plus the approved rule. The rule uses the canonical tool name;
+// for Bash it only allows commands whose every part runs one of the
+// executables of the approved command.
+func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyResolver, projectID, profile, tool, command string) (*policy.PolicyProfile, error) {
 	rule, err := allowAlwaysRule(tool, command)
 	if err != nil {
 		return nil, err
@@ -274,33 +279,62 @@ func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyR
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
-
-	current := projectPolicyProfile(proj)
-	if current == "" {
-		current = s.defaultProfile
+	explicit := projectPolicyProfile(proj)
+	base := profile
+	if base == "" {
+		base = explicit
 	}
-	target, cloneFrom := current, ""
-	if policy.IsPreset(current) {
-		target, cloneFrom = current+"-custom-"+projectID, current
+	if base == "" {
+		base = s.defaultProfile
 	}
 
 	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
 	if s.dir == "" {
-		s.persistMu.Unlock()
 		return nil, ErrPolicyDirNotConfigured
 	}
-	updated, err := s.prependRuleLocked(target, cloneFrom, &rule)
-	s.persistMu.Unlock()
+	if _, ok := s.GetProfile(base); !ok {
+		return nil, fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, base)
+	}
+	target := projectProfileClone(base, projectID)
+	if _, cloned := s.GetProfile(target); !cloned && base == explicit && !policy.IsPreset(base) {
+		target = base
+	}
+	updated, err := s.prependRuleLocked(target, base, &rule)
 	if err != nil {
 		return nil, fmt.Errorf("prepend rule: %w", err)
 	}
+	return updated, nil
+}
 
-	if proj.PolicyProfile != target {
-		if err := projects.SetPolicyProfile(ctx, projectID, target); err != nil {
-			return nil, fmt.Errorf("set project policy profile: %w", err)
+// projectProfileClone names a project's Allow-Always clone of a profile.
+func projectProfileClone(profile, projectID string) string {
+	suffix := "-custom-" + projectID
+	if strings.HasSuffix(profile, suffix) {
+		return profile
+	}
+	return profile + suffix
+}
+
+// profileLookup is the read access to policy profiles that the profile
+// resolution needs.
+type profileLookup interface {
+	GetProfile(name string) (policy.PolicyProfile, bool)
+}
+
+// effectivePolicyProfile returns the profile that decides a project's tool
+// calls resolved to base: the project's Allow-Always clone of base when one
+// exists, else base itself.
+func effectivePolicyProfile(profiles profileLookup, base, projectID string) string {
+	if base == "" || projectID == "" {
+		return base
+	}
+	if clone := projectProfileClone(base, projectID); clone != base {
+		if _, ok := profiles.GetProfile(clone); ok {
+			return clone
 		}
 	}
-	return updated, nil
+	return base
 }
 
 // allowAlwaysRule builds the allow rule for an approved tool call.

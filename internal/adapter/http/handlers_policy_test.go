@@ -60,8 +60,11 @@ func decodeProfile(t *testing.T, w *httptest.ResponseRecorder) policy.PolicyProf
 
 // TestAllowAlwaysPolicy_ClonePreset verifies that when a project has no
 // custom policy profile (i.e. it falls back to the default built-in preset),
-// the handler clones the preset into a custom profile, persists it, assigns
-// it to the project, and prepends the requested allow rule.
+// the handler clones the preset into the project's custom profile, persists
+// it and prepends the requested allow rule. The project is not pinned to the
+// clone: pinning made every mode of the project use the clone of the
+// service default instead of its mode-derived profile (review finding 5);
+// the clone replaces the preset for this project's calls instead.
 func TestAllowAlwaysPolicy_ClonePreset(t *testing.T) {
 	store := &mockStore{
 		projects: []project.Project{
@@ -97,9 +100,9 @@ func TestAllowAlwaysPolicy_ClonePreset(t *testing.T) {
 		t.Fatalf("expected first rule decision 'allow', got %q", firstRule.Decision)
 	}
 
-	// The project should now reference the custom clone.
-	if store.projects[0].PolicyProfile != expectedName {
-		t.Fatalf("expected project policy profile %q, got %q", expectedName, store.projects[0].PolicyProfile)
+	// The project's profile selection is unchanged.
+	if store.projects[0].PolicyProfile != "" {
+		t.Fatalf("expected project policy profile unchanged, got %q", store.projects[0].PolicyProfile)
 	}
 
 	// The clone is on disk, so the project reference survives a restart.
@@ -127,6 +130,37 @@ func TestAllowAlwaysPolicy_ClonesConfigPreset(t *testing.T) {
 	}
 	if got := decodeProfile(t, w).Name; got != "trusted-mount-autonomous-custom-proj-cfg" {
 		t.Fatalf("expected clone of the config preset, got %q", got)
+	}
+}
+
+// TestAllowAlwaysPolicy_ClonesRequestedProfile verifies that the profile
+// named by the permission request (the one that decided the call) is the
+// one extended, not the project's or the service's default.
+func TestAllowAlwaysPolicy_ClonesRequestedProfile(t *testing.T) {
+	store := &mockStore{
+		projects: []project.Project{{ID: "proj-req", Name: "Req"}},
+	}
+	r, _, _ := newPersistentPolicyRouter(t, store)
+
+	w := postJSON(t, r, "/api/v1/policies/allow-always", map[string]string{
+		"project_id": "proj-req",
+		"profile":    "trusted-mount-autonomous",
+		"tool":       "write_file",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := decodeProfile(t, w).Name; got != "trusted-mount-autonomous-custom-proj-req" {
+		t.Fatalf("expected clone of the requested profile, got %q", got)
+	}
+
+	w = postJSON(t, r, "/api/v1/policies/allow-always", map[string]string{
+		"project_id": "proj-req",
+		"profile":    "no-such-profile",
+		"tool":       "write_file",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown profile: expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -364,7 +398,7 @@ func TestAllowAlwaysPolicy_SurvivesRestart(t *testing.T) {
 		t.Fatalf("load policy dir: %v", err)
 	}
 	restarted := service.NewPolicyService("headless-safe-sandbox", loaded)
-	name := store.projects[0].PolicyProfile
+	name := "headless-safe-sandbox-custom-proj-7"
 	p, ok := restarted.GetProfile(name)
 	if !ok {
 		t.Fatalf("profile %q not loaded after restart", name)

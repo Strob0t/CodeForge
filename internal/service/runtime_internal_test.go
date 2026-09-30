@@ -518,7 +518,7 @@ func TestWaitForApproval_DefaultTimeout(t *testing.T) {
 	defer cancel()
 
 	// Context cancel should fire before the default 60s timeout
-	decision := svc.waitForApproval(ctx, "run-def", "call-def", "Read", "", "")
+	decision := svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: "run-def", CallID: "call-def", Tool: "Read"})
 	if decision != policy.DecisionDeny {
 		t.Errorf("expected deny on context cancel, got %s", decision)
 	}
@@ -538,7 +538,7 @@ func TestWaitForApproval_ResolveBeforeTimeout(t *testing.T) {
 
 	resultCh := make(chan policy.Decision, 1)
 	go func() {
-		resultCh <- svc.waitForApproval(context.Background(), "run-resolve", "call-resolve", "Bash", "test", "")
+		resultCh <- svc.waitForApproval(context.Background(), &event.AGUIPermissionRequestEvent{RunID: "run-resolve", CallID: "call-resolve", Tool: "Bash", Command: "test"})
 	}()
 
 	// Give goroutine time to register the channel

@@ -147,13 +147,14 @@ func TestAllowAlways_DoesNotOverrideDenyLists(t *testing.T) {
 	projects := &stubProjects{proj: project.Project{ID: "p1"}}
 	ctx := context.Background()
 
-	if _, err := svc.AllowAlways(ctx, projects, "p1", "write_file", ""); err != nil {
+	if _, err := svc.AllowAlways(ctx, projects, "p1", "", "write_file", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AllowAlways(ctx, projects, "p1", "bash", "curl https://example.com"); err != nil {
+	updated, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "curl https://example.com")
+	if err != nil {
 		t.Fatal(err)
 	}
-	name := projects.proj.PolicyProfile
+	name := updated.Name
 	for _, call := range []policy.ToolCall{
 		{Tool: "write_file", Path: ".env"},
 		{Tool: "bash", Command: "curl https://example.com"},
@@ -174,9 +175,4 @@ func (s *stubProjects) Get(_ context.Context, id string) (*project.Project, erro
 	}
 	p := s.proj
 	return &p, nil
-}
-
-func (s *stubProjects) SetPolicyProfile(_ context.Context, _, profile string) error {
-	s.proj.PolicyProfile = profile
-	return nil
 }

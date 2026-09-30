@@ -9,6 +9,7 @@ interface PermissionRequestCardProps {
   tool: string;
   command?: string;
   path?: string;
+  profile?: string;
   timeoutSeconds?: number;
   onResolved?: (decision: "allow" | "deny") => void;
 }
@@ -49,7 +50,7 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
   async function handleAllowAlways() {
     await handleDecision("allow");
     try {
-      await api.policies.allowAlways(props.projectId, props.tool, props.command);
+      await api.policies.allowAlways(props.projectId, props.tool, props.command, props.profile);
     } catch {
       // Best-effort: current call already approved, persistence failure is non-blocking
     }

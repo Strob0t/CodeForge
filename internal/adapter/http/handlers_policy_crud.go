@@ -111,10 +111,12 @@ func (ph *PolicyHandlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Req
 
 // AllowAlwaysPolicy handles POST /api/v1/policies/allow-always.
 // It delegates to PolicyService.AllowAlways which handles profile cloning,
-// rule construction, and filesystem persistence.
+// rule construction, and filesystem persistence. profile is the policy
+// profile named by the permission request (optional).
 func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Request) {
 	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
+		Profile   string `json:"profile,omitempty"`
 		Tool      string `json:"tool"`
 		Command   string `json:"command,omitempty"`
 	}](w, r, 1<<20)
@@ -130,7 +132,7 @@ func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, req.ProjectID, req.Tool, req.Command)
+	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, req.ProjectID, req.Profile, req.Tool, req.Command)
 	if err != nil {
 		if errors.Is(err, service.ErrPolicyDirNotConfigured) {
 			writeError(w, http.StatusConflict, "allow-always rules cannot be persisted: "+err.Error())

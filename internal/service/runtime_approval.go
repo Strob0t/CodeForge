@@ -21,7 +21,9 @@ func approvalKey(runID, callID string) string {
 // waitForApproval broadcasts a permission request to the frontend and all registered
 // feedback providers, then blocks until the first response (via ResolveApproval or
 // provider callback) or the timeout expires. Returns the final decision.
-func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, tool, command, path string) policy.Decision {
+func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPermissionRequestEvent) policy.Decision {
+	runID, callID, tool, command, path := req.RunID, req.CallID, req.Tool, req.Command, req.Path
+
 	// Default timeout: 60 seconds.
 	timeout := 60 * time.Second
 	if s.runtimeCfg != nil && s.runtimeCfg.ApprovalTimeoutSeconds > 0 {
@@ -34,13 +36,7 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, runID, callID, too
 	defer s.state.DeletePendingApproval(key)
 
 	// Broadcast permission request to connected WebSocket clients.
-	s.hub.BroadcastEvent(ctx, event.AGUIPermissionRequest, event.AGUIPermissionRequestEvent{
-		RunID:   runID,
-		CallID:  callID,
-		Tool:    tool,
-		Command: command,
-		Path:    path,
-	})
+	s.hub.BroadcastEvent(ctx, event.AGUIPermissionRequest, *req)
 
 	// Fan out to registered feedback providers (Slack, Email, etc.).
 	// First response wins — the channel `ch` has buffer=1 so only the first write lands.

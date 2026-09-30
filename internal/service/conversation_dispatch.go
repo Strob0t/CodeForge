@@ -39,9 +39,12 @@ func policyForAutonomy(autonomy int) string {
 // conversation turn. It is used both when the turn is dispatched and when
 // its tool calls are evaluated, so both always agree:
 //  1. the profile the project selects explicitly (policy_profile, then
-//     config["policy_preset"]), which Allow-Always rules extend;
+//     config["policy_preset"]);
 //  2. the preset derived from the mode's autonomy level (modeAutonomy > 0);
 //  3. the service default.
+//
+// The project's Allow-Always clone of the result, if any, then decides the
+// calls (effectivePolicyProfile).
 func conversationPolicyProfile(proj *project.Project, modeAutonomy int, defaultProfile string) string {
 	if p := projectPolicyProfile(proj); p != "" {
 		return p
@@ -279,7 +282,8 @@ func (s *ConversationService) dispatchAgenticRun(
 	// Resolve policy profile (the same resolution the tool-call evaluation uses).
 	policyProfile := ""
 	if s.policySvc != nil {
-		policyProfile = conversationPolicyProfile(proj, modeAutonomy, s.policySvc.DefaultProfile())
+		base := conversationPolicyProfile(proj, modeAutonomy, s.policySvc.DefaultProfile())
+		policyProfile = effectivePolicyProfile(s.policySvc, base, proj.ID)
 	}
 
 	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
