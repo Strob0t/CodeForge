@@ -218,6 +218,7 @@ services:
       - nats-url
       - litellm-master-key
       - codeforge-auth-jwt-secret
+      - codeforge-auth-llm-key-encryption-secret
       - codeforge-internal-key
     environment:
       APP_ENV: production
@@ -227,6 +228,7 @@ services:
       LITELLM_BASE_URL: "http://litellm:4000"
       LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
       CODEFORGE_AUTH_JWT_SECRET_FILE: /run/secrets/codeforge-auth-jwt-secret
+      CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET_FILE: /run/secrets/codeforge-auth-llm-key-encryption-secret
       CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
       CODEFORGE_WORKSPACE_ROOT: /data/workspaces
       CODEFORGE_AUTH_INITIAL_PASSWORD_FILE: /data/initial_admin_password
@@ -366,6 +368,8 @@ secrets:
     file: ${SECRETS_DIR:-./secrets}/litellm-master-key
   codeforge-auth-jwt-secret:
     file: ${SECRETS_DIR:-./secrets}/codeforge-auth-jwt-secret
+  codeforge-auth-llm-key-encryption-secret:
+    file: ${SECRETS_DIR:-./secrets}/codeforge-auth-llm-key-encryption-secret
   codeforge-internal-key:
     file: ${SECRETS_DIR:-./secrets}/codeforge-internal-key
 
