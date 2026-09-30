@@ -5,12 +5,44 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import shutil
+import signal
 
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
 
 logger = logging.getLogger(__name__)
+
+
+def _signal_group(pgid: object, sig: signal.Signals) -> None:
+    # Only a child's own group: never init's (1), never the worker's own, and
+    # nothing that is not a real PID (a mocked process would be "1").
+    if type(pgid) is not int or pgid <= 1 or pgid == os.getpgrp():
+        logger.error("refusing to signal process group %r", pgid)
+        return
+    # ESRCH: the group is gone; EPERM: its members are exiting (zombies).
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, sig)
+
+
+async def terminate_process_group(
+    proc: asyncio.subprocess.Process,
+    grace_period: float = 5.0,
+) -> None:
+    """Stop a process started with ``start_new_session=True`` and everything it started.
+
+    SIGTERM to its process group -> wait(grace) for the leader -> SIGKILL to
+    what is left of the group -> wait(). Agent CLIs start shell commands and
+    servers of their own; stopping only the CLI leaves those running.
+    """
+    _signal_group(proc.pid, signal.SIGTERM)
+    with contextlib.suppress(TimeoutError):
+        await asyncio.wait_for(proc.wait(), timeout=grace_period)
+    # The group ID stays reserved while members live, even after the leader
+    # was reaped, so this reaches only the leader's descendants.
+    _signal_group(proc.pid, signal.SIGKILL)
+    await proc.wait()
 
 
 async def graceful_terminate(

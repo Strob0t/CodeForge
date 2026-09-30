@@ -21,7 +21,7 @@ from codeforge.backends._base import BackendInfo, OutputCallback, TaskResult
 from codeforge.config import resolve_backend_path
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
-from codeforge.subprocess_utils import check_cli_available, graceful_terminate
+from codeforge.subprocess_utils import check_cli_available, terminate_process_group
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,9 @@ class CLIBackendExecutor(ABC):
                     passthrough_prefixes=self.env_prefixes,
                     extra=extra_env,
                 ),
+                # Its own process group: stopping the task stops everything
+                # the agent started, not just the CLI.
+                start_new_session=True,
             )
         except OSError as exc:
             return TaskResult(status="failed", error=f"Failed to start {name}: {exc}")
@@ -144,7 +147,7 @@ class CLIBackendExecutor(ABC):
                 try:
                     line_bytes = await asyncio.wait_for(stdout.readline(), timeout=timeout)
                 except TimeoutError:
-                    await graceful_terminate(proc)
+                    # The finally below stops the process group.
                     return TaskResult(
                         status="failed",
                         output="\n".join(output_lines),
@@ -172,10 +175,14 @@ class CLIBackendExecutor(ABC):
             )
         finally:
             self._processes.pop(task_id, None)
+            if proc.returncode is None:
+                # Timed out, cancelled (tasks.cancel, worker shutdown) or
+                # failed while the agent runs.
+                await terminate_process_group(proc)
 
     async def cancel(self, task_id: str) -> None:
-        """Terminate the running CLI process."""
+        """Terminate the running CLI process and everything it started."""
         proc = self._processes.get(task_id)
         if proc is not None and proc.returncode is None:
-            await graceful_terminate(proc)
-            logger.info("%s process terminated for task %s", self.info.name, task_id)
+            await terminate_process_group(proc)
+            logger.info("%s process group terminated for task %s", self.info.name, task_id)

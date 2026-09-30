@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import signal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -147,15 +149,19 @@ class TestCLIBackendExecute:
         mock_proc = AsyncMock()
         mock_proc.stdout = mock_stdout
         mock_proc.returncode = None
-        mock_proc.terminate = MagicMock()
+        mock_proc.pid = 424242
         mock_proc.wait = AsyncMock()
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("codeforge.subprocess_utils.os.killpg") as killpg,
+        ):
             result = await executor.execute("t1", "fix bug", "/workspace", config={"timeout": 5})
 
         assert result.status == "failed"
         assert "timed out" in result.error
-        mock_proc.terminate.assert_called_once()
+        # The CLI's whole process group is stopped, not just the CLI (KI-22).
+        killpg.assert_any_call(424242, signal.SIGTERM)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -213,12 +219,14 @@ class TestCLIBackendCancel:
 
         mock_proc = AsyncMock()
         mock_proc.returncode = None
-        mock_proc.terminate = MagicMock()
+        mock_proc.pid = 424242
         mock_proc.wait = AsyncMock(return_value=0)
 
         executor._processes["t1"] = mock_proc
-        await executor.cancel("t1")
-        mock_proc.terminate.assert_called_once()
+        with patch("codeforge.subprocess_utils.os.killpg") as killpg:
+            await executor.cancel("t1")
+        # The CLI's whole process group is stopped, not just the CLI (KI-22).
+        killpg.assert_any_call(424242, signal.SIGTERM)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -386,6 +394,43 @@ class TestOpenHandsExecute:
 
         with patch("codeforge.backends.openhands.httpx.AsyncClient", return_value=mock_client):
             await executor.cancel("t1")
+
+        mock_client.delete.assert_awaited_once_with("http://test:3000/api/conversations/conv-123")
+        assert "t1" not in executor._active_tasks
+
+    @pytest.mark.asyncio
+    async def test_cancelled_execution_stops_the_remote_conversation(self) -> None:
+        """A cancelled task (tasks.cancel, worker shutdown) must not keep OpenHands working (KI-22)."""
+        executor = OpenHandsExecutor(url="http://test:3000")
+
+        post_response = MagicMock()
+        post_response.raise_for_status = MagicMock()
+        post_response.json.return_value = {"conversation_id": "conv-123"}
+        running = MagicMock()
+        running.raise_for_status = MagicMock()
+        running.json.return_value = {"status": "running", "messages": []}
+        polled = asyncio.Event()
+
+        async def poll(*_args: object, **_kwargs: object) -> MagicMock:
+            polled.set()
+            return running
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=post_response)
+        mock_client.get = AsyncMock(side_effect=poll)
+        mock_client.delete = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("codeforge.backends.openhands.httpx.AsyncClient", return_value=mock_client),
+            patch("codeforge.backends.openhands._POLL_INTERVAL", 0.01),
+        ):
+            execution = asyncio.create_task(executor.execute("t1", "fix bug", "/workspace"))
+            await asyncio.wait_for(polled.wait(), timeout=2)
+            execution.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await execution
 
         mock_client.delete.assert_awaited_once_with("http://test:3000/api/conversations/conv-123")
         assert "t1" not in executor._active_tasks

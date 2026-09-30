@@ -45,8 +45,8 @@ ARGUMENTS_PREVIEW_MAX_CHARS = 1000
 logger = structlog.get_logger()
 
 
-def _notification_consumer() -> ConsumerConfig:
-    """Settings of the ephemeral consumers a run listens on (cancel messages, tool-call responses).
+def notification_consumer() -> ConsumerConfig:
+    """Settings of the ephemeral consumers a run or task listens on (cancel messages, tool-call responses).
 
     They see new messages only and are never acked: with explicit acks
     JetStream would redeliver every message after the ack wait and stop
@@ -131,7 +131,7 @@ class RuntimeClient:
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
         for subject in subjects:
-            sub = await self._js.subscribe(subject, config=_notification_consumer())
+            sub = await self._js.subscribe(subject, config=notification_consumer())
             self._cancel_subs.append(sub)
             self._cancel_tasks.append(asyncio.create_task(self._listen_for_cancel(sub)))
 
@@ -275,7 +275,7 @@ class RuntimeClient:
         # Subscribe BEFORE publishing to avoid a race condition where Go
         # responds before the subscription is established. Only new messages
         # matter: the response to the request we are about to publish.
-        sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE, config=_notification_consumer())
+        sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE, config=notification_consumer())
         try:
             try:
                 await self._js.publish(

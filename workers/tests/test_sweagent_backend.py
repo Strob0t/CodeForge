@@ -100,7 +100,7 @@ class TestSweagentExecute:
 
     @pytest.mark.asyncio
     async def test_timeout_terminates_process(self, executor: SweagentExecutor) -> None:
-        """Timeout triggers graceful termination."""
+        """Timeout stops the process group (KI-22)."""
         mock_proc = AsyncMock()
         mock_proc.returncode = None
         mock_proc.stdout = AsyncMock()
@@ -111,7 +111,7 @@ class TestSweagentExecute:
 
         with (
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
-            patch("codeforge.backends._cli_base.graceful_terminate", new_callable=AsyncMock) as mock_term,
+            patch("codeforge.backends._cli_base.terminate_process_group", new_callable=AsyncMock) as mock_term,
         ):
             result = await executor.execute(
                 task_id="t4",
@@ -175,13 +175,13 @@ class TestSweagentCancel:
 
     @pytest.mark.asyncio
     async def test_cancel_running_task(self) -> None:
-        """Cancel terminates the running subprocess."""
+        """Cancel stops the running subprocess and its process group (KI-22)."""
         executor = SweagentExecutor(cli_path="/usr/bin/sweagent")
         mock_proc = AsyncMock()
         mock_proc.returncode = None
         executor._processes["t1"] = mock_proc
 
-        with patch("codeforge.backends._cli_base.graceful_terminate", new_callable=AsyncMock) as mock_term:
+        with patch("codeforge.backends._cli_base.terminate_process_group", new_callable=AsyncMock) as mock_term:
             await executor.cancel("t1")
 
         mock_term.assert_awaited_once_with(mock_proc)

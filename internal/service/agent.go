@@ -174,18 +174,33 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 	return nil
 }
 
-// HandleResult processes a task result received from a worker.
+// HandleResult processes a task result received from a worker: an error
+// result leaves the task failed, any other completed.
 func (s *AgentService) HandleResult(ctx context.Context, result task.Result, taskID, projectID string, costUSD float64) error {
-	taskStatus := task.StatusCompleted
-	evType := event.TypeAgentFinished
+	status := task.StatusCompleted
 	if result.Error != "" {
-		taskStatus = task.StatusFailed
-		evType = event.TypeAgentError
+		status = task.StatusFailed
 	}
-	if err := s.store.UpdateTaskResult(ctx, taskID, taskStatus, result, costUSD); err != nil {
+	return s.recordResult(ctx, status, result, taskID, projectID, costUSD)
+}
+
+// HandleCancelledResult processes the result of a task the worker stopped on
+// tasks.cancel: the task stays cancelled.
+func (s *AgentService) HandleCancelledResult(ctx context.Context, result task.Result, taskID, projectID string, costUSD float64) error {
+	return s.recordResult(ctx, task.StatusCancelled, result, taskID, projectID, costUSD)
+}
+
+// recordResult stores a worker's task result with the final status, records
+// the event and broadcasts the status.
+func (s *AgentService) recordResult(ctx context.Context, final task.Status, result task.Result, taskID, projectID string, costUSD float64) error {
+	if err := s.store.UpdateTaskResult(ctx, taskID, final, result, costUSD); err != nil {
 		return fmt.Errorf("update task result: %w", err)
 	}
-	status := string(taskStatus)
+	status := string(final)
+	evType := event.TypeAgentFinished
+	if final != task.StatusCompleted {
+		evType = event.TypeAgentError
+	}
 
 	// The result names no agent: record the task's. A task dispatched without
 	// an assignment has none, and the event is stored without agent.
@@ -230,6 +245,9 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 			TokensOut: result.TokensOut,
 		}
 
+		if result.Status == string(task.StatusCancelled) {
+			return s.HandleCancelledResult(msgCtx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
+		}
 		return s.HandleResult(msgCtx, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
 	})
 }
