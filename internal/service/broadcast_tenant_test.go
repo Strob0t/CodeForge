@@ -180,8 +180,9 @@ func TestAgentWorkerStreams_ScopeToEchoedTenant(t *testing.T) {
 func TestAgentDispatch_SendsTenantToBackend(t *testing.T) {
 	queue := newHandlerCapturingQueue()
 	store := &mockStore{
-		agents: []agent.Agent{{ID: "agent-1", ProjectID: "proj-1", Name: "a", Backend: "tenant-probe", Status: agent.StatusIdle}},
-		tasks:  []task.Task{{ID: "task-1", ProjectID: "proj-1", Title: "t", Prompt: "p", Status: task.StatusPending}},
+		projects: []project.Project{{ID: "proj-1", WorkspacePath: "/ws"}},
+		agents:   []agent.Agent{{ID: "agent-1", ProjectID: "proj-1", Name: "a", Backend: "tenant-probe", Status: agent.StatusIdle}},
+		tasks:    []task.Task{{ID: "task-1", ProjectID: "proj-1", Title: "t", Prompt: "p", Status: task.StatusPending}},
 	}
 	backend := registerTenantProbeBackend(t)
 	svc := NewAgentService(store, queue, &tenantRecorder{})
@@ -431,10 +432,10 @@ func (b *tenantProbeBackend) Capabilities() agentbackend.Capabilities {
 }
 func (b *tenantProbeBackend) Stop(context.Context, string) error { return nil }
 
-func (b *tenantProbeBackend) Execute(_ context.Context, t *task.Task) (*task.Result, error) {
+func (b *tenantProbeBackend) Execute(_ context.Context, e *agentbackend.Execution) (*task.Result, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.tenant = t.TenantID
+	b.tenant = e.Task.TenantID
 	return nil, nil
 }
 

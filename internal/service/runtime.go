@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
@@ -258,7 +259,7 @@ func (s *RuntimeService) prepareSandbox(ctx context.Context, runID, projectID st
 // MCP servers, and microagent prompts.
 func (s *RuntimeService) buildRunPayload(
 	ctx context.Context,
-	r *run.Run, t *task.Task, ag *agent.Agent,
+	r *run.Run, proj *project.Project, t *task.Task, ag *agent.Agent,
 	profileName string, profile *policy.PolicyProfile,
 	resolvedMode *messagequeue.ModePayload, modeID string,
 	deliverMode run.DeliverMode,
@@ -280,7 +281,9 @@ func (s *RuntimeService) buildRunPayload(
 			TimeoutSeconds: profile.Termination.TimeoutSeconds,
 			MaxCost:        profile.Termination.MaxCost,
 		},
-		Trust: trust.Internal(ag.ID),
+		Trust:         trust.Internal(ag.ID),
+		WorkspacePath: proj.WorkspacePath,
+		Backend:       ag.Backend,
 	}
 
 	// Build context pack if context optimizer is available.
@@ -449,7 +452,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	// Build and publish NATS payload.
-	payload := s.buildRunPayload(ctx, r, t, ag, profileName, &profile, resolvedMode, modeID, deliverMode)
+	payload := s.buildRunPayload(ctx, r, proj, t, ag, profileName, &profile, resolvedMode, modeID, deliverMode)
 
 	// Quarantine gate: check if message should be held for review.
 	if s.quarantine != nil {

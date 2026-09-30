@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -79,6 +81,16 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("create backend: %w", err)
 	}
 
+	// The backend edits the project workspace; without one it would run in
+	// the worker's own directory.
+	proj, err := s.store.GetProject(ctx, ag.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+	if strings.TrimSpace(proj.WorkspacePath) == "" {
+		return fmt.Errorf("%w: project %s has no workspace (clone or adopt a repository first)", domain.ErrValidation, proj.ID)
+	}
+
 	// Mark agent as running
 	if err := s.store.UpdateAgentStatus(ctx, agentID, agent.StatusRunning); err != nil {
 		return fmt.Errorf("update agent status: %w", err)
@@ -93,7 +105,7 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	// Dispatch to backend (async via NATS). The worker echoes the tenant in
 	// its output and result messages, which scopes their WebSocket events.
 	t.TenantID = tenantctx.FromContext(ctx)
-	if _, err := backend.Execute(ctx, t); err != nil {
+	if _, err := backend.Execute(ctx, &agentbackend.Execution{Task: t, WorkspacePath: proj.WorkspacePath}); err != nil {
 		// Revert agent status on failure
 		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
 		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))

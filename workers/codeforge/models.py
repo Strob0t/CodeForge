@@ -23,15 +23,20 @@ class TaskStatus(StrEnum):
 
 
 class TaskMessage(BaseModel):
-    """Message received from NATS when a task is assigned to a worker."""
+    """Message received from NATS when a task is assigned to a worker (Go TaskAgentPayload)."""
 
     model_config = {"populate_by_name": True}
 
     id: str = Field(alias="task_id")
     project_id: str
     tenant_id: str = ""
+    agent_id: str = ""
     title: str
     prompt: str
+    # The agent backend and the project workspace it works in; "" in tasks
+    # published before they were part of the payload.
+    backend: str = ""
+    workspace_path: str = ""
     config: dict[str, str] = Field(default_factory=dict)
 
 
@@ -115,6 +120,10 @@ class RunStartMessage(BaseModel):
     context: list[ContextEntry] = Field(default_factory=list)
     microagent_prompts: list[str] = Field(default_factory=list)
     trust: TrustAnnotation | None = None
+    # The project workspace the run's tools work in, and the agent's backend
+    # (informational: runs execute in the worker's own agent loop).
+    workspace_path: str = ""
+    backend: str = ""
 
     @field_validator("config", mode="before")
     @classmethod

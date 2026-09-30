@@ -33,8 +33,10 @@ from codeforge.models import (
     RetrievalIndexResult,
     RetrievalSearchRequest,
     RetrievalSearchResult,
+    RunStartMessage,
     SubAgentSearchRequest,
     SubAgentSearchResult,
+    TaskMessage,
 )
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "internal" / "port" / "messagequeue" / "testdata" / "contracts"
@@ -44,6 +46,8 @@ FIXTURES_DIR = Path(__file__).parent.parent.parent / "internal" / "port" / "mess
 SUBJECT_MODEL_MAP: dict[str, type[BaseModel]] = {
     "conversation.run.start": ConversationRunStartMessage,
     "conversation.run.complete": ConversationRunCompleteMessage,
+    "runs.start": RunStartMessage,
+    "tasks.agent": TaskMessage,
     "benchmark.run.request": BenchmarkRunRequest,
     "benchmark.run.result": BenchmarkRunResult,
     "evaluation.gemmas.request": GemmasEvalRequest,

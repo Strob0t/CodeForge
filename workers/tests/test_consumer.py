@@ -203,3 +203,31 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
     assert task_arg.prompt == "Refactor utils module"
     assert "--- Relevant Context ---" not in task_arg.prompt
     msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
+
+
+async def test_handle_run_start_passes_workspace_and_backend(consumer: TaskConsumer) -> None:
+    """The run's tools work in the project workspace named by the run start (KI-23)."""
+    run_msg = RunStartMessage(
+        run_id="run-3",
+        task_id="task-3",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="Add a test",
+        workspace_path="/data/workspaces/proj-1",
+        backend="aider",
+    )
+    msg = MagicMock()
+    msg.data = run_msg.model_dump_json().encode()
+    msg.headers = None
+    msg.ack_sync = AsyncMock()
+
+    consumer._js = AsyncMock()
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = AsyncMock()
+
+    await consumer._handle_run_start(msg)
+
+    task_arg = consumer._executor.execute_with_runtime.call_args.args[0]
+    assert task_arg.workspace_path == "/data/workspaces/proj-1"
+    assert task_arg.backend == "aider"
+    assert task_arg.agent_id == "agent-1"

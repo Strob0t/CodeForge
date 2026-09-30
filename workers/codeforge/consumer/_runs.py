@@ -122,7 +122,11 @@ class RunHandlerMixin:
         return TaskMessage(
             id=run_msg.task_id,
             project_id=run_msg.project_id,
+            tenant_id=run_msg.tenant_id,
+            agent_id=run_msg.agent_id,
             title=run_msg.prompt[:80],
             prompt=enriched_prompt,
+            backend=run_msg.backend,
+            workspace_path=run_msg.workspace_path,
             config=run_msg.config,
         )

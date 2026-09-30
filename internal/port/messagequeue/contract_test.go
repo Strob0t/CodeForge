@@ -198,6 +198,42 @@ func sampleConversationRunStartPayload() mq.ConversationRunStartPayload {
 	}
 }
 
+func sampleRunStartPayload() mq.RunStartPayload {
+	return mq.RunStartPayload{
+		RunID:             "550e8400-e29b-41d4-a716-446655440040",
+		TaskID:            "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:         "550e8400-e29b-41d4-a716-446655440004",
+		AgentID:           "550e8400-e29b-41d4-a716-446655440042",
+		TenantID:          "00000000-0000-0000-0000-000000000000",
+		Prompt:            "Fix the null pointer in handler.go",
+		PolicyProfile:     "headless-safe-sandbox",
+		ExecMode:          "mount",
+		DeliverMode:       "patch",
+		Mode:              sampleModePayload(),
+		Config:            map[string]string{"model": "anthropic/claude-sonnet-4-20250514"},
+		Termination:       sampleTerminationPayload(),
+		Context:           []mq.ContextEntryPayload{sampleContextEntryPayload()},
+		MCPServers:        []mq.MCPServerDefPayload{sampleMCPServerDefPayload()},
+		MicroagentPrompts: []string{"When working with Go, always run gofmt."},
+		Trust:             sampleTrustAnnotation(),
+		WorkspacePath:     "/data/workspaces/my-project",
+		Backend:           "aider",
+	}
+}
+
+func sampleTaskAgentPayload() mq.TaskAgentPayload {
+	return mq.TaskAgentPayload{
+		TaskID:        "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:     "550e8400-e29b-41d4-a716-446655440004",
+		TenantID:      "00000000-0000-0000-0000-000000000000",
+		AgentID:       "550e8400-e29b-41d4-a716-446655440042",
+		Title:         "Fix bug",
+		Prompt:        "Fix the null pointer in handler.go",
+		Backend:       "aider",
+		WorkspacePath: "/data/workspaces/my-project",
+	}
+}
+
 func sampleConversationRunCompletePayload() mq.ConversationRunCompletePayload {
 	return mq.ConversationRunCompletePayload{
 		RunID:            "550e8400-e29b-41d4-a716-446655440001",
@@ -551,8 +587,8 @@ func sampleContextRerankResultPayload() mq.ContextRerankResultPayload {
 
 // TODO(FIX-086): The following NATS subjects still need contract test coverage:
 //
-//  - tasks.agent / tasks.result / tasks.output / tasks.cancel (legacy task dispatch)
-//  - runs.start / runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
+//  - tasks.result / tasks.output / tasks.cancel (legacy task dispatch)
+//  - runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
 //  - runs.complete / runs.cancel / runs.output / runs.heartbeat
 //  - runs.qualitygate.request / runs.qualitygate.result
 //  - context.shared.updated
@@ -575,6 +611,8 @@ type fixtureEntry struct {
 func allFixtures() []fixtureEntry {
 	return []fixtureEntry{
 		{mq.SubjectConversationRunStart, sampleConversationRunStartPayload()},
+		{mq.SubjectRunStart, sampleRunStartPayload()},
+		{mq.SubjectTaskAgent, sampleTaskAgentPayload()},
 		{mq.SubjectConversationRunComplete, sampleConversationRunCompletePayload()},
 		{mq.SubjectConversationCompactComplete, sampleConversationCompactCompletePayload()},
 		{mq.SubjectBenchmarkRunRequest, sampleBenchmarkRunRequestPayload()},
@@ -671,6 +709,8 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 	// Common field expectations per subject.
 	expectedKeys := map[string][]string{
 		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id"},
+		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend"},
+		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
 		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model"},

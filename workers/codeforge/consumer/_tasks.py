@@ -37,7 +37,9 @@ class TaskHandlerMixin:
         if task is None:
             return
 
-        backend_name = msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown"
+        # The subject suffix routes the message; tasks published before the
+        # payload named the backend only have that.
+        backend_name = task.backend or (msg.subject.rsplit(".", 1)[-1] if msg.subject else "unknown")
         log = log.bind(task_id=task.id, backend=backend_name)
 
         dedup_key = f"task-{task.id}"
@@ -74,7 +76,7 @@ class TaskHandlerMixin:
                     backend_name=backend_name,
                     task_id=task.id,
                     prompt=task.prompt,
-                    workspace_path=task.config.get("workspace_path", ""),
+                    workspace_path=task.workspace_path,
                     config=task.config,
                     on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id, task.tenant_id),
                 )

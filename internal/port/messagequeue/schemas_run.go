@@ -3,8 +3,37 @@ package messagequeue
 import (
 	"encoding/json"
 
+	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
+
+// TaskAgentPayload is the schema for tasks.agent.{backend} messages: a task
+// for an agent backend (Aider, OpenHands, ...) that the worker runs in the
+// project workspace.
+type TaskAgentPayload struct {
+	TaskID        string `json:"task_id"`
+	ProjectID     string `json:"project_id"`
+	TenantID      string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	AgentID       string `json:"agent_id,omitempty"`
+	Title         string `json:"title"`
+	Prompt        string `json:"prompt"`
+	Backend       string `json:"backend"`
+	WorkspacePath string `json:"workspace_path"`
+}
+
+// NewTaskAgentPayload builds the tasks.agent.{backend} payload for t.
+func NewTaskAgentPayload(t *task.Task, backend, workspacePath string) TaskAgentPayload {
+	return TaskAgentPayload{
+		TaskID:        t.ID,
+		ProjectID:     t.ProjectID,
+		TenantID:      t.TenantID,
+		AgentID:       t.AgentID,
+		Title:         t.Title,
+		Prompt:        t.Prompt,
+		Backend:       backend,
+		WorkspacePath: workspacePath,
+	}
+}
 
 // TaskResultPayload is the schema for tasks.result messages.
 type TaskResultPayload struct {
@@ -59,6 +88,8 @@ type RunStartPayload struct {
 	MCPServers        []MCPServerDefPayload `json:"mcp_servers,omitempty"`        // MCP server definitions (Phase 15A)
 	MicroagentPrompts []string              `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
 	Trust             *trust.Annotation     `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
+	WorkspacePath     string                `json:"workspace_path"`               // project workspace the run's tools work in
+	Backend           string                `json:"backend"`                      // the agent's backend (informational: the worker runs its own agent loop)
 }
 
 // TerminationPayload carries the termination limits for a run.
