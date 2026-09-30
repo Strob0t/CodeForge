@@ -46,7 +46,10 @@ func plantAttacks(t *testing.T, dir, program string) {
 	gitRun(t, dir, "config", "filter.x.clean", program+" clean")
 	gitRun(t, dir, "config", "filter.x.smudge", program+" smudge")
 	gitRun(t, dir, "config", "filter.x.required", "true")
-	writeRepoFile(t, dir, ".gitattributes", "* filter=x diff=x\n")
+	// A filtered file the run does not change: commit delivery refuses
+	// changed filtered files (security review P3).
+	writeRepoFile(t, dir, ".gitattributes", "* diff=x\n*.dat filter=x\n")
+	writeRepoFile(t, dir, "data.dat", "planted\n")
 	for _, hook := range []string{"reference-transaction", "pre-commit", "post-commit", "post-checkout", "post-index-change"} {
 		writeRepoFile(t, filepath.Join(dir, ".git", "hooks"), hook, "#!/bin/sh\n"+program+" hook-"+hook+"\n")
 		if err := os.Chmod(filepath.Join(dir, ".git", "hooks", hook), 0o755); err != nil { //nolint:gosec // executable hook

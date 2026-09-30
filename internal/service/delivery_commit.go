@@ -60,6 +60,9 @@ func buildRunCommit(ctx context.Context, repo *git.Repo, runID, message string) 
 	if err != nil {
 		return nil, fmt.Errorf("working tree: %w", err)
 	}
+	if err := refuseFilteredChanges(ctx, repo, base.commit, final); err != nil {
+		return nil, err
+	}
 	theirs, err := scratchCommit(ctx, repo, final)
 	if err != nil {
 		return nil, err
@@ -95,6 +98,30 @@ func buildRunCommit(ctx context.Context, repo *git.Repo, runID, message string) 
 		headRef: headRef,
 		changed: strings.FieldsFunc(changed, func(r rune) bool { return r == 0 }),
 	}, nil
+}
+
+// refuseFilteredChanges refuses a commit of run changes to files with a
+// filter attribute (security review P3). The Go Core runs no filter
+// programs: it would commit such a file as its working tree content - an
+// LFS object as a plain blob, the plaintext of a git-crypt file - instead of
+// the form the repository stores. Patch delivery holds the content change,
+// which the user's git cleans again when the patch is applied and added.
+func refuseFilteredChanges(ctx context.Context, repo *git.Repo, base, final string) error {
+	out, err := repo.Run(ctx, nil, "diff-tree", "-r", "-z", "--name-only", "--no-renames", base, final)
+	if err != nil {
+		return fmt.Errorf("changed paths: %w", err)
+	}
+	changed := strings.FieldsFunc(out, func(r rune) bool { return r == 0 })
+	filtered, err := filteredPaths(ctx, repo, changed)
+	if err != nil {
+		return err
+	}
+	if len(filtered) > 0 {
+		return fmt.Errorf("the run changed files that git passes through a filter (git-lfs, git-crypt, ...): %s; "+
+			"CodeForge runs no filter programs and cannot commit them in their stored form - use patch delivery or commit them yourself",
+			strings.Join(filtered, ", "))
+	}
+	return nil
 }
 
 // headCommitOrEmpty returns the commit to merge the run's change onto and

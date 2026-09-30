@@ -76,7 +76,7 @@ func (s *CheckpointService) lockRun(runID string) func() {
 // runIndex returns the run's private index, kept across its checkpoints so
 // that git's stat cache spares re-hashing unchanged files. A missing one (the
 // first checkpoint, or after a restart) is seeded from the user's index.
-func (s *CheckpointService) runIndex(repo *git.Repo, runID string) (*privateIndex, error) {
+func (s *CheckpointService) runIndex(ctx context.Context, repo *git.Repo, runID string) (*privateIndex, error) {
 	s.mu.Lock()
 	if s.indexDir == "" {
 		dir, err := os.MkdirTemp("", "codeforge-checkpoints-*")
@@ -93,6 +93,7 @@ func (s *CheckpointService) runIndex(repo *git.Repo, runID string) (*privateInde
 		if err := seedIndex(repo, idx.path); err != nil {
 			return nil, err
 		}
+		idx.renormalizeIfFiltered(ctx, repo)
 	} else if err != nil {
 		return nil, fmt.Errorf("checkpoint index: %w", err)
 	}
@@ -117,7 +118,7 @@ func (s *CheckpointService) CreateCheckpoint(ctx context.Context, runID, workspa
 		if err != nil {
 			return fmt.Errorf("checkpoint: %w", err)
 		}
-		idx, err := s.runIndex(repo, runID)
+		idx, err := s.runIndex(ctx, repo, runID)
 		if err != nil {
 			return err
 		}
@@ -187,7 +188,7 @@ func (s *CheckpointService) withChain(ctx context.Context, runID, workspacePath,
 		if tip == "" {
 			return fmt.Errorf("run %s: %w", runID, ErrNoCheckpoints)
 		}
-		idx, err := s.runIndex(repo, runID)
+		idx, err := s.runIndex(ctx, repo, runID)
 		if err != nil {
 			return fmt.Errorf("%s: %w", op, err)
 		}
