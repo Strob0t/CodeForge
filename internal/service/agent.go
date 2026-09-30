@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
-	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
@@ -81,14 +79,16 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("create backend: %w", err)
 	}
 
-	// The backend edits the project workspace; without one it would run in
-	// the worker's own directory.
+	// The backend edits the agent's project workspace.
+	if err := requireProject("task", t.ID, t.ProjectID, ag.ProjectID); err != nil {
+		return err
+	}
 	proj, err := s.store.GetProject(ctx, ag.ProjectID)
 	if err != nil {
 		return fmt.Errorf("get project: %w", err)
 	}
-	if strings.TrimSpace(proj.WorkspacePath) == "" {
-		return fmt.Errorf("%w: project %s has no workspace (clone or adopt a repository first)", domain.ErrValidation, proj.ID)
+	if err := requireWorkspace(proj); err != nil {
+		return err
 	}
 
 	// Mark agent as running

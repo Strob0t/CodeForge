@@ -238,15 +238,15 @@ func newOrchRuntimeSetupWithStore(store database.Store) (*service.OrchestratorSe
 }
 
 // newOrchProjects returns the project the test plans belong to: starting a
-// step's run loads it to resolve the execution mode.
+// step's run loads it to resolve the execution mode and requires its workspace.
 func newOrchProjects() []project.Project {
-	return []project.Project{{ID: "proj-1", Name: "orchestrator test"}}
+	return []project.Project{{ID: "proj-1", Name: "orchestrator test", WorkspacePath: "/tmp/orchestrator-test"}}
 }
 
 func newIdleAgents(ids ...string) []agent.Agent {
 	var agents []agent.Agent
 	for _, id := range ids {
-		agents = append(agents, agent.Agent{ID: id, Status: agent.StatusIdle, Backend: "aider"})
+		agents = append(agents, agent.Agent{ID: id, ProjectID: "proj-1", Status: agent.StatusIdle, Backend: "aider"})
 	}
 	return agents
 }
@@ -254,7 +254,7 @@ func newIdleAgents(ids ...string) []agent.Agent {
 func newPendingTasks(ids ...string) []task.Task {
 	var tasks []task.Task
 	for _, id := range ids {
-		tasks = append(tasks, task.Task{ID: id, Status: task.StatusPending, Title: "Task " + id})
+		tasks = append(tasks, task.Task{ID: id, ProjectID: "proj-1", Status: task.StatusPending, Title: "Task " + id})
 	}
 	return tasks
 }

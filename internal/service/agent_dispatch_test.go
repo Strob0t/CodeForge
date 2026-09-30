@@ -111,3 +111,25 @@ func TestAgentDispatch_ProjectWithoutWorkspaceFails(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentDispatch_TaskOfAnotherProjectFails: the backend works in the
+// agent's project workspace, so a task of another project must not run there.
+func TestAgentDispatch_TaskOfAnotherProjectFails(t *testing.T) {
+	probe := registerExecutionProbe(t)
+	store := dispatchStore("/data/workspaces/proj-1")
+	store.projects = append(store.projects, project.Project{ID: "proj-2", Name: "q", WorkspacePath: "/data/workspaces/proj-2"})
+	store.tasks[0].ProjectID = "proj-2"
+	svc := NewAgentService(store, &mockQueue{}, &mockBroadcaster{})
+
+	err := svc.Dispatch(context.Background(), "agent-1", "task-1")
+
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("Dispatch error = %v, want ErrValidation", err)
+	}
+	if got := probe.reset(); len(got) != 0 {
+		t.Fatalf("backend was asked to execute %d task(s)", len(got))
+	}
+	if store.agents[0].Status != agent.StatusIdle {
+		t.Errorf("agent status = %q, want idle", store.agents[0].Status)
+	}
+}

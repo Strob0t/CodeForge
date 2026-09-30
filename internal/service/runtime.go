@@ -375,6 +375,10 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
+	// The run's tools edit this workspace.
+	if err := requireWorkspace(proj); err != nil {
+		return nil, err
+	}
 	execMode, err := resolveExecMode(req.ExecMode, proj)
 	if err != nil {
 		return nil, err
@@ -395,12 +399,18 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("get agent: %w", err)
 	}
+	if err := requireProject("agent", ag.ID, ag.ProjectID, req.ProjectID); err != nil {
+		return nil, err
+	}
 
 	modeID, resolvedMode := s.resolveRunMode(req.ModeID, ag)
 
 	t, err := s.store.GetTask(ctx, req.TaskID)
 	if err != nil {
 		return nil, fmt.Errorf("get task: %w", err)
+	}
+	if err := requireProject("task", t.ID, t.ProjectID, req.ProjectID); err != nil {
+		return nil, err
 	}
 
 	deliverMode := req.DeliverMode
