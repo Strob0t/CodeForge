@@ -233,7 +233,7 @@ type Orchestrator struct {
 // Runtime holds agent execution engine configuration.
 type Runtime struct {
 	StallThreshold         int           `yaml:"stall_threshold"`
-	StallMaxRetries        int           `yaml:"stall_max_retries"` // Max re-plan attempts on stall (default: 2)
+	StallMaxRetries        int           `yaml:"stall_max_retries"` // New runs a plan step gets after stalled runs; 0 = none (default: 2)
 	QualityGateTimeout     time.Duration `yaml:"quality_gate_timeout"`
 	DefaultDeliverMode     string        `yaml:"default_deliver_mode"`
 	DefaultTestCommand     string        `yaml:"default_test_command"` // Gate test command for projects without test_command whose language has no default ("" = none)

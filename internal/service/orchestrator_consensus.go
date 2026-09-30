@@ -487,8 +487,9 @@ func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event
 	}), "AppendEvent", slog.String("type", string(evtType)), slog.String("plan_id", p.ID))
 }
 
-// ReplanStep gives the plan step of an ended (e.g. stalled) run another
-// attempt (P1-8; not called by stall detection yet, KI-62). The ended run is
+// ReplanStep gives the plan step of an ended run another attempt (P1-8; a
+// stalled run is re-planned before its step ends, see replanStalledLocked,
+// so a step that ended is re-planned only by an explicit call). The ended run is
 // never reopened - a terminal run stays terminal (KI-31): the step becomes
 // pending again, the steps skipped because it did not complete become
 // pending too, and the plan's protocol starts the step with a new run.
@@ -544,6 +545,48 @@ func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) erro
 
 	s.advancePlanLocked(ctx, p)
 	return nil
+}
+
+// replanStalledLocked gives a plan step whose run stalled a new run instead of
+// failing it (MagenticOne stall re-planning, KI-62), at most
+// runtime.stall_max_retries times per step, and reports whether it did. The
+// step's earlier stalls are the stalled runs of its task since the plan was
+// created. The new run gets the step's task prompt; the stall is not added to
+// it. The caller holds s.mu and has not ended the step.
+func (s *OrchestratorService) replanStalledLocked(ctx context.Context, step *plan.Step, r *run.Run) bool {
+	if !r.Stalled() || s.runtime == nil || s.runtime.runtimeCfg.StallMaxRetries <= 0 {
+		return false
+	}
+	p, err := s.store.GetPlan(ctx, step.PlanID)
+	if err != nil || p.Status != plan.StatusRunning {
+		return false
+	}
+	runs, err := s.store.ListRunsByTask(ctx, step.TaskID)
+	if err != nil {
+		slog.Error("count the stalls of a plan step", "step_id", step.ID, "error", err)
+		return false
+	}
+	stalls := 0
+	for i := range runs {
+		if runs[i].Stalled() && !runs[i].CreatedAt.Before(p.CreatedAt) {
+			stalls++
+		}
+	}
+	if stalls > s.runtime.runtimeCfg.StallMaxRetries {
+		slog.Info("stalled plan step not re-planned: stall_max_retries used up",
+			"step_id", step.ID, "stalls", stalls, "max_retries", s.runtime.runtimeCfg.StallMaxRetries)
+		return false
+	}
+
+	if err := s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""); err != nil {
+		slog.Error("re-plan stalled step", "step_id", step.ID, "error", err)
+		return false
+	}
+	slog.Info("stalled plan step re-planned with a new run",
+		"stalled_run_id", r.ID, "step_id", step.ID, "attempt", stalls+1)
+	s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
+	s.advancePlanLocked(ctx, p)
+	return true
 }
 
 // unblockDependents makes the steps that were skipped because stepID did not

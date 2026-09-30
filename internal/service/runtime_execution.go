@@ -474,7 +474,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			logRunUpdate(ctx, s.stopRun(ctx, counted, run.StatusFailed, "stall detected: agent not making progress"), "stopRun", r.ID)
+			logRunUpdate(ctx, s.stopRun(ctx, counted, run.StatusFailed, run.StallDetectedError), "stopRun", r.ID)
 			return nil
 		}
 	}

@@ -494,6 +494,9 @@ func validate(cfg *Config) error {
 	if err := validateEmailApprovals(&cfg.Notification); err != nil {
 		return err
 	}
+	if err := validateStallMaxRetries(cfg.Runtime.StallMaxRetries); err != nil {
+		return err
+	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
 	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {
@@ -558,6 +561,14 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("postgres.dsn must not use sslmode=disable when APP_ENV=%s -- use sslmode=require or sslmode=verify-full", cfg.AppEnv)
 	}
 
+	return nil
+}
+
+// validateStallMaxRetries rejects a negative bound on stall re-plans.
+func validateStallMaxRetries(n int) error {
+	if n < 0 {
+		return fmt.Errorf("runtime.stall_max_retries must be 0 (no re-planning) or more (got %d)", n)
+	}
 	return nil
 }
 

@@ -363,6 +363,9 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 		r, err := s.store.GetRun(ctx, runID)
 		if err == nil {
 			errMsg = r.Error
+			if s.replanStalledLocked(ctx, step, r) {
+				return
+			}
 		}
 	case run.StatusCancelled:
 		stepStatus = plan.StepStatusCancelled

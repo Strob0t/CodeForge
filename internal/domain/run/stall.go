@@ -2,6 +2,15 @@ package run
 
 import "hash/fnv"
 
+// StallDetectedError is the error of a run the control plane stopped because
+// its agent made no progress; the orchestrator re-plans such a plan step.
+const StallDetectedError = "stall detected: agent not making progress"
+
+// Stalled reports whether the run was stopped by stall detection.
+func (r *Run) Stalled() bool {
+	return r.Status == StatusFailed && r.Error == StallDetectedError
+}
+
 // ProgressTools are tools that indicate meaningful work when successful.
 var ProgressTools = map[string]bool{
 	"Edit":  true,
