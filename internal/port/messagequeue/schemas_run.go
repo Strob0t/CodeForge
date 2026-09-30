@@ -69,6 +69,12 @@ type TerminationPayload struct {
 }
 
 // ToolCallRequestPayload is the schema for runs.toolcall.request messages.
+//
+// Tool is the worker's tool name (e.g. "bash", "edit_file" or a Claude Code
+// tool name); the policy layer maps it to its canonical name. Command is the
+// shell command of a bash call and empty otherwise. Path is the file or
+// directory argument of a file tool. ModeID is the agent mode the worker was
+// started with (conversation runs); runs use the mode stored on the run.
 type ToolCallRequestPayload struct {
 	RunID    string            `json:"run_id"`
 	CallID   string            `json:"call_id"`
@@ -76,6 +82,7 @@ type ToolCallRequestPayload struct {
 	Tool     string            `json:"tool"`
 	Command  string            `json:"command"`
 	Path     string            `json:"path"`
+	ModeID   string            `json:"mode_id,omitempty"`
 	Trust    *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
 }
 

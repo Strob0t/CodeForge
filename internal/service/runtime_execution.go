@@ -10,6 +10,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -58,13 +59,23 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
 
-	// Evaluate policy with reason tracking
+	// Evaluate policy with reason tracking. Paths are resolved against the
+	// project workspace and the run's mode restricts the tools it may use.
+	workspace := ""
+	proj, projErr := s.store.GetProject(ctx, r.ProjectID)
+	if projErr == nil {
+		workspace = proj.WorkspacePath
+	}
+	m, modeErr := s.resolveMode(r.ModeID)
+	if modeErr != nil {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), modeErr.Error())
+	}
 	call := policy.ToolCall{
 		Tool:    req.Tool,
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call)
+	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call, policyEvalOptions(workspace, m)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -134,12 +145,9 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	}
 
 	// Create checkpoint for file-modifying tools
-	if s.checkpoint != nil && decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) {
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		if projErr == nil {
-			if cpErr := s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID); cpErr != nil {
-				slog.Warn("checkpoint creation failed", "run_id", r.ID, "error", cpErr)
-			}
+	if s.checkpoint != nil && decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) && projErr == nil {
+		if cpErr := s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID); cpErr != nil {
+			slog.Warn("checkpoint creation failed", "run_id", r.ID, "error", cpErr)
 		}
 	}
 
@@ -147,7 +155,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	newSteps := r.StepCount + 1
 	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
 
-	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
+	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
 }
 
 // handleConversationToolCall handles tool call requests for conversation-based runs
@@ -181,28 +189,34 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	}
 	ctx = withEntityTenant(ctx, conv.TenantID)
 
-	// Resolve policy profile from the conversation's project.
-	policyProfile := ""
-	proj, projErr := s.store.GetProject(ctx, conv.ProjectID)
-	if projErr == nil {
-		policyProfile = proj.PolicyProfile
-		// Fall back to config["policy_preset"] if dedicated field is empty.
-		if policyProfile == "" {
-			if preset, ok := proj.Config["policy_preset"]; ok && preset != "" {
-				policyProfile = preset
-			}
-		}
+	proj, err := s.store.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		slog.Warn("project of conversation not found, denying tool call", "conversation_id", req.RunID, "project_id", conv.ProjectID, "error", err)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation project not found")
 	}
 
-	// If no policy profile is set, use the service default.
-	if policyProfile == "" {
-		policyProfile = s.policy.DefaultProfile()
+	// The worker reports the mode it was started with; without it, resolve the
+	// mode the same way the dispatch does.
+	modeID := req.ModeID
+	if modeID == "" {
+		modeID = conv.Mode
 	}
+	if modeID == "" {
+		modeID = defaultConversationMode
+	}
+	m, modeErr := s.resolveMode(modeID)
+	if modeErr != nil {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), modeErr.Error())
+	}
+	modeAutonomy := 0
+	if m != nil {
+		modeAutonomy = m.Autonomy
+	}
+	policyProfile := conversationPolicyProfile(proj, modeAutonomy, s.policy.DefaultProfile())
 
 	if _, ok := s.policy.GetProfile(policyProfile); !ok {
-		// Unknown profile — allow the call to proceed rather than blocking.
-		slog.Warn("unknown policy profile for conversation, allowing", "profile", policyProfile, "conversation_id", req.RunID)
-		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionAllow), "")
+		slog.Warn("unknown policy profile for conversation, denying", "profile", policyProfile, "conversation_id", req.RunID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), fmt.Sprintf("unknown policy profile %q", policyProfile))
 	}
 
 	// Evaluate policy.
@@ -211,7 +225,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call)
+	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call, policyEvalOptions(proj.WorkspacePath, m)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -220,8 +234,11 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	slog.Debug("conversation policy evaluation",
 		"conversation_id", req.RunID,
 		"tool", req.Tool,
+		"mode", modeID,
 		"decision", decision,
 		"profile", result.Profile,
+		"rule_index", result.RuleIndex,
+		"reason", result.Reason,
 	)
 
 	// HITL: when policy says "ask", check bypass / auto-approval before blocking.
@@ -255,7 +272,44 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	// Broadcast WS tool call status.
 	s.broadcastToolCallStatus(ctx, req.RunID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
-	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
+	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
+}
+
+// resolveMode loads the agent mode a tool call runs in. It returns nil
+// without error when no mode is set or no mode service is configured, and an
+// error for an unknown mode, so that the call is denied (fail closed).
+func (s *RuntimeService) resolveMode(modeID string) (*mode.Mode, error) {
+	if modeID == "" || s.modes == nil {
+		return nil, nil
+	}
+	m, err := s.modes.Get(modeID)
+	if err != nil {
+		return nil, fmt.Errorf("unknown mode %q", modeID)
+	}
+	return m, nil
+}
+
+// denialReason tells the worker (and through it the agent) why a tool call
+// was not allowed.
+func denialReason(decision policy.Decision, result *policy.EvaluationResult) string {
+	switch {
+	case decision == policy.DecisionAllow:
+		return ""
+	case result.Decision == policy.DecisionAsk:
+		return "not approved by a human reviewer"
+	default:
+		return result.Reason
+	}
+}
+
+// policyEvalOptions returns the policy evaluation options for a tool call:
+// the workspace that paths are resolved against and the mode's tool lists.
+func policyEvalOptions(workspace string, m *mode.Mode) []policy.EvalOption {
+	opts := []policy.EvalOption{policy.WithWorkspace(workspace)}
+	if m != nil {
+		opts = append(opts, policy.WithModeTools(m.ID, m.Tools, m.DeniedTools))
+	}
+	return opts
 }
 
 // HandleToolCallResult processes the outcome of an executed tool call.

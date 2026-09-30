@@ -58,6 +58,7 @@ class RuntimeClient:
         project_id: str,
         termination: TerminationConfig,
         tenant_id: str = "",
+        mode_id: str = "",
     ) -> None:
         self._js = js
         self.run_id = run_id
@@ -67,6 +68,9 @@ class RuntimeClient:
         # writes and WebSocket events to it and drops events without a tenant.
         self.tenant_id = tenant_id
         self.termination = termination
+        # Agent mode the run was started with; the Go policy layer enforces
+        # its tool lists on every tool call.
+        self.mode_id = mode_id
         self._metrics = ExecutionMetrics()
         self._cancelled = False
         self._cancel_sub: object | None = None
@@ -170,6 +174,7 @@ class RuntimeClient:
             "tool": tool,
             "command": command,
             "path": path,
+            "mode_id": self.mode_id,
         }
 
         start_time = time.monotonic()

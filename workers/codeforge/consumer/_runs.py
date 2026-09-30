@@ -50,6 +50,7 @@ class RunHandlerMixin:
             project_id=run_msg.project_id,
             termination=run_msg.termination,
             tenant_id=run_msg.tenant_id,
+            mode_id=run_msg.mode.id,
         )
 
         # Go rejects these runs at start; this catches run starts that bypass it

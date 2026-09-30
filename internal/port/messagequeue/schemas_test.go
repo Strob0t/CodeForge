@@ -1,9 +1,35 @@
 package messagequeue
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
+
+// The Python worker (workers/codeforge/runtime.py request_tool_call) publishes
+// exactly these fields on runs.toolcall.request; every one must be known here.
+func TestToolCallRequestPayload_WorkerContract(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`{"run_id":"conv-1","call_id":"c-1","tool":"bash","command":"go test ./... && ls","path":"","mode_id":"architect"}`)
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var got ToolCallRequestPayload
+	if err := dec.Decode(&got); err != nil {
+		t.Fatalf("decode worker payload: %v", err)
+	}
+	want := ToolCallRequestPayload{RunID: "conv-1", CallID: "c-1", Tool: "bash", Command: "go test ./... && ls", ModeID: "architect"}
+	if got.RunID != want.RunID || got.CallID != want.CallID || got.Tool != want.Tool ||
+		got.Command != want.Command || got.Path != want.Path || got.ModeID != want.ModeID {
+		t.Fatalf("decoded %+v, want %+v", got, want)
+	}
+
+	// Payloads from older workers without mode_id stay valid.
+	var legacy ToolCallRequestPayload
+	if err := json.Unmarshal([]byte(`{"run_id":"r","call_id":"c","tool":"Read","command":"","path":"x"}`), &legacy); err != nil || legacy.ModeID != "" {
+		t.Fatalf("legacy payload: %+v, %v", legacy, err)
+	}
+}
 
 func TestConversationMessagePayloadWithImagesRoundTrip(t *testing.T) {
 	t.Parallel()

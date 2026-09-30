@@ -20,6 +20,7 @@ from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
     ConversationRunStartMessage,
+    ModeConfig,
 )
 
 if TYPE_CHECKING:
@@ -189,6 +190,27 @@ class TestHandleConversationRun:
 
         msg.ack.assert_called_once()
         assert runtime_cls.call_args.kwargs["tenant_id"] == "aaaaaaaa-0000-0000-0000-000000000001"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("mode", "expected_mode_id"), [(ModeConfig(id="architect"), "architect"), (None, "")])
+    async def test_runtime_client_reports_mode(self, mode: ModeConfig | None, expected_mode_id: str) -> None:
+        """The RuntimeClient sends the dispatched mode with every tool call (KI-10)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-mode-test")
+        run_msg.mode = mode
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.assert_called_once()
+        assert runtime_cls.call_args.kwargs["mode_id"] == expected_mode_id
 
     @pytest.mark.asyncio
     async def test_invalid_json_publishes_error_and_acks(self) -> None:

@@ -404,6 +404,7 @@ class ConversationHandlerMixin:
                 project_id=run_msg.project_id,
                 termination=run_msg.termination,
                 tenant_id=run_msg.tenant_id,
+                mode_id=run_msg.mode.id if run_msg.mode else "",
             )
             await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
             await runtime.start_heartbeat()

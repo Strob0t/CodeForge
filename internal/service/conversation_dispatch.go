@@ -19,6 +19,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
+// defaultConversationMode is the mode of an agentic conversation turn when
+// neither the request nor the conversation selects one.
+const defaultConversationMode = "coder"
+
 // policyForAutonomy maps an autonomy level (1-5) to a policy preset name.
 func policyForAutonomy(autonomy int) string {
 	switch autonomy {
@@ -29,6 +33,23 @@ func policyForAutonomy(autonomy int) string {
 	default:
 		return "headless-safe-sandbox"
 	}
+}
+
+// conversationPolicyProfile resolves the policy profile of an agentic
+// conversation turn. It is used both when the turn is dispatched and when
+// its tool calls are evaluated, so both always agree:
+//  1. the profile the project selects explicitly (policy_profile, then
+//     config["policy_preset"]), which Allow-Always rules extend;
+//  2. the preset derived from the mode's autonomy level (modeAutonomy > 0);
+//  3. the service default.
+func conversationPolicyProfile(proj *project.Project, modeAutonomy int, defaultProfile string) string {
+	if p := projectPolicyProfile(proj); p != "" {
+		return p
+	}
+	if modeAutonomy > 0 {
+		return policyForAutonomy(modeAutonomy)
+	}
+	return defaultProfile
 }
 
 // isFullAutoProject checks if the project's policy profile uses an auto-allow mode
@@ -107,7 +128,7 @@ func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMod
 			modeID = convMode
 		}
 		if modeID == "" {
-			modeID = "coder"
+			modeID = defaultConversationMode
 		}
 		if m, mErr := s.modeSvc.Get(modeID); mErr == nil {
 			autonomy = m.Autonomy
@@ -255,14 +276,10 @@ func (s *ConversationService) dispatchAgenticRun(
 		return modeErr
 	}
 
-	// Resolve policy profile.
+	// Resolve policy profile (the same resolution the tool-call evaluation uses).
 	policyProfile := ""
 	if s.policySvc != nil {
-		modePolicy := ""
-		if modeAutonomy > 0 {
-			modePolicy = policyForAutonomy(modeAutonomy)
-		}
-		policyProfile = s.policySvc.ResolveProfile(modePolicy, proj.PolicyProfile)
+		policyProfile = conversationPolicyProfile(proj, modeAutonomy, s.policySvc.DefaultProfile())
 	}
 
 	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)
