@@ -82,6 +82,28 @@ _POLICY_PATH_KEYS: tuple[str, ...] = ("file_path", "notebook_path", "path")
 # command is evaluated by the command rules.
 _COMMAND_TOOLS: frozenset[str] = frozenset({"Bash", "Monitor"})
 
+# The only tools a Claude Code run gets (--tools) and the only ones the policy
+# socket lets Go decide: those the Go policy maps to a built-in tool
+# (internal/domain/policy/toolnames.go), so presets, deny lists and mode tool
+# lists apply to every call. An unmapped tool would be decided only by a
+# preset's default (allow under acceptEdits) and no mode tool list would
+# restrict it. WebFetch and WebSearch stay out on purpose: presets restrict
+# network access through Bash command rules (curl, wget, ...), which a fetch
+# tool would bypass; the agent loop has no web tools either. Names a CLI
+# version does not have (MultiEdit, LS in 2.1) are ignored by --tools.
+CLAUDE_CODE_TOOLS: tuple[str, ...] = (
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "Bash",
+    "Grep",
+    "Glob",
+    "LS",
+    "Monitor",
+)
+
 # Largest decision request the policy socket reads: it carries the whole tool
 # input (the content of a Write). A larger request is denied.
 MAX_POLICY_REQUEST_BYTES = 16 * 1024 * 1024
@@ -105,6 +127,7 @@ _REQUIRED_CLI_OPTIONS: tuple[str, ...] = (
     "--mcp-config",
     "--permission-mode",
     "--system-prompt",
+    "--tools",
 )
 # Denies every tool call the hook did not allow (nothing is auto-approved).
 _PERMISSION_MODE = "dontAsk"
@@ -281,6 +304,9 @@ class PolicySocketServer:
         except _BadPolicyRequestError as exc:
             logger.warning("claude code policy request rejected: %s", exc)
             return _DENY, str(exc)
+        if tool_name not in CLAUDE_CODE_TOOLS:
+            logger.warning("claude code tool %s is not available, denied", tool_name)
+            return _DENY, f"tool {tool_name} is not available in CodeForge Claude Code runs"
 
         command, path, preview = policy_request_args(tool_name, tool_input)
         try:
@@ -360,6 +386,8 @@ def build_cli_command(cli_path: str, *, max_turns: int, system_prompt: str, poli
         "--strict-mcp-config",
         "--mcp-config",
         json.dumps({"mcpServers": {}}),
+        "--tools",
+        ",".join(CLAUDE_CODE_TOOLS),
         "--permission-mode",
         _PERMISSION_MODE,
     ]

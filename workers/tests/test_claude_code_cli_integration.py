@@ -272,6 +272,10 @@ async def test_policy_deny_blocks_the_tool_and_repo_settings_are_ignored(
     assert sorted(os.listdir(evidence)) == []
     agent_requests = _agent_requests(fake_api[1])
     assert PROMPT in json.dumps(agent_requests[0]["messages"])
+    # The model is offered only tools the Go policy maps (no WebFetch, Agent, ...).
+    offered = {t["name"] for t in agent_requests[0]["tools"]}
+    assert "Bash" in offered
+    assert offered <= set(cce.CLAUDE_CODE_TOOLS), offered - set(cce.CLAUDE_CODE_TOOLS)
     (tool_result,) = _tool_results(agent_requests[-1])
     assert tool_result["is_error"] is True
     assert "denied by the test policy" in json.dumps(tool_result["content"])

