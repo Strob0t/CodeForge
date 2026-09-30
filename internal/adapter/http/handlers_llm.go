@@ -3,6 +3,8 @@ package http
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -41,25 +43,31 @@ func (h *Handlers) AddLLMModel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"status": "ok", "model": req.ModelName})
 }
 
-// DeleteLLMModel handles POST /api/v1/llm/models/delete
+// DeleteLLMModel handles DELETE /api/v1/llm/models/{id}
 func (h *Handlers) DeleteLLMModel(w http.ResponseWriter, r *http.Request) {
-	req, ok := readJSON[struct {
-		ID string `json:"id"`
-	}](w, r, h.Limits.MaxRequestBodySize)
-	if !ok {
-		return
-	}
-	if req.ID == "" {
-		writeError(w, http.StatusBadRequest, "id is required")
+	id, err := decodedURLParam(r, "id")
+	if err != nil || strings.TrimSpace(id) == "" {
+		writeError(w, http.StatusBadRequest, "a valid model id is required")
 		return
 	}
 
-	if err := h.LLM.DeleteModel(r.Context(), req.ID); err != nil {
+	if err := h.LLM.DeleteModel(r.Context(), id); err != nil {
 		slog.Error("litellm request failed", "error", err)
 		writeError(w, http.StatusBadGateway, "LLM service error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// decodedURLParam returns a path parameter with percent-escapes decoded. chi
+// matches routes on the escaped path only when the URL contains escapes that
+// normalize differently (such as %2F); only then is the parameter still escaped.
+func decodedURLParam(r *http.Request, name string) (string, error) {
+	param := chi.URLParam(r, name)
+	if r.URL.RawPath == "" {
+		return param, nil
+	}
+	return url.PathUnescape(param)
 }
 
 // LLMHealth handles GET /api/v1/llm/health

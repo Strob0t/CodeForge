@@ -55,8 +55,8 @@ type auditFunc func(action, resource string) func(http.Handler) http.Handler
 // for JSON API-only endpoints (no form posts). If HTML form support is added in
 // the future, add a CSRF token middleware.
 //
-// TODO: FIX-098: Some DELETE operations use POST (e.g., /llm/models/delete,
-// /projects/batch/delete). Migrate to proper HTTP DELETE in v2 (breaking change).
+// TODO: FIX-098: Some DELETE operations use POST (e.g., /projects/batch/delete).
+// Migrate to proper HTTP DELETE in v2 (breaking change).
 //
 // TODO: FIX-100: Partial updates should use PATCH, not PUT. Audit endpoints
 // that accept partial payloads and migrate to PATCH in v2 (breaking change).
@@ -418,7 +418,7 @@ func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// LLM management (proxied to LiteLLM)
 	r.Get("/llm/models", h.ListLLMModels)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/llm/models", h.AddLLMModel)
-	r.With(middleware.RequireRole(user.RoleAdmin)).Post("/llm/models/delete", h.DeleteLLMModel)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/llm/models/{id}", h.DeleteLLMModel)
 	r.Get("/llm/health", h.LLMHealth)
 	r.Get("/llm/discover", h.DiscoverLLMModels)
 

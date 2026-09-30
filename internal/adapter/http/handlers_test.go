@@ -1671,6 +1671,11 @@ func newTestRouterWithStore(store *mockStore) chi.Router {
 }
 
 func newTestRouterWithPolicies(store *mockStore, policySvc *service.PolicyService) chi.Router {
+	return newTestRouterWithLLM(store, policySvc, "http://localhost:4000")
+}
+
+// newTestRouterWithLLM is newTestRouterWithPolicies with the LiteLLM proxy at llmURL.
+func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, llmURL string) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
@@ -1718,7 +1723,7 @@ func newTestRouterWithPolicies(store *mockStore, policySvc *service.PolicyServic
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
-		LLM:              litellm.NewClient("http://localhost:4000", ""),
+		LLM:              litellm.NewClient(llmURL, ""),
 		Policies:         policySvc,
 		Runtime:          runtimeSvc,
 		Orchestrator:     orchSvc,
@@ -2497,33 +2502,6 @@ func TestAddLLMModelInvalidBody(t *testing.T) {
 	r := newTestRouter()
 
 	req := httptest.NewRequest("POST", "/api/v1/llm/models", bytes.NewReader([]byte("bad")))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestDeleteLLMModelMissingID(t *testing.T) {
-	r := newTestRouter()
-
-	body, _ := json.Marshal(map[string]string{})
-	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestDeleteLLMModelInvalidBody(t *testing.T) {
-	r := newTestRouter()
-
-	req := httptest.NewRequest("POST", "/api/v1/llm/models/delete", bytes.NewReader([]byte("{")))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
