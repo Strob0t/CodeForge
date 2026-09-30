@@ -164,6 +164,9 @@ services:
       LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
     volumes:
       - ./litellm:/app/data:ro
+    # LM_STUDIO_API_BASE defaults to the host; Linux needs the explicit mapping.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # LiteLLM reads its master key and database URL only from the environment.
     entrypoint:
       - /bin/sh
