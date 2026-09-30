@@ -61,6 +61,10 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   per-project clone `{profile}-custom-{projectID}` of the profile that decided the call; the clone replaces its base
   only for that project and never changes the project's profile selection. Profiles persist atomically to the file
   that defines them in `policy.custom_dir` (default `data/policies`).
+- Claude Code (KI-72): its tool calls reach the policy through a PreToolUse hook and a per-run socket in the worker;
+  `Monitor` (background shell command) is an alias of `Bash`; the CLI is offered only tools with a canonical name
+  and any other name is denied before evaluation. Worker and Claude Code send paths through one mapping
+  (`workers/codeforge/policy_args.py`): relative to the real workspace, absolute when outside it.
 
 ## Consequences
 

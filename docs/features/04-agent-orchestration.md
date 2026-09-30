@@ -23,6 +23,17 @@ All Go backends implement the `agentbackend.Backend` interface with capability d
 
 > **Current status:** Aider, Goose, OpenCode, Plandex and SWE-agent are CLI wrappers (each CLI must be installed); OpenHands is an HTTP API client that talks to a running OpenHands server. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. The Python consumer routes tasks to the correct backend based on the NATS subject name. Gaps: `tasks.cancel` does not stop a running backend process, and backend tasks always receive an empty `workspace_path` (see [Known Issues](../todo.md#known-issues) KI-22, KI-23).
 
+#### Claude Code (`claudecode/*` routing target)
+
+With `CODEFORGE_CLAUDECODE_ENABLED=true` the router can pick `claudecode/default` for conversations in the configured complexity tiers (runs never use it). `workers/codeforge/claude_code_executor.py` runs the Claude Code CLI in the conversation's workspace, and every tool call is decided by the Go policy (KI-72):
+
+- **Hook and socket:** a PreToolUse hook (matcher `*`, `workers/codeforge/claude_code_policy_hook.py`, stdlib only, run as `<python> -I <hook> || exit 2`) sends each call to a per-run unix socket (private 0700 directory under `/tmp`, random token) served by the executor, which asks Go via `runs.toolcall.request`; mode tool lists, path and command rules and HITL apply. Any error blocks the call.
+- **Tools:** only tools the Go policy maps to canonical names are offered (`--tools Read,Write,Edit,MultiEdit,NotebookEdit,Bash,Grep,Glob,LS,Monitor`; `Monitor` counts as `Bash`); any other tool name is denied before Go is asked. WebFetch and WebSearch are not offered: presets restrict network access through Bash command rules, which a fetch tool would bypass.
+- **Paths:** the same mapping as the agent loop (`workers/codeforge/policy_args.py`): paths relative to the real (symlink-resolved) workspace, a path outside stays absolute and is denied; glob patterns are checked where they can reach.
+- **Isolation from the repository:** `--setting-sources ""` (no user, project or local settings, hooks or permission rules), `--strict-mcp-config` with no MCP servers, `--permission-mode dontAsk` (only hook-allowed calls run), never `bypassPermissions`; the prompt goes to stdin and the system prompt to a 0600 file (`--system-prompt-file`).
+- **Supervision:** the CLI runs in its own process group; timeout (`CODEFORGE_CLAUDECODE_TIMEOUT`, run time without approval waits) and cancel (Stop in the chat, polled every 0.5 s) stop the whole group; output is streamed and usage counted even when a turn ends early. A failed turn falls back to the next model only if it changed nothing (`fallback_safe`).
+- **Capability check:** before a run, `<cli> --help` must list every flag used, and a probe checks the hidden `--system-prompt-file` / `--max-turns`; only a passing check is cached (per binary path and mtime). An unsupported CLI fails the run and is hidden from routing. Tested with Claude Code 2.1.x.
+
 ### Backend Routing Architecture
 
 The Python consumer extracts the backend name from the NATS subject (`tasks.agent.<backend_name>`) and routes via `BackendRouter`:

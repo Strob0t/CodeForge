@@ -154,7 +154,7 @@ scheduled as follows:
 | **KI-69** | Policy follow-ups (tools offered despite mode, clone snapshots, run profile, feedback providers, redirections) | S6 |
 | **KI-70** | Blue-green overlay does not work | S4 |
 | **KI-71** | Agent tools can read the worker's secrets (same UID) | S6 (with KI-13) |
-| **KI-72** | Claude Code runs bypass the policy layer | S6 (high: do first) |
+| **KI-72** | Claude Code runs bypass the policy layer | S6, **done 2026-09-30** |
 | **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6 |
 | **KI-74** | Frontend live-update follow-ups | S6 |
 | **KI-75** | LLM models are global across tenants | S6 |

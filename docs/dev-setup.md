@@ -704,9 +704,9 @@ Example:
 | `CODEFORGE_PLANDEX_PATH` | `plandex` | Path to Plandex CLI binary |
 | `CODEFORGE_OPENHANDS_URL` | `http://localhost:3000` | OpenHands service URL |
 | `CODEFORGE_CLAUDECODE_ENABLED` | `false` | Enable Claude Code as routing target |
-| `CODEFORGE_CLAUDECODE_PATH` | `claude` | Path to Claude Code CLI binary |
+| `CODEFORGE_CLAUDECODE_PATH` | `claude` | Path to the Claude Code CLI binary; it must pass the capability check (flags `--tools`, `--setting-sources`, `--strict-mcp-config`, `--permission-mode dontAsk`, `--system-prompt-file`, ...; 2.1.x tested), otherwise claudecode is not routed to. Runs create a private `/tmp/cf-cc-*` directory. Managed Claude Code settings must not set `disableAllHooks` or `allowManagedHooksOnly` |
 | `CODEFORGE_CLAUDECODE_MAX_TURNS` | `50` | Default max agentic turns per Claude Code run |
-| `CODEFORGE_CLAUDECODE_TIMEOUT` | `300` | CLI subprocess timeout in seconds |
+| `CODEFORGE_CLAUDECODE_TIMEOUT` | `300` | Run time limit per Claude Code turn in seconds (approval waits not counted) |
 | `CODEFORGE_CLAUDECODE_TIERS` | `COMPLEX,REASONING` | Complexity tiers that include Claude Code (comma-separated) |
 | `CODEFORGE_CLAUDECODE_MAX_CONCURRENT` | `5` | Max parallel Claude Code runs per worker |
 | `CODEFORGE_ROUTING_COMPLEXITY_ENABLED` | `true` | Enable complexity analyzer layer |
