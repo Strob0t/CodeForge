@@ -115,6 +115,24 @@ func TestEventStore_AppendWithoutAgentOrTask(t *testing.T) {
 		}
 	})
 
+	t.Run("an event without payload is stored with an empty object", func(t *testing.T) {
+		// Review events carry no payload; payload is JSONB NOT NULL.
+		for _, payload := range [][]byte{nil, {}} {
+			taskID := uuid.New().String()
+			ev := &event.AgentEvent{TaskID: taskID, ProjectID: proj.ID, Type: event.TypeReviewTriggered, Payload: payload}
+			if err := events.Append(ctx, ev); err != nil {
+				t.Fatalf("Append(payload %v): %v", payload, err)
+			}
+			got, err := events.LoadByTask(ctx, taskID)
+			if err != nil {
+				t.Fatalf("LoadByTask: %v", err)
+			}
+			if len(got) != 1 || string(got[0].Payload) != "{}" {
+				t.Errorf("stored events = %+v, want one with payload {}", got)
+			}
+		}
+	})
+
 	t.Run("an event without project is still rejected", func(t *testing.T) {
 		ev := &event.AgentEvent{Type: event.TypePlanStarted, Payload: []byte(`{}`), Version: 1}
 		if err := events.Append(ctx, ev); err == nil {

@@ -81,14 +81,19 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 // Append inserts a new event into the agent_events table.
 // The database assigns sequence_number via the sequence default; the assigned value
 // is written back to ev.SequenceNumber. An event without agent, task or run
-// (plan events, task results without an assigned agent) stores NULL for it.
+// (plan events, task results without an assigned agent) stores NULL for it;
+// an event without payload (review events) stores the empty object.
 func (s *EventStore) Append(ctx context.Context, ev *event.AgentEvent) error {
 	tid := middleware.TenantIDFromContext(ctx)
+	payload := ev.Payload
+	if len(payload) == 0 {
+		payload = []byte("{}")
+	}
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO agent_events (tenant_id, agent_id, task_id, project_id, run_id, event_type, payload, request_id, version, tool_name, model, tokens_in, tokens_out, cost_usd)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		 RETURNING sequence_number`,
-		tid, nullIfEmpty(ev.AgentID), nullIfEmpty(ev.TaskID), ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), ev.Payload, ev.RequestID, ev.Version,
+		tid, nullIfEmpty(ev.AgentID), nullIfEmpty(ev.TaskID), ev.ProjectID, nullIfEmpty(ev.RunID), string(ev.Type), payload, ev.RequestID, ev.Version,
 		ev.ToolName, ev.Model, ev.TokensIn, ev.TokensOut, ev.CostUSD).Scan(&ev.SequenceNumber)
 	if err != nil {
 		return fmt.Errorf("append event: %w", err)
