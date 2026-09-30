@@ -46,6 +46,12 @@ type OrchestratorService struct {
 	debateSteps    map[string]debateState
 	debatedStepIDs map[string]bool // steps that already completed a debate (skip re-evaluation)
 	planMaxRounds  map[string]int  // per-plan PingPongMaxRounds override (debate sub-plans)
+
+	// Review router decisions (KI-76): the router's LLM call runs outside mu,
+	// a step waits pending until its review is decided.
+	reviewMu        sync.Mutex
+	reviewsInFlight map[string]bool // steps whose review is being decided
+	reviewDecisions map[string]bool // step ID -> routed to a debate, decided and not yet used
 }
 
 // AddOnPlanComplete appends a callback invoked when a plan completes or fails.
@@ -87,6 +93,9 @@ func NewOrchestratorService(
 		debateSteps:    make(map[string]debateState),
 		debatedStepIDs: make(map[string]bool),
 		planMaxRounds:  make(map[string]int),
+
+		reviewsInFlight: make(map[string]bool),
+		reviewDecisions: make(map[string]bool),
 	}
 	// Self-register debate completion handler so debate sub-plans
 	// automatically trigger the parent step dispatch.

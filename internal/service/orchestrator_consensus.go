@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
@@ -47,9 +48,11 @@ func (s *OrchestratorService) advanceConsensus(ctx context.Context, p *plan.Exec
 }
 
 // startStep creates a Run for the step and marks it as running, and reports
-// whether the step started (with a run or a debate). A step whose run cannot
-// be started is marked failed. If the review router is enabled, it evaluates
-// the step first and may start a debate for it instead. The caller holds s.mu.
+// whether the step started (with a run or a debate) or waits for its review.
+// A step whose run cannot be started is marked failed. If the review router
+// is enabled, the step's review is decided first, outside the scheduling
+// lock (see takeReviewDecision), and may start a debate for it instead. The
+// caller holds s.mu.
 func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPlan, stepID string) bool {
 	var step *plan.Step
 	for i := range p.Steps {
@@ -72,7 +75,11 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	s.debateMu.Unlock()
 
 	if s.reviewRouter != nil && s.orchCfg.ReviewRouterEnabled && !alreadyDebated && !isDebateStep {
-		if s.evaluateStepReview(ctx, p, step) && s.startDebate(ctx, p, step) {
+		routed, decided := s.takeReviewDecision(ctx, p, step)
+		if !decided {
+			return true // the step starts once its review is decided
+		}
+		if routed && s.startDebate(ctx, p, step) {
 			return true
 		}
 		// Not routed, or the debate could not be started: run the step.
@@ -112,9 +119,63 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	return true
 }
 
+// reviewDecisionTimeout bounds the review router's LLM call; a step whose
+// review is not decided in time runs without a debate.
+const reviewDecisionTimeout = 2 * time.Minute
+
+// takeReviewDecision returns the review decision of a step that is about to
+// start and forgets it. Without a decision it starts deciding the step's
+// review in the background, once per step: the review router asks an LLM,
+// which must not run under the scheduling lock that every plan waits for
+// (KI-76). When the review is decided, the plan is advanced again and the
+// step, still pending, starts with the decision. The caller holds s.mu.
+func (s *OrchestratorService) takeReviewDecision(ctx context.Context, p *plan.ExecutionPlan, step *plan.Step) (routed, decided bool) {
+	s.reviewMu.Lock()
+	defer s.reviewMu.Unlock()
+	if routed, ok := s.reviewDecisions[step.ID]; ok {
+		delete(s.reviewDecisions, step.ID)
+		return routed, true
+	}
+	if !s.reviewsInFlight[step.ID] {
+		s.reviewsInFlight[step.ID] = true
+		reviewed := *step // the goroutine decides on its own copy
+		go s.decideReview(detachTenant(ctx), p.ID, p.ProjectID, &reviewed)
+	}
+	return false, false
+}
+
+// decideReview decides a step's review without the scheduling lock, then
+// advances the step's plan under it. A plan that is no longer running starts
+// nothing, and the decision is dropped.
+func (s *OrchestratorService) decideReview(ctx context.Context, planID, projectID string, step *plan.Step) {
+	evalCtx, cancel := context.WithTimeout(ctx, reviewDecisionTimeout)
+	routed := s.evaluateStepReview(evalCtx, planID, projectID, step)
+	cancel()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reviewMu.Lock()
+	delete(s.reviewsInFlight, step.ID)
+	s.reviewDecisions[step.ID] = routed
+	s.reviewMu.Unlock()
+
+	p, err := s.store.GetPlan(ctx, planID)
+	if err == nil && p.Status == plan.StatusRunning {
+		s.advancePlanLocked(ctx, p)
+		return
+	}
+	if err != nil {
+		slog.Error("get plan after its step's review", "plan_id", planID, "step_id", step.ID, "error", err)
+	}
+	s.reviewMu.Lock()
+	delete(s.reviewDecisions, step.ID)
+	s.reviewMu.Unlock()
+}
+
 // evaluateStepReview runs the review router against a step and broadcasts the decision.
-// Returns true if the step was routed to moderated review.
-func (s *OrchestratorService) evaluateStepReview(ctx context.Context, p *plan.ExecutionPlan, step *plan.Step) bool {
+// Returns true if the step was routed to moderated review. It asks an LLM:
+// the caller does not hold s.mu.
+func (s *OrchestratorService) evaluateStepReview(ctx context.Context, planID, projectID string, step *plan.Step) bool {
 	// Fetch task description for context
 	taskDesc := ""
 	t, err := s.store.GetTask(ctx, step.TaskID)
@@ -136,9 +197,9 @@ func (s *OrchestratorService) evaluateStepReview(ctx context.Context, p *plan.Ex
 
 	// Broadcast the review decision for frontend visibility.
 	s.hub.BroadcastEvent(ctx, event.EventReviewRouterDecision, event.ReviewRouterDecisionEvent{
-		PlanID:             p.ID,
+		PlanID:             planID,
 		StepID:             step.ID,
-		ProjectID:          p.ProjectID,
+		ProjectID:          projectID,
 		NeedsReview:        decision.NeedsReview,
 		Confidence:         decision.Confidence,
 		Reason:             decision.Reason,

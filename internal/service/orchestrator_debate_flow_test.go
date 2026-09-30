@@ -41,6 +41,11 @@ func (needsReviewLLM) HealthDetailed(context.Context) (*llm.HealthStatusReport, 
 // newDebateSetup is newOrchRuntimeSetup with a review router that sends every
 // step to a debate while cfg.ReviewRouterEnabled is set.
 func newDebateSetup(routerEnabled bool) (*orchMockStore, *service.OrchestratorService, *config.Orchestrator) {
+	return newDebateSetupWithLLM(routerEnabled, needsReviewLLM{})
+}
+
+// newDebateSetupWithLLM is newDebateSetup with the review router's LLM.
+func newDebateSetupWithLLM(routerEnabled bool, provider llm.Provider) (*orchMockStore, *service.OrchestratorService, *config.Orchestrator) {
 	store := newOrchStore()
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
@@ -52,7 +57,7 @@ func newDebateSetup(routerEnabled bool) (*orchMockStore, *service.OrchestratorSe
 	}
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, cfg)
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
-	orchSvc.SetReviewRouter(service.NewReviewRouterService(needsReviewLLM{}, cfg, &config.Limits{MaxInputLen: 10000}))
+	orchSvc.SetReviewRouter(service.NewReviewRouterService(provider, cfg, &config.Limits{MaxInputLen: 10000}))
 	return store, orchSvc, cfg
 }
 
@@ -68,20 +73,31 @@ func within(t *testing.T, what string, fn func()) {
 	}
 }
 
+// debatePlanOf waits until the debate of a step of plan parentID runs its
+// first step and returns the debate plan. The review router decides outside
+// the scheduling lock, so the debate starts after StartPlan returned.
 func debatePlanOf(t *testing.T, store *orchMockStore, parentID string) *plan.ExecutionPlan {
 	t.Helper()
-	store.mu.Lock()
-	var id string
-	for i := range store.plans {
-		if strings.HasPrefix(store.plans[i].Name, "debate:"+parentID+":") {
-			id = store.plans[i].ID
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		store.mu.Lock()
+		var id string
+		for i := range store.plans {
+			if strings.HasPrefix(store.plans[i].Name, "debate:"+parentID+":") {
+				id = store.plans[i].ID
+			}
 		}
+		store.mu.Unlock()
+		if id != "" {
+			if p := planState(t, store, id); p.Steps[0].Status == plan.StepStatusRunning && p.Steps[0].RunID != "" {
+				return p
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no running debate for %s", parentID)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	store.mu.Unlock()
-	if id == "" {
-		t.Fatalf("no debate plan for %s", parentID)
-	}
-	return planState(t, store, id)
 }
 
 func completeStepRun(t *testing.T, store *orchMockStore, orchSvc *service.OrchestratorService, planID string, i int) {
@@ -185,5 +201,82 @@ func TestDebate_StepsRunInTheirModes(t *testing.T) {
 	}
 	if r.ModeID != "proponent" {
 		t.Errorf("proponent run mode = %q, want proponent", r.ModeID)
+	}
+}
+
+// blockingReviewLLM answers the review router only when released.
+type blockingReviewLLM struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func newBlockingReviewLLM() *blockingReviewLLM {
+	return &blockingReviewLLM{entered: make(chan struct{}, 16), release: make(chan struct{})}
+}
+
+func (b *blockingReviewLLM) ChatCompletion(ctx context.Context, _ llm.ChatCompletionRequest) (*llm.ChatCompletionResponse, error) { //nolint:gocritic // llm.Provider takes the request by value
+	b.entered <- struct{}{}
+	select {
+	case <-b.release:
+		return needsReview(), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingReviewLLM) ChatCompletionStream(ctx context.Context, req llm.ChatCompletionRequest, _ func(llm.StreamChunk)) (*llm.ChatCompletionResponse, error) { //nolint:gocritic // llm.Provider takes the request by value
+	return b.ChatCompletion(ctx, req)
+}
+func (b *blockingReviewLLM) ListModels(context.Context) ([]llm.Model, error) { return nil, nil }
+func (b *blockingReviewLLM) Health(context.Context) (bool, error)            { return true, nil }
+func (b *blockingReviewLLM) HealthDetailed(context.Context) (*llm.HealthStatusReport, error) {
+	return &llm.HealthStatusReport{}, nil
+}
+
+// TestReviewRouter_LLMCallDoesNotHoldTheSchedulingLock: the review router's
+// LLM call ran under the global plan scheduling lock, so one slow call held
+// up every plan (KI-76). The step's review is decided outside the lock and
+// the step starts once it is decided.
+func TestReviewRouter_LLMCallDoesNotHoldTheSchedulingLock(t *testing.T) {
+	router := newBlockingReviewLLM()
+	store, orchSvc, _ := newDebateSetupWithLLM(true, router)
+	ctx := context.Background()
+	newPlan := func(name string) *plan.ExecutionPlan {
+		t.Helper()
+		p, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{
+			Name: name, ProjectID: "proj-1", Protocol: plan.ProtocolSequential,
+			Steps: []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}},
+		})
+		if err != nil {
+			t.Fatalf("CreatePlan: %v", err)
+		}
+		return p
+	}
+	first, second := newPlan("first"), newPlan("second")
+
+	within(t, "StartPlan while the review router's LLM call runs", func() {
+		if _, err := orchSvc.StartPlan(ctx, first.ID); err != nil {
+			t.Errorf("StartPlan: %v", err)
+		}
+	})
+	select {
+	case <-router.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the review router was not asked")
+	}
+	within(t, "scheduling another plan while the first plan's review is decided", func() {
+		if _, err := orchSvc.StartPlan(ctx, second.ID); err != nil {
+			t.Errorf("StartPlan: %v", err)
+		}
+	})
+	if st := planState(t, store, first.ID).Steps[0]; st.Status != plan.StepStatusPending || st.RunID != "" {
+		t.Fatalf("step under review = %s with run %q, want pending without a run", st.Status, st.RunID)
+	}
+
+	close(router.release)
+	for _, p := range []*plan.ExecutionPlan{first, second} {
+		if debate := debatePlanOf(t, store, p.ID); debate.Status != plan.StatusRunning {
+			t.Errorf("debate of %s = %s, want running", p.Name, debate.Status)
+		}
 	}
 }
