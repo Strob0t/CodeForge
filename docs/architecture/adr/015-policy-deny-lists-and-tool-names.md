@@ -1,6 +1,6 @@
 # ADR-015: Policy Deny Lists Are Blocklists; Canonical Tool Names
 
-> **Status:** accepted (implementation in milestone S1 of the [fix plan](../../known-issues-fix-plan.md#s1---policy-and-security-enforcement))
+> **Status:** accepted, implemented 2026-09-30 (milestone S1 of the [fix plan](../../known-issues-fix-plan.md#s1---policy-and-security-enforcement), KI-4 to KI-10)
 > **Date:** 2026-09-30
 > **Deciders:** Project owner (accepted the principles "deny lists win" and "fail closed", decision D6 of the earlier
 > fix plan, carried over as D-S1/D-S2)
@@ -42,6 +42,25 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
 5. **Fail closed.** A rule with a deny list denies calls that carry no value for it (no path, no command); an
    empty value never matches a non-empty allow list; an unknown profile denies on every path (run and
    conversation).
+
+### Implementation notes (2026-09-30)
+
+- Canonical names: `internal/domain/policy/toolnames.go`; the list-directory tool is `ListDir`. Legacy tool globs
+  (`file:*`, `*_file`) in custom rules still match the raw and the canonical name for deny and ask rules (fail
+  closed); allow rules match canonical names only.
+- Shell parsing (`internal/domain/policy/command.go`) models quotes, escapes, ANSI-C quoting (`$'...'`), comments and
+  here-doc bodies. Opaque (fail closed): command/process substitution, backticks, `$[...]` and any `${...}` other than
+  a plain `${name}`, assignment prefixes, `env`, `export`/`declare`/`read`, shells, `eval`/`source`/`alias`/`trap`,
+  inline interpreter code, `/dev/tcp`/`/dev/udp` redirections, code-running options (`git -c`, `--output`,
+  `--ext-diff`, `go test -exec`/`-toolexec`, `go generate`, `sed e`, awk, `find -exec`, make, npm, tar, rsync, ...),
+  unknown wrapper options. Safe wrappers (`time`, `timeout`, `nice`, `nohup`, `command`, `xargs`) are unwrapped;
+  interpreters called only with `--version`/`-V`/`--help` are not inline code.
+- `trust_minimum` on an allow rule requires a trust annotation that meets it; deny and ask rules apply to everyone.
+- Mode tool lists are enforced through `policy.WithModeTools`; the worker reports the turn's mode as `mode_id`.
+- Allow-Always adds `{tool, allow}` (Bash: `command_allow` with every executable of the approved command) to a
+  per-project clone `{profile}-custom-{projectID}` of the profile that decided the call; the clone replaces its base
+  only for that project and never changes the project's profile selection. Profiles persist atomically to the file
+  that defines them in `policy.custom_dir` (default `data/policies`).
 
 ## Consequences
 

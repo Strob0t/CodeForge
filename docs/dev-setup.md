@@ -618,7 +618,7 @@ Example:
 | `rate.auth_per_second` | `CODEFORGE_RATE_AUTH_RPS` | `0.167` | Auth endpoint rate limit (req/s) |
 | `rate.auth_burst` | `CODEFORGE_RATE_AUTH_BURST` | `5` | Auth endpoint burst capacity |
 | `policy.default_profile` | `CODEFORGE_POLICY_DEFAULT` | `headless-safe-sandbox` | Default policy preset |
-| `policy.custom_dir` | `CODEFORGE_POLICY_DIR` | `` | Custom policy directory |
+| `policy.custom_dir` | `CODEFORGE_POLICY_DIR` | `data/policies` | Custom policy profiles (loaded at start; API-created profiles and Allow-Always clones are written back to their source file). `""` keeps them in memory only and disables Allow-Always (409) |
 | `workspace.root` | `CODEFORGE_WORKSPACE_ROOT` | `data/workspaces` | Workspace root directory |
 | `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
 | `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |

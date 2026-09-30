@@ -65,7 +65,7 @@ Closest: OpenHands (no Roadmap, no Multi-Project Dashboard, no SVN). Details: `d
 - **Workflow:** Plan -> Approve -> Execute -> Review -> Deliver (configurable)
 - **Autonomy Levels:** 1=supervised (approve all), 2=semi-auto (approve destructive), 3=auto-edit (approve terminal/deploy), 4=full-auto (safety rules replace user), 5=headless (CI/CD, cron, API)
 - **Modes System:** YAML-configurable roles (architect, coder, reviewer, debugger), per-mode tools/LLM/autonomy/prompt, built-in + custom (`.codeforge/modes/`), DAG pipelines, schedule support
-- **Per-Mode Tool Lists:** Tools are defined inline in each Mode struct (`Mode.Tools` / `Mode.DeniedTools`), not as separate YAML bundle files — not enforced yet, see [Known Issues](docs/todo.md#known-issues) KI-10
+- **Per-Mode Tool Lists:** Tools are defined inline in each Mode struct (`Mode.Tools` / `Mode.DeniedTools`, canonical names `Read`/`Write`/`Edit`/`Bash`/`Grep`/`Glob`/`ListDir`), not as separate YAML bundle files — enforced by the Go policy evaluation on run and conversation paths (`DeniedTools` denies; a non-empty `Tools` list denies unlisted built-in tools)
 - **History Processors:** Context window optimization pipeline
 - **Hook System:** Observer pattern for agent/environment lifecycle
 - **Trajectory:** Recording, replay, inspector, audit trail
@@ -196,7 +196,7 @@ Details: `docs/architecture.md` | Framework comparison: `docs/research/market-an
 - **Zero-config startup** — system runs with defaults; CLI flags have highest precedence
 - **Async-first:** Logging, NATS, LLM calls never block hot path. Buffered channels + workers (Go), QueueHandler + QueueListener (Python)
 - **Docker-native logging:** Structured JSON to stdout, `docker compose logs` + `jq` for debugging
-- **Policy Layer:** Declarative YAML, first-match-wins, 5 built-in presets, extensible without code — enforcement gaps: see [Known Issues](docs/todo.md#known-issues) KI-4..KI-9
+- **Policy Layer:** Declarative YAML, 5 built-in presets, extensible without code (`policy.custom_dir`, default `data/policies`). ADR-015: canonical tool names (`internal/domain/policy/toolnames.go`), deny lists win regardless of rule order, then first-match-wins; workspace-relative paths; shell commands parsed per simple command (`command.go`, opaque constructs fail closed); unknown profile/mode denies. Workers send `tool`, `command`, `path`, `mode_id` and a display-only `arguments_preview` on `runs.toolcall.request`; `agui.permission_request` carries the deciding `profile`. Open: global profile namespace (KI-68), follow-ups (KI-69)
 - **Approach C:** Go owns state/policies/sessions; Python owns LLM/tools/agent loop; NATS with per-tool-call policy
 - **Resilience:** Circuit breakers (NATS, LiteLLM), idempotency keys, dead letter queues, 4-phase graceful shutdown
 

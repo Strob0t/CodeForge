@@ -1814,6 +1814,55 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The name is a built-in preset or a policy file for it already exists
+
+  /policies/allow-always:
+    post:
+      tags: [Policies]
+      summary: Persist an "Allow Always" rule for a project
+      description: |
+        Admin only. Adds an allow rule for the tool (Bash: `command_allow` with every executable of the
+        approved command) to the per-project clone `{profile}-custom-{project_id}` of the profile that
+        decided the call. The clone replaces that profile only for this project; the project's profile
+        selection is not changed. The rule never overrides a deny list. Persisted to `policy.custom_dir`.
+      operationId: allowAlwaysPolicy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, tool]
+              properties:
+                project_id:
+                  type: string
+                profile:
+                  type: string
+                  description: Profile named by the agui.permission_request event (optional; default is the project's effective profile)
+                tool:
+                  type: string
+                  description: Tool name as sent by the worker (canonicalized server-side)
+                command:
+                  type: string
+                  description: The approved bash command (Bash only)
+      responses:
+        "200":
+          description: The updated profile clone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Unknown project or profile
+        "409":
+          description: No policy directory configured (policy.custom_dir is empty)
 
   # -----------------------------------------------
   # Benchmarks (dev-mode only)

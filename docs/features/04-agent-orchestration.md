@@ -103,7 +103,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 | 4 | `full-auto` | Safety rules | Batch jobs, delegated tasks |
 | 5 | `headless` | Safety rules, no UI | CI/CD, cron jobs, API |
 
-> **Implementation status (2026-09-29):** A mode's autonomy level is mapped to a policy preset by `policyForAutonomy()` in `internal/service/conversation_dispatch.go` (1 → `supervised-ask-all`, 4-5 → `trusted-mount-autonomous`, otherwise `headless-safe-sandbox`), but conversation tool calls ignore this mode-derived profile and use the project/default profile (see [Known Issues](../todo.md#known-issues) KI-7).
+> **Implementation status (2026-09-30):** A mode's autonomy level is mapped to a policy preset by `policyForAutonomy()` in `internal/service/conversation_dispatch.go` (1 → `supervised-ask-all`, 4-5 → `trusted-mount-autonomous`, otherwise `headless-safe-sandbox`). Dispatch and tool-call evaluation use one resolver: the project's explicit profile (`policy_profile`, then `config["policy_preset"]`) wins, then the mode-derived preset, then the default, so a mode cannot escalate a project that pins a stricter profile.
 
 ### Safety Layer (8 Components)
 
@@ -116,7 +116,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 - **Path Blocklist** -- sensitive files protected.
 - Stall Detection -- re-planning or abort.
 
-> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and shadow-Git rollback in `runtime_completion.go`, `deliver.go` and `checkpoint.go`. Gaps: policy rules never match the agent's tool names, deny lists do not deny and command rules use prefix matching (KI-4, KI-5, KI-6); gate, delivery and checkpoint defects (KI-26, KI-27, KI-28, KI-29); termination-limit and stall paths leave plan steps hanging (KI-30). See [Known Issues](../todo.md#known-issues).
+> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and shadow-Git rollback in `runtime_completion.go`, `deliver.go` and `checkpoint.go`. Policy evaluation follows ADR-015 (canonical tool names, deny lists win, shell-aware command matching). Gaps: gate, delivery and checkpoint defects (KI-26, KI-27, KI-28, KI-29); termination-limit and stall paths leave plan steps hanging (KI-30). See [Known Issues](../todo.md#known-issues).
 
 ### Quality Layer (4 Tiers)
 
@@ -129,7 +129,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 
 YAML-configurable agent specializations. 24 built-in mode presets including architect, coder, reviewer, debugger, tester, documenter, refactorer, security, moderator, proponent, devops, api_tester, benchmarker, frontend, backend_architect, lsp_engineer, orchestrator, evaluator, workflow_optimizer, infra_maintainer, prototyper, goal_researcher, boundary_analyzer, and contract_reviewer. Users can define custom modes in `.codeforge/modes/`. Modes support composition through pipelines and DAG workflows.
 
-> **Implementation status (2026-09-29):** Mode `Tools` / `DeniedTools` are not enforced: the names do not match the worker's tool names and `denied_tools` only appears in the prompt, so read-only modes (architect, reviewer, security) are still offered write and bash tools (see [Known Issues](../todo.md#known-issues) KI-10).
+> **Implementation status (2026-09-30):** Mode `Tools` / `DeniedTools` use canonical names and are enforced by the Go policy evaluation on the run and conversation paths: a tool in `DeniedTools` is denied, and a built-in tool missing from a non-empty `Tools` list is denied, so read-only modes (architect, reviewer, security) cannot write or run bash. The worker still offers those tools to the LLM; calls are refused at execution time ([Known Issues](../todo.md#known-issues) KI-69).
 
 ### Worker Modules
 
@@ -212,7 +212,7 @@ The policy layer governs agent permissions, quality gates, and termination condi
 - **Loader**: `internal/domain/policy/loader.go` -- YAML file loading + SaveToFile for custom profiles.
 - REST API: GET/POST /policies, POST /policies/allow-always (admin), GET/DELETE /policies/{name}, POST /policies/{name}/evaluate.
 
-> **Implementation status (2026-09-29):** Known policy defects: rules never match real agent tool calls (KI-4), `path_deny` / `command_deny` do not deny (KI-5), command rules use shell-unaware prefix matching (KI-6), the conversation tool-call path fails open and ignores the mode-derived profile (KI-7), the profile map is not safe for concurrent access (KI-8), and editors can overwrite built-in presets via `POST /policies` (KI-9). See [Known Issues](../todo.md#known-issues).
+> **Implementation status (2026-09-30):** The policy defects KI-4 to KI-10 are fixed ([ADR-015](../architecture/adr/015-policy-deny-lists-and-tool-names.md)). Open: policy profiles are not tenant-scoped (KI-68) and smaller follow-ups (KI-69). See [Known Issues](../todo.md#known-issues).
 
 #### Frontend (PolicyPanel)
 
@@ -290,7 +290,7 @@ sequenceDiagram
 
 ### Completed (Phase 4 -- Agent Execution Engine)
 
-- [x] Policy layer: 5 presets, YAML custom policies, first-match-wins evaluation, REST API + frontend PolicyPanel (defects: see [Known Issues](../todo.md#known-issues) KI-4 to KI-9).
+- [x] Policy layer: 5 presets, YAML custom policies, deny lists win then first-match-wins (ADR-015), REST API + frontend PolicyPanel (KI-4 to KI-10 fixed 2026-09-30; open: KI-68, KI-69).
 - [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement (`runs.start` is still a single LLM completion, KI-21).
 - [x] Checkpoint system: shadow Git commits for safe rollback (checkpoint commits corrupt delivery, KI-27).
 - [x] Docker Sandbox: container lifecycle management with resource limits (use gated: tools do not run inside it yet, so sandbox/hybrid runs are rejected, KI-13).
@@ -349,7 +349,7 @@ Persistent storage for MCP server definitions with project-level assignment.
 
 #### Policy Integration
 
-MCP tools reach the policy engine as `mcp__{server}__{tool}` (the worker's tool name) and are matched by exact tool name. The glob-capable `PolicyProfile.Evaluate` in `internal/domain/policy/evaluation.go` (e.g. `mcp:*`) is not used by the runtime yet. `Mode.Tools` extends the worker's tool allowlist; `Mode.DeniedTools` is currently advisory (prompt only, see [Known Issues](../todo.md#known-issues) KI-10).
+MCP tools reach the policy engine as `mcp__{server}__{tool}` (the worker's tool name, kept unchanged by canonicalization) and are matched by `PolicyProfile.Evaluate` in `internal/domain/policy/evaluation.go`, the single evaluator, which supports glob patterns (e.g. `mcp__github__*`). `Mode.DeniedTools` denies MCP tools too; a mode's `Tools` list only restricts built-in tools.
 
 ### Agentic Conversation Mode (Phase 17)
 
@@ -379,7 +379,7 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 
 Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`, `build_default_registry()`); `handoff_to`, `propose_goal`, `propose_roadmap` and `spawn_subagent` are added per run (`spawn_subagent` reports success but starts nothing, KI-25). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
 
-> **Implementation status (2026-09-29):** The worker sends the snake_case tool name unchanged as the policy `tool` (with the raw JSON arguments as `command` and no `path`, `workers/codeforge/tool_executor.py`). No mapping to the preset rule names (`Read`, `Write`, `Edit`, `Bash`, `Grep`, `Glob`) exists in the worker or the Go Core, so preset rules never match agent-loop tool calls and the preset's mode default decides. `claudecode/*` models run through `workers/codeforge/claude_code_executor.py`, which sends categories such as `file:read` / `command:execute` that do not match the presets either. See [Known Issues](../todo.md#known-issues) KI-4.
+> **Implementation status (2026-09-30):** The worker sends its own tool name (`read_file`, `bash`, ...) with the real `command` (bash only) and `path` (`workers/codeforge/tool_executor.py`, `policy_request_args`); `claudecode/*` runs send Claude Code's tool names (`workers/codeforge/claude_code_executor.py`). The Go policy domain maps both to the preset names (`internal/domain/policy/toolnames.go`, ADR-015), so preset rules match agent tool calls.
 
 #### Conversation History Management
 

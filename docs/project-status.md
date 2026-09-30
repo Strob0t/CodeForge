@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-09-29 (known-issue references added; latest phase entry 2026-03-24)
+> Last update: 2026-09-30 (Known Issues fix plan: S0 and S1 done, S2 in progress)
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 > A trailing "**Known issue:** KI-n" marks a completed phase whose key deliverable is not wired or not working yet; see [Known Issues](todo.md#known-issues).
@@ -23,7 +23,7 @@ Hierarchical config (defaults < YAML < ENV < CLI), structured JSON logging (Go s
 
 ### Phase 4: Agent Execution Engine (COMPLETED)
 
-Policy layer with first-match-wins evaluation (4 built-in presets), YAML-configurable custom policies, runtime API with step-by-step execution protocol (NATS Go<->Python), Docker sandbox container lifecycle (per-run container with resource limits; tool execution inside the container is not wired, tools still run in the worker process), stall detection (FNV-64a hash ring), quality gate enforcement, 5 delivery modes (none/patch/commit/branch/PR), shadow Git checkpoints, resource limits, secrets vault with SIGHUP reload, multi-tenancy preparation (tenant_id on all tables). - **Known issue:** KI-4, KI-5 (policy rules do not match real tool calls / deny lists), KI-13 (sandbox), KI-21 (`runs.start` is a single LLM completion), KI-26, KI-27 (delivery)
+Policy layer with first-match-wins evaluation (4 built-in presets), YAML-configurable custom policies, runtime API with step-by-step execution protocol (NATS Go<->Python), Docker sandbox container lifecycle (per-run container with resource limits; tool execution inside the container is not wired, tools still run in the worker process), stall detection (FNV-64a hash ring), quality gate enforcement, 5 delivery modes (none/patch/commit/branch/PR), shadow Git checkpoints, resource limits, secrets vault with SIGHUP reload, multi-tenancy preparation (tenant_id on all tables). - **Known issue:** KI-13 (sandbox), KI-21 (`runs.start` is a single LLM completion), KI-26, KI-27 (delivery)
 
 ### Phase 5: Multi-Agent Orchestration (COMPLETED)
 
@@ -63,7 +63,7 @@ Tab-based ProjectDetailPage, settings page, mode selection UI, step-progress ind
 
 ### Phase 12A-12K: Architecture Evolution (COMPLETED)
 
-**12A:** Mode system extensions (DeniedTools, DeniedActions, RequiredArtifact, modular prompt templates). - **Known issue:** KI-10 (mode tools/denied tools not enforced)
+**12A:** Mode system extensions (DeniedTools, DeniedActions, RequiredArtifact, modular prompt templates).
 **12B:** LLM routing via LiteLLM tag-based scenario routing (6 scenarios).
 **12C:** Role evaluation framework (FakeLLM harness, 9-role matrix, 15 scenario fixtures).
 **12D:** RAG shared scope system (cross-project retrieval, incremental indexing with SHA-256 delta).
@@ -347,3 +347,12 @@ Five features merged on 2026-03-23:
 2. **Trajectory event UUID error** — `AgentEvent.AgentID`/`TaskID` were empty strings for conversation-based runs, causing PostgreSQL UUID parse errors. Fixed by using `RunID` as fallback.
 
 Remaining: GoalProposalCards don't render in chat UI (WebSocket event reaches frontend but isn't matched to conversation). AI Discover auto-selects weak models that can't use tools.
+
+### Known Issues Fix Plan (2026-09-30)
+
+Milestones of [known-issues-fix-plan.md](known-issues-fix-plan.md) on `staging` (PR branch `claude/busy-dijkstra-q0oxi9`):
+
+- **S0 (CI) done:** golangci-lint v2.11.4, CI on pull requests to `staging`, integration-tagged tests, frontend typecheck/tests, test repairs (KI-1, KI-2, KI-3).
+- **S1 (policy and security) done:** policy enforcement per [ADR-015](architecture/adr/015-policy-deny-lists-and-tool-names.md) (KI-4 to KI-10), trusted-proxy client IP (KI-11), tenant-scoped WebSocket fan-out with ticket auth (KI-12), sandbox/hybrid exec modes rejected until isolated (KI-13), loopback-only dev ports (KI-14).
+- **S2 (messaging and runtime) in progress:** NATS delivery semantics per [ADR-016](architecture/adr/016-nats-delivery-semantics.md) (KI-18 to KI-20) done; runtime state (KI-24, KI-30 to KI-32) and run path (KI-21 to KI-23) in progress.
+- **S4 (operations) in progress:** deployment fixes KI-43 to KI-50, KI-59.
