@@ -545,7 +545,7 @@ func run() error {
 	if llmKeySecret == "" {
 		llmKeySecret = cfg.Auth.JWTSecret
 		if cfg.AppEnv != "" && cfg.AppEnv != "development" {
-			slog.Warn("LLM key encryption using JWT secret - set AUTH_LLM_KEY_ENCRYPTION_SECRET for production")
+			slog.Warn("LLM key encryption uses the JWT secret - set CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET (or _FILE) for production so rotating the JWT secret does not make stored LLM keys unreadable")
 		}
 	}
 	llmKeyEncKey, err := crypto.DeriveKey(llmKeySecret, nil, "codeforge/llmkey/v1")

@@ -54,6 +54,7 @@ func TestLoadFrom_SecretFiles(t *testing.T) {
 		{"GITHUB_CLIENT_SECRET", "gh-oauth\n", "gh-oauth", func(c *Config) string { return c.GitHub.ClientSecret }},
 		{"CODEFORGE_SMTP_PASSWORD", "smtp-pass\n", "smtp-pass", func(c *Config) string { return c.Notification.SMTPPassword }},
 		{"CODEFORGE_PLANE_API_TOKEN", "plane-token\n", "plane-token", func(c *Config) string { return c.Plane.APIToken }},
+		{"CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", "llm-enc-from-file\n", "llm-enc-from-file", func(c *Config) string { return c.Auth.LLMKeyEncryptionSecret }},
 	}
 
 	for _, tt := range tests {
@@ -235,5 +236,18 @@ func TestLoadFrom_FileSuffixOnlyForSecrets(t *testing.T) {
 	}
 	if cfg.Server.Port != Defaults().Server.Port {
 		t.Fatalf("CODEFORGE_PORT_FILE must be ignored, got port %q", cfg.Server.Port)
+	}
+}
+
+func TestLoadEnv_LLMKeyEncryptionSecret(t *testing.T) {
+	clearSecretEnv(t, "CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET")
+	t.Setenv("CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", "llm-enc-from-env")
+
+	cfg, err := loadFromNoYAML(t)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if cfg.Auth.LLMKeyEncryptionSecret != "llm-enc-from-env" {
+		t.Fatalf("got %q, want %q", cfg.Auth.LLMKeyEncryptionSecret, "llm-enc-from-env")
 	}
 }

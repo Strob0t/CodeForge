@@ -324,6 +324,7 @@ func loadEnv(cfg *Config) {
 	// Auth
 	setTyped(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED", strconv.ParseBool)
 	setString(&cfg.Auth.JWTSecret, "CODEFORGE_AUTH_JWT_SECRET")
+	setString(&cfg.Auth.LLMKeyEncryptionSecret, "CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET")
 	setTyped(&cfg.Auth.AccessTokenExpiry, "CODEFORGE_AUTH_ACCESS_EXPIRY", time.ParseDuration)
 	setTyped(&cfg.Auth.RefreshTokenExpiry, "CODEFORGE_AUTH_REFRESH_EXPIRY", time.ParseDuration)
 	setTyped(&cfg.Auth.BcryptCost, "CODEFORGE_AUTH_BCRYPT_COST", strconv.Atoi)
@@ -395,6 +396,7 @@ func secretSettings(cfg *Config) []secretSetting {
 		{"NATS_URL", str(&cfg.NATS.URL)},
 		{"LITELLM_MASTER_KEY", str(&cfg.LiteLLM.MasterKey)},
 		{"CODEFORGE_AUTH_JWT_SECRET", str(&cfg.Auth.JWTSecret)},
+		{"CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", str(&cfg.Auth.LLMKeyEncryptionSecret)},
 		{"CODEFORGE_AUTH_ADMIN_PASS", str(&cfg.Auth.DefaultAdminPass)},
 		{"CODEFORGE_WEBHOOK_GITHUB_SECRET", str(&cfg.Webhook.GitHubSecret)},
 		{"CODEFORGE_WEBHOOK_GITLAB_TOKEN", str(&cfg.Webhook.GitLabToken)},
