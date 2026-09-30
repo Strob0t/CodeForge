@@ -476,6 +476,7 @@ func (s *A2AService) HandleTaskComplete(ctx context.Context, taskID, state, errM
 	if err != nil {
 		return fmt.Errorf("handle task complete: %w", err)
 	}
+	ctx = withEntityTenant(ctx, dt.TenantID)
 
 	dt.State = a2adomain.TaskState(state)
 	dt.ErrorMessage = errMsg

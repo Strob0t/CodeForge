@@ -9,6 +9,7 @@ Verifies:
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,6 +21,9 @@ from codeforge.models import (
     ConversationMessagePayload,
     ConversationRunStartMessage,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 
 def _make_valid_run_start(
@@ -60,6 +64,61 @@ def _make_handler() -> ConversationHandlerMixin:
 
     handler._stamp_trust = ConsumerBaseMixin._stamp_trust  # type: ignore[attr-defined]
     return handler
+
+
+async def _run_with_patched_dependencies(
+    handler: ConversationHandlerMixin,
+    msg: MagicMock,
+    fake_execute: Callable[..., Awaitable[AgentLoopResult]],
+) -> MagicMock:
+    """Run _handle_conversation_run with every collaborator patched.
+
+    Returns the patched RuntimeClient class so tests can inspect how it was built.
+    """
+    with (
+        patch(
+            "codeforge.consumer._conversation.build_system_prompt",
+            new_callable=AsyncMock,
+            return_value=("prompt", []),
+        ),
+        patch("codeforge.consumer._conversation.wire_skill_tools"),
+        patch("codeforge.consumer._conversation.register_handoff_tool"),
+        patch("codeforge.consumer._conversation.register_propose_goal_tool"),
+        patch("codeforge.consumer._conversation.get_hybrid_router", new_callable=AsyncMock, return_value=None),
+        patch("codeforge.consumer._conversation.build_fallback_chain", new_callable=AsyncMock, return_value=[]),
+        patch.object(handler, "_execute_conversation_run", side_effect=fake_execute),
+        patch.object(handler, "_publish_completion", new_callable=AsyncMock),
+        patch("codeforge.consumer._conversation.RuntimeClient") as mock_runtime_cls,
+        patch("codeforge.tools.build_default_registry") as mock_registry_fn,
+        patch("codeforge.history.ConversationHistoryManager") as mock_history_cls,
+        patch("codeforge.history.HistoryConfig"),
+        patch("codeforge.tools.capability.classify_model") as mock_classify,
+        patch("asyncio.to_thread") as mock_to_thread,
+    ):
+        runtime_instance = AsyncMock()
+        mock_runtime_cls.return_value = runtime_instance
+
+        mock_registry_fn.return_value = MagicMock()
+
+        history_instance = MagicMock()
+        history_instance.build_messages.return_value = [{"role": "system", "content": "prompt"}]
+        mock_history_cls.return_value = history_instance
+
+        from codeforge.tools.capability import CapabilityLevel
+
+        mock_classify.return_value = CapabilityLevel.FULL
+
+        mock_routing_result = MagicMock()
+        mock_routing_result.model = "openai/gpt-4o"
+        mock_routing_result.temperature = 0.7
+        mock_routing_result.tags = []
+        mock_routing_result.routing_layer = ""
+        mock_routing_result.complexity_tier = "simple"
+        mock_routing_result.task_type = "code"
+        mock_to_thread.return_value = mock_routing_result
+
+        await handler._handle_conversation_run(msg)
+    return mock_runtime_cls
 
 
 @pytest.fixture(autouse=True)
@@ -103,55 +162,33 @@ class TestHandleConversationRun:
             tracked_during_exec = "run-track-test" in ConversationHandlerMixin._active_runs
             return fake_result
 
-        with (
-            patch(
-                "codeforge.consumer._conversation.build_system_prompt",
-                new_callable=AsyncMock,
-                return_value=("prompt", []),
-            ),
-            patch("codeforge.consumer._conversation.wire_skill_tools"),
-            patch("codeforge.consumer._conversation.register_handoff_tool"),
-            patch("codeforge.consumer._conversation.register_propose_goal_tool"),
-            patch("codeforge.consumer._conversation.get_hybrid_router", new_callable=AsyncMock, return_value=None),
-            patch("codeforge.consumer._conversation.build_fallback_chain", new_callable=AsyncMock, return_value=[]),
-            patch.object(handler, "_execute_conversation_run", side_effect=fake_execute),
-            patch.object(handler, "_publish_completion", new_callable=AsyncMock),
-            patch("codeforge.consumer._conversation.RuntimeClient") as mock_runtime_cls,
-            patch("codeforge.tools.build_default_registry") as mock_registry_fn,
-            patch("codeforge.history.ConversationHistoryManager") as mock_history_cls,
-            patch("codeforge.history.HistoryConfig"),
-            patch("codeforge.tools.capability.classify_model") as mock_classify,
-            patch("asyncio.to_thread") as mock_to_thread,
-        ):
-            runtime_instance = AsyncMock()
-            mock_runtime_cls.return_value = runtime_instance
-
-            mock_registry_fn.return_value = MagicMock()
-
-            history_instance = MagicMock()
-            history_instance.build_messages.return_value = [{"role": "system", "content": "prompt"}]
-            mock_history_cls.return_value = history_instance
-
-            from codeforge.tools.capability import CapabilityLevel
-
-            mock_classify.return_value = CapabilityLevel.FULL
-
-            mock_routing_result = MagicMock()
-            mock_routing_result.model = "openai/gpt-4o"
-            mock_routing_result.temperature = 0.7
-            mock_routing_result.tags = []
-            mock_routing_result.routing_layer = ""
-            mock_routing_result.complexity_tier = "simple"
-            mock_routing_result.task_type = "code"
-            mock_to_thread.return_value = mock_routing_result
-
-            await handler._handle_conversation_run(msg)
+        await _run_with_patched_dependencies(handler, msg, fake_execute)
 
         msg.ack.assert_called_once()
         msg.nak.assert_not_called()
         assert tracked_during_exec, "run_id was not tracked in _active_runs during execution"
         # After completion, the run_id should be cleaned up from _active_runs.
         assert "run-track-test" not in ConversationHandlerMixin._active_runs
+
+    @pytest.mark.asyncio
+    async def test_runtime_client_carries_the_run_tenant(self) -> None:
+        """Every message the run sends back must carry its tenant (KI-12)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-tenant-test")
+        run_msg.tenant_id = "aaaaaaaa-0000-0000-0000-000000000001"
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        msg.ack.assert_called_once()
+        assert runtime_cls.call_args.kwargs["tenant_id"] == "aaaaaaaa-0000-0000-0000-000000000001"
 
     @pytest.mark.asyncio
     async def test_invalid_json_publishes_error_and_acks(self) -> None:

@@ -89,13 +89,13 @@ func (s *Store) ReleaseStaleWork(ctx context.Context, threshold time.Duration) (
 		SET status = 'pending', agent_id = NULL, version = version + 1, updated_at = NOW()
 		WHERE status IN ('running', 'queued')
 		  AND updated_at < NOW() - $1::interval
-		RETURNING id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at`
+		RETURNING id, project_id, agent_id, title, prompt, status, result, cost_usd, version, created_at, updated_at, tenant_id`
 
 	rows, err := s.pool.Query(ctx, q, threshold)
 	if err != nil {
 		return nil, fmt.Errorf("release stale work: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (task.Task, error) {
-		return scanTask(r)
+		return scanTenantTask(r)
 	})
 }

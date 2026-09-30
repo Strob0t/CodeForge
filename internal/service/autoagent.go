@@ -108,8 +108,10 @@ func (s *AutoAgentService) Start(ctx context.Context, projectID string) (*autoag
 
 	s.broadcastStatus(ctx, aa)
 
-	// Launch background goroutine with cancellable context.
-	loopCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in s.cancels[projectID], called from Stop()
+	// Launch background goroutine with cancellable context. It outlives the
+	// request but stays in the request's tenant (store queries, conversation
+	// runs and WebSocket events).
+	loopCtx, cancel := context.WithCancel(detachTenant(ctx)) //nolint:gosec // G118: cancel stored in s.cancels[projectID], called from Stop()
 	s.mu.Lock()
 	s.cancels[projectID] = cancel
 	s.mu.Unlock()

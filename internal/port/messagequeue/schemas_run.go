@@ -10,6 +10,7 @@ import (
 type TaskResultPayload struct {
 	TaskID    string   `json:"task_id"`
 	ProjectID string   `json:"project_id"`
+	TenantID  string   `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	Status    string   `json:"status"`
 	Output    string   `json:"output"`
 	Files     []string `json:"files"`
@@ -69,12 +70,13 @@ type TerminationPayload struct {
 
 // ToolCallRequestPayload is the schema for runs.toolcall.request messages.
 type ToolCallRequestPayload struct {
-	RunID   string            `json:"run_id"`
-	CallID  string            `json:"call_id"`
-	Tool    string            `json:"tool"`
-	Command string            `json:"command"`
-	Path    string            `json:"path"`
-	Trust   *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
+	RunID    string            `json:"run_id"`
+	CallID   string            `json:"call_id"`
+	TenantID string            `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	Tool     string            `json:"tool"`
+	Command  string            `json:"command"`
+	Path     string            `json:"path"`
+	Trust    *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
 }
 
 // ToolCallResponsePayload is the schema for runs.toolcall.response messages.
@@ -91,6 +93,7 @@ type ToolCallResponsePayload struct {
 type ToolCallResultPayload struct {
 	RunID     string          `json:"run_id"`
 	CallID    string          `json:"call_id"`
+	TenantID  string          `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	Tool      string          `json:"tool"`
 	Success   bool            `json:"success"`
 	Output    string          `json:"output"`
@@ -107,6 +110,7 @@ type RunCompletePayload struct {
 	RunID     string  `json:"run_id"`
 	TaskID    string  `json:"task_id"`
 	ProjectID string  `json:"project_id"`
+	TenantID  string  `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	Status    string  `json:"status"`
 	Output    string  `json:"output"`
 	Error     string  `json:"error"`
@@ -140,6 +144,7 @@ type RunHeartbeatPayload struct {
 type QualityGateRequestPayload struct {
 	RunID         string `json:"run_id"`
 	ProjectID     string `json:"project_id"`
+	TenantID      string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	WorkspacePath string `json:"workspace_path"`
 	RunTests      bool   `json:"run_tests"`
 	RunLint       bool   `json:"run_lint"`
@@ -150,6 +155,7 @@ type QualityGateRequestPayload struct {
 // QualityGateResultPayload is published with the outcome of a quality gate execution.
 type QualityGateResultPayload struct {
 	RunID       string `json:"run_id"`
+	TenantID    string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	TestsPassed *bool  `json:"tests_passed,omitempty"`
 	LintPassed  *bool  `json:"lint_passed,omitempty"`
 	TestOutput  string `json:"test_output,omitempty"`

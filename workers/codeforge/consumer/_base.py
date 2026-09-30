@@ -26,6 +26,18 @@ ResultT = TypeVar("ResultT", bound="BaseModel")
 _PROCESSED_IDS_MAX = 10_000
 
 
+def _echo_tenant[ModelT: BaseModel](request: BaseModel, result: ModelT) -> ModelT:
+    """Copy the request's tenant_id into a result that has the field but no value.
+
+    The Go core scopes store writes and WebSocket events to the tenant carried in
+    worker results and drops events without one.
+    """
+    tenant_id = getattr(request, "tenant_id", "")
+    if not tenant_id or "tenant_id" not in type(result).model_fields or getattr(result, "tenant_id", ""):
+        return result
+    return result.model_copy(update={"tenant_id": tenant_id})
+
+
 class ConsumerBaseMixin:
     """Shared helper methods inherited by the TaskConsumer via mixin pattern."""
 
@@ -87,11 +99,18 @@ class ConsumerBaseMixin:
         """Add trust annotation to an outgoing NATS payload."""
         return stamp_outgoing(payload, source_id=source_id)
 
-    async def _publish_output(self, task_id: str, line: str, stream: str = "stdout", request_id: str = "") -> None:
-        """Publish a streaming output line for a task."""
+    async def _publish_output(
+        self,
+        task_id: str,
+        line: str,
+        stream: str = "stdout",
+        request_id: str = "",
+        tenant_id: str = "",
+    ) -> None:
+        """Publish a streaming output line for a task, tagged with the task's tenant."""
         if self._js is None:
             return
-        payload = json.dumps({"task_id": task_id, "line": line, "stream": stream})
+        payload = json.dumps({"task_id": task_id, "tenant_id": tenant_id, "line": line, "stream": stream})
         headers: dict[str, str] = {}
         if request_id:
             headers[HEADER_REQUEST_ID] = request_id
@@ -150,6 +169,7 @@ class ConsumerBaseMixin:
             result = await handler(request, log)
 
             if result is not None and result_subject and self._js is not None:
+                result = _echo_tenant(request, result)
                 await self._js.publish(result_subject, result.model_dump_json().encode())
 
             await msg.ack()

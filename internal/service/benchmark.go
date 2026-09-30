@@ -364,6 +364,7 @@ func (s *BenchmarkService) HandleBenchmarkTaskStarted(ctx context.Context, _ str
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal benchmark task started: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 
 	if s.hub != nil {
 		s.hub.BroadcastEvent(ctx, "benchmark.task.started", BenchmarkTaskCompletedPayload{
@@ -385,6 +386,7 @@ func (s *BenchmarkService) HandleBenchmarkTaskProgress(ctx context.Context, _ st
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal benchmark task progress: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 
 	if s.hub != nil {
 		// Per-task completion event (for the feature list).

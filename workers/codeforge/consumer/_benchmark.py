@@ -238,7 +238,7 @@ def _build_hybrid_pipeline(evaluators: list) -> object:
     return HybridEvaluationPipeline(filter_evaluators=filter_evals, rank_evaluators=rank_evals)
 
 
-def _build_progress_callbacks(js: object, run_id: str) -> tuple:
+def _build_progress_callbacks(js: object, run_id: str, tenant_id: str = "") -> tuple:
     import json as _json
 
     accumulated_cost = 0.0
@@ -248,7 +248,14 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         if js is None:
             return
         payload = _json.dumps(
-            {"run_id": run_id, "task_id": task.id, "task_name": task.name, "index": index + 1, "total": total}
+            {
+                "run_id": run_id,
+                "tenant_id": tenant_id,
+                "task_id": task.id,
+                "task_name": task.name,
+                "index": index + 1,
+                "total": total,
+            }
         ).encode()
         try:
             await js.publish(SUBJECT_BENCHMARK_TASK_STARTED, payload)
@@ -278,6 +285,7 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         payload = _json.dumps(
             {
                 "run_id": run_id,
+                "tenant_id": tenant_id,
                 "task_id": task.id,
                 "task_name": task.name,
                 "score": round(avg_task_score, 4),
@@ -435,7 +443,7 @@ class BenchmarkHandlerMixin:
                 pipeline = EvaluationPipeline(evaluators)
                 hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
                 effective_llm = await self._resolve_effective_llm(req, log)
-                on_start, on_complete = _build_progress_callbacks(self._js, req.run_id)
+                on_start, on_complete = _build_progress_callbacks(self._js, req.run_id, req.tenant_id)
 
                 benchmark_type = req.benchmark_type or "simple"
                 if benchmark_type == "tool_use":

@@ -73,7 +73,8 @@ func (s *ActiveWorkService) ClaimTask(ctx context.Context, taskID, agentID strin
 
 // ReleaseStaleWork finds tasks stuck in running/queued status longer than
 // the given threshold and resets them to pending. Broadcasts an
-// EventActiveWorkReleased event per released task.
+// EventActiveWorkReleased event per released task to the task's tenant (the
+// release itself spans all tenants).
 func (s *ActiveWorkService) ReleaseStaleWork(ctx context.Context, threshold time.Duration) ([]task.Task, error) {
 	released, err := s.store.ReleaseStaleWork(ctx, threshold)
 	if err != nil {
@@ -81,7 +82,7 @@ func (s *ActiveWorkService) ReleaseStaleWork(ctx context.Context, threshold time
 	}
 
 	for i := range released {
-		s.hub.BroadcastEvent(ctx, event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
+		s.hub.BroadcastEvent(withEntityTenant(ctx, released[i].TenantID), event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
 			TaskID:    released[i].ID,
 			ProjectID: released[i].ProjectID,
 			Reason:    "stale task released after timeout",

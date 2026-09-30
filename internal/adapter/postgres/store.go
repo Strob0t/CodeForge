@@ -188,15 +188,35 @@ func scanTask(row scannable) (task.Task, error) {
 	if err != nil {
 		return t, err
 	}
+	err = finishTaskScan(&t, agentID, resultJSON)
+	return t, err
+}
+
+// scanTenantTask scans the scanTask columns followed by tenant_id, for
+// cross-tenant queries whose callers must know each task's tenant.
+func scanTenantTask(row scannable) (task.Task, error) {
+	var t task.Task
+	var agentID *string
+	var resultJSON []byte
+	err := row.Scan(&t.ID, &t.ProjectID, &agentID, &t.Title, &t.Prompt, &t.Status, &resultJSON, &t.CostUSD, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.TenantID)
+	if err != nil {
+		return t, err
+	}
+	err = finishTaskScan(&t, agentID, resultJSON)
+	return t, err
+}
+
+// finishTaskScan fills the nullable agent and the JSON result of a scanned task.
+func finishTaskScan(t *task.Task, agentID *string, resultJSON []byte) error {
 	if agentID != nil {
 		t.AgentID = *agentID
 	}
 	if len(resultJSON) > 0 {
 		var r task.Result
 		if err := unmarshalJSONField(resultJSON, &r, "result"); err != nil {
-			return t, err
+			return err
 		}
 		t.Result = &r
 	}
-	return t, nil
+	return nil
 }

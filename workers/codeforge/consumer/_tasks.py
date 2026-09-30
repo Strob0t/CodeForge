@@ -41,7 +41,7 @@ class TaskHandlerMixin:
 
             log.info("received task", title=task.title)
 
-            await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id)
+            await self._publish_output(task.id, f"Starting task: {task.title}", "stdout", request_id, task.tenant_id)
 
             backend_result: BackendTaskResult = await self._backend_router.execute(
                 backend_name=backend_name,
@@ -49,11 +49,13 @@ class TaskHandlerMixin:
                 prompt=task.prompt,
                 workspace_path=task.config.get("workspace_path", ""),
                 config=task.config,
-                on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id),
+                on_output=lambda line: self._publish_output(task.id, line, "stdout", request_id, task.tenant_id),
             )
 
             result = TaskResult(
                 task_id=task.id,
+                tenant_id=task.tenant_id,
+                project_id=task.project_id,
                 status=TaskStatus.COMPLETED if backend_result.status == "completed" else TaskStatus.FAILED,
                 output=backend_result.output,
                 error=backend_result.error,

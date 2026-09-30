@@ -68,6 +68,7 @@ func (s *RuntimeService) handleRunOutput(ctx context.Context, data []byte) error
 	if err := json.Unmarshal(data, &output); err != nil {
 		return fmt.Errorf("unmarshal run output: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, output.TenantID)
 	s.hub.BroadcastEvent(ctx, event.EventTaskOutput, event.TaskOutputEvent{
 		TaskID: output.TaskID,
 		Line:   output.Line,
@@ -89,6 +90,7 @@ type trajectoryPayload struct {
 	EventType string  `json:"event_type"`
 	RunID     string  `json:"run_id"`
 	ProjectID string  `json:"project_id"`
+	TenantID  string  `json:"tenant_id,omitempty"`
 	ToolName  string  `json:"tool_name,omitempty"`
 	Model     string  `json:"model,omitempty"`
 	Input     string  `json:"input,omitempty"`
@@ -108,6 +110,7 @@ func (s *RuntimeService) handleTrajectoryEvent(ctx context.Context, data []byte)
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal trajectory event: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 
 	// Use RunID as fallback for AgentID/TaskID when not available
 	// (conversation runs don't have separate agent/task IDs).

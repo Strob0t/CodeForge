@@ -99,6 +99,7 @@ type BenchmarkTaskResult struct {
 type BenchmarkTaskStartedPayload struct {
 	RunID    string `json:"run_id"`
 	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	TaskName string `json:"task_name"`
 	Index    int    `json:"index"`
 	Total    int    `json:"total"`
@@ -108,6 +109,7 @@ type BenchmarkTaskStartedPayload struct {
 type BenchmarkTaskProgressPayload struct {
 	RunID          string  `json:"run_id"`
 	TaskID         string  `json:"task_id"`
+	TenantID       string  `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	TaskName       string  `json:"task_name"`
 	Score          float64 `json:"score"`
 	CostUSD        float64 `json:"cost_usd"`

@@ -28,7 +28,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		)
 	}()
 
-	r, err := s.store.GetRun(ctx, req.RunID)
+	ctx, r, err := s.loadRunScoped(ctx, req.RunID, req.TenantID)
 	if err != nil {
 		// The run_id might be a conversation_id (agentic conversation mode
 		// reuses the conversation ID as the run ID without creating a run record).
@@ -179,6 +179,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if conv == nil {
 		return fmt.Errorf("conversation not found: %s", req.RunID)
 	}
+	ctx = withEntityTenant(ctx, conv.TenantID)
 
 	// Resolve policy profile from the conversation's project.
 	policyProfile := ""
@@ -259,7 +260,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 
 // HandleToolCallResult processes the outcome of an executed tool call.
 func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messagequeue.ToolCallResultPayload) error {
-	r, err := s.store.GetRun(ctx, result.RunID)
+	ctx, r, err := s.loadRunScoped(ctx, result.RunID, result.TenantID)
 	if err != nil {
 		// Conversation-based runs don't have a run record.
 		// Cost/token tracking for conversations happens via WebSocket events.

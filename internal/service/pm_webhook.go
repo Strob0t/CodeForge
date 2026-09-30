@@ -97,7 +97,7 @@ func (s *PMWebhookService) HandleGitHubIssueWebhook(ctx context.Context, data []
 		"project_ref", evt.ProjectRef,
 	)
 
-	go s.triggerPullSync(context.Background(), evt.Provider, evt.ProjectRef) //nolint:gosec // G118: sync must outlive webhook request
+	go s.triggerPullSync(detachTenant(ctx), evt.Provider, evt.ProjectRef) //nolint:gosec // G118: sync must outlive webhook request; keeps its tenant
 
 	return evt, nil
 }
@@ -132,7 +132,7 @@ func (s *PMWebhookService) HandleGitLabIssueWebhook(ctx context.Context, data []
 		"project_ref", evt.ProjectRef,
 	)
 
-	go s.triggerPullSync(context.Background(), evt.Provider, evt.ProjectRef) //nolint:gosec // G118: sync must outlive webhook request
+	go s.triggerPullSync(detachTenant(ctx), evt.Provider, evt.ProjectRef) //nolint:gosec // G118: sync must outlive webhook request; keeps its tenant
 
 	return evt, nil
 }
@@ -173,7 +173,7 @@ func (s *PMWebhookService) HandlePlaneWebhook(ctx context.Context, data []byte) 
 		"project_ref", evt.ProjectRef,
 	)
 
-	go s.triggerPullSync(context.Background(), evt.Provider, evt.ProjectRef) //nolint:gosec // G118: sync must outlive webhook request
+	go s.triggerPullSync(detachTenant(ctx), evt.Provider, evt.ProjectRef) //nolint:gosec // G118: sync must outlive webhook request; keeps its tenant
 
 	return evt, nil
 }

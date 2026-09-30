@@ -451,19 +451,22 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	// Start context-level timeout goroutine.
 	if profile.Termination.TimeoutSeconds > 0 {
 		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
-		timeoutCtx, timeoutCancel := context.WithCancel(context.Background())
+		// The timer outlives the request: keep only the run's tenant so the
+		// lookup, the cancellation and its WebSocket events stay in it.
+		runCtx := detachTenant(ctx)
+		timeoutCtx, timeoutCancel := context.WithCancel(runCtx)
 		s.state.SetRunTimeout(r.ID, timeoutCancel)
 		go func(runID string, timeout time.Duration) { //nolint:gosec // G118: timeout goroutine outlives request; cancel stored in s.state
 			timer := time.NewTimer(timeout)
 			defer timer.Stop()
 			select {
 			case <-timer.C:
-				rr, err := s.store.GetRun(context.Background(), runID)
+				rr, err := s.store.GetRun(runCtx, runID)
 				if err != nil || rr.Status != run.StatusRunning {
 					return
 				}
 				slog.Warn("context-level timeout, cancelling run", "run_id", runID, "timeout", timeout)
-				_ = s.cancelRunWithReason(context.Background(), runID, "context-level timeout")
+				_ = s.cancelRunWithReason(runCtx, runID, "context-level timeout")
 			case <-timeoutCtx.Done():
 				return
 			}

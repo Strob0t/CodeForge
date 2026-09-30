@@ -25,6 +25,21 @@ func (s *RuntimeService) cleanupRunState(runID string) {
 	s.state.CleanupRun(runID)
 }
 
+// loadRunScoped loads the run a worker message refers to and returns ctx
+// scoped to the run's tenant. Worker messages arrive without a request
+// tenant: the tenant the worker echoes selects the tenant for the lookup, and
+// the stored run is authoritative for everything that follows (store writes,
+// WebSocket events, follow-up runs). The returned ctx carries the payload
+// tenant even when the lookup fails.
+func (s *RuntimeService) loadRunScoped(ctx context.Context, runID, payloadTenant string) (context.Context, *run.Run, error) {
+	ctx = withPayloadTenant(ctx, payloadTenant)
+	r, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return withEntityTenant(ctx, r.TenantID), r, nil
+}
+
 // cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).
 func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason string) error {
 	r, err := s.store.GetRun(ctx, runID)

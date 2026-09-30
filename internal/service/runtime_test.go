@@ -51,6 +51,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // --- Mocks ---
@@ -1034,12 +1035,20 @@ type runtimeMockBroadcaster struct {
 type broadcastedEvent struct {
 	EventType string
 	Data      any
+	Tenant    string // tenant carried by the broadcast context ("" = none, dropped by the hub)
 }
 
-func (m *runtimeMockBroadcaster) BroadcastEvent(_ context.Context, eventType string, data any) {
+func (m *runtimeMockBroadcaster) BroadcastEvent(ctx context.Context, eventType string, data any) {
+	tenantID, _ := tenantctx.Lookup(ctx)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.events = append(m.events, broadcastedEvent{EventType: eventType, Data: data})
+	m.events = append(m.events, broadcastedEvent{EventType: eventType, Data: data, Tenant: tenantID})
+}
+
+func (m *runtimeMockBroadcaster) snapshot() []broadcastedEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]broadcastedEvent(nil), m.events...)
 }
 
 type runtimeMockEventStore struct{}
@@ -1076,6 +1085,11 @@ func (m *runtimeMockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilte
 // --- Helper ---
 
 func newRuntimeTestEnv() (*service.RuntimeService, *runtimeMockStore, *runtimeMockQueue, *runtimeMockBroadcaster) {
+	return newRuntimeTestEnvWithPolicy(service.NewPolicyService("headless-safe-sandbox", nil))
+}
+
+// newRuntimeTestEnvWithPolicy is newRuntimeTestEnv with a caller-supplied policy service.
+func newRuntimeTestEnvWithPolicy(policySvc *service.PolicyService) (*service.RuntimeService, *runtimeMockStore, *runtimeMockQueue, *runtimeMockBroadcaster) {
 	store := &runtimeMockStore{
 		projects: []project.Project{
 			{ID: "proj-1", Name: "test-project", WorkspacePath: "/tmp/test-workspace"},
@@ -1090,7 +1104,6 @@ func newRuntimeTestEnv() (*service.RuntimeService, *runtimeMockStore, *runtimeMo
 	queue := &runtimeMockQueue{}
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
-	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	runtimeCfg := config.Runtime{
 		StallThreshold:       5,
 		QualityGateTimeout:   60 * time.Second,

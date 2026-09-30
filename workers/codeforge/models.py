@@ -29,6 +29,7 @@ class TaskMessage(BaseModel):
 
     id: str = Field(alias="task_id")
     project_id: str
+    tenant_id: str = ""
     title: str
     prompt: str
     config: dict[str, str] = Field(default_factory=dict)
@@ -163,6 +164,7 @@ class QualityGateRequest(BaseModel):
 
     run_id: str
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     run_tests: bool = False
     run_lint: bool = False
@@ -174,6 +176,7 @@ class QualityGateResult(BaseModel):
     """Result of quality gate execution sent back to Go control plane."""
 
     run_id: str
+    tenant_id: str = ""
     tests_passed: bool | None = None
     lint_passed: bool | None = None
     test_output: str = ""
@@ -188,6 +191,7 @@ class RepoMapRequest(BaseModel):
     """Request from Go control plane to generate a repository map."""
 
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     token_budget: int = 1024
     active_files: list[str] = Field(default_factory=list)
@@ -202,6 +206,7 @@ class RepoMapResult(BaseModel):
     """Result of repo map generation sent back to Go control plane."""
 
     project_id: str
+    tenant_id: str = ""
     map_text: str
     token_count: int
     file_count: int
@@ -217,6 +222,7 @@ class RetrievalIndexRequest(BaseModel):
     """Request from Go control plane to build a hybrid retrieval index."""
 
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     embedding_model: str = "text-embedding-3-small"
     file_extensions: list[str] = Field(default_factory=list)
@@ -226,6 +232,7 @@ class RetrievalIndexResult(BaseModel):
     """Result of retrieval index build sent back to Go control plane."""
 
     project_id: str
+    tenant_id: str = ""
     status: str
     file_count: int = 0
     chunk_count: int = 0
@@ -328,6 +335,7 @@ class GraphBuildRequest(BaseModel):
     """Request from Go control plane to build a code graph for a project."""
 
     project_id: str
+    tenant_id: str = ""
     workspace_path: str
     scope_id: str = ""
 
@@ -336,6 +344,7 @@ class GraphBuildResult(BaseModel):
     """Result of graph build sent back to Go control plane."""
 
     project_id: str
+    tenant_id: str = ""
     status: str  # "ready" or "error"
     node_count: int = 0
     edge_count: int = 0

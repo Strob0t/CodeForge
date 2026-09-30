@@ -310,6 +310,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			TimeoutSeconds: 120,
 		},
 		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
+		TenantID:       tenantctx.FromContext(ctx),
 	}
 
 	data, err := json.Marshal(payload)

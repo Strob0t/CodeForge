@@ -9,11 +9,12 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // HandleRunComplete processes a run completion message from a worker.
 func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *messagequeue.RunCompletePayload) error {
-	r, err := s.store.GetRun(ctx, payload.RunID)
+	ctx, r, err := s.loadRunScoped(ctx, payload.RunID, payload.TenantID)
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}
@@ -85,6 +86,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 		gateReq := messagequeue.QualityGateRequestPayload{
 			RunID:         r.ID,
 			ProjectID:     r.ProjectID,
+			TenantID:      tenantctx.FromContext(ctx),
 			WorkspacePath: workspacePath,
 			RunTests:      profile.QualityGate.RequireTestsPass,
 			RunLint:       profile.QualityGate.RequireLintPass,
@@ -139,7 +141,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 
 // HandleQualityGateResult processes the outcome of a quality gate execution.
 func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *messagequeue.QualityGateResultPayload) error {
-	r, err := s.store.GetRun(ctx, result.RunID)
+	ctx, r, err := s.loadRunScoped(ctx, result.RunID, result.TenantID)
 	if err != nil {
 		return fmt.Errorf("get run: %w", err)
 	}

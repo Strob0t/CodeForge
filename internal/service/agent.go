@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // AgentService handles agent lifecycle and task dispatch.
@@ -89,7 +90,9 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 		return fmt.Errorf("update task status: %w", err)
 	}
 
-	// Dispatch to backend (async via NATS)
+	// Dispatch to backend (async via NATS). The worker echoes the tenant in
+	// its output and result messages, which scopes their WebSocket events.
+	t.TenantID = tenantctx.FromContext(ctx)
 	if _, err := backend.Execute(ctx, t); err != nil {
 		// Revert agent status on failure
 		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
@@ -193,21 +196,11 @@ func (s *AgentService) HandleResult(ctx context.Context, result task.Result, tas
 // StartResultSubscriber subscribes to task results from NATS and processes them.
 func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskResult, func(msgCtx context.Context, _ string, data []byte) error {
-		var result struct {
-			TaskID    string   `json:"task_id"`
-			ProjectID string   `json:"project_id"`
-			Status    string   `json:"status"`
-			Output    string   `json:"output"`
-			Files     []string `json:"files"`
-			Error     string   `json:"error"`
-			TokensIn  int64    `json:"tokens_in"`
-			TokensOut int64    `json:"tokens_out"`
-			CostUSD   float64  `json:"cost_usd"`
-		}
-
+		var result messagequeue.TaskResultPayload
 		if err := json.Unmarshal(data, &result); err != nil {
 			return fmt.Errorf("unmarshal result: %w", err)
 		}
+		msgCtx = withPayloadTenant(msgCtx, result.TenantID)
 
 		taskResult := task.Result{
 			Output:    result.Output,
@@ -224,12 +217,15 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 // StartOutputSubscriber subscribes to streaming task output and forwards to WebSocket.
 func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output event.TaskOutputEvent
+		var output struct {
+			event.TaskOutputEvent
+			TenantID string `json:"tenant_id"`
+		}
 		if err := json.Unmarshal(data, &output); err != nil {
 			return fmt.Errorf("unmarshal output: %w", err)
 		}
 
-		s.hub.BroadcastEvent(msgCtx, event.EventTaskOutput, output)
+		s.hub.BroadcastEvent(withPayloadTenant(msgCtx, output.TenantID), event.EventTaskOutput, output.TaskOutputEvent)
 		return nil
 	})
 }
@@ -237,12 +233,15 @@ func (s *AgentService) StartOutputSubscriber(ctx context.Context) (cancel func()
 // StartAgentOutputSubscriber subscribes to agent backend output and forwards to WebSocket.
 func (s *AgentService) StartAgentOutputSubscriber(ctx context.Context) (cancel func(), err error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectAgentOutput, func(msgCtx context.Context, _ string, data []byte) error {
-		var output event.AgentOutputEvent
+		var output struct {
+			event.AgentOutputEvent
+			TenantID string `json:"tenant_id"`
+		}
 		if err := json.Unmarshal(data, &output); err != nil {
 			slog.Error("malformed agent output message", "error", err)
 			return nil // log and skip, don't fail subscription
 		}
-		s.hub.BroadcastEvent(msgCtx, event.EventAgentOutput, output)
+		s.hub.BroadcastEvent(withPayloadTenant(msgCtx, output.TenantID), event.EventAgentOutput, output.AgentOutputEvent)
 		return nil
 	})
 }

@@ -71,7 +71,7 @@ func (s *ReviewApprovalService) HandleApprovalRequired(ctx context.Context, _ st
 		"project_id", payload.ProjectID,
 		"impact_level", payload.ImpactLevel,
 	)
-	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, payload)
+	s.hub.BroadcastEvent(withPayloadTenant(ctx, payload.TenantID), event.EventReviewApprovalRequired, payload)
 	return nil
 }
 

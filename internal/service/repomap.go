@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // RepoMapService manages repository map generation and retrieval.
@@ -41,6 +42,7 @@ func (s *RepoMapService) RequestGeneration(ctx context.Context, projectID string
 
 	payload := messagequeue.RepoMapRequestPayload{
 		ProjectID:     projectID,
+		TenantID:      tenantctx.FromContext(ctx),
 		WorkspacePath: proj.WorkspacePath,
 		TokenBudget:   budget,
 		ActiveFiles:   activeFiles,
@@ -65,6 +67,7 @@ func (s *RepoMapService) RequestGeneration(ctx context.Context, projectID string
 
 // HandleResult processes the result of a repo map generation from the Python worker.
 func (s *RepoMapService) HandleResult(ctx context.Context, payload *messagequeue.RepoMapResultPayload) error {
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 	if payload.Error != "" {
 		slog.Error("repomap generation failed", "project_id", payload.ProjectID, "error", payload.Error)
 		s.hub.BroadcastEvent(ctx, event.EventRepoMapStatus, event.RepoMapStatusEvent{

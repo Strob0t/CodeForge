@@ -57,11 +57,15 @@ class RuntimeClient:
         task_id: str,
         project_id: str,
         termination: TerminationConfig,
+        tenant_id: str = "",
     ) -> None:
         self._js = js
         self.run_id = run_id
         self.task_id = task_id
         self.project_id = project_id
+        # Echoed on every message to the control plane: the Go core scopes store
+        # writes and WebSocket events to it and drops events without a tenant.
+        self.tenant_id = tenant_id
         self.termination = termination
         self._metrics = ExecutionMetrics()
         self._cancelled = False
@@ -162,6 +166,7 @@ class RuntimeClient:
         request = {
             "run_id": self.run_id,
             "call_id": call_id,
+            "tenant_id": self.tenant_id,
             "tool": tool,
             "command": command,
             "path": path,
@@ -278,6 +283,7 @@ class RuntimeClient:
         result: dict[str, object] = {
             "run_id": self.run_id,
             "call_id": call_id,
+            "tenant_id": self.tenant_id,
             "tool": tool,
             "success": success,
             "output": output,
@@ -305,6 +311,7 @@ class RuntimeClient:
         msg = RunCompleteMessage(
             run_id=self.run_id,
             task_id=self.task_id,
+            tenant_id=self.tenant_id,
             project_id=self.project_id,
             status=status,
             output=output,
@@ -335,6 +342,7 @@ class RuntimeClient:
         payload = {
             "run_id": self.run_id,
             "task_id": self.task_id,
+            "tenant_id": self.tenant_id,
             "line": line,
             "stream": stream,
         }
@@ -349,6 +357,7 @@ class RuntimeClient:
         """Publish a trajectory event for recording and UI display."""
         event["run_id"] = self.run_id
         event["project_id"] = self.project_id
+        event["tenant_id"] = self.tenant_id
         try:
             await self._js.publish(
                 SUBJECT_TRAJECTORY_EVENT,
@@ -367,6 +376,7 @@ class RuntimeClient:
         """
         payload = {
             "task_id": self.task_id,
+            "tenant_id": self.tenant_id,
             "line": line,
             "stream": stream,
             "timestamp": datetime.now(UTC).isoformat(),

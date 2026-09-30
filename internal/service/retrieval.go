@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // defaultSubAgentSearchTimeout is the fallback when config value is zero.
@@ -116,6 +117,7 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspac
 
 	payload := messagequeue.RetrievalIndexRequestPayload{
 		ProjectID:      projectID,
+		TenantID:       tenantctx.FromContext(ctx),
 		WorkspacePath:  workspacePath,
 		EmbeddingModel: embeddingModel,
 	}
@@ -148,6 +150,7 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspac
 
 // HandleIndexResult processes the result of an index build from the Python worker.
 func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messagequeue.RetrievalIndexResultPayload) error {
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 	status := payload.Status
 	if payload.Error != "" {
 		status = "error"

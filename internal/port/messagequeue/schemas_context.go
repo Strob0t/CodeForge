@@ -56,6 +56,7 @@ type ContextRerankResultPayload struct {
 // RepoMapRequestPayload is the schema for repomap.generate.request messages.
 type RepoMapRequestPayload struct {
 	ProjectID     string   `json:"project_id"`
+	TenantID      string   `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	WorkspacePath string   `json:"workspace_path"`
 	TokenBudget   int      `json:"token_budget"`
 	ActiveFiles   []string `json:"active_files"`
@@ -64,6 +65,7 @@ type RepoMapRequestPayload struct {
 // RepoMapResultPayload is the schema for repomap.generate.result messages.
 type RepoMapResultPayload struct {
 	ProjectID   string   `json:"project_id"`
+	TenantID    string   `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	MapText     string   `json:"map_text"`
 	TokenCount  int      `json:"token_count"`
 	FileCount   int      `json:"file_count"`
@@ -77,6 +79,7 @@ type RepoMapResultPayload struct {
 // RetrievalIndexRequestPayload is the schema for retrieval.index.request messages.
 type RetrievalIndexRequestPayload struct {
 	ProjectID      string   `json:"project_id"`
+	TenantID       string   `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	WorkspacePath  string   `json:"workspace_path"`
 	EmbeddingModel string   `json:"embedding_model"`
 	FileExtensions []string `json:"file_extensions,omitempty"`
@@ -85,7 +88,8 @@ type RetrievalIndexRequestPayload struct {
 // RetrievalIndexResultPayload is the schema for retrieval.index.result messages.
 type RetrievalIndexResultPayload struct {
 	ProjectID      string `json:"project_id"`
-	Status         string `json:"status"` // "ready" or "error"
+	TenantID       string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	Status         string `json:"status"`              // "ready" or "error"
 	FileCount      int    `json:"file_count"`
 	ChunkCount     int    `json:"chunk_count"`
 	EmbeddingModel string `json:"embedding_model"`
@@ -164,6 +168,7 @@ type SubAgentSearchResultPayload struct {
 // GraphBuildRequestPayload is the schema for graph.build.request messages.
 type GraphBuildRequestPayload struct {
 	ProjectID     string `json:"project_id"`
+	TenantID      string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	WorkspacePath string `json:"workspace_path"`
 	ScopeID       string `json:"scope_id,omitempty"`
 }
@@ -171,7 +176,8 @@ type GraphBuildRequestPayload struct {
 // GraphBuildResultPayload is the schema for graph.build.result messages.
 type GraphBuildResultPayload struct {
 	ProjectID string   `json:"project_id"`
-	Status    string   `json:"status"` // "ready" or "error"
+	TenantID  string   `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	Status    string   `json:"status"`              // "ready" or "error"
 	NodeCount int      `json:"node_count"`
 	EdgeCount int      `json:"edge_count"`
 	Languages []string `json:"languages"`
