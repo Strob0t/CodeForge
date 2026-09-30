@@ -51,6 +51,16 @@ COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+# deepeval (evaluation metrics) must not send telemetry or results to third
+# parties (KI-54). codeforge.evaluation forces the same settings before it
+# imports deepeval; the image covers deepeval started any other way.
+ENV DEEPEVAL_TELEMETRY_OPT_OUT=YES \
+    DEEPEVAL_UPDATE_WARNING_OPT_IN=0 \
+    CONFIDENT_METRIC_LOGGING_ENABLED=NO \
+    CONFIDENT_TRACING_ENABLED=NO \
+    DEEPEVAL_DISABLE_DOTENV=1 \
+    DEEPEVAL_DISABLE_LEGACY_KEYFILE=1
+
 USER codeforge
 
 # The worker serves GET /health (liveness) and GET /health/ready (connected to
