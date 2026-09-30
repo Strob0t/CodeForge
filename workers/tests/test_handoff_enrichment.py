@@ -31,6 +31,7 @@ async def test_handoff_payload_has_plan_fields() -> None:
             "step_id": "step-7",
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     assert "initiated" in result
@@ -55,6 +56,7 @@ async def test_handoff_payload_has_metadata() -> None:
             "metadata": {"priority": "high", "reason": "urgent"},
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     assert "initiated" in result
@@ -78,6 +80,7 @@ async def test_handoff_payload_has_chain_tracking() -> None:
             "context": "Do something",
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     payload = json.loads(published[0][1])
@@ -105,6 +108,7 @@ async def test_handoff_chain_tracking_preserves_existing() -> None:
             },
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     payload = json.loads(published[0][1])
@@ -124,6 +128,7 @@ async def test_handoff_payload_missing_required_fields() -> None:
         run_id="run-1",
         arguments={"context": "Do something"},
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
     assert "Error" in result
 
@@ -132,6 +137,7 @@ async def test_handoff_payload_missing_required_fields() -> None:
         run_id="run-1",
         arguments={"target_agent_id": "agent-2"},
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
     assert "Error" in result
 
@@ -140,6 +146,7 @@ async def test_handoff_payload_missing_required_fields() -> None:
         run_id="run-1",
         arguments={},
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
     assert "Error" in result
 
@@ -158,6 +165,7 @@ async def test_handoff_uses_subject_constant() -> None:
             "context": "Do something",
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     assert len(published) == 1
@@ -198,6 +206,7 @@ async def test_handoff_consumer_forwards_metadata(consumer) -> None:
         "source_run_id": "run-src",
         "target_agent_id": "agent-tgt",
         "context": "Do the thing",
+        "workspace_path": "/ws",
         "metadata": {"custom_key": "custom_value"},
     }
     msg = MagicMock()
@@ -220,6 +229,7 @@ async def test_handoff_consumer_forwards_plan_id(consumer) -> None:
         "source_run_id": "run-src",
         "target_agent_id": "agent-tgt",
         "context": "Do the thing",
+        "workspace_path": "/ws",
         "plan_id": "plan-42",
         "step_id": "step-7",
     }
@@ -243,6 +253,7 @@ async def test_handoff_consumer_stamps_trust(consumer) -> None:
         "source_run_id": "run-src",
         "target_agent_id": "agent-tgt",
         "context": "Do the thing",
+        "workspace_path": "/ws",
     }
     msg = MagicMock()
     msg.data = json.dumps(payload).encode()
@@ -264,6 +275,7 @@ async def test_handoff_consumer_propagates_chain_hop(consumer) -> None:
         "source_run_id": "run-src",
         "target_agent_id": "agent-tgt",
         "context": "Do the thing",
+        "workspace_path": "/ws",
         "metadata": {
             "handoff_chain_id": "chain-1",
             "handoff_hop": "2",
@@ -296,6 +308,7 @@ async def test_handoff_payload_carries_run_tenant_and_project() -> None:
         nats_publish=fake_publish,
         tenant_id="tenant-a",
         project_id="proj-a",
+        workspace_path="/ws",
     )
 
     payload = json.loads(published[0][1])
@@ -321,3 +334,101 @@ async def test_registered_handoff_tool_uses_run_tenant_and_project() -> None:
     payload = json.loads(data)
     assert payload["tenant_id"] == "tenant-a"
     assert payload["project_id"] == "proj-a"
+
+
+# ---------------------------------------------------------------------------
+# Workspace and approval timeout (review of KI-21/KI-23)
+# ---------------------------------------------------------------------------
+
+
+async def test_handoff_payload_carries_workspace_and_approval_timeout() -> None:
+    """The handoff run works in the source run's workspace and waits as long for approvals."""
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review this code"},
+        nats_publish=fake_publish,
+        workspace_path="/data/workspaces/proj-a",
+        approval_timeout_seconds=90,
+    )
+
+    payload = json.loads(published[0][1])
+    assert payload["workspace_path"] == "/data/workspaces/proj-a"
+    assert payload["approval_timeout_seconds"] == 90
+
+
+@pytest.mark.parametrize("workspace", ["", "   "])
+async def test_handoff_without_workspace_fails_at_handoff_time(workspace: str) -> None:
+    """Without a workspace the handoff run would fail later: refuse the handoff now."""
+    publish = AsyncMock()
+
+    result = await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review this code"},
+        nats_publish=publish,
+        workspace_path=workspace,
+    )
+
+    assert result.startswith("Error:")
+    assert "workspace" in result
+    publish.assert_not_awaited()
+
+
+async def test_registered_handoff_tool_sends_the_run_workspace_and_approval_timeout() -> None:
+    from codeforge.consumer._conversation_skill_integration import register_handoff_tool
+
+    registry = MagicMock()
+    js = MagicMock()
+    js.publish = AsyncMock()
+
+    register_handoff_tool(registry, "run-1", js, tenant_id="t", project_id="p", approval_timeout_seconds=90)
+    executor = registry.register.call_args.args[1]
+    await executor.execute({"target_agent_id": "agent-2", "context": "go"}, "/data/workspaces/p")
+
+    payload = json.loads(js.publish.call_args.args[1])
+    assert payload["workspace_path"] == "/data/workspaces/p"
+    assert payload["approval_timeout_seconds"] == 90
+
+
+async def test_handoff_consumer_starts_the_run_in_the_source_workspace(consumer) -> None:
+    payload = {
+        "source_run_id": "run-src",
+        "target_agent_id": "agent-tgt",
+        "context": "Do the thing",
+        "workspace_path": "/data/workspaces/proj-a",
+        "approval_timeout_seconds": 90,
+    }
+    msg = MagicMock()
+    msg.data = json.dumps(payload).encode()
+    msg.headers = None
+    msg.ack = AsyncMock()
+
+    await consumer._handle_handoff_request(msg)
+
+    run_payload = json.loads(consumer._js.publish.call_args.args[1])
+    assert run_payload["workspace_path"] == "/data/workspaces/proj-a"
+    assert run_payload["approval_timeout_seconds"] == 90
+
+
+@pytest.mark.parametrize("workspace", [None, "", "  ", 42])
+async def test_handoff_request_without_workspace_is_rejected(workspace: object) -> None:
+    """A handoff request that cannot name its workspace starts no run: it is dead-lettered."""
+    from codeforge.consumer import TaskConsumer
+    from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
+
+    worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
+    worker._js = RecordingJetStream()  # type: ignore[assignment]
+    request: dict[str, object] = {"source_run_id": "run-src", "target_agent_id": "agent-tgt", "context": "go"}
+    if workspace is not None:
+        request["workspace_path"] = workspace
+    data = json.dumps(request).encode()
+    msg, client = jetstream_msg(data, subject=SUBJECT_HANDOFF_REQUEST)
+
+    await worker._handle_handoff_request(msg)
+
+    assert worker._js.published == [(f"{SUBJECT_HANDOFF_REQUEST}.dlq", data)]  # type: ignore[union-attr]
+    assert client.settlements() == ["term"]

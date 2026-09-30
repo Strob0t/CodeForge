@@ -21,6 +21,11 @@ class HandoffHandlerMixin:
         payload = await self._parse_json_object(msg)
         if payload is None:
             return
+        workspace_path = payload.get("workspace_path")
+        if not isinstance(workspace_path, str) or not workspace_path.strip():
+            # A run without a workspace fails on arrival; do not start one.
+            await self._reject_invalid(msg, "handoff request without workspace_path: the handoff run has no workspace")
+            return
         try:
             target_agent = payload.get("target_agent_id", "")
             context_msg = payload.get("context", "")
@@ -71,6 +76,8 @@ class HandoffHandlerMixin:
                 "prompt": handoff_context,
                 "policy_profile": "standard",
                 "exec_mode": "mount",  # tools run as local worker processes (no sandbox yet, KI-13)
+                "workspace_path": workspace_path,
+                "approval_timeout_seconds": payload.get("approval_timeout_seconds", 0),
                 "config": config,
                 "termination": {
                     "max_steps": 50,

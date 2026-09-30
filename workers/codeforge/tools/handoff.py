@@ -68,11 +68,16 @@ async def execute_handoff(
     nats_publish: Callable[[str, bytes], Awaitable[object]],
     tenant_id: str = "",
     project_id: str = "",
+    *,
+    workspace_path: str,
+    approval_timeout_seconds: int = 0,
 ) -> str:
     """Execute a handoff_to tool call by publishing to the handoff NATS subject.
 
-    tenant_id and project_id are the source run's: the handoff run belongs to the
-    same tenant and project, and its live events are only delivered to that tenant.
+    tenant_id, project_id and workspace_path are the source run's: the handoff
+    run belongs to the same tenant and project, its live events are only
+    delivered to that tenant, and its tools work in the same workspace.
+    approval_timeout_seconds is the Go approval timeout the source run got.
     """
     target = arguments.get("target_agent_id", "")
     context_msg = arguments.get("context", "")
@@ -84,6 +89,9 @@ async def execute_handoff(
 
     if not target or not context_msg:
         return "Error: target_agent_id and context are required"
+    if not workspace_path.strip():
+        # The handoff run would fail without a workspace; refuse it here.
+        return "Error: handoff not possible: this run has no workspace to hand over"
 
     # Auto-generate chain tracking
     if "handoff_chain_id" not in metadata:
@@ -109,6 +117,8 @@ async def execute_handoff(
         "plan_id": plan_id,
         "step_id": step_id,
         "metadata": metadata,
+        "workspace_path": workspace_path,
+        "approval_timeout_seconds": approval_timeout_seconds,
     }
 
     await nats_publish(SUBJECT_HANDOFF_REQUEST, json.dumps(payload).encode())

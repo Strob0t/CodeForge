@@ -36,6 +36,7 @@ def _base_payload() -> dict:
         "target_mode_id": "coder",
         "source_run_id": "run-100",
         "project_id": "proj-1",
+        "workspace_path": "/data/workspaces/proj-1",  # the handoff tool sends the source run's workspace
         "artifacts": [],
         "plan_id": "",
         "step_id": "",

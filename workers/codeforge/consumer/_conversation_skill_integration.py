@@ -70,8 +70,13 @@ def register_handoff_tool(
     js: object,
     tenant_id: str = "",
     project_id: str = "",
+    approval_timeout_seconds: int = 0,
 ) -> None:
-    """Register the handoff tool in the tool registry if NATS is available."""
+    """Register the handoff tool in the tool registry if NATS is available.
+
+    The handoff run gets the workspace the tool is called in and the source
+    run's approval timeout.
+    """
     if js is None:
         return
 
@@ -95,6 +100,8 @@ def register_handoff_tool(
                 self._js.publish,
                 tenant_id=tenant_id,
                 project_id=project_id,
+                workspace_path=workspace_path,
+                approval_timeout_seconds=approval_timeout_seconds,
             )
             return _ToolResult(output=result)
 

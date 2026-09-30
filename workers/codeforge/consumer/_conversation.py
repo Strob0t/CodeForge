@@ -313,6 +313,7 @@ class ConversationHandlerMixin:
             self._js,
             tenant_id=run_msg.tenant_id,
             project_id=run_msg.project_id,
+            approval_timeout_seconds=run_msg.approval_timeout_seconds,
         )
         register_propose_goal_tool(registry, runtime)
         register_propose_roadmap_tool(registry, runtime)
