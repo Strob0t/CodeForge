@@ -613,6 +613,7 @@ func run() error {
 	conversationSvc.SetMessageService(convMsgSvc)
 	conversationSvc.SetMetrics(metrics)
 	conversationSvc.SetQueue(queue)
+	conversationSvc.SetRunTracker(runtimeSvc)
 	conversationSvc.SetAgentConfig(&cfg.Agent)
 	conversationSvc.SetMCPService(mcpSvc)
 	conversationSvc.SetPolicyService(policySvc)

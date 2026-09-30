@@ -89,12 +89,22 @@ func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.S
 }
 
 // MarkConversationRunCancelled records that a conversation-based run has been
-// cancelled so that subsequent tool-call requests are rejected immediately
-// without waiting for policy evaluation.
+// cancelled so that its remaining tool-call requests are rejected immediately
+// without waiting for policy evaluation, until the next run of the
+// conversation starts (MarkConversationRunStarted).
 func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
 	s.state.SetCancelledConversation(conversationID)
 	s.cleanupRunState(conversationID)
 	slog.Info("conversation run marked cancelled", "conversation_id", conversationID)
+}
+
+// MarkConversationRunStarted records that a new run of the conversation
+// started: conversation runs reuse the conversation ID as run ID, so the mark
+// set by MarkConversationRunCancelled is cleared here and tool calls are
+// evaluated again. Until then, tool calls of the stopped run are rejected
+// (KI-24).
+func (s *RuntimeService) MarkConversationRunStarted(conversationID string) {
+	s.state.ClearCancelledConversation(conversationID)
 }
 
 // RegisterFeedbackProvider adds a feedback provider for HITL fan-out.

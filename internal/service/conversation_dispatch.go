@@ -364,6 +364,7 @@ func (s *ConversationService) dispatchAgenticRun(
 			return fmt.Errorf("publish conversation run start: %w", err)
 		}
 	}
+	s.markRunStarted(conversationID)
 
 	if opts.recordMetrics && s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation_agentic", "project.id", proj.ID)

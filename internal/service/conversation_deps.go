@@ -71,3 +71,8 @@ type convScoreRecorder interface {
 	RecordSuccessScore(ctx context.Context, tenantID, fingerprint, modeID, modelFamily, runID string, succeeded bool) error
 	RecordCostScore(ctx context.Context, tenantID, fingerprint, modeID, modelFamily, runID string, qualityPerDollar float64) error
 }
+
+// convRunTracker is the subset of RuntimeService used by ConversationService.
+type convRunTracker interface {
+	MarkConversationRunStarted(conversationID string)
+}

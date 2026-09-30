@@ -126,6 +126,13 @@ func (m *RunStateManager) SetCancelledConversation(convID string) {
 	m.cancelledConvs.Store(convID, true)
 }
 
+// ClearCancelledConversation forgets the cancel mark of a conversation. A new
+// run of the conversation reuses its ID as run ID, so the mark of a stopped
+// run must not outlive the start of the next one (KI-24).
+func (m *RunStateManager) ClearCancelledConversation(convID string) {
+	m.cancelledConvs.Delete(convID)
+}
+
 func (m *RunStateManager) IsConversationCancelled(convID string) bool {
 	_, ok := m.cancelledConvs.Load(convID)
 	return ok
