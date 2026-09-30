@@ -374,6 +374,7 @@ class TaskConsumer(
 
                 from opentelemetry import context as otel_context
 
+                from codeforge.tenant_context import bind_tenant, reset_tenant, tenant_of
                 from codeforge.tracing import metrics as otel_metrics
                 from codeforge.tracing.propagation import extract_trace_context
 
@@ -383,6 +384,9 @@ class TaskConsumer(
                     for k, v in msg.headers.items():
                         raw_headers[k] = v[0] if isinstance(v, list) else v
                 _, token = extract_trace_context(raw_headers)
+                # The message is handled in the tenant of its header, which
+                # everything published meanwhile carries back (KI-64).
+                tenant_token = bind_tenant(tenant_of(raw_headers))
                 msg_start = _time.monotonic()
                 try:
                     # Handlers may run longer than the ack wait; keep JetStream
@@ -396,6 +400,7 @@ class TaskConsumer(
                     logger.exception("unhandled error in message handler", subject=label, error=str(exc))
                 finally:
                     otel_metrics.nats_processing.record(_time.monotonic() - msg_start)
+                    reset_tenant(tenant_token)
                     otel_context.detach(token)
 
     @staticmethod

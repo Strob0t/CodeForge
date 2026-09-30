@@ -13,7 +13,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // GraphStatusInfo holds the in-memory state of a project's graph.
@@ -60,7 +59,7 @@ func NewGraphService(store database.Store, queue messagequeue.Queue, hub broadca
 func (s *GraphService) RequestBuild(ctx context.Context, projectID, workspacePath string) error {
 	payload := messagequeue.GraphBuildRequestPayload{
 		ProjectID:     projectID,
-		TenantID:      tenantctx.FromContext(ctx),
+		TenantID:      outgoingTenant(ctx, "graph.build.request"),
 		WorkspacePath: workspacePath,
 	}
 	data, err := json.Marshal(payload)

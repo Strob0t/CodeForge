@@ -16,7 +16,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // defaultConversationMode is the mode of an agentic conversation turn when
@@ -338,7 +337,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		Agentic:            true,
 		PlanActEnabled:     modeAutonomy >= 4,
 		ProviderAPIKey:     opts.providerAPIKey,
-		TenantID:           tenantctx.FromContext(ctx),
+		TenantID:           outgoingTenant(ctx, "conversation.run.start"),
 		SessionMeta:        sessionMeta,
 		Reminders:          reminders,
 		RolloutCount:       rolloutCount,

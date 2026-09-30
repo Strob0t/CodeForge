@@ -16,7 +16,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // AgentService handles agent lifecycle and task dispatch.
@@ -104,7 +103,7 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 
 	// Dispatch to backend (async via NATS). The worker echoes the tenant in
 	// its output and result messages, which scopes their WebSocket events.
-	t.TenantID = tenantctx.FromContext(ctx)
+	t.TenantID = outgoingTenant(ctx, "tasks.agent")
 	if _, err := backend.Execute(ctx, &agentbackend.Execution{Task: t, WorkspacePath: proj.WorkspacePath}); err != nil {
 		// Revert agent status on failure
 		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))

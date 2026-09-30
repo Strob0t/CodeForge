@@ -26,7 +26,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // RuntimeService orchestrates the step-by-step execution protocol between
@@ -288,7 +287,7 @@ func (s *RuntimeService) buildRunPayload(
 		TaskID:        t.ID,
 		ProjectID:     t.ProjectID,
 		AgentID:       ag.ID,
-		TenantID:      tenantctx.FromContext(ctx),
+		TenantID:      outgoingTenant(ctx, "runs.start"),
 		Prompt:        t.Prompt,
 		PolicyProfile: profileName,
 		ExecMode:      string(r.ExecMode),

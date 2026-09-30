@@ -16,7 +16,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Quality gates (D9): a run the worker completed under a policy with gates
@@ -49,7 +48,7 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 	gateReq := messagequeue.QualityGateRequestPayload{
 		RunID:         r.ID,
 		ProjectID:     r.ProjectID,
-		TenantID:      tenantctx.FromContext(ctx),
+		TenantID:      outgoingTenant(ctx, "runs.qualitygate.request"),
 		WorkspacePath: proj.WorkspacePath,
 		RunTests:      gate.RequireTestsPass,
 		RunLint:       gate.RequireLintPass,

@@ -22,6 +22,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
 	"github.com/Strob0t/CodeForge/internal/resilience"
 	"github.com/Strob0t/CodeForge/internal/secrets"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Delivery semantics (ADR-016): every subscription is a shared durable pull
@@ -31,11 +32,14 @@ import (
 const (
 	streamName      = "CODEFORGE"
 	headerRequestID = "X-Request-ID"
-	maxRetries      = 3
-	maxDeliver      = maxRetries + 1
-	nakDelay        = 2 * time.Second
-	defaultAckWait  = 90 * time.Second
-	dlqMonitorName  = "codeforge-go-dlq-monitor"
+	// headerTenantID carries the tenant the message was published under; the
+	// handler of the message runs in it (KI-64).
+	headerTenantID = "X-Tenant-ID"
+	maxRetries     = 3
+	maxDeliver     = maxRetries + 1
+	nakDelay       = 2 * time.Second
+	defaultAckWait = 90 * time.Second
+	dlqMonitorName = "codeforge-go-dlq-monitor"
 	// headerOriginalMsgID carries the original Nats-Msg-Id on a DLQ copy
 	// (same name in workers/codeforge/nats_subjects.py).
 	headerOriginalMsgID = "X-Original-Msg-Id"
@@ -208,9 +212,20 @@ func inProgressLimit(maxHandler time.Duration) time.Duration {
 	return max(defaultMaxInProgress, maxHandler+inProgressMargin)
 }
 
+// setContextHeaders stamps what ctx carries across the queue onto an
+// outgoing message: the request ID, the tenant and the W3C trace context.
+func setContextHeaders(ctx context.Context, hdrs nats.Header) {
+	if reqID := logger.RequestID(ctx); reqID != "" {
+		hdrs.Set(headerRequestID, reqID)
+	}
+	if tenantID, ok := tenantctx.Lookup(ctx); ok {
+		hdrs.Set(headerTenantID, tenantID)
+	}
+	injectTraceContext(ctx, hdrs)
+}
+
 // Publish sends a message to the given subject.
-// If the context carries a request ID, it is injected as a NATS header.
-// W3C trace context (traceparent) is always injected for distributed tracing.
+// The context's request ID, tenant and W3C trace context travel as headers.
 // If a circuit breaker is attached, the publish is wrapped in it.
 func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error {
 	msg := &nats.Msg{
@@ -219,13 +234,7 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 		Header:  nats.Header{},
 	}
 
-	// Propagate request ID via NATS message header
-	if reqID := logger.RequestID(ctx); reqID != "" {
-		msg.Header.Set(headerRequestID, reqID)
-	}
-
-	// Inject W3C trace context for distributed tracing
-	injectTraceContext(ctx, msg.Header)
+	setContextHeaders(ctx, msg.Header)
 
 	publish := func() error {
 		_, err := q.js.PublishMsg(ctx, msg)
@@ -249,13 +258,7 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 		Header:  nats.Header{},
 	}
 	msg.Header.Set(nats.MsgIdHdr, msgID)
-
-	if reqID := logger.RequestID(ctx); reqID != "" {
-		msg.Header.Set(headerRequestID, reqID)
-	}
-
-	// Inject W3C trace context for distributed tracing
-	injectTraceContext(ctx, msg.Header)
+	setContextHeaders(ctx, msg.Header)
 
 	publish := func() error {
 		_, err := q.js.PublishMsg(ctx, msg)
@@ -490,6 +493,10 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 	if hdrs != nil {
 		if reqID := hdrs.Get(headerRequestID); reqID != "" {
 			msgCtx = logger.WithRequestID(msgCtx, reqID)
+		}
+		// The payload's tenant, where a handler scopes to it, overrides this.
+		if tenantID := hdrs.Get(headerTenantID); tenantID != "" {
+			msgCtx = tenantctx.WithMessageTenant(msgCtx, tenantID)
 		}
 		msgCtx = extractTraceContext(msgCtx, hdrs)
 	}

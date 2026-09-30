@@ -16,7 +16,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // BenchmarkRunManager handles benchmark run lifecycle (create, start, list, update, delete).
@@ -113,7 +112,7 @@ func (m *BenchmarkRunManager) StartRun(ctx context.Context, req *benchmark.Creat
 
 	payload := messagequeue.BenchmarkRunRequestPayload{
 		RunID:              run.ID,
-		TenantID:           tenantctx.FromContext(ctx),
+		TenantID:           outgoingTenant(ctx, "benchmark.run.request"),
 		DatasetPath:        datasetPath,
 		Model:              run.Model,
 		Metrics:            run.Metrics,

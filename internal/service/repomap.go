@@ -12,7 +12,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // RepoMapService manages repository map generation and retrieval.
@@ -42,7 +41,7 @@ func (s *RepoMapService) RequestGeneration(ctx context.Context, projectID string
 
 	payload := messagequeue.RepoMapRequestPayload{
 		ProjectID:     projectID,
-		TenantID:      tenantctx.FromContext(ctx),
+		TenantID:      outgoingTenant(ctx, "repomap.generate.request"),
 		WorkspacePath: proj.WorkspacePath,
 		TokenBudget:   budget,
 		ActiveFiles:   activeFiles,

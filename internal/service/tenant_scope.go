@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
@@ -13,14 +14,29 @@ import (
 // handlers and background goroutines therefore have to put the owning
 // tenant into ctx before they touch the store or broadcast.
 
-// withPayloadTenant scopes ctx to the tenant a NATS message carries. A tenant
-// already in ctx (an HTTP request) wins; an empty payload tenant changes
+// withPayloadTenant scopes ctx to the tenant a NATS message payload carries.
+// A tenant set explicitly in ctx (an HTTP request) wins; the payload's tenant
+// overrides the message's header tenant (tenantctx.WithMessageTenant), which
+// applies when the payload names none. An empty payload tenant changes
 // nothing.
 func withPayloadTenant(ctx context.Context, tenantID string) context.Context {
-	if _, ok := tenantctx.Lookup(ctx); ok || tenantID == "" {
+	if _, ok := tenantctx.Explicit(ctx); ok || tenantID == "" {
 		return ctx
 	}
 	return tenantctx.WithTenant(ctx, tenantID)
+}
+
+// outgoingTenant returns the tenant to stamp on an outgoing message payload:
+// the tenant of ctx. A missing one is an error in the caller (the work would
+// run and report in the default tenant), so it is logged as an error naming
+// the message before the default tenant is used (KI-64).
+func outgoingTenant(ctx context.Context, message string) string {
+	if tenantID, ok := tenantctx.Lookup(ctx); ok {
+		return tenantID
+	}
+	slog.ErrorContext(ctx, "outgoing message has no tenant in its context; using the default tenant",
+		"message", message)
+	return tenantctx.DefaultTenantID
 }
 
 // withEntityTenant scopes ctx to the tenant that owns an entity loaded from

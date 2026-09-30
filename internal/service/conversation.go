@@ -21,7 +21,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // conversationPromptData carries project context into the system prompt template.
@@ -377,7 +376,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			TimeoutSeconds: 120,
 		},
 		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
-		TenantID:           tenantctx.FromContext(ctx),
+		TenantID:           outgoingTenant(ctx, "conversation.run.start"),
 		TurnID:             turnID,
 		ToolOutputMaxChars: s.toolOutputMaxChars(),
 	}
@@ -433,7 +432,7 @@ func (s *ConversationService) CompactConversation(ctx context.Context, conversat
 	}
 	payload := map[string]string{
 		"conversation_id": conversationID,
-		"tenant_id":       tenantctx.FromContext(ctx),
+		"tenant_id":       outgoingTenant(ctx, "conversation.compact.request"),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

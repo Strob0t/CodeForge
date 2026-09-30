@@ -126,6 +126,9 @@ SUBJECT_PROMPT_EVOLUTION_REVERTED = "prompt.evolution.reverted"
 
 # Headers
 HEADER_REQUEST_ID = "X-Request-ID"
+# The tenant a message was published under (same name in the Go Core,
+# internal/adapter/nats/nats.go); see codeforge.tenant_context.
+HEADER_TENANT_ID = "X-Tenant-ID"
 
 # Delivery semantics (ADR-016); the Go Core uses the same retry limit
 # (internal/adapter/nats/nats.go). Retries are counted by JetStream.
