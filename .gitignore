@@ -5,8 +5,9 @@
 .remember/
 
 # -- Secrets (production, generated) ---------------
-# Anchored: internal/secrets is source code.
-/secrets/
+# Any secrets/ directory (SECRETS_DIR may live elsewhere), except the Go package.
+secrets/
+!/internal/secrets/
 
 # -- Dependencies ---------------------------------
 .venv/
