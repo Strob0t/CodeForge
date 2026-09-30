@@ -62,6 +62,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // mockStore implements database.Store for testing.
@@ -1788,10 +1789,12 @@ func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, ll
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
+					// The admin of the default tenant: also a platform admin.
 					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
-						ID:   "test-admin",
-						Name: "Test Admin",
-						Role: user.RoleAdmin,
+						ID:       "test-admin",
+						Name:     "Test Admin",
+						Role:     user.RoleAdmin,
+						TenantID: tenantctx.DefaultTenantID,
 					}))
 				}
 			}
@@ -1909,10 +1912,12 @@ func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
 				if middleware.UserFromContext(r.Context()) == nil {
+					// The admin of the default tenant: also a platform admin.
 					r = r.WithContext(middleware.ContextWithTestUser(r.Context(), &user.User{
-						ID:   "test-admin",
-						Name: "Test Admin",
-						Role: user.RoleAdmin,
+						ID:       "test-admin",
+						Name:     "Test Admin",
+						Role:     user.RoleAdmin,
+						TenantID: tenantctx.DefaultTenantID,
 					}))
 				}
 			}
