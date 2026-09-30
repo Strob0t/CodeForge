@@ -28,7 +28,9 @@
 #   litellm-master-key: LiteLLM also encrypts the model credentials it stores
 #     with it (unless LITELLM_SALT_KEY is set).
 #   This script never replaces these four once the secrets directory is in use
-#   (database-url exists); it stops and explains instead.
+#   (any file only this script creates exists: a derived file, the JWT or LLM key
+#   secret, the TLS pair); it stops and explains instead. A directory holding
+#   only files you pre-seeded (e.g. your own postgres-password) counts as new.
 set -euo pipefail
 
 # shellcheck source=scripts/lib/compose-env.sh
@@ -58,9 +60,14 @@ umask 077
 mkdir -p "$SECRETS_DIR"
 chmod 700 "$SECRETS_DIR"
 
-# A secrets directory is in use once its derived database-url exists.
+# A secrets directory is in use once any file exists that only this script
+# creates. Deleting one of them (e.g. database-url to rebuild it) must not make
+# the directory look new: that would regenerate secrets data depends on.
 IN_USE=false
-[ -f "$SECRETS_DIR/database-url" ] && IN_USE=true
+for marker in database-url nats-url nats-auth.conf codeforge-auth-jwt-secret \
+    codeforge-auth-llm-key-encryption-secret postgres-tls.crt postgres-tls.key; do
+    [ -f "$SECRETS_DIR/$marker" ] && IN_USE=true
+done
 
 write_file() {
     local file="$SECRETS_DIR/$1"
@@ -149,7 +156,7 @@ keep_note() {
     echo "Kept existing $1 (delete it to rebuild it from $2)"
 }
 
-if [ "$IN_USE" = false ]; then
+if [ ! -f "$SECRETS_DIR/database-url" ]; then
     PG_PASS="$(read_url_safe postgres-password)"
     write_file database-url "postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB}?sslmode=require"
     echo "Wrote database-url"
