@@ -99,6 +99,14 @@ _CONSUMER_GONE_ERRORS = (nats.js.errors.ServiceUnavailableError,)
 # this time; what is still running then is cancelled and reported as failed.
 _GIVE_UP_GRACE_SECONDS = 30.0
 
+# On SIGTERM accepted at-most-once work may finish within this time before it
+# is cancelled and reported as failed (KI-65). The whole shutdown (this grace,
+# the cancellation and the reports in _in_flight, the drain) must fit into the
+# worker's stop_grace_period in docker-compose.prod.yml, after which Docker
+# kills the process and the completions are lost.
+_SHUTDOWN_GRACE_SECONDS = 5.0
+_DRAIN_TIMEOUT_SECONDS = 10.0
+
 
 class TaskConsumer(
     ConsumerBaseMixin,
@@ -399,16 +407,33 @@ class TaskConsumer(
         logger.error("message loop cannot recover, stopping the worker", subject=subject)
         self.failed = True
         self._running = False
+        self._abort_accepted_work(
+            _GIVE_UP_GRACE_SECONDS,
+            f"worker stopped before the work finished: message loop for {subject} could not recover",
+        )
+
+    def _abort_accepted_work(self, grace: float, reason: str) -> asyncio.Task[None]:
+        """Start aborting the worker's work once (see InFlightWork.abort); the first reason wins."""
         if self._abort_task is None:
-            reason = f"worker stopped before the work finished: message loop for {subject} could not recover"
             self._abort_task = asyncio.create_task(
-                self._in_flight.abort(self._loop_tasks, _GIVE_UP_GRACE_SECONDS, reason), name="abort accepted work"
+                self._in_flight.abort(self._loop_tasks, grace, reason), name="abort accepted work"
             )
+        return self._abort_task
 
     async def stop(self) -> None:
-        """Gracefully shut down: drain with timeout and close. Safe to call more than once."""
+        """Gracefully shut down: fail unfinished accepted work, drain with timeout and close.
+
+        Safe to call more than once. Accepted at-most-once work is never
+        redelivered (ADR-016): what does not finish within the shutdown grace
+        is cancelled and reported as failed while NATS is still connected, so
+        the Go Core learns its outcome instead of waiting for its watchdog.
+        """
         self.request_stop()  # /health/ready fails from now on; a start() still setting up stops
         logger.info("stopping consumer")
+
+        await self._abort_accepted_work(
+            _SHUTDOWN_GRACE_SECONDS, "worker stopped before the work finished: the worker is shutting down"
+        )
 
         await self._llm.close()
         await self._retriever.close()
@@ -416,9 +441,9 @@ class TaskConsumer(
         # start() closes a connection it makes after this point itself.
         if self._nc is not None and self._nc.is_connected:
             try:
-                await asyncio.wait_for(self._nc.drain(), timeout=10.0)
+                await asyncio.wait_for(self._nc.drain(), timeout=_DRAIN_TIMEOUT_SECONDS)
             except TimeoutError:
-                logger.warning("NATS drain timed out after 10s, closing connection")
+                logger.warning("NATS drain timed out, closing connection", timeout=_DRAIN_TIMEOUT_SECONDS)
                 await self._nc.close()
             except Exception as exc:
                 logger.warning("NATS drain failed", error=str(exc))

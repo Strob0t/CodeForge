@@ -308,6 +308,11 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+    # On SIGTERM the worker fails its unfinished accepted runs and tasks and
+    # publishes their completions before it drains NATS (up to about 40 s,
+    # see _SHUTDOWN_GRACE_SECONDS in workers/codeforge/consumer/__init__.py);
+    # Docker's default of 10 s would kill it before the completions are out.
+    stop_grace_period: 45s
     # GET /health/ready on CODEFORGE_WORKER_HEALTH_PORT (default 8081): 200
     # while the worker is connected to NATS and every consumer loop runs.
     healthcheck:

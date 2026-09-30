@@ -1146,3 +1146,122 @@ class TestGiveUpFailsAcceptedWork:
         assert not work.cancelled
         assert [(r["task_id"], r["status"]) for r in _task_results(consumer)] == [("task-quick", "completed")]
         assert elapsed < 5.0, "the worker exits as soon as its accepted work is done, not after the whole grace period"
+
+
+# ---------------------------------------------------------------------------
+# SIGTERM fails accepted work before NATS is drained (KI-65, ADR-016)
+# ---------------------------------------------------------------------------
+
+
+async def _start_until_stopped(
+    consumer: TaskConsumer,
+    monkeypatch: pytest.MonkeyPatch,
+    subscription: str,
+    msg: object,
+    work: _Work,
+    grace: float,
+) -> list[int]:
+    """Run TaskConsumer.start with *msg* accepted on *subscription* and stop the worker while it runs.
+
+    Returns how many messages were published when the connection was drained.
+    """
+    monkeypatch.setattr("codeforge.consumer._SHUTDOWN_GRACE_SECONDS", grace)
+    monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
+    js = consumer._js
+    js.find_stream_name_by_subject = AsyncMock(return_value="CODEFORGE")  # type: ignore[union-attr]
+    monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    published_at_drain: list[int] = []
+
+    async def drain() -> None:
+        published_at_drain.append(len(_published(consumer)))
+
+    nc = MagicMock()
+    nc.is_connected = True
+    nc.drain = drain
+    nc.close = AsyncMock()
+    monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=nc))
+    pending = [msg]
+
+    async def ensure(_js: object, _name: str, subject: str) -> MagicMock:
+        async def fetch(**_kwargs: object) -> list[object]:
+            if subject == subscription and pending:
+                return [pending.pop()]
+            await asyncio.sleep(0.01)
+            raise nats.errors.TimeoutError
+
+        sub = MagicMock()
+        sub.fetch = fetch
+        sub.unsubscribe = AsyncMock()
+        return sub
+
+    monkeypatch.setattr("codeforge.consumer.ensure_durable", ensure)
+    started = asyncio.create_task(consumer.start())
+    await asyncio.wait_for(work.started.wait(), timeout=10)
+    await asyncio.wait_for(consumer.stop(), timeout=10)
+    await asyncio.wait_for(started, timeout=10)
+    return published_at_drain
+
+
+class TestShutdownFailsAcceptedWork:
+    @pytest.mark.parametrize(
+        ("subscription", "subject", "payload", "install", "result_subject", "id_field", "work_id"), ACCEPTED_WORK
+    )
+    async def test_unfinished_work_is_failed_before_the_drain(
+        self,
+        consumer: TaskConsumer,
+        monkeypatch: pytest.MonkeyPatch,
+        subscription: str,
+        subject: str,
+        payload: bytes,
+        install: object,
+        result_subject: str,
+        id_field: str,
+        work_id: str,
+    ) -> None:
+        """Docker stops the worker with SIGTERM: accepted work is never redelivered, so it is failed while NATS is up."""
+        work = _Work()
+        install(consumer, monkeypatch, work)  # type: ignore[operator]
+        msg, _ = jetstream_msg(payload, subject=subject)
+
+        published_at_drain = await _start_until_stopped(consumer, monkeypatch, subscription, msg, work, grace=0.05)
+
+        assert work.cancelled, "the work must not outlive the worker"
+        results = [json.loads(data) for published, data in _published(consumer) if published == result_subject]
+        assert [(r[id_field], r["status"]) for r in results] == [(work_id, "failed")]
+        assert "shutting down" in str(results[0]["error"])
+        assert published_at_drain == [len(_published(consumer))], "the failed completion is published before the drain"
+        assert consumer.failed is False, "a requested stop is not a failure"
+
+    async def test_work_that_finishes_within_the_grace_period_is_not_failed(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from codeforge.backends._base import TaskResult as BackendTaskResult
+
+        work = _Work(seconds=0.05, returns=BackendTaskResult(status="completed", output="ok"))
+        _install_task_work(consumer, monkeypatch, work)
+        msg, _ = jetstream_msg(_task_payload("task-quick"), subject="tasks.agent.aider")
+
+        await _start_until_stopped(consumer, monkeypatch, "tasks.agent.*", msg, work, grace=5.0)
+
+        assert not work.cancelled
+        assert [(r["task_id"], r["status"]) for r in _task_results(consumer)] == [("task-quick", "completed")]
+
+    def test_the_shutdown_fits_the_container_stop_grace_period(self) -> None:
+        """Docker kills the worker after stop_grace_period: grace, cancel, reports and drain must fit in it."""
+        import re
+        from pathlib import Path
+
+        import codeforge.consumer as consumer_module
+        from codeforge.consumer import _in_flight
+
+        compose = (Path(__file__).resolve().parents[3] / "docker-compose.prod.yml").read_text()
+        worker = compose.split("\n  worker:\n", 1)[1].split("\n\n", 1)[0]
+        match = re.search(r"stop_grace_period: (\d+)s", worker)
+        assert match, "the worker service sets stop_grace_period"
+        worst_case = (
+            consumer_module._SHUTDOWN_GRACE_SECONDS
+            + _in_flight.CANCEL_WAIT_SECONDS
+            + _in_flight.REPORT_TIMEOUT_SECONDS
+            + consumer_module._DRAIN_TIMEOUT_SECONDS
+        )
+        assert worst_case < int(match.group(1))
