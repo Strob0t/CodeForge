@@ -407,7 +407,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Start sandbox/hybrid container if applicable.
 	if err := s.prepareSandbox(ctx, r.ID, req.ProjectID, req.ExecMode); err != nil {
-		return nil, err
+		return nil, s.failStartedRun(ctx, r, err)
 	}
 
 	// Create stall tracker if policy enables stall detection.
@@ -439,7 +439,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	if err := s.publishJSON(ctx, messagequeue.SubjectRunStart, payload); err != nil {
-		return nil, fmt.Errorf("publish run start: %w", err)
+		return nil, s.failStartedRun(ctx, r, fmt.Errorf("publish run start: %w", err))
 	}
 
 	// Record event.
@@ -487,6 +487,21 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	slog.Info("run started", "run_id", r.ID, "task_id", r.TaskID, "policy", profileName)
 	return r, nil
+}
+
+// failStartedRun ends a run that was created and marked running but could not
+// be started (sandbox, dispatch): it goes through the completion path as
+// failed, so that run, task and agent do not stay running. No worker executes
+// it, so none is told to stop. It returns startErr for StartRun to return.
+func (s *RuntimeService) failStartedRun(ctx context.Context, r *run.Run, startErr error) error {
+	logRunUpdate(ctx, s.finalizeRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
+		RunID:     r.ID,
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(run.StatusFailed),
+		Error:     "run could not be started: " + startErr.Error(),
+	}), "finalizeRun", r.ID)
+	return startErr
 }
 
 // CancelRun cancels an active run on the user's request and tells the worker
