@@ -45,4 +45,5 @@ type Store interface {
 	BoundaryStore
 	AuditStore
 	ConsentStore
+	RetentionStore
 }

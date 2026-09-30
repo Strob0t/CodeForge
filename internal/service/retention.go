@@ -7,24 +7,12 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // retentionBatchSize limits the rows one statement changes, so the job never
 // holds long locks; a backlog is worked off in several statements.
 const retentionBatchSize = 1000
-
-// retentionStore is the part of the store the retention job uses. Each method
-// spans all tenants (the policy is instance-wide) and changes at most
-// batchSize rows per call.
-type retentionStore interface {
-	DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error)
-	DeleteExpiredConversationMessages(ctx context.Context, before time.Time, batchSize int) (int64, error)
-	DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error)
-	DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error)
-	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
-	AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
-	AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
-}
 
 // RetentionService enforces the data retention policy (GDPR Art. 5(1)(e),
 // docs/data-retention.md): it deletes data older than the configured periods
@@ -33,13 +21,13 @@ type retentionStore interface {
 // whole instance, so a sweep covers all tenants. Agent events and benchmark
 // results are not purged: their retention needs a decision about trajectories.
 type RetentionService struct {
-	store  retentionStore
+	store  database.RetentionStore
 	config config.Retention
 	now    func() time.Time
 }
 
 // NewRetentionService creates a retention service with the given store and policy.
-func NewRetentionService(store retentionStore, cfg config.Retention) *RetentionService {
+func NewRetentionService(store database.RetentionStore, cfg config.Retention) *RetentionService {
 	return &RetentionService{store: store, config: cfg, now: time.Now}
 }
 
@@ -64,10 +52,22 @@ func (s *RetentionService) categories() []retentionCategory {
 	}
 }
 
-// RunCleanup applies every category with a positive period once. A failing
+// RunCleanup sweeps once if this replica gets the retention lock; while
+// another replica (or blue-green color) sweeps, it skips.
+func (s *RetentionService) RunCleanup(ctx context.Context) {
+	acquired, err := s.store.WithRetentionLock(ctx, s.sweep)
+	switch {
+	case err != nil:
+		slog.Error("retention: sweep skipped, lock failed", "error", err)
+	case !acquired:
+		slog.Info("retention: sweep skipped, another replica is sweeping")
+	}
+}
+
+// sweep applies every category with a positive period once. A failing
 // category is logged and does not stop the others; a cancelled context ends
 // the sweep. The logs carry only categories, row counts and cutoffs.
-func (s *RetentionService) RunCleanup(ctx context.Context) {
+func (s *RetentionService) sweep(ctx context.Context) {
 	now := s.now().UTC()
 	for _, c := range s.categories() {
 		if c.maxAge <= 0 {

@@ -557,6 +557,33 @@ func TestStore_AnonymizeExpiredConsentIPAddresses(t *testing.T) {
 	}
 }
 
+// The retention lock lets one sweep run at a time across replicas: while a
+// sweep holds it, another store (another replica's connection pool) does not
+// get it; afterwards it does.
+func TestStore_RetentionLockIsExclusive(t *testing.T) {
+	first, second := setupStore(t), setupStore(t)
+	ctx := context.Background()
+
+	var innerRan bool
+	outer, err := first.WithRetentionLock(ctx, func(ctx context.Context) {
+		inner, err := second.WithRetentionLock(ctx, func(context.Context) { innerRan = true })
+		if err != nil || inner {
+			t.Errorf("second replica got the lock during a sweep: acquired %v, err %v", inner, err)
+		}
+	})
+	if err != nil || !outer {
+		t.Fatalf("first replica: acquired %v, err %v", outer, err)
+	}
+	if innerRan {
+		t.Fatal("the second sweep ran while the first held the lock")
+	}
+
+	again, err := second.WithRetentionLock(ctx, func(context.Context) { innerRan = true })
+	if err != nil || !again || !innerRan {
+		t.Fatalf("after the first sweep: acquired %v, ran %v, err %v, want the lock released", again, innerRan, err)
+	}
+}
+
 // Every retention batch is selected through an index on its age predicate
 // (with sequential scans disabled, the plan names the retention index).
 func TestRetention_BatchSelectionUsesIndexes(t *testing.T) {

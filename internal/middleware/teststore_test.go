@@ -877,6 +877,11 @@ func (s *testStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, 
 }
 
 // GDPR erasure and retention stubs
+func (s *testStore) WithRetentionLock(ctx context.Context, sweep func(context.Context)) (bool, error) {
+	sweep(ctx)
+	return true, nil
+}
+
 func (s *testStore) DeleteExpiredConversationMessages(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }

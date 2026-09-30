@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -21,6 +22,42 @@ import (
 // repeats the age predicate on the rows it changes: PostgreSQL re-evaluates it
 // on the newest version of a row that was written concurrently (READ
 // COMMITTED), and a row that became active again in between is left alone.
+
+// retentionLockKey is the advisory lock that lets one Go Core replica (or one
+// blue-green color) sweep at a time.
+const retentionLockKey = `hashtext('codeforge:retention')`
+
+// WithRetentionLock runs sweep while this process holds the retention advisory
+// lock and reports whether it got it; if another session holds it, sweep does
+// not run. The lock is session-level, so it lives on a dedicated connection
+// for the whole sweep (the sweep's statements use other pool connections); if
+// it cannot be released, the connection is closed, which releases it.
+func (s *Store) WithRetentionLock(ctx context.Context, sweep func(ctx context.Context)) (bool, error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return false, fmt.Errorf("acquire retention lock connection: %w", err)
+	}
+	defer conn.Release()
+
+	var acquired bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(`+retentionLockKey+`)`).Scan(&acquired); err != nil {
+		return false, fmt.Errorf("try retention lock: %w", err)
+	}
+	if !acquired {
+		return false, nil
+	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(unlockCtx, `SELECT pg_advisory_unlock(`+retentionLockKey+`)`); err != nil {
+			slog.Warn("retention: unlock failed, closing the lock connection", "error", err)
+			_ = conn.Conn().Close(unlockCtx)
+		}
+	}()
+
+	sweep(ctx)
+	return true, nil
+}
 
 // DeleteExpiredSessions deletes up to batchSize agent sessions that were last
 // used before the cutoff (last_activity_at: reuse and status changes count,

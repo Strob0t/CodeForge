@@ -39,7 +39,31 @@ type fakeRetentionStore struct {
 	results map[string][]int64
 	errs    map[string]error
 	// onCall, if set, runs inside each call (e.g. to cancel or block).
-	onCall func(ctx context.Context, category string) error
+	onCall   func(ctx context.Context, category string) error
+	lockHeld bool  // another replica holds the retention lock
+	lockErr  error // taking the retention lock fails
+}
+
+// Only one replica sweeps at a time: without the retention lock (held by
+// another replica, or not obtainable) the sweep does not run.
+func TestRetention_SweepsOnlyWithTheLock(t *testing.T) {
+	tests := []struct {
+		name      string
+		store     *fakeRetentionStore
+		wantCalls int
+	}{
+		{"lock taken", &fakeRetentionStore{}, len(retentionCategories)},
+		{"another replica sweeps", &fakeRetentionStore{lockHeld: true}, 0},
+		{"lock fails", &fakeRetentionStore{lockErr: errors.New("db down")}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newTestRetentionService(tt.store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
+			if len(tt.store.calls) != tt.wantCalls {
+				t.Fatalf("%d store calls, want %d", len(tt.store.calls), tt.wantCalls)
+			}
+		})
+	}
 }
 
 func (f *fakeRetentionStore) record(ctx context.Context, category string, before time.Time, batchSize int) (int64, error) {
@@ -58,6 +82,19 @@ func (f *fakeRetentionStore) record(ctx context.Context, category string, before
 		}
 	}
 	return n, err
+}
+
+// WithRetentionLock runs the sweep unless lockHeld (another replica sweeps)
+// or lockErr is set.
+func (f *fakeRetentionStore) WithRetentionLock(ctx context.Context, sweep func(ctx context.Context)) (bool, error) {
+	if f.lockErr != nil {
+		return false, f.lockErr
+	}
+	if f.lockHeld {
+		return false, nil
+	}
+	sweep(ctx)
+	return true, nil
 }
 
 func (f *fakeRetentionStore) DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error) {

@@ -3547,6 +3547,11 @@ func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, 
 }
 
 // GDPR erasure and retention stubs
+func (m *mockStore) WithRetentionLock(ctx context.Context, sweep func(context.Context)) (bool, error) {
+	sweep(ctx)
+	return true, nil
+}
+
 func (m *mockStore) DeleteExpiredConversationMessages(_ context.Context, _ time.Time, _ int) (int64, error) {
 	return 0, nil
 }
