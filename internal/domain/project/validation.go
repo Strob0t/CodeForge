@@ -76,7 +76,11 @@ func ValidateCreateRequest(req *CreateRequest, availableProviders []string) erro
 		return fmt.Errorf("description exceeds 2000 characters: %w", domain.ErrValidation)
 	}
 
-	return nil
+	config := make(map[string]*string, len(req.Config))
+	for key, value := range req.Config {
+		config[key] = &value
+	}
+	return validateGateCommands(config)
 }
 
 // ValidateUpdateRequest validates the fields of a project update request.
@@ -102,7 +106,7 @@ func ValidateUpdateRequest(req UpdateRequest) error {
 			return fmt.Errorf("repo_url must start with https:// or match git@host:path format: %w", domain.ErrValidation)
 		}
 	}
-	return nil
+	return validateGateCommands(req.Config)
 }
 
 // IsValidRepoURL checks that the URL is either HTTPS or a git SSH URL.

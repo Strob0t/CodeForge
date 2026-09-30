@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -90,7 +91,7 @@ func (s *RuntimeService) gateCommands(proj *project.Project) project.GateCommand
 		if err != nil {
 			slog.Warn("quality gate: workspace language not detected", "project_id", proj.ID, "error", err)
 		} else {
-			cmds = cmds.Or(project.DefaultGateCommands(stack.Languages))
+			cmds = cmds.Or(project.DefaultGateCommands(os.DirFS(proj.WorkspacePath), stack.Languages))
 		}
 	}
 	return cmds.Or(project.GateCommands{Test: s.runtimeCfg.DefaultTestCommand, Lint: s.runtimeCfg.DefaultLintCommand})

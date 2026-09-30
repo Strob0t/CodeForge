@@ -1,6 +1,9 @@
 package project
 
-import "testing"
+import (
+	"testing"
+	"testing/fstest"
+)
 
 func TestDefaultGateCommands(t *testing.T) {
 	goCmds := GateCommands{Test: "go test ./...", Lint: "golangci-lint run ./..."}
@@ -27,7 +30,7 @@ func TestDefaultGateCommands(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := DefaultGateCommands(tc.languages); got != tc.want {
+			if got := DefaultGateCommands(fstest.MapFS{}, tc.languages); got != tc.want {
 				t.Fatalf("DefaultGateCommands() = %+v, want %+v", got, tc.want)
 			}
 		})
