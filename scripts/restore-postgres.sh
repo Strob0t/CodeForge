@@ -38,16 +38,8 @@ echo "WARNING: This will DROP and recreate the database."
 read -r -p "Continue? [y/N] " confirm
 [[ "$confirm" =~ ^[Yy]$ ]] || exit 0
 
-# Terminate active connections. psql substitutes :'dbname' (quoted, injection
-# safe) only in SQL read from stdin, not in -c; errors abort the restore.
-psql -X -q -d postgres -v ON_ERROR_STOP=1 -v dbname="$DB" > /dev/null <<'SQL'
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname = :'dbname' AND pid <> pg_backend_pid();
-SQL
-
-# Clients such as the core, the worker and LiteLLM reconnect immediately;
-# --force (PostgreSQL 13+) also terminates connections opened in between.
+# --force (PostgreSQL 13+) terminates the sessions of connected clients such
+# as the core, the worker and LiteLLM; errors abort the restore (set -e).
 dropdb --if-exists --force "$DB"
 createdb "$DB"
 
