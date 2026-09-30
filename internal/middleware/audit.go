@@ -29,9 +29,10 @@ func AuditLog(store AuditStore, action, resource string) func(http.Handler) http
 				if ip == "" {
 					ip = r.RemoteAddr
 				}
+				email := u.Email
 				entry := &database.AuditEntry{
 					AdminID:    u.ID,
-					AdminEmail: u.Email,
+					AdminEmail: &email,
 					Action:     action,
 					Resource:   resource,
 					ResourceID: resourceID,

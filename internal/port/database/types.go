@@ -22,11 +22,14 @@ type A2APushConfig struct {
 }
 
 // AuditEntry represents a single admin audit log record.
+// GDPR erasure keeps the entry but removes the admin's email and IP address
+// (ADR-009, migration 089): AdminEmail is then nil (JSON null, so an erased
+// email is distinguishable from any recorded value) and IPAddress is empty.
 type AuditEntry struct {
 	ID         string    `json:"id"`
 	TenantID   string    `json:"tenant_id"`
 	AdminID    string    `json:"admin_id"`
-	AdminEmail string    `json:"admin_email"`
+	AdminEmail *string   `json:"admin_email"`
 	Action     string    `json:"action"`
 	Resource   string    `json:"resource"`
 	ResourceID string    `json:"resource_id,omitempty"`

@@ -166,13 +166,14 @@ func newAuditTestRouter(auditStore *auditStoreMock, ctxUser *user.User) chi.Rout
 
 func TestAuditLogs_Admin_ReturnsJSONArray(t *testing.T) {
 	now := time.Now().UTC()
+	adminEmail := "admin@example.com"
 	auditStore := &auditStoreMock{
 		entries: []database.AuditEntry{
 			{
 				ID:         "ae-1",
 				TenantID:   "t1",
 				AdminID:    "admin-1",
-				AdminEmail: "admin@example.com",
+				AdminEmail: &adminEmail,
 				Action:     "create",
 				Resource:   "project",
 				ResourceID: "p-1",
@@ -182,7 +183,7 @@ func TestAuditLogs_Admin_ReturnsJSONArray(t *testing.T) {
 				ID:         "ae-2",
 				TenantID:   "t1",
 				AdminID:    "admin-1",
-				AdminEmail: "admin@example.com",
+				AdminEmail: &adminEmail,
 				Action:     "delete",
 				Resource:   "user",
 				ResourceID: "u-1",
@@ -217,6 +218,42 @@ func TestAuditLogs_Admin_ReturnsJSONArray(t *testing.T) {
 	}
 	if entries[1].Action != "delete" {
 		t.Errorf("second entry action = %q, want %q", entries[1].Action, "delete")
+	}
+	if entries[0].AdminEmail == nil || *entries[0].AdminEmail != adminEmail {
+		t.Errorf("first entry admin_email = %v, want %q", entries[0].AdminEmail, adminEmail)
+	}
+}
+
+// KI-53: an entry whose admin was erased (GDPR) has no email; the listing
+// returns it with admin_email null and without ip_address.
+func TestAuditLogs_ErasedAdmin_EmailIsNull(t *testing.T) {
+	auditStore := &auditStoreMock{
+		entries: []database.AuditEntry{{
+			ID: "ae-erased", TenantID: "t1", AdminID: "admin-gone",
+			Action: "delete", Resource: "user", CreatedAt: time.Now().UTC(),
+		}},
+	}
+
+	r := newAuditTestRouter(auditStore, nil)
+	req := httptest.NewRequest("GET", "/api/v1/audit-logs", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.NewDecoder(w.Body).Decode(&entries); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if got, ok := entries[0]["admin_email"]; !ok || string(got) != "null" {
+		t.Errorf("admin_email = %s (present %v), want null", got, ok)
+	}
+	if got, ok := entries[0]["ip_address"]; ok {
+		t.Errorf("ip_address = %s, want it omitted", got)
 	}
 }
 
