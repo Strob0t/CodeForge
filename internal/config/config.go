@@ -243,7 +243,6 @@ type Runtime struct {
 	HeartbeatTimeout       time.Duration `yaml:"heartbeat_timeout"`        // Max time without heartbeat before kill (default: 120s)
 	ApprovalTimeoutSeconds int           `yaml:"approval_timeout_seconds"` // HITL approval timeout in seconds (default: 60)
 	StaleCheckInterval     time.Duration `yaml:"stale_check_interval"`     // How often to check for stale work (default: 60s)
-	StaleWorkThreshold     time.Duration `yaml:"stale_work_threshold"`     // Unused since KI-65 (lost work is found by heartbeat_timeout); kept so existing configs load
 	Sandbox                SandboxConfig `yaml:"sandbox"`
 	Hybrid                 HybridConfig  `yaml:"hybrid"`
 }
@@ -493,7 +492,6 @@ func Defaults() Config {
 			HeartbeatTimeout:       120 * time.Second,
 			ApprovalTimeoutSeconds: defaultApprovalTimeoutSeconds,
 			StaleCheckInterval:     60 * time.Second,
-			StaleWorkThreshold:     30 * time.Minute,
 			Sandbox: SandboxConfig{
 				MemoryMB:    512,
 				CPUQuota:    1000,
