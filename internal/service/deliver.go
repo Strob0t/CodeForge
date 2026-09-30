@@ -141,7 +141,8 @@ func runChange(ctx context.Context, repo *git.Repo, runID string) (string, error
 		return "", fmt.Errorf("patch index: %w", err)
 	}
 	defer idx.remove()
-	diff, err := repo.Run(ctx, idx.env, "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", base.commit, "--")
+	args := append([]string{"diff", "--cached", "--binary"}, git.DiffFormatArgs...)
+	diff, err := repo.Run(ctx, idx.env, append(args, base.commit, "--")...)
 	if err != nil {
 		return "", fmt.Errorf("git diff: %w", err)
 	}

@@ -91,7 +91,19 @@ var commonOverrides = [][2]string{
 	{"maintenance.auto", "false"},
 	{"submodule.recurse", "false"},
 	{"fetch.recurseSubmodules", "false"},
+	// Signature checks would run gpg/ssh-keygen; submodule summaries and
+	// log-style submodule diffs would run git in submodule repositories,
+	// whose config OpenRepo does not inspect.
+	{"log.showSignature", "false"},
+	{"merge.verifySignatures", "false"},
+	{"status.submoduleSummary", "false"},
+	{"diff.submodule", "short"},
 }
+
+// DiffFormatArgs make git diff print the plain default format whatever the
+// repository configures (prefixes, color, relative paths, external diff and
+// textconv drivers), so a diff can be applied as a patch.
+var DiffFormatArgs = []string{"--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "--no-relative"}
 
 // repoOverrides restrict the transports of workspace repositories: the remote
 // URL comes from agent-writable config, so local paths (other tenants'
@@ -281,7 +293,8 @@ func (r *Repo) loadConfig(ctx context.Context) error {
 		r.config[key] = append(r.config[key], value)
 		switch classifyKey(key, value) {
 		case keyRefused:
-			return unsafeRepo(fmt.Sprintf("config key %q is not allowed in a workspace repository (remove it from .git/config)", key))
+			return unsafeRepo(fmt.Sprintf("config key %q is not allowed in a workspace repository: it can name a program, "+
+				"a command or another repository, or it is not known to be inert (remove it from .git/config)", key))
 		case keyNetworkOnly:
 			r.networkUnsafe = append(r.networkUnsafe, key)
 		}
