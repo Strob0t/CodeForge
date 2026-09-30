@@ -393,8 +393,12 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 	req.ExecMode = execMode
 
-	// Resolve and validate policy profile.
+	// Resolve and validate policy profile: the request's, else the one the
+	// project selects (as for conversations), else the default (KI-69).
 	profileName := req.PolicyProfile
+	if profileName == "" {
+		profileName = projectPolicyProfile(proj)
+	}
 	if profileName == "" {
 		profileName = s.policy.DefaultProfile()
 	}

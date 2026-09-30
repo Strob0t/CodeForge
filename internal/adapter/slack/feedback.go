@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	fb "github.com/Strob0t/CodeForge/internal/domain/feedback"
 )
@@ -44,8 +45,7 @@ func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackR
 				"type": "section",
 				"text": map[string]string{
 					"type": "mrkdwn",
-					"text": fmt.Sprintf("*Tool Approval Required*\n\nRun: `%s`\nTool: `%s`\nCommand: `%s`\nPath: `%s`",
-						req.RunID, req.Tool, req.Command, req.Path),
+					"text": approvalText(&req),
 				},
 			},
 			{
@@ -98,4 +98,22 @@ func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackR
 	return fb.FeedbackResult{
 		Provider: fb.ProviderSlack,
 	}, nil
+}
+
+// approvalText renders the approval message: what the web approval card
+// shows, with the deciding profile and the arguments preview. The values
+// come from the agent, so they are escaped for mrkdwn code spans.
+func approvalText(req *fb.FeedbackRequest) string {
+	return fmt.Sprintf("*Tool Approval Required*\n\nRun: `%s`\nTool: `%s`\nCommand: `%s`\nPath: `%s`\nProfile: `%s`\nArguments: `%s`",
+		mrkdwnCode(req.RunID), mrkdwnCode(req.Tool), mrkdwnCode(req.Command), mrkdwnCode(req.Path),
+		mrkdwnCode(req.Profile), mrkdwnCode(req.ArgumentsPreview))
+}
+
+// mrkdwnCodeEscaper escapes &, < and > as Slack requires (so <!channel> or
+// <@user> cannot notify anyone) and replaces backticks, which would end the
+// code span.
+var mrkdwnCodeEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "`", "'")
+
+func mrkdwnCode(s string) string {
+	return mrkdwnCodeEscaper.Replace(s)
 }

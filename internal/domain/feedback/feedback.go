@@ -37,13 +37,17 @@ type AuditEntry struct {
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// FeedbackRequest describes a tool call requiring human approval.
+// FeedbackRequest describes a tool call requiring human approval: what the
+// web approval card shows, including the deciding policy profile and a
+// truncated preview of the call's arguments (display only).
 type FeedbackRequest struct {
-	RunID   string `json:"run_id"`
-	CallID  string `json:"call_id"`
-	Tool    string `json:"tool"`
-	Command string `json:"command"`
-	Path    string `json:"path"`
+	RunID            string `json:"run_id"`
+	CallID           string `json:"call_id"`
+	Tool             string `json:"tool"`
+	Command          string `json:"command"`
+	Path             string `json:"path"`
+	Profile          string `json:"profile,omitempty"`
+	ArgumentsPreview string `json:"arguments_preview,omitempty"`
 }
 
 // FeedbackResult is the outcome of a feedback request.

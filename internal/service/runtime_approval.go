@@ -51,11 +51,13 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	for _, p := range providers {
 		go func(provider feedbackPort.Provider) {
 			fbReq := feedback.FeedbackRequest{
-				RunID:   runID,
-				CallID:  callID,
-				Tool:    tool,
-				Command: command,
-				Path:    path,
+				RunID:            runID,
+				CallID:           callID,
+				Tool:             tool,
+				Command:          command,
+				Path:             path,
+				Profile:          req.Profile,
+				ArgumentsPreview: req.ArgumentsPreview,
 			}
 			result, err := provider.RequestFeedback(ctx, fbReq)
 			if err != nil {
