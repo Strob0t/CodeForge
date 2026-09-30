@@ -62,6 +62,18 @@ async def test_handoff_success_publishes_run_start() -> None:
     msg.ack.assert_called_once()
 
 
+async def test_handoff_run_uses_mount_exec_mode() -> None:
+    """The handed-off run executes its tools as local processes, so it must not claim sandbox isolation (KI-13)."""
+    mixin = _TestMixin()
+    msg = _make_msg(_base_payload())
+
+    await mixin._handle_handoff_request(msg)
+
+    assert mixin._js is not None
+    published_data = json.loads(mixin._js.publish.call_args.args[1])
+    assert published_data["exec_mode"] == "mount"
+
+
 async def test_handoff_increments_hop_counter() -> None:
     """handoff_hop is incremented from '0' to '1' in the published payload."""
     mixin = _TestMixin()

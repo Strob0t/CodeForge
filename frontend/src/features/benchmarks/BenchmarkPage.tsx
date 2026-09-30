@@ -28,6 +28,7 @@ import { BenchmarkCompare } from "./BenchmarkCompare";
 import { BenchmarkLiveFeed } from "./BenchmarkLiveFeed";
 import { BenchmarkRunDetail } from "./BenchmarkRunDetail";
 import { CostAnalysisView } from "./CostAnalysisView";
+import { ExecModeSelect } from "./ExecModeSelect";
 import { LeaderboardView } from "./LeaderboardView";
 import { emptyLiveFeedState } from "./liveFeedState";
 import { MultiCompareView } from "./MultiCompareView";
@@ -158,21 +159,10 @@ export default function BenchmarkPage() {
                 </FormField>
 
                 <Show when={state.form.state.benchmarkType === "agent"}>
-                  <FormField label={t("benchmark.execMode")} id="benchmark-exec-mode">
-                    <Select
-                      value={state.form.state.execMode}
-                      onChange={(e) =>
-                        state.form.setState(
-                          "execMode",
-                          e.currentTarget.value as "mount" | "sandbox" | "hybrid",
-                        )
-                      }
-                    >
-                      <option value="mount">Mount (direct file access)</option>
-                      <option value="sandbox">Sandbox (isolated container)</option>
-                      <option value="hybrid">Hybrid</option>
-                    </Select>
-                  </FormField>
+                  <ExecModeSelect
+                    value={state.form.state.execMode}
+                    onChange={(mode) => state.form.setState("execMode", mode)}
+                  />
                 </Show>
 
                 <FormField label={t("benchmark.metrics")} id="benchmark-metrics">

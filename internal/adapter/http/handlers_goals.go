@@ -174,7 +174,7 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 			"project_id", projectID,
 			"error", err,
 		)
-		writeInternalError(w, err)
+		writeDomainError(w, err, "start goal discovery")
 		return
 	}
 

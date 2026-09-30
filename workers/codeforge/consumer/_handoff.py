@@ -67,7 +67,7 @@ class HandoffHandlerMixin:
                 "agent_id": target_agent,
                 "prompt": handoff_context,
                 "policy_profile": "standard",
-                "exec_mode": "sandbox",
+                "exec_mode": "mount",  # tools run as local worker processes (no sandbox yet, KI-13)
                 "config": config,
                 "termination": {
                     "max_steps": 50,

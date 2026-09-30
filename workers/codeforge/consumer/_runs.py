@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger()
 
+# Tools always run as local processes of this worker; there is no container
+# isolation yet (KI-13), so only mount runs may execute. "" is the legacy mount default.
+_EXECUTABLE_EXEC_MODES = frozenset({"", "mount"})
+
 
 class RunHandlerMixin:
     """Handles runs.start messages — runtime protocol execution."""
@@ -46,6 +50,17 @@ class RunHandlerMixin:
             project_id=run_msg.project_id,
             termination=run_msg.termination,
         )
+
+        # Go rejects these runs at start; this catches run starts that bypass it
+        # (handoffs, messages queued before an upgrade) and fails them visibly.
+        if run_msg.exec_mode not in _EXECUTABLE_EXEC_MODES:
+            error = (
+                f"{run_msg.exec_mode!r} execution mode is not available yet: tools would run without isolation (KI-13)"
+            )
+            log.error("run rejected", exec_mode=run_msg.exec_mode, error=error)
+            await runtime.complete_run(status="failed", error=error)
+            return
+
         await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
 
         # Enrich prompt with pre-packed context entries (Phase 5D)

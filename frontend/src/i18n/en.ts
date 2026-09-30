@@ -1445,6 +1445,9 @@ const en = {
   "benchmark.metrics": "Metrics",
   "benchmark.benchmarkType": "Benchmark Type",
   "benchmark.execMode": "Execution Mode",
+  "benchmark.execModeUnavailable": "not available yet",
+  "benchmark.execModeUnavailableHelp":
+    "Sandbox and hybrid are not available yet: tools would run without isolation (KI-13).",
   "benchmark.startRun": "Start Run",
   "benchmark.taskName": "Task",
   "benchmark.scores": "Scores",

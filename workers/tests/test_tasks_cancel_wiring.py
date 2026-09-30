@@ -145,7 +145,7 @@ class TestRunsHandlerExtraSubjects:
             agent_id="agent-1",
             prompt="do something",
             policy_profile="default",
-            exec_mode="sandbox",
+            exec_mode="mount",
             termination=TerminationConfig(max_steps=50, timeout_seconds=600, max_cost=5.0),
         )
 

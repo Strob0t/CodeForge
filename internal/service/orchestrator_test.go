@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -177,6 +178,7 @@ func (m *orchMockStore) MarkInboxRead(_ context.Context, _ string) error { retur
 
 func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3")
 	store.tasks = newPendingTasks("t1", "t2", "t3")
 
@@ -199,6 +201,12 @@ func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
 
 	return store, orchSvc
+}
+
+// newOrchProjects returns the project the test plans belong to: starting a
+// step's run loads it to resolve the execution mode.
+func newOrchProjects() []project.Project {
+	return []project.Project{{ID: "proj-1", Name: "orchestrator test"}}
 }
 
 func newIdleAgents(ids ...string) []agent.Agent {
@@ -389,6 +397,7 @@ func TestParallel_AllStart(t *testing.T) {
 
 func TestParallel_MaxParallelRespected(t *testing.T) {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3", "a4", "a5")
 	store.tasks = newPendingTasks("t1", "t2", "t3", "t4", "t5")
 
@@ -586,6 +595,7 @@ func TestCancelPlan(t *testing.T) {
 
 func newOrchTestSetupWithDebate() *service.OrchestratorService {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3")
 	store.tasks = newPendingTasks("t1", "t2", "t3")
 
@@ -671,6 +681,7 @@ func TestDebate_DebateRoundsConfig(t *testing.T) {
 
 func TestDebate_DebateRoundsClampedToMax3(t *testing.T) {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1")
 	store.tasks = newPendingTasks("t1")
 	bc := &runtimeMockBroadcaster{}

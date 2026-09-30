@@ -327,9 +327,15 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		return nil, fmt.Errorf("validate start request: %w", err)
 	}
 
-	if req.ExecMode == "" {
-		req.ExecMode = run.ExecModeMount
+	proj, err := s.store.GetProject(ctx, req.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
 	}
+	execMode, err := resolveExecMode(req.ExecMode, proj)
+	if err != nil {
+		return nil, err
+	}
+	req.ExecMode = execMode
 
 	// Resolve and validate policy profile.
 	profileName := req.PolicyProfile

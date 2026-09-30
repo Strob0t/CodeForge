@@ -45,6 +45,9 @@ func (m *BenchmarkRunManager) CreateRun(ctx context.Context, req *benchmark.Crea
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
+	if err := checkBenchmarkExecMode(req.ExecMode); err != nil {
+		return nil, err
+	}
 	rolloutCount := req.RolloutCount
 	if rolloutCount < 1 {
 		rolloutCount = 1

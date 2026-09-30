@@ -206,6 +206,17 @@ func (s *ConversationService) dispatchAgenticRun(
 ) error {
 	conversationID := conv.ID
 
+	proj, err := s.db.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+
+	// Agentic runs execute tools, so an execution mode that cannot run them is
+	// rejected before anything is stored or dispatched (KI-13).
+	if _, err := resolveExecMode("", proj); err != nil {
+		return err
+	}
+
 	// Store user message.
 	userMsg := &conversation.Message{
 		ConversationID: conversationID,
@@ -220,11 +231,6 @@ func (s *ConversationService) dispatchAgenticRun(
 	history, err := s.db.ListMessages(ctx, conversationID)
 	if err != nil {
 		return fmt.Errorf("list messages: %w", err)
-	}
-
-	proj, err := s.db.GetProject(ctx, conv.ProjectID)
-	if err != nil {
-		return fmt.Errorf("get project: %w", err)
 	}
 
 	// Ensure a session exists for this conversation.

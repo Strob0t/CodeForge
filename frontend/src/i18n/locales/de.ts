@@ -1452,6 +1452,9 @@ const de: Translations = {
   "benchmark.metrics": "Metriken",
   "benchmark.benchmarkType": "Benchmark-Typ",
   "benchmark.execMode": "Ausführungsmodus",
+  "benchmark.execModeUnavailable": "noch nicht verfügbar",
+  "benchmark.execModeUnavailableHelp":
+    "Sandbox und Hybrid sind noch nicht verfügbar: Tools würden ohne Isolation laufen (KI-13).",
   "benchmark.startRun": "Lauf starten",
   "benchmark.taskName": "Aufgabe",
   "benchmark.scores": "Bewertungen",
