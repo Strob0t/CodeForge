@@ -1624,10 +1624,13 @@ func mountTestRoutes(r chi.Router, h *cfhttp.Handlers, opts ...cfhttp.RouteOptio
 }
 
 func newTestRouterWithStore(store *mockStore) chi.Router {
+	return newTestRouterWithPolicies(store, service.NewPolicyService("headless-safe-sandbox", nil))
+}
+
+func newTestRouterWithPolicies(store *mockStore, policySvc *service.PolicyService) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
-	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	runtimeSvc := service.NewRuntimeService(store, queue, bc, es, policySvc, &config.Runtime{})
 	orchCfg := &config.Orchestrator{
 		MaxParallel:       4,

@@ -34,7 +34,6 @@ type Handlers struct {
 	Agents             *service.AgentService
 	LLM                llmFull
 	Policies           *service.PolicyService
-	PolicyDir          string // Custom policy YAML directory (empty = no persistence)
 	Runtime            *service.RuntimeService
 	Orchestrator       *service.OrchestratorService
 	MetaAgent          *service.MetaAgentService
@@ -113,6 +112,6 @@ func (h *Handlers) WireGroups() {
 	h.Agent = &AgentHandlers{Agents: h.Agents, Limits: h.Limits}
 	h.Task = &TaskHandlers{Tasks: h.Tasks, ActiveWork: h.ActiveWork, Limits: h.Limits}
 	h.Run = &RunHandlers{Runtime: h.Runtime, Events: h.Events, Limits: h.Limits}
-	h.Policy = &PolicyHandlers{Policies: h.Policies, Projects: h.Projects, PolicyDir: h.PolicyDir, Limits: h.Limits}
+	h.Policy = &PolicyHandlers{Policies: h.Policies, Projects: h.Projects, Limits: h.Limits}
 	h.Utility = &UtilityHandlers{AgentConfig: h.AgentConfig, OllamaBaseURL: h.OllamaBaseURL}
 }

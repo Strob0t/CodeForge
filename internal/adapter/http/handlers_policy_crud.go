@@ -4,23 +4,22 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // PolicyHandlers groups HTTP handlers for policy profile CRUD,
-// evaluation, and the allow-always mechanism.
+// evaluation, and the allow-always mechanism. Persistence of custom
+// profiles is handled by the PolicyService (see SetPolicyDir).
 type PolicyHandlers struct {
-	Policies  *service.PolicyService
-	Projects  *service.ProjectService
-	PolicyDir string
-	Limits    *config.Limits
+	Policies *service.PolicyService
+	Projects *service.ProjectService
+	Limits   *config.Limits
 }
 
 // ListPolicyProfiles handles GET /api/v1/policies
@@ -75,17 +74,12 @@ func (ph *PolicyHandlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := ph.Policies.SaveProfile(&profile); err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			writeError(w, http.StatusConflict, "built-in policy presets cannot be overwritten")
+			return
+		}
 		writeDomainError(w, err, "save policy profile failed")
 		return
-	}
-
-	if ph.PolicyDir != "" {
-		path := filepath.Join(ph.PolicyDir, profile.Name+".yaml")
-		if err := os.MkdirAll(ph.PolicyDir, 0o750); err != nil {
-			slog.Error("failed to create policy directory", "error", err)
-		} else if err := policy.SaveToFile(path, &profile); err != nil {
-			slog.Error("failed to persist policy profile", "name", profile.Name, "error", err)
-		}
 	}
 
 	writeJSON(w, http.StatusCreated, profile)
@@ -100,19 +94,16 @@ func (ph *PolicyHandlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := ph.Policies.DeleteProfile(name); err != nil {
-		if policy.IsPreset(name) {
+		switch {
+		case policy.IsPreset(name):
 			writeError(w, http.StatusForbidden, err.Error())
-		} else {
+		case errors.Is(err, domain.ErrNotFound):
 			writeError(w, http.StatusNotFound, err.Error())
+		default:
+			slog.Error("failed to delete policy profile", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "delete policy profile failed")
 		}
 		return
-	}
-
-	if ph.PolicyDir != "" {
-		path := filepath.Join(ph.PolicyDir, name+".yaml")
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) { //nolint:gosec // path constructed from validated PolicyDir + sanitized name
-			slog.Error("failed to remove policy file", "name", name, "error", err)
-		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -139,8 +130,12 @@ func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, ph.PolicyDir, req.ProjectID, req.Tool, req.Command)
+	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, req.ProjectID, req.Tool, req.Command)
 	if err != nil {
+		if errors.Is(err, service.ErrPolicyDirNotConfigured) {
+			writeError(w, http.StatusConflict, "allow-always rules cannot be persisted: "+err.Error())
+			return
+		}
 		writeDomainError(w, err, "allow-always failed")
 		return
 	}

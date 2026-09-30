@@ -2,38 +2,57 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 )
 
+// ErrPolicyDirNotConfigured is returned by operations that must persist a
+// profile (Allow-Always) when no policy directory is configured.
+var ErrPolicyDirNotConfigured = errors.New("policy directory not configured (set policy.custom_dir or CODEFORGE_POLICY_DIR)")
+
 // PolicyService evaluates tool calls against policy profiles and
 // provides access to built-in presets and loaded custom policies.
+//
+// It is safe for concurrent use. Profiles are replaced as a whole and never
+// modified in place, so a profile value read under the lock stays valid
+// after the lock is released.
 type PolicyService struct {
 	defaultProfile string
-	profiles       map[string]policy.PolicyProfile
+
+	mu       sync.RWMutex
+	profiles map[string]policy.PolicyProfile
+
+	// persistMu serializes all profile changes together with their policy
+	// directory writes, so the file on disk always holds the latest version.
+	persistMu sync.Mutex
+	dir       string
 }
 
 // NewPolicyService creates a PolicyService with built-in presets
 // and optional custom profiles. Custom profiles override presets
-// with the same name.
+// with the same name (an operator decision made on disk).
 func NewPolicyService(defaultProfile string, custom []policy.PolicyProfile) *PolicyService {
 	profiles := make(map[string]policy.PolicyProfile)
 
-	// Register built-in presets.
 	for _, name := range policy.PresetNames() {
 		p, _ := policy.PresetByName(name)
 		profiles[name] = p
 	}
 
-	// Register custom profiles (override presets if same name).
 	for i := range custom {
+		if policy.IsPreset(custom[i].Name) {
+			slog.Warn("custom policy profile overrides built-in preset", "profile", custom[i].Name)
+		}
 		profiles[custom[i].Name] = custom[i]
 	}
 
@@ -41,6 +60,15 @@ func NewPolicyService(defaultProfile string, custom []policy.PolicyProfile) *Pol
 		defaultProfile: defaultProfile,
 		profiles:       profiles,
 	}
+}
+
+// SetPolicyDir enables persistence: profiles created, deleted or extended by
+// Allow-Always are written to dir as <name>.yaml, which cmd/codeforge loads
+// again at startup. An empty dir keeps profiles in memory only.
+func (s *PolicyService) SetPolicyDir(dir string) {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	s.dir = dir
 }
 
 // Evaluate checks a ToolCall against a named PolicyProfile and returns a Decision.
@@ -56,7 +84,7 @@ func (s *PolicyService) Evaluate(ctx context.Context, profileName string, call p
 // the full evaluation result including which rule matched and why. Tool names
 // are canonicalized by the profile evaluation (policy.CanonicalTool).
 func (s *PolicyService) EvaluateWithReason(_ context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (*policy.EvaluationResult, error) {
-	p, ok := s.profiles[profileName]
+	p, ok := s.GetProfile(profileName)
 	if !ok {
 		return nil, fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, profileName)
 	}
@@ -78,38 +106,60 @@ func (s *PolicyService) ResolveProfile(runProfile, projectProfile string) string
 
 // GetProfile returns a policy profile by name.
 func (s *PolicyService) GetProfile(name string) (policy.PolicyProfile, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	p, ok := s.profiles[name]
 	return p, ok
 }
 
 // ListProfiles returns all available profile names, sorted alphabetically.
 func (s *PolicyService) ListProfiles() []string {
+	s.mu.RLock()
 	names := make([]string, 0, len(s.profiles))
 	for name := range s.profiles {
 		names = append(names, name)
 	}
+	s.mu.RUnlock()
 	sort.Strings(names)
 	return names
 }
 
-// SaveProfile adds or replaces a policy profile in the service.
+// SaveProfile adds or replaces a custom policy profile and persists it when
+// a policy directory is configured. Built-in presets cannot be replaced.
 func (s *PolicyService) SaveProfile(profile *policy.PolicyProfile) error {
 	if err := profile.Validate(); err != nil {
-		return err
+		return fmt.Errorf("%w: %s", domain.ErrValidation, err.Error())
 	}
-	s.profiles[profile.Name] = *profile
-	return nil
+	if policy.IsPreset(profile.Name) {
+		return fmt.Errorf("policy profile %q is a built-in preset and cannot be overwritten: %w", profile.Name, domain.ErrConflict)
+	}
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	return s.storeLocked(profile)
 }
 
-// DeleteProfile removes a custom policy profile. Built-in presets cannot be deleted.
+// DeleteProfile removes a custom policy profile and its file. Built-in presets cannot be deleted.
 func (s *PolicyService) DeleteProfile(name string) error {
 	if policy.IsPreset(name) {
 		return fmt.Errorf("cannot delete built-in preset %q", name)
 	}
-	if _, ok := s.profiles[name]; !ok {
-		return fmt.Errorf("unknown policy profile %q", name)
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	if _, ok := s.GetProfile(name); !ok {
+		return fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, name)
 	}
+	if s.dir != "" {
+		path, err := s.profilePath(name)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove policy file: %w", err)
+		}
+	}
+	s.mu.Lock()
 	delete(s.profiles, name)
+	s.mu.Unlock()
 	return nil
 }
 
@@ -128,16 +178,78 @@ func (s *PolicyService) PrependRule(profileName string, rule *policy.PermissionR
 	if err := rule.Validate(); err != nil {
 		return err
 	}
-	p, ok := s.profiles[profileName]
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	_, err := s.prependRuleLocked(profileName, "", rule)
+	return err
+}
+
+// prependRuleLocked prepends rule to the profile target. When target does
+// not exist and cloneFrom is set, target is created as a copy of cloneFrom.
+// The caller holds persistMu.
+func (s *PolicyService) prependRuleLocked(target, cloneFrom string, rule *policy.PermissionRule) (*policy.PolicyProfile, error) {
+	p, ok := s.GetProfile(target)
 	if !ok {
-		return fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, profileName)
-	}
-	if p.HasRule(rule) {
-		return nil // idempotent
+		source, found := s.GetProfile(cloneFrom)
+		if cloneFrom == "" || !found {
+			return nil, fmt.Errorf("%w: unknown policy profile %q", domain.ErrNotFound, target)
+		}
+		p = source
+		p.Name = target
+		p.Description = fmt.Sprintf("Custom clone of %s", cloneFrom)
+		p.Rules = append([]policy.PermissionRule(nil), source.Rules...)
+	} else if p.HasRule(rule) {
+		return &p, nil
 	}
 	p.Rules = append([]policy.PermissionRule{*rule}, p.Rules...)
-	s.profiles[profileName] = p
+	if err := s.storeLocked(&p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// storeLocked writes profile to the policy directory (if configured) and
+// then publishes it in memory. The caller holds persistMu.
+func (s *PolicyService) storeLocked(profile *policy.PolicyProfile) error {
+	if s.dir != "" {
+		if err := s.writeProfileFile(profile); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	s.profiles[profile.Name] = *profile
+	s.mu.Unlock()
 	return nil
+}
+
+// writeProfileFile writes the profile atomically (temp file + rename) so a
+// crash never leaves a truncated YAML file that would block the next startup.
+func (s *PolicyService) writeProfileFile(profile *policy.PolicyProfile) error {
+	path, err := s.profilePath(profile.Name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
+		return fmt.Errorf("create policy dir: %w", err)
+	}
+	tmp := path + ".tmp"
+	if err := policy.SaveToFile(tmp, profile); err != nil {
+		return fmt.Errorf("persist policy file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("persist policy file: %w", err)
+	}
+	return nil
+}
+
+// profilePath returns the YAML file path for a profile name, rejecting names
+// that would leave the policy directory.
+func (s *PolicyService) profilePath(name string) (string, error) {
+	if name == "" || name != filepath.Base(name) || strings.HasPrefix(name, ".") {
+		return "", fmt.Errorf("%w: invalid policy profile name %q", domain.ErrValidation, name)
+	}
+	return filepath.Join(s.dir, name+".yaml"), nil
 }
 
 // projectPolicyResolver provides the project-level operations needed by AllowAlways.
@@ -148,61 +260,74 @@ type projectPolicyResolver interface {
 
 // AllowAlways adds a persistent "allow" rule for a tool to a project's policy
 // profile. If the project uses a built-in preset, a custom clone is created.
-// This encapsulates the business logic previously in the HTTP handler.
-func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyResolver, policyDir, projectID, tool, command string) (*policy.PolicyProfile, error) {
+// The rule uses the canonical tool name; for Bash it only allows commands
+// whose every part runs the executable of the approved command. The profile
+// is written to the policy directory before the project points at it, so
+// the reference survives a restart.
+func (s *PolicyService) AllowAlways(ctx context.Context, projects projectPolicyResolver, projectID, tool, command string) (*policy.PolicyProfile, error) {
+	rule, err := allowAlwaysRule(tool, command)
+	if err != nil {
+		return nil, err
+	}
+
 	proj, err := projects.Get(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
 
-	effectiveProfile := s.ResolveProfile("", proj.PolicyProfile)
-
-	if policy.IsPreset(effectiveProfile) {
-		source, _ := s.GetProfile(effectiveProfile)
-		cloneName := effectiveProfile + "-custom-" + projectID
-		clone := source
-		clone.Name = cloneName
-		clone.Description = fmt.Sprintf("Custom clone of %s for project %s", effectiveProfile, projectID)
-
-		if _, exists := s.GetProfile(cloneName); !exists {
-			if err := s.SaveProfile(&clone); err != nil {
-				return nil, fmt.Errorf("save cloned profile: %w", err)
-			}
-		}
-
-		if err := projects.SetPolicyProfile(ctx, projectID, cloneName); err != nil {
-			return nil, fmt.Errorf("set project policy profile: %w", err)
-		}
-		effectiveProfile = cloneName
+	current := projectPolicyProfile(proj)
+	if current == "" {
+		current = s.defaultProfile
+	}
+	target, cloneFrom := current, ""
+	if policy.IsPreset(current) {
+		target, cloneFrom = current+"-custom-"+projectID, current
 	}
 
-	spec := policy.ToolSpecifier{Tool: tool}
-	if command != "" {
-		parts := strings.SplitN(command, " ", 2)
-		spec.SubPattern = parts[0] + "*"
+	s.persistMu.Lock()
+	if s.dir == "" {
+		s.persistMu.Unlock()
+		return nil, ErrPolicyDirNotConfigured
 	}
-	rule := policy.PermissionRule{
-		Specifier: spec,
-		Decision:  policy.DecisionAllow,
-	}
-
-	if err := s.PrependRule(effectiveProfile, &rule); err != nil {
+	updated, err := s.prependRuleLocked(target, cloneFrom, &rule)
+	s.persistMu.Unlock()
+	if err != nil {
 		return nil, fmt.Errorf("prepend rule: %w", err)
 	}
 
-	if policyDir != "" {
-		updated, ok := s.GetProfile(effectiveProfile)
-		if ok {
-			path := filepath.Join(policyDir, effectiveProfile+".yaml")
-			if mkErr := os.MkdirAll(policyDir, 0o750); mkErr != nil {
-				return nil, fmt.Errorf("create policy dir: %w", mkErr)
-			}
-			if saveErr := policy.SaveToFile(path, &updated); saveErr != nil {
-				return nil, fmt.Errorf("persist policy file: %w", saveErr)
-			}
+	if proj.PolicyProfile != target {
+		if err := projects.SetPolicyProfile(ctx, projectID, target); err != nil {
+			return nil, fmt.Errorf("set project policy profile: %w", err)
 		}
 	}
+	return updated, nil
+}
 
-	result, _ := s.GetProfile(effectiveProfile)
-	return &result, nil
+// allowAlwaysRule builds the allow rule for an approved tool call.
+func allowAlwaysRule(tool, command string) (policy.PermissionRule, error) {
+	canonical := policy.CanonicalTool(tool)
+	if canonical == "" || strings.ContainsAny(canonical, "*?[") {
+		return policy.PermissionRule{}, fmt.Errorf("%w: tool %q cannot be allowed always", domain.ErrValidation, tool)
+	}
+	rule := policy.PermissionRule{
+		Specifier: policy.ToolSpecifier{Tool: canonical},
+		Decision:  policy.DecisionAllow,
+	}
+	if canonical == policy.ToolBash {
+		exe, ok := policy.CommandExecutable(command)
+		if !ok {
+			return policy.PermissionRule{}, fmt.Errorf("%w: cannot derive an allow-always rule from command %q", domain.ErrValidation, command)
+		}
+		rule.CommandAllow = []string{exe}
+	}
+	return rule, nil
+}
+
+// projectPolicyProfile returns the policy profile a project selects
+// explicitly: its policy_profile field, else config["policy_preset"].
+func projectPolicyProfile(proj *project.Project) string {
+	if proj.PolicyProfile != "" {
+		return proj.PolicyProfile
+	}
+	return proj.Config["policy_preset"]
 }

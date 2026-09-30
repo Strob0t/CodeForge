@@ -225,10 +225,17 @@ func run() error {
 		customPolicies = loaded
 	}
 	policySvc := service.NewPolicyService(cfg.Policy.DefaultProfile, customPolicies)
+	// Profiles created via the API and Allow-Always rules are written back to
+	// the directory they are loaded from, so they survive a restart.
+	policySvc.SetPolicyDir(cfg.Policy.CustomDir)
 	slog.Info("policy service initialized",
 		"default_profile", cfg.Policy.DefaultProfile,
 		"profiles", len(policySvc.ListProfiles()),
+		"policy_dir", cfg.Policy.CustomDir,
 	)
+	if cfg.Policy.CustomDir == "" {
+		slog.Warn("policy.custom_dir is not set: custom policy profiles stay in memory and allow-always is disabled")
+	}
 
 	// --- Active Work Service (Phase 24) ---
 	activeWorkSvc := service.NewActiveWorkService(store, hub)
