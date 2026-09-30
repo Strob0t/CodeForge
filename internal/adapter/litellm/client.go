@@ -100,13 +100,23 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal models: %w", err)
 	}
-	// Infer vision capability from metadata or model name.
 	for i := range result.Data {
+		// Infer vision capability from metadata or model name.
 		result.Data[i].SupportsVision = inferVisionSupport(
 			result.Data[i].ModelName, result.Data[i].ModelInfo,
 		)
+		if result.Data[i].ModelID == "" {
+			result.Data[i].ModelID = deploymentID(result.Data[i].ModelInfo)
+		}
 	}
 	return result.Data, nil
+}
+
+// deploymentID returns the deployment ID LiteLLM reports in model_info.id
+// (/model/info has no top-level model_id); /model/delete takes this ID.
+func deploymentID(info map[string]any) string {
+	id, _ := info["id"].(string)
+	return id
 }
 
 // AddModel adds a new model configuration to LiteLLM.
@@ -200,9 +210,13 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 
 	discovered := make([]DiscoveredModel, 0, len(infoResult.Data))
 	for _, m := range infoResult.Data {
+		modelID := m.ModelID
+		if modelID == "" {
+			modelID = deploymentID(m.ModelInfo)
+		}
 		dm := DiscoveredModel{
 			ModelName: m.ModelName,
-			ModelID:   m.ModelID,
+			ModelID:   modelID,
 			Source:    "litellm",
 			ModelInfo: m.ModelInfo,
 		}

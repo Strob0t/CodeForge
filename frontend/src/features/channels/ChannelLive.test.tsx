@@ -109,6 +109,23 @@ describe("ChannelView live updates", () => {
     expect(apiMock.messages).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a message that arrives while the list is still loading", async () => {
+    let resolveList: (list: ChannelMessageRecord[]) => void = () => undefined;
+    apiMock.messages.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    render(() => <ChannelView />);
+    await waitFor(() => expect(ws.handlers.size).toBe(1));
+
+    ws.emit(channelMessage(record("m-2", "posted during load")));
+    resolveList([record("m-1", "first message")]);
+
+    await screen.findByText("first message");
+    expect(screen.getByText("posted during load")).toBeTruthy();
+  });
+
   it("ignores messages of other channels", async () => {
     render(() => <ChannelView />);
     await screen.findByText("first message");

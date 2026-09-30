@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
 // ListChannels handles GET /api/v1/channels
@@ -69,11 +70,29 @@ func (h *Handlers) ListChannelMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSONList(w, http.StatusOK, messages)
 }
 
+// asAuthenticatedSender attributes a message to the calling user. Sender
+// fields in the request body are ignored: messages are broadcast live to the
+// whole tenant, so a client must not pose as an agent or another user.
+func asAuthenticatedSender(w http.ResponseWriter, r *http.Request, msg *channel.Message) bool {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return false
+	}
+	msg.SenderType = channel.SenderUser
+	msg.SenderID = u.ID
+	msg.SenderName = u.Name
+	return true
+}
+
 // SendChannelMessage handles POST /api/v1/channels/{id}/messages
 func (h *Handlers) SendChannelMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 	req, ok := readJSON[channel.Message](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
+		return
+	}
+	if !asAuthenticatedSender(w, r, &req) {
 		return
 	}
 	req.ChannelID = channelID
@@ -93,6 +112,9 @@ func (h *Handlers) SendThreadReply(w http.ResponseWriter, r *http.Request) {
 
 	req, ok := readJSON[channel.Message](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
+		return
+	}
+	if !asAuthenticatedSender(w, r, &req) {
 		return
 	}
 	req.ChannelID = channelID
@@ -154,6 +176,7 @@ func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	req.ChannelID = channelID
 	req.SenderType = channel.SenderWebhook
+	req.SenderID = "" // a webhook is not a user; its sender_name is only a display label
 
 	msg, err := h.Channels.SendMessage(r.Context(), &req)
 	if err != nil {

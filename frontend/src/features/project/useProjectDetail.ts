@@ -127,7 +127,7 @@ export function useProjectDetail(projectId: () => string) {
               costUsd,
               tokensIn: (payload.tokens_in as number) ?? 0,
               tokensOut: (payload.tokens_out as number) ?? 0,
-              steps: (payload.steps as number) ?? 0,
+              steps: (payload.step_count as number) ?? 0,
               model: payload.model as string | undefined,
             });
           }

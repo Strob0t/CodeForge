@@ -417,8 +417,8 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// LLM management (proxied to LiteLLM)
 	r.Get("/llm/models", h.ListLLMModels)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/llm/models", h.AddLLMModel)
-	r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/llm/models/{id}", h.DeleteLLMModel)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "llm_model")).Post("/llm/models", h.AddLLMModel)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "llm_model")).Delete("/llm/models/{id}", h.DeleteLLMModel)
 	r.Get("/llm/health", h.LLMHealth)
 	r.Get("/llm/discover", h.DiscoverLLMModels)
 

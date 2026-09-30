@@ -2,6 +2,7 @@ import { useParams } from "@solidjs/router";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import type { ChannelMessageRecord } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { Badge } from "~/ui";
 
@@ -45,10 +46,22 @@ export default function ChannelView() {
     (id) => api.channels.get(id),
   );
 
+  // Live messages that arrive while the list is (re)loading would be replaced
+  // by the fetch result; they are kept here and merged into it.
+  let arrivedWhileLoading: ChannelMessageRecord[] = [];
+
   // Fetch messages (newest first)
   const [messages, { mutate: mutateMessages }] = createResource(
     () => params.id,
-    (id) => api.channels.messages(id),
+    async (id) => {
+      arrivedWhileLoading = [];
+      const list = await api.channels.messages(id);
+      const merged = arrivedWhileLoading
+        .filter((m) => m.channel_id === id)
+        .reduce((acc, m) => addMessage(acc, m, "start"), list);
+      arrivedWhileLoading = [];
+      return merged;
+    },
   );
 
   // Messages posted by other users, agents and webhooks arrive as channel.message.
@@ -56,10 +69,24 @@ export default function ChannelView() {
   const unsubscribe = onMessage((msg) => {
     const incoming = parseChannelMessageEvent(msg);
     if (!incoming || incoming.channel_id !== params.id) return;
+    if (messages.loading) {
+      arrivedWhileLoading.push(incoming);
+      return;
+    }
+    const follow = isNearBottom();
     mutateMessages((prev) => addMessage(prev, incoming, "start"));
-    setTimeout(scrollToBottom, 50);
+    // Keep following the conversation, but do not pull a reader of older
+    // history back to the bottom.
+    if (follow) setTimeout(scrollToBottom, 50);
   });
   onCleanup(unsubscribe);
+
+  let listRef: HTMLDivElement | undefined;
+
+  function isNearBottom(): boolean {
+    if (!listRef) return true;
+    return listRef.scrollHeight - listRef.scrollTop - listRef.clientHeight < 120;
+  }
 
   /** Scroll the message list to the bottom. */
   function scrollToBottom(): void {
@@ -113,7 +140,7 @@ export default function ChannelView() {
       </div>
 
       {/* Message list */}
-      <div class="flex-1 overflow-y-auto">
+      <div ref={listRef} class="flex-1 overflow-y-auto">
         <Show
           when={!messages.loading}
           fallback={

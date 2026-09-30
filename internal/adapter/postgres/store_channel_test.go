@@ -69,6 +69,47 @@ func TestStore_ChannelMessages(t *testing.T) {
 		}
 	})
 
+	t.Run("a thread reply needs a parent in the same channel", func(t *testing.T) {
+		other, err := store.CreateChannel(ctxA, &channel.Channel{
+			Name: "other-" + uuid.New().String()[:8],
+			Type: channel.TypeBot,
+		})
+		if err != nil {
+			t.Fatalf("CreateChannel: %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteChannel(ctxA, other.ID) })
+		chB, err := store.CreateChannel(ctxB, &channel.Channel{
+			Name: "b-" + uuid.New().String()[:8],
+			Type: channel.TypeBot,
+		})
+		if err != nil {
+			t.Fatalf("CreateChannel (tenant B): %v", err)
+		}
+		t.Cleanup(func() { _ = store.DeleteChannel(ctxB, chB.ID) })
+		msgB, err := store.CreateChannelMessage(ctxB, &channel.Message{
+			ChannelID: chB.ID, SenderType: channel.SenderUser, SenderName: "Bob", Content: "b",
+		})
+		if err != nil {
+			t.Fatalf("CreateChannelMessage (tenant B): %v", err)
+		}
+		for name, parent := range map[string]string{
+			"parent in another channel": msg.ID,
+			"parent of another tenant":  msgB.ID,
+			"unknown parent":            uuid.New().String(),
+		} {
+			target := other.ID
+			if name == "parent of another tenant" || name == "unknown parent" {
+				target = ch.ID
+			}
+			_, err := store.CreateChannelMessage(ctxA, &channel.Message{
+				ChannelID: target, SenderType: channel.SenderUser, SenderName: "Alice", Content: "reply", ParentID: parent,
+			})
+			if !errors.Is(err, domain.ErrNotFound) {
+				t.Errorf("%s: err = %v, want ErrNotFound", name, err)
+			}
+		}
+	})
+
 	t.Run("unknown channel is not found", func(t *testing.T) {
 		_, err := store.CreateChannelMessage(ctxA, &channel.Message{
 			ChannelID:  uuid.New().String(),

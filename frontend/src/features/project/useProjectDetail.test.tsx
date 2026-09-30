@@ -189,4 +189,22 @@ describe("useProjectDetail live output", () => {
     await waitFor(() => expect(apiMock.tasks.mock.calls.length).toBe(tasksBefore + 1));
     expect(apiMock.agents.mock.calls.length).toBe(agentsBefore + 1);
   });
+
+  it("reports the run's step count with its cost", async () => {
+    const detail = renderDetail();
+    await waitFor(() => expect(detail.tasks()).toHaveLength(1));
+
+    ws.emit("run.status", {
+      run_id: "r-1",
+      task_id: "t-1",
+      project_id: "p-1",
+      status: "completed",
+      step_count: 12,
+      cost_usd: 0.03,
+      tokens_in: 100,
+      tokens_out: 50,
+    });
+
+    await waitFor(() => expect(detail.activeRunCost()?.steps).toBe(12));
+  });
 });

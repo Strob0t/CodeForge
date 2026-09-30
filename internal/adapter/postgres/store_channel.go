@@ -76,13 +76,15 @@ func (s *Store) DeleteChannel(ctx context.Context, id string) error {
 
 // CreateChannelMessage stores a message in a channel of the caller's tenant;
 // the message takes the channel's tenant. A channel of another tenant is not
-// found.
+// found, and so is a thread parent that is not a message of the same channel.
 func (s *Store) CreateChannelMessage(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	var created channel.Message
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO channel_messages (channel_id, tenant_id, sender_id, sender_type, sender_name, content, metadata, parent_id)
 		 SELECT c.id, c.tenant_id, $2::uuid, $3, $4, $5, COALESCE($6::jsonb, '{}'::jsonb), $7::uuid
 		 FROM channels c WHERE c.id = $1 AND c.tenant_id = $8
+		   AND ($7::uuid IS NULL OR EXISTS (
+		     SELECT 1 FROM channel_messages p WHERE p.id = $7::uuid AND p.channel_id = c.id))
 		 RETURNING id, channel_id, COALESCE(sender_id::text,''), sender_type, sender_name, content, COALESCE(metadata,'{}'), COALESCE(parent_id::text,''), created_at`,
 		msg.ChannelID, nullIfEmpty(msg.SenderID), msg.SenderType, msg.SenderName,
 		msg.Content, nullIfEmpty(msg.Metadata), nullIfEmpty(msg.ParentID), tenantFromCtx(ctx),

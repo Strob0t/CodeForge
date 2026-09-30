@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
@@ -61,7 +62,7 @@ func (s *ChannelService) Delete(ctx context.Context, id string) error {
 // messages only into a channel of that tenant).
 func (s *ChannelService) SendMessage(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	if msg.Content == "" {
-		return nil, fmt.Errorf("message content is required")
+		return nil, fmt.Errorf("message content is required: %w", domain.ErrValidation)
 	}
 	created, err := s.db.CreateChannelMessage(ctx, msg)
 	if err != nil {
