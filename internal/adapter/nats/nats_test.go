@@ -565,6 +565,59 @@ func TestQueue_DLQ(t *testing.T) {
 	}
 }
 
+// TestQueue_DLQ_KeepsMessagesPublishedWithMsgID: a message published with a
+// Nats-Msg-Id must still reach the DLQ. Copying that header made JetStream
+// drop the copy as a duplicate of the original, which was then terminated.
+func TestQueue_DLQ_KeepsMessagesPublishedWithMsgID(t *testing.T) {
+	q := testConnect(t)
+	ctx := context.Background()
+	subject := uniqueSubject(t)
+
+	dlqConsumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
+		FilterSubject: subject + ".dlq",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		DeliverPolicy: jetstream.DeliverNewPolicy,
+	})
+	if err != nil {
+		t.Fatalf("create DLQ consumer: %v", err)
+	}
+	dlq := make(chan jetstream.Msg, 1)
+	dlqSub, err := dlqConsumer.Consume(func(msg jetstream.Msg) {
+		_ = msg.Ack()
+		select {
+		case dlq <- msg:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatalf("consume DLQ: %v", err)
+	}
+	defer dlqSub.Stop()
+
+	stop, err := q.Subscribe(ctx, subject, func(context.Context, string, []byte) error { return nil })
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer stop()
+
+	msgID := fmt.Sprintf("dedup-%d", time.Now().UnixNano())
+	if err := q.PublishWithDedup(ctx, subject, []byte("not-json"), msgID); err != nil {
+		t.Fatalf("PublishWithDedup: %v", err)
+	}
+
+	select {
+	case got := <-dlq:
+		if string(got.Data()) != "not-json" {
+			t.Errorf("DLQ data = %q", got.Data())
+		}
+		if v := got.Headers().Get(headerOriginalMsgID); v != msgID {
+			t.Errorf("DLQ %s = %q, want %q", headerOriginalMsgID, v, msgID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("message published with a Nats-Msg-Id never reached the DLQ")
+	}
+}
+
 func TestQueue_DLQ_RetryExhaustion(t *testing.T) {
 	q := testConnect(t)
 	ctx := context.Background()

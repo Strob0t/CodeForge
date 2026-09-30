@@ -35,6 +35,15 @@ const (
 	nakDelay        = 2 * time.Second
 	defaultAckWait  = 90 * time.Second
 	dlqMonitorName  = "codeforge-go-dlq-monitor"
+	// headerOriginalMsgID carries the original Nats-Msg-Id on a DLQ copy
+	// (same name in workers/codeforge/nats_subjects.py).
+	headerOriginalMsgID = "X-Original-Msg-Id"
+	// maxInProgress bounds how long a handler is reported in progress. The
+	// slowest Go handler is the HITL approval wait (runtime.approval_timeout_seconds,
+	// default 60 s); a handler running ten times longer is treated as hung: its
+	// heartbeat stops and JetStream redelivers the message after AckWait instead
+	// of the handler holding a MaxAckPending slot forever.
+	maxInProgress = 10 * time.Minute
 )
 
 // Queue implements messagequeue.Queue using NATS JetStream.
@@ -211,7 +220,7 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 		Data:    data,
 		Header:  nats.Header{},
 	}
-	msg.Header.Set("Nats-Msg-Id", msgID)
+	msg.Header.Set(nats.MsgIdHdr, msgID)
 
 	if reqID := logger.RequestID(ctx); reqID != "" {
 		msg.Header.Set(headerRequestID, reqID)
@@ -447,14 +456,15 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 		return
 	}
 
-	stopProgress := keepInProgress(msg, q.ackWait/3)
+	stopProgress := keepInProgress(msg, q.ackWait/3, maxInProgress)
 	err := handler(msgCtx, msg.Subject(), msg.Data())
 	stopProgress()
 
 	if err != nil {
 		// Retries are counted by JetStream (NumDelivered starts at 1).
 		var attempt uint64
-		if md, mdErr := msg.Metadata(); mdErr == nil {
+		md, mdErr := msg.Metadata()
+		if mdErr == nil {
 			attempt = md.NumDelivered
 		}
 		slog.Error("message handler failed",
@@ -465,7 +475,9 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 			"error", err,
 		)
 
-		if attempt >= maxDeliver {
+		// Without a delivery count the remaining retries are unknown: dead-letter
+		// now instead of letting JetStream drop the message after MaxDeliver.
+		if mdErr != nil || attempt >= maxDeliver {
 			q.moveToDLQ(ctx, msg, msg.Ack)
 			return
 		}
@@ -480,50 +492,90 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 	}
 }
 
-// keepInProgress tells JetStream every interval that msg is still being
-// processed, so a handler slower than AckWait is not redelivered to another
-// instance while it runs. The returned stop function waits for the heartbeat
-// goroutine to exit, so no progress ack is sent after the final ack.
-func keepInProgress(msg jetstream.Msg, interval time.Duration) (stop func()) {
-	done := make(chan struct{})
-	exited := make(chan struct{})
-	go func() {
-		defer close(exited)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				if err := msg.InProgress(); err != nil {
-					slog.Warn("nats in-progress ack failed", "subject", msg.Subject(), "error", err)
-				}
-			}
+// keepInProgress reports msg as in progress every interval while its handler
+// runs, for at most limit: a handler slower than AckWait is not redelivered to
+// another instance, while a hung one is redelivered once limit plus AckWait
+// have passed. It only arms a timer, so a handler that returns within interval
+// costs no goroutine and sends nothing. stop waits for a running report to
+// finish, so no progress ack follows the final ack.
+func keepInProgress(msg jetstream.Msg, interval, limit time.Duration) (stop func()) {
+	var (
+		mu      sync.Mutex
+		stopped bool
+		timer   *time.Timer
+	)
+	deadline := time.Now().Add(limit)
+	report := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if stopped {
+			return
 		}
-	}()
-	return func() {
-		close(done)
-		<-exited
+		if time.Now().After(deadline) {
+			slog.Warn("nats handler exceeded the in-progress limit, JetStream will redeliver the message",
+				"subject", msg.Subject(),
+				"limit", limit,
+			)
+			return
+		}
+		if err := msg.InProgress(); err != nil {
+			slog.Warn("nats in-progress ack failed", "subject", msg.Subject(), "error", err)
+		}
+		timer.Reset(interval)
 	}
+
+	mu.Lock()
+	timer = time.AfterFunc(interval, report)
+	mu.Unlock()
+
+	return func() {
+		mu.Lock()
+		defer mu.Unlock()
+		stopped = true
+		timer.Stop()
+	}
+}
+
+// errDuplicateDLQCopy reports a DLQ publish that JetStream discarded as a duplicate.
+var errDuplicateDLQCopy = errors.New("dead-letter copy discarded as a duplicate")
+
+// dlqHeaders returns the headers for the dead-letter copy of a message. The
+// JetStream publish-control headers (Nats-*) are dropped: with the original
+// Nats-Msg-Id the stream would discard the copy as a duplicate of the
+// original. The original ID is kept in X-Original-Msg-Id for tracing.
+func dlqHeaders(original nats.Header) nats.Header {
+	headers := nats.Header{}
+	for key, values := range original {
+		if strings.HasPrefix(strings.ToLower(key), "nats-") {
+			continue
+		}
+		headers[key] = append([]string(nil), values...)
+	}
+	if id := original.Get(nats.MsgIdHdr); id != "" {
+		headers.Set(headerOriginalMsgID, id)
+	}
+	return headers
 }
 
 // moveToDLQ publishes a copy of msg to {subject}.dlq and then settles the
 // original with settle (Ack after the last failed attempt, Term for an invalid
-// payload). If the copy cannot be published the original is NAK'd instead, so
-// JetStream keeps it (and redelivers it while attempts remain) rather than a
-// message being acknowledged without a dead-letter copy.
+// payload). If no copy was stored (publish error, or a duplicate ack) the
+// original is NAK'd instead, so JetStream keeps it (and redelivers it while
+// attempts remain) rather than a message being acknowledged without a
+// dead-letter copy.
 func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg, settle func() error) {
 	dlqSubject := msg.Subject() + ".dlq"
 	dlqMsg := &nats.Msg{
 		Subject: dlqSubject,
 		Data:    msg.Data(),
-	}
-	if hdrs := msg.Headers(); hdrs != nil {
-		dlqMsg.Header = hdrs
+		Header:  dlqHeaders(msg.Headers()),
 	}
 
-	if _, err := q.js.PublishMsg(ctx, dlqMsg); err != nil {
+	ack, err := q.js.PublishMsg(ctx, dlqMsg)
+	if err == nil && ack.Duplicate {
+		err = errDuplicateDLQCopy
+	}
+	if err != nil {
 		slog.Error("failed to publish to DLQ, keeping the original message",
 			"dlq_subject", dlqSubject,
 			"error", err,
@@ -535,14 +587,10 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg, settle func() 
 	}
 
 	// FIX-049: Include message ID so operators can monitor DLQ accumulation.
-	msgID := ""
-	if hdrs := msg.Headers(); hdrs != nil {
-		msgID = hdrs.Get("Nats-Msg-Id")
-	}
 	slog.Warn("message moved to DLQ",
 		"subject", msg.Subject(),
 		"dlq_subject", dlqSubject,
-		"msg_id", msgID,
+		"msg_id", dlqMsg.Header.Get(headerOriginalMsgID),
 	)
 
 	if settleErr := settle(); settleErr != nil {
