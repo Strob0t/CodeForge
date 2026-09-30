@@ -248,9 +248,11 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 	return u, nil
 }
 
-// DeleteUser removes a user and their refresh tokens.
+// DeleteUser erases a user like a GDPR erasure (eraseUser): personal data in
+// rows that outlive the user is anonymized, then the user is deleted with
+// their refresh tokens and other dependent rows.
 func (s *AuthService) DeleteUser(ctx context.Context, id string) error {
-	return s.store.DeleteUser(ctx, id)
+	return eraseUser(ctx, s.store, id)
 }
 
 // SetupStatus represents the initial setup state of the system.

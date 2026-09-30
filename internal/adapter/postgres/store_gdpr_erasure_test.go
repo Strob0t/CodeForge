@@ -7,11 +7,13 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
@@ -19,11 +21,13 @@ import (
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
-// GDPR erasure (DELETE /api/v1/me/data) of a user who gave consent and wrote
-// in channels: the erasure succeeds, the consent records stay as anonymized
-// proof (no user, IP address or user agent), and the user's channel messages
-// stay without a sender id and with a placeholder name. Other users' rows are
-// untouched.
+// GDPR erasure of a user who gave consent, wrote in channels and acted as an
+// admin, through each endpoint that deletes a user (DELETE /me/data,
+// DELETE /users/{id}/data, DELETE /users/{id}): the erasure succeeds, the
+// consent records stay as anonymized proof (no user, IP address or user
+// agent), the user's channel messages stay without a sender id and with a
+// placeholder name, and the user's audit entries lose email and IP address.
+// Other users' rows are untouched.
 
 func recordConsent(ctx context.Context, t *testing.T, store *postgres.Store, userID string) {
 	t.Helper()
@@ -75,7 +79,62 @@ func postMessage(ctx context.Context, t *testing.T, store *postgres.Store, chann
 	return msg
 }
 
-func TestGDPRErasure_ConsentsAndChannelMessages(t *testing.T) {
+// erasureEndpoint deletes user u in ctx's tenant through one HTTP endpoint.
+type erasureEndpoint func(ctx context.Context, store *postgres.Store, u *user.User) *httptest.ResponseRecorder
+
+var erasureEndpoints = map[string]erasureEndpoint{
+	"DELETE /me/data": func(ctx context.Context, store *postgres.Store, u *user.User) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/me/data", http.NoBody).
+			WithContext(middleware.ContextWithTestUser(ctx, u))
+		rec := httptest.NewRecorder()
+		(&cfhttp.Handlers{GDPR: service.NewGDPRService(store)}).DeleteMyData(rec, req)
+		return rec
+	},
+	"DELETE /users/{id}/data": func(ctx context.Context, store *postgres.Store, u *user.User) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		(&cfhttp.Handlers{GDPR: service.NewGDPRService(store)}).DeleteUserData(rec, userRequest(ctx, "/api/v1/users/"+u.ID+"/data", u.ID))
+		return rec
+	},
+	"DELETE /users/{id}": func(ctx context.Context, store *postgres.Store, u *user.User) *httptest.ResponseRecorder {
+		auth := service.NewAuthService(store, &config.Auth{JWTSecret: "test-secret-key-must-be-long-enough"})
+		rec := httptest.NewRecorder()
+		(&cfhttp.Handlers{Auth: auth}).DeleteUserHandler(rec, userRequest(ctx, "/api/v1/users/"+u.ID, u.ID))
+		return rec
+	},
+}
+
+// userRequest is an admin's DELETE request for the user id, routed like chi does.
+func userRequest(ctx context.Context, path, id string) *http.Request {
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", id)
+	return httptest.NewRequest(http.MethodDelete, path, http.NoBody).WithContext(context.WithValue(ctx, chi.RouteCtxKey, rctx))
+}
+
+// adminAuditEntry records an audit entry with u as the acting admin and returns its id.
+func adminAuditEntry(ctx context.Context, t *testing.T, store *postgres.Store, pool *pgxpool.Pool, u *user.User) string {
+	t.Helper()
+	marker := uuid.New().String()
+	email := u.Email
+	if err := store.InsertAuditEntry(ctx, &database.AuditEntry{
+		AdminID: u.ID, AdminEmail: &email, Action: "user.update", Resource: "user", ResourceID: marker, IPAddress: "203.0.113.9",
+	}); err != nil {
+		t.Fatalf("InsertAuditEntry: %v", err)
+	}
+	var id string
+	if err := pool.QueryRow(context.Background(), `SELECT id FROM audit_log WHERE resource_id = $1`, marker).Scan(&id); err != nil {
+		t.Fatalf("find audit entry: %v", err)
+	}
+	return id
+}
+
+func TestGDPRErasure_EveryEndpoint(t *testing.T) {
+	for name, erase := range erasureEndpoints {
+		t.Run(name, func(t *testing.T) { testErasure(t, erase) })
+	}
+}
+
+func testErasure(t *testing.T, erase erasureEndpoint) {
+	t.Helper()
 	store := setupStore(t)
 	pool := retentionPool(t)
 	tenantID := createTestTenant(t, store)
@@ -86,6 +145,8 @@ func TestGDPRErasure_ConsentsAndChannelMessages(t *testing.T) {
 	recordConsent(ctx, t, store, erased.ID)
 	recordConsent(ctx, t, store, erased.ID)
 	recordConsent(ctx, t, store, kept.ID)
+	erasedAudit := adminAuditEntry(ctx, t, store, pool, erased)
+	keptAudit := adminAuditEntry(ctx, t, store, pool, kept)
 
 	ch, err := store.CreateChannel(ctx, &channel.Channel{
 		Name: "erasure-" + uuid.New().String()[:8], Type: channel.TypeBot, CreatedBy: erased.ID,
@@ -98,12 +159,8 @@ func TestGDPRErasure_ConsentsAndChannelMessages(t *testing.T) {
 	keptMsg := postMessage(ctx, t, store, ch.ID, kept)
 	consentsBefore := consentRowsOf(t, pool, tenantID)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/me/data", http.NoBody).
-		WithContext(middleware.ContextWithTestUser(ctx, erased))
-	rec := httptest.NewRecorder()
-	(&cfhttp.Handlers{GDPR: service.NewGDPRService(store)}).DeleteMyData(rec, req)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE /me/data = %d, want 204: %s", rec.Code, rec.Body.String())
+	if rec := erase(ctx, store, erased); rec.Code != http.StatusNoContent {
+		t.Fatalf("erasure = %d, want 204: %s", rec.Code, rec.Body.String())
 	}
 
 	if _, err := store.GetUser(ctx, erased.ID); err == nil {
@@ -156,6 +213,20 @@ func TestGDPRErasure_ConsentsAndChannelMessages(t *testing.T) {
 		}
 		if chAfter.CreatedBy != "" {
 			t.Errorf("channel created_by = %q, want empty after erasure", chAfter.CreatedBy)
+		}
+	})
+
+	t.Run("audit entries lose email and IP address", func(t *testing.T) {
+		for id, wantPersonal := range map[string]bool{erasedAudit: false, keptAudit: true} {
+			var email *string
+			var ip *netip.Addr
+			if err := pool.QueryRow(context.Background(),
+				`SELECT admin_email, ip_address FROM audit_log WHERE id = $1`, id).Scan(&email, &ip); err != nil {
+				t.Fatalf("audit entry %s must be kept: %v", id, err)
+			}
+			if (email != nil) != wantPersonal || (ip != nil) != wantPersonal {
+				t.Errorf("audit entry %s = email %v ip %v, want personal data kept %v", id, email, ip, wantPersonal)
+			}
 		}
 	})
 }

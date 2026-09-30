@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -133,6 +134,26 @@ func TestDeleteUserData_StepFailureKeepsUser(t *testing.T) {
 				t.Fatal("DeleteUser must not run after a failed anonymization")
 			}
 		})
+	}
+}
+
+// Deleting an account (DELETE /users/{id}) is an erasure too: it takes the
+// same anonymization steps before it deletes the user row.
+func TestAuthDeleteUser_ErasesLikeGDPR(t *testing.T) {
+	store := &gdprMockStore{}
+	svc := NewAuthService(store, &config.Auth{JWTSecret: "test-secret-key-must-be-long-enough"})
+	if err := svc.DeleteUser(context.Background(), "u1"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	want := []string{"audit_log", "user_consents", "channel_messages", "delete_user"}
+	if strings.Join(store.steps, ",") != strings.Join(want, ",") {
+		t.Fatalf("steps = %v, want %v", store.steps, want)
+	}
+
+	failing := &gdprMockStore{stepErrs: map[string]error{"user_consents": errors.New("db down")}}
+	svc = NewAuthService(failing, &config.Auth{JWTSecret: "test-secret-key-must-be-long-enough"})
+	if err := svc.DeleteUser(context.Background(), "u1"); err == nil || failing.deleteCalled {
+		t.Fatalf("DeleteUser = %v, deleted %v: want an error and the user kept", err, failing.deleteCalled)
 	}
 }
 

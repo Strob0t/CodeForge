@@ -140,21 +140,36 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 }
 
 // DeleteUserData removes all personal data for the given user (GDPR Article 17
-// — Right to Erasure). Rows that outlive the user keep their content without
-// the user's personal data (ADR-009): audit entries lose email and IP address,
-// consent records (proof of consent) lose IP address and user agent, channel
-// messages get a placeholder sender name. These run first, while the rows can
-// still be found by the user's ID; if one fails, the user is not deleted and
-// the erasure can be retried. Deleting the user then removes the dependent
-// rows (ON DELETE CASCADE) and unlinks the kept ones (ON DELETE SET NULL).
+// - Right to Erasure), see eraseUser.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
+	return eraseUser(ctx, s.store, userID)
+}
+
+// userErasureStore is what erasing a user needs.
+type userErasureStore interface {
+	AnonymizeAuditLogForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error)
+	DeleteUser(ctx context.Context, id string) error
+}
+
+// eraseUser is the one way a user is deleted, whether through the GDPR
+// endpoints or account deletion: rows that outlive the user keep their content
+// without the user's personal data (ADR-009) - audit entries lose email and IP
+// address, consent records (proof of consent) lose IP address and user agent,
+// channel messages get a placeholder sender name. These run first, while the
+// rows can still be found by the user's ID; if one fails, the user is not
+// deleted and the erasure can be retried. Deleting the user then removes the
+// dependent rows (ON DELETE CASCADE) and unlinks the kept ones (ON DELETE SET
+// NULL).
+func eraseUser(ctx context.Context, store userErasureStore, userID string) error {
 	steps := []struct {
 		name      string
 		anonymize func(ctx context.Context, userID string) (int64, error)
 	}{
-		{"audit_log", s.store.AnonymizeAuditLogForUser},
-		{"user_consents", s.store.AnonymizeConsentsForUser},
-		{"channel_messages", s.store.AnonymizeChannelMessagesForUser},
+		{"audit_log", store.AnonymizeAuditLogForUser},
+		{"user_consents", store.AnonymizeConsentsForUser},
+		{"channel_messages", store.AnonymizeChannelMessagesForUser},
 	}
 	for _, step := range steps {
 		n, err := step.anonymize(ctx, userID)
@@ -164,7 +179,7 @@ func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
 		slog.Info("gdpr: personal data anonymized", "user_id", userID, "table", step.name, "rows", n)
 	}
 
-	if err := s.store.DeleteUser(ctx, userID); err != nil {
+	if err := store.DeleteUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user data: %w", err)
 	}
 	slog.Info("gdpr: user data deleted", "user_id", userID)
