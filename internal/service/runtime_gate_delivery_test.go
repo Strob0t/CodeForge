@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -21,11 +22,13 @@ import (
 // recordingDeliverer records deliveries and the stored status of the run at
 // the moment it is delivered.
 type recordingDeliverer struct {
-	store *runtimeMockStore
+	store       *runtimeMockStore
+	checkpoints *recordingCheckpointer
 
-	mu       sync.Mutex
-	runs     []string
-	statuses []run.Status
+	mu            sync.Mutex
+	runs          []string
+	statuses      []run.Status
+	afterCleanups []string // runs delivered after their checkpoints were cleaned up
 }
 
 func (d *recordingDeliverer) Deliver(ctx context.Context, r *run.Run, _ string) (*service.DeliveryResult, error) {
@@ -33,10 +36,14 @@ func (d *recordingDeliverer) Deliver(ctx context.Context, r *run.Run, _ string) 
 	if err != nil {
 		return nil, err
 	}
+	cleaned := d.checkpoints != nil && d.checkpoints.cleanedUp(r.ID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.runs = append(d.runs, r.ID)
 	d.statuses = append(d.statuses, stored.Status)
+	if cleaned {
+		d.afterCleanups = append(d.afterCleanups, r.ID)
+	}
 	return &service.DeliveryResult{Mode: r.DeliverMode}, nil
 }
 
@@ -72,6 +79,12 @@ func (c *recordingCheckpointer) RewindToFirst(_ context.Context, runID, _ string
 	return c.rewindErr
 }
 
+func (c *recordingCheckpointer) cleanedUp(runID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Contains(c.cleanups, runID)
+}
+
 func (c *recordingCheckpointer) rewound() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -101,10 +114,11 @@ func newGateDeliveryEnv() *gateDeliveryEnv {
 		DefaultTestCommand: "go test ./...",
 		DefaultLintCommand: "golangci-lint run ./...",
 	})
+	checkpoints := &recordingCheckpointer{}
 	env := &gateDeliveryEnv{
 		svc: svc, store: store, queue: queue,
-		deliverer:   &recordingDeliverer{store: store},
-		checkpoints: &recordingCheckpointer{},
+		deliverer:   &recordingDeliverer{store: store, checkpoints: checkpoints},
+		checkpoints: checkpoints,
 	}
 	svc.SetDeliverService(env.deliverer)
 	svc.SetCheckpointService(env.checkpoints)
@@ -190,6 +204,16 @@ func TestHandleQualityGateResult_PassedGateDeliversOnce(t *testing.T) {
 	}
 	if rw := env.checkpoints.rewound(); len(rw) != 0 {
 		t.Fatalf("rolled back %v after a passed gate", rw)
+	}
+	// A patch is the change since the run's base checkpoint: delivery comes
+	// before the checkpoint cleanup.
+	if !env.checkpoints.cleanedUp("run-pass") {
+		t.Fatal("checkpoints not cleaned up")
+	}
+	env.deliverer.mu.Lock()
+	defer env.deliverer.mu.Unlock()
+	if len(env.deliverer.afterCleanups) != 0 {
+		t.Fatalf("delivered %v after the checkpoint cleanup", env.deliverer.afterCleanups)
 	}
 }
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,58 +11,98 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 )
 
-// worktreeIndex is a private index of a workspace repository that holds the
-// working tree as it is: every change, including untracked files that are not
-// ignored. Git commands run with its env read and write it instead of the
+// privateIndex is an index file of a workspace repository outside the
+// repository. Git commands run with its env read and write it instead of the
 // user's index, so a snapshot or diff of the working tree neither stages
 // anything nor moves HEAD.
-type worktreeIndex struct {
+type privateIndex struct {
 	env  []string
 	path string
+	dir  string // removed with the index; "" when the owner keeps the directory
 }
 
-// newWorktreeIndex creates the private index of repo from a copy of the
-// user's index (which keeps git's view of tracked files and its stat cache)
-// and adds the working tree to it. The caller removes it.
-func newWorktreeIndex(ctx context.Context, repo *git.Repo) (*worktreeIndex, error) {
-	f, err := os.CreateTemp("", "codeforge-index-*")
+// newPrivateIndex returns a private index of repo in a new temporary
+// directory, seeded with a copy of the user's index.
+func newPrivateIndex(repo *git.Repo) (*privateIndex, error) {
+	dir, err := os.MkdirTemp("", "codeforge-index-*")
 	if err != nil {
 		return nil, fmt.Errorf("create private index: %w", err)
 	}
-	idx := &worktreeIndex{path: f.Name()}
-	idx.env = []string{"GIT_INDEX_FILE=" + idx.path}
-	copyErr := copyIndex(filepath.Join(repo.GitDir, "index"), f)
-	if closeErr := f.Close(); copyErr == nil {
-		copyErr = closeErr
-	}
-	if copyErr != nil {
-		idx.remove()
-		return nil, copyErr
-	}
-	if _, err := repo.Run(ctx, idx.env, "add", "-A"); err != nil {
+	idx := indexAt(filepath.Join(dir, "index"))
+	idx.dir = dir
+	if err := seedIndex(repo, idx.path); err != nil {
 		idx.remove()
 		return nil, err
 	}
 	return idx, nil
 }
 
-// copyIndex copies the user's index to dst; a repository without an index
-// (nothing staged yet) starts from an empty one.
-func copyIndex(src string, dst io.Writer) error {
-	in, err := os.Open(src) //nolint:gosec // the workspace's index; git.OpenRepo checked it is a regular file
-	if os.IsNotExist(err) {
+func indexAt(path string) *privateIndex {
+	return &privateIndex{path: path, env: []string{"GIT_INDEX_FILE=" + path}}
+}
+
+// newWorktreeIndex returns a private index holding the working tree as it
+// is: every change, including untracked files that are not ignored. The
+// caller removes it.
+func newWorktreeIndex(ctx context.Context, repo *git.Repo) (*privateIndex, error) {
+	idx, err := newPrivateIndex(repo)
+	if err != nil {
+		return nil, err
+	}
+	if err := idx.addWorktree(ctx, repo); err != nil {
+		idx.remove()
+		return nil, err
+	}
+	return idx, nil
+}
+
+// addWorktree updates the index to the working tree.
+func (i *privateIndex) addWorktree(ctx context.Context, repo *git.Repo) error {
+	_, err := repo.Run(ctx, i.env, "add", "-A")
+	return err
+}
+
+// writeTree writes the index as a tree object and returns it.
+func (i *privateIndex) writeTree(ctx context.Context, repo *git.Repo) (string, error) {
+	out, err := repo.Run(ctx, i.env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	return trimLine(out), nil
+}
+
+func (i *privateIndex) remove() {
+	if i.dir != "" {
+		_ = os.RemoveAll(i.dir)
+		return
+	}
+	_ = os.Remove(i.path)
+}
+
+// seedIndex copies the user's index to dst, which must not exist; keeping
+// git's view of tracked files and its stat cache makes `add -A` cheap. A
+// repository without an index (nothing staged yet) leaves dst absent: git
+// reads a missing index file as an empty index, but refuses an empty file.
+func seedIndex(repo *git.Repo, dst string) error {
+	in, err := os.Open(filepath.Join(repo.GitDir, "index")) //nolint:gosec // the workspace's index; git.OpenRepo checked it is a regular file
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("open index: %w", err)
 	}
 	defer func() { _ = in.Close() }()
-	if _, err := io.Copy(dst, in); err != nil {
-		return fmt.Errorf("copy index: %w", err)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // dst is in a directory the Go Core created
+	if err != nil {
+		return fmt.Errorf("create private index: %w", err)
+	}
+	_, copyErr := io.Copy(out, in)
+	if closeErr := out.Close(); copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		_ = os.Remove(dst)
+		return fmt.Errorf("copy index: %w", copyErr)
 	}
 	return nil
-}
-
-func (i *worktreeIndex) remove() {
-	_ = os.Remove(i.path)
 }

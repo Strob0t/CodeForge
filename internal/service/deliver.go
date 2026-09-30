@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -72,7 +74,7 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 
 	switch r.DeliverMode {
 	case run.DeliverModePatch:
-		return s.deliverPatch(ctx, dir, r, shortID)
+		return s.deliverPatch(ctx, dir, r)
 	case run.DeliverModeCommitLocal:
 		return s.deliverCommitLocal(ctx, dir, r, shortID, taskTitle)
 	case run.DeliverModeBranch:
@@ -84,28 +86,26 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	}
 }
 
-// deliverPatch writes the run's whole change as a patch: the working tree
-// (including new files) against HEAD, diffed from a private index so that the
-// user's index is not touched.
-func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run, shortID string) (*DeliveryResult, error) {
+// deliverPatch writes the run's change as a patch: the working tree
+// (including new files) against the run's base checkpoint, the working tree
+// before its first change, so the user's earlier uncommitted work and files
+// of earlier deliveries are not part of it. The diff is taken from a private
+// index (the user's index is not touched) before the checkpoints are cleaned
+// up, and the patch is written inside the repository's .git directory, where
+// git does not see it as a change.
+func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
 		repo, err := git.OpenRepo(ctx, dir)
 		if err != nil {
 			return fmt.Errorf("patch delivery: %w", err)
 		}
-		idx, err := newWorktreeIndex(ctx, repo)
+		diff, err := runChange(ctx, repo, r.ID)
 		if err != nil {
-			return fmt.Errorf("patch index: %w", err)
+			return fmt.Errorf("patch delivery: %w", err)
 		}
-		defer idx.remove()
-		diff, err := repo.Run(ctx, idx.env, "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv")
+		patchFile, err := writePatch(repo, r.ID, diff)
 		if err != nil {
-			return fmt.Errorf("git diff: %w", err)
-		}
-
-		patchFile := filepath.Join(dir, fmt.Sprintf("%s.patch", shortID))
-		if err := os.WriteFile(patchFile, []byte(diff), 0o600); err != nil {
 			return fmt.Errorf("write patch: %w", err)
 		}
 
@@ -117,6 +117,79 @@ func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Ru
 		return nil
 	})
 	return result, err
+}
+
+// runChange returns the run's change as a binary diff: its base checkpoint
+// against the working tree now.
+func runChange(ctx context.Context, repo *git.Repo, runID string) (string, error) {
+	if err := checkRunID(runID); err != nil {
+		return "", err
+	}
+	tip, _, err := readCheckpointRef(ctx, repo, runID)
+	if err != nil {
+		return "", err
+	}
+	if tip == "" {
+		return "", fmt.Errorf("run %s: %w: its change is unknown", runID, ErrNoCheckpoints)
+	}
+	base, err := resolveBase(ctx, repo, tip)
+	if err != nil {
+		return "", err
+	}
+	idx, err := newWorktreeIndex(ctx, repo)
+	if err != nil {
+		return "", fmt.Errorf("patch index: %w", err)
+	}
+	defer idx.remove()
+	diff, err := repo.Run(ctx, idx.env, "diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", base.commit, "--")
+	if err != nil {
+		return "", fmt.Errorf("git diff: %w", err)
+	}
+	return diff, nil
+}
+
+// patchDir is where patches are written, relative to the .git directory.
+const patchDir = "codeforge/patches"
+
+// writePatch writes the patch to .git/codeforge/patches/<run>.patch and
+// returns its path. The directory is agent-writable: all access goes through
+// an os.Root on .git, which refuses symlinks leading out of it; the
+// directories must not be symlinks at all, and an existing file (or symlink)
+// of that name is replaced, never written through.
+func writePatch(repo *git.Repo, runID, diff string) (string, error) {
+	root, err := os.OpenRoot(repo.GitDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	for _, d := range []string{"codeforge", patchDir} {
+		if err := root.Mkdir(d, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		info, err := root.Lstat(d)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf(".git/%s is not a directory", d)
+		}
+	}
+	name := patchDir + "/" + runID + ".patch"
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := f.WriteString(diff)
+	if closeErr := f.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		return "", writeErr
+	}
+	return filepath.Join(repo.GitDir, filepath.FromSlash(name)), nil
 }
 
 func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {

@@ -111,8 +111,18 @@ func TestDeliver_NoneMode(t *testing.T) {
 
 func TestDeliver_Patch(t *testing.T) {
 	dir := initDeliverTestRepo(t)
+	pool := git.NewPool(5)
+	r := &run.Run{
+		ID:          "run-abcd1234",
+		ProjectID:   "proj-1",
+		DeliverMode: run.DeliverModePatch,
+	}
 
-	// Make a change
+	// The run checkpoints before its change: a patch is the change since the
+	// run's first checkpoint.
+	if err := service.NewCheckpointService(pool).CreateCheckpoint(context.Background(), r.ID, dir, "Edit", "call-1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("world"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -122,13 +132,7 @@ func TestDeliver_Patch(t *testing.T) {
 	}
 	svc := service.NewDeliverService(store, &config.Runtime{
 		DeliveryCommitPrefix: "test:",
-	}, git.NewPool(5))
-
-	r := &run.Run{
-		ID:          "run-abcd1234",
-		ProjectID:   "proj-1",
-		DeliverMode: run.DeliverModePatch,
-	}
+	}, pool)
 
 	result, err := svc.Deliver(context.Background(), r, "fix bug")
 	if err != nil {

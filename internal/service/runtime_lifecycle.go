@@ -230,15 +230,16 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 		Steps:     payload.StepCount,
 	})
 
-	s.releaseCheckpoints(ctx, r, end.rollBack)
-
 	// A run delivers its change (deliver_mode) once it is recorded completed,
 	// with or without quality gates, before the next plan step can touch the
 	// workspace. A failed, stopped or gate-failed run never delivers (KI-26,
-	// D9).
+	// D9). Delivery comes before the checkpoint cleanup: a patch is the
+	// change since the run's base checkpoint.
 	if status == run.StatusCompleted {
 		s.triggerDelivery(ctx, r)
 	}
+
+	s.releaseCheckpoints(ctx, r, end.rollBack)
 
 	// Clean up sandbox
 	if s.sandbox != nil {
@@ -300,12 +301,14 @@ func (s *RuntimeService) releaseCheckpoints(ctx context.Context, r *run.Run, rol
 }
 
 // rollBackWorkspace restores the workspace to its state before the run's
-// first change and records the outcome in the audit trail.
+// first change and records the outcome in the audit trail. The checkpoint
+// chain in the workspace repository is the record: only a workspace without
+// the run's checkpoint ref counts as unchanged.
 func (s *RuntimeService) rollBackWorkspace(ctx context.Context, r *run.Run, workspacePath string) {
 	err := s.checkpoint.RewindToFirst(ctx, r.ID, workspacePath)
 	switch {
-	case errors.Is(err, errNoCheckpoints):
-		slog.Info("rollback: the run changed no files", "run_id", r.ID)
+	case errors.Is(err, ErrNoCheckpoints):
+		slog.Info("rollback: the workspace holds no checkpoint of the run", "run_id", r.ID)
 	case err != nil:
 		s.reportRollbackFailure(ctx, r, err)
 	default:
