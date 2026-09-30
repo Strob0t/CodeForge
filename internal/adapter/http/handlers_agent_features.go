@@ -483,7 +483,7 @@ func (h *Handlers) HandleFeedbackCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	resolved := h.Runtime.ResolveApproval(runID, callID, decision)
+	resolved := h.Runtime.ResolveApproval(r.Context(), runID, callID, decision)
 	if !resolved {
 		writeError(w, http.StatusNotFound, "no pending approval for this run/call")
 		return

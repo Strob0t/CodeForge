@@ -96,7 +96,7 @@ func TestHandleToolCallRequest_RunEndsWhileWaitingForApproval(t *testing.T) {
 			if err := tc.end(ctx, svc, store); err != nil {
 				t.Fatalf("end run: %v", err)
 			}
-			if tc.resolve != "" && !svc.ResolveApproval(runID, callID, tc.resolve) {
+			if tc.resolve != "" && !svc.ResolveApproval(context.Background(), runID, callID, tc.resolve) {
 				t.Fatal("approval was no longer pending")
 			}
 			select {

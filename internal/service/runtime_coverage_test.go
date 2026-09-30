@@ -946,7 +946,7 @@ func TestListFeedbackAudit_MultipleEntries(t *testing.T) {
 func TestResolveApproval_NonExistentKey(t *testing.T) {
 	svc, _, _, _ := newRuntimeTestEnv()
 
-	ok := svc.ResolveApproval("no-run", "no-call", "allow")
+	ok := svc.ResolveApproval(context.Background(), "no-run", "no-call", "allow")
 	if ok {
 		t.Error("expected false for non-existent approval key")
 	}

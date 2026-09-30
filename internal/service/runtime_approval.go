@@ -10,6 +10,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // --- HITL (Human-in-the-Loop) approval ---
@@ -20,9 +21,11 @@ func approvalTimeoutSeconds(cfg *config.Runtime) int {
 	return int(cfg.ApprovalTimeout() / time.Second)
 }
 
-// approvalKey builds a unique key for pending approval channels.
-func approvalKey(runID, callID string) string {
-	return runID + ":" + callID
+// approvalKey builds the key of a pending approval. It names the tenant that
+// owns the run: only that tenant can resolve the approval (KI-63). The run
+// ID comes first so that run cleanup finds the run's approvals.
+func approvalKey(tenantID, runID, callID string) string {
+	return runID + ":" + callID + "@" + tenantID
 }
 
 // waitForApproval broadcasts a permission request to the frontend and all registered
@@ -36,7 +39,8 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	timeout := s.runtimeCfg.ApprovalTimeout()
 
 	ch := make(chan string, 1)
-	key := approvalKey(runID, callID)
+	// ctx is scoped to the tenant that owns the run or conversation.
+	key := approvalKey(tenantctx.FromContext(ctx), runID, callID)
 	s.state.SetPendingApproval(key, ch)
 	defer s.state.DeletePendingApproval(key)
 
@@ -107,9 +111,11 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 }
 
 // ResolveApproval is called from the HTTP handler when a user approves or denies
-// a pending tool call. Returns true if a pending approval was found and resolved.
-func (s *RuntimeService) ResolveApproval(runID, callID, decision string) bool {
-	key := approvalKey(runID, callID)
+// a pending tool call. Returns true if a pending approval of the caller's
+// tenant (from ctx) was found and resolved; another tenant's approval is
+// not found.
+func (s *RuntimeService) ResolveApproval(ctx context.Context, runID, callID, decision string) bool {
+	key := approvalKey(tenantctx.FromContext(ctx), runID, callID)
 	ch, ok := s.state.LoadAndDeletePendingApproval(key)
 	if !ok {
 		return false

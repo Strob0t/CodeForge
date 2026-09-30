@@ -87,7 +87,7 @@ func TestHandleToolCallRequest_RunEntersQualityGateWhileWaiting(t *testing.T) {
 	}()
 	waitForPermissionRequest(t, bc, runID, callID)
 	setStoredStatus(store, runID, run.StatusQualityGate)
-	if !svc.ResolveApproval(runID, callID, "allow") {
+	if !svc.ResolveApproval(context.Background(), runID, callID, "allow") {
 		t.Fatal("approval was no longer pending")
 	}
 	if err := <-done; err != nil {

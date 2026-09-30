@@ -151,7 +151,7 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resolved := h.Runtime.ResolveApproval(runID, callID, req.Decision)
+	resolved := h.Runtime.ResolveApproval(r.Context(), runID, callID, req.Decision)
 	if !resolved {
 		writeError(w, http.StatusNotFound, "no pending approval for this run/call")
 		return
@@ -166,8 +166,15 @@ func (h *Handlers) ApproveToolCall(w http.ResponseWriter, r *http.Request) {
 }
 
 // BypassConversationApprovals handles POST /api/v1/conversations/{id}/bypass-approvals.
+// Only the caller's tenant's conversations can be bypassed: the bypass flag is
+// keyed by conversation ID alone, so an unchecked ID would lift another
+// tenant's approvals (KI-63).
 func (h *Handlers) BypassConversationApprovals(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if _, err := h.Conversations.Get(r.Context(), id); err != nil {
+		writeDomainError(w, err, "conversation not found")
+		return
+	}
 	if h.Runtime != nil {
 		h.Runtime.BypassConversationApprovals(id)
 	}

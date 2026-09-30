@@ -497,9 +497,9 @@ func TestSendToolCallResponse_BasicPath(t *testing.T) {
 
 // TestApprovalKey verifies the approval key format.
 func TestApprovalKey(t *testing.T) {
-	key := approvalKey("run-123", "call-456")
-	if key != "run-123:call-456" {
-		t.Errorf("expected 'run-123:call-456', got %q", key)
+	key := approvalKey("tenant-1", "run-123", "call-456")
+	if key != "run-123:call-456@tenant-1" {
+		t.Errorf("expected 'run-123:call-456@tenant-1', got %q", key)
 	}
 }
 
@@ -544,7 +544,7 @@ func TestWaitForApproval_ResolveBeforeTimeout(t *testing.T) {
 	// Give goroutine time to register the channel
 	time.Sleep(50 * time.Millisecond)
 
-	ok := svc.ResolveApproval("run-resolve", "call-resolve", "allow")
+	ok := svc.ResolveApproval(context.Background(), "run-resolve", "call-resolve", "allow")
 	if !ok {
 		t.Fatal("ResolveApproval returned false")
 	}

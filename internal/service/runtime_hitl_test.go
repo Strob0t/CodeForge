@@ -9,6 +9,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // hitlMockBroadcaster is a minimal Broadcaster mock for HITL tests.
@@ -64,7 +65,7 @@ func TestHITL_ApproveUnblocksWait(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Resolve with "allow".
-	ok := svc.ResolveApproval(runID, callID, "allow")
+	ok := svc.ResolveApproval(context.Background(), runID, callID, "allow")
 	if !ok {
 		t.Fatal("ResolveApproval returned false; expected pending approval to exist")
 	}
@@ -97,7 +98,7 @@ func TestHITL_DenyUnblocksWait(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	ok := svc.ResolveApproval(runID, callID, "deny")
+	ok := svc.ResolveApproval(context.Background(), runID, callID, "deny")
 	if !ok {
 		t.Fatal("ResolveApproval returned false; expected pending approval to exist")
 	}
@@ -179,7 +180,7 @@ func TestHITL_ResolveNonExistentReturnsFalse(t *testing.T) {
 
 	svc, _ := newHITLTestService(30)
 
-	ok := svc.ResolveApproval("no-such-run", "no-such-call", "allow")
+	ok := svc.ResolveApproval(context.Background(), "no-such-run", "no-such-call", "allow")
 	if ok {
 		t.Error("expected false for non-existent approval, got true")
 	}
@@ -227,7 +228,7 @@ func TestHITL_PendingApprovalCleanedUpAfterResolve(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	svc.ResolveApproval(runID, callID, "allow")
+	svc.ResolveApproval(context.Background(), runID, callID, "allow")
 
 	select {
 	case <-done:
@@ -236,7 +237,7 @@ func TestHITL_PendingApprovalCleanedUpAfterResolve(t *testing.T) {
 	}
 
 	// The deferred Delete in waitForApproval should have cleaned up the map.
-	key := approvalKey(runID, callID)
+	key := approvalKey(tenantctx.DefaultTenantID, runID, callID)
 	if _, loaded := svc.state.LoadAndDeletePendingApproval(key); loaded {
 		t.Error("expected pendingApprovals entry to be cleaned up, but it still exists")
 	}
@@ -260,7 +261,7 @@ func TestHITL_DoubleResolveReturnsFalse(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	ok1 := svc.ResolveApproval(runID, callID, "allow")
+	ok1 := svc.ResolveApproval(context.Background(), runID, callID, "allow")
 	if !ok1 {
 		t.Fatal("first ResolveApproval should return true")
 	}
@@ -268,7 +269,7 @@ func TestHITL_DoubleResolveReturnsFalse(t *testing.T) {
 	<-done
 
 	// Second resolve: the entry was already consumed by LoadAndDelete.
-	ok2 := svc.ResolveApproval(runID, callID, "allow")
+	ok2 := svc.ResolveApproval(context.Background(), runID, callID, "allow")
 	if ok2 {
 		t.Error("second ResolveApproval should return false (already consumed)")
 	}
