@@ -351,7 +351,7 @@ Testplan: `docs/testing/autonomous-goal-to-program-testplan.md` | Tool complexit
 **Key env vars:** `LITELLM_BASE_URL` (NOT `LITELLM_URL`), `CODEFORGE_ROUTING_ENABLED=false` (override default=true; avoids router picking unhealthy models in test), auth field: `access_token` (NOT `token`)
 
 **Project setup:**
-- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (besides `execution_mode`, which only accepts `mount`, the only project config key the backend reads; autonomy comes from the selected mode, see [Known Issues](docs/todo.md#known-issues) KI-41) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
+- Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (besides `execution_mode`, which only accepts `mount`, the only project config key the backend reads; autonomy comes from the selected mode; `PUT /projects/{id}` merges config keys, `null` deletes one) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
 - Alternatively: `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` as separate call
 - TestRepo clone fails often — use local workspace creation instead
 - Auto-onboarding disabled (ChatPanel.tsx)

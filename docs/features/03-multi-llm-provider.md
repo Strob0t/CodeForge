@@ -92,7 +92,7 @@ services:
 ### Completed (Phase 2)
 
 - [x] LiteLLM Config Manager via admin API (`internal/adapter/litellm/`).
-- [x] Frontend: Provider configuration UI (ModelsPage -- add/delete models, health status). Deleting fails: the UI sends `DELETE /llm/models/{id}`, the backend only has `POST /llm/models/delete` (see [Known Issues](../todo.md#known-issues) KI-40).
+- [x] Frontend: Provider configuration UI (ModelsPage -- add/delete models, health status). Delete uses `DELETE /api/v1/llm/models/{id}` (admin, audited) with the LiteLLM deployment ID (`model_info.id`); models are shared by all tenants (KI-75).
 
 ### Completed (Phase 7 -- Cost and Token Transparency)
 

@@ -377,7 +377,7 @@ docker exec codeforge-docs-mcp npx docs-mcp-server scrape fastapi https://fastap
 2. Open project > Settings (gear icon) > check "docs-mcp-server"
 3. Agent now has `search_docs`, `scrape_docs`, `list_libraries` tools
 
-> **Known issue ([KI-40](todo.md#known-issues)):** step 2 currently fails because the settings popover calls API client methods that do not exist. Assign the server via the API instead: `POST /api/v1/projects/{id}/mcp-servers` with `{"server_id": "<id>"}`.
+
 
 **Embeddings:** `docker-compose.yml` points docs-mcp at LM Studio's OpenAI-compatible API on the host (`http://host.docker.internal:1234/v1`, model `text-embedding-nomic-embed-text-v1.5`). Load that embedding model in LM Studio, or edit the `OPENAI_API_BASE` / `DOCS_MCP_EMBEDDING_MODEL` values in `docker-compose.yml`. They are hardcoded there, so the `DOCS_MCP_*` entries in `.env` have no effect ([KI-51](todo.md#known-issues)).
 

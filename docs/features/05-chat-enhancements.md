@@ -16,7 +16,7 @@
 **What:** Visual approve/deny cards for agent permission requests with countdown timer.
 
 - `supervised-ask-all` policy preset (blocks all tool calls, requires explicit approval)
-- Auto-mapping of a mode's autonomy level (1-5) to a policy preset via `policyForAutonomy()` (`internal/service/conversation_dispatch.go`). The project-level `autonomy_level` saved by the compact settings popover has no effect (see [Known Issues](../todo.md#known-issues) KI-41)
+- Auto-mapping of a mode's autonomy level (1-5) to a policy preset via `policyForAutonomy()` (`internal/service/conversation_dispatch.go`). Autonomy comes from the selected mode; the compact settings popover has no autonomy control (removed with KI-41)
 - `PermissionRequestCard` component with approve/deny/allow-always buttons, countdown bar, tool name display and a display-only arguments preview (`arguments_preview`, never used for matching); a failed Allow-Always shows an error toast
 - WebSocket `agui.permission_request` event; the decision is sent via `POST /api/v1/runs/{id}/approve/{callId}` and forwarded to the worker on NATS `runs.toolcall.response`
 - **"Allow Always" persistence:** Clicking "Allow Always" approves the current call AND persists a permanent `allow` rule via `POST /api/v1/policies/allow-always` (admin). The card sends the `profile` that decided the call (from `agui.permission_request`); the rule is added to the per-project clone `{profile}-custom-{projectId}`, which replaces that profile only for this project (the project's profile selection is not changed). For Bash the rule is `command_allow` with every executable of the approved command (e.g. `cd frontend && npm test` -> `[cd, npm]`); commands that cannot be analysed are rejected (400). The rule never overrides a deny list. Idempotent (whole-rule comparison via `HasRule`). Persisted to `policy.custom_dir` (default `data/policies`); 404 for an unknown profile.
@@ -114,7 +114,7 @@
 - Domain model: `Channel` (project/bot types), `Message` (user/agent/bot/webhook senders), `Member` with roles
 - Channel service with validation, bot-only deletion, webhook key generation (`crypto/rand`)
 - 9 HTTP endpoints: list/create/get/delete channels, list/send messages, thread replies, member notify settings, webhook ingress
-- WebSocket event types `channel.message`, `channel.typing`, `channel.read` are defined but never broadcast; `ChannelView` refetches only after the local user sends, so messages from others appear after a reload (see [Known Issues](../todo.md#known-issues) KI-42)
+- `channel.message` is broadcast tenant-scoped for every stored message (user messages, thread replies, webhooks) and `ChannelView` appends it live; messages are attributed to the authenticated user (sender fields in the request are ignored) and stored only in channels of the caller's tenant; a thread parent must be a message of the same channel. `channel.typing` and `channel.read` have no producer yet; the webhook entry point and `ThreadPanel` are not usable yet (KI-73)
 - `ChannelList` sidebar component with `#` (project) and `>` (bot) prefixes
 - `ChannelView` with message list, auto-scroll, and input bar
 - `ChannelMessage` with sender type badges and thread reply indicators
@@ -219,8 +219,8 @@ The `state_delta` event type is defined in `internal/domain/event/agui.go` and t
 
 ## WebSocket Events Added
 
-Defined in `internal/domain/event/broadcast.go` but not broadcast yet (KI-42):
+Defined in `internal/domain/event/broadcast.go`:
 
-- `channel.message` -- new message in a channel
-- `channel.typing` -- user typing indicator
-- `channel.read` -- read receipt / cursor update
+- `channel.message` -- new message in a channel (broadcast tenant-scoped by `ChannelService.SendMessage`)
+- `channel.typing` -- user typing indicator (no producer yet, KI-73)
+- `channel.read` -- read receipt / cursor update (no producer yet, KI-73)

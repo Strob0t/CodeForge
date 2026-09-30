@@ -254,7 +254,7 @@ sequenceDiagram
 - **Context Optimizer**: `fetchRetrievalEntriesWithHits()` tries sub-agent first, falls back to single-shot search.
 - REST API: `POST /api/v1/projects/{id}/search/agent`.
 - Config: `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` in `config.Orchestrator`.
-- Per-project expansion prompt: project config key `expansion_prompt` replaces the default query-expansion system prompt (`internal/service/context_sources.go`, `internal/adapter/http/handlers_retrieval.go`; can be wiped by the settings popover, see [Known Issues](../todo.md#known-issues) KI-41).
+- Per-project expansion prompt: project config key `expansion_prompt` replaces the default query-expansion system prompt (`internal/service/context_sources.go`, `internal/adapter/http/handlers_retrieval.go`; `PUT /projects/{id}` merges config keys, so other settings do not remove it).
 - Cost tracking: the worker reports `cost_usd` / `tokens_in` / `tokens_out` in `retrieval.subagent.result`; `HandleSubAgentSearchResult()` records them in the event store.
 
 #### Frontend (RetrievalPanel)

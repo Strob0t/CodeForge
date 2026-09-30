@@ -1,6 +1,6 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18, KI-19, KI-20 done); **S4 in progress** (KI-43 to KI-46, KI-48 to KI-50, KI-59 done).
+> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18, KI-19, KI-20 done); **S4 in progress** (KI-43 to KI-46, KI-48 to KI-50, KI-59 done); **S5 done** (KI-39 to KI-42).
 > **Scope:** the verified defects KI-1 to KI-62 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
@@ -27,7 +27,7 @@
 | **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, KI-21, KI-22, KI-23, KI-24, KI-30, KI-31, KI-32 | L |
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
 | **S4** | Operations and deployment | KI-34, KI-35, KI-36, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, KI-51, ~~KI-59~~, KI-61 | M |
-| **S5** | Frontend correctness | KI-39, KI-40, KI-41, KI-42 | M |
+| **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | KI-15, KI-16, KI-17, KI-25, KI-33, KI-37, KI-38, KI-52, KI-53, KI-54, KI-55, KI-56, KI-57, KI-58, KI-60, KI-62 | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
@@ -112,10 +112,10 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 
 | KI | Fix |
 |---|---|
-| **KI-39** | Refetch run/plan/agent panels on their WebSocket events; include `project_id` in `task.output` (or filter by task IDs); AgentLane filters by task |
-| **KI-40** | `DELETE /api/v1/llm/models/{id}` in Go (replaces the POST route, D12 of the main-based plan); remove or implement the non-existent MCP client methods |
-| **KI-41** | Project update merges config keys (PATCH semantics); `autonomy_level` either wired or removed from the popover |
-| **KI-42** | Broadcast channel events (tenant-scoped, see KI-12) |
+| **KI-39** | **Done (2026-09-30);** live output is filtered by the project's task IDs instead of adding `project_id` to `task.output` (both emitters only know run/task/tenant; a task's `task.status`/`run.status` event precedes its output). Refetch run/plan/agent panels on their WebSocket events; include `project_id` in `task.output` (or filter by task IDs); AgentLane filters by task |
+| **KI-40** | **Done (2026-09-30).** `DELETE /api/v1/llm/models/{id}` in Go (replaces the POST route, D12 of the main-based plan); remove or implement the non-existent MCP client methods |
+| **KI-41** | **Done (2026-09-30).** Project update merges config keys (PATCH semantics); `autonomy_level` either wired or removed from the popover |
+| **KI-42** | **Done (2026-09-30).** Broadcast channel events (tenant-scoped, see KI-12) |
 
 ## S6 - Trust, Compliance and Unwired Features
 
@@ -155,6 +155,9 @@ scheduled as follows:
 | **KI-70** | Blue-green overlay does not work | S4 |
 | **KI-71** | Agent tools can read the worker's secrets (same UID) | S6 (with KI-13) |
 | **KI-72** | Claude Code runs bypass the policy layer | S6 (high: do first) |
+| **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6 |
+| **KI-74** | Frontend live-update follow-ups | S6 |
+| **KI-75** | LLM models are global across tenants | S6 |
 
 ## Decisions
 

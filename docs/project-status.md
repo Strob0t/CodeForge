@@ -15,7 +15,7 @@ Docker Compose infrastructure (PostgreSQL, NATS, LiteLLM), Go Core with domain e
 
 ### Phase 2: MVP Features (COMPLETED)
 
-Git local provider (clone, status, pull, branches, checkout), agent lifecycle with Aider backend, WebSocket live agent output, LLM provider management via LiteLLM admin API, frontend project detail page with git operations and agent monitor. - **Known issue:** KI-39 (live output/panels not refreshed)
+Git local provider (clone, status, pull, branches, checkout), agent lifecycle with Aider backend, WebSocket live agent output, LLM provider management via LiteLLM admin API, frontend project detail page with git operations and agent monitor.
 
 ### Phase 3: Reliability, Performance & Agent Foundation (COMPLETED)
 
@@ -124,7 +124,7 @@ All 8 patterns from CLAUDE.md implemented: RouterLLM scenario wiring, GitHub Cop
 **23A:** Trust annotations (4 levels: untrusted/partial/verified/full) auto-stamped on NATS payloads.
 **23B:** Message quarantine with risk scoring, admin review hold, evaluate/approve/reject. - **Known issue:** KI-15 (no wired path ever quarantines a message)
 **23C:** Persistent agent identity (stats accumulation: total runs, cost, success rate, last active; agent inbox; active work visibility). Agent fingerprinting is not implemented.
-**23D:** War Room -- live multi-agent collaboration view with swim lanes and handoff arrows. - **Known issue:** KI-15 (handoff arrows never render), KI-39 (lanes show unfiltered output)
+**23D:** War Room -- live multi-agent collaboration view with swim lanes and handoff arrows. - **Known issue:** KI-15 (handoff arrows never render)
 
 ### Phase 24: Active Work Visibility (COMPLETED)
 
@@ -202,7 +202,7 @@ UX improvements to project detail page workflow. Tab reorder to match natural pr
 
 ### Chat Enhancements (COMPLETED)
 
-10 features transforming the chat into a full-featured development workspace. HITL permission UI with approve/deny cards and countdown timer, `supervised-ask-all` policy preset, autonomy-to-preset auto-mapping, "Allow Always" button with persistent policy rule creation (`POST /policies/allow-always` clones preset to custom profile, prepends allow rule, idempotent). Inline diff review (DiffPreview component). Action buttons (copy, retry, apply, view diff). Per-message cost tracking (MessageBadge + CostBreakdown). Smart references with @/#// autocomplete popover and frequency tracker. Slash commands (/compact, /rewind, /clear, /help, /mode, /model) with rewind timeline picker. Conversation full-text search (PostgreSQL GIN index, ts_rank, SearchPage tabs). Notification center (browser push, Web Audio sounds, tab badge, AG-UI event wiring, notificationStore). Real-time channels with threads (3 tables, 9 endpoints, WebSocket events, sidebar ChannelList, ChannelView, ThreadPanel). Feature spec: `docs/features/05-chat-enhancements.md`. - **Known issue:** KI-7 (mode-derived profile ignored, Allow-Always clones not persisted), KI-42 (channel WebSocket events never broadcast)
+10 features transforming the chat into a full-featured development workspace. HITL permission UI with approve/deny cards and countdown timer, `supervised-ask-all` policy preset, autonomy-to-preset auto-mapping, "Allow Always" button with persistent policy rule creation (`POST /policies/allow-always` clones preset to custom profile, prepends allow rule, idempotent). Inline diff review (DiffPreview component). Action buttons (copy, retry, apply, view diff). Per-message cost tracking (MessageBadge + CostBreakdown). Smart references with @/#// autocomplete popover and frequency tracker. Slash commands (/compact, /rewind, /clear, /help, /mode, /model) with rewind timeline picker. Conversation full-text search (PostgreSQL GIN index, ts_rank, SearchPage tabs). Notification center (browser push, Web Audio sounds, tab badge, AG-UI event wiring, notificationStore). Real-time channels with threads (3 tables, 9 endpoints, WebSocket events, sidebar ChannelList, ChannelView, ThreadPanel). Feature spec: `docs/features/05-chat-enhancements.md`. - **Known issue:** KI-7 (mode-derived profile ignored, Allow-Always clones not persisted)
 
 ### Subscription Provider Integration (COMPLETED)
 
@@ -355,4 +355,5 @@ Milestones of [known-issues-fix-plan.md](known-issues-fix-plan.md) on `staging` 
 - **S0 (CI) done:** golangci-lint v2.11.4, CI on pull requests to `staging`, integration-tagged tests, frontend typecheck/tests, test repairs (KI-1, KI-2, KI-3).
 - **S1 (policy and security) done:** policy enforcement per [ADR-015](architecture/adr/015-policy-deny-lists-and-tool-names.md) (KI-4 to KI-10), trusted-proxy client IP (KI-11), tenant-scoped WebSocket fan-out with ticket auth (KI-12), sandbox/hybrid exec modes rejected until isolated (KI-13), loopback-only dev ports (KI-14).
 - **S2 (messaging and runtime) in progress:** NATS delivery semantics per [ADR-016](architecture/adr/016-nats-delivery-semantics.md) (KI-18 to KI-20) done; runtime state (KI-24, KI-30 to KI-32) and run path (KI-21 to KI-23) in progress.
-- **S4 (operations) in progress:** deployment fixes KI-43 to KI-50, KI-59.
+- **S4 (operations) in progress:** deployment fixes KI-43 to KI-50, KI-59 done; worker health, logs, OTEL, config drift, SIGHUP (KI-34 to KI-36, KI-51, KI-61) in progress.
+- **S5 (frontend) done:** live updates (KI-39), model delete route (KI-40), config merge (KI-41), channel broadcasts (KI-42).

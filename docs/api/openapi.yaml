@@ -460,8 +460,13 @@ paths:
                   type: string
                 config:
                   type: object
+                  description: |
+                    Merge patch for the project config: a key with a string value is set, a key
+                    with null is deleted, keys not in the request are kept. Missing, null or empty
+                    config leaves the stored config unchanged.
                   additionalProperties:
                     type: string
+                    nullable: true
       responses:
         "200":
           description: Project updated
@@ -1008,6 +1013,33 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalServerError"
+
+  /llm/models/{id}:
+    delete:
+      tags: [LLM]
+      summary: Delete an LLM model deployment from LiteLLM
+      description: |
+        Admin only, audited. `id` is the LiteLLM deployment ID (`model_id` in the model list,
+        taken from LiteLLM's `model_info.id`). Models are shared by all tenants (KI-75).
+        Replaces `POST /llm/models/delete` (405 since 2026-09-30).
+      operationId: deleteLLMModel
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Model deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          description: LiteLLM rejected the deletion
 
   /llm/health:
     get:
@@ -2353,7 +2385,7 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Project-level configuration (autonomy_level, policy_preset, etc.)
+          description: Project-level configuration (policy_preset, execution_mode, detected_languages, expansion_prompt, ...)
         workspace_path:
           type: string
           description: Absolute path to the local workspace (if adopted/cloned)
@@ -2383,9 +2415,9 @@ components:
           additionalProperties:
             type: string
           description: |
-            Project config map. Common keys:
-            autonomy_level (1-5), policy_preset, execution_mode (default exec mode for runs and
-            agentic conversations; only mount is accepted until sandbox isolation exists)
+            Project config map. Keys the backend reads: policy_preset, execution_mode (default exec
+            mode for runs and agentic conversations; only mount is accepted until sandbox isolation
+            exists), expansion_prompt. Autonomy comes from the selected mode.
 
     Conversation:
       type: object
