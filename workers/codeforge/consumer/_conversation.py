@@ -323,6 +323,8 @@ class ConversationHandlerMixin:
             run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
         history_cfg = HistoryConfig(max_context_tokens=_context_cap)
+        if run_msg.tool_output_max_chars > 0:
+            history_cfg.tool_output_max_chars = run_msg.tool_output_max_chars
 
         history_mgr = ConversationHistoryManager(history_cfg)
         messages = history_mgr.build_messages(

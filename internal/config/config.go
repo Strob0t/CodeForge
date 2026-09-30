@@ -109,7 +109,6 @@ type Plane struct {
 
 // Agent holds agentic conversation loop configuration.
 type Agent struct {
-	BuiltinTools             []string       `yaml:"builtin_tools"`              // Built-in tools to enable (default: all)
 	DefaultModel             string         `yaml:"default_model"`              // Default LLM model for agentic loops
 	MaxContextTokens         int            `yaml:"max_context_tokens"`         // Max tokens for context window (default: 128000)
 	MaxLoopIterations        int            `yaml:"max_loop_iterations"`        // Max tool-use loop iterations (default: 50)

@@ -194,6 +194,7 @@ func sampleConversationRunStartPayload() mq.ConversationRunStartPayload {
 		ProviderAPIKey:         "sk-user-key-abc123",
 		RolloutCount:           3,
 		SummarizeThreshold:     50,
+		ToolOutputMaxChars:     20000,
 		TurnID:                 "550e8400-e29b-41d4-a716-446655440005",
 		ApprovalTimeoutSeconds: 60,
 	}

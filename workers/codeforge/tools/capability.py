@@ -83,7 +83,7 @@ TOOLS_BY_CAPABILITY: dict[CapabilityLevel, frozenset[str]] = {
             "propose_goal",
             "propose_roadmap",
             "spawn_subagent",
-            "handoff",
+            "handoff_to",
             "transition_to_act",
         }
     ),

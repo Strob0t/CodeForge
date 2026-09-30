@@ -376,9 +376,10 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			MaxSteps:       1,
 			TimeoutSeconds: 120,
 		},
-		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
-		TenantID:       tenantctx.FromContext(ctx),
-		TurnID:         turnID,
+		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
+		TenantID:           tenantctx.FromContext(ctx),
+		TurnID:             turnID,
+		ToolOutputMaxChars: s.toolOutputMaxChars(),
 	}
 
 	data, err := json.Marshal(payload)

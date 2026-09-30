@@ -343,6 +343,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		Reminders:          reminders,
 		RolloutCount:       rolloutCount,
 		SummarizeThreshold: s.summarizeThreshold(),
+		ToolOutputMaxChars: s.toolOutputMaxChars(),
 		TurnID:             turnID,
 	}
 	// The worker waits for policy responses longer than Go waits for a HITL

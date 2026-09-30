@@ -513,6 +513,8 @@ class ConversationRunStartMessage(BaseModel):
     reminders: list[str] = Field(default_factory=list)
     rollout_count: int = 1
     summarize_threshold: int = 0
+    # agent.tool_output_max_chars from Go; 0 = the worker's default.
+    tool_output_max_chars: int = 0
     # Identifies this run of the conversation; echoed on every tool call.
     turn_id: str = ""
     # Go's HITL approval timeout; tool call decisions are awaited longer

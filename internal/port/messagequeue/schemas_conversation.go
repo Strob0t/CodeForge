@@ -77,6 +77,9 @@ type ConversationRunStartPayload struct {
 	PlanActEnabled     bool                         `json:"plan_act_enabled,omitempty"`    // Plan/Act mode toggle (A3)
 	RolloutCount       int                          `json:"rollout_count,omitempty"`       // Multi-rollout count for inference-time scaling (Phase 4 A4)
 	SummarizeThreshold int                          `json:"summarize_threshold,omitempty"` // Message count threshold for auto-summarization (Phase 3)
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker truncates
+	// longer tool results in the history (0 = the worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
 	// TurnID identifies this run of the conversation (runs reuse the
 	// conversation ID as run ID); the worker echoes it on every tool call so
 	// that calls of a stopped run are rejected after the next run started.

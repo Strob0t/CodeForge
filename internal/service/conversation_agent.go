@@ -79,6 +79,15 @@ func (s *ConversationService) IsAgentic(ctx context.Context, conversationID stri
 	return proj.WorkspacePath != ""
 }
 
+// toolOutputMaxChars returns agent.tool_output_max_chars, or 0 (the
+// worker's default) when agentCfg is nil.
+func (s *ConversationService) toolOutputMaxChars() int {
+	if s.agentCfg != nil {
+		return s.agentCfg.ToolOutputMaxChars
+	}
+	return 0
+}
+
 // summarizeThreshold returns the configured auto-summarization threshold,
 // or 0 (disabled) when agentCfg is nil.
 func (s *ConversationService) summarizeThreshold() int {

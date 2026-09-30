@@ -26,7 +26,7 @@ class TestToolsByCapability:
 
     def test_api_with_tools_includes_handoff(self) -> None:
         allowed = TOOLS_BY_CAPABILITY[CapabilityLevel.API_WITH_TOOLS]
-        assert "handoff" in allowed
+        assert "handoff_to" in allowed  # the registered name (KI-38)
         assert "transition_to_act" in allowed
 
     def test_pure_completion_filters_tools(self) -> None:
@@ -102,7 +102,7 @@ class TestFilterToolsForCapability:
             "list_directory",
             "create_skill",
             "search_skills",
-            "handoff",
+            "handoff_to",
             "propose_goal",
             "transition_to_act",
         ]
@@ -126,7 +126,7 @@ class TestFilterToolsForCapability:
         assert "bash" in names
         assert "edit_file" not in names
         assert "create_skill" not in names
-        assert "handoff" not in names
+        assert "handoff_to" not in names
 
     def test_api_with_tools_filters(self, sample_tools: list[dict]) -> None:
         from codeforge.agent_loop import AgentLoopExecutor
@@ -135,7 +135,7 @@ class TestFilterToolsForCapability:
         names = {t["function"]["name"] for t in result}
         assert "read_file" in names
         assert "edit_file" in names
-        assert "handoff" in names
+        assert "handoff_to" in names
         assert "create_skill" not in names
         assert "search_skills" not in names
 
