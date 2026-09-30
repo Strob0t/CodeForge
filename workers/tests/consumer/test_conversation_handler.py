@@ -233,6 +233,7 @@ class TestHandleConversationRun:
         msg.headers = {}
         msg.ack = AsyncMock()
         msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
 
         async def fake_execute(*_args, **_kwargs):
             return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
