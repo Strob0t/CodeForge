@@ -150,3 +150,40 @@ func TestReplanStep_RoutedToADebate(t *testing.T) {
 		t.Errorf("debate = %s, want running", debate.Status)
 	}
 }
+
+// TestDebate_StepsRunInTheirModes: a plan step's mode reaches its run
+// (KI-76): CreatePlan dropped it, so the debate's proponent and moderator
+// ran without their modes.
+func TestDebate_StepsRunInTheirModes(t *testing.T) {
+	store, orchSvc, _ := newDebateSetup(true)
+	ctx := context.Background()
+	p, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{
+		Name: "routed", ProjectID: "proj-1", Protocol: plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1", ModeID: "coder"}},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	if got := planState(t, store, p.ID).Steps[0].ModeID; got != "coder" {
+		t.Fatalf("stored step mode = %q, want coder", got)
+	}
+	within(t, "StartPlan", func() {
+		if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+			t.Errorf("StartPlan: %v", err)
+		}
+	})
+
+	debate := debatePlanOf(t, store, p.ID)
+	for i, want := range []string{"proponent", "moderator"} {
+		if got := debate.Steps[i].ModeID; got != want {
+			t.Errorf("debate step %d mode = %q, want %q", i, got, want)
+		}
+	}
+	r, err := store.GetRun(ctx, debate.Steps[0].RunID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if r.ModeID != "proponent" {
+		t.Errorf("proponent run mode = %q, want proponent", r.ModeID)
+	}
+}

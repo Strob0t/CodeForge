@@ -122,10 +122,10 @@ func (s *Store) UpdatePlanStatus(ctx context.Context, id string, status plan.Sta
 
 func (s *Store) CreatePlanStep(ctx context.Context, step *plan.Step) error {
 	return s.pool.QueryRow(ctx,
-		`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, deliver_mode, depends_on, status, round)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO plan_steps (tenant_id, plan_id, task_id, agent_id, policy_profile, mode_id, deliver_mode, depends_on, status, round)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING id, created_at, updated_at`,
-		tenantFromCtx(ctx), step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.DeliverMode,
+		tenantFromCtx(ctx), step.PlanID, step.TaskID, step.AgentID, step.PolicyProfile, step.ModeID, step.DeliverMode,
 		step.DependsOn, string(step.Status), step.Round,
 	).Scan(&step.ID, &step.CreatedAt, &step.UpdatedAt)
 }

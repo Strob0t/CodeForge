@@ -121,6 +121,7 @@ func (s *OrchestratorService) CreatePlan(ctx context.Context, req *plan.CreatePl
 			TaskID:        sr.TaskID,
 			AgentID:       sr.AgentID,
 			PolicyProfile: sr.PolicyProfile,
+			ModeID:        sr.ModeID,
 			DeliverMode:   sr.DeliverMode,
 			DependsOn:     sr.DependsOn, // indices; DB adapter remaps to UUIDs
 			Status:        plan.StepStatusPending,
