@@ -83,6 +83,9 @@ SUBJECT_CONVERSATION_RUN_COMPLETE = "conversation.run.complete"
 SUBJECT_CONVERSATION_RUN_CANCEL = "conversation.run.cancel"
 SUBJECT_CONVERSATION_COMPACT_REQUEST = "conversation.compact.request"
 SUBJECT_CONVERSATION_COMPACT_COMPLETE = "conversation.compact.complete"
+# Auto-agent post-verification: a workspace test file runs in the worker (KI-81)
+SUBJECT_CONVERSATION_TEST_REQUEST = "conversation.test.request"
+SUBJECT_CONVERSATION_TEST_RESULT = "conversation.test.result"
 
 # Benchmark
 SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"

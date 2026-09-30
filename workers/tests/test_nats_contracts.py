@@ -39,6 +39,8 @@ from codeforge.models import (
     SubAgentSearchRequest,
     SubAgentSearchResult,
     TaskMessage,
+    WorkspaceTestRequest,
+    WorkspaceTestResult,
 )
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent / "internal" / "port" / "messagequeue" / "testdata" / "contracts"
@@ -70,6 +72,8 @@ SUBJECT_MODEL_MAP: dict[str, type[BaseModel]] = {
     "a2a.task.complete": A2ATaskCompleteMessage,
     "runs.qualitygate.request": QualityGateRequest,
     "runs.qualitygate.result": QualityGateResult,
+    "conversation.test.request": WorkspaceTestRequest,
+    "conversation.test.result": WorkspaceTestResult,
 }
 
 

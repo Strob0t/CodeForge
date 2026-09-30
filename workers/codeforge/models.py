@@ -189,6 +189,30 @@ class QualityGateRequest(BaseModel):
     heartbeat_seconds: int = Field(default=0, ge=0)
 
 
+class WorkspaceTestRequest(BaseModel):
+    """Request from Go to run one test file of a workspace (auto-agent, KI-81)."""
+
+    request_id: str
+    tenant_id: str = ""
+    project_id: str = ""
+    conversation_id: str = ""
+    workspace_path: str
+    # A file name matching test_<word>.py in the workspace root.
+    test_file: str
+    timeout_seconds: int = Field(default=0, ge=0)
+
+
+class WorkspaceTestResult(BaseModel):
+    """Outcome of a workspace test run; passed is None when the tests did not run or finish."""
+
+    request_id: str
+    tenant_id: str = ""
+    conversation_id: str = ""
+    passed: bool | None = None
+    output: str = ""
+    error: str = ""
+
+
 class QualityGateResult(BaseModel):
     """Result of quality gate execution sent back to Go control plane."""
 

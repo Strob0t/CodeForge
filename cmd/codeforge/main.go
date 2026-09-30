@@ -684,6 +684,11 @@ func run() error {
 
 	// --- Auto-Agent Service ---
 	autoAgentSvc := service.NewAutoAgentService(store, hub, queue, conversationSvc)
+	// Its post-verification tests run in the worker (KI-81).
+	autoAgentTestCancel, err := autoAgentSvc.StartTestResultSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("auto-agent test result subscriber: %w", err)
+	}
 	slog.Info("auto-agent service initialized")
 
 	// --- Auth Service (Phase 10C) ---
@@ -1106,6 +1111,7 @@ func run() error {
 	repoMapCancel()
 	convRunCancel()
 	convDeadLetterCancel()
+	autoAgentTestCancel()
 	convCompactCancel()
 	for _, cancel := range evoCancels {
 		cancel()

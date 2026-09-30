@@ -115,6 +115,10 @@ func Validate(subject string, data []byte) error {
 		target = &ConversationRunCompletePayload{}
 	case subject == SubjectConversationCompactComplete:
 		target = &ConversationCompactCompletePayload{}
+	case subject == SubjectConversationTestRequest:
+		target = &WorkspaceTestRequestPayload{}
+	case subject == SubjectConversationTestResult:
+		target = &WorkspaceTestResultPayload{}
 
 	// --- GEMMAS Evaluation subjects (Phase 20G) ---
 	case subject == SubjectEvalGemmasRequest:

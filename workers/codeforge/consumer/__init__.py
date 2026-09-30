@@ -49,6 +49,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_CONTEXT_RERANK_REQUEST,
     SUBJECT_CONVERSATION_COMPACT_REQUEST,
     SUBJECT_CONVERSATION_RUN_START,
+    SUBJECT_CONVERSATION_TEST_REQUEST,
     SUBJECT_EVAL_GEMMAS_REQUEST,
     SUBJECT_GRAPH_BUILD_REQUEST,
     SUBJECT_GRAPH_SEARCH_REQUEST,
@@ -68,6 +69,7 @@ from codeforge.consumer._subjects import (
     consumer_name,
 )
 from codeforge.consumer._tasks import TaskHandlerMixin
+from codeforge.consumer._workspace_test import WorkspaceTestHandlerMixin
 from codeforge.executor import AgentExecutor
 from codeforge.graphrag import CodeGraphBuilder, GraphSearcher
 from codeforge.health import start_health_server
@@ -121,6 +123,7 @@ class TaskConsumer(
     TaskHandlerMixin,
     RunHandlerMixin,
     QualityGateHandlerMixin,
+    WorkspaceTestHandlerMixin,
     RepoMapHandlerMixin,
     RetrievalHandlerMixin,
     GraphHandlerMixin,
@@ -264,6 +267,7 @@ class TaskConsumer(
             (SUBJECT_AGENT, self._handle_message),
             (SUBJECT_RUN_START, self._handle_run_start),
             (SUBJECT_QG_REQUEST, self._handle_quality_gate),
+            (SUBJECT_CONVERSATION_TEST_REQUEST, self._handle_workspace_test),
             (SUBJECT_REPOMAP_REQUEST, self._handle_repomap),
             (SUBJECT_RETRIEVAL_INDEX_REQUEST, self._handle_retrieval_index),
             (SUBJECT_RETRIEVAL_SEARCH_REQUEST, self._handle_retrieval_search),

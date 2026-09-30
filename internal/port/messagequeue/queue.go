@@ -90,6 +90,8 @@ const (
 	SubjectConversationRunCancel       = "conversation.run.cancel"       // Go → Python: cancel a conversation run
 	SubjectConversationCompactRequest  = "conversation.compact.request"  // Go → Python: compact conversation history
 	SubjectConversationCompactComplete = "conversation.compact.complete" // Python → Go: compact finished (publish-only from Python)
+	SubjectConversationTestRequest     = "conversation.test.request"     // Go → Python: run a workspace test file (auto-agent, KI-81)
+	SubjectConversationTestResult      = "conversation.test.result"      // Python → Go: workspace test outcome
 
 	// Evaluation subjects (Phase 20G — GEMMAS)
 	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics

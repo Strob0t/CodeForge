@@ -128,6 +128,16 @@ class QualityGateExecutor:
             return None, f"no command for the {check} check"
         return await self._run_command(command, cwd, log, timeout_seconds)
 
+    async def run_command(
+        self,
+        command: str,
+        cwd: str,
+        log: structlog.stdlib.BoundLogger,
+        timeout_seconds: int | None = None,
+    ) -> tuple[bool | None, str]:
+        """Run an allowlisted command like a gate check (the auto-agent's workspace tests)."""
+        return await self._run_command(command, cwd, log, timeout_seconds)
+
     async def _run_command(
         self,
         command: str,

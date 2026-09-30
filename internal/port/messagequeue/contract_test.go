@@ -237,6 +237,29 @@ func sampleTaskAgentPayload() mq.TaskAgentPayload {
 	}
 }
 
+func sampleWorkspaceTestRequestPayload() mq.WorkspaceTestRequestPayload {
+	return mq.WorkspaceTestRequestPayload{
+		RequestID:      "550e8400-e29b-41d4-a716-446655440050",
+		TenantID:       "550e8400-e29b-41d4-a716-446655440006",
+		ProjectID:      "550e8400-e29b-41d4-a716-446655440001",
+		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
+		WorkspacePath:  "/workspaces/project",
+		TestFile:       "test_feature.py",
+		TimeoutSeconds: 300,
+	}
+}
+
+func sampleWorkspaceTestResultPayload() mq.WorkspaceTestResultPayload {
+	failed := false
+	return mq.WorkspaceTestResultPayload{
+		RequestID:      "550e8400-e29b-41d4-a716-446655440050",
+		TenantID:       "550e8400-e29b-41d4-a716-446655440006",
+		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
+		Passed:         &failed,
+		Output:         "1 failed, 2 passed",
+	}
+}
+
 func sampleConversationRunCompletePayload() mq.ConversationRunCompletePayload {
 	return mq.ConversationRunCompletePayload{
 		RunID:            "550e8400-e29b-41d4-a716-446655440001",
@@ -626,6 +649,9 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectTaskAgent, sampleTaskAgentPayload()},
 		{mq.SubjectConversationRunComplete, sampleConversationRunCompletePayload()},
 		{mq.SubjectConversationCompactComplete, sampleConversationCompactCompletePayload()},
+		// Auto-agent workspace tests (KI-81)
+		{mq.SubjectConversationTestRequest, sampleWorkspaceTestRequestPayload()},
+		{mq.SubjectConversationTestResult, sampleWorkspaceTestResultPayload()},
 		{mq.SubjectBenchmarkRunRequest, sampleBenchmarkRunRequestPayload()},
 		{mq.SubjectBenchmarkRunResult, sampleBenchmarkRunResultPayload()},
 		{mq.SubjectBenchmarkTaskStarted, sampleBenchmarkTaskStartedPayload()},
@@ -725,6 +751,8 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
+		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds"},
+		mq.SubjectConversationTestResult:      {"request_id", "tenant_id", "conversation_id", "passed", "output"},
 		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model"},
 		mq.SubjectBenchmarkRunResult:          {"run_id", "status", "results", "summary"},
 		mq.SubjectBenchmarkTaskStarted:        {"run_id", "task_id", "task_name", "index", "total"},

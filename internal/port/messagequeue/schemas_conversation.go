@@ -128,3 +128,29 @@ type ConversationCompactCompletePayload struct {
 	OriginalCount  int    `json:"original_count"`
 	Status         string `json:"status"`
 }
+
+// WorkspaceTestRequestPayload is the schema for conversation.test.request:
+// the auto-agent's post-verification asks the worker to run one pytest file
+// of a workspace (KI-81: the Go Core does not execute workspace code).
+type WorkspaceTestRequestPayload struct {
+	RequestID      string `json:"request_id"`
+	TenantID       string `json:"tenant_id"`
+	ProjectID      string `json:"project_id"`
+	ConversationID string `json:"conversation_id"`
+	WorkspacePath  string `json:"workspace_path"`
+	// TestFile is a file name matching test_<word>.py in the workspace root.
+	TestFile       string `json:"test_file"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+// WorkspaceTestResultPayload is the schema for conversation.test.result.
+// Passed is the test run's verdict (pytest's exit status); nil when the
+// tests could not run or did not finish, with the reason in Error.
+type WorkspaceTestResultPayload struct {
+	RequestID      string `json:"request_id"`
+	TenantID       string `json:"tenant_id,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	Passed         *bool  `json:"passed,omitempty"`
+	Output         string `json:"output"`
+	Error          string `json:"error,omitempty"`
+}
