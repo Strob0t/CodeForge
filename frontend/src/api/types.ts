@@ -913,6 +913,13 @@ export interface LoginResponse {
   user: User;
 }
 
+/** Matches Go POST /api/v1/ws/ticket: a single-use WebSocket upgrade ticket. */
+export interface WSTicketResponse {
+  ticket: string;
+  /** Seconds until the ticket expires. */
+  expires_in: number;
+}
+
 /** Matches Go domain/user.CreateRequest */
 export interface CreateUserRequest {
   email: string;

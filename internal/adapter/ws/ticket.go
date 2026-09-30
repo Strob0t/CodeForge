@@ -35,6 +35,11 @@ func NewTicketStore(ttl time.Duration) *TicketStore {
 	}
 }
 
+// TTL returns how long an issued ticket stays valid.
+func (s *TicketStore) TTL() time.Duration {
+	return s.ttl
+}
+
 // Issue creates a new single-use ticket for the given user and tenant.
 // The returned string is a UUID that the client exchanges for a WebSocket upgrade.
 func (s *TicketStore) Issue(userID, tenantID string) string {
@@ -52,9 +57,14 @@ func (s *TicketStore) Issue(userID, tenantID string) string {
 }
 
 // Redeem validates and consumes a ticket. It returns the ticket claims and true
-// on success, or nil and false if the ticket does not exist or has expired.
+// on success, or nil and false if the ticket does not exist, has expired or
+// carries no tenant (a connection must always belong to exactly one tenant).
 // The ticket is deleted on every call (single-use).
 func (s *TicketStore) Redeem(ticket string) (*Ticket, bool) {
+	if ticket == "" {
+		return nil, false
+	}
+
 	s.mu.Lock()
 	t, ok := s.tickets[ticket]
 	if ok {
@@ -62,7 +72,7 @@ func (s *TicketStore) Redeem(ticket string) (*Ticket, bool) {
 	}
 	s.mu.Unlock()
 
-	if !ok {
+	if !ok || t.TenantID == "" {
 		return nil, false
 	}
 

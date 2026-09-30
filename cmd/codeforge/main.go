@@ -202,7 +202,11 @@ func run() error {
 	plandex.Register(queue)
 
 	// --- Services ---
-	hub := ws.NewHub(cfg.Server.CORSOrigin, middleware.TenantIDFromContext)
+	// WebSocket upgrades authenticate with single-use tickets from
+	// POST /api/v1/ws/ticket; each connection is bound to the ticket's tenant.
+	wsTickets := ws.NewTicketStore(ws.DefaultTicketTTL)
+	wsTickets.StartCleanup(ctx)
+	hub := ws.NewHub(cfg.Server.CORSOrigin, wsTickets)
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
 	osFS := osfs.New()
@@ -859,6 +863,7 @@ func run() error {
 		PromptEvolution:  evoSvc,
 		GDPR:             service.NewGDPRService(store),
 		Consent:          service.NewConsentService(store),
+		WSTickets:        wsTickets,
 	}
 	handlers.WireGroups()
 

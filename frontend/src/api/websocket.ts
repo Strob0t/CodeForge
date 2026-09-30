@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 
-import { getAccessToken } from "~/api/client";
+import { api, getAccessToken } from "~/api/client";
 import { logError } from "~/lib/errorUtils";
 
 export interface WSMessage {
@@ -174,16 +174,23 @@ function isAGUIEvent<T extends AGUIEventType>(
   return msg.type === type && typeof msg.payload.run_id === "string";
 }
 
-function buildWSURL(): string {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const token = getAccessToken();
-  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
-  return `${proto}//${location.host}/ws${qs}`;
+/** The parts of `window.location` a WebSocket URL is built from. */
+export type WSLocation = Pick<Location, "protocol" | "host">;
+
+/**
+ * Builds the WebSocket URL for a single-use ticket from `POST /api/v1/ws/ticket`.
+ * The access token never goes into the URL, where it would leak into server,
+ * proxy and browser logs; a ticket is worthless once used or expired.
+ */
+export function buildWSURL(ticket: string, loc: WSLocation = location): string {
+  const proto = loc.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${loc.host}/ws?ticket=${encodeURIComponent(ticket)}`;
 }
 
 /**
- * Creates a reconnecting WebSocket that rebuilds the URL (with a fresh token)
- * on every reconnection attempt. This ensures the auth token is always current.
+ * Creates a reconnecting WebSocket. Every connection attempt fetches a fresh
+ * single-use ticket with the current access token, so reconnects after a
+ * token refresh authenticate as the current session.
  *
  * NOTE: Do not call this directly from components — use `useWebSocket()` from
  * `~/components/WebSocketProvider` to share a single connection app-wide.
@@ -194,49 +201,79 @@ export function createCodeForgeWS() {
 
   let ws: WebSocket | null = null;
   let disposed = false;
-  let manualReconnect = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Incremented per connection attempt: a ticket that arrives after the
+  // attempt was superseded (reconnect or cleanup) is discarded.
+  let attempt = 0;
   const listeners: ((ev: MessageEvent) => void)[] = [];
 
-  function connect(): void {
+  function scheduleReconnect(): void {
     if (disposed) return;
+    reconnectTimer = setTimeout(() => void connect(), RECONNECT_DELAY);
+  }
 
-    const token = getAccessToken();
-    if (!token) {
-      // No token yet — retry after delay.
-      reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
+  async function connect(): Promise<void> {
+    if (disposed) return;
+    const current = ++attempt;
+
+    if (!getAccessToken()) {
+      // Not logged in yet — retry after delay.
+      scheduleReconnect();
       return;
     }
 
-    const url = buildWSURL();
-    ws = new WebSocket(url);
+    let ticket: string;
+    try {
+      ({ ticket } = await api.auth.wsTicket());
+    } catch (err) {
+      logError("ws.ticket", err);
+      if (current === attempt) scheduleReconnect();
+      return;
+    }
+    if (disposed || current !== attempt) return;
 
-    ws.addEventListener("open", () => setConnected(true));
+    const socket = new WebSocket(buildWSURL(ticket));
+    ws = socket;
 
-    ws.addEventListener("close", () => {
-      setConnected(false);
-      if (!disposed && !manualReconnect) {
-        reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
-      }
+    socket.addEventListener("open", () => {
+      if (ws === socket) setConnected(true);
     });
 
-    ws.addEventListener("error", () => {
+    socket.addEventListener("close", () => {
+      // A socket replaced by reconnect() or closed on cleanup stays closed.
+      if (ws !== socket) return;
+      ws = null;
+      setConnected(false);
+      scheduleReconnect();
+    });
+
+    socket.addEventListener("error", () => {
       // error is always followed by close, which triggers reconnect
     });
 
-    ws.addEventListener("message", (ev) => {
+    socket.addEventListener("message", (ev) => {
       for (const listener of listeners) {
         listener(ev);
       }
     });
   }
 
-  connect();
+  function closeCurrent(): void {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    const socket = ws;
+    ws = null;
+    socket?.close();
+    setConnected(false);
+  }
+
+  void connect();
 
   onCleanup(() => {
     disposed = true;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    ws?.close();
+    closeCurrent();
   });
 
   function onMessage(handler: (msg: WSMessage) => void): () => void {
@@ -271,15 +308,8 @@ export function createCodeForgeWS() {
   /** Force-close and reconnect (e.g. after token refresh). */
   function reconnect(): void {
     if (disposed) return;
-    // Prevent the close handler from scheduling a competing reconnect.
-    manualReconnect = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    ws?.close();
-    manualReconnect = false;
-    connect();
+    closeCurrent();
+    void connect();
   }
 
   return { connected, onMessage, onAGUIEvent, reconnect } as const;

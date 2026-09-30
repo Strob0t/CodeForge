@@ -473,10 +473,16 @@ func (h *Handlers) AdminForcePasswordChange(w http.ResponseWriter, r *http.Reque
 // It issues a single-use, short-lived ticket that the client exchanges for a
 // WebSocket upgrade, preventing credentials from appearing in query strings
 // (CWE-598 mitigation, audit finding F-032).
+// The ticket is bound to the caller's user and tenant; the WebSocket
+// connection opened with it receives only that tenant's events.
 func (h *Handlers) IssueWSTicket(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	if u == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if h.WSTickets == nil {
+		writeError(w, http.StatusServiceUnavailable, "websocket tickets are not available")
 		return
 	}
 
@@ -490,6 +496,6 @@ func (h *Handlers) IssueWSTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, wsTicketResponse{
 		Ticket:    ticket,
-		ExpiresIn: 30,
+		ExpiresIn: int(h.WSTickets.TTL().Seconds()),
 	})
 }

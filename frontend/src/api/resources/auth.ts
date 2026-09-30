@@ -17,6 +17,7 @@ import type {
   SubscriptionProvidersResponse,
   User,
   VCSAccount,
+  WSTicketResponse,
 } from "../types";
 
 export function createAuthResource(c: CoreClient) {
@@ -50,6 +51,9 @@ export function createAuthResource(c: CoreClient) {
     deleteAPIKey: (id: string) => c.del<undefined>(url`/auth/api-keys/${id}`),
 
     githubOAuth: () => c.get<{ url: string; state: string }>("/auth/github"),
+
+    /** Exchange the session for a single-use WebSocket ticket (keeps the JWT out of URLs). */
+    wsTicket: () => c.post<WSTicketResponse>("/ws/ticket"),
   };
 }
 

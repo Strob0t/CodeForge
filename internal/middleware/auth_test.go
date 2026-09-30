@@ -262,63 +262,46 @@ func TestAuth_MustChangePassword_ExemptPath_200(t *testing.T) {
 	}
 }
 
-func TestAuth_WebSocket_ValidToken(t *testing.T) {
+// The WebSocket upgrade authenticates with a single-use ticket that the hub
+// redeems (see internal/adapter/ws). The middleware must pass /ws through
+// without authenticating anyone, and a JWT in the URL must never authenticate
+// the request (CWE-598: tokens in URLs leak into logs and browser history).
+func TestAuth_WebSocket_DelegatesToTicketAuth(t *testing.T) {
 	ts := &testStore{}
 	svc := newTestAuthSvcWithStore(ts)
 	accessToken := registerAndLoginMW(t, svc, "ws@mw.com", "Password123")
 
-	var gotUser *user.User
-	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotUser = middleware.UserFromContext(r.Context())
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/ws?token="+accessToken, http.NoBody)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"no credentials", "/ws"},
+		{"valid JWT in URL", "/ws?token=" + accessToken},
+		{"garbage token in URL", "/ws?token=garbage.token.here"},
+		{"ticket", "/ws?ticket=00000000-0000-0000-0000-000000000001"},
+		{"trailing slash", "/ws/?token=" + accessToken},
 	}
-	if gotUser == nil {
-		t.Fatal("expected user in context for WS")
-	}
-	if gotUser.Email != "ws@mw.com" {
-		t.Errorf("email = %q, want ws@mw.com", gotUser.Email)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reached := false
+			var gotUser *user.User
+			handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reached = true
+				gotUser = middleware.UserFromContext(r.Context())
+				w.WriteHeader(http.StatusOK)
+			}))
 
-func TestAuth_WebSocket_NoToken_401(t *testing.T) {
-	ts := &testStore{}
-	svc := newTestAuthSvcWithStore(ts)
+			req := httptest.NewRequest(http.MethodGet, tt.url, http.NoBody)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
-	}
-}
-
-func TestAuth_WebSocket_InvalidToken_401(t *testing.T) {
-	ts := &testStore{}
-	svc := newTestAuthSvcWithStore(ts)
-
-	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/ws?token=garbage.token.here", http.NoBody)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401", rec.Code)
+			if !reached || rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, reached = %v; want the WS handler to decide", rec.Code, reached)
+			}
+			if gotUser != nil {
+				t.Fatalf("user %q authenticated from the URL, want none", gotUser.Email)
+			}
+		})
 	}
 }
 
