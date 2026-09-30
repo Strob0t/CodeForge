@@ -128,3 +128,38 @@ func TestEvaluate_BashRedirectionsAgainstPathDeny(t *testing.T) {
 		})
 	}
 }
+
+// Bash runs in the workspace, so a relative redirection target is resolved
+// against it before it is compared: a target that climbs out and back in
+// (../p1/.env with the workspace /srv/ws/p1) is a workspace file. Only a
+// target that really resolves outside the workspace is skipped; without an
+// absolute workspace no target can be placed and each one is unknown.
+func TestEvaluate_RedirectionTargetsResolvedAgainstTheWorkspace(t *testing.T) {
+	trusted := PresetTrustedMountAutonomous()
+	tests := []struct {
+		name      string
+		workspace string
+		command   string
+		want      Decision
+	}{
+		{"climbing back into the workspace", testWorkspace, "go test > ../p1/.env", DecisionDeny},
+		{"climbing back into a protected directory", testWorkspace, "echo x > ../p1/secrets/key", DecisionDeny},
+		{"from the parent directory", testWorkspace, "cd .. && echo x > p1/.env", DecisionDeny},
+		{"parent and back", testWorkspace, "cd .. && cd p1 && echo x > .env", DecisionDeny},
+		{"absolute target", testWorkspace, "echo x > " + testWorkspace + "/.env", DecisionDeny},
+		{"really outside", testWorkspace, "echo x > ../p2/.env", DecisionAllow},
+		{"parent directory file", testWorkspace, "cd .. && echo x > out.log", DecisionAllow},
+		{"no workspace", "", "echo x > out.log", DecisionDeny},
+		{"no workspace, absolute target", "", "echo x > /srv/ws/p1/.env", DecisionDeny},
+		{"relative workspace", "ws/p1", "echo x > out.log", DecisionDeny},
+		{"no workspace, no redirection", "", "go test ./...", DecisionAllow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := trusted.Evaluate(ToolCall{Tool: "bash", Command: tt.command}, WithWorkspace(tt.workspace))
+			if res.Decision != tt.want {
+				t.Errorf("%q in %q -> %s (%s), want %s", tt.command, tt.workspace, res.Decision, res.Reason, tt.want)
+			}
+		})
+	}
+}

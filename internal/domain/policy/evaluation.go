@@ -213,11 +213,15 @@ func (r *PermissionRule) denyListReason(path string, cmd *shellCommand) string {
 // redirectionDenyReason checks the files a shell command redirects to or
 // from against the path_deny lists of the tools that access files the same
 // way: written targets against Write and Edit rules, read targets against
-// Read rules. A target that is not known statically is denied when such a
-// list exists (fail closed); a target outside the workspace is skipped like
-// every path that no workspace glob can match. It returns the index of the
-// denying rule and the reason, or -1 and "".
+// Read rules. Bash runs in the workspace, so a relative target is resolved
+// against it (../p1/.env in the workspace /srv/ws/p1 is its .env). A target
+// that is not known statically, or any target when the workspace is not an
+// absolute path, is denied when such a list exists (fail closed); a target
+// that resolves outside the workspace is skipped like every path that no
+// workspace glob can match. It returns the index of the denying rule and the
+// reason, or -1 and "".
 func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspace string) (ruleIndex int, reason string) {
+	placed := filepath.IsAbs(workspace)
 	checks := []struct {
 		tools   []string
 		targets []string
@@ -239,7 +243,13 @@ func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspace strin
 			if c.unknown {
 				return i, fmt.Sprintf("path_deny is set and a file the command %s cannot be analysed statically", c.access)
 			}
+			if !placed && len(c.targets) > 0 {
+				return i, fmt.Sprintf("path_deny is set and without an absolute workspace the file the command %s cannot be placed", c.access)
+			}
 			for _, target := range c.targets {
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(workspace, target)
+				}
 				rel, ok := NormalizePath(workspace, target)
 				if ok && matchesAnyGlob(rule.PathDeny, rel, true) {
 					return i, fmt.Sprintf("redirection to %q matches path_deny", rel)
