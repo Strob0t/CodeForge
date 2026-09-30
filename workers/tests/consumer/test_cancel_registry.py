@@ -13,7 +13,7 @@ import json
 
 from nats.aio.msg import Msg
 
-from codeforge.consumer._cancel_registry import CancelRegistry, record_cancels
+from codeforge.consumer._cancel_registry import CancelRegistry, record_cancels, task_key
 from codeforge.consumer._delivery import stream_sequence
 from tests.jetstream_fakes import FakeSubscription, jetstream_msg
 
@@ -108,6 +108,6 @@ async def test_record_cancels_records_valid_task_cancels() -> None:
     listener.cancel()
     await asyncio.wait({listener})
 
-    assert registry.cancelled("task-1", 6)
-    assert not registry.cancelled("task-2", 0)
+    assert registry.cancelled(task_key("task-1"), 6)
+    assert not registry.cancelled(task_key("task-2"), 0)
     assert len(registry) == 1

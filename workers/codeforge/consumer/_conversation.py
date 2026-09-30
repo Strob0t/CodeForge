@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import structlog
 
+from codeforge.consumer._cancel_registry import conversation_key, run_key
 from codeforge.consumer._conversation_experience import answer_from_experience, remember_answer
 from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
@@ -19,6 +20,7 @@ from codeforge.consumer._conversation_skill_integration import (
     register_propose_roadmap_tool,
     wire_skill_tools,
 )
+from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.loop_config import build_loop_config
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
@@ -371,6 +373,17 @@ class ConversationHandlerMixin:
 
         if run_id in self._active_runs:
             log.warning("duplicate conversation run start, skipping")
+            await msg.ack()
+            return
+
+        # A conversation run stopped while its start waited in NATS is not
+        # executed: Go already ended it; a later turn (published after the
+        # stop) runs (KI-65 follow-up).
+        start = stream_sequence(msg)
+        if start is not None and self._cancels.cancelled_any(
+            [conversation_key(run_msg.conversation_id), run_key(run_id)], start
+        ):
+            log.info("conversation run stopped while it waited for a worker, skipping")
             await msg.ack()
             return
 

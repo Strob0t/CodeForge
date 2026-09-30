@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import functools
 from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._cancel_registry import CancelRegistry, record_cancels
+from codeforge.consumer._cancel_registry import task_key
 from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL, SUBJECT_TASK_HEARTBEAT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
@@ -31,28 +30,6 @@ TASK_HEARTBEAT_INTERVAL_SECONDS = HEARTBEAT_INTERVAL_SECONDS
 
 class TaskHandlerMixin:
     """Handles task.agent.* messages — backend router dispatch."""
-
-    @functools.cached_property
-    def _task_cancels(self) -> CancelRegistry:
-        """The task cancels this worker has seen, for tasks that may still wait in NATS (KI-65)."""
-        return CancelRegistry()
-
-    async def _start_task_cancel_registry(self) -> None:
-        """Record every tasks.cancel from now on, until the worker aborts its background tasks."""
-        if self._js is None:
-            return
-        sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer())
-
-        async def listen() -> None:
-            try:
-                await record_cancels(sub, self._task_cancels)
-            finally:
-                try:
-                    await sub.unsubscribe()
-                except Exception as exc:
-                    logger.warning("task cancel registry unsubscribe failed", error=str(exc))
-
-        self._in_flight.start_background(listen(), name="task cancel registry")
 
     async def _handle_message(self, msg: nats.aio.msg.Msg) -> None:
         """Process a single task message: parse, execute via backend router, report the result.
@@ -86,7 +63,7 @@ class TaskHandlerMixin:
             await msg.ack()
             return
 
-        if dispatch is not None and self._task_cancels.cancelled(task.id, dispatch):
+        if dispatch is not None and self._cancels.cancelled(task_key(task.id), dispatch):
             # Go marked the task cancelled when it published the cancel; a
             # result here could overwrite the state of a later dispatch.
             log.info("task cancelled while it waited for a worker, skipping")
@@ -176,7 +153,7 @@ class TaskHandlerMixin:
             raise RuntimeError(msg)
         # Every worker sees every cancel: the task may run on any of them.
         sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer())
-        if dispatch is not None and self._task_cancels.cancelled(task.id, dispatch):
+        if dispatch is not None and self._cancels.cancelled(task_key(task.id), dispatch):
             # Cancelled after the check in _handle_message, before this
             # listener saw new messages.
             logger.info("task cancelled by control plane before it started", task_id=task.id)

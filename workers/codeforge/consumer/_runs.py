@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.consumer._cancel_registry import run_key, task_key
+from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import SUBJECT_TASK_CANCEL
 from codeforge.models import RunStartMessage, TaskMessage
 from codeforge.runtime import RuntimeClient
@@ -30,6 +32,9 @@ class RunHandlerMixin:
         be executed a second time by another worker. If this worker dies, the Go
         Core's run timeout fails the run.
         """
+        # A run stopped while its start waited in NATS is not executed: Go
+        # already ended it (KI-65 follow-up).
+        start = stream_sequence(msg)
         await self._handle_request(
             msg=msg,
             request_model=RunStartMessage,
@@ -38,6 +43,9 @@ class RunHandlerMixin:
             result_subject=None,
             log_context=lambda r: {"run_id": r.run_id, "task_id": r.task_id},
             ack_on_accept=True,
+            cancelled=lambda r: (
+                start is not None and self._cancels.cancelled_any([run_key(r.run_id), task_key(r.task_id)], start)
+            ),
         )
 
     async def _do_run_start(self, run_msg: RunStartMessage, log: structlog.BoundLogger) -> None:

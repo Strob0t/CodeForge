@@ -10,6 +10,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 import structlog
 from pydantic import ValidationError
 
+from codeforge.consumer._cancel_registry import (
+    CancelRegistry,
+    conversation_key,
+    record_cancels,
+    run_key,
+    task_key,
+)
 from codeforge.consumer._delivery import delivery_attempt, dlq_headers, is_last_attempt, message_identity
 from codeforge.consumer._in_flight import InFlightWork
 from codeforge.consumer._subjects import (
@@ -18,9 +25,13 @@ from codeforge.consumer._subjects import (
     DLQ_SUFFIX,
     HEADER_REQUEST_ID,
     NAK_DELAY_SECONDS,
+    SUBJECT_CONVERSATION_RUN_CANCEL,
     SUBJECT_OUTPUT,
+    SUBJECT_RUN_CANCEL,
+    SUBJECT_TASK_CANCEL,
 )
 from codeforge.nats_publish import publish_with_retry
+from codeforge.runtime import notification_consumer
 from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
@@ -109,6 +120,36 @@ class ConsumerBaseMixin:
             await msg.term()
         else:
             await msg.ack()
+
+    @functools.cached_property
+    def _cancels(self) -> CancelRegistry:
+        """The cancels this worker has seen, for work whose start may still wait in NATS (KI-65)."""
+        return CancelRegistry()
+
+    async def _start_cancel_registry(self) -> None:
+        """Record every task, run and conversation run cancel from now on.
+
+        The listeners run until the worker aborts its background tasks.
+        """
+        if self._js is None:
+            return
+        sources: list[tuple[str, Callable[[str, str], str]]] = [
+            (SUBJECT_TASK_CANCEL, lambda _run_id, task_id: task_key(task_id)),
+            (SUBJECT_RUN_CANCEL, lambda run_id, _task_id: run_key(run_id)),
+            (SUBJECT_CONVERSATION_RUN_CANCEL, lambda run_id, _task_id: conversation_key(run_id)),
+        ]
+        for subject, key_of in sources:
+            sub = await self._js.subscribe(subject, config=notification_consumer())
+            self._in_flight.start_background(self._record_cancels(sub, key_of), name=f"cancel registry {subject}")
+
+    async def _record_cancels(self, sub: JetStreamContext.PushSubscription, key_of: Callable[[str, str], str]) -> None:
+        try:
+            await record_cancels(sub, self._cancels, key_of)
+        finally:
+            try:
+                await sub.unsubscribe()
+            except Exception as exc:
+                logger.warning("cancel registry unsubscribe failed", error=str(exc))
 
     @functools.cached_property
     def _in_flight(self) -> InFlightWork:
@@ -220,6 +261,7 @@ class ConsumerBaseMixin:
         log_context: Callable[[RequestT], dict[str, Any]] | None = None,
         *,
         ack_on_accept: bool = False,
+        cancelled: Callable[[RequestT], bool] | None = None,
     ) -> None:
         """Generic NATS handler with validation, dedup, processing, and delivery settlement.
 
@@ -234,6 +276,9 @@ class ConsumerBaseMixin:
         repo map for the same project) runs again (KI-66); its handler is
         idempotent. At-most-once work is deduplicated by *dedup_key* (the run
         ID), so no second message ever executes the same run.
+
+        A request for which *cancelled* is true (its work was stopped while
+        the message waited in NATS) is acked and not handled.
         """
         request = await self._parse_request(msg, request_model)
         if request is None:
@@ -245,6 +290,11 @@ class ConsumerBaseMixin:
             key = f"{key}@{message_identity(msg)}"
         if self._is_duplicate(key):
             log.warning("duplicate request, skipping", dedup_key=key)
+            await msg.ack()
+            return
+
+        if cancelled is not None and cancelled(request):
+            log.info("request cancelled while it waited for a worker, skipping", dedup_key=key)
             await msg.ack()
             return
 
