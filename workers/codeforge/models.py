@@ -124,6 +124,9 @@ class RunStartMessage(BaseModel):
     # (informational: runs execute in the worker's own agent loop).
     workspace_path: str = ""
     backend: str = ""
+    # Go's HITL approval timeout; tool call decisions are awaited longer
+    # (0 = the worker's default).
+    approval_timeout_seconds: int = 0
 
     @field_validator("config", mode="before")
     @classmethod
@@ -507,6 +510,9 @@ class ConversationRunStartMessage(BaseModel):
     summarize_threshold: int = 0
     # Identifies this run of the conversation; echoed on every tool call.
     turn_id: str = ""
+    # Go's HITL approval timeout; tool call decisions are awaited longer
+    # (0 = the worker's default).
+    approval_timeout_seconds: int = 0
 
     @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
     @classmethod

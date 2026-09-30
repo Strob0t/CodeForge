@@ -86,6 +86,7 @@ type ConversationService struct {
 	sessionSvc      convSessionProvider
 	runTracker      convRunTracker
 	agentCfg        *config.Agent
+	runtimeCfg      *config.Runtime
 	routingCfg      *config.Routing
 	appEnv          string
 	metrics         cfmetrics.Recorder
@@ -161,6 +162,10 @@ func (s *ConversationService) beginRun(conversationID string) (turnID string, fi
 
 // SetAgentConfig configures agent loop defaults.
 func (s *ConversationService) SetAgentConfig(cfg *config.Agent) { s.agentCfg = cfg }
+
+// SetRuntimeConfig sets the runtime config; its approval timeout is sent to
+// the worker with every agentic run.
+func (s *ConversationService) SetRuntimeConfig(cfg *config.Runtime) { s.runtimeCfg = cfg }
 
 // SetMCPService configures MCP server resolution for agentic runs.
 func (s *ConversationService) SetMCPService(mcp convMCPResolver) { s.mcpSvc = mcp }

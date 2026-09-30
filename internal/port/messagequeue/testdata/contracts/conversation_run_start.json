@@ -98,5 +98,6 @@
   "provider_api_key": "sk-user-key-abc123",
   "rollout_count": 3,
   "summarize_threshold": 50,
-  "turn_id": "550e8400-e29b-41d4-a716-446655440005"
+  "turn_id": "550e8400-e29b-41d4-a716-446655440005",
+  "approval_timeout_seconds": 60
 }

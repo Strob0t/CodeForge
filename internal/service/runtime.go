@@ -285,6 +285,9 @@ func (s *RuntimeService) buildRunPayload(
 		WorkspacePath: proj.WorkspacePath,
 		Backend:       ag.Backend,
 	}
+	// The worker waits for policy responses longer than Go waits for a HITL
+	// approval of one of the run's tool calls (KI-21).
+	payload.ApprovalTimeoutSeconds = approvalTimeoutSeconds(s.runtimeCfg)
 
 	// Build context pack if context optimizer is available.
 	if s.contextOpt != nil {

@@ -90,6 +90,10 @@ type RunStartPayload struct {
 	Trust             *trust.Annotation     `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
 	WorkspacePath     string                `json:"workspace_path"`               // project workspace the run's tools work in
 	Backend           string                `json:"backend"`                      // the agent's backend (informational: the worker runs its own agent loop)
+	// ApprovalTimeoutSeconds is how long Go waits for a HITL decision on a
+	// tool call (config runtime.approval_timeout_seconds); the worker waits
+	// for policy responses longer than that.
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds"`
 }
 
 // TerminationPayload carries the termination limits for a run.

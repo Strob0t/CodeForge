@@ -438,6 +438,7 @@ class ConversationHandlerMixin:
             tenant_id=run_msg.tenant_id,
             mode_id=run_msg.mode.id if run_msg.mode else "",
             turn_id=run_msg.turn_id,
+            approval_timeout_seconds=run_msg.approval_timeout_seconds,
         )
         workbench: McpWorkbench | None = None
         try:

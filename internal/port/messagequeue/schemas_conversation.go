@@ -81,6 +81,10 @@ type ConversationRunStartPayload struct {
 	// conversation ID as run ID); the worker echoes it on every tool call so
 	// that calls of a stopped run are rejected after the next run started.
 	TurnID string `json:"turn_id,omitempty"`
+	// ApprovalTimeoutSeconds is how long Go waits for a HITL decision on a
+	// tool call of an agentic run; the worker waits for policy responses
+	// longer than that (0 = the worker's default).
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds,omitempty"`
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.

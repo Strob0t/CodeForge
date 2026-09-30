@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
@@ -12,6 +13,12 @@ import (
 )
 
 // --- HITL (Human-in-the-Loop) approval ---
+
+// approvalTimeoutSeconds is the approval timeout sent to the worker with a
+// run start (runs and agentic conversation runs).
+func approvalTimeoutSeconds(cfg *config.Runtime) int {
+	return int(cfg.ApprovalTimeout() / time.Second)
+}
 
 // approvalKey builds a unique key for pending approval channels.
 func approvalKey(runID, callID string) string {
@@ -24,11 +31,9 @@ func approvalKey(runID, callID string) string {
 func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPermissionRequestEvent) policy.Decision {
 	runID, callID, tool, command, path := req.RunID, req.CallID, req.Tool, req.Command, req.Path
 
-	// Default timeout: 60 seconds.
-	timeout := 60 * time.Second
-	if s.runtimeCfg != nil && s.runtimeCfg.ApprovalTimeoutSeconds > 0 {
-		timeout = time.Duration(s.runtimeCfg.ApprovalTimeoutSeconds) * time.Second
-	}
+	// The worker got the same timeout with the run start and waits for the
+	// response longer than this (KI-21).
+	timeout := s.runtimeCfg.ApprovalTimeout()
 
 	ch := make(chan string, 1)
 	key := approvalKey(runID, callID)

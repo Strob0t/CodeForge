@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import structlog
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 
-from codeforge.constants import NATS_RESPONSE_TIMEOUT_SECONDS
+from codeforge.constants import APPROVAL_RESPONSE_MARGIN_SECONDS, DEFAULT_APPROVAL_TIMEOUT_SECONDS
 from codeforge.metrics import ExecutionMetrics
 from codeforge.models import RunCompleteMessage, ToolCallDecision
 from codeforge.nats_publish import publish_with_retry
@@ -39,8 +39,6 @@ if TYPE_CHECKING:
 
     from codeforge.models import TerminationConfig
 
-RESPONSE_TIMEOUT_SECONDS = NATS_RESPONSE_TIMEOUT_SECONDS
-
 # Maximum length (characters) of the arguments preview sent with a tool call.
 ARGUMENTS_PREVIEW_MAX_CHARS = 1000
 
@@ -55,6 +53,17 @@ def _notification_consumer() -> ConsumerConfig:
     delivering once MaxAckPending messages were outstanding.
     """
     return ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=AckPolicy.NONE)
+
+
+def policy_response_timeout(approval_timeout_seconds: float) -> float:
+    """How long to wait for the Go Core's decision on a tool call.
+
+    A call the policy resolves to "ask" is answered only once a human decided
+    or Go's approval timeout expired, so the wait outlasts that timeout
+    (KI-21). A timeout <= 0 (none sent) means the Go default.
+    """
+    approval = approval_timeout_seconds if approval_timeout_seconds > 0 else DEFAULT_APPROVAL_TIMEOUT_SECONDS
+    return approval + APPROVAL_RESPONSE_MARGIN_SECONDS
 
 
 def arguments_preview(arguments: dict[str, object]) -> str:
@@ -85,6 +94,7 @@ class RuntimeClient:
         tenant_id: str = "",
         mode_id: str = "",
         turn_id: str = "",
+        approval_timeout_seconds: float = 0,
     ) -> None:
         self._js = js
         self.run_id = run_id
@@ -101,6 +111,9 @@ class RuntimeClient:
         # ID as run ID, so Go tells the calls of a stopped run from the calls
         # of the next run of the same conversation by it.
         self.turn_id = turn_id
+        # Go's HITL approval timeout, sent with the run start: a decision is
+        # awaited longer than that.
+        self.policy_wait_seconds = policy_response_timeout(approval_timeout_seconds)
         self._metrics = ExecutionMetrics()
         self._cancelled = False
         self._completed = False
@@ -292,7 +305,7 @@ class RuntimeClient:
                 publish_ms=round(publish_ms, 1),
             )
 
-            deadline = asyncio.get_event_loop().time() + RESPONSE_TIMEOUT_SECONDS
+            deadline = asyncio.get_event_loop().time() + self.policy_wait_seconds
             while True:
                 remaining = deadline - asyncio.get_event_loop().time()
                 if remaining <= 0:
@@ -302,12 +315,12 @@ class RuntimeClient:
                         call_id=call_id,
                         tool=tool,
                         elapsed_ms=round(elapsed_ms, 1),
-                        timeout_seconds=RESPONSE_TIMEOUT_SECONDS,
+                        timeout_seconds=self.policy_wait_seconds,
                     )
                     return ToolCallDecision(
                         call_id=call_id,
                         decision="deny",
-                        reason=f"NATS response timeout after {RESPONSE_TIMEOUT_SECONDS}s "
+                        reason=f"NATS response timeout after {self.policy_wait_seconds:g}s "
                         f"waiting for policy decision (not an LLM timeout)",
                     )
 

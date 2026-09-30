@@ -171,6 +171,29 @@ async def test_run_start_passes_tenant_to_runtime_client() -> None:
     assert runtime.tenant_id == TENANT
 
 
+async def test_run_start_passes_the_approval_timeout_to_runtime_client() -> None:
+    """Tool call decisions of a run are awaited longer than Go's HITL approval wait (KI-21)."""
+    from codeforge.runtime import policy_response_timeout
+
+    handler = _RunHandler()
+    handler._js = _js()
+    handler._executor = SimpleNamespace(execute_with_runtime=AsyncMock())
+    run_msg = RunStartMessage(
+        run_id=str(uuid.uuid4()),
+        task_id="task-1",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="do it",
+        approval_timeout_seconds=240,
+    )
+
+    await handler._do_run_start(run_msg, MagicMock())
+
+    runtime = handler._executor.execute_with_runtime.call_args.args[1]
+    assert runtime.policy_wait_seconds == policy_response_timeout(240)
+    assert runtime.policy_wait_seconds > 240
+
+
 # --- Request/result handlers (_handle_request) ---
 
 

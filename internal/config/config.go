@@ -292,6 +292,20 @@ type Runtime struct {
 	Hybrid                 HybridConfig  `yaml:"hybrid"`
 }
 
+// defaultApprovalTimeoutSeconds is the HITL approval timeout when none is configured.
+const defaultApprovalTimeoutSeconds = 60
+
+// ApprovalTimeout is how long a tool call waits for a HITL decision. It is
+// the single source for the Go approval wait and for the worker, which gets
+// it with every run start and waits for the policy response at least this
+// long. A nil config or a value <= 0 means the default.
+func (r *Runtime) ApprovalTimeout() time.Duration {
+	if r == nil || r.ApprovalTimeoutSeconds <= 0 {
+		return defaultApprovalTimeoutSeconds * time.Second
+	}
+	return time.Duration(r.ApprovalTimeoutSeconds) * time.Second
+}
+
 // HybridConfig holds settings for the hybrid execution mode.
 // Hybrid mode mounts the workspace read-write while running commands
 // inside a Docker container for isolation.
@@ -523,7 +537,7 @@ func Defaults() Config {
 			DeliveryCommitPrefix:   "codeforge:",
 			HeartbeatInterval:      30 * time.Second,
 			HeartbeatTimeout:       120 * time.Second,
-			ApprovalTimeoutSeconds: 60,
+			ApprovalTimeoutSeconds: defaultApprovalTimeoutSeconds,
 			StaleCheckInterval:     60 * time.Second,
 			StaleWorkThreshold:     30 * time.Minute,
 			Sandbox: SandboxConfig{

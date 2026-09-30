@@ -165,7 +165,7 @@ func run() error {
 	}
 	// The tool-call handler waits up to the HITL approval timeout; its message
 	// must stay in progress that long (ADR-016).
-	queue.SetMaxHandlerDuration(time.Duration(cfg.Runtime.ApprovalTimeoutSeconds) * time.Second)
+	queue.SetMaxHandlerDuration(cfg.Runtime.ApprovalTimeout())
 
 	// Idempotency KV store
 	idempotencyKV, err := queue.KeyValue(ctx, cfg.Idempotency.Bucket, cfg.Idempotency.TTL)
@@ -611,6 +611,7 @@ func run() error {
 	conversationSvc.SetQueue(queue)
 	conversationSvc.SetRunTracker(runtimeSvc)
 	conversationSvc.SetAgentConfig(&cfg.Agent)
+	conversationSvc.SetRuntimeConfig(&cfg.Runtime)
 	conversationSvc.SetMCPService(mcpSvc)
 	conversationSvc.SetPolicyService(policySvc)
 	conversationSvc.SetModelRegistry(modelRegistry)
