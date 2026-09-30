@@ -1672,6 +1672,9 @@ const en = {
   "chat.attachFile": "Attach file",
   "chat.attachSuccess": "File written to workspace",
   "chat.attachFailed": "Failed to attach file",
+  "chat.runInProgress":
+    "A run is still in progress. Wait for it to finish or stop it, then send again.",
+  "chat.sendFailed": "The message could not be sent.",
 
   // -- Onboarding progress ---------------------------------------------------
   "onboarding.repoCloned": "Repo cloned",

@@ -1696,6 +1696,9 @@ const de: Translations = {
   "chat.attachFile": "Datei anhaengen",
   "chat.attachSuccess": "Datei in Workspace geschrieben",
   "chat.attachFailed": "Datei konnte nicht angehangen werden",
+  "chat.runInProgress":
+    "Ein Lauf ist noch aktiv. Warte, bis er fertig ist, oder stoppe ihn, und sende dann erneut.",
+  "chat.sendFailed": "Die Nachricht konnte nicht gesendet werden.",
 
   // -- Onboarding-Fortschritt ------------------------------------------------
   "onboarding.repoCloned": "Repo geklont",

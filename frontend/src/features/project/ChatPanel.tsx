@@ -33,6 +33,7 @@ import RewindTimeline from "../chat/RewindTimeline";
 import TokenBadge from "../chat/TokenBadge";
 import ChatHeader from "./ChatHeader";
 import ChatMessages from "./ChatMessages";
+import { sendErrorKey } from "./chatSendError";
 import ChatSuggestions from "./ChatSuggestions";
 import { clearContextFiles, contextFiles, removeContextFile } from "./contextFilesStore";
 import SessionFooter from "./SessionFooter";
@@ -296,8 +297,10 @@ export default function ChatPanel(props: ChatPanelProps) {
       scrollToBottom();
       // Clear context files after sending.
       if (ctxPaths.length > 0) clearContextFiles();
-    } catch {
-      // toast handled by API layer
+    } catch (err) {
+      // Nothing was stored: give the user their text back and say why.
+      setInput(content);
+      toast("error", t(sendErrorKey(err)));
     } finally {
       setSending(false);
     }
