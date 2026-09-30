@@ -207,7 +207,7 @@ CodeForge/
 │   │   ├── tiered/           # Tiered cache (L1 + L2)
 │   │   └── ws/               # WebSocket hub + event broadcasting
 │   ├── resilience/           # Circuit breaker
-│   ├── secrets/              # Secrets vault with SIGHUP reload
+│   ├── secrets/              # Secrets vault (reloaded on SIGHUP)
 │   ├── telemetry/            # OTEL span helpers (API-only, no SDK dependency)
 │   ├── tenantctx/            # Tenant ID context helpers
 │   ├── version/              # Build version
@@ -294,7 +294,7 @@ CodeForge/
 │   ├── run-agent-eval.sh           # Agent evaluation scenarios
 │   ├── sync-version.sh             # Propagate VERSION to package manifests
 │   ├── verify-features.sh          # Feature verification matrix (CI verify job)
-│   ├── worker-healthcheck.py       # Worker container healthcheck (sentinel file)
+│   ├── worker-healthcheck.py       # Worker container healthcheck (GET /health/ready)
 │   └── setup-branch-protection.sh  # GitHub branch protection for main
 ├── configs/
 │   ├── model_pricing.yaml    # Fallback LLM pricing table
@@ -658,7 +658,7 @@ Example:
 | `notification.slack_webhook_url` | `CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL` | `` | Slack webhook URL |
 | `notification.discord_webhook_url` | `CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL` | `` | Discord webhook URL |
 | `notification.smtp_host` | `CODEFORGE_SMTP_HOST` | `` | SMTP server hostname |
-| `notification.smtp_port` | `CODEFORGE_SMTP_PORT` | `0` | SMTP server port; must be set (e.g. `587`), port 0 makes sends fail ([KI-51](todo.md#known-issues)) |
+| `notification.smtp_port` | `CODEFORGE_SMTP_PORT` | `587` | SMTP server port; startup rejects ports outside 1-65535 when `smtp_host` is set |
 | `notification.smtp_from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
 | `notification.smtp_password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
 | `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
@@ -691,7 +691,7 @@ Example:
 | `LITELLM_MASTER_KEY` | `sk-codeforge-dev` | LiteLLM API key (dev default, matches the compose LiteLLM default; a warning is logged) |
 | `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level (falls back to `logging.level` in codeforge.yaml) |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
-| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Reserved: no worker HTTP health server is started; liveness uses the sentinel file `/tmp/codeforge-worker-healthy` ([KI-34](todo.md#known-issues)) |
+| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker HTTP health server: `GET /health` (liveness) and `GET /health/ready` (NATS connected, every consumer loop alive, not stopping); `0` picks a free port; a port that cannot be bound makes the worker exit 1 before connecting to NATS. Two workers on one host need different ports |
 | `CODEFORGE_AIDER_PATH` | `aider` | Path to Aider CLI binary |
 | `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
 | `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
@@ -928,9 +928,9 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | NATS_URL                  | nats://codeforge-nats:4222 (devcontainer) | NATS server URL                 |
 | LITELLM_BASE_URL          | http://localhost:4000                    | LiteLLM Proxy URL (the devcontainer sets `http://codeforge-litellm:4000`) |
 | LITELLM_MASTER_KEY        | empty (Go Core); sk-codeforge-dev (worker, dev LiteLLM container) | Master Key for LiteLLM Proxy (the devcontainer forwards the host value) |
-| DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API Endpoint (currently ignored: docker-compose.yml hardcodes the docs-mcp embedding settings, [KI-51](todo.md#known-issues)) |
-| DOCS_MCP_API_KEY          | lmstudio                                 | API Key for Embeddings (currently ignored) |
-| DOCS_MCP_EMBEDDING_MODEL  | text-embedding-qwen3-embedding-8b        | Embedding Model Name (currently ignored; compose uses `text-embedding-nomic-embed-text-v1.5`) |
+| DOCS_MCP_API_BASE         | http://host.docker.internal:1234/v1      | Embedding API endpoint of the dev docs-mcp service |
+| DOCS_MCP_API_KEY          | lm-studio                                | API key for embeddings (docs-mcp) |
+| DOCS_MCP_EMBEDDING_MODEL  | text-embedding-nomic-embed-text-v1.5     | Embedding model name (docs-mcp) |
 | OPENAI_API_KEY            | (optional)                               | OpenAI API Key (via LiteLLM)    |
 | ANTHROPIC_API_KEY         | (optional)                               | Anthropic API Key (via LiteLLM) |
 | GEMINI_API_KEY            | (optional)                               | Google Gemini API Key           |
@@ -938,7 +938,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | MISTRAL_API_KEY           | (optional)                               | Mistral AI API Key              |
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
-| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama Endpoint (local); used by Go model discovery, while LiteLLM's `ollama/*` entry hardcodes its `api_base` ([KI-51](todo.md#known-issues)) |
+| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama endpoint (local); used by Go model discovery and, as `OLLAMA_API_BASE`, by LiteLLM's `ollama/*` entry |
 | CODEFORGE_OTEL_ENABLED    | false                                    | Enable OpenTelemetry tracing    |
 | CODEFORGE_OTEL_ENDPOINT   | localhost:4317                              | OTLP gRPC endpoint              |
 | CODEFORGE_OTEL_SERVICE_NAME | codeforge-core                          | OTEL service name               |
@@ -980,7 +980,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_A2A_TRANSPORT    | jsonrpc                                  | Transport protocol (only `jsonrpc` is implemented) |
 | CODEFORGE_A2A_MAX_TASKS    | 100                                      | Max concurrent A2A tasks (not enforced yet) |
 | CODEFORGE_A2A_ALLOW_OPEN   | false                                    | Allow AgentCard discovery without A2A API key |
-| CODEFORGE_OTEL_INSECURE    | false (Go Core) / true (worker)          | Use insecure gRPC; the Go exporter currently always uses TLS ([KI-36](todo.md#known-issues)) |
+| CODEFORGE_OTEL_INSECURE    | false                                    | Use plaintext gRPC (Go Core and worker); set `true` for a local collector such as Jaeger |
 | DEEPSEEK_API_KEY            | (optional)                               | DeepSeek API Key                 |
 | COHERE_API_KEY              | (optional)                               | Cohere API Key                   |
 | TOGETHERAI_API_KEY          | (optional)                               | Together AI API Key              |
@@ -1036,9 +1036,7 @@ See `docs/SECURITY.md` for the full secret management policy.
 
 ### Distributed Tracing (OpenTelemetry)
 
-CodeForge supports distributed tracing across Go Core, Python Workers, and NATS messaging using OpenTelemetry. Go injects W3C `traceparent` headers into NATS messages and Python extracts them on incoming messages. Injection on the worker's outgoing messages is not implemented yet, so Python -> Go hops start new traces ([KI-36](todo.md#known-issues)).
-
-> **Known issue ([KI-36](todo.md#known-issues)):** the Go exporter ignores `CODEFORGE_OTEL_INSECURE` and always dials TLS, so the Go Core cannot export to a plaintext collector such as the dev Jaeger; only worker spans arrive there until this is fixed.
+CodeForge supports distributed tracing across Go Core, Python Workers, and NATS messaging using OpenTelemetry. Go injects W3C `traceparent` headers into NATS messages, Python extracts them on incoming messages, and every worker publish carries the current trace context (`TracingJetStreamContext`), so Python -> Go hops continue the trace. With OTEL enabled the worker also exports metrics through an OTLP MeterProvider; a metric exporter that cannot be set up is logged at startup and does not stop the worker.
 
 #### Quick Start
 
@@ -1046,11 +1044,11 @@ CodeForge supports distributed tracing across Go Core, Python Workers, and NATS 
 # 1. Start Jaeger (OTLP collector + UI)
 docker compose --profile dev up -d jaeger
 
-# 2. Enable OTEL on Go Core (plaintext collector; see the KI-36 note above)
+# 2. Enable OTEL on Go Core (plaintext collector)
 CODEFORGE_OTEL_ENABLED=true CODEFORGE_OTEL_INSECURE=true go run ./cmd/codeforge/
 
 # 3. Enable OTEL on Python Worker
-cd workers && CODEFORGE_OTEL_ENABLED=true poetry run python -m codeforge.consumer
+cd workers && CODEFORGE_OTEL_ENABLED=true CODEFORGE_OTEL_INSECURE=true poetry run python -m codeforge.consumer
 
 # 4. Open Jaeger UI
 open http://localhost:16686
@@ -1067,7 +1065,7 @@ Both Go Core and Python Workers share the same environment variables:
 | `CODEFORGE_OTEL_ENABLED` | `false` | Master switch for tracing + metrics |
 | `CODEFORGE_OTEL_ENDPOINT` | `localhost:4317` | OTLP gRPC endpoint |
 | `CODEFORGE_OTEL_SERVICE_NAME` | `codeforge-core` / `codeforge-worker` | Service name in traces |
-| `CODEFORGE_OTEL_INSECURE` | `false` (Go Core) / `true` (Python worker) | Use insecure gRPC; set `true` for a local plaintext collector such as Jaeger |
+| `CODEFORGE_OTEL_INSECURE` | `false` | Use plaintext gRPC; set `true` for a local collector such as Jaeger (Go Core and worker) |
 | `CODEFORGE_OTEL_SAMPLE_RATE` | `1.0` | Trace sampling rate (0.0-1.0) |
 
 Or use the YAML config file (`codeforge.yaml`):

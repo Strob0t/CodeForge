@@ -71,7 +71,7 @@ Implementation details:
 
 - Four sources of truth can be confusing for debugging ("where did this value come from?"). Mitigation: startup logs could print effective config with source annotations (deferred).
 - YAML file path defaults to `codeforge.yaml` in the working directory; it can be overridden with `--config`/`-c` or `CODEFORGE_CONFIG_FILE` (`internal/config/loader.go`).
-- Limited hot reload: SIGHUP reloads the secrets vault and re-reads the config into `config.ConfigHolder` (`cmd/codeforge/main.go`), but no service reads the holder yet, so config changes still require a service restart.
+- Limited hot reload: SIGHUP reloads only the secrets vault (the LiteLLM client reads the master key from it on every request). It also re-loads the configuration exactly like startup (`config.ChangedSinceStart`) and logs the names (never the values) of settings that changed and need a restart; an invalid config file is logged and the running config stays. Services copy their config sub-struct at construction (ADR-013), so every other change needs a restart (`cmd/codeforge/main.go` `reloadOnSIGHUP`).
 
 #### Neutral
 

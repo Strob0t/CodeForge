@@ -104,7 +104,7 @@ CodeForge integrates with standardized protocols for tool integration, agent coo
 |---|---|---|---|
 | MCP (Model Context Protocol) | Agent <-> Tool communication | JSON-RPC 2.0 over stdio/SSE/HTTP (Anthropic) | **Implemented (Phase 15).** Go Core: MCP server via mcp-go SDK (4 tools, 2 resources, auth middleware, Streamable HTTP transport on port 3001). MCP server registry with PostgreSQL persistence, project-level assignment, 11 HTTP endpoints (8 server CRUD/test/tools + 3 project assignment). The MCP server runs only with `mcp.enabled: true` (default false). Python Workers: McpWorkbench (multi-server container, BM25 tool recommendation), tools named `mcp__{server}__{tool}`. Frontend: MCPServersPage. Policy: `mcp:server:tool` glob matching exists in the domain evaluator (`internal/domain/policy/evaluation.go`) but is not used at runtime yet; the runtime compares tool names exactly (see [Known Issues](todo.md#known-issues) KI-4) |
 | LSP (Language Server Protocol) | Code intelligence for agents | JSON-RPC over stdio/TCP (Microsoft) | **Implemented (Phase 15D).** Go Core: LSP client with JSON-RPC transport over stdio. Per-project language server lifecycle management. 8 HTTP endpoints under `/projects/{id}/lsp/`. Context enrichment with diagnostics. Frontend: LSPPanel |
-| OpenTelemetry GenAI | Standardized LLM/agent observability | OTEL Semantic Conventions (CNCF) | LiteLLM can export OTEL traces natively (not enabled yet: no `otel` callback in `litellm/config.yaml`). Go Core emits run/tool-call/delivery spans (`internal/telemetry/spans.go`), exported only with `otel.enabled: true` (default false); exporter and worker gaps: see [Known Issues](todo.md#known-issues) KI-36. Feeds Cost Dashboard + audit trails |
+| OpenTelemetry GenAI | Standardized LLM/agent observability | OTEL Semantic Conventions (CNCF) | LiteLLM can export OTEL traces natively (not enabled yet: no `otel` callback in `litellm/config.yaml`). Go Core emits run/tool-call/delivery spans (`internal/telemetry/spans.go`), exported only with `otel.enabled: true` (default false); the worker exports spans and metrics and propagates `traceparent` on its publishes. Feeds Cost Dashboard + audit trails |
 
 #### Tier 2: Important (Phase 2-3)
 
@@ -427,7 +427,7 @@ It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives th
 
 Trajectory Stats use SQL aggregates for total events, duration, tool calls, and errors. The frontend provides a TrajectoryPanel with timeline visualization, event filters, stats summary, and export. This enables replay, audit trail, and trajectory inspection (deferred: full replay UI).
 
-**Structured Logging** uses async JSON logging across all services (ADR: [004-async-logging](architecture/adr/004-async-logging.md)). Go uses `slog.JSONHandler` wrapped in `AsyncHandler` (10K buffer, 4 workers, non-blocking drops). Python uses `structlog.JSONRenderer` via `QueueHandler` (10K buffer, background thread). The common schema is `{time, level, service, msg, request_id}` (Python output does not match it yet; see [Known Issues](todo.md#known-issues) KI-35). Docker-native log management is described in ADR: [005-docker-native-logging](architecture/adr/005-docker-native-logging.md).
+**Structured Logging** uses async JSON logging across all services (ADR: [004-async-logging](architecture/adr/004-async-logging.md)). Go uses `slog.JSONHandler` wrapped in `AsyncHandler` (10K buffer, 4 workers, non-blocking drops). Python formats records in the calling thread (one formatter for structlog and stdlib loggers such as httpx and nats) and writes them from a `QueueListener` (10K buffer, background thread). Both use the schema `{time, level, msg, service, logger, ...attributes}` with levels DEBUG/INFO/WARN/ERROR, one JSON object per line (tracebacks go into an `exception` field); the worker redacts URL userinfo across the whole rendered line. Docker-native log management is described in ADR: [005-docker-native-logging](architecture/adr/005-docker-native-logging.md).
 
 **Configuration** follows a hierarchical config system (ADR: [003-config-hierarchy](architecture/adr/003-config-hierarchy.md)). Three tiers apply: defaults < YAML (`codeforge.yaml`) < environment variables. A typed `Config` struct validates on startup. Go Core uses the `CODEFORGE_*` prefix. The Python worker reads the same `codeforge.yaml` and mostly `CODEFORGE_*` or service-specific variables (`NATS_URL`, `LITELLM_BASE_URL`, `LITELLM_MASTER_KEY`); only log level/service and health port use `CODEFORGE_WORKER_*`.
 
@@ -1045,7 +1045,7 @@ workers/
     quality_tracking.py  # Iteration quality tracking, rollout scoring
     nats_subjects.py     # NATS subject constants
     secrets.py           # Docker secret files with env fallback
-    health.py            # HTTP health handler (not started, KI-34)
+    health.py            # HTTP health server: /health (liveness), /health/ready (readiness)
     _error_utils.py      # Error helpers
     config.py            # Worker configuration
     runtime.py           # Runtime API client (policy checks)
@@ -1063,7 +1063,7 @@ workers/
     artifacts.py         # Artifact handling
     pricing.py           # Token pricing data
     metrics.py           # Metrics collection
-    logger.py            # Structured logging (structlog)
+    logger.py            # Structured logging (structlog + stdlib, Go slog schema)
     json_utils.py        # JSON utilities
     subprocess_utils.py  # Subprocess helpers
     constants.py         # Shared constants

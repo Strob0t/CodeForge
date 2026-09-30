@@ -26,7 +26,7 @@
 | **S1** | Policy and security enforcement | ~~KI-4~~, ~~KI-5~~, ~~KI-6~~, ~~KI-7~~, ~~KI-8~~, ~~KI-9~~, ~~KI-10~~, ~~KI-11~~, ~~KI-12~~, ~~KI-13~~, ~~KI-14~~ | L |
 | **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, KI-21, KI-22, KI-23, ~~KI-24~~, ~~KI-30~~, ~~KI-31~~, ~~KI-32~~ | L |
 | **S3** | Quality gates and delivery | KI-26, KI-27, KI-28, KI-29 | M |
-| **S4** | Operations and deployment | KI-34, KI-35, KI-36, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, KI-51, ~~KI-59~~, KI-61 | M |
+| **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | KI-15, KI-16, KI-17, KI-25, KI-33, KI-37, KI-38, KI-52, KI-53, KI-54, KI-55, KI-56, KI-57, KI-58, KI-60, KI-62 | L |
 
@@ -93,9 +93,9 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 
 | KI | Fix |
 |---|---|
-| **KI-34** | Worker health: HTTP `/health` + `/health/ready` from the worker (port of the main-based fix), or sentinel on a tmpfs; compose healthchecks use it |
-| **KI-35** | Worker logs in the Go schema (`time`, `level`, `msg`, `service`) for structlog and stdlib loggers (port of the main-based fix) |
-| **KI-36** | Go OTEL exporter honors `CODEFORGE_OTEL_INSECURE`; Python metrics exporter wired; trace context injected on publish |
+| **KI-34** | **Done (2026-09-30).** Worker health: HTTP `/health` + `/health/ready` from the worker (port of the main-based fix), or sentinel on a tmpfs; compose healthchecks use it |
+| **KI-35** | **Done (2026-09-30).** Worker logs in the Go schema (`time`, `level`, `msg`, `service`) for structlog and stdlib loggers (port of the main-based fix) |
+| **KI-36** | **Done (2026-09-30).** Go OTEL exporter honors `CODEFORGE_OTEL_INSECURE`; Python metrics exporter wired; trace context injected on publish |
 | **KI-43** | **Done (2026-09-30).** Mount PG 18 data at `/var/lib/postgresql` in both compose files (with a migration note for existing volumes) |
 | **KI-44** | **Done (2026-09-30).** Prod Postgres: either provision certificates or `ssl=off` behind the internal network, documented |
 | **KI-45** | **Done (2026-09-30).** Writable workspace volume for the prod core (read-only rootfs stays) |
@@ -104,9 +104,9 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-48** | **Done (2026-09-30).** Image scan uses a tag that is pushed |
 | **KI-49** | **Done (2026-09-30).** Restore script terminates connections with a working psql invocation |
 | **KI-50** | **Done (2026-09-30).** Devcontainer sets `LITELLM_BASE_URL` |
-| **KI-51** | Config drift items fixed individually (Ollama api_base from env, DOCS_MCP vars, logs.sh name, example yaml comments, SMTP default 587, resolve-docker-ips.sh safe to source, one history token default) |
+| **KI-51** | **Done (2026-09-30).** Config drift items fixed individually (Ollama api_base from env, DOCS_MCP vars, logs.sh name, example yaml comments, SMTP default 587, resolve-docker-ips.sh safe to source, one history token default) |
 | **KI-59** | **Done (2026-09-30).** Replace non-ASCII characters in the listed config files and scripts |
-| **KI-61** | Services read hot-reloadable settings through the `ConfigHolder`, or SIGHUP is documented as secrets-only |
+| **KI-61** | **Done (2026-09-30), secrets-only.** SIGHUP reloads the secrets vault and logs the names of changed settings that need a restart; the unused `ConfigHolder` is removed |
 
 ## S5 - Frontend Correctness
 
@@ -159,6 +159,7 @@ scheduled as follows:
 | **KI-74** | Frontend live-update follow-ups | S6 |
 | **KI-75** | LLM models are global across tenants | S6 |
 | **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up |
+| **KI-77** | Go core git calls in agent-writable workspaces are not hardened (fsmonitor, filters, hooks, credential helpers) | S3 review round |
 
 ## Decisions
 
