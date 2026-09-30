@@ -3,10 +3,11 @@ package nats
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -22,12 +23,18 @@ import (
 	"github.com/Strob0t/CodeForge/internal/resilience"
 )
 
+// Delivery semantics (ADR-016): every subscription is a shared durable pull
+// consumer; a failed message is retried until JetStream has delivered it
+// maxDeliver times and then moved to "{subject}.dlq". The Python worker uses
+// the same retry limit (workers/codeforge/nats_subjects.py).
 const (
-	streamName       = "CODEFORGE"
-	headerRequestID  = "X-Request-ID"
-	headerRetryCount = "Retry-Count"
-	maxRetries       = 3
-	nakDelay         = 2 * time.Second
+	streamName      = "CODEFORGE"
+	headerRequestID = "X-Request-ID"
+	maxRetries      = 3
+	maxDeliver      = maxRetries + 1
+	nakDelay        = 2 * time.Second
+	defaultAckWait  = 90 * time.Second
+	dlqMonitorName  = "codeforge-go-dlq-monitor"
 )
 
 // Queue implements messagequeue.Queue using NATS JetStream.
@@ -36,6 +43,9 @@ type Queue struct {
 	js       jetstream.JetStream
 	breaker  *resilience.Breaker
 	notifier notifier.Notifier
+	// ackWait is how long JetStream waits for an ack before it redelivers a
+	// message; handlers report progress three times per ackWait while they run.
+	ackWait time.Duration
 }
 
 // reconnectOpts returns NATS connection options for automatic reconnection
@@ -92,7 +102,7 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 		return nil, fmt.Errorf("jetstream stream create: %w", err)
 	}
 
-	q := &Queue{nc: nc, js: js}
+	q := &Queue{nc: nc, js: js, ackWait: defaultAckWait}
 	q.startDLQMonitor(ctx)
 
 	slog.Info("nats connected", "url", url, "stream", streamName)
@@ -104,13 +114,10 @@ func Connect(ctx context.Context, url string) (*Queue, error) {
 // DLQ subjects are formed by appending ".dlq" to the original subject, so they
 // can be 4-6 tokens deep depending on the original subject depth.
 func (q *Queue) startDLQMonitor(ctx context.Context) {
-	const dlqConsumerName = "codeforge-go-dlq-monitor"
-
-	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
-		Name:          dlqConsumerName,
-		Durable:       dlqConsumerName,
+	consumer, err := q.ensureDurable(ctx, &jetstream.ConsumerConfig{
+		Name:          dlqMonitorName,
+		Durable:       dlqMonitorName,
 		AckPolicy:     jetstream.AckExplicitPolicy,
-		DeliverGroup:  "codeforge-go",
 		AckWait:       30 * time.Second,
 		MaxAckPending: 50,
 		FilterSubjects: []string{
@@ -119,7 +126,6 @@ func (q *Queue) startDLQMonitor(ctx context.Context) {
 			"*.*.*.*.dlq",   // 4-token originals (e.g. conversation.run.start.dlq)
 			"*.*.*.*.*.dlq", // 5-token originals (e.g. prompt.evolution.reflect.complete.dlq)
 		},
-		InactiveThreshold: 5 * time.Minute,
 	})
 	if err != nil {
 		slog.Error("failed to create DLQ monitor consumer", "error", err)
@@ -152,7 +158,7 @@ func (q *Queue) startDLQMonitor(ctx context.Context) {
 		slog.Error("failed to start DLQ monitor consumer", "error", consumeErr)
 		return
 	}
-	slog.Info("DLQ monitor started", "consumer", dlqConsumerName)
+	slog.Info("DLQ monitor started", "consumer", dlqMonitorName)
 }
 
 // SetNotifier attaches an optional notifier for DLQ alerting.
@@ -231,31 +237,89 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 // consumerHealthInterval is how often we check that a consumer still exists.
 const consumerHealthInterval = 30 * time.Second
 
-// Subscribe registers a handler for messages on the given subject.
-// Messages are validated against known schemas before processing.
-// Failed messages are retried up to maxRetries times, then moved to a DLQ.
-// A background goroutine periodically checks consumer health and logs a warning
-// if the consumer has been deleted externally (e.g. NATS purge).
-func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequeue.Handler) (func(), error) {
-	name := sanitizeConsumerName("codeforge-go-", subject)
-	consumerCfg := jetstream.ConsumerConfig{
-		Name:              name,
-		Durable:           name,
-		FilterSubject:     subject,
-		AckPolicy:         jetstream.AckExplicitPolicy,
-		DeliverGroup:      "codeforge-go",
-		AckWait:           90 * time.Second,
-		MaxDeliver:        maxRetries + 1,
-		MaxAckPending:     100,
-		InactiveThreshold: 5 * time.Minute,
+// ensureDurable creates the durable consumer described by cfg on first use and
+// re-attaches to it afterwards, so every instance can call it on every start.
+// A new durable starts at the next published message: creating or recreating
+// it never replays the stream history. An existing durable keeps its delivery
+// position; its start policy cannot be changed in place, so it is carried
+// over and only the mutable settings are updated (this also removes the
+// inactivity expiry from durables created by earlier releases).
+func (q *Queue) ensureDurable(ctx context.Context, cfg *jetstream.ConsumerConfig) (jetstream.Consumer, error) {
+	want := *cfg
+	existing, err := q.js.Consumer(ctx, streamName, want.Durable)
+	switch {
+	case errors.Is(err, jetstream.ErrConsumerNotFound):
+		want.DeliverPolicy = jetstream.DeliverNewPolicy
+	case err != nil:
+		return nil, fmt.Errorf("nats consumer lookup %s: %w", want.Durable, err)
+	default:
+		current := existing.CachedInfo().Config
+		want.DeliverPolicy = current.DeliverPolicy
+		want.OptStartSeq = current.OptStartSeq
+		want.OptStartTime = current.OptStartTime
 	}
 
-	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, consumerCfg)
+	consumer, err := q.js.CreateOrUpdateConsumer(ctx, streamName, want)
 	if err != nil {
-		return nil, fmt.Errorf("nats consumer create: %w", err)
+		return nil, fmt.Errorf("nats consumer ensure %s: %w", want.Durable, err)
 	}
+	return consumer, nil
+}
 
-	cons, err := consumer.Consume(func(msg jetstream.Msg) {
+// durableConfig is the consumer configuration of a Go subscription: one
+// durable pull consumer per subject, shared by every Go Core instance, so each
+// message is processed by one of them.
+func (q *Queue) durableConfig(subject string) jetstream.ConsumerConfig {
+	name := sanitizeConsumerName("codeforge-go-", subject)
+	return jetstream.ConsumerConfig{
+		Name:          name,
+		Durable:       name,
+		FilterSubject: subject,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		AckWait:       q.ackWait,
+		MaxDeliver:    maxDeliver,
+		MaxAckPending: 100,
+	}
+}
+
+// consumeHandle holds the active ConsumeContext of a subscription. The health
+// monitor replaces it when it recreates a deleted consumer; stop ends whichever
+// one is current, including one installed after stop was called.
+type consumeHandle struct {
+	mu      sync.Mutex
+	current jetstream.ConsumeContext
+	stopped bool
+}
+
+func (h *consumeHandle) replace(next jetstream.ConsumeContext) {
+	h.mu.Lock()
+	if h.stopped {
+		h.mu.Unlock()
+		next.Stop()
+		return
+	}
+	previous := h.current
+	h.current = next
+	h.mu.Unlock()
+	if previous != nil {
+		previous.Stop()
+	}
+}
+
+func (h *consumeHandle) stop() {
+	h.mu.Lock()
+	h.stopped = true
+	current := h.current
+	h.current = nil
+	h.mu.Unlock()
+	if current != nil {
+		current.Stop()
+	}
+}
+
+// consume starts delivering the messages of consumer to handler.
+func (q *Queue) consume(ctx context.Context, consumer jetstream.Consumer, handler messagequeue.Handler) (jetstream.ConsumeContext, error) {
+	cc, err := consumer.Consume(func(msg jetstream.Msg) {
 		// Dispatch to goroutine so slow handlers (HITL approval waits)
 		// do not block other messages on the same consumer.
 		go q.handleMessage(ctx, msg, handler)
@@ -263,25 +327,47 @@ func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequ
 	if err != nil {
 		return nil, fmt.Errorf("nats consume: %w", err)
 	}
+	return cc, nil
+}
+
+// Subscribe registers a handler for messages on the given subject.
+// Messages are validated against known schemas before processing.
+// Failed messages are retried until JetStream has delivered them maxDeliver
+// times, then moved to a DLQ. A background goroutine periodically checks
+// consumer health and recreates the durable if it was deleted externally.
+func (q *Queue) Subscribe(ctx context.Context, subject string, handler messagequeue.Handler) (func(), error) {
+	cfg := q.durableConfig(subject)
+	consumer, err := q.ensureDurable(ctx, &cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	cons, err := q.consume(ctx, consumer, handler)
+	if err != nil {
+		return nil, err
+	}
+	handle := &consumeHandle{}
+	handle.replace(cons)
 
 	// Background health check: detect external consumer deletion and recreate.
 	healthCtx, healthCancel := context.WithCancel(ctx)
-	go q.monitorConsumer(healthCtx, name, &consumerCfg, handler)
+	go q.monitorConsumer(healthCtx, &cfg, handler, handle)
 
 	stop := func() {
 		healthCancel()
-		cons.Stop()
+		handle.stop()
 	}
 
 	return stop, nil
 }
 
-// monitorConsumer periodically checks that the named consumer still exists.
-// If the consumer has been deleted externally (e.g. NATS purge), it logs a
-// warning and attempts to recreate the consumer and restart consumption.
-// When the consumer is healthy, the pending message count is recorded as
-// an OTEL gauge metric for alerting on consumer lag.
-func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream.ConsumerConfig, handler messagequeue.Handler) {
+// monitorConsumer periodically checks that the durable consumer still exists.
+// If it has been deleted externally (e.g. NATS purge), it logs a warning and
+// recreates it through ensureDurable, which starts at new messages instead of
+// replaying the stream. When the consumer is healthy, the pending message
+// count is recorded as an OTEL gauge metric for alerting on consumer lag.
+func (q *Queue) monitorConsumer(ctx context.Context, cfg *jetstream.ConsumerConfig, handler messagequeue.Handler, handle *consumeHandle) {
+	name := cfg.Durable
 	meter := otel.Meter("codeforge.nats")
 	pendingGauge, gaugeErr := meter.Int64Gauge("nats.consumer.pending",
 		metric.WithDescription("Number of pending messages for NATS consumer"))
@@ -314,7 +400,7 @@ func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream
 				"error", err,
 			)
 
-			newConsumer, createErr := q.js.CreateOrUpdateConsumer(ctx, streamName, *cfg)
+			newConsumer, createErr := q.ensureDurable(ctx, cfg)
 			if createErr != nil {
 				slog.Error("nats consumer recreation failed",
 					"consumer", name,
@@ -323,9 +409,7 @@ func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream
 				continue
 			}
 
-			_, consumeErr := newConsumer.Consume(func(msg jetstream.Msg) {
-				go q.handleMessage(ctx, msg, handler)
-			})
+			newCons, consumeErr := q.consume(ctx, newConsumer, handler)
 			if consumeErr != nil {
 				slog.Error("nats consumer re-subscribe failed",
 					"consumer", name,
@@ -333,6 +417,7 @@ func (q *Queue) monitorConsumer(ctx context.Context, name string, cfg *jetstream
 				)
 				continue
 			}
+			handle.replace(newCons)
 
 			slog.Info("nats consumer recreated successfully", "consumer", name)
 		}
@@ -356,26 +441,32 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 			"request_id", logger.RequestID(msgCtx),
 			"error", err,
 		)
-		q.moveToDLQ(ctx, msg)
+		// An invalid payload fails on every attempt: dead-letter it at once
+		// and terminate it so JetStream does not redeliver it.
+		q.moveToDLQ(ctx, msg, msg.Term)
 		return
 	}
 
-	if err := handler(msgCtx, msg.Subject(), msg.Data()); err != nil {
-		// FIX-050: Use JetStream delivery metadata instead of custom Retry-Count
-		// header (which was never incremented on NAK redelivery).
-		retries := retryCount(hdrs) // fallback for manually-published messages
-		if md, mdErr := msg.Metadata(); mdErr == nil && md.NumDelivered > 0 {
-			retries = int(md.NumDelivered) - 1 // NumDelivered counts from 1
+	stopProgress := keepInProgress(msg, q.ackWait/3)
+	err := handler(msgCtx, msg.Subject(), msg.Data())
+	stopProgress()
+
+	if err != nil {
+		// Retries are counted by JetStream (NumDelivered starts at 1).
+		var attempt uint64
+		if md, mdErr := msg.Metadata(); mdErr == nil {
+			attempt = md.NumDelivered
 		}
 		slog.Error("message handler failed",
 			"subject", msg.Subject(),
 			"request_id", logger.RequestID(msgCtx),
-			"retry", retries,
+			"attempt", attempt,
+			"max_deliver", maxDeliver,
 			"error", err,
 		)
 
-		if retries >= maxRetries {
-			q.moveToDLQ(ctx, msg)
+		if attempt >= maxDeliver {
+			q.moveToDLQ(ctx, msg, msg.Ack)
 			return
 		}
 
@@ -389,8 +480,40 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 	}
 }
 
-// moveToDLQ acks the original message and publishes a copy to {subject}.dlq.
-func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
+// keepInProgress tells JetStream every interval that msg is still being
+// processed, so a handler slower than AckWait is not redelivered to another
+// instance while it runs. The returned stop function waits for the heartbeat
+// goroutine to exit, so no progress ack is sent after the final ack.
+func keepInProgress(msg jetstream.Msg, interval time.Duration) (stop func()) {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := msg.InProgress(); err != nil {
+					slog.Warn("nats in-progress ack failed", "subject", msg.Subject(), "error", err)
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-exited
+	}
+}
+
+// moveToDLQ publishes a copy of msg to {subject}.dlq and then settles the
+// original with settle (Ack after the last failed attempt, Term for an invalid
+// payload). If the copy cannot be published the original is NAK'd instead, so
+// JetStream keeps it (and redelivers it while attempts remain) rather than a
+// message being acknowledged without a dead-letter copy.
+func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg, settle func() error) {
 	dlqSubject := msg.Subject() + ".dlq"
 	dlqMsg := &nats.Msg{
 		Subject: dlqSubject,
@@ -401,26 +524,29 @@ func (q *Queue) moveToDLQ(ctx context.Context, msg jetstream.Msg) {
 	}
 
 	if _, err := q.js.PublishMsg(ctx, dlqMsg); err != nil {
-		slog.Error("failed to publish to DLQ",
+		slog.Error("failed to publish to DLQ, keeping the original message",
 			"dlq_subject", dlqSubject,
 			"error", err,
 		)
-	} else {
-		// FIX-049: Include message ID so operators can monitor DLQ accumulation.
-		msgID := ""
-		if hdrs := msg.Headers(); hdrs != nil {
-			msgID = hdrs.Get("Nats-Msg-Id")
+		if nakErr := msg.NakWithDelay(nakDelay); nakErr != nil {
+			slog.Error("nats nak (dlq) failed", "error", nakErr)
 		}
-		slog.Warn("message moved to DLQ",
-			"subject", msg.Subject(),
-			"dlq_subject", dlqSubject,
-			"msg_id", msgID,
-		)
+		return
 	}
 
-	// Ack the original to remove it from the main stream
-	if ackErr := msg.Ack(); ackErr != nil {
-		slog.Error("nats ack (dlq) failed", "error", ackErr)
+	// FIX-049: Include message ID so operators can monitor DLQ accumulation.
+	msgID := ""
+	if hdrs := msg.Headers(); hdrs != nil {
+		msgID = hdrs.Get("Nats-Msg-Id")
+	}
+	slog.Warn("message moved to DLQ",
+		"subject", msg.Subject(),
+		"dlq_subject", dlqSubject,
+		"msg_id", msgID,
+	)
+
+	if settleErr := settle(); settleErr != nil {
+		slog.Error("nats settle (dlq) failed", "error", settleErr)
 	}
 }
 
@@ -460,18 +586,6 @@ func extractTraceContext(ctx context.Context, hdrs nats.Header) context.Context 
 		return ctx
 	}
 	return otel.GetTextMapPropagator().Extract(ctx, natsHeaderCarrier(hdrs))
-}
-
-func retryCount(hdrs nats.Header) int {
-	if hdrs == nil {
-		return 0
-	}
-	val := hdrs.Get(headerRetryCount)
-	if val == "" {
-		return 0
-	}
-	n, _ := strconv.Atoi(val)
-	return n
 }
 
 // Drain gracefully drains all subscriptions, waits for pending messages,
