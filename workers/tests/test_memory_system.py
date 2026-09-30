@@ -13,6 +13,8 @@ from codeforge.memory.experience import ExperiencePool, exp_cache
 from codeforge.memory.models import ScoreWeights
 from codeforge.memory.scorer import CompositeScorer, _cosine_similarity
 
+TENANT = "aaaaaaaa-0000-4000-8000-000000000001"
+
 # ---------------------------------------------------------------------------
 # 1. CompositeScorer tests
 # ---------------------------------------------------------------------------
@@ -180,7 +182,7 @@ class TestExperiencePoolLookup:
         mock_conn.__aexit__ = AsyncMock(return_value=False)
 
         with patch("psycopg.AsyncConnection.connect", new=AsyncMock(return_value=mock_conn)):
-            result = await pool.lookup("build a REST API", "proj-1")
+            result = await pool.lookup("build a REST API", "proj-1", tenant_id=TENANT)
 
         assert result is None
 
@@ -189,7 +191,7 @@ class TestExperiencePoolLookup:
         llm.embedding = AsyncMock(side_effect=Exception("embedding error"))
         pool = _make_pool(llm_mock=llm)
 
-        result = await pool.lookup("something", "proj-1")
+        result = await pool.lookup("something", "proj-1", tenant_id=TENANT)
         assert result is None
 
     async def test_lookup_below_threshold_returns_none(self) -> None:
@@ -224,7 +226,7 @@ class TestExperiencePoolLookup:
         mock_conn.__aexit__ = AsyncMock(return_value=False)
 
         with patch("psycopg.AsyncConnection.connect", new=AsyncMock(return_value=mock_conn)):
-            result = await pool.lookup("build a REST API", "proj-1")
+            result = await pool.lookup("build a REST API", "proj-1", tenant_id=TENANT)
 
         assert result is None
 
@@ -254,6 +256,7 @@ class TestExperiencePoolStore:
             result = await pool.store(
                 task_desc="build a cache",
                 project_id="proj-1",
+                tenant_id=TENANT,
                 result_output="implemented LRU",
                 result_cost=0.05,
                 result_status="success",
@@ -291,6 +294,7 @@ class TestExperiencePoolStore:
             result = await pool.store(
                 task_desc="test",
                 project_id="proj-1",
+                tenant_id=TENANT,
                 result_output="output",
                 result_cost=0.0,
                 result_status="success",
@@ -321,7 +325,7 @@ class TestExperiencePoolInvalidate:
         mock_conn.__aexit__ = AsyncMock(return_value=False)
 
         with patch("psycopg.AsyncConnection.connect", new=AsyncMock(return_value=mock_conn)):
-            await pool.invalidate("entry-123")
+            await pool.invalidate("entry-123", tenant_id=TENANT)
 
         mock_cursor.execute.assert_called_once()
         sql_arg = mock_cursor.execute.call_args[0][0]
@@ -348,16 +352,16 @@ class TestExpCacheDecorator:
         call_count = 0
 
         @exp_cache(pool, project_id_arg="project_id", task_desc_arg="task_desc")
-        async def run_task(project_id: str = "", task_desc: str = "") -> str:
+        async def run_task(project_id: str = "", task_desc: str = "", tenant_id: str = "") -> str:
             nonlocal call_count
             call_count += 1
             return "computed result"
 
-        result = await run_task(project_id="proj-1", task_desc="build API")
+        result = await run_task(project_id="proj-1", task_desc="build API", tenant_id=TENANT)
 
         assert result == "computed result"
         assert call_count == 1
-        pool.lookup.assert_called_once_with("build API", "proj-1")
+        pool.lookup.assert_called_once_with("build API", "proj-1", tenant_id=TENANT)
         pool.store.assert_called_once()
 
     async def test_cache_hit_skips_function(self) -> None:
@@ -377,12 +381,12 @@ class TestExpCacheDecorator:
         call_count = 0
 
         @exp_cache(pool, project_id_arg="project_id", task_desc_arg="task_desc")
-        async def run_task(project_id: str = "", task_desc: str = "") -> str:
+        async def run_task(project_id: str = "", task_desc: str = "", tenant_id: str = "") -> str:
             nonlocal call_count
             call_count += 1
             return "this should NOT be called"
 
-        result = await run_task(project_id="proj-1", task_desc="build API")
+        result = await run_task(project_id="proj-1", task_desc="build API", tenant_id=TENANT)
 
         assert result == "cached output"
         assert call_count == 0  # function was NOT called
@@ -395,10 +399,10 @@ class TestExpCacheDecorator:
         pool.store = AsyncMock()
 
         @exp_cache(pool, project_id_arg="project_id", task_desc_arg="task_desc")
-        async def run_task(project_id: str = "", task_desc: str = "") -> str:
+        async def run_task(project_id: str = "", task_desc: str = "", tenant_id: str = "") -> str:
             return "direct result"
 
-        result = await run_task(project_id="", task_desc="build API")
+        result = await run_task(project_id="", task_desc="build API", tenant_id=TENANT)
 
         assert result == "direct result"
         pool.lookup.assert_not_called()
@@ -410,13 +414,29 @@ class TestExpCacheDecorator:
         pool.store = AsyncMock()
 
         @exp_cache(pool, project_id_arg="project_id", task_desc_arg="task_desc")
-        async def run_task(project_id: str = "", task_desc: str = "") -> str:
+        async def run_task(project_id: str = "", task_desc: str = "", tenant_id: str = "") -> str:
             return "direct result"
 
-        result = await run_task(project_id="proj-1", task_desc="")
+        result = await run_task(project_id="proj-1", task_desc="", tenant_id=TENANT)
 
         assert result == "direct result"
         pool.lookup.assert_not_called()
+
+    async def test_cache_skipped_when_no_tenant(self) -> None:
+        """Without a tenant the cache is bypassed: entries always belong to a tenant (KI-16)."""
+        pool = _make_pool()
+        pool.lookup = AsyncMock()
+        pool.store = AsyncMock()
+
+        @exp_cache(pool, project_id_arg="project_id", task_desc_arg="task_desc")
+        async def run_task(project_id: str = "", task_desc: str = "", tenant_id: str = "") -> str:
+            return "direct result"
+
+        result = await run_task(project_id="proj-1", task_desc="build API")
+
+        assert result == "direct result"
+        pool.lookup.assert_not_called()
+        pool.store.assert_not_called()
 
     async def test_cache_does_not_store_falsy_result(self) -> None:
         """When the function returns a falsy value, nothing should be stored."""
@@ -425,10 +445,10 @@ class TestExpCacheDecorator:
         pool.store = AsyncMock()
 
         @exp_cache(pool, project_id_arg="project_id", task_desc_arg="task_desc")
-        async def run_task(project_id: str = "", task_desc: str = "") -> str:
+        async def run_task(project_id: str = "", task_desc: str = "", tenant_id: str = "") -> str:
             return ""
 
-        result = await run_task(project_id="proj-1", task_desc="build API")
+        result = await run_task(project_id="proj-1", task_desc="build API", tenant_id=TENANT)
 
         assert result == ""
         pool.store.assert_not_called()

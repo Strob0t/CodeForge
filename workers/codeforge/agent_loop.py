@@ -57,7 +57,6 @@ from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
-    from codeforge.memory.experience import ExperiencePool
     from codeforge.models import ToolCallDecision
     from codeforge.plan_act import PlanActController
     from codeforge.routing.models import RoutingConfig, RoutingMetadata
@@ -212,13 +211,11 @@ class AgentLoopExecutor:
         tool_registry: ToolRegistry,
         runtime: RuntimeClient,
         workspace_path: str,
-        experience_pool: ExperiencePool | None = None,
     ) -> None:
         self._llm = llm
         self._tools = tool_registry
         self._runtime = runtime
         self._workspace = workspace_path
-        self._experience_pool = experience_pool
         self._tool_executor = ToolExecutor(tool_registry, runtime, workspace_path)
 
     _MCP_READONLY_KEYWORDS: frozenset[str] = frozenset({"search", "list", "find", "get", "fetch_url"})
@@ -252,20 +249,6 @@ class AgentLoopExecutor:
             return False
 
         return [t for t in tools_array if _is_allowed(t)]
-
-    @staticmethod
-    def _extract_user_prompt(messages: list[dict[str, object]]) -> str:
-        """Extract the last user message content from the conversation."""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    return content
-                if isinstance(content, list):
-                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
-                    return " ".join(text_parts).strip()
-                return str(content)
-        return ""
 
     async def _publish_routing_decision(self, cfg: LoopConfig) -> None:
         """Publish a trajectory.routing_decision event if routing is active (C1.7)."""
@@ -378,32 +361,6 @@ class AgentLoopExecutor:
             )
         return await self._try_model_fallback(cfg, state, exc)
 
-    async def _check_experience_cache(self, user_prompt: str, model: str) -> AgentLoopResult | None:
-        """Return a cached result from the experience pool, or None."""
-        if not self._experience_pool or not user_prompt:
-            return None
-        try:
-            cached = await self._experience_pool.lookup(user_prompt, self._runtime.project_id)
-            if cached:
-                logger.info("experience cache hit, entry_id=%s similarity=%.3f", cached["id"], cached["similarity"])
-                return AgentLoopResult(
-                    final_content=cached["result_output"],
-                    tool_messages=[],
-                    total_cost=0.0,
-                    total_tokens_in=0,
-                    total_tokens_out=0,
-                    step_count=0,
-                    model=model,
-                    error="",
-                )
-        except (ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning("experience cache lookup failed (transient): %s", exc)
-        except ValueError as exc:
-            logger.error("experience cache data corruption: %s", exc)
-        except Exception as exc:
-            logger.error("unexpected experience cache error: %s", type(exc).__name__, exc_info=True)
-        return None
-
     @_tracer.trace_agent("agent_loop")
     async def run(self, messages: list[dict[str, object]], config: LoopConfig | None = None) -> AgentLoopResult:  # noqa: C901
         """Execute the agentic loop until the LLM stops or limits are hit."""
@@ -413,11 +370,8 @@ class AgentLoopExecutor:
         stall_detector = StallDetector()
         error_tracker = ToolErrorTracker()
 
-        user_prompt = self._extract_user_prompt(messages)
-        cached_result = await self._check_experience_cache(user_prompt, cfg.model)
-        if cached_result is not None:
-            return cached_result
-
+        # No experience cache here: an agentic turn's result is the work it
+        # does in the workspace, which a cached answer cannot replace (KI-16).
         plan_act = init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
         cap_level = CapabilityLevel(cfg.capability_level) if cfg.capability_level else CapabilityLevel.FULL
@@ -489,19 +443,6 @@ class AgentLoopExecutor:
 
         if cfg.output_schema and state.final_content and not state.error:
             state = await self._validate_output_schema(cfg, state, messages)
-
-        if self._experience_pool and not state.error and state.final_content and user_prompt:
-            try:
-                await self._experience_pool.store(
-                    task_desc=user_prompt,
-                    project_id=self._runtime.project_id,
-                    result_output=state.final_content,
-                    result_cost=state.total_cost,
-                    result_status="completed",
-                    run_id=self._runtime.run_id,
-                )
-            except (ConnectionError, TimeoutError, OSError, ValueError) as exc:
-                logger.warning("experience pool store failed: %s", exc)
 
         try:
             await self._runtime.publish_trajectory_event(

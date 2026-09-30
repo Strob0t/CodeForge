@@ -144,11 +144,20 @@ class TaskConsumer(
         # Fails the accepted work and stops the loops after a loop gave up.
         self._abort_task: asyncio.Task[None] | None = None
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
-        self._db_url = get_settings().database_url
+        settings = get_settings()
+        self._db_url = settings.database_url
 
         from codeforge.memory.experience import ExperiencePool
 
-        self._experience_pool = ExperiencePool(db_url=self._db_url, llm=self._llm)
+        # Off unless experience.enabled: only first-turn simple chats use it.
+        self._experience_pool: ExperiencePool | None = None
+        if settings.experience_enabled:
+            self._experience_pool = ExperiencePool(
+                db_url=self._db_url,
+                llm=self._llm,
+                confidence_threshold=settings.experience_confidence_threshold,
+                max_entries=settings.experience_max_entries,
+            )
         self._executor = AgentExecutor(llm=self._llm, litellm_url=litellm_url, litellm_key=litellm_key)
 
         from codeforge.backends import build_default_router

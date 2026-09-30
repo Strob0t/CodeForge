@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import structlog
 
+from codeforge.consumer._conversation_experience import answer_from_experience, remember_answer
 from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
 from codeforge.consumer._conversation_skill_integration import (
@@ -550,7 +551,11 @@ class ConversationHandlerMixin:
     ) -> AgentLoopResult:
         """Dispatch to simple chat, Claude Code, or LiteLLM agentic loop."""
         if not run_msg.agentic:
-            return await self._run_simple_chat(
+            pool = getattr(self, "_experience_pool", None)
+            cached = await answer_from_experience(pool, run_msg, runtime, primary_model)
+            if cached is not None:
+                return cached
+            result = await self._run_simple_chat(
                 run_msg,
                 messages,
                 primary_model,
@@ -558,6 +563,8 @@ class ConversationHandlerMixin:
                 runtime,
                 fallback_models=fallback_models,
             )
+            await remember_answer(pool, run_msg, result)
+            return result
 
         if primary_model.startswith("claudecode/"):
             from codeforge.claude_code_executor import ClaudeCodeExecutor, get_default_max_turns
@@ -614,7 +621,6 @@ class ConversationHandlerMixin:
             tool_registry=registry,
             runtime=runtime,
             workspace_path=run_msg.workspace_path,
-            experience_pool=getattr(self, "_experience_pool", None),
         )
         loop_cfg, complexity_hint = build_loop_config(
             primary_model=primary_model,

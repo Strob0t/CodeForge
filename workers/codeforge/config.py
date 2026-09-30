@@ -165,6 +165,11 @@ class WorkerSettings:
     # Plan/Act
     plan_act_max_iterations: int
 
+    # Experience pool (same keys and env vars as the Go config)
+    experience_enabled: bool
+    experience_confidence_threshold: float
+    experience_max_entries: int
+
     # Evaluation
     judge_model: str
     early_stop_threshold: float
@@ -233,6 +238,16 @@ class WorkerSettings:
         self.claudecode_max_turns = _resolve_int("CODEFORGE_CLAUDECODE_MAX_TURNS", claude_cfg.get("max_turns"), 50)
         self.claudecode_timeout = _resolve_int("CODEFORGE_CLAUDECODE_TIMEOUT", claude_cfg.get("timeout"), 300)
         self.claudecode_tiers = _resolve_str("CODEFORGE_CLAUDECODE_TIERS", claude_cfg.get("tiers"), "COMPLEX,REASONING")
+
+        # --- Experience pool ---
+        experience_cfg: dict = yaml_cfg.get("experience", {}) if isinstance(yaml_cfg.get("experience"), dict) else {}
+        self.experience_enabled = _resolve_bool("CODEFORGE_EXPERIENCE_ENABLED", experience_cfg.get("enabled"), False)
+        self.experience_confidence_threshold = _resolve_float(
+            "CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD", experience_cfg.get("confidence_threshold"), 0.85
+        )
+        self.experience_max_entries = _resolve_int(
+            "CODEFORGE_EXPERIENCE_MAX_ENTRIES", experience_cfg.get("max_entries"), 1000
+        )
 
         # --- Routing ---
         self.effective_models_cache_ttl = _resolve_float(
