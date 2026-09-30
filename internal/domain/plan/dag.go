@@ -49,6 +49,54 @@ func AllTerminal(steps []Step) bool {
 	return true
 }
 
+// Unsuccessful reports whether a step ended without completing its work: it
+// failed or was cancelled. A skipped step never ran.
+func (s StepStatus) Unsuccessful() bool {
+	return s == StepStatusFailed || s == StepStatusCancelled
+}
+
+// AnyUnsuccessful returns true if at least one step failed or was cancelled.
+// Such a plan cannot complete as planned.
+func AnyUnsuccessful(steps []Step) bool {
+	for i := range steps {
+		if steps[i].Status.Unsuccessful() {
+			return true
+		}
+	}
+	return false
+}
+
+// BlockedSteps returns the IDs of pending steps that can never run: one of
+// their dependencies failed, was cancelled or was skipped, directly or through
+// other blocked steps.
+func BlockedSteps(steps []Step) []string {
+	dead := make(map[string]bool, len(steps))
+	for i := range steps {
+		if steps[i].Status.Unsuccessful() || steps[i].Status == StepStatusSkipped {
+			dead[steps[i].ID] = true
+		}
+	}
+	var blocked []string
+	for changed := true; changed; {
+		changed = false
+		for i := range steps {
+			st := &steps[i]
+			if st.Status != StepStatusPending || dead[st.ID] {
+				continue
+			}
+			for _, dep := range st.DependsOn {
+				if dead[dep] {
+					dead[st.ID] = true
+					blocked = append(blocked, st.ID)
+					changed = true
+					break
+				}
+			}
+		}
+	}
+	return blocked
+}
+
 // AnyFailed returns true if at least one step has failed.
 func AnyFailed(steps []Step) bool {
 	for i := range steps {

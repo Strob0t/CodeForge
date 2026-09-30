@@ -100,6 +100,7 @@ func TestPlanStep_FollowsRunEndedByTheRuntime(t *testing.T) {
 				return rt.CancelRun(ctx, runID)
 			},
 			wantStep:  plan.StepStatusCancelled,
+			wantPlan:  plan.StatusFailed, // a cancelled step fails the plan (review finding 3)
 			wantRunAs: run.StatusCancelled,
 		},
 	}

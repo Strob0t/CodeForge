@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -177,20 +178,10 @@ func (s *OrchestratorService) ListPlans(ctx context.Context, projectID string) (
 
 // CancelPlan cancels a running plan: skips pending steps, cancels running runs.
 func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) error {
-	p, err := s.store.GetPlan(ctx, planID)
+	p, err := s.markPlanCancelled(ctx, planID)
 	if err != nil {
 		return err
 	}
-	if p.Status != plan.StatusRunning && p.Status != plan.StatusPending {
-		return fmt.Errorf("plan %s is %s, cannot cancel", planID, p.Status)
-	}
-
-	// The plan is cancelled before its runs: cancelling a run reports it
-	// through HandleRunCompleted, which must not start the remaining steps.
-	if err := s.store.UpdatePlanStatus(ctx, planID, plan.StatusCancelled); err != nil {
-		return err
-	}
-	p.Status = plan.StatusCancelled
 
 	for i := range p.Steps {
 		switch p.Steps[i].Status {
@@ -214,6 +205,30 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 
 	slog.Info("plan cancelled", "plan_id", planID)
 	return nil
+}
+
+// markPlanCancelled cancels an active plan and returns it with the steps as
+// stored at that moment. It holds the scheduling lock: a step that
+// advancePlan started is in the returned steps (and gets cancelled), and
+// advancePlan starts no step afterwards. The plan is cancelled before its
+// runs: cancelling a run reports it through HandleRunCompleted, which must not
+// start the remaining steps.
+func (s *OrchestratorService) markPlanCancelled(ctx context.Context, planID string) (*plan.ExecutionPlan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	p, err := s.store.GetPlan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status != plan.StatusRunning && p.Status != plan.StatusPending {
+		return nil, fmt.Errorf("plan %s is %s, cannot cancel", planID, p.Status)
+	}
+	if err := s.store.UpdatePlanStatus(ctx, planID, plan.StatusCancelled); err != nil {
+		return nil, err
+	}
+	p.Status = plan.StatusCancelled
+	return p, nil
 }
 
 // ApproveStep transitions a step from waiting_approval to completed and resumes the plan.
@@ -332,18 +347,22 @@ func (s *OrchestratorService) advancePlan(ctx context.Context, p *plan.Execution
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Reload steps for fresh state
-	steps, err := s.store.ListPlanSteps(ctx, p.ID)
+	// Decide from the plan as stored now, read under the lock: CancelPlan
+	// writes its status under the same lock, so no step starts after a cancel.
+	stored, err := s.store.GetPlan(ctx, p.ID)
 	if err != nil {
-		slog.Error("reload steps", "plan_id", p.ID, "error", err)
+		slog.Error("reload plan", "plan_id", p.ID, "error", err)
 		return
 	}
-	p.Steps = steps
+	p.Status = stored.Status
+	p.Steps = stored.Steps
 
 	// Check if plan is already terminal
 	if p.Status != plan.StatusRunning {
 		return
 	}
+
+	s.skipBlockedSteps(ctx, p)
 
 	switch p.Protocol {
 	case plan.ProtocolSequential:
@@ -357,9 +376,31 @@ func (s *OrchestratorService) advancePlan(ctx context.Context, p *plan.Execution
 	}
 }
 
-// advanceSequential: one step at a time. Failure stops the plan.
+// blockedStepError is the error of a step skipped because a dependency did
+// not complete.
+const blockedStepError = "a dependency did not complete"
+
+// skipBlockedSteps skips the pending steps that can never run because a
+// dependency failed, was cancelled or was skipped; without it they would stay
+// pending and the plan running forever.
+func (s *OrchestratorService) skipBlockedSteps(ctx context.Context, p *plan.ExecutionPlan) {
+	blocked := plan.BlockedSteps(p.Steps)
+	for i := range p.Steps {
+		step := &p.Steps[i]
+		if !slices.Contains(blocked, step.ID) {
+			continue
+		}
+		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusSkipped, "", blockedStepError), "UpdatePlanStepStatus", slog.String("step_id", step.ID))
+		step.Status = plan.StepStatusSkipped
+		step.Error = blockedStepError
+		s.broadcastStepStatus(ctx, p, step, plan.StepStatusSkipped)
+	}
+}
+
+// advanceSequential: one step at a time. A failed or cancelled step stops the
+// plan.
 func (s *OrchestratorService) advanceSequential(ctx context.Context, p *plan.ExecutionPlan) {
-	if plan.AnyFailed(p.Steps) {
+	if plan.AnyUnsuccessful(p.Steps) {
 		s.failPlan(ctx, p)
 		return
 	}
@@ -387,7 +428,7 @@ func (s *OrchestratorService) advanceSequential(ctx context.Context, p *plan.Exe
 // advanceParallel: start all ready steps up to MaxParallel.
 func (s *OrchestratorService) advanceParallel(ctx context.Context, p *plan.ExecutionPlan) {
 	if plan.AllTerminal(p.Steps) {
-		if plan.AnyFailed(p.Steps) {
+		if plan.AnyUnsuccessful(p.Steps) {
 			s.failPlan(ctx, p)
 		} else {
 			s.completePlan(ctx, p)
@@ -440,7 +481,7 @@ func (s *OrchestratorService) advancePingPong(ctx context.Context, p *plan.Execu
 	s0 := &p.Steps[0]
 	s1 := &p.Steps[1]
 
-	if s0.Status == plan.StepStatusFailed || s1.Status == plan.StepStatusFailed {
+	if s0.Status.Unsuccessful() || s1.Status.Unsuccessful() {
 		s.failPlan(ctx, p)
 		return
 	}
