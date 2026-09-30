@@ -31,8 +31,14 @@ func NewStuckWorkWatchdog(interval time.Duration, checks ...StuckWorkCheck) *Stu
 }
 
 // RunOnce runs every check once; a failing check does not stop the others.
+// Once ctx ends (the watchdog is stopped) no further check starts; a check
+// under way ends the item it is ending with a context of its own
+// (FailStuckQualityGates) and then returns.
 func (w *StuckWorkWatchdog) RunOnce(ctx context.Context) {
 	for _, check := range w.checks {
+		if ctx.Err() != nil {
+			return
+		}
 		handled, err := check.EndStuck(ctx)
 		if err != nil {
 			slog.Error("stuck-work watchdog check failed", "check", check.Name, "error", err)
@@ -44,7 +50,9 @@ func (w *StuckWorkWatchdog) RunOnce(ctx context.Context) {
 }
 
 // Start runs the checks every interval until ctx ends or the returned stop
-// is called; stop waits for a sweep under way to finish.
+// is called. stop cancels the sweep's context and waits for the sweep: an
+// item being ended is finished (bounded by the check), no further item or
+// check starts.
 func (w *StuckWorkWatchdog) Start(ctx context.Context) (stop func()) {
 	return startPeriodic(ctx, w.interval, false, w.RunOnce)
 }

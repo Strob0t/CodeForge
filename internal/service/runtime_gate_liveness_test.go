@@ -186,3 +186,80 @@ func TestFailStuckQualityGates_StopDoesNotAbortARunBeingEnded(t *testing.T) {
 		t.Fatalf("run-second = %s, want it left for the next sweep after the stop", got)
 	}
 }
+
+// blockingCompleteStore holds CompleteRun until released, so a test can stop
+// the watchdog while a stuck run is being ended.
+type blockingCompleteStore struct {
+	*runtimeMockStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s blockingCompleteStore) CompleteRun(ctx context.Context, req *run.CompletionRequest) error {
+	s.entered <- struct{}{}
+	<-s.release
+	return s.runtimeMockStore.CompleteRun(ctx, req)
+}
+
+// TestStuckWorkWatchdog_StopWaitsForARunBeingEnded goes through the shared
+// periodic runner (startPeriodic): stop waits for the run under way, which
+// ends with a live context, and no check runs after the stop.
+func TestStuckWorkWatchdog_StopWaitsForARunBeingEnded(t *testing.T) {
+	env, bc := newWatchdogEnv(time.Minute)
+	store := blockingCompleteStore{env.store, make(chan struct{}, 1), make(chan struct{})}
+	svc := service.NewRuntimeService(store, env.queue, bc, &runtimeMockEventStore{},
+		service.NewPolicyService("headless-safe-sandbox", nil), newWatchdogConfig(time.Minute))
+	svc.SetBacklogProbe(&fakeBacklog{})
+	endErrs := make(chan error, 1)
+	svc.SetOnRunComplete(func(ctx context.Context, _ string, _ run.Status) { endErrs <- ctx.Err() })
+	env.addRun("run-stuck", "headless-safe-sandbox", run.StatusQualityGate, run.DeliverModeNone)
+	setRunUpdatedAt(env.store, "run-stuck", time.Now().Add(-3*time.Hour))
+	var mu sync.Mutex
+	stoppedChecks := 0
+	w := service.NewStuckWorkWatchdog(5*time.Millisecond,
+		service.StuckWorkCheck{Name: "quality gates", EndStuck: svc.FailStuckQualityGates},
+		service.StuckWorkCheck{Name: "after", EndStuck: func(ctx context.Context) (int, error) {
+			if ctx.Err() != nil {
+				mu.Lock()
+				stoppedChecks++
+				mu.Unlock()
+			}
+			return 0, nil
+		}},
+	)
+
+	stop := w.Start(context.Background())
+	select {
+	case <-store.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the watchdog did not end the stuck run")
+	}
+	stopped := make(chan struct{})
+	go func() {
+		stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("stop returned while a run was being ended")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(store.release)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not return after the run was ended")
+	}
+
+	if err := <-endErrs; err != nil {
+		t.Fatalf("run end finished with context error %v, want a live context", err)
+	}
+	if got := storedRun(t, env.store, "run-stuck").Status; got != run.StatusFailed {
+		t.Fatalf("run-stuck = %s, want failed", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if stoppedChecks != 0 {
+		t.Fatalf("%d checks ran with the stopped context, want none", stoppedChecks)
+	}
+}
