@@ -53,6 +53,10 @@ type RuntimeService struct {
 	feedbackProviders   []feedbackPort.Provider
 	metrics             cfmetrics.Recorder
 	goalSvc             runtimeGoalCreator
+
+	// noRollbackBase holds the runs whose workspace has no git repository
+	// and whose audit trail already says so (checkpointToolCall).
+	noRollbackBase sync.Map
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.

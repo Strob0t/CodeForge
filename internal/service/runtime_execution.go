@@ -13,8 +13,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
@@ -120,6 +122,16 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	}
 	logBestEffort(ctx, err, "CountRunStep", slog.String("run_id", r.ID))
 
+	// The run's checkpoint comes before a file-modifying call executes; a
+	// run that may have to be rolled back or delivered does not change its
+	// workspace without one (fail closed).
+	if decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) {
+		if denial := s.checkpointToolCall(ctx, r, &profile, proj, projErr, req); denial != "" {
+			decision = policy.DecisionDeny
+			result.Decision, result.Reason = policy.DecisionDeny, denial
+		}
+	}
+
 	// Record event
 	evType := event.TypeToolCallApproved
 	if decision != policy.DecisionAllow {
@@ -152,14 +164,44 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		s.metrics.RecordToolCall(ctx, "tool", req.Tool, "decision", string(decision))
 	}
 
-	// Create checkpoint for file-modifying tools
-	if s.checkpoint != nil && decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) && projErr == nil {
-		if cpErr := s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID); cpErr != nil {
-			slog.Warn("checkpoint creation failed", "run_id", r.ID, "error", cpErr)
-		}
-	}
-
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
+}
+
+// checkpointToolCall records the workspace as the run's next checkpoint
+// before an allowed file-modifying call executes and returns why the call
+// must be denied, "" when it may run (S3 follow-up 1b). A run whose failed
+// quality gate rolls the workspace back, or that delivers its change, needs
+// the checkpoint: without it the call is denied. A workspace without a git
+// repository has no rollback base at all; its calls run, and the run's audit
+// trail says so once. Without a checkpoint service there is nothing to do.
+func (s *RuntimeService) checkpointToolCall(ctx context.Context, r *run.Run, profile *policy.PolicyProfile, proj *project.Project, projErr error, req *messagequeue.ToolCallRequestPayload) string {
+	if s.checkpoint == nil {
+		return ""
+	}
+	needsBase := profile.QualityGate.RollbackOnGateFail || (r.DeliverMode != "" && r.DeliverMode != run.DeliverModeNone)
+	var err error
+	if projErr != nil {
+		err = fmt.Errorf("project unavailable: %w", projErr)
+	} else {
+		err = s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID)
+	}
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, git.ErrNotRepository):
+		if _, recorded := s.noRollbackBase.LoadOrStore(r.ID, struct{}{}); !recorded {
+			slog.Warn("workspace without git: the run has no rollback base", "run_id", r.ID)
+			s.appendAudit(ctx, r, "checkpoint.unavailable",
+				"The workspace is not a git repository: the run has no checkpoint, it cannot be rolled back and its change cannot be delivered")
+		}
+		return ""
+	case !needsBase:
+		slog.Warn("checkpoint creation failed", "run_id", r.ID, "call_id", req.CallID, "error", err)
+		return ""
+	default:
+		slog.Error("checkpoint creation failed, denying the call", "run_id", r.ID, "call_id", req.CallID, "error", err)
+		return "the workspace could not be checkpointed, and this run may have to be rolled back or delivered: " + err.Error()
+	}
 }
 
 // handleConversationToolCall handles tool call requests for conversation-based runs

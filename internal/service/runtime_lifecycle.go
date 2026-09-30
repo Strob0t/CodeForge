@@ -25,6 +25,7 @@ import (
 
 func (s *RuntimeService) cleanupRunState(runID string) {
 	s.state.CleanupRun(runID)
+	s.noRollbackBase.Delete(runID)
 }
 
 // loadRunScoped loads the run a worker message refers to and returns ctx
