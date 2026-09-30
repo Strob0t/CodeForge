@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -284,6 +286,106 @@ func (f *statusFixture) message(t *testing.T, convID string) string {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 	return m.ID
+}
+
+// waitForLockWait returns once a backend runs a statement starting with
+// prefix ("" for any) and waits for a lock.
+func waitForLockWait(t *testing.T, pool *pgxpool.Pool, prefix string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND starts_with(ltrim(query), $1)`,
+			prefix).Scan(&waiting); err != nil {
+			t.Fatalf("pg_stat_activity: %v", err)
+		}
+		if waiting > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no statement %q waited for a lock", prefix)
+}
+
+// CreateMessage records the conversation's activity in the statement that
+// adds the message: a purge that still sees the conversation as idle cannot
+// find a message added to it. The test holds a share lock on the
+// conversation, which blocks the activity update but not a foreign key
+// check: while CreateMessage waits, none of its message is visible.
+func TestCreateMessage_ActivityAndMessageAreOneWrite(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	conv := f.conversation(t)
+	backdateConversation(t, pool, conv.ID, expired)
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM conversations WHERE id = $1 FOR SHARE`, conv.ID); err != nil {
+		t.Fatalf("share lock: %v", err)
+	}
+
+	created := make(chan error, 1)
+	go func() {
+		_, err := f.store.CreateMessage(f.ctx, &conversation.Message{ConversationID: conv.ID, Role: "user", Content: "late"})
+		created <- err
+	}()
+	waitForLockWait(t, pool, "")
+	var visible int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM conversation_messages WHERE conversation_id = $1`, conv.ID).Scan(&visible); err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+	if visible != 0 {
+		t.Fatalf("%d message(s) added while the conversation still looked idle", visible)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := <-created; err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	var active bool
+	if err := pool.QueryRow(ctx, `SELECT updated_at > now() - interval '1 minute' FROM conversations WHERE id = $1`, conv.ID).Scan(&active); err != nil || !active {
+		t.Fatalf("conversation activity not recorded: active %v, err %v", active, err)
+	}
+}
+
+// A message for a conversation that a purge batch holds and deletes is not
+// found (it used to fail on the foreign key after waiting for the purge).
+func TestCreateMessage_ConversationPurgedMeanwhile(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	conv := f.conversation(t)
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM conversations WHERE id = $1 FOR UPDATE`, conv.ID); err != nil {
+		t.Fatalf("lock like a purge batch: %v", err)
+	}
+
+	created := make(chan error, 1)
+	go func() {
+		_, err := f.store.CreateMessage(f.ctx, &conversation.Message{ConversationID: conv.ID, Role: "user", Content: "late"})
+		created <- err
+	}()
+	waitForLockWait(t, pool, "")
+	if _, err := tx.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, conv.ID); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := <-created; !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("CreateMessage = %v, want not found", err)
+	}
 }
 
 // A conversation being written while the purge runs is passed over, not

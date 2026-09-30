@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -40,9 +42,14 @@ func (s *SessionService) EnsureConversationSession(ctx context.Context, projectI
 	existing, err := s.store.GetSessionByConversation(ctx, conversationID)
 	if err == nil && existing != nil && existing.Status == run.SessionStatusActive {
 		// Reuse is the only write a conversation session gets; retention ages
-		// sessions by their last use.
-		logBestEffort(ctx, s.store.TouchSession(ctx, existing.ID), "TouchSession", slog.String("session_id", existing.ID))
-		return existing, nil
+		// sessions by their last use. The touch is also the check that the
+		// session still exists: retention may have deleted it since the lookup.
+		err := s.store.TouchSession(ctx, existing.ID)
+		if !errors.Is(err, domain.ErrNotFound) {
+			logBestEffort(ctx, err, "TouchSession", slog.String("session_id", existing.ID))
+			return existing, nil
+		}
+		existing = nil
 	}
 
 	sess := &run.Session{
@@ -68,10 +75,20 @@ func (s *SessionService) CompleteSession(ctx context.Context, sessionID string) 
 	return s.store.UpdateSessionStatus(ctx, sessionID, run.SessionStatusCompleted, "")
 }
 
-// ForkConversation creates a new forked session from a conversation's current session.
+// ForkConversation creates a new forked session from a conversation's current
+// session. A conversation without a session (retention deletes sessions idle
+// for retention.sessions, conversations only after retention.conversations)
+// gets a forked session without a parent.
 func (s *SessionService) ForkConversation(ctx context.Context, conversationID string, req run.ForkRequest) (*run.Session, error) {
 	existing, err := s.store.GetSessionByConversation(ctx, conversationID)
-	if err != nil {
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		conv, convErr := s.store.GetConversation(ctx, conversationID)
+		if convErr != nil {
+			return nil, fmt.Errorf("fork conversation: %w", convErr)
+		}
+		existing = &run.Session{ProjectID: conv.ProjectID}
+	case err != nil:
 		return nil, fmt.Errorf("fork conversation: find session: %w", err)
 	}
 
@@ -96,8 +113,10 @@ func (s *SessionService) ForkConversation(ctx context.Context, conversationID st
 		return nil, fmt.Errorf("fork conversation: create session: %w", err)
 	}
 
-	// Mark old session as forked.
-	logBestEffort(ctx, s.store.UpdateSessionStatus(ctx, existing.ID, run.SessionStatusForked, ""), "UpdateSessionStatus", slog.String("session_id", existing.ID))
+	if existing.ID != "" {
+		// Mark old session as forked.
+		logBestEffort(ctx, s.store.UpdateSessionStatus(ctx, existing.ID, run.SessionStatusForked, ""), "UpdateSessionStatus", slog.String("session_id", existing.ID))
+	}
 
 	slog.Debug("conversation forked", "session_id", sess.ID, "parent", existing.ID)
 	return sess, nil

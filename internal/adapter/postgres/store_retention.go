@@ -100,12 +100,12 @@ func (p retentionPurger) DeleteExpiredSessions(ctx context.Context, before time.
 // re-checks the age of a row written since the snapshot, and SKIP LOCKED
 // passes over conversations being written right now), deletes their messages
 // in statements of at most messageBatch rows, then the conversations. While
-// the batch holds the lock, no message can be added to them (inserting one
-// needs a key-share lock on its conversation), so a conversation is deleted
-// only once its messages are gone and never cascades over an unbounded
-// number of messages. Sessions that belong only to such a
-// conversation go with it (trigger of migration 092); sessions that also
-// belong to a task are kept, detached.
+// the batch holds the lock, no message can be added to them (CreateMessage
+// updates the conversation first, and any insert needs a key-share lock on
+// it), so a conversation is deleted only once its messages are gone and never
+// cascades over an unbounded number of messages. Sessions that belong only to
+// such a conversation go with it (trigger of migration 092); sessions that
+// also belong to a task are kept, detached.
 //
 // INTENTIONALLY CROSS-TENANT: instance-wide retention job (see file comment).
 func (p retentionPurger) DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize, messageBatch int) (int64, error) {

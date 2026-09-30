@@ -75,11 +75,18 @@ func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*co
 		imagesJSON = []byte(m.Images)
 	}
 
+	// One statement records the conversation's activity (updated_at, which
+	// retention ages conversations by) and adds the message: the update locks
+	// the conversation first, so a retention purge either sees the activity
+	// or has already deleted the conversation (then nothing is inserted).
 	var created conversation.Message
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images)
-		 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-		 FROM conversations WHERE id = $1 AND tenant_id = $11
+		`WITH conv AS (
+		   UPDATE conversations SET updated_at = NOW() WHERE id = $1 AND tenant_id = $11 RETURNING id
+		 )
+		 INSERT INTO conversation_messages (conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images)
+		 SELECT conv.id, $2, $3, $4, $5, $6, $7, $8, $9, $10
+		 FROM conv
 		 RETURNING id, conversation_id, role, content, tool_calls, tool_call_id, tool_name, tokens_in, tokens_out, model, images, created_at`,
 		m.ConversationID, m.Role, m.Content, toolCallsJSON, m.ToolCallID, m.ToolName, m.TokensIn, m.TokensOut, m.Model, imagesJSON, tenantFromCtx(ctx),
 	).Scan(&created.ID, &created.ConversationID, &created.Role, &created.Content,
@@ -91,8 +98,6 @@ func (s *Store) CreateMessage(ctx context.Context, m *conversation.Message) (*co
 		}
 		return nil, fmt.Errorf("create message: %w", err)
 	}
-	// Update conversation's updated_at
-	_, _ = s.pool.Exec(ctx, `UPDATE conversations SET updated_at = NOW() WHERE id = $1 AND tenant_id = $2`, m.ConversationID, tenantFromCtx(ctx))
 	return &created, nil
 }
 

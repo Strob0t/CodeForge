@@ -97,3 +97,24 @@ func TestStore_DeleteConversationWithSessions(t *testing.T) {
 		t.Fatalf("task session = task %q conversation %q, want task %q and no conversation", kept.TaskID, kept.ConversationID, f.task.ID)
 	}
 }
+
+// A conversation idle past the session retention keeps its messages but has
+// no session any more: forking it starts a session without a parent.
+func TestSessionService_ForkConversationWithoutSession(t *testing.T) {
+	f := newStatusFixture(t)
+	conv := f.conversation(t)
+	sessions := service.NewSessionService(f.store, nil)
+
+	forked, err := sessions.ForkConversation(f.ctx, conv.ID, run.ForkRequest{FromEventID: "ev-1"})
+	if err != nil {
+		t.Fatalf("ForkConversation without a session: %v", err)
+	}
+	if forked.ConversationID != conv.ID || forked.ProjectID != f.project.ID || forked.ParentSessionID != "" ||
+		forked.Status != run.SessionStatusActive {
+		t.Fatalf("forked session = %+v, want an active session of conversation %s without a parent", forked, conv.ID)
+	}
+
+	if _, err := sessions.ForkConversation(f.ctx, "00000000-0000-0000-0000-00000000dead", run.ForkRequest{}); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("ForkConversation of an unknown conversation = %v, want not found", err)
+	}
+}
