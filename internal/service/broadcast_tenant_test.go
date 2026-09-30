@@ -279,17 +279,6 @@ func TestContextResults_ScopeToEchoedTenant(t *testing.T) {
 	}
 }
 
-func TestReviewApprovalRequired_ScopesToPayloadTenant(t *testing.T) {
-	hub := &tenantRecorder{}
-	svc := NewReviewApprovalService(&mockQueue{}, hub)
-	data := mustJSON(t, messagequeue.ReviewApprovalRequiredPayload{RunID: "run-1", ProjectID: "proj-1", TenantID: scopeTenantB, ImpactLevel: "high"})
-
-	if err := svc.HandleApprovalRequired(context.Background(), messagequeue.SubjectReviewApprovalRequired, data); err != nil {
-		t.Fatalf("HandleApprovalRequired: %v", err)
-	}
-	assertScoped(t, hub.snapshot(), scopeTenantB)
-}
-
 func TestBenchmarkProgress_ScopesToPayloadTenant(t *testing.T) {
 	tests := []struct {
 		name   string

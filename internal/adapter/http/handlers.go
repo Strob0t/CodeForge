@@ -97,6 +97,7 @@ type Handlers struct {
 	OllamaBaseURL      string // From cfg.Ollama.BaseURL (OLLAMA_BASE_URL env var)
 	Boundaries         *service.BoundaryService
 	ReviewTrigger      *service.ReviewTriggerService
+	ReviewPipeline     *service.ReviewPipelineService
 	PromptEvolution    *service.PromptEvolutionService
 	GDPR               *service.GDPRService
 	Consent            *service.ConsentService

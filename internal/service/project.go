@@ -3,10 +3,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -34,9 +37,10 @@ type GraphBuilder interface {
 	RequestBuild(ctx context.Context, projectID, workspacePath string) error
 }
 
-// ReviewTriggerer triggers review/boundary analysis for a project.
+// ReviewTriggerer starts the boundary analysis of an indexed project
+// (ReviewTriggerService, contract-first review).
 type ReviewTriggerer interface {
-	TriggerReview(ctx context.Context, projectID, commitSHA, source string) (bool, error)
+	TriggerBoundaryAnalysis(ctx context.Context, projectID string) (*plan.ExecutionPlan, error)
 }
 
 // projectStore defines the database operations needed by ProjectService.
@@ -133,8 +137,15 @@ func (s *ProjectService) AutoIndex(tenantID, projectID, workspacePath string) {
 	if s.reviewTriggerer != nil {
 		go func() {
 			ctx := tenantctx.WithTenant(context.Background(), tenantID)
-			if _, err := s.reviewTriggerer.TriggerReview(ctx, projectID, "", "auto-index"); err != nil {
-				slog.Error("auto boundary analysis trigger failed", "project_id", projectID, "error", err)
+			_, err := s.reviewTriggerer.TriggerBoundaryAnalysis(ctx, projectID)
+			switch {
+			case err == nil:
+			case errors.Is(err, domain.ErrValidation):
+				// E.g. no idle agent yet; the analysis can be started from the
+				// boundaries panel later.
+				slog.Info("auto boundary analysis not started", "project_id", projectID, "reason", err)
+			default:
+				slog.Error("auto boundary analysis failed", "project_id", projectID, "error", err)
 			}
 		}()
 	}

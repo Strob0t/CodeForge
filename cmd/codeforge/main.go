@@ -491,11 +491,14 @@ func run() error {
 	defer reviewSvc.StopCron()
 	slog.Info("review service initialized")
 
-	// --- Boundary & Review Trigger Services (Phase 31) ---
+	// --- Boundary & Review Pipeline Services (Phase 31, KI-17) ---
 	boundarySvc := service.NewBoundaryService(store)
-	reviewTriggerSvc := service.NewReviewTriggerService(store, nil, 30*time.Minute)
-	reviewApprovalSvc := service.NewReviewApprovalService(queue, hub)
-	slog.Info("boundary and review trigger services initialized")
+	reviewPipelineSvc := service.NewReviewPipelineService(store, pipelineSvc, orchSvc, poolManagerSvc, gitPool, hub,
+		service.DefaultDiffImpactConfig())
+	orchSvc.SetStepGate(reviewPipelineSvc.GateStep)
+	orchSvc.AddOnPlanComplete(reviewPipelineSvc.PlanEnded)
+	reviewTriggerSvc := service.NewReviewTriggerService(store, reviewPipelineSvc, 30*time.Minute)
+	slog.Info("boundary and review pipeline services initialized")
 
 	// Wire auto-index dependencies into ProjectService so it can
 	// trigger background indexing without going through the HTTP layer.
@@ -682,10 +685,6 @@ func run() error {
 	gemmasCancel, err := evalSvc.StartGemmasResultSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("gemmas result subscriber: %w", err)
-	}
-	reviewApprovalCancel, err := reviewApprovalSvc.StartSubscriber(ctx)
-	if err != nil {
-		return fmt.Errorf("review approval subscriber: %w", err)
 	}
 	slog.Info("conversation service initialized", "agentic_by_default", cfg.Agent.AgenticByDefault)
 
@@ -881,6 +880,7 @@ func run() error {
 		OllamaBaseURL:    cfg.Ollama.BaseURL,
 		Boundaries:       boundarySvc,
 		ReviewTrigger:    reviewTriggerSvc,
+		ReviewPipeline:   reviewPipelineSvc,
 		PromptEvolution:  evoSvc,
 		GDPR:             service.NewGDPRService(store),
 		Consent:          service.NewConsentService(store),
@@ -1120,7 +1120,6 @@ func run() error {
 		cancel()
 	}
 	gemmasCancel()
-	reviewApprovalCancel()
 	benchmarkRunCancel()
 	cancelWatchdog()
 	for _, cancel := range retrievalCancels {

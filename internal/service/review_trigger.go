@@ -2,11 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 )
+
+// ErrReviewPipelineUnavailable: no review pipeline is wired to start.
+var ErrReviewPipelineUnavailable = errors.New("review pipeline is not available")
 
 // ReviewTriggerStore is the subset of the store needed by ReviewTriggerService.
 type ReviewTriggerStore interface {
@@ -17,58 +23,78 @@ type ReviewTriggerStore interface {
 	GetProject(ctx context.Context, id string) (*project.Project, error)
 }
 
-// ReviewTriggerOrchestrator creates and starts review-refactor plans.
-type ReviewTriggerOrchestrator interface {
-	StartReviewPipeline(ctx context.Context, projectID string) error
+// ReviewPipelineStarter starts the contract-first review pipelines
+// (ReviewPipelineService); an error means nothing was started.
+type ReviewPipelineStarter interface {
+	StartReviewPipeline(ctx context.Context, projectID string) (*plan.ExecutionPlan, error)
+	StartBoundaryAnalysis(ctx context.Context, projectID string) (*plan.ExecutionPlan, error)
 }
 
-// ReviewTriggerService manages cascade triggers with deduplication.
+// ReviewTriggerService is the entry point of the review triggers: it
+// deduplicates them and starts the pipelines.
 type ReviewTriggerService struct {
-	store        ReviewTriggerStore
-	orchestrator ReviewTriggerOrchestrator
-	dedupWindow  time.Duration
+	store       ReviewTriggerStore
+	pipelines   ReviewPipelineStarter
+	dedupWindow time.Duration
 }
 
 // NewReviewTriggerService creates a new ReviewTriggerService.
-func NewReviewTriggerService(store ReviewTriggerStore, orch ReviewTriggerOrchestrator, dedupWindow time.Duration) *ReviewTriggerService {
+func NewReviewTriggerService(store ReviewTriggerStore, pipelines ReviewPipelineStarter, dedupWindow time.Duration) *ReviewTriggerService {
 	return &ReviewTriggerService{
-		store:        store,
-		orchestrator: orch,
-		dedupWindow:  dedupWindow,
+		store:       store,
+		pipelines:   pipelines,
+		dedupWindow: dedupWindow,
 	}
 }
 
-// TriggerReview attempts to start a review-refactor pipeline.
-// Returns true if a review was triggered, false if deduplicated.
-// The project must belong to the tenant extracted from ctx.
-func (s *ReviewTriggerService) TriggerReview(ctx context.Context, projectID, commitSHA, source string) (bool, error) {
-	// Tenant isolation: verify the project belongs to the calling tenant.
-	// GetProject is tenant-scoped (filters by tenant_id from ctx), so
-	// a cross-tenant projectID returns ErrNotFound.
-	if _, err := s.store.GetProject(ctx, projectID); err != nil {
-		return false, fmt.Errorf("project access check: %w", err)
+// TriggerReview starts the review-refactor pipeline and returns its plan, or
+// nil when a review of the same commit started within the dedup window
+// (manual triggers are never deduplicated). The trigger is recorded only once
+// the pipeline started, so a failed start does not suppress the next trigger.
+// The project must belong to the tenant in ctx.
+func (s *ReviewTriggerService) TriggerReview(ctx context.Context, projectID, commitSHA, source string) (*plan.ExecutionPlan, error) {
+	if err := s.checkProject(ctx, projectID); err != nil {
+		return nil, err
 	}
 
-	// Manual triggers bypass dedup
 	if source != "manual" {
 		exists, err := s.store.FindRecentReviewTrigger(ctx, projectID, commitSHA, s.dedupWindow)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if exists {
-			return false, nil
+			return nil, nil
 		}
 	}
 
+	p, err := s.pipelines.StartReviewPipeline(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := s.store.CreateReviewTrigger(ctx, projectID, commitSHA, source); err != nil {
-		return false, err
+		// The pipeline runs; only the dedup record is missing.
+		slog.Warn("review trigger not recorded", "project_id", projectID, "plan_id", p.ID, "error", err)
 	}
+	return p, nil
+}
 
-	if s.orchestrator != nil {
-		if err := s.orchestrator.StartReviewPipeline(ctx, projectID); err != nil {
-			return true, err
-		}
+// TriggerBoundaryAnalysis starts the boundary analysis of the project and
+// returns its plan. The project must belong to the tenant in ctx.
+func (s *ReviewTriggerService) TriggerBoundaryAnalysis(ctx context.Context, projectID string) (*plan.ExecutionPlan, error) {
+	if err := s.checkProject(ctx, projectID); err != nil {
+		return nil, err
 	}
+	return s.pipelines.StartBoundaryAnalysis(ctx, projectID)
+}
 
-	return true, nil
+// checkProject enforces tenant isolation (GetProject is tenant-scoped, so a
+// project of another tenant is not found) and that a pipeline is wired.
+func (s *ReviewTriggerService) checkProject(ctx context.Context, projectID string) error {
+	if _, err := s.store.GetProject(ctx, projectID); err != nil {
+		return fmt.Errorf("project access check: %w", err)
+	}
+	if s.pipelines == nil {
+		return ErrReviewPipelineUnavailable
+	}
+	return nil
 }
