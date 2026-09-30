@@ -138,14 +138,16 @@ func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Sta
 	return execExpectOne(tag, err, "update task status %s", id)
 }
 
-func (s *Store) UpdateTaskResult(ctx context.Context, id string, result task.Result, costUSD float64) error {
+// UpdateTaskResult stores a task's result and cost and sets its status in one
+// statement.
+func (s *Store) UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, costUSD float64) error {
 	resultJSON, err := marshalJSON(result, "result")
 	if err != nil {
 		return err
 	}
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4 WHERE id = $1 AND tenant_id = $5`,
-		id, resultJSON, costUSD, string(task.StatusCompleted), tenantFromCtx(ctx))
+		id, resultJSON, costUSD, string(status), tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "update task result %s", id)
 }
 

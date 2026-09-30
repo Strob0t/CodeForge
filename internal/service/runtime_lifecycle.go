@@ -155,14 +155,12 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 	}
 
-	// Task result first: the store's UpdateTaskResult also marks the task
-	// completed, so the status of a failed or cancelled run must come after it.
+	// The task's result and the status the run leaves it in, in one write.
 	taskResult := task.Result{
 		Output: payload.Output,
 		Error:  payload.Error,
 	}
-	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatusForRun(status)), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
+	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskStatusForRun(status), taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
 
 	// Set agent back to idle
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))

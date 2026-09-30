@@ -14,7 +14,9 @@ type TaskStore interface {
 	GetTask(ctx context.Context, id string) (*task.Task, error)
 	CreateTask(ctx context.Context, req task.CreateRequest) (*task.Task, error)
 	UpdateTaskStatus(ctx context.Context, id string, status task.Status) error
-	UpdateTaskResult(ctx context.Context, id string, result task.Result, costUSD float64) error
+	// UpdateTaskResult stores a task's result and cost together with the status
+	// the result leaves it in.
+	UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, costUSD float64) error
 
 	// Active Work Visibility (Phase 24)
 	ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error)

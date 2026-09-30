@@ -164,21 +164,16 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 
 // HandleResult processes a task result received from a worker.
 func (s *AgentService) HandleResult(ctx context.Context, result task.Result, taskID, projectID string, costUSD float64) error {
-	if err := s.store.UpdateTaskResult(ctx, taskID, result, costUSD); err != nil {
-		return fmt.Errorf("update task result: %w", err)
-	}
-
-	status := string(task.StatusCompleted)
+	taskStatus := task.StatusCompleted
 	evType := event.TypeAgentFinished
 	if result.Error != "" {
-		status = string(task.StatusFailed)
+		taskStatus = task.StatusFailed
 		evType = event.TypeAgentError
-		// UpdateTaskResult also marks the task completed; an error result
-		// leaves it failed.
-		if err := s.store.UpdateTaskStatus(ctx, taskID, task.StatusFailed); err != nil {
-			return fmt.Errorf("update task status: %w", err)
-		}
 	}
+	if err := s.store.UpdateTaskResult(ctx, taskID, taskStatus, result, costUSD); err != nil {
+		return fmt.Errorf("update task result: %w", err)
+	}
+	status := string(taskStatus)
 
 	// The result names no agent: record the task's. A task dispatched without
 	// an assignment has none, and the event is stored without agent.

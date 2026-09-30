@@ -150,8 +150,11 @@ func (m *runtimeMockStore) UpdateTaskStatus(_ context.Context, id string, status
 	}
 	return errMockNotFound
 }
-func (m *runtimeMockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
-	return nil
+
+// UpdateTaskResult sets the task's status like the store, which writes it
+// with the result.
+func (m *runtimeMockStore) UpdateTaskResult(ctx context.Context, id string, status task.Status, _ task.Result, _ float64) error {
+	return m.UpdateTaskStatus(ctx, id, status)
 }
 
 func (m *runtimeMockStore) CreateRun(_ context.Context, r *run.Run) error {

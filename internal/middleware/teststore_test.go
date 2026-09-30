@@ -219,7 +219,7 @@ func (s *testStore) CreateTask(_ context.Context, _ task.CreateRequest) (*task.T
 	return nil, nil
 }
 func (s *testStore) UpdateTaskStatus(_ context.Context, _ string, _ task.Status) error { return nil }
-func (s *testStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
+func (s *testStore) UpdateTaskResult(_ context.Context, _ string, _ task.Status, _ task.Result, _ float64) error {
 	return nil
 }
 

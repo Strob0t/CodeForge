@@ -485,9 +485,10 @@ type lifecycleTestStoreEx struct {
 		cost    float64
 		success bool
 	}
-	taskResults   map[string]task.Result
-	taskStatuses  map[string]task.Status
-	agentStatuses map[string]agent.Status
+	taskResults       map[string]task.Result
+	taskStatuses      map[string]task.Status
+	taskStatusPatches map[string]task.Status
+	agentStatuses     map[string]agent.Status
 }
 
 func newLifecycleTestStoreEx() *lifecycleTestStoreEx {
@@ -500,9 +501,10 @@ func newLifecycleTestStoreEx() *lifecycleTestStoreEx {
 			cost    float64
 			success bool
 		}),
-		taskResults:   make(map[string]task.Result),
-		taskStatuses:  make(map[string]task.Status),
-		agentStatuses: make(map[string]agent.Status),
+		taskResults:       make(map[string]task.Result),
+		taskStatuses:      make(map[string]task.Status),
+		taskStatusPatches: make(map[string]task.Status),
+		agentStatuses:     make(map[string]agent.Status),
 	}
 }
 
@@ -511,13 +513,16 @@ func (s *lifecycleTestStoreEx) UpdateAgentStatus(_ context.Context, id string, s
 	return nil
 }
 
+// UpdateTaskStatus records status writes separate from the result: the
+// completion path writes the task's status with its result (UpdateTaskResult).
 func (s *lifecycleTestStoreEx) UpdateTaskStatus(_ context.Context, id string, status task.Status) error {
-	s.taskStatuses[id] = status
+	s.taskStatusPatches[id] = status
 	return nil
 }
 
-func (s *lifecycleTestStoreEx) UpdateTaskResult(_ context.Context, id string, result task.Result, _ float64) error {
+func (s *lifecycleTestStoreEx) UpdateTaskResult(_ context.Context, id string, status task.Status, result task.Result, _ float64) error {
 	s.taskResults[id] = result
+	s.taskStatuses[id] = status
 	return nil
 }
 
@@ -701,6 +706,9 @@ func TestFinalizeRun(t *testing.T) {
 				t.Error("expected task status to be updated")
 			} else if got != tt.wantTaskStatus {
 				t.Errorf("expected task status %q, got %q", tt.wantTaskStatus, got)
+			}
+			if patched, ok := store.taskStatusPatches[tt.run.TaskID]; ok {
+				t.Errorf("task status patched to %q after the result: want it written with the result", patched)
 			}
 
 			// Verify agent set to idle.

@@ -203,7 +203,7 @@ func (m *mockStore) UpdateTaskStatus(_ context.Context, _ string, _ task.Status)
 	return nil
 }
 
-func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
+func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Status, _ task.Result, _ float64) error {
 	return nil
 }
 
