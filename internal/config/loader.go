@@ -376,10 +376,12 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
 
 	// Retention
+	setTyped(&cfg.Retention.Interval, "CODEFORGE_RETENTION_INTERVAL", time.ParseDuration)
 	setTyped(&cfg.Retention.Sessions, "CODEFORGE_RETENTION_SESSIONS", time.ParseDuration)
 	setTyped(&cfg.Retention.Conversations, "CODEFORGE_RETENTION_CONVERSATIONS", time.ParseDuration)
 	setTyped(&cfg.Retention.CostRecords, "CODEFORGE_RETENTION_COST_RECORDS", time.ParseDuration)
 	setTyped(&cfg.Retention.AuditEntries, "CODEFORGE_RETENTION_AUDIT_ENTRIES", time.ParseDuration)
+	setTyped(&cfg.Retention.AuditIPAddresses, "CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES", time.ParseDuration)
 
 	// Env file override
 	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
@@ -469,6 +471,9 @@ func validate(cfg *Config) error {
 	if cfg.Runtime.StaleCheckInterval <= 0 {
 		return errors.New("runtime.stale_check_interval must be > 0")
 	}
+	if err := validateRetention(&cfg.Retention); err != nil {
+		return err
+	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
 	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {
@@ -533,6 +538,36 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("postgres.dsn must not use sslmode=disable when APP_ENV=%s -- use sslmode=require or sslmode=verify-full", cfg.AppEnv)
 	}
 
+	return nil
+}
+
+// minRetentionPeriod is the shortest retention period accepted. The policy is
+// measured in days; a shorter value is a unit mistake ("30m" meant as months
+// would purge everything older than 30 minutes).
+const minRetentionPeriod = 24 * time.Hour
+
+// validateRetention rejects retention settings that would purge more than a
+// policy measured in days: every period is 0 (keep forever) or at least a
+// day, and the job interval is 0 (disabled) or at least a minute.
+func validateRetention(r *Retention) error {
+	if r.Interval < 0 || (r.Interval > 0 && r.Interval < time.Minute) {
+		return fmt.Errorf("retention.interval must be 0 (job disabled) or at least 1m (got %s)", r.Interval)
+	}
+	periods := []struct {
+		key    string
+		period time.Duration
+	}{
+		{"retention.sessions", r.Sessions},
+		{"retention.conversations", r.Conversations},
+		{"retention.cost_records", r.CostRecords},
+		{"retention.audit_entries", r.AuditEntries},
+		{"retention.audit_ip_addresses", r.AuditIPAddresses},
+	}
+	for _, p := range periods {
+		if p.period < 0 || (p.period > 0 && p.period < minRetentionPeriod) {
+			return fmt.Errorf("%s must be 0 (keep forever) or at least 24h (got %s)", p.key, p.period)
+		}
+	}
 	return nil
 }
 

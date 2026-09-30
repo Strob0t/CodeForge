@@ -1,0 +1,339 @@
+package postgres_test
+
+import (
+	"context"
+	"net/netip"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/port/database"
+)
+
+// Data retention (KI-52) is one instance-wide policy, so each purge query
+// spans all tenants and removes (or anonymizes) only rows whose age is past
+// the cutoff, at most batchSize per call. The test rows are dated centuries
+// back and the cutoff lies 200 years back, so rows other tests keep in the
+// shared database are never touched.
+
+const (
+	expired = "300 years" // past the test cutoff
+	inside  = "100 years" // still inside the test retention period
+	fresh   = "0 seconds"
+)
+
+var retentionCutoff = time.Now().AddDate(-200, 0, 0)
+
+// purgeFunc is the signature of every retention store method.
+type purgeFunc func(ctx context.Context, before time.Time, batchSize int) (int64, error)
+
+// purgeAll calls a retention method in batches of one row (so several
+// batches run) until a batch comes back short, like RetentionService does.
+// The system job runs without a tenant in the context.
+func purgeAll(t *testing.T, name string, purge purgeFunc) {
+	t.Helper()
+	const batch = 1
+	for range 10_000 {
+		n, err := purge(context.Background(), retentionCutoff, batch)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if n > batch {
+			t.Fatalf("%s changed %d rows in one call, batch size is %d", name, n, batch)
+		}
+		if n < batch {
+			return
+		}
+	}
+	t.Fatalf("%s did not finish", name)
+}
+
+func retentionPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// execAsReplica runs one row update with triggers disabled for this
+// transaction only (the sessions updated_at trigger would reset the date).
+func execAsReplica(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		t.Skipf("cannot bypass the updated_at trigger: %v", err)
+	}
+	tag, err := tx.Exec(ctx, sql, args...)
+	if err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("backdate touched %d rows, want 1", tag.RowsAffected())
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+// The backdate helpers date a row's creation past the cutoff and its last
+// activity (updated_at) lastActiveAgo back: retention counts from the last
+// activity, so only rows idle past the cutoff may go.
+
+func backdateSession(t *testing.T, pool *pgxpool.Pool, id, lastActiveAgo string) {
+	t.Helper()
+	execAsReplica(t, pool, `UPDATE sessions SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
+		id, expired, lastActiveAgo)
+}
+
+func backdateConversation(t *testing.T, pool *pgxpool.Pool, id, lastActiveAgo string) {
+	t.Helper()
+	execAsReplica(t, pool, `UPDATE conversations SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
+		id, expired, lastActiveAgo)
+}
+
+func backdateRun(t *testing.T, pool *pgxpool.Pool, id, lastActiveAgo string) {
+	t.Helper()
+	execAsReplica(t, pool, `UPDATE runs SET created_at = now() - $2::interval, updated_at = now() - $3::interval WHERE id = $1`,
+		id, expired, lastActiveAgo)
+}
+
+func backdateAuditEntry(t *testing.T, pool *pgxpool.Pool, id, createdAgo string) {
+	t.Helper()
+	execAsReplica(t, pool, `UPDATE audit_log SET created_at = now() - $2::interval WHERE id = $1`, id, createdAgo)
+}
+
+var existsSQL = map[string]string{
+	"sessions":              `SELECT EXISTS (SELECT 1 FROM sessions WHERE id = $1)`,
+	"conversations":         `SELECT EXISTS (SELECT 1 FROM conversations WHERE id = $1)`,
+	"conversation_messages": `SELECT EXISTS (SELECT 1 FROM conversation_messages WHERE id = $1)`,
+	"runs":                  `SELECT EXISTS (SELECT 1 FROM runs WHERE id = $1)`,
+	"audit_log":             `SELECT EXISTS (SELECT 1 FROM audit_log WHERE id = $1)`,
+}
+
+func rowExists(t *testing.T, pool *pgxpool.Pool, table, id string) bool {
+	t.Helper()
+	var exists bool
+	if err := pool.QueryRow(context.Background(), existsSQL[table], id).Scan(&exists); err != nil {
+		t.Fatalf("exists %s %s: %v", table, id, err)
+	}
+	return exists
+}
+
+// assertRows checks which rows of a table the purge kept and removed.
+func assertRows(t *testing.T, pool *pgxpool.Pool, table string, kept, removed map[string]string) {
+	t.Helper()
+	for name, id := range kept {
+		if !rowExists(t, pool, table, id) {
+			t.Errorf("%s: %s (%s) was removed, want it kept", table, name, id)
+		}
+	}
+	for name, id := range removed {
+		if rowExists(t, pool, table, id) {
+			t.Errorf("%s: %s (%s) was kept, want it removed", table, name, id)
+		}
+	}
+}
+
+func (f *statusFixture) taskSession(t *testing.T) *run.Session {
+	t.Helper()
+	sess := &run.Session{ProjectID: f.project.ID, TaskID: f.task.ID, Status: run.SessionStatusActive, Metadata: "{}"}
+	if err := f.store.CreateSession(f.ctx, sess); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	return sess
+}
+
+func (f *statusFixture) conversation(t *testing.T) *conversation.Conversation {
+	t.Helper()
+	c, err := f.store.CreateConversation(f.ctx, &conversation.Conversation{ProjectID: f.project.ID, Title: "retention"})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	return c
+}
+
+func TestRetentionQueries_IntentionallyCrossTenant(t *testing.T) {
+	methods := map[string][]string{
+		"store_retention.go": {"DeleteExpiredSessions", "DeleteExpiredConversations", "DeleteExpiredRuns", "DeleteExpiredAuditEntries"},
+		"store_audit_log.go": {"AnonymizeExpiredIPAddresses"},
+	}
+	for file, names := range methods {
+		src := readStoreSource(t, file)
+		for _, name := range names {
+			if doc := methodDocComment(t, src, file, name); !strings.Contains(doc, "INTENTIONALLY CROSS-TENANT") {
+				t.Errorf("%s must document why it is intentionally cross-tenant", name)
+			}
+		}
+	}
+}
+
+func TestStore_DeleteExpiredSessions(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+
+	oldA, oldB := a.taskSession(t), b.taskSession(t)
+	idleA := a.taskSession(t)
+	activeA := a.taskSession(t) // created long ago, used recently
+	freshB := b.taskSession(t)
+	backdateSession(t, pool, oldA.ID, expired)
+	backdateSession(t, pool, oldB.ID, expired)
+	backdateSession(t, pool, idleA.ID, inside)
+	backdateSession(t, pool, activeA.ID, fresh)
+
+	purgeAll(t, "DeleteExpiredSessions", a.store.DeleteExpiredSessions)
+
+	assertRows(t, pool, "sessions",
+		map[string]string{"idle inside retention": idleA.ID, "recently used": activeA.ID, "other tenant, fresh": freshB.ID},
+		map[string]string{"expired": oldA.ID, "other tenant, expired": oldB.ID})
+}
+
+func TestStore_DeleteExpiredConversations(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+
+	oldA := a.conversation(t)
+	msg, err := a.store.CreateMessage(a.ctx, &conversation.Message{ConversationID: oldA.ID, Role: "user", Content: "hello"})
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	// Every agentic conversation has a session (EnsureConversationSession).
+	// It has no task, so the FK's SET NULL would violate the sessions
+	// check constraint: the purge removes it with its conversation.
+	convSession := &run.Session{ProjectID: a.project.ID, ConversationID: oldA.ID, Status: run.SessionStatusActive, Metadata: "{}"}
+	if err := a.store.CreateSession(a.ctx, convSession); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	// A session that also belongs to a task is kept and only detached.
+	taskSession := &run.Session{ProjectID: a.project.ID, TaskID: a.task.ID, ConversationID: oldA.ID, Status: run.SessionStatusActive, Metadata: "{}"}
+	if err := a.store.CreateSession(a.ctx, taskSession); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	idleA, activeA := a.conversation(t), a.conversation(t)
+	oldB, freshB := b.conversation(t), b.conversation(t)
+	backdateConversation(t, pool, oldA.ID, expired)
+	backdateConversation(t, pool, oldB.ID, expired)
+	backdateConversation(t, pool, idleA.ID, inside)
+	backdateConversation(t, pool, activeA.ID, fresh) // a message was added recently
+
+	purgeAll(t, "DeleteExpiredConversations", a.store.DeleteExpiredConversations)
+
+	assertRows(t, pool, "conversations",
+		map[string]string{"idle inside retention": idleA.ID, "recently used": activeA.ID, "other tenant, fresh": freshB.ID},
+		map[string]string{"expired": oldA.ID, "other tenant, expired": oldB.ID})
+	assertRows(t, pool, "conversation_messages", nil, map[string]string{"message of expired conversation": msg.ID})
+	assertRows(t, pool, "sessions",
+		map[string]string{"task session": taskSession.ID},
+		map[string]string{"conversation session": convSession.ID})
+	kept, err := a.store.GetSession(a.ctx, taskSession.ID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if kept.ConversationID != "" || kept.TaskID != a.task.ID {
+		t.Fatalf("task session = task %q conversation %q, want task %q and no conversation", kept.TaskID, kept.ConversationID, a.task.ID)
+	}
+}
+
+func TestStore_DeleteExpiredRuns(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+
+	oldA, oldB := a.newRun(t, run.StatusCompleted), b.newRun(t, run.StatusFailed)
+	idleA := a.newRun(t, run.StatusCompleted)
+	activeA := a.newRun(t, run.StatusRunning) // started long ago, updated recently
+	freshB := b.newRun(t, run.StatusCompleted)
+	backdateRun(t, pool, oldA.ID, expired)
+	backdateRun(t, pool, oldB.ID, expired)
+	backdateRun(t, pool, idleA.ID, inside)
+	backdateRun(t, pool, activeA.ID, fresh)
+
+	purgeAll(t, "DeleteExpiredRuns", a.store.DeleteExpiredRuns)
+
+	assertRows(t, pool, "runs",
+		map[string]string{"idle inside retention": idleA.ID, "recently updated": activeA.ID, "other tenant, fresh": freshB.ID},
+		map[string]string{"expired": oldA.ID, "other tenant, expired": oldB.ID})
+}
+
+// auditEntry inserts an audit entry with an IP address and returns its ID.
+func (f *statusFixture) auditEntry(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	email := "retention-" + uuid.New().String()[:8] + "@example.com"
+	marker := uuid.New().String()
+	if err := f.store.InsertAuditEntry(f.ctx, &database.AuditEntry{
+		AdminID: uuid.New().String(), AdminEmail: &email, Action: "user.update",
+		Resource: "user", ResourceID: marker, IPAddress: "203.0.113.7",
+	}); err != nil {
+		t.Fatalf("InsertAuditEntry: %v", err)
+	}
+	var id string
+	if err := pool.QueryRow(context.Background(), `SELECT id FROM audit_log WHERE resource_id = $1`, marker).Scan(&id); err != nil {
+		t.Fatalf("find audit entry: %v", err)
+	}
+	return id
+}
+
+func TestStore_DeleteExpiredAuditEntries(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+
+	oldA, oldB := a.auditEntry(t, pool), b.auditEntry(t, pool)
+	idleA, freshB := a.auditEntry(t, pool), b.auditEntry(t, pool)
+	backdateAuditEntry(t, pool, oldA, expired)
+	backdateAuditEntry(t, pool, oldB, expired)
+	backdateAuditEntry(t, pool, idleA, inside)
+
+	purgeAll(t, "DeleteExpiredAuditEntries", a.store.DeleteExpiredAuditEntries)
+
+	assertRows(t, pool, "audit_log",
+		map[string]string{"inside retention": idleA, "other tenant, fresh": freshB},
+		map[string]string{"expired": oldA, "other tenant, expired": oldB})
+}
+
+func TestStore_AnonymizeExpiredIPAddresses(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+
+	oldA, oldB := a.auditEntry(t, pool), b.auditEntry(t, pool)
+	idleA, freshB := a.auditEntry(t, pool), b.auditEntry(t, pool)
+	backdateAuditEntry(t, pool, oldA, expired)
+	backdateAuditEntry(t, pool, oldB, expired)
+	backdateAuditEntry(t, pool, idleA, inside)
+
+	purgeAll(t, "AnonymizeExpiredIPAddresses", a.store.AnonymizeExpiredIPAddresses)
+
+	for name, tc := range map[string]struct {
+		id     string
+		wantIP bool
+	}{
+		"expired":               {oldA, false},
+		"other tenant, expired": {oldB, false},
+		"inside retention":      {idleA, true},
+		"other tenant, fresh":   {freshB, true},
+	} {
+		var ip *netip.Addr
+		var email *string
+		if err := pool.QueryRow(context.Background(),
+			`SELECT ip_address, admin_email FROM audit_log WHERE id = $1`, tc.id).Scan(&ip, &email); err != nil {
+			t.Fatalf("%s: entry must be kept: %v", name, err)
+		}
+		if (ip != nil) != tc.wantIP {
+			t.Errorf("%s: ip_address = %v, want kept %v", name, ip, tc.wantIP)
+		}
+		if email == nil {
+			t.Errorf("%s: admin_email was removed, only the IP address expires", name)
+		}
+	}
+}

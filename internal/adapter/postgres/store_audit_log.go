@@ -92,16 +92,20 @@ func (s *Store) AnonymizeAuditLogForUser(ctx context.Context, adminID string) (i
 	return tag.RowsAffected(), nil
 }
 
-// AnonymizeExpiredIPAddresses nulls ip_address on audit entries older than
-// the given cutoff. IP addresses are personal data per CJEU C-582/14 (Breyer).
-// Recommended retention: 180 days per CNIL traceability guidance.
-// NOTE: This is a cross-tenant system maintenance job — intentionally not tenant-scoped.
-// It runs under system context and affects all tenants uniformly.
+// AnonymizeExpiredIPAddresses nulls ip_address on up to batchSize audit
+// entries created before the cutoff and returns how many it changed; the
+// entries themselves are kept. IP addresses are personal data per CJEU
+// C-582/14 (Breyer); retention: 180 days per CNIL traceability guidance.
+// PostgreSQL has no UPDATE ... LIMIT, so the batch is selected by id.
+//
+// INTENTIONALLY CROSS-TENANT: part of the instance-wide retention job (see
+// store_retention.go): one policy for all tenants, and the only predicate is
+// the entry's age against the cutoff the caller computed from it.
 func (s *Store) AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE audit_log SET ip_address = NULL
-		 WHERE ip_address IS NOT NULL AND created_at < $1
-		 LIMIT $2`,
+		`UPDATE audit_log SET ip_address = NULL WHERE id IN (
+		   SELECT id FROM audit_log WHERE ip_address IS NOT NULL AND created_at < $1 LIMIT $2
+		 )`,
 		before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("anonymize expired ip addresses: %w", err)

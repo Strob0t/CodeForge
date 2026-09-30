@@ -38,7 +38,7 @@ type RunStore interface {
 	ListSessions(ctx context.Context, projectID string) ([]run.Session, error)
 	UpdateSessionStatus(ctx context.Context, id string, status run.SessionStatus, currentRunID string) error
 
-	// Retention
+	// Retention: cross-tenant system job (RetentionService), at most batchSize rows per call
 	DeleteExpiredSessions(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	DeleteExpiredRuns(ctx context.Context, before time.Time, batchSize int) (int64, error)
 }

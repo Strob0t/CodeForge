@@ -156,3 +156,15 @@ auth:
 #   quality_weight: 0.5           # Reward weight for quality (default: 0.5)
 #   latency_weight: 0.2           # Reward weight for latency (default: 0.2)
 #   meta_router_model: "groq/llama-3.1-8b-instant"  # Model for Layer 3 (default: "" = the worker's default model)
+
+# Data retention (GDPR Art. 5(1)(e), docs/data-retention.md)
+# A background job applies these periods to all tenants: once at startup, then every
+# `interval`. Sessions, conversations and runs count from their last activity, audit
+# entries from their creation. 0 keeps a category forever; a period below 24h is rejected.
+# retention:
+#   interval: 24h                 # How often the job runs (default: 24h; 0 disables it)
+#   sessions: 720h                # Agent sessions idle for 30 days (default: 720h)
+#   conversations: 8760h          # Conversations + messages idle for 1 year (default: 8760h)
+#   cost_records: 8760h           # Runs with their cost records idle for 1 year (default: 8760h)
+#   audit_entries: 61320h         # Audit log entries older than 7 years (default: 61320h)
+#   audit_ip_addresses: 4320h     # IP addresses in audit entries older than 180 days (default: 4320h)

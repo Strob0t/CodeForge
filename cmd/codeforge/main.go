@@ -1058,6 +1058,24 @@ func run() error {
 		service.StuckWorkCheck{Name: "quality gates", EndStuck: runtimeSvc.FailStuckQualityGates},
 	).Start(ctx)
 
+	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
+	// Its own daily ticker: the stuck-work watchdog ticks every
+	// stale_check_interval and reports what it ends as stuck work.
+	stopRetention := func() {}
+	if cfg.Retention.Interval > 0 {
+		stopRetention = service.NewRetentionService(store, cfg.Retention).Start(ctx, cfg.Retention.Interval)
+		slog.Info("retention job started",
+			"interval", cfg.Retention.Interval,
+			"sessions", cfg.Retention.Sessions,
+			"conversations", cfg.Retention.Conversations,
+			"cost_records", cfg.Retention.CostRecords,
+			"audit_entries", cfg.Retention.AuditEntries,
+			"audit_ip_addresses", cfg.Retention.AuditIPAddresses,
+		)
+	} else {
+		slog.Warn("retention.interval is 0: the retention job is disabled and expired data is kept")
+	}
+
 	<-done
 
 	// --- Ordered Graceful Shutdown ---
@@ -1077,6 +1095,7 @@ func run() error {
 	// Phase 2: Cancel NATS subscribers and background tasks
 	slog.Info("shutdown phase 2: cancelling NATS subscribers")
 	stopStuckWorkWatchdog()
+	stopRetention()
 	for _, cancel := range runtimeCancels {
 		cancel()
 	}
