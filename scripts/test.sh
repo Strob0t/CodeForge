@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CodeForge test runner — runs unit, integration, and lint/build tests.
+# CodeForge test runner - runs unit, integration, and lint/build tests.
 # Usage:
 #   ./scripts/test.sh              Run unit tests (Go + Python + Frontend)
 #   ./scripts/test.sh go           Go unit tests only

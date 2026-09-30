@@ -1,4 +1,4 @@
-# CodeForge Agent Benchmark — Coding Tasks
+# CodeForge Agent Benchmark - Coding Tasks
 # Tests full agent loop: multi-turn tool use with workspace file operations
 
 name: agent-coding
@@ -23,7 +23,7 @@ tasks:
   - id: ag-002
     name: Bug Fix in Calculator
     input: >
-      The calculator.py file has a bug in the divide function — it doesn't handle
+      The calculator.py file has a bug in the divide function - it doesn't handle
       division by zero. Fix the bug so that dividing by zero returns None instead
       of raising an exception. Do not change any other functions.
     expected_output: "calculator.py fixed with division by zero handling"

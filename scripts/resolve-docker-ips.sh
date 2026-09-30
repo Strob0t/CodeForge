@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# resolve-docker-ips.sh — Resolve Docker container IPs for WSL2 environments.
+# resolve-docker-ips.sh - Resolve Docker container IPs for WSL2 environments.
 #
 # In WSL2, Docker port mappings (0.0.0.0:4000 -> container:4000) are NOT
 # reachable via localhost from inside the WSL2 instance. This script resolves

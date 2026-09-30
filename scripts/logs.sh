@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CodeForge log helper — filters Docker Compose JSON logs.
+# CodeForge log helper - filters Docker Compose JSON logs.
 # Usage:
 #   ./scripts/logs.sh tail [N]           - Follow last N lines (default 50)
 #   ./scripts/logs.sh errors             - Show only ERROR/error level entries
