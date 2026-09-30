@@ -87,7 +87,7 @@ func (j *fakeJS) PublishMsg(_ context.Context, msg *nats.Msg, _ ...jetstream.Pub
 }
 
 func newTestQueue(js *fakeJS) *Queue {
-	return &Queue{js: js, ackWait: defaultAckWait}
+	return &Queue{js: js, ackWait: defaultAckWait, maxInProgress: defaultMaxInProgress, clock: time.Now}
 }
 
 func failingHandler(context.Context, string, []byte) error { return errAlwaysFail }
@@ -203,13 +203,45 @@ func TestHandleMessage_RetryAndDeadLetterByDeliveryCount(t *testing.T) {
 	}
 }
 
+// fakeClock is real time shifted by an offset the test advances, so a limit of
+// minutes is crossed without waiting for it.
+type fakeClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset += d
+}
+
+// waitForProgress polls until msg has at least n in-progress acks. The
+// deadline only bounds a broken implementation; a slow machine just waits longer.
+func waitForProgress(t *testing.T, msg *fakeMsg, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for msg.progressCount() < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("in-progress acks = %d, want at least %d", msg.progressCount(), n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // TestKeepInProgress_FastHandlerSendsNothing: a handler that returns before the
 // first interval must not cause any in-progress ack.
 func TestKeepInProgress_FastHandlerSendsNothing(t *testing.T) {
 	msg := &fakeMsg{}
-	stop := keepInProgress(msg, 20*time.Millisecond, time.Minute)
+	stop := keepInProgress(msg, time.Hour, time.Hour, time.Now)
 	stop()
-	time.Sleep(60 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 
 	if n := msg.progressCount(); n != 0 {
 		t.Fatalf("in-progress acks = %d, want 0", n)
@@ -220,34 +252,103 @@ func TestKeepInProgress_FastHandlerSendsNothing(t *testing.T) {
 // interval while the handler runs and never after stop returns.
 func TestKeepInProgress_ReportsWhileRunningAndStops(t *testing.T) {
 	msg := &fakeMsg{}
-	stop := keepInProgress(msg, 10*time.Millisecond, time.Minute)
-	time.Sleep(55 * time.Millisecond)
+	stop := keepInProgress(msg, 5*time.Millisecond, time.Hour, time.Now)
+	waitForProgress(t, msg, 3)
 	stop()
 	n := msg.progressCount()
-	time.Sleep(40 * time.Millisecond)
+	time.Sleep(40 * time.Millisecond) // eight intervals
 
-	if n < 3 {
-		t.Fatalf("in-progress acks = %d, want at least 3", n)
-	}
 	if after := msg.progressCount(); after != n {
 		t.Fatalf("in-progress acks after stop: %d, want %d", after, n)
 	}
 }
 
 // TestKeepInProgress_StopsAtTheLimit: a hung handler is reported in progress
-// only up to the limit, so JetStream redelivers it afterwards.
+// only up to the limit, so JetStream redelivers it afterwards. A report that
+// read the clock before it was advanced may still complete; nothing follows it.
 func TestKeepInProgress_StopsAtTheLimit(t *testing.T) {
+	clock := &fakeClock{}
 	msg := &fakeMsg{subject: "tasks.agent.x"}
-	stop := keepInProgress(msg, 10*time.Millisecond, 35*time.Millisecond)
+	stop := keepInProgress(msg, 5*time.Millisecond, time.Minute, clock.now)
 	defer stop()
-	time.Sleep(150 * time.Millisecond)
+	waitForProgress(t, msg, 2)
 
+	clock.advance(time.Minute + time.Millisecond)
 	n := msg.progressCount()
-	if n < 2 || n > 4 {
-		t.Fatalf("in-progress acks = %d, want 2..4 before the 35ms limit", n)
-	}
-	time.Sleep(50 * time.Millisecond)
-	if after := msg.progressCount(); after != n {
+	time.Sleep(60 * time.Millisecond) // twelve intervals
+
+	if after := msg.progressCount(); after > n+1 {
 		t.Fatalf("in-progress acks continued after the limit: %d -> %d", n, after)
+	}
+}
+
+// TestInProgressLimit: the in-progress limit covers the longest legitimate
+// handler (the HITL approval wait) plus a margin and never drops below the default.
+func TestInProgressLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		maxHandler time.Duration
+		want       time.Duration
+	}{
+		{"unset keeps the default", 0, defaultMaxInProgress},
+		{"negative keeps the default", -time.Second, defaultMaxInProgress},
+		{"default approval wait keeps the default", 60 * time.Second, defaultMaxInProgress},
+		{"wait that just fits keeps the default", defaultMaxInProgress - inProgressMargin, defaultMaxInProgress},
+		{"wait one second longer raises the limit", defaultMaxInProgress - inProgressMargin + time.Second, defaultMaxInProgress + time.Second},
+		{"30 minute approval wait", 30 * time.Minute, 30*time.Minute + inProgressMargin},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := inProgressLimit(tt.maxHandler); got != tt.want {
+				t.Fatalf("inProgressLimit(%v) = %v, want %v", tt.maxHandler, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestHandleMessage_InProgressLimitFollowsMaxHandlerDuration: with a HITL
+// approval timeout longer than the default limit, a handler waiting for the
+// approval keeps its message in progress instead of it being redelivered and
+// handled twice; a handler hung beyond the raised limit is still released.
+func TestHandleMessage_InProgressLimitFollowsMaxHandlerDuration(t *testing.T) {
+	tests := []struct {
+		name         string
+		maxHandler   time.Duration // 0: SetMaxHandlerDuration not called
+		elapsed      time.Duration
+		wantProgress bool
+	}{
+		{"default limit releases a handler after ten minutes", 0, defaultMaxInProgress + time.Minute, false},
+		{"30 minute approval wait is still in progress after 20 minutes", 30 * time.Minute, 20 * time.Minute, true},
+		{"30 minute approval wait releases a handler hung beyond it", 30 * time.Minute, 30*time.Minute + inProgressMargin + time.Minute, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clock := &fakeClock{}
+			q := newTestQueue(&fakeJS{})
+			q.ackWait = 15 * time.Millisecond // report every 5ms
+			q.clock = clock.now
+			if tt.maxHandler > 0 {
+				q.SetMaxHandlerDuration(tt.maxHandler)
+			}
+			msg := &fakeMsg{subject: "tasks.agent.x", data: []byte(`{"a":1}`), numDelivered: 1}
+
+			handler := func(context.Context, string, []byte) error {
+				waitForProgress(t, msg, 1)
+				clock.advance(tt.elapsed)
+				n := msg.progressCount()
+				if tt.wantProgress {
+					waitForProgress(t, msg, n+3)
+					return nil
+				}
+				time.Sleep(60 * time.Millisecond) // twelve intervals
+				if after := msg.progressCount(); after > n+1 {
+					t.Errorf("in-progress acks continued after the limit: %d -> %d", n, after)
+				}
+				return nil
+			}
+			q.handleMessage(context.Background(), msg, handler)
+
+			assertSettled(t, msg, "ack")
+		})
 	}
 }

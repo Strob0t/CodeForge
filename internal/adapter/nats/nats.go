@@ -39,12 +39,15 @@ const (
 	// headerOriginalMsgID carries the original Nats-Msg-Id on a DLQ copy
 	// (same name in workers/codeforge/nats_subjects.py).
 	headerOriginalMsgID = "X-Original-Msg-Id"
-	// maxInProgress bounds how long a handler is reported in progress. The
-	// slowest Go handler is the HITL approval wait (runtime.approval_timeout_seconds,
-	// default 60 s); a handler running ten times longer is treated as hung: its
-	// heartbeat stops and JetStream redelivers the message after AckWait instead
-	// of the handler holding a MaxAckPending slot forever.
-	maxInProgress = 10 * time.Minute
+	// defaultMaxInProgress bounds how long a handler is reported in progress.
+	// A handler running longer is treated as hung: its heartbeat stops and
+	// JetStream redelivers the message after AckWait instead of the handler
+	// holding a MaxAckPending slot forever. SetMaxHandlerDuration raises it for
+	// handlers that legitimately wait longer (the HITL approval wait).
+	defaultMaxInProgress = 10 * time.Minute
+	// inProgressMargin is the time a handler may spend besides its longest
+	// legitimate wait (policy evaluation, publishing the response).
+	inProgressMargin = 5 * time.Minute
 )
 
 // Queue implements messagequeue.Queue using NATS JetStream.
@@ -56,6 +59,10 @@ type Queue struct {
 	// ackWait is how long JetStream waits for an ack before it redelivers a
 	// message; handlers report progress three times per ackWait while they run.
 	ackWait time.Duration
+	// maxInProgress bounds how long a running handler is reported in progress.
+	maxInProgress time.Duration
+	// clock is time.Now, replaceable in tests.
+	clock func() time.Time
 }
 
 // reconnectOpts returns NATS connection options for automatic reconnection
@@ -99,7 +106,7 @@ func Connect(ctx context.Context, url string, streamMaxBytes int64) (*Queue, err
 		return nil, fmt.Errorf("jetstream stream create: %w", err)
 	}
 
-	q := &Queue{nc: nc, js: js, ackWait: defaultAckWait}
+	q := &Queue{nc: nc, js: js, ackWait: defaultAckWait, maxInProgress: defaultMaxInProgress, clock: time.Now}
 	q.startDLQMonitor(ctx)
 
 	slog.Info("nats connected", "url", secrets.RedactURL(url), "stream", streamName)
@@ -186,6 +193,19 @@ func (q *Queue) SetNotifier(n notifier.Notifier) {
 // SetBreaker attaches a circuit breaker to the publish path.
 func (q *Queue) SetBreaker(b *resilience.Breaker) {
 	q.breaker = b
+}
+
+// SetMaxHandlerDuration declares the longest time a handler may legitimately
+// run (the HITL approval wait), so its message stays in progress that long
+// instead of being redelivered and handled twice. Call it before Subscribe.
+func (q *Queue) SetMaxHandlerDuration(d time.Duration) {
+	q.maxInProgress = inProgressLimit(d)
+}
+
+// inProgressLimit is how long a handler that may legitimately run for
+// maxHandler is reported in progress.
+func inProgressLimit(maxHandler time.Duration) time.Duration {
+	return max(defaultMaxInProgress, maxHandler+inProgressMargin)
 }
 
 // Publish sends a message to the given subject.
@@ -464,7 +484,7 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 		return
 	}
 
-	stopProgress := keepInProgress(msg, q.ackWait/3, maxInProgress)
+	stopProgress := keepInProgress(msg, q.ackWait/3, q.maxInProgress, q.clock)
 	err := handler(msgCtx, msg.Subject(), msg.Data())
 	stopProgress()
 
@@ -505,21 +525,22 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 // another instance, while a hung one is redelivered once limit plus AckWait
 // have passed. It only arms a timer, so a handler that returns within interval
 // costs no goroutine and sends nothing. stop waits for a running report to
-// finish, so no progress ack follows the final ack.
-func keepInProgress(msg jetstream.Msg, interval, limit time.Duration) (stop func()) {
+// finish, so no progress ack follows the final ack. now is the clock the limit
+// is measured with.
+func keepInProgress(msg jetstream.Msg, interval, limit time.Duration, now func() time.Time) (stop func()) {
 	var (
 		mu      sync.Mutex
 		stopped bool
 		timer   *time.Timer
 	)
-	deadline := time.Now().Add(limit)
+	deadline := now().Add(limit)
 	report := func() {
 		mu.Lock()
 		defer mu.Unlock()
 		if stopped {
 			return
 		}
-		if time.Now().After(deadline) {
+		if now().After(deadline) {
 			slog.Warn("nats handler exceeded the in-progress limit, JetStream will redeliver the message",
 				"subject", msg.Subject(),
 				"limit", limit,

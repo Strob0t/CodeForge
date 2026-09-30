@@ -163,6 +163,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}
+	// The tool-call handler waits up to the HITL approval timeout; its message
+	// must stay in progress that long (ADR-016).
+	queue.SetMaxHandlerDuration(time.Duration(cfg.Runtime.ApprovalTimeoutSeconds) * time.Second)
 
 	// Idempotency KV store
 	idempotencyKV, err := queue.KeyValue(ctx, cfg.Idempotency.Bucket, cfg.Idempotency.TTL)
