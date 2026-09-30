@@ -44,8 +44,8 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 
 	// Load policy profile for termination checks: the run's profile, or the
 	// project's Allow-Always clone of it.
-	profileName := effectivePolicyProfile(s.policy, r.PolicyProfile, r.ProjectID)
-	profile, ok := s.policy.GetProfile(profileName)
+	profileName := effectivePolicyProfile(ctx, s.policy, r.PolicyProfile, r.ProjectID)
+	profile, ok := s.policy.GetProfile(ctx, profileName)
 	if !ok {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "unknown policy profile")
 	}
@@ -228,9 +228,9 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		modeAutonomy = m.Autonomy
 	}
 	baseProfile := conversationPolicyProfile(proj, modeAutonomy, s.policy.DefaultProfile())
-	policyProfile := effectivePolicyProfile(s.policy, baseProfile, proj.ID)
+	policyProfile := effectivePolicyProfile(ctx, s.policy, baseProfile, proj.ID)
 
-	if _, ok := s.policy.GetProfile(policyProfile); !ok {
+	if _, ok := s.policy.GetProfile(ctx, policyProfile); !ok {
 		slog.Warn("unknown policy profile for conversation, denying", "profile", policyProfile, "conversation_id", req.RunID)
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), fmt.Sprintf("unknown policy profile %q", policyProfile))
 	}
@@ -266,7 +266,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 				"call_id", req.CallID,
 				"tool", req.Tool,
 			)
-		} else if profile, profileOK := s.policy.GetProfile(policyProfile); profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
+		} else if profile, profileOK := s.policy.GetProfile(ctx, policyProfile); profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
 			decision = policy.DecisionAllow
 			slog.Info("conversation HITL auto-approved (full-auto profile)",
 				"conversation_id", req.RunID,
@@ -390,7 +390,7 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	}
 
 	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
-	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
+	profile, profileOK := s.policy.GetProfile(ctx, r.PolicyProfile)
 	if profileOK && profile.Termination.MaxCost > 0 {
 		maxCost := profile.Termination.MaxCost
 		pct := (newCost / maxCost) * 100

@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // newPersistentPolicyRouter returns a router whose PolicyService writes
@@ -108,8 +109,8 @@ func TestAllowAlwaysPolicy_ClonePreset(t *testing.T) {
 		t.Fatalf("expected project policy profile unchanged, got %q", store.projects[0].PolicyProfile)
 	}
 
-	// The clone is on disk, so the project reference survives a restart.
-	if _, err := os.Stat(filepath.Join(dir, expectedName+".yaml")); err != nil {
+	// The clone is on disk (in the caller's tenant), so the project reference survives a restart.
+	if _, err := os.Stat(filepath.Join(dir, tenantctx.DefaultTenantID, expectedName+".yaml")); err != nil {
 		t.Fatalf("expected persisted clone: %v", err)
 	}
 }
@@ -348,7 +349,7 @@ func TestAllowAlwaysPolicy_RejectsUnsafeRules(t *testing.T) {
 			t.Errorf("%v: expected 400, got %d: %s", body, w.Code, w.Body.String())
 		}
 	}
-	if p, _ := policySvc.GetProfile("unsafe-profile"); len(p.Rules) != 0 {
+	if p, _ := policySvc.GetProfile(context.Background(), "unsafe-profile"); len(p.Rules) != 0 {
 		t.Fatalf("expected no rules, got %+v", p.Rules)
 	}
 }
@@ -396,13 +397,12 @@ func TestAllowAlwaysPolicy_SurvivesRestart(t *testing.T) {
 	}
 
 	// Restart: load the directory the way cmd/codeforge does.
-	loaded, err := policy.LoadFromDirectory(dir)
-	if err != nil {
+	restarted := service.NewPolicyService("headless-safe-sandbox", nil)
+	if err := restarted.LoadPolicyDir(dir); err != nil {
 		t.Fatalf("load policy dir: %v", err)
 	}
-	restarted := service.NewPolicyService("headless-safe-sandbox", loaded)
 	name := "headless-safe-sandbox-custom-proj-7"
-	p, ok := restarted.GetProfile(name)
+	p, ok := restarted.GetProfile(context.Background(), name)
 	if !ok {
 		t.Fatalf("profile %q not loaded after restart", name)
 	}
@@ -429,12 +429,12 @@ func TestCreatePolicyProfile_PresetConflict(t *testing.T) {
 		if w.Code != http.StatusConflict {
 			t.Errorf("%s: expected 409, got %d: %s", name, w.Code, w.Body.String())
 		}
-		p, _ := policySvc.GetProfile(name)
+		p, _ := policySvc.GetProfile(context.Background(), name)
 		want, _ := policy.PresetByName(name)
 		if p.Mode != want.Mode || len(p.Rules) != len(want.Rules) {
 			t.Errorf("%s: preset was modified: %+v", name, p)
 		}
-		if _, err := os.Stat(filepath.Join(dir, name+".yaml")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(dir, tenantctx.DefaultTenantID, name+".yaml")); !os.IsNotExist(err) {
 			t.Errorf("%s: preset override written to the policy dir", name)
 		}
 	}
@@ -458,7 +458,7 @@ func TestCreateDeletePolicyProfile_Persistence(t *testing.T) {
 	r, _, dir := newPersistentPolicyRouter(t, &mockStore{})
 	createProfile(t, r, &policy.PolicyProfile{Name: "persisted", Mode: policy.ModeDefault})
 
-	path := filepath.Join(dir, "persisted.yaml")
+	path := filepath.Join(dir, tenantctx.DefaultTenantID, "persisted.yaml")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected persisted profile file: %v", err)
 	}
@@ -479,7 +479,11 @@ func TestCreateDeletePolicyProfile_Persistence(t *testing.T) {
 // that names the actual conflict.
 func TestCreatePolicyProfile_FileConflict(t *testing.T) {
 	r, _, dir := newPersistentPolicyRouter(t, &mockStore{})
-	if err := os.WriteFile(filepath.Join(dir, "taken.yaml"), []byte("name: other\nmode: default\n"), 0o600); err != nil {
+	tenantDir := filepath.Join(dir, tenantctx.DefaultTenantID)
+	if err := os.MkdirAll(tenantDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tenantDir, "taken.yaml"), []byte("name: other\nmode: default\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	w := postJSON(t, r, "/api/v1/policies", policy.PolicyProfile{Name: "taken", Mode: policy.ModeDefault})
@@ -516,5 +520,66 @@ func TestEvaluatePolicy_CanonicalToolNames(t *testing.T) {
 		if result.Decision != tc.want {
 			t.Errorf("%s %+v -> %s (%s), want %s", tc.profile, tc.call, result.Decision, result.Reason, tc.want)
 		}
+	}
+}
+
+// TestPolicyProfiles_TenantScoped: custom profiles belong to the caller's
+// tenant; another tenant can neither list, read, evaluate, replace nor
+// delete them (KI-68).
+func TestPolicyProfiles_TenantScoped(t *testing.T) {
+	const (
+		tenantA = "aaaaaaaa-0000-4000-8000-000000000001"
+		tenantB = "bbbbbbbb-0000-4000-8000-000000000002"
+	)
+	r, _, dir := newPersistentPolicyRouter(t, &mockStore{})
+	do := func(tenant, method, path string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		var data []byte
+		if body != nil {
+			var err error
+			if data, err = json.Marshal(body); err != nil {
+				t.Fatal(err)
+			}
+		}
+		req := httptest.NewRequest(method, path, bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(tenantctx.WithTenant(req.Context(), tenant))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	if w := do(tenantA, "POST", "/api/v1/policies", policy.PolicyProfile{Name: "team", Mode: policy.ModePlan}); w.Code != http.StatusCreated {
+		t.Fatalf("create in A: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, tenantA, "team.yaml")); err != nil {
+		t.Fatalf("profile not stored in tenant A's directory: %v", err)
+	}
+
+	var listB struct{ Profiles []string }
+	if err := json.NewDecoder(do(tenantB, "GET", "/api/v1/policies", nil).Body).Decode(&listB); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(listB.Profiles, "team") || !slices.Contains(listB.Profiles, "plan-readonly") {
+		t.Fatalf("tenant B's list: %v", listB.Profiles)
+	}
+	if w := do(tenantB, "GET", "/api/v1/policies/team", nil); w.Code != http.StatusNotFound {
+		t.Errorf("B reads A's profile: %d", w.Code)
+	}
+	if w := do(tenantB, "POST", "/api/v1/policies/team/evaluate", policy.ToolCall{Tool: "Read"}); w.Code != http.StatusNotFound {
+		t.Errorf("B evaluates A's profile: %d", w.Code)
+	}
+	if w := do(tenantB, "DELETE", "/api/v1/policies/team", nil); w.Code != http.StatusNotFound {
+		t.Errorf("B deletes A's profile: %d", w.Code)
+	}
+	if w := do(tenantB, "POST", "/api/v1/policies", policy.PolicyProfile{Name: "team", Mode: policy.ModeAcceptEdits}); w.Code != http.StatusCreated {
+		t.Fatalf("create in B: %d %s", w.Code, w.Body.String())
+	}
+	w := do(tenantA, "GET", "/api/v1/policies/team", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("A reads its profile: %d", w.Code)
+	}
+	if p := decodeProfile(t, w); p.Mode != policy.ModePlan {
+		t.Fatalf("tenant A's profile replaced by B: %+v", p)
 	}
 }

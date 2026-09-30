@@ -34,14 +34,14 @@ func TestPolicyService_ConcurrentEvaluateAndUpdate(t *testing.T) {
 		go func(w int) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				_ = svc.SaveProfile(&policy.PolicyProfile{Name: fmt.Sprintf("p-%d-%d", w, i%10), Mode: policy.ModeDefault})
-				_ = svc.DeleteProfile(fmt.Sprintf("p-%d-%d", w, (i+5)%10))
+				_ = svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: fmt.Sprintf("p-%d-%d", w, i%10), Mode: policy.ModeDefault})
+				_ = svc.DeleteProfile(context.Background(), fmt.Sprintf("p-%d-%d", w, (i+5)%10))
 			}
 		}(w)
 		go func(w int) {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				_ = svc.PrependRule("shared", &policy.PermissionRule{
+				_ = svc.PrependRule(context.Background(), "shared", &policy.PermissionRule{
 					Specifier:    policy.ToolSpecifier{Tool: "Bash"},
 					Decision:     policy.DecisionAllow,
 					CommandAllow: []string{fmt.Sprintf("tool%d-%d", w, i)},
@@ -51,14 +51,14 @@ func TestPolicyService_ConcurrentEvaluateAndUpdate(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				_ = svc.ListProfiles()
-				_, _ = svc.GetProfile("shared")
+				_ = svc.ListProfiles(context.Background())
+				_, _ = svc.GetProfile(context.Background(), "shared")
 			}
 		}()
 	}
 	wg.Wait()
 
-	p, ok := svc.GetProfile("shared")
+	p, ok := svc.GetProfile(context.Background(), "shared")
 	if !ok {
 		t.Fatal("shared profile missing")
 	}
@@ -76,11 +76,11 @@ func TestSaveProfile_RejectsBuiltinPresets(t *testing.T) {
 			Mode:  policy.ModeAcceptEdits,
 			Rules: []policy.PermissionRule{{Specifier: policy.ToolSpecifier{Tool: "*"}, Decision: policy.DecisionAllow}},
 		}
-		err := svc.SaveProfile(&allowAll)
+		err := svc.SaveProfile(context.Background(), &allowAll)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("%s: SaveProfile error = %v, want ErrConflict", name, err)
 		}
-		got, _ := svc.GetProfile(name)
+		got, _ := svc.GetProfile(context.Background(), name)
 		want, _ := policy.PresetByName(name)
 		if got.Mode != want.Mode || len(got.Rules) != len(want.Rules) {
 			t.Errorf("%s: preset was replaced", name)
@@ -90,7 +90,7 @@ func TestSaveProfile_RejectsBuiltinPresets(t *testing.T) {
 
 func TestSaveProfile_ValidationErrorIsValidation(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	err := svc.SaveProfile(&policy.PolicyProfile{Name: "bad", Mode: "yolo"})
+	err := svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: "bad", Mode: "yolo"})
 	if !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("SaveProfile error = %v, want ErrValidation", err)
 	}

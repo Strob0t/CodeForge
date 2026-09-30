@@ -57,7 +57,7 @@ func conversationPolicyProfile(proj *project.Project, modeAutonomy int, defaultP
 
 // isFullAutoProject checks if the project's policy profile uses an auto-allow mode
 // (ModeAcceptEdits or ModeDelegate), meaning HITL is bypassed and the agent runs autonomously.
-func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project.Project) bool {
+func (s *ConversationService) isFullAutoProject(ctx context.Context, proj *project.Project) bool {
 	if s.policySvc == nil {
 		return false
 	}
@@ -70,7 +70,7 @@ func (s *ConversationService) isFullAutoProject(_ context.Context, proj *project
 	if preset == "" {
 		return false
 	}
-	profile, ok := s.policySvc.GetProfile(preset)
+	profile, ok := s.policySvc.GetProfile(ctx, preset)
 	if !ok {
 		return false
 	}
@@ -290,7 +290,7 @@ func (s *ConversationService) dispatchAgenticRun(
 	policyProfile := ""
 	if s.policySvc != nil {
 		base := conversationPolicyProfile(proj, modeAutonomy, s.policySvc.DefaultProfile())
-		policyProfile = effectivePolicyProfile(s.policySvc, base, proj.ID)
+		policyProfile = effectivePolicyProfile(ctx, s.policySvc, base, proj.ID)
 	}
 
 	systemPrompt = appendModelAdaptation(systemPrompt, model, resolvedMode)

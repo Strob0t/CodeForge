@@ -141,7 +141,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 		return nil
 	}
 
-	profile, ok := s.policy.GetProfile(r.PolicyProfile)
+	profile, ok := s.policy.GetProfile(ctx, r.PolicyProfile)
 	if !ok {
 		return s.failQualityGate(ctx, r, &policy.QualityGate{}, gateVerdict{reason: unknownGateProfile(r.PolicyProfile)}, result)
 	}

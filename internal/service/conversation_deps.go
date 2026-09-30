@@ -32,7 +32,7 @@ type convModeProvider interface {
 
 // convPolicyEvaluator is the subset of PolicyService used by ConversationService.
 type convPolicyEvaluator interface {
-	GetProfile(name string) (policy.PolicyProfile, bool)
+	GetProfile(ctx context.Context, name string) (policy.PolicyProfile, bool)
 	DefaultProfile() string
 }
 

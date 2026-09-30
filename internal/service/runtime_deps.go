@@ -21,7 +21,7 @@ import (
 // runtimePolicyEvaluator is the subset of PolicyService used by RuntimeService.
 type runtimePolicyEvaluator interface {
 	DefaultProfile() string
-	GetProfile(name string) (policy.PolicyProfile, bool)
+	GetProfile(ctx context.Context, name string) (policy.PolicyProfile, bool)
 	EvaluateWithReason(ctx context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (*policy.EvaluationResult, error)
 }
 

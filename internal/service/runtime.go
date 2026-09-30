@@ -398,7 +398,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	if profileName == "" {
 		profileName = s.policy.DefaultProfile()
 	}
-	profile, ok := s.policy.GetProfile(profileName)
+	profile, ok := s.policy.GetProfile(ctx, profileName)
 	if !ok {
 		return nil, fmt.Errorf("unknown policy profile %q", profileName)
 	}

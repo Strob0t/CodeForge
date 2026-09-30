@@ -148,11 +148,16 @@ func TestQualityGateRequest_CarriesRunTenant(t *testing.T) {
 }
 
 func TestStartRun_ContextTimeoutKeepsTenant(t *testing.T) {
-	svc, _, _, bc := newRuntimeTestEnvWithPolicy(service.NewPolicyService("one-second", []policy.PolicyProfile{{
+	// The profile belongs to the run's tenant (KI-68).
+	ctx := tenantctx.WithTenant(context.Background(), runTenantB)
+	policySvc := service.NewPolicyService("one-second", nil)
+	if err := policySvc.SaveProfile(ctx, &policy.PolicyProfile{
 		Name: "one-second", Mode: policy.ModeDefault,
 		Termination: policy.TerminationCondition{TimeoutSeconds: 1, MaxSteps: 10},
-	}}))
-	ctx := tenantctx.WithTenant(context.Background(), runTenantB)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc, _, _, bc := newRuntimeTestEnvWithPolicy(policySvc)
 
 	if _, err := svc.StartRun(ctx, &run.StartRequest{TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1"}); err != nil {
 		t.Fatalf("StartRun: %v", err)

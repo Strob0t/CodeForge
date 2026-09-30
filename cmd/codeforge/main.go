@@ -226,7 +226,7 @@ func run() error {
 	}
 	slog.Info("policy service initialized",
 		"default_profile", cfg.Policy.DefaultProfile,
-		"profiles", len(policySvc.ListProfiles()),
+		"profiles", len(policySvc.ListProfiles(context.Background())),
 		"policy_dir", cfg.Policy.CustomDir,
 	)
 	if cfg.Policy.CustomDir == "" {

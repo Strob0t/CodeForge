@@ -106,7 +106,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	// run ends now (delivery, if configured, happens when it ends completed).
 	// A run whose profile no longer exists cannot tell whether it needs a
 	// gate, so it does not complete (fail closed).
-	profile, ok := s.policy.GetProfile(r.PolicyProfile)
+	profile, ok := s.policy.GetProfile(ctx, r.PolicyProfile)
 	if status == run.StatusCompleted && !ok {
 		failed := *payload
 		failed.Status, failed.Error = string(run.StatusFailed), unknownGateProfile(r.PolicyProfile)

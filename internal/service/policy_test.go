@@ -276,7 +276,7 @@ func TestPolicyServiceListProfiles(t *testing.T) {
 		{Name: "custom-one", Mode: policy.ModeDefault},
 	}
 	svc := NewPolicyService("headless-safe-sandbox", custom)
-	names := svc.ListProfiles()
+	names := svc.ListProfiles(context.Background())
 
 	if len(names) != 6 {
 		t.Fatalf("expected 6 profiles (5 presets + 1 custom), got %d: %v", len(names), names)
@@ -296,7 +296,7 @@ func TestPolicyServiceListProfiles(t *testing.T) {
 func TestPolicyServiceGetProfile(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	p, ok := svc.GetProfile("plan-readonly")
+	p, ok := svc.GetProfile(context.Background(), "plan-readonly")
 	if !ok {
 		t.Fatal("expected to find plan-readonly")
 	}
@@ -308,7 +308,7 @@ func TestPolicyServiceGetProfile(t *testing.T) {
 func TestPolicyServiceGetProfileUnknown(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	_, ok := svc.GetProfile("nonexistent")
+	_, ok := svc.GetProfile(context.Background(), "nonexistent")
 	if ok {
 		t.Error("expected false for unknown profile")
 	}
@@ -337,7 +337,7 @@ func TestPolicyServiceCustomOverridesPreset(t *testing.T) {
 	}
 	svc := NewPolicyService("plan-readonly", []policy.PolicyProfile{custom})
 
-	p, ok := svc.GetProfile("plan-readonly")
+	p, ok := svc.GetProfile(context.Background(), "plan-readonly")
 	if !ok {
 		t.Fatal("expected profile")
 	}
@@ -404,11 +404,11 @@ func TestSaveProfile(t *testing.T) {
 		Name: "my-custom",
 		Mode: policy.ModeDefault,
 	}
-	if err := svc.SaveProfile(&profile); err != nil {
+	if err := svc.SaveProfile(context.Background(), &profile); err != nil {
 		t.Fatal(err)
 	}
 
-	p, ok := svc.GetProfile("my-custom")
+	p, ok := svc.GetProfile(context.Background(), "my-custom")
 	if !ok {
 		t.Fatal("expected to find saved profile")
 	}
@@ -420,7 +420,7 @@ func TestSaveProfile(t *testing.T) {
 func TestSaveProfileValidation(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 	// Empty name should fail validation.
-	err := svc.SaveProfile(&policy.PolicyProfile{Mode: policy.ModeDefault})
+	err := svc.SaveProfile(context.Background(), &policy.PolicyProfile{Mode: policy.ModeDefault})
 	if err == nil {
 		t.Fatal("expected validation error for empty name")
 	}
@@ -431,10 +431,10 @@ func TestSaveProfileOverwrite(t *testing.T) {
 	p1 := policy.PolicyProfile{Name: "test-overwrite", Mode: policy.ModeDefault}
 	p2 := policy.PolicyProfile{Name: "test-overwrite", Mode: policy.ModeAcceptEdits}
 
-	_ = svc.SaveProfile(&p1)
-	_ = svc.SaveProfile(&p2)
+	_ = svc.SaveProfile(context.Background(), &p1)
+	_ = svc.SaveProfile(context.Background(), &p2)
 
-	got, ok := svc.GetProfile("test-overwrite")
+	got, ok := svc.GetProfile(context.Background(), "test-overwrite")
 	if !ok {
 		t.Fatal("expected profile to exist")
 	}
@@ -445,14 +445,14 @@ func TestSaveProfileOverwrite(t *testing.T) {
 
 func TestDeleteProfile(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	_ = svc.SaveProfile(&policy.PolicyProfile{Name: "to-delete", Mode: policy.ModeDefault})
+	_ = svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: "to-delete", Mode: policy.ModeDefault})
 
-	err := svc.DeleteProfile("to-delete")
+	err := svc.DeleteProfile(context.Background(), "to-delete")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, ok := svc.GetProfile("to-delete")
+	_, ok := svc.GetProfile(context.Background(), "to-delete")
 	if ok {
 		t.Error("expected profile to be deleted")
 	}
@@ -460,7 +460,7 @@ func TestDeleteProfile(t *testing.T) {
 
 func TestDeleteProfilePresetFails(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	err := svc.DeleteProfile("plan-readonly")
+	err := svc.DeleteProfile(context.Background(), "plan-readonly")
 	if err == nil {
 		t.Fatal("expected error when deleting a preset")
 	}
@@ -468,7 +468,7 @@ func TestDeleteProfilePresetFails(t *testing.T) {
 
 func TestDeleteProfileNotFound(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	err := svc.DeleteProfile("nonexistent")
+	err := svc.DeleteProfile(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unknown profile")
 	}
@@ -490,11 +490,11 @@ func TestPrependRule_Basic(t *testing.T) {
 		Specifier: policy.ToolSpecifier{Tool: "Write"},
 		Decision:  policy.DecisionDeny,
 	}
-	if err := svc.PrependRule("my-profile", &rule); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &rule); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	p, ok := svc.GetProfile("my-profile")
+	p, ok := svc.GetProfile(context.Background(), "my-profile")
 	if !ok {
 		t.Fatal("profile not found")
 	}
@@ -523,14 +523,14 @@ func TestPrependRule_Idempotent(t *testing.T) {
 	}
 
 	// Prepend twice with identical specifier.
-	if err := svc.PrependRule("my-profile", &rule); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &rule); err != nil {
 		t.Fatalf("first prepend: unexpected error: %v", err)
 	}
-	if err := svc.PrependRule("my-profile", &rule); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &rule); err != nil {
 		t.Fatalf("second prepend: unexpected error: %v", err)
 	}
 
-	p, _ := svc.GetProfile("my-profile")
+	p, _ := svc.GetProfile(context.Background(), "my-profile")
 	if len(p.Rules) != 1 {
 		t.Errorf("expected exactly 1 rule after idempotent prepend, got %d", len(p.Rules))
 	}
@@ -539,7 +539,7 @@ func TestPrependRule_Idempotent(t *testing.T) {
 func TestPrependRule_UnknownProfile(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	err := svc.PrependRule("does-not-exist", &policy.PermissionRule{
+	err := svc.PrependRule(context.Background(), "does-not-exist", &policy.PermissionRule{
 		Specifier: policy.ToolSpecifier{Tool: "Read"},
 		Decision:  policy.DecisionAllow,
 	})
@@ -551,7 +551,7 @@ func TestPrependRule_UnknownProfile(t *testing.T) {
 func TestPrependRule_BuiltinPreset(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
 
-	err := svc.PrependRule("plan-readonly", &policy.PermissionRule{
+	err := svc.PrependRule(context.Background(), "plan-readonly", &policy.PermissionRule{
 		Specifier: policy.ToolSpecifier{Tool: "Bash"},
 		Decision:  policy.DecisionAllow,
 	})
@@ -562,10 +562,10 @@ func TestPrependRule_BuiltinPreset(t *testing.T) {
 
 func TestPrependRule_InvalidRule(t *testing.T) {
 	svc := NewPolicyService("headless-safe-sandbox", nil)
-	_ = svc.SaveProfile(&policy.PolicyProfile{Name: "test-validate", Mode: policy.ModeDefault})
+	_ = svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: "test-validate", Mode: policy.ModeDefault})
 
 	// Rule with empty Tool should fail validation.
-	err := svc.PrependRule("test-validate", &policy.PermissionRule{Decision: policy.DecisionAllow})
+	err := svc.PrependRule(context.Background(), "test-validate", &policy.PermissionRule{Decision: policy.DecisionAllow})
 	if err == nil {
 		t.Fatal("expected validation error for rule with empty Tool")
 	}
@@ -598,7 +598,7 @@ func TestPrependRule_EvaluationAfterPrepend(t *testing.T) {
 		Specifier: policy.ToolSpecifier{Tool: "Bash"},
 		Decision:  policy.DecisionAllow,
 	}
-	if err := svc.PrependRule("my-profile", &allowBash); err != nil {
+	if err := svc.PrependRule(context.Background(), "my-profile", &allowBash); err != nil {
 		t.Fatalf("PrependRule: %v", err)
 	}
 

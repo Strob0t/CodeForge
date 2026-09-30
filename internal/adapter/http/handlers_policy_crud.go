@@ -14,8 +14,10 @@ import (
 )
 
 // PolicyHandlers groups HTTP handlers for policy profile CRUD,
-// evaluation, and the allow-always mechanism. Persistence of custom
-// profiles is handled by the PolicyService (see LoadPolicyDir).
+// evaluation, and the allow-always mechanism. Custom profiles belong to the
+// caller's tenant (the tenant in the request context); the built-in presets
+// are shared and read-only. Persistence of custom profiles is handled by the
+// PolicyService (see LoadPolicyDir).
 type PolicyHandlers struct {
 	Policies *service.PolicyService
 	Projects *service.ProjectService
@@ -23,16 +25,16 @@ type PolicyHandlers struct {
 }
 
 // ListPolicyProfiles handles GET /api/v1/policies
-func (ph *PolicyHandlers) ListPolicyProfiles(w http.ResponseWriter, _ *http.Request) {
+func (ph *PolicyHandlers) ListPolicyProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{
-		"profiles": ph.Policies.ListProfiles(),
+		"profiles": ph.Policies.ListProfiles(r.Context()),
 	})
 }
 
 // GetPolicyProfile handles GET /api/v1/policies/{name}
 func (ph *PolicyHandlers) GetPolicyProfile(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	p, ok := ph.Policies.GetProfile(name)
+	p, ok := ph.Policies.GetProfile(r.Context(), name)
 	if !ok {
 		writeError(w, http.StatusNotFound, "policy profile not found")
 		return
@@ -73,7 +75,7 @@ func (ph *PolicyHandlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := ph.Policies.SaveProfile(&profile); err != nil {
+	if err := ph.Policies.SaveProfile(r.Context(), &profile); err != nil {
 		switch {
 		case errors.Is(err, domain.ErrConflict) && policy.IsPreset(profile.Name):
 			writeError(w, http.StatusConflict, "built-in policy presets cannot be overwritten")
@@ -97,7 +99,7 @@ func (ph *PolicyHandlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := ph.Policies.DeleteProfile(name); err != nil {
+	if err := ph.Policies.DeleteProfile(r.Context(), name); err != nil {
 		switch {
 		case policy.IsPreset(name):
 			writeError(w, http.StatusForbidden, err.Error())

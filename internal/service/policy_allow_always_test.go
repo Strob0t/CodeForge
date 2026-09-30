@@ -161,7 +161,7 @@ func TestAllowAlways_ProfileSelection(t *testing.T) {
 				t.Errorf("project profile changed to %q", got)
 			}
 			if tt.want != "shared-custom" {
-				if s, _ := policySvc.GetProfile("shared-custom"); len(s.Rules) != 0 {
+				if s, _ := policySvc.GetProfile(context.Background(), "shared-custom"); len(s.Rules) != 0 {
 					t.Errorf("shared custom profile modified: %+v", s.Rules)
 				}
 			}
