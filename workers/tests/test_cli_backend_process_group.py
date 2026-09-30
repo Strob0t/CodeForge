@@ -39,7 +39,8 @@ def _alive(pid: int) -> bool:
     """Whether *pid* runs (a zombie that nobody reaped yet counts as gone)."""
     try:
         stat = Path(f"/proc/{pid}/stat").read_text()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
+        # ProcessLookupError: the process exited between open() and read().
         return False
     return stat.rsplit(")", 1)[1].split()[0] != "Z"
 
