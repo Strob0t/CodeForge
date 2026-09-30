@@ -4,6 +4,10 @@ x-logging: &default-logging
     max-size: "50m"
     max-file: "10"
 
+# Published ports bind to 127.0.0.1 only: these dev services run without
+# authentication or with default credentials (PostgreSQL password, NATS,
+# LiteLLM dev master key, Jaeger, docs-mcp, playwright-mcp). Containers and
+# the devcontainer reach them by container name on the codeforge network.
 services:
   jaeger:
     image: jaegertracing/all-in-one:1.67
@@ -12,9 +16,9 @@ services:
     profiles:
       - dev
     ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:
@@ -34,7 +38,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     networks:
       - codeforge
     command:
@@ -75,7 +79,7 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: codeforge
       POSTGRES_USER: codeforge
@@ -114,8 +118,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
     command: [ "--jetstream", "--store_dir", "/data", "-m", "8222" ]
     volumes:
       - nats_data:/data
@@ -141,8 +145,8 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "6280:6280"
-      - "6281:6281"
+      - "127.0.0.1:6280:6280"
+      - "127.0.0.1:6281:6281"
     environment:
       OPENAI_API_KEY: "lm-studio"
       OPENAI_API_BASE: "http://host.docker.internal:1234/v1"
@@ -176,7 +180,7 @@ services:
     security_opt:
       - "no-new-privileges:true"
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
       DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge
