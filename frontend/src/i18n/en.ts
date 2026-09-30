@@ -1134,6 +1134,7 @@ const en = {
   "settings.vcs.orOAuth": "or",
   "settings.vcs.connectGitHub": "Connect GitHub",
   "settings.vcs.oauthFailed": "GitHub OAuth failed",
+  "settings.vcs.oauthConnected": "GitHub account connected",
   "settings.vcs.test": "Test",
   "settings.vcs.testing": "Testing...",
   "settings.vcs.testSuccess": "Connection successful",

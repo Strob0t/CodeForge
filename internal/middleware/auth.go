@@ -33,7 +33,9 @@ var publicPaths = map[string]bool{
 	"/api/v1/auth/setup":           true,
 	"/api/v1/auth/forgot-password": true,
 	"/api/v1/auth/reset-password":  true,
-	"/api/v1/auth/github":          true,
+	// GitHub's OAuth redirect back carries no session; the flow's start
+	// (POST /api/v1/auth/github) is authenticated and binds the state to
+	// the caller's tenant.
 	"/api/v1/auth/github/callback": true,
 	// The WebSocket upgrade authenticates with a single-use ticket from
 	// POST /api/v1/ws/ticket, which the WebSocket hub redeems itself.

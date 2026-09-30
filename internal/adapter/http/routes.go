@@ -606,7 +606,7 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(ro.authRateLimiter.Handler, audit("setup", "auth")).Post("/auth/setup", h.InitialSetup)
 		r.With(ro.authRateLimiter.Handler, audit("forgot_password", "auth")).Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.With(ro.authRateLimiter.Handler, audit("reset_password", "auth")).Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Get("/auth/github", h.StartGitHubOAuth)
+		r.Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	} else {
 		r.With(audit("login", "auth")).Post("/auth/login", h.Login)
@@ -615,7 +615,7 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(audit("setup", "auth")).Post("/auth/setup", h.InitialSetup)
 		r.With(audit("forgot_password", "auth")).Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.With(audit("reset_password", "auth")).Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Get("/auth/github", h.StartGitHubOAuth)
+		r.Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	}
 

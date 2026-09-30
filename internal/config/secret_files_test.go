@@ -57,10 +57,19 @@ func TestLoadFrom_SecretFiles(t *testing.T) {
 		{"CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", "llm-enc-from-file\n", "llm-enc-from-file", func(c *Config) string { return c.Auth.LLMKeyEncryptionSecret }},
 	}
 
+	// Settings a secret is only valid with (KI-55: the GitHub OAuth web flow
+	// needs all three of client id, secret and callback URL).
+	companions := map[string]map[string]string{
+		"GITHUB_CLIENT_SECRET": {"GITHUB_CLIENT_ID": "Iv1.test", "GITHUB_CALLBACK_URL": "https://cf.test/api/v1/auth/github/callback"},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
 			clearSecretEnv(t, tt.key)
 			t.Setenv(tt.key+"_FILE", writeTestSecret(t, tt.content))
+			for k, v := range companions[tt.key] {
+				t.Setenv(k, v)
+			}
 
 			cfg, err := loadFromNoYAML(t)
 			if err != nil {

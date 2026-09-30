@@ -20,17 +20,23 @@ func (s *Store) CreateOAuthState(ctx context.Context, state *vcsaccount.OAuthSta
 	return nil
 }
 
-func (s *Store) GetOAuthState(ctx context.Context, stateToken string) (*vcsaccount.OAuthState, error) {
-	tid := tenantFromCtx(ctx)
+// ConsumeOAuthState deletes an unexpired state and returns it (single use,
+// atomic against a concurrent callback with the same state).
+//
+// INTENTIONALLY CROSS-TENANT: the OAuth callback is a redirect from the
+// provider without a CodeForge session, so the request carries no tenant.
+// The state is a 256-bit random secret handed only to the user who started
+// the flow; the returned row's tenant_id is the tenant the caller acts in.
+func (s *Store) ConsumeOAuthState(ctx context.Context, stateToken string) (*vcsaccount.OAuthState, error) {
 	var st vcsaccount.OAuthState
 	err := s.pool.QueryRow(ctx,
-		`SELECT state, provider, tenant_id, expires_at, created_at
-		 FROM oauth_states
-		 WHERE state = $1 AND tenant_id = $2 AND expires_at > now()`,
-		stateToken, tid,
+		`DELETE FROM oauth_states
+		 WHERE state = $1 AND expires_at > now()
+		 RETURNING state, provider, tenant_id, expires_at, created_at`,
+		stateToken,
 	).Scan(&st.State, &st.Provider, &st.TenantID, &st.ExpiresAt, &st.CreatedAt)
 	if err != nil {
-		return nil, notFoundWrap(err, "get oauth state %s", stateToken)
+		return nil, notFoundWrap(err, "consume oauth state")
 	}
 	return &st, nil
 }

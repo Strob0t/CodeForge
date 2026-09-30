@@ -1139,6 +1139,7 @@ const de: Translations = {
   "settings.vcs.orOAuth": "oder",
   "settings.vcs.connectGitHub": "GitHub verbinden",
   "settings.vcs.oauthFailed": "GitHub OAuth fehlgeschlagen",
+  "settings.vcs.oauthConnected": "GitHub-Konto verbunden",
   "settings.vcs.test": "Testen",
   "settings.vcs.testing": "Teste...",
   "settings.vcs.testSuccess": "Verbindung erfolgreich",

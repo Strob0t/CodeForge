@@ -11,16 +11,19 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // --- Mock Store for OAuth tests ---
 
 type oauthMockStore struct {
 	runtimeMockStore
-	states   map[string]*vcsaccount.OAuthState
-	accounts []*vcsaccount.VCSAccount
+	states         map[string]*vcsaccount.OAuthState
+	accounts       []*vcsaccount.VCSAccount
+	accountTenants []string
 }
 
 func newOAuthMockStore() *oauthMockStore {
@@ -29,18 +32,25 @@ func newOAuthMockStore() *oauthMockStore {
 	}
 }
 
-func (m *oauthMockStore) CreateOAuthState(_ context.Context, state *vcsaccount.OAuthState) error {
-	m.states[state.State] = state
+// CreateOAuthState stores the state in the context's tenant, like the
+// postgres store.
+func (m *oauthMockStore) CreateOAuthState(ctx context.Context, state *vcsaccount.OAuthState) error {
+	stored := *state
+	stored.TenantID = tenantctx.FromContext(ctx)
+	m.states[state.State] = &stored
 	return nil
 }
 
-func (m *oauthMockStore) GetOAuthState(_ context.Context, stateToken string) (*vcsaccount.OAuthState, error) {
+// ConsumeOAuthState removes and returns the state whatever the request's
+// tenant is, like the postgres store.
+func (m *oauthMockStore) ConsumeOAuthState(_ context.Context, stateToken string) (*vcsaccount.OAuthState, error) {
 	st, ok := m.states[stateToken]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, domain.ErrNotFound
 	}
+	delete(m.states, stateToken)
 	if time.Now().After(st.ExpiresAt) {
-		return nil, errors.New("expired")
+		return nil, domain.ErrNotFound
 	}
 	return st, nil
 }
@@ -54,9 +64,10 @@ func (m *oauthMockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, err
 	return 0, nil
 }
 
-func (m *oauthMockStore) CreateVCSAccount(_ context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {
+func (m *oauthMockStore) CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {
 	a.ID = "acc-test-123"
 	m.accounts = append(m.accounts, a)
+	m.accountTenants = append(m.accountTenants, tenantctx.FromContext(ctx))
 	return a, nil
 }
 
@@ -66,11 +77,12 @@ func TestGitHubOAuth_AuthorizeURL(t *testing.T) {
 	store := newOAuthMockStore()
 	svc := service.NewGitHubOAuthService(service.GitHubOAuthConfig{
 		ClientID:    "test-client-id",
-		RedirectURI: "http://localhost:3000/callback",
+		RedirectURI: "https://cf.example.com/api/v1/auth/github/callback",
 		Scopes:      []string{"repo", "read:user"},
 	}, store, []byte("0123456789abcdef0123456789abcdef"))
 
-	authURL, err := svc.AuthorizeURL(context.Background())
+	ctx := tenantctx.WithTenant(context.Background(), "tenant-a")
+	authURL, state, err := svc.AuthorizeURL(ctx)
 	if err != nil {
 		t.Fatalf("AuthorizeURL: %v", err)
 	}
@@ -84,10 +96,62 @@ func TestGitHubOAuth_AuthorizeURL(t *testing.T) {
 	if !strings.Contains(authURL, "scope=repo+read") {
 		t.Errorf("expected scope in URL, got %q", authURL)
 	}
+	if !strings.Contains(authURL, "state="+state) || !strings.Contains(authURL, "redirect_uri=https%3A%2F%2Fcf.example.com%2Fapi%2Fv1%2Fauth%2Fgithub%2Fcallback") {
+		t.Errorf("expected state and the configured redirect_uri in URL, got %q", authURL)
+	}
 
-	// Verify state was stored.
-	if len(store.states) != 1 {
-		t.Fatalf("expected 1 stored state, got %d", len(store.states))
+	// The state is stored for the caller's tenant.
+	if got := store.states[state]; got == nil || got.TenantID != "tenant-a" || got.Provider != "github" {
+		t.Fatalf("stored state = %+v", got)
+	}
+}
+
+// KI-55: the callback arrives without a session; the account belongs to
+// the tenant that started the flow (from the state), and a state works once.
+func TestGitHubOAuth_HandleCallback_AccountInTheStartersTenant(t *testing.T) {
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"gho_x","token_type":"bearer"}`))
+	}))
+	defer tokenSrv.Close()
+
+	store := newOAuthMockStore()
+	svc := service.NewGitHubOAuthService(service.GitHubOAuthConfig{ClientID: "id", ClientSecret: "s"}, store, []byte("0123456789abcdef0123456789abcdef"))
+	svc.SetHTTPClient(tokenSrv.Client())
+	svc.SetTokenURL(tokenSrv.URL)
+
+	_, state, err := svc.AuthorizeURL(tenantctx.WithTenant(context.Background(), "tenant-a"))
+	if err != nil {
+		t.Fatalf("AuthorizeURL: %v", err)
+	}
+	// The callback request carries the default tenant (no session).
+	if _, err := svc.HandleCallback(context.Background(), "code", state); err != nil {
+		t.Fatalf("HandleCallback: %v", err)
+	}
+	if len(store.accountTenants) != 1 || store.accountTenants[0] != "tenant-a" {
+		t.Fatalf("account tenants = %v, want [tenant-a]", store.accountTenants)
+	}
+	if _, err := svc.HandleCallback(context.Background(), "code", state); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("replayed state = %v, want ErrNotFound", err)
+	}
+	if len(store.accounts) != 1 {
+		t.Fatalf("accounts = %d, want 1", len(store.accounts))
+	}
+}
+
+func TestGitHubOAuth_HandleCallback_StateOfAnotherProvider(t *testing.T) {
+	store := newOAuthMockStore()
+	svc := service.NewGitHubOAuthService(service.GitHubOAuthConfig{ClientID: "id"}, store, []byte("0123456789abcdef0123456789abcdef"))
+	state, err := vcsaccount.NewOAuthState("gitlab", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.states[state.State] = state
+	if _, err := svc.HandleCallback(context.Background(), "code", state.State); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("HandleCallback = %v, want ErrNotFound", err)
+	}
+	if len(store.accounts) != 0 {
+		t.Fatal("an account was created")
 	}
 }
 

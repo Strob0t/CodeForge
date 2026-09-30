@@ -1167,7 +1167,7 @@ func (m *mockStore) DeleteVCSAccount(_ context.Context, id string) error {
 func (m *mockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
 	return nil
 }
-func (m *mockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+func (m *mockStore) ConsumeOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
 	return nil, errNotFound
 }
 func (m *mockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }

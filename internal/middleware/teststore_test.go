@@ -545,7 +545,7 @@ func (s *testStore) DeleteVCSAccount(_ context.Context, _ string) error { return
 func (s *testStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
 	return nil
 }
-func (s *testStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+func (s *testStore) ConsumeOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
 	return nil, domain.ErrNotFound
 }
 func (s *testStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }

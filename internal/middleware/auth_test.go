@@ -106,6 +106,28 @@ func TestAuth_Enabled_NoHeader_Returns401(t *testing.T) {
 	}
 }
 
+// KI-55: starting the GitHub OAuth flow binds the state to the caller's
+// tenant, so it needs a session; only GitHub's redirect to the callback
+// arrives without one.
+func TestAuth_GitHubOAuth_StartNeedsASession(t *testing.T) {
+	svc := newTestAuthSvc()
+	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for path, want := range map[string]int{
+		"/api/v1/auth/github":          http.StatusUnauthorized,
+		"/api/v1/auth/github/callback": http.StatusOK,
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, http.NoBody)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Errorf("path %s: status = %d, want %d", path, rec.Code, want)
+		}
+	}
+}
+
 func TestAuth_PublicPath_NoAuthRequired(t *testing.T) {
 	svc := newTestAuthSvc()
 	handler := middleware.Auth(svc, true)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

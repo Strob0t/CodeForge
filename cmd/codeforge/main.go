@@ -561,6 +561,21 @@ func run() error {
 	}
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
 
+	// --- GitHub OAuth web flow (KI-55): connects a GitHub account as a VCS
+	// account; its token is encrypted with the VCS account key. ---
+	var githubOAuthSvc *service.GitHubOAuthService
+	if cfg.GitHub.WebFlowConfigured() {
+		githubOAuthSvc = service.NewGitHubOAuthService(service.GitHubOAuthConfig{
+			ClientID:     cfg.GitHub.ClientID,
+			ClientSecret: cfg.GitHub.ClientSecret,
+			RedirectURI:  cfg.GitHub.CallbackURL,
+			Scopes:       []string{"repo", "read:user"},
+		}, store, vcsKey)
+		slog.Info("github oauth web flow enabled", "callback_url", cfg.GitHub.CallbackURL)
+	} else {
+		slog.Info("github oauth web flow not configured (github.client_id, client_secret, callback_url) - /api/v1/auth/github answers 501")
+	}
+
 	// --- LLM Key Service ---
 	llmKeySecret := cfg.Auth.LLMKeyEncryptionSecret
 	if llmKeySecret == "" {
@@ -857,6 +872,7 @@ func run() error {
 		KnowledgeBases:   kbSvc,
 		Settings:         settingsSvc,
 		VCSAccounts:      vcsAccountSvc,
+		GitHubOAuth:      githubOAuthSvc,
 		LLMKeys:          llmKeySvc,
 		Conversations:    conversationSvc,
 		LSP:              lspSvc,

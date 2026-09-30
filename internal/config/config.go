@@ -163,11 +163,21 @@ type Copilot struct {
 	HostsFilePath string `yaml:"hosts_file_path"` // Path to hosts.json (default: ~/.config/github-copilot/hosts.json)
 }
 
-// GitHub holds GitHub OAuth integration configuration.
+// GitHub holds GitHub OAuth integration configuration. ClientID alone
+// enables the device flow; ClientID, ClientSecret and CallbackURL together
+// enable the web flow that connects a GitHub account as a VCS account.
 type GitHub struct {
-	ClientID     string `yaml:"client_id"`              // OAuth client ID for GitHub device flow
-	ClientSecret string `yaml:"client_secret" json:"-"` // OAuth client secret for GitHub device flow
-	CallbackURL  string `yaml:"callback_url"`           // OAuth callback URL for GitHub device flow
+	ClientID     string `yaml:"client_id"`              // OAuth app client ID
+	ClientSecret string `yaml:"client_secret" json:"-"` // OAuth app client secret (web flow)
+	// CallbackURL is the web flow's redirect URI - the only one sent to
+	// GitHub: https (http only on loopback), path /api/v1/auth/github/callback
+	// on the origin the web UI uses for the API.
+	CallbackURL string `yaml:"callback_url"`
+}
+
+// WebFlowConfigured reports whether the GitHub OAuth web flow is configured.
+func (g *GitHub) WebFlowConfigured() bool {
+	return g.ClientID != "" && g.ClientSecret != "" && g.CallbackURL != ""
 }
 
 // Experience holds experience pool configuration.

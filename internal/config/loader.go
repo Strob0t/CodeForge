@@ -491,6 +491,9 @@ func validate(cfg *Config) error {
 	if err := validateRetention(&cfg.Retention); err != nil {
 		return err
 	}
+	if err := validateGitHubWebFlow(&cfg.GitHub); err != nil {
+		return err
+	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
 	if cfg.Auth.Enabled && cfg.Auth.JWTSecret == "" {
