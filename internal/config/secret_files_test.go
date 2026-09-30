@@ -73,14 +73,38 @@ func TestLoadFrom_SecretFiles(t *testing.T) {
 }
 
 func TestLoadFrom_SecretFileA2AKeys(t *testing.T) {
-	clearSecretEnv(t, "CODEFORGE_A2A_API_KEYS")
-	t.Setenv("CODEFORGE_A2A_API_KEYS_FILE", writeTestSecret(t, "key-one, key-two ,,\n"))
-
-	cfg, err := loadFromNoYAML(t)
-	if err != nil {
-		t.Fatalf("LoadFrom: %v", err)
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{"comma separated", "key-one, key-two ,,\n", []string{"key-one", "key-two"}},
+		{"one key per line", "key-one\nkey-two\n", []string{"key-one", "key-two"}},
+		{"CRLF lines and blank lines", "key-one\r\n\r\nkey-two\r\n", []string{"key-one", "key-two"}},
+		{"mixed commas and lines", "key-one, key-two\n key-three \n\nkey-four,\n", []string{"key-one", "key-two", "key-three", "key-four"}},
+		{"single key", "only-key", []string{"only-key"}},
 	}
-	if want := []string{"key-one", "key-two"}; !slices.Equal(cfg.A2A.APIKeys, want) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearSecretEnv(t, "CODEFORGE_A2A_API_KEYS")
+			t.Setenv("CODEFORGE_A2A_API_KEYS_FILE", writeTestSecret(t, tt.content))
+
+			cfg, err := loadFromNoYAML(t)
+			if err != nil {
+				t.Fatalf("LoadFrom: %v", err)
+			}
+			if !slices.Equal(cfg.A2A.APIKeys, tt.want) {
+				t.Fatalf("A2A API keys: got %q, want %q", cfg.A2A.APIKeys, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadEnv_A2AKeysSplitOnNewlines(t *testing.T) {
+	t.Setenv("CODEFORGE_A2A_API_KEYS", "key-one\nkey-two,key-three")
+	cfg := Defaults()
+	loadEnv(&cfg)
+	if want := []string{"key-one", "key-two", "key-three"}; !slices.Equal(cfg.A2A.APIKeys, want) {
 		t.Fatalf("A2A API keys: got %q, want %q", cfg.A2A.APIKeys, want)
 	}
 }

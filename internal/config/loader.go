@@ -575,9 +575,10 @@ func setStringSlice(dst *[]string, key string) {
 	}
 }
 
-// splitList splits a comma-separated value and drops blank entries.
+// splitList splits a list separated by commas or newlines (a file with one
+// entry per line) and drops blank entries.
 func splitList(v string) []string {
-	parts := strings.Split(v, ",")
+	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
 	result := make([]string, 0, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
