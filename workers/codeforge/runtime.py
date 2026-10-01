@@ -234,16 +234,19 @@ class RuntimeClient:
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log = logger.bind(run_id=run_id, task_id=task_id)
 
-    async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
+    async def start_cancel_listener(self, extra_subjects: list[str] | None = None, after: int | None = None) -> None:
         """Subscribe to cancellation messages for this run.
 
         Listens on the default runs.cancel subject plus any extra subjects
-        (e.g. conversation.run.cancel for conversation runs). The subscriptions
-        belong to this run: ``close()`` must be called when the run ends.
+        (e.g. conversation.run.cancel for conversation runs). With *after*
+        (the stream sequence of the run's start message), every cancel
+        published after the start is seen, also one published while the
+        listener subscribes. The subscriptions belong to this run:
+        ``close()`` must be called when the run ends.
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
         for subject in subjects:
-            sub = await self._js.subscribe(subject, config=notification_consumer())
+            sub = await self._js.subscribe(subject, config=notification_consumer(after))
             self._cancel_subs.append(sub)
             listener = listen_for_cancel(sub, self._names_this_run, self._mark_cancelled, until=self._is_cancelled)
             self._cancel_tasks.append(asyncio.create_task(listener))

@@ -42,7 +42,7 @@ class RunHandlerMixin:
             msg=msg,
             request_model=RunStartMessage,
             dedup_key=lambda r: f"run-{r.run_id}",
-            handler=self._do_run_start,
+            handler=lambda r, log: self._do_run_start(r, log, start),
             result_subject=None,
             log_context=lambda r: {"run_id": r.run_id, "task_id": r.task_id},
             ack_on_accept=True,
@@ -66,8 +66,10 @@ class RunHandlerMixin:
         await publish_with_retry(self._js, SUBJECT_RUN_COMPLETE, completion.model_dump_json().encode())
         log.info("skipped run reported as cancelled")
 
-    async def _do_run_start(self, run_msg: RunStartMessage, log: structlog.BoundLogger) -> None:
-        """Business logic for run start execution."""
+    async def _do_run_start(
+        self, run_msg: RunStartMessage, log: structlog.BoundLogger, start: int | None = None
+    ) -> None:
+        """Business logic for run start execution; *start* is the stream sequence of the start message."""
         log.info("received run start", prompt=run_msg.prompt[:80])
 
         if self._js is None:
@@ -100,7 +102,9 @@ class RunHandlerMixin:
             f"run {run_msg.run_id}", lambda reason: self._report_run_failure(runtime, reason, log)
         ):
             try:
-                await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
+                # Every cancel published after the start reaches the run
+                # (S2-G fix, f2), also one published while it subscribes.
+                await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL], after=start)
                 # Agent-loop runs take long; runtime.close() stops the heartbeat.
                 await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
                 task = self._build_run_task(run_msg, log)

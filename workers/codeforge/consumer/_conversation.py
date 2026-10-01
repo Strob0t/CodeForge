@@ -411,7 +411,7 @@ class ConversationHandlerMixin:
         try:
             with self._in_flight.track(f"conversation run {run_id}", report_failure) as work:
                 try:
-                    await self._run_conversation(run_msg, log, work)
+                    await self._run_conversation(run_msg, log, work, start)
                 except Exception as exc:
                     # Intentional catch-all: outermost handler safety net. A run
                     # whose completion was already published is not failed again.
@@ -426,8 +426,13 @@ class ConversationHandlerMixin:
         run_msg: ConversationRunStartMessage,
         log: structlog.stdlib.BoundLogger,
         work: AcceptedWork,
+        start: int | None = None,
     ) -> None:
-        """Execute an accepted conversation run and publish its completion (then *work* is completed)."""
+        """Execute an accepted conversation run and publish its completion (then *work* is completed).
+
+        *start* is the stream sequence of the run's start message: the cancel
+        listener sees every cancel published after it (S2-G fix, f2).
+        """
         from codeforge.mcp_workbench import McpWorkbench
         from codeforge.tools import ToolRegistry, build_default_registry
 
@@ -445,7 +450,7 @@ class ConversationHandlerMixin:
         )
         workbench: McpWorkbench | None = None
         try:
-            await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
+            await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"], after=start)
             await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
 
             registry: ToolRegistry = build_default_registry()

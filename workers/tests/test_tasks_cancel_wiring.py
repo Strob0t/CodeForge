@@ -173,7 +173,9 @@ class TestRunsHandlerExtraSubjects:
                 self.run_id = kwargs["run_id"]
                 self.task_id = kwargs["task_id"]
 
-            async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
+            async def start_cancel_listener(
+                self, extra_subjects: list[str] | None = None, after: int | None = None
+            ) -> None:
                 captured_extra.extend(extra_subjects or [])
 
             async def start_heartbeat(self, interval: float = 30.0) -> None:

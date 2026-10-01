@@ -20,6 +20,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from nats.js.api import DeliverPolicy
 
 from codeforge.consumer import TaskConsumer
 from codeforge.consumer._cancel_registry import conversation_key, run_key, task_key
@@ -189,3 +190,45 @@ async def test_the_worker_records_run_and_conversation_cancels(consumer: TaskCon
 
     await consumer._in_flight.abort([], 0, "test over")
     assert all(s.unsubscribed for s in subs.values())
+
+
+class TestCancelListenersReplayFromTheStart:
+    """S2-G fix, f2: a cancel published while a run's listener subscribed was lost.
+
+    The run's and the conversation run's cancel listeners saw new messages
+    only; a cancel published after the cancel registry checked the start
+    and before the listener subscribed reached neither. Like a task's
+    (S2-F review, F12), they replay every cancel published after the run's
+    start message.
+    """
+
+    @staticmethod
+    def _listener_configs(worker: TaskConsumer) -> dict[str, object]:
+        return {s.subject: s.config for s in worker._js.subscriptions}  # type: ignore[union-attr]
+
+    async def test_a_run_listens_from_its_start_on(self, consumer: TaskConsumer) -> None:
+        consumer._executor = MagicMock()
+        consumer._executor.execute_with_runtime = AsyncMock()
+        msg, _ = _run_start(seq=10)
+
+        await consumer._handle_run_start(msg)  # type: ignore[arg-type]
+
+        configs = self._listener_configs(consumer)
+        for subject in ("runs.cancel", "tasks.cancel"):
+            assert configs[subject].deliver_policy == DeliverPolicy.BY_START_SEQUENCE, subject  # type: ignore[attr-defined]
+            assert configs[subject].opt_start_seq == 11, subject  # type: ignore[attr-defined]
+
+    async def test_a_conversation_run_listens_from_its_start_on(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            consumer, "_build_conversation_messages", AsyncMock(side_effect=RuntimeError("stop after the listener"))
+        )
+        msg, _ = _conversation_start(seq=10)
+
+        await consumer._handle_conversation_run(msg)  # type: ignore[arg-type]
+
+        configs = self._listener_configs(consumer)
+        for subject in ("runs.cancel", "conversation.run.cancel"):
+            assert configs[subject].deliver_policy == DeliverPolicy.BY_START_SEQUENCE, subject  # type: ignore[attr-defined]
+            assert configs[subject].opt_start_seq == 11, subject  # type: ignore[attr-defined]
