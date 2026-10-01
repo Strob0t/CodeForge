@@ -13,7 +13,6 @@ import {
   EmptyState,
   ErrorBanner,
   FormField,
-  Input,
   LoadingState,
   Modal,
   PageLayout,
@@ -60,7 +59,6 @@ export default function QuarantinePage() {
     id: string;
     action: "approve" | "reject";
   } | null>(null);
-  const [reviewerName, setReviewerName] = createSignal("");
   const [reviewNote, setReviewNote] = createSignal("");
 
   // -- Data fetching --------------------------------------------------------
@@ -82,13 +80,11 @@ export default function QuarantinePage() {
 
   function startReview(id: string, action: "approve" | "reject") {
     setReviewTarget({ id, action });
-    setReviewerName("");
     setReviewNote("");
   }
 
   function cancelReview() {
     setReviewTarget(null);
-    setReviewerName("");
     setReviewNote("");
   }
 
@@ -101,7 +97,8 @@ export default function QuarantinePage() {
     const target = reviewTarget();
     if (!target) return;
 
-    const data = { reviewed_by: reviewerName().trim(), note: reviewNote().trim() };
+    // The server records the logged-in user as the reviewer.
+    const data = { note: reviewNote().trim() };
 
     if (target.action === "approve") {
       await api.quarantine.approve(target.id, data);
@@ -282,15 +279,7 @@ export default function QuarantinePage() {
                 : t("quarantine.action.reject")}
             </h3>
             <ErrorBanner error={reviewError} onDismiss={clearReviewError} />
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <FormField label={t("quarantine.action.reviewerName")} id="q-reviewer">
-                <Input
-                  id="q-reviewer"
-                  type="text"
-                  value={reviewerName()}
-                  onInput={(e) => setReviewerName(e.currentTarget.value)}
-                />
-              </FormField>
+            <div class="grid grid-cols-1 gap-3">
               <FormField label={t("quarantine.action.note")} id="q-note">
                 <Textarea
                   id="q-note"

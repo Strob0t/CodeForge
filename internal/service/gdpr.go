@@ -150,6 +150,7 @@ type userErasureStore interface {
 	AnonymizeAuditLogForUser(ctx context.Context, userID string) (int64, error)
 	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
 	AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeQuarantineReviewsForUser(ctx context.Context, userID string) (int64, error)
 	DeleteUser(ctx context.Context, id string) error
 }
 
@@ -157,8 +158,9 @@ type userErasureStore interface {
 // endpoints or account deletion: rows that outlive the user keep their content
 // without the user's personal data (ADR-009) - audit entries lose email and IP
 // address, consent records (proof of consent) lose IP address and user agent,
-// channel messages get a placeholder sender name. These run first, while the
-// rows can still be found by the user's ID; if one fails, the user is not
+// channel messages get a placeholder sender name, quarantine reviews a
+// placeholder reviewer name. These run first, while the rows can still be
+// found by the user's ID; if one fails, the user is not
 // deleted and the erasure can be retried. Deleting the user then removes the
 // dependent rows (ON DELETE CASCADE) and unlinks the kept ones (ON DELETE SET
 // NULL).
@@ -170,6 +172,7 @@ func eraseUser(ctx context.Context, store userErasureStore, userID string) error
 		{"audit_log", store.AnonymizeAuditLogForUser},
 		{"user_consents", store.AnonymizeConsentsForUser},
 		{"channel_messages", store.AnonymizeChannelMessagesForUser},
+		{"quarantine_reviews", store.AnonymizeQuarantineReviewsForUser},
 	}
 	for _, step := range steps {
 		n, err := step.anonymize(ctx, userID)

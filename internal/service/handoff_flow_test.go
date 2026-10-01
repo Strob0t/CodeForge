@@ -218,7 +218,7 @@ func (s *handoffStore) GetQuarantinedMessage(_ context.Context, id string) (*qua
 	return nil, errMockNotFound
 }
 
-func (s *handoffStore) UpdateQuarantineStatus(_ context.Context, id string, status quarantine.Status, reviewedBy, note string) error {
+func (s *handoffStore) UpdateQuarantineStatus(_ context.Context, id string, status quarantine.Status, _ *quarantine.Review) error {
 	s.quarantined[id].Status = status
 	return nil
 }
@@ -419,7 +419,7 @@ func TestHandoffRequest_QuarantineHold(t *testing.T) {
 
 	// The admin approves: the payload is replayed to handoff.approved.
 	qs := service.NewQuarantineService(env.store, env.queue, env.hub, config.Quarantine{Enabled: true})
-	if err := qs.Approve(tenantctx.WithTenant(context.Background(), handoffTenantA), held.ID, "admin", "ok"); err != nil {
+	if err := qs.Approve(tenantctx.WithTenant(context.Background(), handoffTenantA), held.ID, &quarantine.Review{ReviewerID: "admin", ReviewerName: "Admin", Note: "ok"}); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
 	replayed, ok := env.queue.lastMessage(messagequeue.SubjectHandoffApproved)

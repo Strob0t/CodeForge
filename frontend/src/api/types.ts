@@ -1941,6 +1941,9 @@ export interface QuarantineMessage {
   risk_score: number;
   risk_factors: string[];
   status: QuarantineStatus;
+  /** The reviewer's user ID; absent before the review and after the reviewer's erasure. */
+  reviewed_by_id?: string;
+  /** The reviewer's name at the time of the review. */
   reviewed_by: string;
   review_note: string;
   created_at: string;
@@ -1956,9 +1959,8 @@ export interface QuarantineStats {
   expired: number;
 }
 
-/** Request body for approve/reject actions */
+/** Request body for approve/reject actions (the reviewer is the logged-in user) */
 export interface QuarantineReviewRequest {
-  reviewed_by: string;
   note: string;
 }
 

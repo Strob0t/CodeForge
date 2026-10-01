@@ -61,7 +61,7 @@ func heldA2AEnv(t *testing.T, state a2adomain.TaskState) (*a2aQuarantineStore, *
 func TestQuarantine_RejectRejectsTheHeldA2ATask(t *testing.T) {
 	store, _, svc := heldA2AEnv(t, a2adomain.TaskStateSubmitted)
 
-	if err := svc.Reject(context.Background(), "q-a2a", "admin", "no"); err != nil {
+	if err := svc.Reject(context.Background(), "q-a2a", adminReview("no")); err != nil {
 		t.Fatalf("Reject: %v", err)
 	}
 	if got := store.a2aTasks["a2a-held"].State; got != a2adomain.TaskStateRejected {
@@ -72,7 +72,7 @@ func TestQuarantine_RejectRejectsTheHeldA2ATask(t *testing.T) {
 func TestQuarantine_ApproveStartsTheHeldA2ATask(t *testing.T) {
 	store, queue, svc := heldA2AEnv(t, a2adomain.TaskStateSubmitted)
 
-	if err := svc.Approve(context.Background(), "q-a2a", "admin", "ok"); err != nil {
+	if err := svc.Approve(context.Background(), "q-a2a", adminReview("ok")); err != nil {
 		t.Fatalf("Approve: %v", err)
 	}
 	if len(queue.published) != 1 || queue.published[0].subject != messagequeue.SubjectA2ATaskCreated {
@@ -91,7 +91,7 @@ func TestQuarantine_ApproveOfACancelledA2ATaskPublishesNothing(t *testing.T) {
 		t.Run(string(state), func(t *testing.T) {
 			store, queue, svc := heldA2AEnv(t, state)
 
-			err := svc.Approve(context.Background(), "q-a2a", "admin", "ok")
+			err := svc.Approve(context.Background(), "q-a2a", adminReview("ok"))
 			if !errors.Is(err, domain.ErrConflict) {
 				t.Fatalf("Approve = %v, want ErrConflict", err)
 			}
@@ -110,7 +110,7 @@ func TestQuarantine_ApproveOfACancelledA2ATaskPublishesNothing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store, queue, svc := heldA2AEnv(t, a2adomain.TaskStateSubmitted)
 			store.a2aTasks["a2a-held"].Metadata[a2adomain.MetadataQuarantineMessageID] = ref
-			if err := svc.Approve(context.Background(), "q-a2a", "admin", "ok"); !errors.Is(err, domain.ErrConflict) {
+			if err := svc.Approve(context.Background(), "q-a2a", adminReview("ok")); !errors.Is(err, domain.ErrConflict) {
 				t.Fatalf("Approve = %v, want ErrConflict", err)
 			}
 			if len(queue.published) != 0 {
@@ -122,7 +122,7 @@ func TestQuarantine_ApproveOfACancelledA2ATaskPublishesNothing(t *testing.T) {
 	t.Run("task missing", func(t *testing.T) {
 		store, queue, svc := heldA2AEnv(t, a2adomain.TaskStateSubmitted)
 		delete(store.a2aTasks, "a2a-held")
-		if err := svc.Approve(context.Background(), "q-a2a", "admin", "ok"); !errors.Is(err, domain.ErrConflict) {
+		if err := svc.Approve(context.Background(), "q-a2a", adminReview("ok")); !errors.Is(err, domain.ErrConflict) {
 			t.Fatalf("Approve = %v, want ErrConflict", err)
 		}
 		if len(queue.published) != 0 {
@@ -145,7 +145,7 @@ func TestQuarantine_WithdrawnMessageIsNeverPublished(t *testing.T) {
 	if err := svc.Withdraw(context.Background(), "q-a2a", "again"); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("Withdraw(again) = %v, want ErrConflict", err)
 	}
-	if err := svc.Approve(context.Background(), "q-a2a", "admin", "ok"); err == nil {
+	if err := svc.Approve(context.Background(), "q-a2a", adminReview("ok")); err == nil {
 		t.Fatal("a withdrawn message was approved")
 	}
 	if len(queue.published) != 0 {
@@ -169,4 +169,9 @@ func TestQuarantine_ScreenMessageNamesTheHeldMessage(t *testing.T) {
 	if msg, ok := store.messages[id]; !ok || msg.Status != quarantine.StatusPending {
 		t.Fatalf("held message %q not stored pending", id)
 	}
+}
+
+// adminReview is a review by the logged-in admin (KI-79).
+func adminReview(note string) *quarantine.Review {
+	return &quarantine.Review{ReviewerID: "admin-1", ReviewerName: "Admin", Note: note}
 }

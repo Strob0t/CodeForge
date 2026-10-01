@@ -108,22 +108,28 @@ func (m *gdprMockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ str
 	return 1, m.stepErrs["channel_messages"]
 }
 
+func (m *gdprMockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
+	m.steps = append(m.steps, "quarantine_reviews")
+	return 1, m.stepErrs["quarantine_reviews"]
+}
+
 // Erasure removes the user's personal data from every row that outlives the
-// user (audit entries, consent records, channel messages) before it deletes
+// user (audit entries, consent records, channel messages, quarantine reviews)
+// before it deletes
 // the user row; if one of these steps fails, the user is not deleted.
 func TestDeleteUserData_AnonymizesRowsThatOutliveTheUser(t *testing.T) {
 	store := &gdprMockStore{}
 	if err := NewGDPRService(store).DeleteUserData(context.Background(), "u1"); err != nil {
 		t.Fatalf("DeleteUserData: %v", err)
 	}
-	want := []string{"audit_log", "user_consents", "channel_messages", "delete_user"}
+	want := []string{"audit_log", "user_consents", "channel_messages", "quarantine_reviews", "delete_user"}
 	if strings.Join(store.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", store.steps, want)
 	}
 }
 
 func TestDeleteUserData_StepFailureKeepsUser(t *testing.T) {
-	for _, step := range []string{"user_consents", "channel_messages"} {
+	for _, step := range []string{"user_consents", "channel_messages", "quarantine_reviews"} {
 		t.Run(step, func(t *testing.T) {
 			store := &gdprMockStore{stepErrs: map[string]error{step: errors.New("db down")}}
 			err := NewGDPRService(store).DeleteUserData(context.Background(), "u1")
@@ -145,7 +151,7 @@ func TestAuthDeleteUser_ErasesLikeGDPR(t *testing.T) {
 	if err := svc.DeleteUser(context.Background(), "u1"); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
-	want := []string{"audit_log", "user_consents", "channel_messages", "delete_user"}
+	want := []string{"audit_log", "user_consents", "channel_messages", "quarantine_reviews", "delete_user"}
 	if strings.Join(store.steps, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", store.steps, want)
 	}

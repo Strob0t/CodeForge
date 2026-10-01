@@ -1116,7 +1116,7 @@ func (m *runtimeMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*
 func (m *runtimeMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (m *runtimeMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -2656,6 +2656,10 @@ func (m *runtimeMockStore) AnonymizeConsentsForUser(_ context.Context, _ string)
 }
 
 func (m *runtimeMockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *runtimeMockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
 

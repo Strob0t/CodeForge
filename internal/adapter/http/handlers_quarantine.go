@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
 // FIX-097: Quarantine handlers are intentionally unexported (lowercase).
@@ -56,16 +57,11 @@ func (h *Handlers) approveQuarantinedMessage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	req, ok := readJSON[struct {
-		ReviewedBy string `json:"reviewed_by"`
-		Note       string `json:"note"`
-	}](w, r, h.Limits.MaxRequestBodySize)
+	review, ok := h.readQuarantineReview(w, r)
 	if !ok {
 		return
 	}
-
-	if err := h.Quarantine.Approve(r.Context(), id, req.ReviewedBy, req.Note); err != nil {
+	if err := h.Quarantine.Approve(r.Context(), chi.URLParam(r, "id"), review); err != nil {
 		writeDomainError(w, err, "approve failed")
 		return
 	}
@@ -79,16 +75,11 @@ func (h *Handlers) rejectQuarantinedMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	id := chi.URLParam(r, "id")
-	req, ok := readJSON[struct {
-		ReviewedBy string `json:"reviewed_by"`
-		Note       string `json:"note"`
-	}](w, r, h.Limits.MaxRequestBodySize)
+	review, ok := h.readQuarantineReview(w, r)
 	if !ok {
 		return
 	}
-
-	if err := h.Quarantine.Reject(r.Context(), id, req.ReviewedBy, req.Note); err != nil {
+	if err := h.Quarantine.Reject(r.Context(), chi.URLParam(r, "id"), review); err != nil {
 		writeDomainError(w, err, "reject failed")
 		return
 	}
@@ -127,4 +118,25 @@ func (h *Handlers) quarantineStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, stats)
+}
+
+// readQuarantineReview reads the note of a quarantine review; the reviewer is
+// the logged-in user (ID and name at the time), never a name from the body.
+func (h *Handlers) readQuarantineReview(w http.ResponseWriter, r *http.Request) (*quarantine.Review, bool) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	req, ok := readJSON[struct {
+		Note string `json:"note"`
+	}](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return nil, false
+	}
+	name := u.Name
+	if name == "" {
+		name = u.Email
+	}
+	return &quarantine.Review{ReviewerID: u.ID, ReviewerName: name, Note: req.Note}, true
 }

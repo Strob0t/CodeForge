@@ -133,12 +133,24 @@ func (s *QuarantineService) ScreenMessage(ctx context.Context, ann *trust.Annota
 	return quarantine.VerdictHeld, msg.ID, nil
 }
 
+// checkReview refuses a review that names no reviewer: the reviewer is the
+// logged-in user, recorded by ID so an erasure can find the review.
+func checkReview(review *quarantine.Review) error {
+	if review == nil || review.ReviewerID == "" {
+		return fmt.Errorf("quarantine review without a reviewer: %w", domain.ErrValidation)
+	}
+	return nil
+}
+
 // Approve releases a quarantined message, replaying the original payload to
 // NATS. The held prompt of an inbound A2A task is replayed only while its
 // task waits for it (S2-G fix, 9): a task its caller cancelled (or that is
 // gone) gets nothing, and the message is rejected instead (ErrConflict).
 // An approved task is working.
-func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note string) error {
+func (s *QuarantineService) Approve(ctx context.Context, id string, review *quarantine.Review) error {
+	if err := checkReview(review); err != nil {
+		return err
+	}
 	msg, err := s.db.GetQuarantinedMessage(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get quarantined message: %w", err)
@@ -155,14 +167,15 @@ func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note st
 		if task != nil && task.State != a2adomain.TaskStateSubmitted {
 			reason = fmt.Sprintf("its A2A task %s is %s", task.ID, task.State)
 		}
-		if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, reviewedBy, reason); err != nil {
+		rejected := &quarantine.Review{ReviewerID: review.ReviewerID, ReviewerName: review.ReviewerName, Note: reason}
+		if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, rejected); err != nil {
 			return fmt.Errorf("update quarantine status: %w", err)
 		}
-		s.broadcastResolved(ctx, msg, "rejected", reviewedBy)
+		s.broadcastResolved(ctx, msg, "rejected", review.ReviewerName)
 		return fmt.Errorf("message %s not replayed: %s: %w", id, reason, domain.ErrConflict)
 	}
 
-	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusApproved, reviewedBy, note); err != nil {
+	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusApproved, review); err != nil {
 		return fmt.Errorf("update quarantine status: %w", err)
 	}
 
@@ -174,16 +187,19 @@ func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note st
 		s.resolveHeldA2ATask(ctx, task, a2adomain.TaskStateWorking)
 	}
 
-	s.broadcastResolved(ctx, msg, "approved", reviewedBy)
+	s.broadcastResolved(ctx, msg, "approved", review.ReviewerName)
 
 	slog.Info("quarantined message approved and replayed",
-		"id", id, "subject", msg.Subject, "reviewed_by", reviewedBy)
+		"id", id, "subject", msg.Subject, "reviewer_id", review.ReviewerID)
 	return nil
 }
 
 // Reject permanently blocks a quarantined message. The inbound A2A task
 // whose prompt it held is rejected with it (S2-G fix, 9).
-func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note string) error {
+func (s *QuarantineService) Reject(ctx context.Context, id string, review *quarantine.Review) error {
+	if err := checkReview(review); err != nil {
+		return err
+	}
 	msg, err := s.db.GetQuarantinedMessage(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get quarantined message: %w", err)
@@ -192,7 +208,7 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 		return fmt.Errorf("message %s is not pending (status: %s)", id, msg.Status)
 	}
 
-	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, reviewedBy, note); err != nil {
+	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, review); err != nil {
 		return fmt.Errorf("update quarantine status: %w", err)
 	}
 	if task, waits, err := s.heldA2ATask(ctx, msg); err != nil {
@@ -201,10 +217,10 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 		s.resolveHeldA2ATask(ctx, task, a2adomain.TaskStateRejected)
 	}
 
-	s.broadcastResolved(ctx, msg, "rejected", reviewedBy)
+	s.broadcastResolved(ctx, msg, "rejected", review.ReviewerName)
 
 	slog.Info("quarantined message rejected",
-		"id", id, "subject", msg.Subject, "reviewed_by", reviewedBy)
+		"id", id, "subject", msg.Subject, "reviewer_id", review.ReviewerID)
 	return nil
 }
 
@@ -212,7 +228,9 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 // cancelled its held task), so it is never replayed: domain.ErrConflict
 // when it is no longer pending (an admin resolved it first).
 func (s *QuarantineService) Withdraw(ctx context.Context, id, reason string) error {
-	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, "sender", reason); err != nil {
+	// No user reviews a withdrawal: the review names the sender, without an ID.
+	withdrawal := &quarantine.Review{ReviewerName: "sender", Note: reason}
+	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, withdrawal); err != nil {
 		return fmt.Errorf("withdraw quarantined message %s: %w", id, err)
 	}
 	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, event.QuarantineResolvedEvent{

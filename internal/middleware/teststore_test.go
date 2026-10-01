@@ -709,7 +709,7 @@ func (s *testStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarant
 func (s *testStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (s *testStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (s *testStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -914,6 +914,10 @@ func (s *testStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64
 }
 
 func (s *testStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (s *testStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
 

@@ -1782,7 +1782,6 @@ const de: Translations = {
   "quarantine.detail.reviewedAt": "Geprueft am",
   "quarantine.action.approve": "Genehmigen",
   "quarantine.action.reject": "Ablehnen",
-  "quarantine.action.reviewerName": "Ihr Name",
   "quarantine.action.note": "Pruefnotiz",
   "quarantine.toast.approved": "Nachricht genehmigt und weitergeleitet.",
   "quarantine.toast.rejected": "Nachricht abgelehnt.",
@@ -1878,6 +1877,66 @@ const de: Translations = {
   "routing.error.refreshFailed": "Statistiken konnten nicht aktualisiert werden.",
   "routing.error.seedFailed": "Import aus Benchmarks fehlgeschlagen.",
   "routing.error.recordFailed": "Ergebnis konnte nicht erfasst werden.",
+  // -- Privacy policy page --------------------------------------------------
+  "privacy.title": "Datenschutzerkl\u00e4rung",
+  "privacy.controller.title": "Verantwortlicher",
+  "privacy.controller.body":
+    "Diese CodeForge-Instanz wird selbst betrieben. Der Betreiber dieser Instanz ist der f\u00fcr Ihre personenbezogenen Daten Verantwortliche im Sinne von Art. 4 Nr. 7 DSGVO.",
+  "privacy.collect.title": "Welche Daten wir erheben",
+  "privacy.collect.account": "Kontoinformationen (E-Mail-Adresse, Name, Rolle)",
+  "privacy.collect.auth": "Authentifizierungstoken und Sitzungsdaten",
+  "privacy.collect.projects": "Projekt- und Repository-Metadaten",
+  "privacy.collect.conversations": "Gespr\u00e4chsverlauf mit KI-Agenten",
+  "privacy.collect.usage": "Nutzungsmetriken und Kostendaten",
+  "privacy.dpo.title": "Datenschutzbeauftragter",
+  "privacy.dpo.body":
+    "Wenden Sie sich bei Datenschutzfragen an den Datenschutzbeauftragten des Instanzbetreibers. Betreiber selbst gehosteter Instanzen sollten dessen Kontaktdaten in den Instanzeinstellungen hinterlegen.",
+  "privacy.basis.title": "Zweck und Rechtsgrundlage",
+  "privacy.basis.service":
+    "Bereitstellung des Dienstes (Konto, Projekte, Gespr\u00e4che) -- Art. 6 Abs. 1 lit. b DSGVO (Vertrag)",
+  "privacy.basis.llm":
+    "Verarbeitung durch externe LLMs (an Anbieter gesendete Prompts) -- Art. 6 Abs. 1 lit. a DSGVO (Einwilligung)",
+  "privacy.basis.security":
+    "Systemsicherheit (Audit-Logs, Ratenbegrenzung) -- Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse)",
+  "privacy.basis.cost": "Kostenerfassung und Abrechnung -- Art. 6 Abs. 1 lit. b DSGVO (Vertrag)",
+  "privacy.processors.title": "Unterauftragsverarbeiter",
+  "privacy.processors.body":
+    "Wenn externe LLM-Anbieter konfiguriert sind, k\u00f6nnen Prompts und Code-Kontext an diese Unterauftragsverarbeiter \u00fcbermittelt werden. Lokale Modelle verarbeiten Daten ausschlie\u00dflich vor Ort.",
+  "privacy.processors.openai": "OpenAI (Microsoft) -- LLM-Inferenz, USA (EU-AVV + SCC)",
+  "privacy.processors.anthropic": "Anthropic -- LLM-Inferenz, USA (EU-AVV + SCC)",
+  "privacy.processors.google": "Google (Vertex AI) -- LLM-Inferenz, EU (Frankfurt)",
+  "privacy.processors.local": "Ollama / LM Studio -- lokale Inferenz, keine Daten\u00fcbermittlung",
+  "privacy.processors.note":
+    "Welche Anbieter aktiv sind, h\u00e4ngt von der Konfiguration der Instanz ab. Vor einer externen Verarbeitung ist eine Einwilligung erforderlich (siehe Einwilligungseinstellungen).",
+  "privacy.retention.title": "Speicherdauer",
+  "privacy.retention.account":
+    "Kontodaten -- solange das Konto besteht; sie werden sofort gel\u00f6scht, wenn Sie die L\u00f6schung verlangen oder das Konto gel\u00f6scht wird. Datenbanksicherungen, die sie noch enthalten, werden nach etwa f\u00fcnf Wochen \u00fcberschrieben.",
+  "privacy.retention.conversations":
+    "Gespr\u00e4che und ihre Nachrichten -- 1 Jahr nach der letzten Aktivit\u00e4t (konfigurierbar)",
+  "privacy.retention.sessions":
+    "Agent-Sitzungen -- 30 Tage nach der letzten Aktivit\u00e4t (konfigurierbar)",
+  "privacy.retention.runs":
+    "Agent-L\u00e4ufe mit ihren Kosten- und Nutzungsdaten -- 1 Jahr nach der letzten Aktivit\u00e4t (konfigurierbar)",
+  "privacy.retention.audit":
+    "Audit-Log-Eintr\u00e4ge -- 7 Jahre (Aktion und Ressource bleiben erhalten, personenbezogene Daten werden anonymisiert)",
+  "privacy.retention.auditIp":
+    "IP-Adressen in Audit-Logs -- 180 Tage (gem\u00e4\u00df CNIL-Empfehlung)",
+  "privacy.retention.consent":
+    "Einwilligungsnachweise -- unbefristet (Nachweis der Einwilligung nach Art. 7 Abs. 1 DSGVO)",
+  "privacy.retention.consentIp":
+    "IP-Adressen und Browser-User-Agents in Einwilligungsnachweisen -- 180 Tage",
+  "privacy.rights.title": "Ihre Rechte",
+  "privacy.rights.access":
+    "Auskunftsrecht (Art. 15) -- Export Ihrer Daten unter Einstellungen > Datenschutz > Export",
+  "privacy.rights.rectification":
+    "Recht auf Berichtigung (Art. 16) -- Profil in den Einstellungen aktualisieren",
+  "privacy.rights.erasure":
+    "Recht auf L\u00f6schung (Art. 17) -- Konto unter Einstellungen > Datenschutz > L\u00f6schen l\u00f6schen",
+  "privacy.rights.portability":
+    "Recht auf Daten\u00fcbertragbarkeit (Art. 20) -- JSON-Export aller Ihrer Daten",
+  "privacy.rights.object":
+    "Widerspruchsrecht (Art. 21) -- Einwilligung zur externen LLM-Verarbeitung widerrufen",
+  "privacy.rights.complaint": "Recht auf Beschwerde bei einer Aufsichtsbeh\u00f6rde (Art. 77)",
 };
 
 export default de;

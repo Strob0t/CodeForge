@@ -28,13 +28,13 @@ func TestStore_UpdateQuarantineStatus_ResolvesOnce(t *testing.T) {
 		t.Fatalf("QuarantineMessage: %v", err)
 	}
 
-	if err := other.store.UpdateQuarantineStatus(other.ctx, msg.ID, quarantine.StatusApproved, "admin", ""); !errors.Is(err, domain.ErrNotFound) {
+	if err := other.store.UpdateQuarantineStatus(other.ctx, msg.ID, quarantine.StatusApproved, &quarantine.Review{ReviewerName: "admin"}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("UpdateQuarantineStatus(other tenant) = %v, want ErrNotFound", err)
 	}
-	if err := f.store.UpdateQuarantineStatus(f.ctx, msg.ID, quarantine.StatusRejected, "sender", "cancelled"); err != nil {
+	if err := f.store.UpdateQuarantineStatus(f.ctx, msg.ID, quarantine.StatusRejected, &quarantine.Review{ReviewerName: "sender", Note: "cancelled"}); err != nil {
 		t.Fatalf("UpdateQuarantineStatus: %v", err)
 	}
-	if err := f.store.UpdateQuarantineStatus(f.ctx, msg.ID, quarantine.StatusApproved, "admin", ""); !errors.Is(err, domain.ErrConflict) {
+	if err := f.store.UpdateQuarantineStatus(f.ctx, msg.ID, quarantine.StatusApproved, &quarantine.Review{ReviewerName: "admin"}); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("UpdateQuarantineStatus(resolved) = %v, want ErrConflict", err)
 	}
 	got, err := f.store.GetQuarantinedMessage(f.ctx, msg.ID)
@@ -44,7 +44,7 @@ func TestStore_UpdateQuarantineStatus_ResolvesOnce(t *testing.T) {
 	if got.Status != quarantine.StatusRejected || got.ReviewedBy != "sender" {
 		t.Fatalf("message = %s by %q, want rejected by the sender", got.Status, got.ReviewedBy)
 	}
-	if err := f.store.UpdateQuarantineStatus(f.ctx, uuid.New().String(), quarantine.StatusApproved, "admin", ""); !errors.Is(err, domain.ErrNotFound) {
+	if err := f.store.UpdateQuarantineStatus(f.ctx, uuid.New().String(), quarantine.StatusApproved, &quarantine.Review{ReviewerName: "admin"}); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("UpdateQuarantineStatus(unknown) = %v, want ErrNotFound", err)
 	}
 }

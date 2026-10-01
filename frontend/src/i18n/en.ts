@@ -1755,7 +1755,6 @@ const en = {
   "quarantine.detail.reviewedAt": "Reviewed At",
   "quarantine.action.approve": "Approve",
   "quarantine.action.reject": "Reject",
-  "quarantine.action.reviewerName": "Your name",
   "quarantine.action.note": "Review note",
   "quarantine.toast.approved": "Message approved and dispatched.",
   "quarantine.toast.rejected": "Message rejected.",
@@ -1848,6 +1847,64 @@ const en = {
   "routing.error.refreshFailed": "Failed to refresh stats.",
   "routing.error.seedFailed": "Failed to seed from benchmarks.",
   "routing.error.recordFailed": "Failed to record outcome.",
+  // -- Privacy policy page --------------------------------------------------
+  "privacy.title": "Privacy Policy",
+  "privacy.controller.title": "Data Controller",
+  "privacy.controller.body":
+    "This CodeForge instance is self-hosted. The operator of this instance is the data controller responsible for your personal data under GDPR Art. 4(7).",
+  "privacy.collect.title": "Data We Collect",
+  "privacy.collect.account": "Account information (email address, name, role)",
+  "privacy.collect.auth": "Authentication tokens and session data",
+  "privacy.collect.projects": "Project and repository metadata",
+  "privacy.collect.conversations": "Conversation history with AI agents",
+  "privacy.collect.usage": "Usage metrics and cost tracking data",
+  "privacy.dpo.title": "Data Protection Officer",
+  "privacy.dpo.body":
+    "Contact the instance operator's Data Protection Officer for privacy inquiries. Self-hosted operators should configure DPO contact details in the instance settings.",
+  "privacy.basis.title": "Purpose & Legal Basis",
+  "privacy.basis.service":
+    "Service delivery (account, projects, conversations) -- GDPR Art. 6(1)(b) contract",
+  "privacy.basis.llm":
+    "External LLM processing (prompts sent to providers) -- GDPR Art. 6(1)(a) consent",
+  "privacy.basis.security":
+    "System security (audit logs, rate limiting) -- GDPR Art. 6(1)(f) legitimate interest",
+  "privacy.basis.cost": "Cost tracking and billing -- GDPR Art. 6(1)(b) contract",
+  "privacy.processors.title": "Subprocessors",
+  "privacy.processors.body":
+    "When external LLM providers are configured, user prompts and code context may be transmitted to these subprocessors. Local models process data entirely on-premises.",
+  "privacy.processors.openai": "OpenAI (Microsoft) -- LLM inference, US (EU DPA + SCCs)",
+  "privacy.processors.anthropic": "Anthropic -- LLM inference, US (EU DPA + SCCs)",
+  "privacy.processors.google": "Google (Vertex AI) -- LLM inference, EU (Frankfurt)",
+  "privacy.processors.local": "Ollama / LM Studio -- local inference, no data transfer",
+  "privacy.processors.note":
+    "Active providers depend on instance configuration. Consent is required before external processing (see consent settings).",
+  "privacy.retention.title": "Data Retention",
+  "privacy.retention.account":
+    "Account data -- kept while the account exists; erased immediately when you request erasure or the account is deleted. Database backups that still contain it are rotated out after about five weeks.",
+  "privacy.retention.conversations":
+    "Conversations and their messages -- 1 year after last activity (configurable)",
+  "privacy.retention.sessions": "Agent sessions -- 30 days after last activity (configurable)",
+  "privacy.retention.runs":
+    "Agent runs with their cost/usage data -- 1 year after last activity (configurable)",
+  "privacy.retention.audit":
+    "Audit log entries -- 7 years (action/resource preserved, PII anonymized)",
+  "privacy.retention.auditIp": "IP addresses in audit logs -- 180 days (per CNIL guidance)",
+  "privacy.retention.consent":
+    "Consent records -- indefinite (proof-of-consent per GDPR Art. 7(1))",
+  "privacy.retention.consentIp":
+    "IP addresses and browser user agents in consent records -- 180 days",
+  "privacy.rights.title": "Your Rights",
+  "privacy.rights.access":
+    "Right of access (Art. 15) -- export your data via Settings > Privacy > Export",
+  "privacy.rights.rectification":
+    "Right to rectification (Art. 16) -- update your profile in Settings",
+  "privacy.rights.erasure":
+    "Right to erasure (Art. 17) -- delete your account via Settings > Privacy > Delete",
+  "privacy.rights.portability":
+    "Right to data portability (Art. 20) -- JSON export of all your data",
+  "privacy.rights.object":
+    "Right to object (Art. 21) -- withdraw consent for external LLM processing",
+  "privacy.rights.complaint": "Right to lodge a complaint with a supervisory authority (Art. 77)",
 } as const;
 
 export type TranslationKey = keyof typeof en;
