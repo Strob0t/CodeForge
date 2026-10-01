@@ -95,6 +95,42 @@ func TestAdopt_OnlyTheTenantsAreaOrAdminAdoptRoots(t *testing.T) {
 	}
 }
 
+// S3-F review C4: adopt roots (platform admins only) never open the
+// workspace root: a path under it is allowed only in the caller's own
+// tenant area, whatever the adopt roots say - also when an adopt root
+// contains the workspace root.
+func TestAdopt_AdoptRootsNeverOpenTheWorkspaceRoot(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "workspaces")
+	own := filepath.Join(root, tenantctx.DefaultTenantID, "mine")
+	otherTenant := filepath.Join(root, "tenant-a", "work")
+	beside := filepath.Join(base, "e2e", "repo")
+	for _, d := range []string{own, otherTenant, beside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := NewProjectService(&mockStore{projects: []project.Project{{ID: "p1", Name: "Alpha"}}}, root)
+	svc.SetAdoptRoots([]string{base}) // contains the workspace root
+	ctx := tenantctx.WithTenant(context.Background(), tenantctx.DefaultTenantID)
+
+	if _, err := svc.Adopt(ctx, "p1", otherTenant, true); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("platform admin adopting another tenant's directory through an adopt root = %v, want a validation error", err)
+	}
+	if err := svc.checkCloneSource(ctx, otherTenant); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("clone from another tenant's directory through an adopt root = %v, want a validation error", err)
+	}
+	if _, err := svc.Adopt(ctx, "p1", own, true); err != nil {
+		t.Fatalf("adopting the own tenant area: %v", err)
+	}
+	if _, err := svc.Adopt(ctx, "p1", beside, true); err != nil {
+		t.Fatalf("platform admin adopting an adopt-root directory beside the workspace root: %v", err)
+	}
+	if _, err := svc.Adopt(ctx, "p1", beside, false); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("a non-platform admin adopting an adopt-root directory = %v, want a validation error", err)
+	}
+}
+
 func TestCheckCloneSource(t *testing.T) {
 	e := newAdoptEnv(t)
 	tests := []struct {
@@ -112,7 +148,7 @@ func TestCheckCloneSource(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.url, func(t *testing.T) {
-			err := e.svc.checkCloneSource(tc.url)
+			err := e.svc.checkCloneSource(tenantctx.WithTenant(context.Background(), "tenant-a"), tc.url)
 			if tc.wantErr != (err != nil) {
 				t.Fatalf("checkCloneSource(%q) = %v, want error %t", tc.url, err, tc.wantErr)
 			}

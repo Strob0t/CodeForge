@@ -11,7 +11,6 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
-	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -71,7 +70,7 @@ func (ph *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 
 	// If local_path provided, adopt the workspace in the same request.
 	if req.LocalPath != "" {
-		adopted, adoptErr := ph.Projects.Adopt(r.Context(), p.ID, req.LocalPath, isAdmin(r))
+		adopted, adoptErr := ph.Projects.Adopt(r.Context(), p.ID, req.LocalPath, isPlatformAdmin(r))
 		if adoptErr != nil {
 			writeDomainError(w, adoptErr, "project created but workspace adoption failed")
 			return
@@ -198,7 +197,7 @@ func (ph *ProjectHandlers) AdoptProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	p, err := ph.Projects.Adopt(r.Context(), id, cleanPath, isAdmin(r))
+	p, err := ph.Projects.Adopt(r.Context(), id, cleanPath, isPlatformAdmin(r))
 	if err != nil {
 		writeDomainError(w, err, "adopt failed")
 		return
@@ -382,9 +381,11 @@ func (ph *ProjectHandlers) ListRemoteBranches(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string][]string{"branches": branches})
 }
 
-// isAdmin reports whether the request's user is an admin: admins may adopt
-// directories from the configured workspace.adopt_roots (S3 follow-up 1f).
-func isAdmin(r *http.Request) bool {
+// isPlatformAdmin reports whether the request's user is a platform admin (an
+// admin of the default tenant): only they may adopt
+// directories from the configured workspace.adopt_roots (S3 follow-up 1f,
+// S3-F review C4).
+func isPlatformAdmin(r *http.Request) bool {
 	u := middleware.UserFromContext(r.Context())
-	return u != nil && u.Role == user.RoleAdmin
+	return u != nil && u.IsPlatformAdmin()
 }

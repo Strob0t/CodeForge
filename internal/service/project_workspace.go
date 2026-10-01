@@ -28,7 +28,7 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 	if p.RepoURL == "" {
 		return nil, fmt.Errorf("project %s has no repo_url", id)
 	}
-	if err := s.checkCloneSource(p.RepoURL); err != nil {
+	if err := s.checkCloneSource(ctx, p.RepoURL); err != nil {
 		return nil, err
 	}
 
@@ -68,12 +68,13 @@ func (s *ProjectService) SetAdoptRoots(roots []string) {
 }
 
 // Adopt sets an existing directory as the project's workspace without
-// cloning (S3 follow-up 1f). The directory, with symlinks resolved, must be
-// inside the caller's tenant directory of the workspace root
-// (<root>/<tenant>/...), or - for admins - inside a configured adopt root.
+// cloning (S3 follow-up 1f, S3-F review C4). The directory, with symlinks
+// resolved, must be inside the caller's tenant directory of the workspace
+// root (<root>/<tenant>/...), or - for platform admins only - inside a
+// configured adopt root but outside the workspace root (localSourceAllowed).
 // Another tenant's workspace, the rest of the workspace root and anything
 // else are refused.
-func (s *ProjectService) Adopt(ctx context.Context, id, path string, admin bool) (*project.Project, error) {
+func (s *ProjectService) Adopt(ctx context.Context, id, path string, platformAdmin bool) (*project.Project, error) {
 	if path == "" {
 		return nil, fmt.Errorf("adopt: path is required")
 	}
@@ -93,9 +94,9 @@ func (s *ProjectService) Adopt(ctx context.Context, id, path string, admin bool)
 	if !info.IsDir() {
 		return nil, fmt.Errorf("adopt: %s is not a directory", absPath)
 	}
-	if !s.inTenantArea(ctx, realPath) && (!admin || !s.inAdoptRoot(realPath)) {
-		return nil, fmt.Errorf("adopt: %s must be inside this tenant's workspace directory %s (admins: or inside a workspace.adopt_roots directory): %w",
-			absPath, s.tenantArea(ctx), domain.ErrValidation)
+	if !s.localSourceAllowed(ctx, realPath, platformAdmin) {
+		return nil, fmt.Errorf("adopt: %s must be inside this tenant's workspace directory %s (platform admins: or inside a "+
+			"workspace.adopt_roots directory outside the workspace root): %w", absPath, s.tenantArea(ctx), domain.ErrValidation)
 	}
 
 	p, err := s.store.GetProject(ctx, id)
@@ -126,6 +127,31 @@ func (s *ProjectService) inTenantArea(ctx context.Context, realPath string) bool
 	return s.workspaceRoot != "" && strictlyInside(realPath, s.tenantArea(ctx))
 }
 
+// localSourceAllowed reports whether a resolved local path may be adopted
+// or cloned from: under the workspace root only in the caller's tenant
+// area, whatever the adopt roots say (an adopt root may contain the
+// workspace root); elsewhere only inside an adopt root, and - for
+// adoption, where the caller chooses the path - only by a platform admin.
+func (s *ProjectService) localSourceAllowed(ctx context.Context, realPath string, platformAdmin bool) bool {
+	if s.underWorkspaceRoot(realPath) {
+		return s.inTenantArea(ctx, realPath)
+	}
+	return platformAdmin && s.inAdoptRoot(realPath)
+}
+
+// underWorkspaceRoot reports whether the resolved path is the workspace
+// root or lies inside it.
+func (s *ProjectService) underWorkspaceRoot(realPath string) bool {
+	if s.workspaceRoot == "" {
+		return false
+	}
+	root := s.workspaceRoot
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	return realPath == root || strictlyInside(realPath, root)
+}
+
 // inAdoptRoot reports whether the resolved path lies strictly inside a
 // configured adopt root.
 func (s *ProjectService) inAdoptRoot(realPath string) bool {
@@ -142,20 +168,23 @@ func strictlyInside(path, dir string) bool {
 }
 
 // checkCloneSource allows remote repository URLs (https://, git@host:) and
-// local ones (a path or file://) only inside a configured adopt root:
+// local ones (a path or file://) only where localSourceAllowed allows them:
 // repo_url validation keeps local paths out of new projects, and a stored
-// one must not read another tenant's workspace (S3 follow-up 1f).
-func (s *ProjectService) checkCloneSource(url string) error {
+// one must not read another tenant's workspace (S3 follow-up 1f, S3-F
+// review C4). The URL is the project's, not chosen at clone time, so the
+// adopt roots apply whoever clones.
+func (s *ProjectService) checkCloneSource(ctx context.Context, url string) error {
 	if project.IsValidRepoURL(url) {
 		return nil
 	}
 	local := strings.TrimPrefix(url, "file://")
 	if filepath.IsAbs(local) {
-		if resolved, err := filepath.EvalSymlinks(local); err == nil && s.inAdoptRoot(resolved) {
+		if resolved, err := filepath.EvalSymlinks(local); err == nil && s.localSourceAllowed(ctx, resolved, true) {
 			return nil
 		}
 	}
-	return fmt.Errorf("repository %q: a local repository must be inside a workspace.adopt_roots directory: %w", url, domain.ErrValidation)
+	return fmt.Errorf("repository %q: a local repository must be inside this tenant's workspace directory or a "+
+		"workspace.adopt_roots directory outside the workspace root: %w", url, domain.ErrValidation)
 }
 
 // InitWorkspace creates an empty workspace directory with git init for projects
