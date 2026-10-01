@@ -10,8 +10,6 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-import structlog
-
 from codeforge.evaluation.evaluators.base import EvaluatorError
 from codeforge.evaluation.evaluators.prompt_compressor import compress_for_context
 from codeforge.evaluation.evaluators.trajectory_verifier import VerifierClient, _format_trajectory
@@ -19,8 +17,6 @@ from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, 
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, TokenLogprob
-
-logger = structlog.get_logger()
 
 _MAX_TRAJECTORY_CHARS = 8000
 _MAX_TASK_INPUT_CHARS = 2000

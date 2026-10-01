@@ -210,7 +210,7 @@ def _merge_scores(
     """Merge filter and rank dimensions into a single EvalScore."""
     all_dims = [*filter_dims, *rank_dims]
     total_cost = sum(d.cost_usd for d in all_dims)
-    avg = _average(all_dims)
+    avg = average_of_scores(all_dims)
     cost_per_point = (result.cost_usd / avg) if avg > 0 else 0.0
     total_tokens = result.tokens_in + result.tokens_out
     token_eff = (avg / total_tokens) if total_tokens > 0 else 0.0
@@ -221,7 +221,3 @@ def _merge_scores(
         cost_per_score_point=round(cost_per_point, 6),
         token_efficiency=round(token_eff, 8),
     )
-
-
-def _average(dims: list[EvalDimension]) -> float:
-    return average_of_scores(dims)
