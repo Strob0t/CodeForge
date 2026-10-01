@@ -57,6 +57,16 @@ func TestComputeRLVRReward(t *testing.T) {
 			want:   0.75,
 		},
 		{
+			name:   "evaluator error markers of old rows are not scores",
+			scores: map[string]float64{"correctness": 0.8, "llm_judge_error": 0.0, "trajectory_verifier_error": 0.0},
+			want:   0.8,
+		},
+		{
+			name:   "only error markers",
+			scores: map[string]float64{"llm_judge_error": 0.0},
+			want:   0.0,
+		},
+		{
 			name:   "all zero scores",
 			scores: map[string]float64{"correctness": 0.0, "functional_test": 0.0},
 			want:   0.0,

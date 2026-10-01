@@ -229,7 +229,10 @@ func (a *BenchmarkResultAggregator) Leaderboard(ctx context.Context, suiteID str
 	return entries, nil
 }
 
-// ExportTrainingPairs generates chosen/rejected DPO pairs from multi-rollout results.
+// ExportTrainingPairs generates chosen/rejected DPO pairs from multi-rollout
+// results. A rollout with an evaluation error and no valid score has no score
+// to compare and gets no pair (none for its task when it is the best one);
+// scores leave out evaluator error markers.
 func (a *BenchmarkResultAggregator) ExportTrainingPairs(ctx context.Context, runID string) ([]benchmark.TrainingPair, error) {
 	results, err := a.store.ListBenchmarkResults(ctx, runID)
 	if err != nil {
@@ -260,16 +263,24 @@ func (a *BenchmarkResultAggregator) ExportTrainingPairs(ctx context.Context, run
 			continue
 		}
 
-		chosenScore := avgScoreFromJSON(best.Scores)
-		chosen := resultToTrainingEntry(best, chosenScore)
+		chosenScores, scored := resultScores(best)
+		if !scored {
+			continue
+		}
+		chosenScore := avgFromMap(chosenScores)
+		chosen := resultToTrainingEntry(best, chosenScores, chosenScore)
 
 		for i := range taskResults {
 			r := &taskResults[i]
 			if r.IsBestRollout {
 				continue
 			}
-			rejectedScore := avgScoreFromJSON(r.Scores)
-			rejected := resultToTrainingEntry(r, rejectedScore)
+			rejectedScores, scored := resultScores(r)
+			if !scored {
+				continue
+			}
+			rejectedScore := avgFromMap(rejectedScores)
+			rejected := resultToTrainingEntry(r, rejectedScores, rejectedScore)
 			pairs = append(pairs, benchmark.TrainingPair{
 				TaskID:   taskID,
 				Prompt:   best.TaskName,
@@ -284,7 +295,10 @@ func (a *BenchmarkResultAggregator) ExportTrainingPairs(ctx context.Context, run
 }
 
 // ExportRLVRDataset generates RLVR training entries from a benchmark run.
-// Each result becomes one entry with prompt, response, scalar reward, and metadata.
+// Each result becomes one entry with prompt, response, scalar reward, and
+// metadata. A result with an evaluation error and no valid score is left out:
+// a reward of 0 would label an unverified response as wrong. A partially
+// scored result is rewarded on its valid dimensions.
 func (a *BenchmarkResultAggregator) ExportRLVRDataset(ctx context.Context, runID string) ([]benchmark.RLVREntry, error) {
 	run, err := a.store.GetBenchmarkRun(ctx, runID)
 	if err != nil {
@@ -297,7 +311,10 @@ func (a *BenchmarkResultAggregator) ExportRLVRDataset(ctx context.Context, runID
 
 	entries := make([]benchmark.RLVREntry, 0, len(results))
 	for i := range results {
-		scores := ParseScores(results[i].Scores)
+		scores, scored := resultScores(&results[i])
+		if !scored {
+			continue
+		}
 
 		entries = append(entries, benchmark.RLVREntry{
 			Prompt:   results[i].TaskName,

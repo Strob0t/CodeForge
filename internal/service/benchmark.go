@@ -609,9 +609,23 @@ func ParseScores(raw json.RawMessage) map[string]float64 {
 	return scores
 }
 
-func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.TrainingEntry {
-	scores := ParseScores(r.Scores)
+// resultScores returns a stored result's scores without evaluator error
+// markers. scored is false when an evaluation failed (evaluation_errors, or
+// an error marker in an old row) and no valid score is left: such a result
+// has no reward and is left out of the training exports.
+func resultScores(r *benchmark.Result) (scores map[string]float64, scored bool) {
+	scores = ParseScores(r.Scores)
+	failed := len(r.EvaluationErrors) > 0
+	for key := range scores {
+		if isEvaluatorErrorKey(key) {
+			failed = true
+			delete(scores, key)
+		}
+	}
+	return scores, len(scores) > 0 || !failed
+}
 
+func resultToTrainingEntry(r *benchmark.Result, scores map[string]float64, avgScore float64) benchmark.TrainingEntry {
 	return benchmark.TrainingEntry{
 		RolloutID:   r.RolloutID,
 		TaskID:      r.TaskID,
@@ -626,7 +640,8 @@ func resultToTrainingEntry(r *benchmark.Result, avgScore float64) benchmark.Trai
 
 // ComputeRLVRReward computes an RLVR reward from evaluation scores.
 // Strategy: weighted average where functional_test scores get 2x weight.
-// All other scores get 1x weight. Result is clamped to [0.0, 1.0].
+// All other scores get 1x weight; evaluator error markers are not scores.
+// Result is clamped to [0.0, 1.0].
 func ComputeRLVRReward(scores map[string]float64) float64 {
 	if len(scores) == 0 {
 		return 0.0
@@ -634,6 +649,9 @@ func ComputeRLVRReward(scores map[string]float64) float64 {
 
 	var totalWeighted, totalWeight float64
 	for key, value := range scores {
+		if isEvaluatorErrorKey(key) {
+			continue
+		}
 		weight := 1.0
 		if key == "functional_test" {
 			weight = 2.0
