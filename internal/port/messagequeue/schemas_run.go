@@ -121,6 +121,9 @@ type RunStartPayload struct {
 	// HeartbeatSeconds is how often the worker reports the run alive
 	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
 	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker truncates
+	// tool results to it (0 = the worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
 }
 
 // TerminationPayload carries the termination limits for a run.

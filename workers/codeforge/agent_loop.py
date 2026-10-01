@@ -21,6 +21,7 @@ import httpx
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
+from codeforge.history import DEFAULT_TOOL_OUTPUT_MAX_CHARS
 from codeforge.json_utils import safe_json_loads
 from codeforge.llm import LLMError, classify_error_type, is_fallback_eligible
 from codeforge.loop_helpers import (
@@ -128,6 +129,9 @@ class LoopConfig:
     top_p: float | None = None
     extra_body: dict[str, object] | None = None
     selected_tools: list[str] | None = None
+    # agent.tool_output_max_chars: tool results added in the loop are
+    # truncated to it (0 = DEFAULT_TOOL_OUTPUT_MAX_CHARS).
+    tool_output_max_chars: int = 0
 
 
 @dataclass
@@ -146,6 +150,7 @@ class _LoopState:
     quality_tracker: IterationQualityTracker | None = None
     files_read: set[str] = field(default_factory=set)
     writes_since_verify: int = 0
+    tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +374,11 @@ class AgentLoopExecutor:
         """Execute the agentic loop until the LLM stops or limits are hit."""
         cfg = config or LoopConfig()
         quality_tracker = IterationQualityTracker()
-        state = _LoopState(model=cfg.model, quality_tracker=quality_tracker)
+        state = _LoopState(
+            model=cfg.model,
+            quality_tracker=quality_tracker,
+            tool_output_max_chars=cfg.tool_output_max_chars or DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+        )
         stall_detector = StallDetector()
         error_tracker = ToolErrorTracker()
 

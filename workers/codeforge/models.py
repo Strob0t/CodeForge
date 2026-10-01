@@ -139,6 +139,8 @@ class RunStartMessage(BaseModel):
     # How often to report the work alive (Go runtime.heartbeat_interval;
     # 0 = the worker's default).
     heartbeat_seconds: int = 0
+    # agent.tool_output_max_chars from Go; 0 = the worker's default.
+    tool_output_max_chars: int = 0
 
     @field_validator("config", mode="before")
     @classmethod

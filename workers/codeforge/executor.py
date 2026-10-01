@@ -139,6 +139,7 @@ class AgentExecutor:
         runtime: RuntimeClient,
         mode: ModeConfig | None = None,
         mcp_servers: list[MCPServerDef] | None = None,
+        tool_output_max_chars: int = 0,
     ) -> None:
         """Execute a run in the agent loop and publish its completion.
 
@@ -208,6 +209,7 @@ class AgentExecutor:
                 max_steps=runtime.termination.max_steps,
                 max_cost=runtime.termination.max_cost,
                 mode_tools=frozenset(mode.tools) if mode else frozenset(),
+                tool_output_max_chars=tool_output_max_chars,
             )
             messages: list[dict[str, object]] = [
                 {"role": "system", "content": system_prompt},

@@ -32,6 +32,7 @@ def build_loop_config(
     mode_tools: frozenset[str],
     provider_api_key: str = "",
     plan_act_enabled: bool = False,
+    tool_output_max_chars: int = 0,
 ) -> tuple[LoopConfig, str | None]:
     """Build the LoopConfig of a run with complexity-aware adjustments.
 
@@ -69,6 +70,7 @@ def build_loop_config(
         top_p=0.8 if is_local else None,
         extra_body={"top_k": 20, "repetition_penalty": 1.05} if is_local else None,
         selected_tools=selected_tools,
+        tool_output_max_chars=tool_output_max_chars,
     )
 
     complexity = routing.complexity_tier or "unknown"

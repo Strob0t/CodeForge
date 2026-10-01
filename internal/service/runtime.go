@@ -62,6 +62,16 @@ type RuntimeService struct {
 	// workspaceRealPaths caches the real path (symlinks resolved) of each
 	// workspace path the policy checks tool calls against.
 	workspaceRealPaths sync.Map
+
+	// toolOutputMaxChars is agent.tool_output_max_chars, sent on runs.start
+	// (0 = the worker's default).
+	toolOutputMaxChars int
+}
+
+// SetToolOutputMaxChars sets agent.tool_output_max_chars, the length the
+// worker truncates the tool results of a run to (0 = the worker's default).
+func (s *RuntimeService) SetToolOutputMaxChars(n int) {
+	s.toolOutputMaxChars = n
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -314,6 +324,7 @@ func (s *RuntimeService) buildRunPayload(
 	// approval of one of the run's tool calls (KI-21).
 	payload.ApprovalTimeoutSeconds = approvalTimeoutSeconds(s.runtimeCfg)
 	payload.HeartbeatSeconds = heartbeatSeconds(s.runtimeCfg)
+	payload.ToolOutputMaxChars = s.toolOutputMaxChars
 
 	// Build context pack if context optimizer is available.
 	if s.contextOpt != nil {

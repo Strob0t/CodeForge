@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
+from codeforge.history import truncate_tool_result
 from codeforge.json_utils import safe_json_loads
 from codeforge.loop_helpers import (
     ToolErrorTracker,
@@ -205,8 +206,12 @@ class ToolExecutor:
         messages: list[dict[str, object]],
         state: _LoopState,
     ) -> None:
-        """Build and append a tool result message to state and messages."""
-        msg = build_tool_result_message(tc, content)
+        """Build and append a tool result message to state and messages.
+
+        The result is truncated to the run's tool_output_max_chars (head and
+        tail kept), like the tool results of earlier turns in the history.
+        """
+        msg = build_tool_result_message(tc, truncate_tool_result(content, state.tool_output_max_chars))
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
 

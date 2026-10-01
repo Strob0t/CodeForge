@@ -224,6 +224,7 @@ func sampleRunStartPayload() mq.RunStartPayload {
 		WorkspacePath:          "/data/workspaces/my-project",
 		Backend:                "aider",
 		ApprovalTimeoutSeconds: 60,
+		ToolOutputMaxChars:     20000,
 		HeartbeatSeconds:       30,
 	}
 }
@@ -753,7 +754,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 	// Common field expectations per subject.
 	expectedKeys := map[string][]string{
 		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id", "approval_timeout_seconds"},
-		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend", "approval_timeout_seconds"},
+		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend", "approval_timeout_seconds", "tool_output_max_chars"},
 		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path"},
 		mq.SubjectTaskResult:                  {"task_id", "project_id", "tenant_id", "dispatch_id", "status", "cost_usd"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},

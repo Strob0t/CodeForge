@@ -109,7 +109,11 @@ class RunHandlerMixin:
                 await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
                 task = self._build_run_task(run_msg, log)
                 await self._executor.execute_with_runtime(
-                    task, runtime, mode=run_msg.mode, mcp_servers=run_msg.mcp_servers
+                    task,
+                    runtime,
+                    mode=run_msg.mode,
+                    mcp_servers=run_msg.mcp_servers,
+                    tool_output_max_chars=run_msg.tool_output_max_chars,
                 )
             except Exception as exc:
                 # The run was acked on accept and is never redelivered: end it as

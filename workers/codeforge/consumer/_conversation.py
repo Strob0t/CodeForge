@@ -684,6 +684,7 @@ class ConversationHandlerMixin:
             mode_tools=frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset(),
             provider_api_key=run_msg.provider_api_key,
             plan_act_enabled=run_msg.plan_act_enabled,
+            tool_output_max_chars=run_msg.tool_output_max_chars,
         )
         if complexity_hint:
             messages.append({"role": "system", "content": complexity_hint})
