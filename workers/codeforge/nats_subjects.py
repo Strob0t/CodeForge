@@ -124,6 +124,11 @@ SUBJECT_PROMPT_EVOLUTION_PROMOTED = "prompt.evolution.promoted"
 SUBJECT_PROMPT_EVOLUTION_REVERTED = "prompt.evolution.reverted"
 
 # Headers
+# The worker's inboxes (replies, JetStream deliveries). The deployment's NATS
+# server lets only the worker's user subscribe to them, and the worker none
+# of the Go Core's (_INBOX_core, configs/nats/nats-server.conf; KI-71).
+INBOX_PREFIX = "_INBOX_worker"
+
 HEADER_REQUEST_ID = "X-Request-ID"
 # The tenant a message was published under (same name in the Go Core,
 # internal/adapter/nats/nats.go); see codeforge.tenant_context.

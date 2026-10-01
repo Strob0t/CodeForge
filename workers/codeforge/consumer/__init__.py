@@ -38,6 +38,7 @@ from codeforge.consumer._repomap import RepoMapHandlerMixin
 from codeforge.consumer._retrieval import RetrievalHandlerMixin
 from codeforge.consumer._runs import RunHandlerMixin
 from codeforge.consumer._subjects import (
+    INBOX_PREFIX,
     STREAM_NAME,
     STREAM_SUBJECTS,
     SUBJECT_A2A_TASK_CANCEL,
@@ -225,7 +226,7 @@ class TaskConsumer(
         Returns without consuming if a stop was requested meanwhile (see
         request_stop); otherwise returns once every message loop ended.
         """
-        self._nc = await nats.connect(self.nats_url)
+        self._nc = await nats.connect(self.nats_url, inbox_prefix=INBOX_PREFIX)
         if self._stop_requested:
             # stop() may have run while connecting, with no connection to drain.
             logger.info("stop requested while connecting, the consumer does not start")

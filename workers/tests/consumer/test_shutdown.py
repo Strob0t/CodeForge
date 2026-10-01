@@ -57,7 +57,7 @@ class _SlowConnect:
         self.called = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def __call__(self, _url: str) -> MagicMock:
+    async def __call__(self, _url: str, **_options: object) -> MagicMock:
         self.called.set()
         await self.release.wait()
         return self.nc

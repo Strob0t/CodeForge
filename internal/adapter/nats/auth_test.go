@@ -90,7 +90,7 @@ func workerConn(t *testing.T, addr string) (nc *nats.Conn, asyncErrors func() []
 	t.Helper()
 	var mu sync.Mutex
 	var asyncErrs []error
-	nc, err := nats.Connect("nats://worker:"+authTestWorkerPassword+"@"+addr,
+	nc, err := nats.Connect("nats://worker:"+authTestWorkerPassword+"@"+addr, nats.CustomInboxPrefix("_INBOX_worker"),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
 			mu.Lock()
 			asyncErrs = append(asyncErrs, err)
@@ -219,6 +219,24 @@ func TestAuth_WorkerCannotForgeCoreMessages(t *testing.T) {
 		})
 	}
 
+	t.Run("core inboxes", func(t *testing.T) {
+		// The Go Core's replies and deliveries go to _INBOX_core.*; the worker
+		// cannot subscribe there, so it cannot learn their names.
+		sub, err := nc.SubscribeSync(inboxPrefix + ".>")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := q.nc.Publish(inboxPrefix+".x", []byte("reply")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sub.NextMsg(500 * time.Millisecond); err == nil {
+			t.Fatal("the worker received a message on a Go Core inbox")
+		}
+		if !hasPermissionViolation(asyncErrs(), inboxPrefix) {
+			t.Fatalf("no permissions violation for %s: %v", inboxPrefix, asyncErrs())
+		}
+	})
+
 	t.Run("stream update", func(t *testing.T) {
 		apiCtx, apiCancel := context.WithTimeout(ctx, time.Second)
 		defer apiCancel()
@@ -237,4 +255,21 @@ func hasPermissionViolation(errs []error, subject string) bool {
 		}
 	}
 	return false
+}
+
+// TestConnectOpts_CoreInboxes: the Go Core's replies and deliveries go to
+// inboxes only its NATS user may subscribe to (KI-71).
+func TestConnectOpts_CoreInboxes(t *testing.T) {
+	nopts := nats.GetDefaultOptions()
+	for _, o := range connectOpts() {
+		if err := o(&nopts); err != nil {
+			t.Fatalf("applying option: %v", err)
+		}
+	}
+	if nopts.InboxPrefix != "_INBOX_core" {
+		t.Fatalf("InboxPrefix = %q, want _INBOX_core", nopts.InboxPrefix)
+	}
+	if nopts.MaxReconnect != 60 {
+		t.Fatalf("connectOpts drops the reconnect options: MaxReconnect = %d", nopts.MaxReconnect)
+	}
 }

@@ -23,11 +23,12 @@ from typing import TYPE_CHECKING
 
 import nats
 import pytest
-from nats.js.api import StreamConfig
+from nats.js.api import AckPolicy, ConsumerConfig, StreamConfig
 
 from codeforge.consumer import TaskConsumer
 from codeforge.consumer._delivery import ensure_durable
 from codeforge.nats_subjects import (
+    INBOX_PREFIX,
     STREAM_NAME,
     STREAM_SUBJECTS,
     SUBJECT_RUN_START,
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 CONFIG = Path(__file__).resolve().parents[2] / "configs" / "nats" / "nats-server.conf"
+# The Go Core's inbox prefix (internal/adapter/nats/nats.go).
+CORE_INBOX_PREFIX = "_INBOX_core"
 NATS_SERVER = os.environ.get("NATS_SERVER_BIN") or shutil.which("nats-server")
 
 pytestmark = pytest.mark.skipif(NATS_SERVER is None, reason="needs a nats-server binary (NATS_SERVER_BIN)")
@@ -147,8 +150,14 @@ async def _connect(port: int, user: str = "", password: str = "") -> nats.NATS:
         errors.append(exc)
 
     creds = f"{user}:{password}@" if user else ""
+    # Each service uses inboxes of its own, as the Go Core and the worker do.
+    inbox_prefix = CORE_INBOX_PREFIX if user == "core" else INBOX_PREFIX
     nc = await nats.connect(
-        f"nats://{creds}127.0.0.1:{port}", error_cb=on_error, allow_reconnect=False, max_reconnect_attempts=0
+        f"nats://{creds}127.0.0.1:{port}",
+        error_cb=on_error,
+        allow_reconnect=False,
+        max_reconnect_attempts=0,
+        inbox_prefix=inbox_prefix,
     )
     nc._test_errors = errors  # type: ignore[attr-defined]
     return nc
@@ -233,6 +242,100 @@ async def test_the_worker_cannot_change_the_stream_or_read_kv(server: int) -> No
             await js.purge_stream(STREAM_NAME)
         with pytest.raises(Exception):  # noqa: B017
             await js.key_value("IDEMPOTENCY")
+    finally:
+        await worker.close()
+        await core.close()
+
+
+# ---------------------------------------------------------------------------
+# Deliveries the worker could point elsewhere
+# ---------------------------------------------------------------------------
+
+
+async def _no_message(sub: object, timeout: float = 0.5) -> bool:
+    try:
+        await sub.next_msg(timeout=timeout)  # type: ignore[attr-defined]
+    except nats.errors.TimeoutError:
+        return True
+    return False
+
+
+async def test_the_worker_cannot_deliver_onto_core_subjects(server: int) -> None:
+    """A consumer's deliveries never reach a subject only the Go Core may publish.
+
+    nats-server does not check a push consumer's deliver subject, nor a pull
+    request's reply subject, against the creator's publish rights; a delivery
+    onto a stream subject is refused as a cycle, and nothing is stored.
+    """
+    core = await _core_with_stream(server)
+    worker = await _connect(server, "worker", "worker-pw")
+    try:
+        js = worker.jetstream(timeout=2.0)
+        with pytest.raises(nats.js.errors.BadRequestError, match="cycle"):
+            await js.add_consumer(
+                STREAM_NAME,
+                ConsumerConfig(
+                    deliver_subject="runs.cancel", filter_subject="runs.complete", ack_policy=AckPolicy.NONE
+                ),
+            )
+
+        watch = await core.jetstream().subscribe("runs.toolcall.response", config=notification_consumer())
+        await js.publish("runs.complete", b'{"call_id": "c1", "decision": "allow"}')
+        sub = await ensure_durable(js, consumer_name(SUBJECT_RUN_START), SUBJECT_RUN_START)
+        await sub.unsubscribe()
+        await core.jetstream().publish(SUBJECT_RUN_START, b'{"run_id": "r1"}')
+        name = consumer_name(SUBJECT_RUN_START)
+        await worker.publish(
+            f"$JS.API.CONSUMER.MSG.NEXT.{STREAM_NAME}.{name}", b'{"batch": 1}', reply="runs.toolcall.response"
+        )
+        await worker.flush()
+        assert await _no_message(watch, 1.0), "a pull reply reached a Go Core subject"
+    finally:
+        await worker.close()
+        await core.close()
+
+
+async def test_the_worker_cannot_see_core_inboxes(server: int) -> None:
+    """Without the Go Core's inbox names the worker cannot point deliveries at them."""
+    core = await _core_with_stream(server)
+    worker = await _connect(server, "worker", "worker-pw")
+    try:
+        for subject in ("_INBOX_core.>", "_INBOX.>", ">"):
+            sub = await worker.subscribe(subject)
+            await core.publish(subject.replace(">", "x"), b"secret reply")
+            await core.flush()
+            assert await _no_message(sub), subject
+        await asyncio.sleep(0.2)
+        assert any("permissions violation" in str(e).lower() for e in worker._test_errors)  # type: ignore[attr-defined]
+    finally:
+        await worker.close()
+        await core.close()
+
+
+@pytest.mark.parametrize(
+    "api",
+    [
+        f"$JS.API.CONSUMER.CREATE.{STREAM_NAME}.codeforge-go-runs-complete.runs.complete",
+        f"$JS.API.CONSUMER.DURABLE.CREATE.{STREAM_NAME}.codeforge-go-runs-complete",
+        f"$JS.API.CONSUMER.DELETE.{STREAM_NAME}.codeforge-go-runs-complete",
+        f"$JS.API.CONSUMER.INFO.{STREAM_NAME}.codeforge-go-runs-complete",
+        f"$JS.API.CONSUMER.MSG.NEXT.{STREAM_NAME}.codeforge-go-runs-complete",
+        f"$JS.API.CONSUMER.CREATE.{STREAM_NAME}.codeforge-py-unknown.runs.cancel",
+        f"$JS.ACK.{STREAM_NAME}.codeforge-go-runs-complete.1.1.1.1.0",
+    ],
+)
+async def test_the_worker_cannot_use_other_consumers(server: int, api: str) -> None:
+    """The worker may create, read, fetch from and ack only its own durables."""
+    core = await _core_with_stream(server)
+    worker = await _connect(server, "worker", "worker-pw")
+    try:
+        with contextlib.suppress(nats.errors.TimeoutError, nats.errors.NoRespondersError):
+            await worker.request(api, b"{}", timeout=0.5)
+        await asyncio.sleep(0.2)
+        assert any(
+            "permissions violation" in str(e).lower() and api.lower() in str(e).lower()
+            for e in worker._test_errors  # type: ignore[attr-defined]
+        ), worker._test_errors  # type: ignore[attr-defined]
     finally:
         await worker.close()
         await core.close()

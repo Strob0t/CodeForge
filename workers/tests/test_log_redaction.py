@@ -86,7 +86,7 @@ async def test_consumer_logs_nats_url_without_credentials(monkeypatch: pytest.Mo
         def jetstream(self) -> object:
             return object()
 
-    async def fake_connect(_url: str) -> _FakeNC:
+    async def fake_connect(_url: str, **_options: object) -> _FakeNC:
         return _FakeNC()
 
     monkeypatch.setattr(consumer_mod, "logger", _FakeLogger())

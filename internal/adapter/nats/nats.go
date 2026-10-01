@@ -69,6 +69,12 @@ type Queue struct {
 	clock func() time.Time
 }
 
+// inboxPrefix names the Go Core's inboxes (replies, JetStream deliveries).
+// The deployment's NATS server lets only the Go Core's user subscribe to them
+// (configs/nats/nats-server.conf), so the worker cannot learn their names and
+// point a consumer's deliveries at them (KI-71).
+const inboxPrefix = "_INBOX_core"
+
 // reconnectOpts returns NATS connection options for automatic reconnection
 // and error reporting. Extracted for testability.
 func reconnectOpts() []nats.Option {
@@ -89,11 +95,17 @@ func reconnectOpts() []nats.Option {
 	}
 }
 
+// connectOpts returns the options of the Go Core's connection: its own
+// inboxes plus reconnection and error reporting.
+func connectOpts() []nats.Option {
+	return append(reconnectOpts(), nats.CustomInboxPrefix(inboxPrefix))
+}
+
 // Connect establishes a connection to NATS and ensures the JetStream stream
 // exists. streamMaxBytes caps the stream's storage (nats.stream_max_bytes); the
 // server refuses the stream when it cannot reserve that much.
 func Connect(ctx context.Context, url string, streamMaxBytes int64) (*Queue, error) {
-	nc, err := nats.Connect(url, reconnectOpts()...)
+	nc, err := nats.Connect(url, connectOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("nats connect: %w", err)
 	}
