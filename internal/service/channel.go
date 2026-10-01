@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -123,8 +125,13 @@ func (s *ChannelService) RegenerateWebhookKey(ctx context.Context, channelID str
 }
 
 // AuthorizeWebhook checks a webhook call's key against the channel's stored
-// hash (constant time) and returns ctx scoped to the channel's tenant.
+// hash (constant time) and returns ctx scoped to the channel's tenant. A
+// channel ID that is not a canonical UUID cannot name a channel and is
+// refused like an unknown one, before the lookup.
 func (s *ChannelService) AuthorizeWebhook(ctx context.Context, channelID, key string) (context.Context, error) {
+	if !isCanonicalUUID(channelID) {
+		return nil, ErrWebhookForbidden
+	}
 	tenantID, stored, err := s.db.GetChannelWebhookKeyHash(ctx, channelID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return nil, ErrWebhookForbidden
@@ -137,6 +144,17 @@ func (s *ChannelService) AuthorizeWebhook(ctx context.Context, channelID, key st
 		return nil, ErrWebhookForbidden
 	}
 	return tenantctx.WithTenant(ctx, tenantID), nil
+}
+
+// isCanonicalUUID reports whether s is a UUID in its canonical 36-character
+// form (uuid.Parse alone also accepts braces, a urn:uuid: prefix and the
+// form without hyphens).
+func isCanonicalUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	_, err := uuid.Parse(s)
+	return err == nil
 }
 
 // MarkRead moves the user's read position in a channel of the caller's

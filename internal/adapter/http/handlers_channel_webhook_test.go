@@ -18,7 +18,10 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
-const channelTestTenant = "aaaaaaaa-0000-4000-8000-000000000001"
+const (
+	channelTestTenant = "aaaaaaaa-0000-4000-8000-000000000001"
+	channelTestID     = "c0ffee00-0000-4000-8000-000000000001"
+)
 
 // accountlessUserID is the default user while auth is disabled: it has no
 // account row.
@@ -34,7 +37,7 @@ type channelHTTPStore struct {
 }
 
 func (s *channelHTTPStore) SetChannelWebhookKeyHash(ctx context.Context, channelID string, hash []byte) error {
-	if channelID != "ch-1" || tenantctx.FromContext(ctx) != channelTestTenant {
+	if channelID != channelTestID || tenantctx.FromContext(ctx) != channelTestTenant {
 		return domain.ErrNotFound
 	}
 	s.hash = hash
@@ -42,7 +45,7 @@ func (s *channelHTTPStore) SetChannelWebhookKeyHash(ctx context.Context, channel
 }
 
 func (s *channelHTTPStore) GetChannelWebhookKeyHash(_ context.Context, channelID string) (tenantID string, hash []byte, err error) {
-	if channelID != "ch-1" {
+	if channelID != channelTestID {
 		return "", nil, domain.ErrNotFound
 	}
 	return channelTestTenant, s.hash, nil
@@ -93,13 +96,13 @@ func TestChannelWebhook_KeyAndDelivery(t *testing.T) {
 	editor := &user.User{ID: "u-editor", Name: "Ed", Role: user.RoleEditor, TenantID: channelTestTenant}
 
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/webhook-key", "", editor))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/"+channelTestID+"/webhook-key", "", editor))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("editor generated a key: %d", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/webhook-key", "", admin))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/"+channelTestID+"/webhook-key", "", admin))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("generate key: %d %s", w.Code, w.Body.String())
 	}
@@ -111,7 +114,7 @@ func TestChannelWebhook_KeyAndDelivery(t *testing.T) {
 	}
 
 	post := func(key, body string) *httptest.ResponseRecorder {
-		req := channelRouteRequest(http.MethodPost, "/api/v1/webhooks/channels/ch-1", body, nil)
+		req := channelRouteRequest(http.MethodPost, "/api/v1/webhooks/channels/"+channelTestID, body, nil)
 		if key != "" {
 			req.Header.Set("X-Webhook-Key", key)
 		}
@@ -128,6 +131,13 @@ func TestChannelWebhook_KeyAndDelivery(t *testing.T) {
 	if len(store.posted) != 0 {
 		t.Fatal("a rejected webhook call posted a message")
 	}
+	req := channelRouteRequest(http.MethodPost, "/api/v1/webhooks/channels/not-a-uuid", `{"content":"x"}`, nil)
+	req.Header.Set("X-Webhook-Key", resp.WebhookKey)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !bytes.Contains(w.Body.Bytes(), []byte("invalid webhook key")) {
+		t.Fatalf("channel ID that is not a UUID: %d %s, want the uniform 403", w.Code, w.Body.String())
+	}
 	w = post(resp.WebhookKey, `{"content":"build ok","sender_name":"ci","sender_type":"user","sender_id":"u-admin"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("webhook post: %d %s", w.Code, w.Body.String())
@@ -141,7 +151,7 @@ func TestChannelWebhook_KeyAndDelivery(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/webhook", `{"content":"x"}`, admin))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/"+channelTestID+"/webhook", `{"content":"x"}`, admin))
 	if w.Code != http.StatusNotFound && w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("the old authenticated webhook path still answers %d", w.Code)
 	}
@@ -154,7 +164,7 @@ func TestChannelRead_MarkAndList(t *testing.T) {
 	viewer := &user.User{ID: "u-viewer", Name: "V", Role: user.RoleViewer, TenantID: channelTestTenant}
 
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/read", `{"message_id":"msg-9","user_id":"someone-else"}`, viewer))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/"+channelTestID+"/read", `{"message_id":"msg-9","user_id":"someone-else"}`, viewer))
 	if w.Code != http.StatusOK {
 		t.Fatalf("mark read: %d %s", w.Code, w.Body.String())
 	}
@@ -163,13 +173,13 @@ func TestChannelRead_MarkAndList(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/read", `{}`, viewer))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/"+channelTestID+"/read", `{}`, viewer))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("mark read without message: %d", w.Code)
 	}
 
 	w = httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodGet, "/api/v1/channels/ch-1/read", "", viewer))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodGet, "/api/v1/channels/"+channelTestID+"/read", "", viewer))
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"last_read_message_id":"msg-9"`)) {
 		t.Fatalf("list read states: %d %s", w.Code, w.Body.String())
 	}
@@ -184,7 +194,7 @@ func TestChannelRead_AccountlessUserIsNoOp(t *testing.T) {
 	admin := &user.User{ID: accountlessUserID, Name: "Admin", Role: user.RoleAdmin, TenantID: channelTestTenant}
 
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/read", `{"message_id":"msg-9"}`, admin))
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/"+channelTestID+"/read", `{"message_id":"msg-9"}`, admin))
 	if w.Code != http.StatusNoContent || w.Body.Len() != 0 {
 		t.Fatalf("mark read without an account = %d %q, want 204 and no body", w.Code, w.Body.String())
 	}
