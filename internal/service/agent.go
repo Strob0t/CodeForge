@@ -157,16 +157,11 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		return err
 	}
 
-	backend, err := agentbackend.New(ag.Backend, ag.Config)
-	if err != nil {
-		return fmt.Errorf("create backend: %w", err)
+	if err := stopOnBackend(ctx, ag, taskID); err != nil {
+		return err
 	}
 
-	if err := backend.Stop(ctx, taskID); err != nil {
-		return fmt.Errorf("stop task: %w", err)
-	}
-
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+	s.resetAgent(ctx, agentID, ag.ProjectID)
 	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", taskID))
 
 	// Record event
@@ -174,12 +169,6 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		"reason": "stopped by user",
 	})
 
-	// Broadcast state changes
-	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
-		AgentID:   agentID,
-		ProjectID: ag.ProjectID,
-		Status:    string(agent.StatusIdle),
-	})
 	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
 		TaskID:    taskID,
 		ProjectID: ag.ProjectID,
@@ -187,6 +176,19 @@ func (s *AgentService) StopTask(ctx context.Context, agentID, taskID string) err
 		AgentID:   agentID,
 	})
 
+	return nil
+}
+
+// stopOnBackend tells the worker executing a task of ag to stop it, through
+// the agent's backend.
+func stopOnBackend(ctx context.Context, ag *agent.Agent, taskID string) error {
+	backend, err := agentbackend.New(ag.Backend, ag.Config)
+	if err != nil {
+		return fmt.Errorf("create backend: %w", err)
+	}
+	if err := backend.Stop(ctx, taskID); err != nil {
+		return fmt.Errorf("stop task: %w", err)
+	}
 	return nil
 }
 

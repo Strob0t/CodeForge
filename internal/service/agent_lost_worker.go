@@ -56,7 +56,7 @@ func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter ti
 		t := &lost[i]
 		taskCtx := withEntityTenant(ctx, t.TenantID)
 		slog.WarnContext(taskCtx, "task worker heartbeat lost, failing the task", "task_id", t.ID, "after", lostAfter)
-		s.tellWorkerToStopTask(taskCtx, t.ID)
+		s.tellWorkerToStopTask(taskCtx, t)
 		if err := s.recordResult(taskCtx, task.StatusFailed, task.Result{Error: reason}, t.ID, t.ProjectID, 0); err != nil {
 			errs = append(errs, fmt.Errorf("task %s: %w", t.ID, err))
 			continue
@@ -71,13 +71,21 @@ func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter ti
 	return handled, errors.Join(errs...)
 }
 
-// tellWorkerToStopTask publishes tasks.cancel for a task; best effort.
-func (s *AgentService) tellWorkerToStopTask(ctx context.Context, taskID string) {
-	data, err := json.Marshal(messagequeue.TaskCancelPayload{TaskID: taskID})
-	if err == nil {
-		err = s.queue.Publish(ctx, messagequeue.SubjectTaskCancel, data)
+// tellWorkerToStopTask tells the worker executing a task to stop it through
+// the backend of the task's agent, as StopTask does; best effort. A task that
+// names no agent (dispatched before tasks recorded their agent) cannot be
+// routed to a backend and is only logged.
+func (s *AgentService) tellWorkerToStopTask(ctx context.Context, t *task.Task) {
+	if t.AgentID == "" {
+		slog.WarnContext(ctx, "task names no agent, its worker is not told to stop", "task_id", t.ID)
+		return
 	}
-	logBestEffort(ctx, err, "publish tasks.cancel", slog.String("task_id", taskID))
+	ag, err := s.store.GetAgent(ctx, t.AgentID)
+	if err != nil {
+		logBestEffort(ctx, err, "GetAgent", slog.String("agent_id", t.AgentID), slog.String("task_id", t.ID))
+		return
+	}
+	logBestEffort(ctx, stopOnBackend(ctx, ag, t.ID), "stop task on its backend", slog.String("task_id", t.ID))
 }
 
 // resetAgent sets an agent whose task ended back to idle; best effort.

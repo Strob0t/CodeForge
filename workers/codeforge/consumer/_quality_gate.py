@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
-import json
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import structlog
 
 from codeforge.consumer._subjects import SUBJECT_QG_RESULT, SUBJECT_RUN_HEARTBEAT
 from codeforge.models import QualityGateRequest, QualityGateResult
+from codeforge.runtime import heartbeats
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -48,32 +46,20 @@ async def gate_heartbeat(
     request to another worker while the gate runs (the gate's own timeouts
     bound it, so this never keeps a hung handler alive).
     """
-    interval = gate_heartbeat_interval(request)
-
-    async def _beat() -> None:
-        while True:
-            payload = {
-                "run_id": request.run_id,
-                "tenant_id": request.tenant_id,
-                "phase": HEARTBEAT_PHASE_QUALITY_GATE,
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-            try:
-                if js is not None:
-                    await js.publish(SUBJECT_RUN_HEARTBEAT, json.dumps(payload).encode())
-                if not msg.is_acked:
-                    await msg.in_progress()
-            except Exception as exc:
-                log.warning("quality gate heartbeat failed", error=str(exc))
-            await asyncio.sleep(interval)
-
-    task = asyncio.create_task(_beat())
-    try:
+    if js is None:
+        log.warning("JetStream not available, quality gate runs without heartbeats")
         yield
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        return
+
+    async def keep_in_progress() -> None:
+        if not msg.is_acked:
+            await msg.in_progress()
+
+    payload = {"run_id": request.run_id, "tenant_id": request.tenant_id, "phase": HEARTBEAT_PHASE_QUALITY_GATE}
+    async with heartbeats(
+        js, SUBJECT_RUN_HEARTBEAT, payload, gate_heartbeat_interval(request), on_beat=keep_in_progress
+    ):
+        yield
 
 
 class QualityGateHandlerMixin:

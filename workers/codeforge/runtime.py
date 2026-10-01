@@ -35,7 +35,7 @@ from codeforge.nats_subjects import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from nats.js.client import JetStreamContext
 
@@ -58,11 +58,13 @@ async def send_heartbeats(
     payload: dict[str, str],
     interval: float,
     until: Callable[[], bool] = lambda: False,
+    on_beat: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Publish *payload* with the current time on *subject* every *interval* seconds.
 
-    Runs until cancelled or until *until()* is true. A failed publish is
-    logged; the next heartbeat follows.
+    Runs until cancelled or until *until()* is true; *on_beat* runs with
+    every heartbeat (e.g. an in-progress ack of the message being handled).
+    A failed publish or *on_beat* is logged; the next heartbeat follows.
     """
     while not until():
         beat = {**payload, "timestamp": datetime.now(UTC).isoformat()}
@@ -70,15 +72,26 @@ async def send_heartbeats(
             await js.publish(subject, json.dumps(beat).encode())
         except Exception as exc:
             logger.warning("heartbeat publish failed", subject=subject, error=str(exc), **payload)
+        if on_beat is not None:
+            try:
+                await on_beat()
+            except Exception as exc:
+                logger.warning("heartbeat callback failed", subject=subject, error=str(exc), **payload)
         await asyncio.sleep(interval)
 
 
 @contextlib.asynccontextmanager
 async def heartbeats(
-    js: JetStreamContext, subject: str, payload: dict[str, str], interval: float
+    js: JetStreamContext,
+    subject: str,
+    payload: dict[str, str],
+    interval: float,
+    on_beat: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncIterator[None]:
     """Send heartbeats (see send_heartbeats) while the block runs."""
-    task = asyncio.create_task(send_heartbeats(js, subject, payload, interval), name=f"heartbeat {subject}")
+    task = asyncio.create_task(
+        send_heartbeats(js, subject, payload, interval, on_beat=on_beat), name=f"heartbeat {subject}"
+    )
     try:
         yield
     finally:

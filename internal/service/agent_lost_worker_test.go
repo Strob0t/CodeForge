@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -63,8 +63,9 @@ func (s *lostTaskStore) TouchTaskHeartbeat(ctx context.Context, id string) error
 }
 
 func TestFailTasksWithLostWorker(t *testing.T) {
+	probe := registerExecutionProbe(t)
 	store := &lostTaskStore{}
-	store.agents = []agent.Agent{{ID: "agent-1", ProjectID: "p-a", Name: "a", Backend: "aider", Status: agent.StatusRunning}}
+	store.agents = []agent.Agent{{ID: "agent-1", ProjectID: "p-a", Name: "a", Backend: "execution-probe", Status: agent.StatusRunning}}
 	store.tasks = []task.Task{
 		{ID: "t-a", ProjectID: "p-a", TenantID: scopeTenantA, AgentID: "agent-1", Status: task.StatusRunning},
 		{ID: "t-b", ProjectID: "p-b", TenantID: scopeTenantB, Status: task.StatusQueued},
@@ -100,19 +101,10 @@ func TestFailTasksWithLostWorker(t *testing.T) {
 		t.Errorf("agent status = %s, want idle", store.agents[0].Status)
 	}
 
-	cancelled := map[string]bool{}
-	for _, msg := range queue.published {
-		if msg.subject != messagequeue.SubjectTaskCancel {
-			continue
-		}
-		var cancel messagequeue.TaskCancelPayload
-		if err := json.Unmarshal(msg.data, &cancel); err != nil {
-			t.Fatalf("unmarshal tasks.cancel: %v", err)
-		}
-		cancelled[cancel.TaskID] = true
-	}
-	if !cancelled["t-a"] || !cancelled["t-b"] {
-		t.Errorf("tasks.cancel published for %v, want t-a and t-b", cancelled)
+	// The worker is told to stop through the agent's backend, as StopTask
+	// does; a task without agent cannot be routed to one.
+	if got := probe.stops(); !slices.Equal(got, []string{"t-a"}) {
+		t.Errorf("backend stops = %v, want t-a", got)
 	}
 
 	byTenant := map[string][]string{}
