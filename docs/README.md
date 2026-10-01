@@ -7,6 +7,7 @@
 
 | Document | Purpose |
 |---|---|
+| [../AGENTS.md](../AGENTS.md) | Instructions for coding agents: workflow, rules, architecture summary (AGENTS.md convention, replaces CLAUDE.md) |
 | [todo.md](todo.md) | Active TODO tracker — what needs to be done next |
 | [todo.md#known-issues](todo.md#known-issues) | Known Issues (KI-n) — verified defects in the current code |
 | [known-issues-fix-plan.md](known-issues-fix-plan.md) | Milestone plan (S0-S6) and decisions for fixing the Known Issues |
@@ -36,6 +37,7 @@ Each of the four core pillars has its own feature spec (01-04); 05-07 cover cros
 |---|---|
 | [architecture/adr/](architecture/adr/) | Architecture Decision Records (ADRs) |
 | [architecture/adr/_template.md](architecture/adr/_template.md) | ADR template for new decisions |
+| [architecture/project-reference.md](architecture/project-reference.md) | Catalogue of adopted patterns, implemented phases, protocols, competitors |
 
 ### Security, Compliance & Operations
 
@@ -62,6 +64,7 @@ Each of the four core pillars has its own feature spec (01-04); 05-07 cover cros
 | [specs/](specs/) | Design specifications (`*-design.md`) |
 | [plans/](plans/) | Implementation plans (`*-plan.md`) |
 | [testing/](testing/) | Test plans (`*-testplan.md`) and test reports (`*-report.md`) |
+| [testing/e2e-setup.md](testing/e2e-setup.md) | E2E setup: full stack, LLM API tests, autonomous goal-to-program run |
 
 ### Audits
 
@@ -80,4 +83,4 @@ Each of the four core pillars has its own feature spec (01-04); 05-07 cover cros
 
 ### Documentation Rules
 
-See [CLAUDE.md](../CLAUDE.md) section "Documentation Policy" for rules about when to update which documentation files, how to track TODOs, and how to create feature specs and ADRs.
+See [AGENTS.md](../AGENTS.md) section "Workflow" for rules about when to update which documentation files, how to track TODOs, and how to create feature specs and ADRs.

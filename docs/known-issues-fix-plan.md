@@ -9,13 +9,13 @@
 ## Principles
 
 - **Reproduce first (TDD).** Every fix starts with a failing test that shows the defect, then the minimal fix
-  (CLAUDE.md "TDD"). Security fixes get table-driven tests for the bypass variants.
+  (AGENTS.md "Testing"). Security fixes get table-driven tests for the bypass variants.
 - **CI first.** The defects survived because CI was red since 2026-03-24 and nobody saw new failures. S0 makes
   every existing gate green and adds the missing ones (type check, vitest, integration tests) before feature fixes.
 - **Fail closed and fail visibly.** A security check that cannot decide denies; a feature that cannot do what it
   reports returns an error instead of a fake success (see [Decisions](#decisions)).
 - **Docs per fix.** When a KI is fixed: mark it `[x] (date)` in todo.md, remove its `KI-n` annotations
-  (`grep -rn "KI-n\b" docs CLAUDE.md`), update the affected docs.
+  (`grep -rn "KI-n\b" docs AGENTS.md`), update the affected docs.
 - **No new runtime dependencies** unless a decision below says so.
 
 ## Milestones

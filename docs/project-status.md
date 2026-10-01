@@ -117,7 +117,7 @@ Confidence-based moderator router with structured output, typed agent module sch
 
 ### Phase 22: Planned Pattern Implementation (COMPLETED)
 
-All 8 patterns from CLAUDE.md implemented: RouterLLM scenario wiring, GitHub Copilot token exchange, composite memory scoring, experience pool (@exp_cache), HandoffMessage pattern, Microagents (YAML+Markdown triggers), Skills system (BM25-recommended snippets), Human Feedback Provider Protocol (Slack + Email adapters). - **Known issue:** KI-15 (`HandoffService` not wired), KI-57 (email HITL sends nothing)
+All 8 adopted patterns (list: `docs/architecture/project-reference.md`) implemented: RouterLLM scenario wiring, GitHub Copilot token exchange, composite memory scoring, experience pool (@exp_cache), HandoffMessage pattern, Microagents (YAML+Markdown triggers), Skills system (BM25-recommended snippets), Human Feedback Provider Protocol (Slack + Email adapters). - **Known issue:** KI-15 (`HandoffService` not wired), KI-57 (email HITL sends nothing)
 
 ### Phase 23: Security & Identity Patterns (COMPLETED)
 

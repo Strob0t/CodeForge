@@ -310,7 +310,7 @@ CodeForge/
 ├── .golangci.yml             # Go Linter Config (v2)
 ├── .mcp.json                 # MCP Server for Claude Code (local, gitignored, not in repo)
 ├── .pre-commit-config.yaml   # Pre-commit Hooks (15 hooks)
-├── CLAUDE.md                 # Project Context for Claude Code
+├── AGENTS.md                 # Instructions for coding agents (AGENTS.md convention)
 ├── Dockerfile                # Go Core multi-stage build
 ├── Dockerfile.worker         # Python Worker image
 ├── Dockerfile.frontend       # Frontend nginx image
