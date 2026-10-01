@@ -86,6 +86,13 @@ class EvaluationPipeline:
             token_efficiency=round(token_efficiency, 8),
         )
 
+    async def aclose(self) -> None:
+        """Release what the evaluators hold (the proxy client a verifier created)."""
+        for evaluator in self._evaluators:
+            aclose = getattr(evaluator, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
     async def evaluate_batch(
         self,
         tasks_and_results: list[tuple[TaskSpec, ExecutionResult]],

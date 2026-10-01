@@ -114,7 +114,7 @@ class TrajectoryVerifierEvaluator:
     ) -> None:
         self._model = model
         self._max_trajectory_tokens = max_trajectory_tokens
-        self._llm = llm
+        self._client = VerifierClient(llm)
 
     @property
     def name(self) -> str:
@@ -151,9 +151,13 @@ class TrajectoryVerifierEvaluator:
             dims.append(EvalDimension(name=f"trajectory_{dim}", score=score, error=error))
         return dims
 
+    async def aclose(self) -> None:
+        """Close the client this evaluator created (an injected one stays open)."""
+        await self._client.aclose()
+
     async def _call_verifier(self, prompt: str) -> ChatCompletionResponse:
         """Call the verifier model through the LiteLLM proxy."""
-        return await verifier_client(self._llm).chat_completion(
+        return await self._client.get().chat_completion(
             model=self._model,
             messages=[
                 {"role": "system", "content": "You are a precise evaluation model. Return only JSON."},
@@ -164,15 +168,33 @@ class TrajectoryVerifierEvaluator:
         )
 
 
-def verifier_client(llm: LiteLLMClient | None) -> LiteLLMClient:
-    """Return *llm*, or a client for the configured LiteLLM proxy."""
-    if llm is not None:
-        return llm
-    from codeforge.config import get_settings
-    from codeforge.llm import LiteLLMClient
+class VerifierClient:
+    """The client a verifier calls the proxy with.
 
-    settings = get_settings()
-    return LiteLLMClient(base_url=settings.litellm_url, api_key=settings.litellm_api_key)
+    An injected client (the worker's) is used as is and never closed here.
+    Without one, a client for the configured proxy is created on first use,
+    kept for the evaluator's lifetime and closed by aclose().
+    """
+
+    def __init__(self, llm: LiteLLMClient | None) -> None:
+        self._injected = llm
+        self._owned: LiteLLMClient | None = None
+
+    def get(self) -> LiteLLMClient:
+        if self._injected is not None:
+            return self._injected
+        if self._owned is None:
+            from codeforge import llm as llm_module
+            from codeforge.config import get_settings
+
+            settings = get_settings()
+            self._owned = llm_module.LiteLLMClient(base_url=settings.litellm_url, api_key=settings.litellm_api_key)
+        return self._owned
+
+    async def aclose(self) -> None:
+        owned, self._owned = self._owned, None
+        if owned is not None:
+            await owned.close()
 
 
 def _format_trajectory(task: TaskSpec, result: ExecutionResult) -> str:

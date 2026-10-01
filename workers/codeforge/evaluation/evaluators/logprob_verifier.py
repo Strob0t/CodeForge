@@ -14,7 +14,7 @@ import structlog
 
 from codeforge.evaluation.evaluators.base import EvaluatorError
 from codeforge.evaluation.evaluators.prompt_compressor import compress_for_context
-from codeforge.evaluation.evaluators.trajectory_verifier import _format_trajectory, verifier_client
+from codeforge.evaluation.evaluators.trajectory_verifier import VerifierClient, _format_trajectory
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ class LogprobVerifierEvaluator:
     ) -> None:
         self._model = model
         self._max_trajectory_tokens = max_trajectory_tokens
-        self._llm = llm
+        self._client = VerifierClient(llm)
 
     @property
     def name(self) -> str:
@@ -89,9 +89,13 @@ class LogprobVerifierEvaluator:
 
         return [EvalDimension(name="logprob_verification", score=score, details=details)]
 
+    async def aclose(self) -> None:
+        """Close the client this evaluator created (an injected one stays open)."""
+        await self._client.aclose()
+
     async def _call_verifier(self, prompt: str) -> ChatCompletionResponse:
         """Call the verifier model through the LiteLLM proxy."""
-        return await verifier_client(self._llm).chat_completion(
+        return await self._client.get().chat_completion(
             model=self._model,
             messages=[
                 {"role": "system", "content": "Answer YES or NO only."},

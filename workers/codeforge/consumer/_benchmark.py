@@ -472,6 +472,7 @@ class BenchmarkHandlerMixin:
         from codeforge.models import BenchmarkRunResult
 
         async with _ensure_benchmark_semaphore():
+            pipeline: EvaluationPipeline | None = None
             try:
                 log.info("benchmark run started")
                 start = time.monotonic()
@@ -530,6 +531,9 @@ class BenchmarkHandlerMixin:
                     BenchmarkRunResult(run_id=req.run_id, tenant_id=req.tenant_id, status="failed", error=str(exc)),
                     SUBJECT_BENCHMARK_RUN_RESULT,
                 )
+            finally:
+                if pipeline is not None:
+                    await pipeline.aclose()
 
     async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
         if req.model != "auto":
