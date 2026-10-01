@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/url"
 	"strings"
 
 	fb "github.com/Strob0t/CodeForge/internal/domain/feedback"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // sender delivers one email (Notifier).
@@ -59,6 +61,13 @@ var approvalMail = template.Must(template.New("approval").Parse(`<h2>Tool approv
 //
 //nolint:gocritic // hugeParam: req must be passed by value to match feedback.Provider interface
 func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackRequest) (fb.FeedbackResult, error) {
+	// The recipients are the operator's: other tenants' tool calls,
+	// commands and arguments are not mailed to them (S3-F review C5).
+	if req.TenantID != tenantctx.DefaultTenantID {
+		slog.DebugContext(ctx, "approval email skipped: the request is not of the default tenant",
+			"tenant_id", req.TenantID, "run_id", req.RunID, "call_id", req.CallID)
+		return fb.FeedbackResult{Provider: fb.ProviderEmail}, nil
+	}
 	var body bytes.Buffer
 	err := approvalMail.Execute(&body, struct {
 		RunID, Tool, Command, Path, Profile, ArgumentsPreview string

@@ -57,7 +57,9 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	s.feedbackProvidersMu.RUnlock()
 	for _, p := range providers {
 		go func(provider feedbackPort.Provider) {
+			tenantID, _ := tenantctx.Lookup(ctx)
 			fbReq := feedback.FeedbackRequest{
+				TenantID:         tenantID,
 				RunID:            runID,
 				CallID:           callID,
 				Tool:             tool,

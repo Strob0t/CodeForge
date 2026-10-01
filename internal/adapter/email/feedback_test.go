@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	fb "github.com/Strob0t/CodeForge/internal/domain/feedback"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // KI-57: approval emails reach the configured recipients and link to the
@@ -27,11 +28,29 @@ func (r *recordingSender) Send(_ context.Context, to, subject, body string) erro
 	return nil
 }
 
+// S3-F review C5: the email provider is the operator's (one global list of
+// recipients): it mails only requests of the default tenant. Other
+// tenants' tool calls, commands and arguments are not sent to the
+// operator's recipients.
+func TestFeedbackProvider_MailsOnlyTheDefaultTenantsRequests(t *testing.T) {
+	for _, tenant := range []string{"", "22222222-2222-2222-2222-222222222222"} {
+		sender := &recordingSender{}
+		p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com")
+		res, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tenant, RunID: "r", CallID: "c", Tool: "Bash", Command: "secret"})
+		if err != nil || res.Decision != "" {
+			t.Fatalf("tenant %q: result %+v, %v; want no decision and no error", tenant, res, err)
+		}
+		if len(sender.sent) != 0 {
+			t.Fatalf("tenant %q: mails sent %+v, want none", tenant, sender.sent)
+		}
+	}
+}
+
 func TestFeedbackProvider_MailsEveryRecipientALinkToTheApprovalPage(t *testing.T) {
 	sender := &recordingSender{}
 	p := NewFeedbackProvider(sender, []string{"ops@example.com", "lead@example.com"}, "https://cf.example.com/")
 
-	res, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{RunID: "run 1", CallID: "call/2", Tool: "Bash", Command: "make deploy", Path: "."})
+	res, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tenantctx.DefaultTenantID, RunID: "run 1", CallID: "call/2", Tool: "Bash", Command: "make deploy", Path: "."})
 	if err != nil {
 		t.Fatalf("RequestFeedback: %v", err)
 	}
@@ -56,7 +75,7 @@ func TestFeedbackProvider_EscapesWhatTheAgentAsks(t *testing.T) {
 	p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com")
 
 	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{
-		RunID: "r", CallID: "c",
+		TenantID: tenantctx.DefaultTenantID, RunID: "r", CallID: "c",
 		Tool:    "Bash\r\nBcc: victim@example.com",
 		Command: `curl x <a href="https://evil.example">Approve</a>`,
 		Path:    "<script>alert(1)</script>",
@@ -80,7 +99,7 @@ func TestFeedbackProvider_OneFailedRecipientDoesNotStopTheOthers(t *testing.T) {
 	sender := &recordingSender{failTo: "ops@example.com"}
 	p := NewFeedbackProvider(sender, []string{"ops@example.com", "lead@example.com"}, "https://cf.example.com")
 
-	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{RunID: "r", CallID: "c", Tool: "Edit"})
+	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tenantctx.DefaultTenantID, RunID: "r", CallID: "c", Tool: "Edit"})
 	if err == nil || !strings.Contains(err.Error(), "ops@example.com") {
 		t.Fatalf("RequestFeedback = %v, want the failed recipient named", err)
 	}
@@ -108,7 +127,7 @@ func TestFeedbackProvider_ShowsProfileAndPreviewEscaped(t *testing.T) {
 	p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com")
 
 	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{
-		RunID: "run-1", CallID: "c-1", Tool: "Bash", Command: `echo "<script>alert(1)</script>"`,
+		TenantID: tenantctx.DefaultTenantID, RunID: "run-1", CallID: "c-1", Tool: "Bash", Command: `echo "<script>alert(1)</script>"`,
 		Path: "a<b>.txt", Profile: "supervised-ask-all", ArgumentsPreview: `{"command": "<img src=x onerror=alert(1)>"}`,
 	})
 	if err != nil {

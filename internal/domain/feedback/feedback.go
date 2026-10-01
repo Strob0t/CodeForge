@@ -41,6 +41,10 @@ type AuditEntry struct {
 // web approval card shows, including the deciding policy profile and a
 // truncated preview of the call's arguments (display only).
 type FeedbackRequest struct {
+	// TenantID is the tenant of the run asking ("" when unknown): providers
+	// that send to operator-wide recipients answer only the operator's
+	// (default) tenant.
+	TenantID         string `json:"tenant_id"`
 	RunID            string `json:"run_id"`
 	CallID           string `json:"call_id"`
 	Tool             string `json:"tool"`

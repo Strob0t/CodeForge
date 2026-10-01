@@ -64,3 +64,27 @@ func TestApproval_FeedbackProvidersGetProfileAndArgumentsPreview(t *testing.T) {
 		t.Errorf("request = %+v", got)
 	}
 }
+
+// S3-F review C5: feedback providers learn the tenant of the run asking, so
+// the operator's email provider can answer only its own tenant.
+func TestApproval_FeedbackRequestCarriesTheRunsTenant(t *testing.T) {
+	const tenant = "22222222-2222-2222-2222-222222222222"
+	svc, store, queue, _ := newRuntimeTestEnvWithPolicy(service.NewPolicyService("supervised-ask-all", nil))
+	provider := &recordingProvider{}
+	svc.RegisterFeedbackProvider(provider)
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{ID: "run-tn", TenantID: tenant, TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
+		PolicyProfile: "supervised-ask-all", Status: run.StatusRunning, StartedAt: time.Now()})
+	store.mu.Unlock()
+
+	if decision, reason := toolCallDecision(t, svc, queue, &messagequeue.ToolCallRequestPayload{
+		RunID: "run-tn", CallID: "c-tn", Tool: "write_file", Path: "notes.md", TenantID: tenant,
+	}); decision != "allow" {
+		t.Fatalf("decision = %s (%s), want allow from the provider", decision, reason)
+	}
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if len(provider.reqs) != 1 || provider.reqs[0].TenantID != tenant {
+		t.Fatalf("provider requests = %+v, want one with tenant %s", provider.reqs, tenant)
+	}
+}
