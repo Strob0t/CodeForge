@@ -140,7 +140,7 @@
 
 - MCP (Model Context Protocol) — Agent-to-Tool communication, JSON-RPC 2.0, Anthropic (Go Core: MCP server + client registry; Python Workers: MCP client for agent tool access)
 - LSP (Language Server Protocol) — code intelligence for agents, Microsoft (Go Core: LSP server lifecycle management per project language)
-- OpenTelemetry GenAI — LLM/agent observability, traces + metrics, CNCF (LiteLLM: native OTEL export; Go: `go.opentelemetry.io/otel` v1.44.0 + SDK + OTLP gRPC exporters + `otelhttp` middleware; Python: `opentelemetry-api` + `opentelemetry-sdk` + OTLP gRPC exporter; export gaps: KI-36)
+- OpenTelemetry GenAI — LLM/agent observability, traces + metrics, CNCF (LiteLLM: native OTEL export; Go: `go.opentelemetry.io/otel` v1.45.0 + SDK + OTLP gRPC exporters + `otelhttp` middleware; Python: `opentelemetry-api` + `opentelemetry-sdk` + OTLP gRPC exporter; export gaps: KI-36)
 - A2A (Agent-to-Agent Protocol v0.3.0) — full implementation with AgentCard, JSON-RPC task lifecycle, inbound/outbound federation, trust annotations, push notifications (Phase 27); inbound calls authenticate with per-tenant A2A API keys and their prompts pass the quarantine (KI-15)
 - AG-UI (Agent-User Interaction Protocol) — 12 event types (8 core + 4 CodeForge extensions: `permission_request`, `goal_proposal`, `action_suggestion`, `roadmap_proposal`) emitted via WebSocket, Go + Python + Frontend integration (Phase 17+)
 
