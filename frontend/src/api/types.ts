@@ -1617,13 +1617,23 @@ export interface ActiveWorkItem {
   started_at: string;
 }
 
+/**
+ * Status of a handoff as the Go Core announces it: initiated (the target's
+ * run started), quarantined (held for review), rejected (by the quarantine),
+ * failed (refused, or its retries ran out), a2a_delegated (sent to a remote
+ * A2A agent).
+ */
+export type HandoffStatus = "initiated" | "quarantined" | "rejected" | "failed" | "a2a_delegated";
+
 /** WS event: handoff status between agents (Phase 23D War Room) */
 export interface HandoffStatusEvent {
   source_agent_id: string;
   target_agent_id: string;
   plan_id?: string;
   step_id?: string;
-  status: "initiated" | "accepted" | "completed" | "failed";
+  /** The target agent's run (status initiated). */
+  run_id?: string;
+  status: HandoffStatus;
   context?: string;
 }
 
