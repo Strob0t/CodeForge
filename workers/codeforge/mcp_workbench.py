@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import io
 import logging
+import os
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
 
-from mcp import ClientSession, StdioServerParameters, stdio_client
+from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
+from codeforge.tool_process import tool_stdio_client
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
@@ -44,14 +45,11 @@ class McpServerConnection:
         self._exit_stack = AsyncExitStack()
 
         if self._def.transport == "stdio":
-            params = StdioServerParameters(
-                command=self._def.command,
-                args=self._def.args,
-                env=self._def.env or None,
-            )
-            # stdio_client is an async context manager yielding (read, write) streams
+            # The server runs as the tool user, like every agent tool (KI-71). Its
+            # stderr needs a real file (an io.StringIO has no file descriptor).
+            errlog = self._exit_stack.enter_context(open(os.devnull, "w"))  # noqa: SIM115 - closed by the exit stack
             read_stream, write_stream = await self._exit_stack.enter_async_context(
-                stdio_client(params, errlog=io.StringIO())
+                tool_stdio_client(self._def.command, self._def.args, declared_env=self._def.env, errlog=errlog)
             )
         elif self._def.transport == "sse":
             read_stream, write_stream = await self._exit_stack.enter_async_context(

@@ -13,6 +13,7 @@ worker's secret files or its process environment.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,8 @@ from codeforge.tool_process import tool_identity_env
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
+
+logger = logging.getLogger(__name__)
 
 # Process basics, plus what toolchains need to find themselves, reach package
 # indexes and the network (proxies) and verify TLS. Proxy and index URLs are
@@ -97,6 +100,44 @@ def _looks_secret(name: str) -> bool:
 
 def _is_worker_credential(name: str) -> bool:
     return name in _WORKER_NAMES or name.startswith(_WORKER_PREFIXES)
+
+
+# Variables that make the dynamic loader or an interpreter run other code;
+# never taken from a declared environment.
+_CODE_LOADING_PREFIXES = ("LD_", "PYTHON", "PERL5", "RUBY", "MALLOC_")
+_CODE_LOADING_NAMES = frozenset(
+    {
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "BASH_ENV",
+        "ENV",
+        "GCONV_PATH",
+        "GLIBC_TUNABLES",
+        "LOCPATH",
+        "NLSPATH",
+        "HOSTALIASES",
+    }
+)
+
+
+def declared_tool_env(declared: Mapping[str, str] | None) -> dict[str, str]:
+    """The variables a tool process's definition declares (an MCP server's env), safe to pass on.
+
+    Drops the worker's own credentials and variables that make the dynamic
+    loader or an interpreter load other code (LD_*, PYTHON*, NODE_OPTIONS,
+    ...). Credentials the definition declares for the tool itself (an API
+    token of an MCP server) are kept.
+    """
+    if not declared:
+        return {}
+    kept: dict[str, str] = {}
+    for name, value in declared.items():
+        upper = name.upper()
+        if _is_worker_credential(upper) or upper.startswith(_CODE_LOADING_PREFIXES) or upper in _CODE_LOADING_NAMES:
+            logger.warning("dropping the declared environment variable %s of a tool process", name)
+            continue
+        kept[name] = value
+    return kept
 
 
 def tool_env(

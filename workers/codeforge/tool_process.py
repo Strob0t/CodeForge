@@ -16,10 +16,15 @@ capabilities. Every tool process starts through setpriv (util-linux), which
 sets the tool user's UID and GID, the workspace group (gid 10010) as its only
 supplementary group, clears the inheritable and ambient capability sets and
 sets no_new_privs before it executes the command; the command therefore runs
-without capabilities and cannot gain any. Popen closes every other file
-descriptor and sets the umask (002: files stay writable for the workspace
-group, which the Go Core is in too). CAP_KILL lets the worker stop tool
-processes of another user (timeouts, cancels).
+without capabilities and cannot gain any. setpriv itself still holds the
+worker's capabilities and the dynamic loader honours LD_PRELOAD and friends
+for it (ambient capabilities do not set AT_SECURE), so it runs with a fixed
+environment of its own; env(1), already as the tool user, gives the command
+its environment. Popen closes every other file descriptor and sets the umask
+(002: files stay writable for the workspace group, which the Go Core is in
+too). CAP_KILL lets the worker stop tool processes of another user
+(timeouts, cancels). MCP stdio servers start the same way
+(tool_stdio_client).
 
 ``CODEFORGE_TOOL_ISOLATION`` selects the mode: ``required`` (the worker image,
 docker-compose.prod.yml) starts tool processes only as the tool user and
@@ -45,6 +50,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+    from contextlib import AbstractAsyncContextManager
+    from typing import TextIO
+
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.shared.message import SessionMessage
 
     from codeforge.config import WorkerSettings
 
@@ -57,6 +67,7 @@ TOOL_UMASK = 0o002
 TOOL_USER = "codeforge-tool"
 
 _LAUNCHER = "setpriv"
+_ENV_PROGRAM = "env"
 _SHELL = "/bin/sh"
 _PROBE_TIMEOUT_SECONDS = 10.0
 _PROBE_PATH = "/usr/local/bin:/usr/bin:/bin"
@@ -73,6 +84,9 @@ for path in "$@"; do
 done
 exit 0
 """
+
+# The whole environment of setpriv, which runs with the worker's capabilities.
+_LAUNCHER_ENV = {"PATH": _PROBE_PATH}
 
 # Capability numbers (linux/capability.h).
 _CAP_KILL = 5
@@ -146,6 +160,12 @@ class IsolationStatus:
     ready: bool
     reason: str = ""
     launcher: str = ""
+    env_program: str = ""
+
+    def command(self, argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
+        """The command line that runs *argv* as the tool user with exactly the environment *env*."""
+        assignments = [f"{name}={value}" for name, value in env.items() if name and "=" not in name]
+        return [*self.launch_prefix(), self.env_program, "-i", "--", *assignments, *argv]
 
     def launch_prefix(self) -> list[str]:
         """The setpriv command line that runs the command after it as the tool user."""
@@ -213,8 +233,9 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     if not config.required:
         return IsolationStatus(config=config, ready=True)
     launcher = shutil.which(_LAUNCHER, path=_PROBE_PATH)
-    if launcher is None:
-        return _not_ready(config, "setpriv (util-linux) is not installed")
+    env_program = shutil.which(_ENV_PROGRAM, path=_PROBE_PATH)
+    if launcher is None or env_program is None:
+        return _not_ready(config, "setpriv (util-linux) or env (coreutils) is not installed")
     if config.uid <= 0 or config.gid <= 0 or config.uid == os.getuid() or config.gid == os.getgid():
         return _not_ready(
             config,
@@ -224,8 +245,8 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     problems = worker_capability_problems(_own_status(), root=_is_root())
     if problems:
         return _not_ready(config, "; ".join(problems))
-    status = IsolationStatus(config=config, ready=True, launcher=launcher)
-    argv = [*status.launch_prefix(), _SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()]
+    status = IsolationStatus(config=config, ready=True, launcher=launcher, env_program=env_program)
+    argv = status.command([_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()], _LAUNCHER_ENV)
     try:
         output = _run_probe(argv, _PROBE_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -311,7 +332,7 @@ def _run_probe(argv: list[str], timeout: float) -> str:
         capture_output=True,
         text=True,
         cwd="/",
-        env={"PATH": _PROBE_PATH},
+        env=_LAUNCHER_ENV,
         timeout=timeout,
         umask=TOOL_UMASK,
         check=False,
@@ -351,17 +372,20 @@ def probe_problems(output: str, config: IsolationConfig) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _launch(argv: Sequence[str]) -> tuple[list[str], int | None]:
-    """The command line and umask of a tool process; raises ToolIsolationError when it must not start."""
+def _launch(argv: Sequence[str], env: Mapping[str, str]) -> tuple[list[str], dict[str, str], int | None]:
+    """The command line, process environment and umask of a tool process.
+
+    Raises ToolIsolationError when the process must not start.
+    """
     status = tool_isolation()
     if not status.config.required:
-        return list(argv), None
+        return list(argv), dict(env), None
     if not status.ready:
         raise ToolIsolationError(
             "tool isolation is required (CODEFORGE_TOOL_ISOLATION=required) but tool processes "
             f"cannot run as the tool user: {status.reason}"
         )
-    return [*status.launch_prefix(), *argv], TOOL_UMASK
+    return status.command(argv, env), dict(_LAUNCHER_ENV), TOOL_UMASK
 
 
 async def start_tool_process(
@@ -381,10 +405,10 @@ async def start_tool_process(
     ToolIsolationError, starting nothing, when isolation is required and not
     available.
     """
-    argv, umask = _launch([program, *args])
+    argv, process_env, umask = _launch([program, *args], env)
     optional = {"stdin": stdin, "stdout": stdout, "stderr": stderr, "limit": limit, "umask": umask}
     options: dict[str, object] = {
-        "env": dict(env),
+        "env": process_env,
         "cwd": cwd,
         "start_new_session": start_new_session,
         **{name: value for name, value in optional.items() if value is not None},
@@ -424,11 +448,36 @@ def run_tool_process(
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run *args* for an agent and wait for it (subprocess.run, text output captured)."""
-    argv, umask = _launch(args)
-    options: dict[str, object] = {"cwd": cwd, "env": dict(env), "timeout": timeout}
+    argv, process_env, umask = _launch(args, env)
+    options: dict[str, object] = {"cwd": cwd, "env": process_env, "timeout": timeout}
     if umask is not None:
         options["umask"] = umask
     return subprocess.run(argv, capture_output=True, text=True, check=False, **options)  # type: ignore[call-overload]  # noqa: S603 - the program is the caller's (no shell)
+
+
+def tool_stdio_client(
+    command: str,
+    args: Sequence[str],
+    *,
+    declared_env: Mapping[str, str] | None,
+    errlog: TextIO,
+) -> AbstractAsyncContextManager[
+    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
+]:
+    """Start an MCP stdio server for an agent (the MCP SDK's stdio_client), as the tool user.
+
+    Its environment is ``tool_env`` plus the server's declared variables
+    (``declared_tool_env``). The SDK starts the process in a session of its
+    own; it inherits the worker's umask (002 with isolation). Raises
+    ToolIsolationError, starting nothing, when isolation is required and not
+    available.
+    """
+    from mcp import StdioServerParameters, stdio_client
+
+    from codeforge.subprocess_env import declared_tool_env, tool_env
+
+    argv, env, _ = _launch([command, *args], tool_env(extra=declared_tool_env(declared_env)))
+    return stdio_client(StdioServerParameters(command=argv[0], args=argv[1:], env=env), errlog=errlog)
 
 
 # ---------------------------------------------------------------------------

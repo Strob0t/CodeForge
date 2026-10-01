@@ -46,9 +46,11 @@ WORKERS_DIR = Path(__file__).resolve().parents[1]
 SOURCE_DIR = WORKERS_DIR / "codeforge"
 
 LAUNCHER = "/usr/bin/setpriv"
+ENV_PROGRAM = "/usr/bin/env"
+LAUNCHER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
 CONFIG = IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=10010, home="/home/codeforge-tool")
 OFF = IsolationConfig(mode="off", uid=10002, gid=10002, workspace_gid=10010, home="/home/codeforge-tool")
-READY = IsolationStatus(config=CONFIG, ready=True, launcher=LAUNCHER)
+READY = IsolationStatus(config=CONFIG, ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM)
 BROKEN = IsolationStatus(config=CONFIG, ready=False, reason="the worker lacks CAP_SETUID")
 
 
@@ -66,6 +68,11 @@ def _prefix(config: IsolationConfig) -> list[str]:
 
 
 LAUNCH_PREFIX = _prefix(CONFIG)
+
+
+def _launched(config: IsolationConfig, argv: list[str], env: dict[str, str]) -> list[str]:
+    """setpriv, then env(1) with exactly *env*, then the command."""
+    return [*_prefix(config), ENV_PROGRAM, "-i", "--", *(f"{k}={v}" for k, v in env.items()), *argv]
 
 
 @pytest.fixture
@@ -173,24 +180,41 @@ async def test_required_starts_the_command_as_the_tool_user(
     isolation(READY)
     await start_tool_process("git", "status", env={"PATH": "/bin"}, cwd="/ws", stdout=asyncio.subprocess.PIPE)
     args, kwargs = spawns[0]
-    assert list(args) == [*LAUNCH_PREFIX, "git", "status"]
+    assert list(args) == _launched(CONFIG, ["git", "status"], {"PATH": "/bin"})
     assert kwargs["umask"] == TOOL_UMASK == 0o002
-    assert kwargs["env"] == {"PATH": "/bin"}
+    # setpriv holds the worker's capabilities: it gets a fixed environment, the
+    # command gets its own through env(1) after the switch.
+    assert kwargs["env"] == LAUNCHER_ENV
     assert kwargs["cwd"] == "/ws"
+
+
+async def test_the_launcher_never_gets_the_tools_environment(
+    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+) -> None:
+    isolation(READY)
+    env = {"LD_PRELOAD": "/data/workspaces/t/p/evil.so", "GCONV_PATH": "/x", "PATH": "/bin", "": "x", "A=B": "y"}
+    await start_tool_process("true", env=env)
+    run_tool_process(["true"], env=env)
+    for args, kwargs in spawns:
+        assert kwargs["env"] == LAUNCHER_ENV
+        assignments = list(args[len(LAUNCH_PREFIX) + 3 : -1])
+        # The command still gets its environment; invalid names are dropped.
+        assert assignments == ["LD_PRELOAD=/data/workspaces/t/p/evil.so", "GCONV_PATH=/x", "PATH=/bin"]
 
 
 async def test_shell_commands_run_through_sh(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
     isolation(READY)
     await start_tool_shell("pytest -q && echo ok", env={}, cwd="/ws")
     args, _ = spawns[0]
-    assert list(args) == [*LAUNCH_PREFIX, "/bin/sh", "-c", "pytest -q && echo ok"]
+    assert list(args) == _launched(CONFIG, ["/bin/sh", "-c", "pytest -q && echo ok"], {})
 
 
 def test_sync_run_as_the_tool_user(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
     isolation(READY)
     run_tool_process(["git", "log"], env={"PATH": "/bin"}, cwd="/ws", timeout=5)
     args, kwargs = spawns[0]
-    assert list(args) == [*LAUNCH_PREFIX, "git", "log"]
+    assert list(args) == _launched(CONFIG, ["git", "log"], {"PATH": "/bin"})
+    assert kwargs["env"] == LAUNCHER_ENV
     assert kwargs["umask"] == 0o002
     assert kwargs["timeout"] == 5
 
@@ -199,7 +223,7 @@ def test_groups_cleared_without_a_workspace_group(
     isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
 ) -> None:
     config = IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=-1, home="/home/tool")
-    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER))
+    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM))
     run_tool_process(["true"], env={})
     args, _ = spawns[0]
     assert "--clear-groups" in args
@@ -442,7 +466,7 @@ def test_share_with_tools_is_a_no_op_when_off(isolation: Callable[[IsolationStat
 def test_share_with_tools(
     is_dir: bool, writable: bool, mode: int, isolation: Callable[[IsolationStatus], None], tmp_path: Path
 ) -> None:
-    isolation(IsolationStatus(config=_own_group_config(), ready=True, launcher=LAUNCHER))
+    isolation(IsolationStatus(config=_own_group_config(), ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM))
     path = tmp_path / "x"
     if is_dir:
         path.mkdir(mode=0o700)
@@ -524,7 +548,10 @@ _SPAWN_ATTRIBUTES = {
         "spawnvpe",
     },
     "pty": {"spawn", "fork"},
+    "anyio": {"open_process", "run_process"},
 }
+# Library functions that start processes, however they are imported.
+_SPAWN_NAMES = {"stdio_client", "StdioServerParameters"}
 # Event loop methods that start processes, whatever the loop object is called.
 _LOOP_METHODS = {"subprocess_exec", "subprocess_shell"}
 
@@ -535,13 +562,15 @@ def _spawn_calls(path: Path, base: Path = WORKERS_DIR) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
             owner = node.value.id if isinstance(node.value, ast.Name) else ""
-            if node.attr in _SPAWN_ATTRIBUTES.get(owner, set()) or node.attr in _LOOP_METHODS:
+            if node.attr in _SPAWN_ATTRIBUTES.get(owner, set()) or node.attr in _LOOP_METHODS | _SPAWN_NAMES:
                 found.append(f"{path.relative_to(base)}:{node.lineno} {owner}.{node.attr}")
-        elif isinstance(node, ast.ImportFrom) and node.module in _SPAWN_ATTRIBUTES:
+        elif isinstance(node, ast.Name) and node.id in _SPAWN_NAMES:
+            found.append(f"{path.relative_to(base)}:{node.lineno} {node.id}")
+        elif isinstance(node, ast.ImportFrom):
             found.extend(
                 f"{path.relative_to(base)}:{node.lineno} from {node.module} import {alias.name}"
                 for alias in node.names
-                if alias.name in _SPAWN_ATTRIBUTES[node.module]
+                if alias.name in _SPAWN_ATTRIBUTES.get(node.module or "", set()) | _SPAWN_NAMES
             )
     return found
 
@@ -566,9 +595,15 @@ def test_the_spawn_scan_finds_spawns(tmp_path: Path) -> None:
         "    subprocess.run(['x'])\n"
         "    os.system('x')\n"
         "    await loop.subprocess_exec(object, 'x')\n"
+        "from mcp import stdio_client\n"
+        "import anyio, mcp\n"
+        "async def g():\n"
+        "    await anyio.open_process(['x'])\n"
+        "    await anyio.run_process(['x'])\n"
+        "    mcp.StdioServerParameters(command='x')\n"
     )
     found = _spawn_calls(sample, tmp_path)
-    assert len(found) == 5, found
+    assert len(found) == 9, found
     assert _spawn_calls(SOURCE_DIR / "tool_process.py"), "the helper itself must be found by the scan"
 
 
@@ -609,12 +644,14 @@ async def test_every_spawn_site_runs_as_the_tool_user(
     # The workspace group is the test's own: sharing a file with the tool user
     # changes its group, which a non-root test may do only to its own groups.
     config = _own_group_config()
-    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER))
+    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM))
     await _site(site)(tmp_path)
     assert spawns, f"{site} started no process"
     for args, kwargs in spawns:
         assert list(args[: len(_prefix(config))]) == _prefix(config), f"{site}: {args}"
+        assert list(args[len(_prefix(config)) : len(_prefix(config)) + 3]) == [ENV_PROGRAM, "-i", "--"], site
         assert kwargs.get("umask") == 0o002, site
+        assert kwargs["env"] == LAUNCHER_ENV, site
 
 
 @pytest.mark.parametrize("site", ["bash", *_SITES])
@@ -683,7 +720,13 @@ def test_setup_tool_isolation(
 
     def fake_configure(config: IsolationConfig) -> IsolationStatus:
         calls.append("check")
-        return IsolationStatus(config=config, ready=ready, reason="" if ready else "no CAP_SETUID", launcher=LAUNCHER)
+        return IsolationStatus(
+            config=config,
+            ready=ready,
+            reason="" if ready else "no CAP_SETUID",
+            launcher=LAUNCHER,
+            env_program=ENV_PROGRAM,
+        )
 
     monkeypatch.setattr(consumer_module, "configure_tool_isolation", fake_configure)
     monkeypatch.setattr(consumer_module, "lock_secrets_dir", lambda: calls.append("lock") or True)
@@ -699,3 +742,111 @@ def test_setup_tool_isolation(
     assert ("lock" in calls) is locks
     assert ("share /data/workspaces 10010" in calls) is shares
     assert umasks == ([] if umask is None else [umask])
+
+
+# ---------------------------------------------------------------------------
+# MCP stdio servers
+# ---------------------------------------------------------------------------
+
+
+def _stdio_params(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Record the server parameters the MCP SDK's stdio_client gets."""
+    import mcp
+
+    seen: list[object] = []
+
+    def fake_stdio_client(server: object, errlog: object = None) -> object:
+        seen.append(server)
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr(mcp, "stdio_client", fake_stdio_client)
+    return seen
+
+
+def test_mcp_stdio_server_runs_as_the_tool_user(
+    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+
+    from codeforge.tool_process import tool_stdio_client
+
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("CODEFORGE_INTERNAL_KEY", "internal-admin-key")
+    isolation(READY)
+    seen = _stdio_params(monkeypatch)
+    tool_stdio_client(
+        "npx",
+        ["-y", "@modelcontextprotocol/server-github"],
+        declared_env={"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_x", "LD_PRELOAD": "/w/evil.so", "PYTHONPATH": "/w"},
+        errlog=io.StringIO(),
+    )
+    (params,) = seen
+    argv = [params.command, *params.args]  # type: ignore[attr-defined]
+    assert argv[: len(LAUNCH_PREFIX)] == LAUNCH_PREFIX
+    assert argv[-3:] == ["npx", "-y", "@modelcontextprotocol/server-github"]
+    assignments = argv[len(LAUNCH_PREFIX) + 3 : -3]
+    assert "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_x" in assignments
+    assert "HOME=/home/codeforge-tool" in assignments
+    assert not [a for a in assignments if a.startswith(("LD_PRELOAD=", "PYTHONPATH=", "CODEFORGE_"))]
+    assert params.env == LAUNCHER_ENV  # type: ignore[attr-defined]
+
+
+def test_mcp_stdio_server_off_keeps_the_command(
+    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+
+    from codeforge.tool_process import tool_stdio_client
+
+    monkeypatch.setenv("CODEFORGE_INTERNAL_KEY", "internal-admin-key")
+    isolation(IsolationStatus(config=OFF, ready=True))
+    seen = _stdio_params(monkeypatch)
+    tool_stdio_client("node", ["server.js"], declared_env={"API_TOKEN": "t"}, errlog=io.StringIO())
+    (params,) = seen
+    assert (params.command, params.args) == ("node", ["server.js"])  # type: ignore[attr-defined]
+    assert params.env["API_TOKEN"] == "t"  # type: ignore[attr-defined]  # noqa: S105 - a test value
+    assert "CODEFORGE_INTERNAL_KEY" not in params.env  # type: ignore[attr-defined]
+
+
+async def test_mcp_stdio_server_fails_closed(
+    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from codeforge.mcp_models import MCPServerDef
+    from codeforge.mcp_workbench import McpServerConnection
+
+    isolation(BROKEN)
+    seen = _stdio_params(monkeypatch)
+    connection = McpServerConnection(MCPServerDef(id="s1", name="s1", transport="stdio", command="node"))
+    with pytest.raises(ToolIsolationError):
+        await connection.connect()
+    assert seen == []
+
+
+@pytest.mark.parametrize(
+    ("name", "kept"),
+    [
+        ("GITHUB_PERSONAL_ACCESS_TOKEN", True),
+        ("API_KEY", True),
+        ("PATH", True),
+        ("LD_PRELOAD", False),
+        ("ld_library_path", False),
+        ("LD_AUDIT", False),
+        ("PYTHONPATH", False),
+        ("PYTHONSTARTUP", False),
+        ("NODE_OPTIONS", False),
+        ("PERL5OPT", False),
+        ("RUBYOPT", False),
+        ("BASH_ENV", False),
+        ("GCONV_PATH", False),
+        ("GLIBC_TUNABLES", False),
+        ("CODEFORGE_INTERNAL_KEY", False),
+        ("LITELLM_MASTER_KEY", False),
+        ("DATABASE_URL", False),
+        ("NATS_URL_FILE", False),
+    ],
+)
+def test_declared_tool_env(name: str, kept: bool) -> None:
+    from codeforge.subprocess_env import declared_tool_env
+
+    assert (name in declared_tool_env({name: "v"})) is kept
+    assert declared_tool_env(None) == {}
