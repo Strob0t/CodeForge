@@ -245,6 +245,14 @@ func run() error {
 		slog.Info("stale temp directories removed", "count", removed)
 	}
 
+	// --- Handoffs (Phase 23B, KI-15) ---
+	// The Go Core handles the workers' handoff_to calls (handoff.request):
+	// trust and quarantine, the target agent's task and run, its inbox and
+	// the handoff.status events of the War Room.
+	handoffSvc := service.NewHandoffService(store, queue, hub)
+	handoffSvc.SetQuarantineService(quarantineSvc)
+	handoffSvc.SetRunStarter(runtimeSvc)
+
 	// Checkpoint Service (Phase 4A/4C)
 	checkpointSvc := service.NewCheckpointService(gitPool)
 	runtimeSvc.SetCheckpointService(checkpointSvc)
@@ -301,6 +309,11 @@ func run() error {
 	cancelTaskDeadLetters, err := agentSvc.StartDeadLetterSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("task dead-letter subscriber: %w", err)
+	}
+
+	cancelHandoffs, err := handoffSvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("handoff subscribers: %w", err)
 	}
 
 	// --- Secrets Vault ---
@@ -900,6 +913,8 @@ func run() error {
 	if cfg.A2A.Enabled {
 		a2aSvc := service.NewA2AService(store, queue, hub)
 		handlers.A2A = a2aSvc
+		// Handoffs to remote agents go through the A2A client.
+		handoffSvc.SetA2AService(a2aSvc)
 
 		a2aCompletionCancel, a2aSubErr := a2aSvc.StartCompletionSubscriber(ctx)
 		if a2aSubErr != nil {
@@ -1145,6 +1160,7 @@ func run() error {
 	cancelAgentOutput()
 	cancelTaskHeartbeats()
 	cancelTaskDeadLetters()
+	cancelHandoffs()
 	repoMapCancel()
 	convRunCancel()
 	convDeadLetterCancel()

@@ -56,13 +56,13 @@ func (s *AgentService) Get(ctx context.Context, id string) (*agent.Agent, error)
 }
 
 // Create creates a new agent for a project.
-func (s *AgentService) Create(ctx context.Context, projectID, name, backend string, config map[string]string, limits *resource.Limits) (*agent.Agent, error) {
+func (s *AgentService) Create(ctx context.Context, projectID, name, backend string, agentConfig map[string]string, limits *resource.Limits) (*agent.Agent, error) {
 	// Verify the backend exists
 	if _, err := agentbackend.New(backend, nil); err != nil {
 		return nil, fmt.Errorf("unknown backend %q: %w", backend, err)
 	}
 
-	return s.store.CreateAgent(ctx, projectID, name, backend, config, limits)
+	return s.store.CreateAgent(ctx, projectID, name, backend, agentConfig, limits)
 }
 
 // Delete removes an agent.

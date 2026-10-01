@@ -31,7 +31,6 @@ from codeforge.consumer._context_events import ContextEventsHandlerMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._delivery import PROGRESS_INTERVAL_SECONDS, ensure_durable, keep_in_progress
 from codeforge.consumer._graph import GraphHandlerMixin
-from codeforge.consumer._handoff import HandoffHandlerMixin
 from codeforge.consumer._memory import MemoryHandlerMixin
 from codeforge.consumer._prompt_evolution import PromptEvolutionHandlerMixin
 from codeforge.consumer._quality_gate import QualityGateHandlerMixin
@@ -53,7 +52,6 @@ from codeforge.consumer._subjects import (
     SUBJECT_EVAL_GEMMAS_REQUEST,
     SUBJECT_GRAPH_BUILD_REQUEST,
     SUBJECT_GRAPH_SEARCH_REQUEST,
-    SUBJECT_HANDOFF_REQUEST,
     SUBJECT_MEMORY_RECALL,
     SUBJECT_MEMORY_STORE,
     SUBJECT_PROMPT_EVOLUTION_PROMOTED,
@@ -133,7 +131,6 @@ class TaskConsumer(
     ContextEventsHandlerMixin,
     BenchmarkHandlerMixin,
     MemoryHandlerMixin,
-    HandoffHandlerMixin,
     A2AHandlerMixin,
     BackendHealthHandlerMixin,
     PromptEvolutionHandlerMixin,
@@ -281,7 +278,6 @@ class TaskConsumer(
             (SUBJECT_EVAL_GEMMAS_REQUEST, self._handle_gemmas_eval),
             (SUBJECT_MEMORY_STORE, self._handle_memory_store),
             (SUBJECT_MEMORY_RECALL, self._handle_memory_recall),
-            (SUBJECT_HANDOFF_REQUEST, self._handle_handoff_request),
             (SUBJECT_A2A_TASK_CREATED, self._handle_a2a_task_created),
             (SUBJECT_A2A_TASK_CANCEL, self._handle_a2a_task_cancel),
             (SUBJECT_BACKEND_HEALTH_REQUEST, self._handle_backend_health),

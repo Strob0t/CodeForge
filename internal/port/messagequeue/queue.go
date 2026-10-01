@@ -114,7 +114,8 @@ const (
 	SubjectMemoryRecallResult = "memory.recall.result" // Python → Go: recall results
 
 	// Handoff subjects (Phase 23B)
-	SubjectHandoffRequest = "handoff.request" // Go → Python: agent-to-agent handoff
+	SubjectHandoffRequest  = "handoff.request"  // Python → Go: a worker's handoff_to call (KI-15)
+	SubjectHandoffApproved = "handoff.approved" // Go → Go: a handoff an admin released from the quarantine
 
 	// Trajectory subjects (Phase 6.1)
 	SubjectTrajectoryEvent = "runs.trajectory.event" // Python → Go: granular trajectory events

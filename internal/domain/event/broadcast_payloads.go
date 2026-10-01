@@ -297,7 +297,8 @@ type HandoffStatusEvent struct {
 	TargetAgentID string `json:"target_agent_id"`
 	PlanID        string `json:"plan_id,omitempty"`
 	StepID        string `json:"step_id,omitempty"`
-	Status        string `json:"status"`
+	RunID         string `json:"run_id,omitempty"` // the target agent's run (status initiated)
+	Status        string `json:"status"`           // initiated, quarantined, rejected, failed, a2a_delegated
 	Context       string `json:"context,omitempty"`
 }
 

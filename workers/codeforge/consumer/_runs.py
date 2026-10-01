@@ -69,7 +69,7 @@ class RunHandlerMixin:
         )
 
         # Go rejects these runs at start; this catches run starts that bypass it
-        # (handoffs, messages queued before an upgrade) and fails them visibly.
+        # (messages queued before an upgrade) and fails them visibly.
         if run_msg.exec_mode not in _EXECUTABLE_EXEC_MODES:
             error = (
                 f"{run_msg.exec_mode!r} execution mode is not available yet: tools would run without isolation (KI-13)"

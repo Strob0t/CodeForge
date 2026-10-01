@@ -2451,29 +2451,19 @@ func TestStartRun_TrustAutoStamp(t *testing.T) {
 }
 
 func TestCreateHandoff_TrustAutoStamp(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &runtimeMockQueue{}
-	handoffSvc := service.NewHandoffService(store, queue)
-	ctx := context.Background()
+	env := newHandoffEnv(t, false)
 
 	msg := &orchestration.HandoffMessage{
+		ProjectID:     "proj-1",
 		SourceAgentID: "agent-a",
-		TargetAgentID: "agent-b",
+		TargetAgentID: "agent-tgt",
 		Context:       "Continue debugging the null pointer issue",
 	}
-	if err := handoffSvc.CreateHandoff(ctx, msg); err != nil {
+	if err := env.svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff failed: %v", err)
 	}
 
-	published, ok := queue.lastMessage("handoff.request")
-	if !ok {
-		t.Fatal("expected handoff request on NATS")
-	}
-	var got orchestration.HandoffMessage
-	if err := json.Unmarshal(published.Data, &got); err != nil {
-		t.Fatalf("unmarshal handoff: %v", err)
-	}
-
+	got := msg
 	if got.Trust == nil {
 		t.Fatal("expected Trust annotation on handoff message, got nil")
 	}

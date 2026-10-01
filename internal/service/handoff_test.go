@@ -2,11 +2,9 @@ package service_test
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
-	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -37,46 +35,48 @@ func (m *handoffMockQueue) Drain() error      { return nil }
 func (m *handoffMockQueue) Close() error      { return nil }
 func (m *handoffMockQueue) IsConnected() bool { return true }
 
+// handoffCtx is a context of tenant A, whose agents the handoff store knows.
+func handoffCtx() context.Context {
+	return tenantctx.WithTenant(context.Background(), handoffTenantA)
+}
+
+// TestHandoff_CreateHandoff: a handoff starts a run of the target agent
+// (KI-15: it used to be published to handoff.request for the worker to
+// start a run the Go Core did not know). A message without trust comes
+// from an internal agent.
 func TestHandoff_CreateHandoff(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &handoffMockQueue{}
-	svc := service.NewHandoffService(store, queue)
-	ctx := context.Background()
+	env := newHandoffEnv(t, false)
+	ctx := handoffCtx()
 
 	// 1. Valid handoff succeeds
 	msg := &orchestration.HandoffMessage{
-		SourceAgentID: "agent-1",
-		TargetAgentID: "agent-2",
+		ProjectID:     "proj-1",
+		SourceAgentID: "agent-src",
+		TargetAgentID: "agent-tgt",
 		Context:       "Please review this implementation",
 		PlanID:        "plan-1",
 	}
-	if err := svc.CreateHandoff(ctx, msg); err != nil {
+	if err := env.svc.CreateHandoff(ctx, msg); err != nil {
 		t.Fatalf("CreateHandoff: %v", err)
 	}
-
-	// Verify message was published to correct subject
-	if queue.subject != "handoff.request" {
-		t.Errorf("expected subject 'handoff.request', got %q", queue.subject)
+	if len(env.runs.started) != 1 || env.runs.started[0].AgentID != "agent-tgt" {
+		t.Fatalf("runs started = %+v, want agent-tgt's run", env.runs.started)
 	}
 
 	// Verify trust was auto-stamped
-	var published orchestration.HandoffMessage
-	if err := json.Unmarshal(queue.data, &published); err != nil {
-		t.Fatalf("unmarshal published: %v", err)
-	}
-	if published.Trust == nil {
+	if msg.Trust == nil {
 		t.Fatal("expected trust annotation to be auto-stamped")
 	}
-	if published.Trust.Origin != "internal" {
-		t.Errorf("expected trust origin 'internal', got %q", published.Trust.Origin)
+	if msg.Trust.Origin != "internal" {
+		t.Errorf("expected trust origin 'internal', got %q", msg.Trust.Origin)
 	}
-	if published.Trust.SourceID != "agent-1" {
-		t.Errorf("expected trust source_id 'agent-1', got %q", published.Trust.SourceID)
+	if msg.Trust.SourceID != "agent-src" {
+		t.Errorf("expected trust source_id 'agent-src', got %q", msg.Trust.SourceID)
 	}
 
 	// 2. Missing source agent fails validation
-	err := svc.CreateHandoff(ctx, &orchestration.HandoffMessage{
-		TargetAgentID: "agent-2",
+	err := env.svc.CreateHandoff(ctx, &orchestration.HandoffMessage{
+		TargetAgentID: "agent-tgt",
 		Context:       "some context",
 	})
 	if err == nil {
@@ -87,9 +87,9 @@ func TestHandoff_CreateHandoff(t *testing.T) {
 	}
 
 	// 3. Missing context fails validation
-	err = svc.CreateHandoff(ctx, &orchestration.HandoffMessage{
-		SourceAgentID: "agent-1",
-		TargetAgentID: "agent-2",
+	err = env.svc.CreateHandoff(ctx, &orchestration.HandoffMessage{
+		SourceAgentID: "agent-src",
+		TargetAgentID: "agent-tgt",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing context")
@@ -99,55 +99,38 @@ func TestHandoff_CreateHandoff(t *testing.T) {
 	}
 
 	// 4. Missing target agent fails validation
-	err = svc.CreateHandoff(ctx, &orchestration.HandoffMessage{
-		SourceAgentID: "agent-1",
+	err = env.svc.CreateHandoff(ctx, &orchestration.HandoffMessage{
+		SourceAgentID: "agent-src",
 		Context:       "some context",
 	})
 	if err == nil {
 		t.Fatal("expected error for missing target_agent_id")
 	}
+	if len(env.runs.started) != 1 {
+		t.Errorf("invalid handoffs started runs: %+v", env.runs.started)
+	}
 }
 
-// TestHandoffService_CreateHandoff_WithQuarantine verifies that when a
-// QuarantineService is attached and enabled, the handoff still proceeds
-// when quarantine evaluation allows through (internal trust bypasses
-// quarantine thresholds). The quarantine code path is exercised without
-// blocking the handoff.
+// TestHandoffService_CreateHandoff_WithQuarantine verifies that a handoff
+// of an internal agent (full trust) passes an enabled quarantine without
+// being stored and starts its run.
 func TestHandoffService_CreateHandoff_WithQuarantine(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &handoffMockQueue{}
-	hub := &handoffMockBroadcaster{}
-
-	svc := service.NewHandoffService(store, queue, hub)
-
-	// Create a quarantine service with quarantine enabled. Internal messages
-	// auto-stamp LevelFull trust, which meets the "verified" MinTrustBypass
-	// threshold, so the quarantine evaluator allows through without error.
-	qsCfg := config.Quarantine{
-		Enabled:             true,
-		QuarantineThreshold: 0.7,
-		BlockThreshold:      0.95,
-		MinTrustBypass:      "verified",
-		ExpiryHours:         72,
-	}
-	qs := service.NewQuarantineService(store, queue, hub, qsCfg)
-	svc.SetQuarantineService(qs)
-
-	ctx := context.Background()
+	env := newHandoffEnv(t, true)
 	msg := &orchestration.HandoffMessage{
-		SourceAgentID: "agent-1",
-		TargetAgentID: "agent-2",
+		ProjectID:     "proj-1",
+		SourceAgentID: "agent-src",
+		TargetAgentID: "agent-tgt",
 		Context:       "Review with quarantine enabled",
 		PlanID:        "plan-q1",
 	}
-
-	// Handoff should succeed; quarantine evaluates but bypasses due to
-	// full trust level.
-	if err := svc.CreateHandoff(ctx, msg); err != nil {
+	if err := env.svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff with quarantine: %v", err)
 	}
-	if queue.subject != "handoff.request" {
-		t.Errorf("expected subject 'handoff.request', got %q", queue.subject)
+	if len(env.runs.started) != 1 {
+		t.Errorf("runs started = %d, want 1", len(env.runs.started))
+	}
+	if len(env.store.quarantined) != 0 {
+		t.Errorf("quarantined = %d, want 0: full trust bypasses the quarantine", len(env.store.quarantined))
 	}
 }
 
@@ -155,35 +138,23 @@ func TestHandoffService_CreateHandoff_WithQuarantine(t *testing.T) {
 // without a WS hub (nil) does not panic or error. This is the backward-
 // compatible case where War Room broadcasting is not configured.
 func TestHandoffService_CreateHandoff_NilHub(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &handoffMockQueue{}
+	store := newHandoffStore()
+	runs := &recordingRunStarter{}
+	svc := service.NewHandoffService(store, &handoffMockQueue{})
+	svc.SetRunStarter(runs)
 
-	// Pass no hub argument -- hub field stays nil.
-	svc := service.NewHandoffService(store, queue)
-
-	ctx := context.Background()
 	msg := &orchestration.HandoffMessage{
-		SourceAgentID: "agent-x",
-		TargetAgentID: "agent-y",
+		ProjectID:     "proj-1",
+		SourceAgentID: "agent-src",
+		TargetAgentID: "agent-tgt",
 		Context:       "Handoff without WS hub",
 		PlanID:        "plan-nil-hub",
 	}
-
-	// Should succeed without panic despite nil hub.
-	if err := svc.CreateHandoff(ctx, msg); err != nil {
+	if err := svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff with nil hub: %v", err)
 	}
-	if queue.subject != "handoff.request" {
-		t.Errorf("expected subject 'handoff.request', got %q", queue.subject)
-	}
-
-	// Verify the message was actually published (not silently dropped).
-	var published orchestration.HandoffMessage
-	if err := json.Unmarshal(queue.data, &published); err != nil {
-		t.Fatalf("unmarshal published: %v", err)
-	}
-	if published.SourceAgentID != "agent-x" {
-		t.Errorf("expected source 'agent-x', got %q", published.SourceAgentID)
+	if len(runs.started) != 1 || runs.started[0].AgentID != "agent-tgt" {
+		t.Errorf("runs started = %+v, want agent-tgt's run", runs.started)
 	}
 }
 
@@ -279,8 +250,9 @@ func TestHandoffService_CreateHandoff_ValidationError(t *testing.T) {
 	}
 }
 
-// The worker starts the handoff run in the tenant named by the request; without
-// it the run's live events have no tenant and are dropped (KI-12).
+// The handoff run is started in the caller's tenant; a message cannot move
+// it to another one. Without a tenant in the context the message's tenant is
+// used (KI-12).
 func TestHandoffService_CreateHandoff_CarriesTenantFromContext(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -288,40 +260,29 @@ func TestHandoffService_CreateHandoff_CarriesTenantFromContext(t *testing.T) {
 		msgTenant  string
 		wantTenant string
 	}{
-		{name: "tenant from context", ctxTenant: "tenant-a", wantTenant: "tenant-a"},
-		{name: "context wins over message", ctxTenant: "tenant-a", msgTenant: "tenant-b", wantTenant: "tenant-a"},
-		{name: "no tenant in context keeps message tenant", msgTenant: "tenant-b", wantTenant: "tenant-b"},
-		{name: "no tenant anywhere stays empty", wantTenant: ""},
+		{name: "tenant from context", ctxTenant: handoffTenantA, wantTenant: handoffTenantA},
+		{name: "context wins over message", ctxTenant: handoffTenantA, msgTenant: handoffTenantB, wantTenant: handoffTenantA},
+		{name: "no tenant in context keeps message tenant", msgTenant: handoffTenantA, wantTenant: handoffTenantA},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			queue := &handoffMockQueue{}
-			svc := service.NewHandoffService(&runtimeMockStore{}, queue)
+			env := newHandoffEnv(t, false)
 			ctx := context.Background()
 			if tt.ctxTenant != "" {
 				ctx = tenantctx.WithTenant(ctx, tt.ctxTenant)
 			}
 			msg := &orchestration.HandoffMessage{
-				SourceAgentID: "agent-1",
-				TargetAgentID: "agent-2",
+				ProjectID:     "proj-1",
+				SourceAgentID: "agent-src",
+				TargetAgentID: "agent-tgt",
 				Context:       "continue",
 				TenantID:      tt.msgTenant,
 			}
-			if err := svc.CreateHandoff(ctx, msg); err != nil {
+			if err := env.svc.CreateHandoff(ctx, msg); err != nil {
 				t.Fatalf("CreateHandoff: %v", err)
 			}
-			var published map[string]json.RawMessage
-			if err := json.Unmarshal(queue.data, &published); err != nil {
-				t.Fatalf("unmarshal published: %v", err)
-			}
-			var got string
-			if raw, ok := published["tenant_id"]; ok {
-				if err := json.Unmarshal(raw, &got); err != nil {
-					t.Fatalf("unmarshal tenant_id: %v", err)
-				}
-			}
-			if got != tt.wantTenant {
-				t.Errorf("tenant_id = %q, want %q", got, tt.wantTenant)
+			if msg.TenantID != tt.wantTenant || len(env.runs.tenants) != 1 || env.runs.tenants[0] != tt.wantTenant {
+				t.Errorf("message tenant %q, run tenants %v; want %q", msg.TenantID, env.runs.tenants, tt.wantTenant)
 			}
 		})
 	}

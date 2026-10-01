@@ -152,6 +152,7 @@ func allSubjectConstants(t *testing.T) map[string]string {
 		"SubjectMemoryRecall":                   mq.SubjectMemoryRecall,
 		"SubjectMemoryRecallResult":             mq.SubjectMemoryRecallResult,
 		"SubjectHandoffRequest":                 mq.SubjectHandoffRequest,
+		"SubjectHandoffApproved":                mq.SubjectHandoffApproved,
 		"SubjectTrajectoryEvent":                mq.SubjectTrajectoryEvent,
 		"SubjectBackendHealthRequest":           mq.SubjectBackendHealthRequest,
 		"SubjectBackendHealthResult":            mq.SubjectBackendHealthResult,

@@ -68,7 +68,6 @@ HANDLERS = [
     ("_handle_gemmas_eval", "evaluation.gemmas.request"),
     ("_handle_memory_store", "memory.store"),
     ("_handle_memory_recall", "memory.recall"),
-    ("_handle_handoff_request", "handoff.request"),
     ("_handle_a2a_task_created", "a2a.task.created"),
     ("_handle_a2a_task_cancel", "a2a.task.cancel"),
     ("_handle_backend_health", "backends.health.request"),
@@ -1306,18 +1305,3 @@ class TestShutdownFailsAcceptedWork:
 # ---------------------------------------------------------------------------
 # Deduplication by request (KI-66)
 # ---------------------------------------------------------------------------
-
-
-async def test_a_second_handoff_between_the_same_runs_is_dispatched(consumer: TaskConsumer) -> None:
-    """handoff-{source}-{target} skipped every later handoff from the same run to the same agent."""
-    payload = json.dumps(
-        {"source_run_id": "run-1", "target_agent_id": "agent-2", "workspace_path": "/data/ws", "context": "go on"}
-    ).encode()
-    first, _ = jetstream_msg(payload, subject="handoff.request", stream_seq=10)
-    second, _ = jetstream_msg(payload, subject="handoff.request", stream_seq=11)
-    redelivered, _ = jetstream_msg(payload, subject="handoff.request", stream_seq=11, num_delivered=2)
-
-    for msg in (first, second, redelivered):
-        await consumer._handle_handoff_request(msg)
-
-    assert sum(1 for subject, _ in _published(consumer) if subject == "runs.start") == 2

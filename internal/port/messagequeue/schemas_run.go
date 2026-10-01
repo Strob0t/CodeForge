@@ -245,3 +245,21 @@ type QualityGateResultPayload struct {
 	LintOutput  string `json:"lint_output,omitempty"`
 	Error       string `json:"error,omitempty"`
 }
+
+// HandoffRequestPayload is the schema for handoff.request messages: a
+// worker's handoff_to tool call (workers/codeforge/tools/handoff.py). The Go
+// Core checks it and starts the target agent's run (KI-15). The worker also
+// sends its workspace and approval timeout, which the Go Core takes from the
+// project and its config instead.
+type HandoffRequestPayload struct {
+	TenantID      string            `json:"tenant_id"`
+	ProjectID     string            `json:"project_id"`
+	SourceRunID   string            `json:"source_run_id"` // the conversation or run that called handoff_to
+	TargetAgentID string            `json:"target_agent_id"`
+	TargetModeID  string            `json:"target_mode_id,omitempty"`
+	Context       string            `json:"context"`
+	Artifacts     []string          `json:"artifacts,omitempty"`
+	PlanID        string            `json:"plan_id,omitempty"`
+	StepID        string            `json:"step_id,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+}

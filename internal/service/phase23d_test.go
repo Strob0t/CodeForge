@@ -27,19 +27,17 @@ func (b *handoffMockBroadcaster) BroadcastEvent(_ context.Context, eventType str
 }
 
 func TestHandoff_BroadcastsToWSHub(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &handoffMockQueue{}
-	hub := &handoffMockBroadcaster{}
-	svc := service.NewHandoffService(store, queue, hub)
-	ctx := context.Background()
+	env := newHandoffEnv(t, false)
+	hub := env.hub
 	msg := &orchestration.HandoffMessage{
-		SourceAgentID: "agent-a",
-		TargetAgentID: "agent-b",
+		ProjectID:     "proj-1",
+		SourceAgentID: "agent-src",
+		TargetAgentID: "agent-tgt",
 		Context:       "Review the auth module",
 		PlanID:        "plan-42",
 		StepID:        "step-7",
 	}
-	if err := svc.CreateHandoff(ctx, msg); err != nil {
+	if err := env.svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff: %v", err)
 	}
 	hub.mu.Lock()
@@ -55,11 +53,14 @@ func TestHandoff_BroadcastsToWSHub(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected HandoffStatusEvent payload, got %T", evt.payload)
 	}
-	if hsEvt.SourceAgentID != "agent-a" {
-		t.Errorf("expected source agent-a, got %q", hsEvt.SourceAgentID)
+	if hsEvt.SourceAgentID != "agent-src" {
+		t.Errorf("expected source agent-src, got %q", hsEvt.SourceAgentID)
 	}
-	if hsEvt.TargetAgentID != "agent-b" {
-		t.Errorf("expected target agent-b, got %q", hsEvt.TargetAgentID)
+	if hsEvt.TargetAgentID != "agent-tgt" {
+		t.Errorf("expected target agent-tgt, got %q", hsEvt.TargetAgentID)
+	}
+	if hsEvt.RunID == "" {
+		t.Error("expected the target agent's run in the event")
 	}
 	if hsEvt.Status != "initiated" {
 		t.Errorf("expected status 'initiated', got %q", hsEvt.Status)
@@ -73,19 +74,19 @@ func TestHandoff_BroadcastsToWSHub(t *testing.T) {
 }
 
 func TestHandoff_BackwardCompatibleWithoutHub(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &handoffMockQueue{}
-	svc := service.NewHandoffService(store, queue)
-	ctx := context.Background()
+	runs := &recordingRunStarter{}
+	svc := service.NewHandoffService(newHandoffStore(), &handoffMockQueue{})
+	svc.SetRunStarter(runs)
 	msg := &orchestration.HandoffMessage{
-		SourceAgentID: "agent-1",
-		TargetAgentID: "agent-2",
+		ProjectID:     "proj-1",
+		SourceAgentID: "agent-src",
+		TargetAgentID: "agent-tgt",
 		Context:       "Some context",
 	}
-	if err := svc.CreateHandoff(ctx, msg); err != nil {
+	if err := svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff without hub: %v", err)
 	}
-	if queue.subject != "handoff.request" {
-		t.Errorf("expected subject 'handoff.request', got %q", queue.subject)
+	if len(runs.started) != 1 {
+		t.Errorf("runs started = %d, want 1", len(runs.started))
 	}
 }

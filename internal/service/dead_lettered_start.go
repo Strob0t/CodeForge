@@ -76,7 +76,8 @@ func (s *RuntimeService) HandleDeadLetteredRunStart(ctx context.Context, data []
 		return nil
 	}
 	if _, err := uuid.Parse(start.RunID); err != nil {
-		// Worker-made starts (handoffs) name no run of the store.
+		// Every run start names a run of the store (handoff runs too, KI-15);
+		// a start that does not was not made by the Go Core.
 		slog.Info("dead-lettered start of a run the Go Core does not know, ignored", "run_id", start.RunID)
 		return nil
 	}

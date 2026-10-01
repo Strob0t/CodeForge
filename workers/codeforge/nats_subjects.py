@@ -108,7 +108,7 @@ SUBJECT_A2A_TASK_COMPLETE = "a2a.task.complete"
 SUBJECT_A2A_TASK_CANCEL = "a2a.task.cancel"
 
 # Handoff
-SUBJECT_HANDOFF_REQUEST = "handoff.request"
+SUBJECT_HANDOFF_REQUEST = "handoff.request"  # worker -> Go Core: a handoff_to call (the Go Core starts the run, KI-15)
 
 # Backend health
 SUBJECT_BACKEND_HEALTH_REQUEST = "backends.health.request"

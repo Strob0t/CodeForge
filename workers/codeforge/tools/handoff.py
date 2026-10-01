@@ -72,12 +72,14 @@ async def execute_handoff(
     workspace_path: str,
     approval_timeout_seconds: int = 0,
 ) -> str:
-    """Execute a handoff_to tool call by publishing to the handoff NATS subject.
+    """Execute a handoff_to tool call by publishing a handoff request to the Go Core.
 
-    tenant_id, project_id and workspace_path are the source run's: the handoff
-    run belongs to the same tenant and project, its live events are only
-    delivered to that tenant, and its tools work in the same workspace.
-    approval_timeout_seconds is the Go approval timeout the source run got.
+    The Go Core checks the request (trust, quarantine, the target agent in the
+    source's tenant and project), creates the target agent's task and starts
+    its run (KI-15). tenant_id and project_id are the source run's: the
+    handoff run belongs to the same tenant and project. workspace_path and
+    approval_timeout_seconds are informational: the Go Core takes them from
+    the project and its config.
     """
     target = arguments.get("target_agent_id", "")
     context_msg = arguments.get("context", "")
