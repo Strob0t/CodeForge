@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/git"
@@ -39,6 +40,25 @@ type fakeReviewStore struct {
 	plans      map[string]*plan.ExecutionPlan
 	boundaries *boundary.ProjectBoundaryConfig
 	upserted   *boundary.ProjectBoundaryConfig
+	pipelines  map[string]*review.Pipeline // by plan ID
+}
+
+func (f *fakeReviewStore) CreateReviewPipeline(_ context.Context, rp *review.Pipeline) error {
+	if f.pipelines == nil {
+		f.pipelines = map[string]*review.Pipeline{}
+	}
+	stored := *rp
+	f.pipelines[rp.PlanID] = &stored
+	return nil
+}
+
+func (f *fakeReviewStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
+	rp, ok := f.pipelines[planID]
+	if !ok {
+		return nil, fmt.Errorf("review pipeline of plan %s: %w", planID, domain.ErrNotFound)
+	}
+	stored := *rp
+	return &stored, nil
 }
 
 func (f *fakeReviewStore) GetProject(_ context.Context, id string) (*project.Project, error) {
@@ -277,6 +297,10 @@ func TestReviewPipeline_StartReviewRefactor(t *testing.T) {
 	if !hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
 		t.Fatal("no workspace baseline recorded for the refactoring")
 	}
+	rp := f.store.pipelines["plan-1"]
+	if rp == nil || rp.BaselineSHA != reviewGit(t, f.dir, "rev-parse", reviewBaselineRef("plan-1")) || rp.ProjectID != "proj-1" {
+		t.Fatalf("review record = %+v, want the plan's baseline commit", rp)
+	}
 }
 
 func TestReviewPipeline_StartBoundaryAnalysis(t *testing.T) {
@@ -291,6 +315,9 @@ func TestReviewPipeline_StartBoundaryAnalysis(t *testing.T) {
 	}
 	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
 		t.Fatal("a pipeline that does not refactor needs no baseline")
+	}
+	if rp := f.store.pipelines["plan-1"]; rp == nil || rp.BaselineSHA != "" {
+		t.Fatalf("review record = %+v, want one without a baseline", rp)
 	}
 }
 
@@ -441,6 +468,55 @@ func TestReviewPipeline_GateScoresTheRefactoring(t *testing.T) {
 	}
 }
 
+// The workspace's baseline ref is agent-writable (an agent with Bash can run
+// git update-ref): the gate trusts only the baseline the Go Core recorded,
+// and anything that does not match it means the change cannot be measured,
+// so the refactoring waits for approval however small it looks (V1).
+func TestReviewPipeline_GateDoesNotTrustTheRef(t *testing.T) {
+	ref := reviewBaselineRef("plan-1")
+	tests := []struct {
+		name   string
+		tamper func(t *testing.T, f *reviewFixture)
+	}{
+		{"baseline ref deleted", func(t *testing.T, f *reviewFixture) {
+			reviewGit(t, f.dir, "update-ref", "-d", ref)
+		}},
+		{"baseline ref repointed", func(t *testing.T, f *reviewFixture) {
+			reviewGit(t, f.dir, "update-ref", ref, "HEAD")
+		}},
+		{"workspace is no repository any more", func(t *testing.T, f *reviewFixture) {
+			if err := os.RemoveAll(filepath.Join(f.dir, ".git")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"recorded baseline commit is gone", func(t *testing.T, f *reviewFixture) {
+			const gone = "1111111111111111111111111111111111111111"
+			f.store.pipelines["plan-1"].BaselineSHA = gone
+			path := filepath.Join(f.dir, ".git", filepath.FromSlash(ref))
+			if err := os.WriteFile(path, []byte(gone+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"no baseline recorded", func(_ *testing.T, f *reviewFixture) {
+			f.store.pipelines["plan-1"].BaselineSHA = ""
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 101, "line") }) // low impact
+			tt.tamper(t, f)
+
+			if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+				t.Fatalf("GateStep = %s, want waiting for approval", got)
+			}
+			events := f.hub.snapshot()
+			if len(events) != 1 || events[0].EventType != event.EventReviewApprovalRequired || events[0].Data.Reason == "" {
+				t.Fatalf("events = %+v, want one approval request with the reason", events)
+			}
+		})
+	}
+}
+
 // Changes the user had in the workspace before the pipeline started are not
 // part of the refactoring.
 func TestReviewPipeline_GateMeasuresOnlyThePipelinesChange(t *testing.T) {
@@ -510,6 +586,27 @@ func TestReviewPipeline_RejectUndoesTheRefactoring(t *testing.T) {
 	}
 	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
 		t.Fatal("baseline kept after the decision")
+	}
+}
+
+// Reject restores the recorded baseline, not the commit the ref points to: an
+// agent that repoints the ref at its own change cannot make the undo keep it.
+func TestReviewPipeline_RejectUsesTheRecordedBaseline(t *testing.T) {
+	f, step := waitingStep(t)
+	original := reviewGit(t, f.dir, "show", "HEAD:a.go")
+	reviewGit(t, f.dir, "add", "-A")
+	tree := reviewGit(t, f.dir, "write-tree")
+	forged := reviewGit(t, f.dir, "commit-tree", tree, "-m", "forged baseline")
+	reviewGit(t, f.dir, "update-ref", reviewBaselineRef("plan-1"), forged)
+
+	if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+		t.Fatalf("Decide(reject): %v", err)
+	}
+	if got := readFile(t, f.dir, "a.go"); got != original+"\n" {
+		t.Fatalf("a.go after reject is not the recorded baseline:\n%.60s", got)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "new.go")); !os.IsNotExist(err) {
+		t.Fatalf("new.go after reject: %v, want it removed", err)
 	}
 }
 
@@ -585,15 +682,26 @@ func TestReviewPipeline_DecideErrors(t *testing.T) {
 }
 
 func TestReviewPipeline_RejectWithoutBaselineIsRefused(t *testing.T) {
-	f, step := waitingStep(t)
-	reviewGit(t, f.dir, "update-ref", "-d", reviewBaselineRef("plan-1"))
-
-	if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
-		t.Fatalf("Decide(reject) = %v, want a validation error", err)
-	}
-	if len(f.planner.rejected) != 0 {
-		t.Fatal("step rejected although the refactoring could not be undone")
-	}
+	t.Run("no baseline recorded", func(t *testing.T) {
+		f, step := waitingStep(t)
+		f.store.pipelines["plan-1"].BaselineSHA = ""
+		if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
+			t.Fatalf("Decide(reject) = %v, want a validation error", err)
+		}
+		if len(f.planner.rejected) != 0 {
+			t.Fatal("step rejected although the refactoring could not be undone")
+		}
+	})
+	t.Run("recorded baseline commit is gone", func(t *testing.T) {
+		f, step := waitingStep(t)
+		f.store.pipelines["plan-1"].BaselineSHA = "1111111111111111111111111111111111111111"
+		if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err == nil {
+			t.Fatal("Decide(reject) succeeded without the baseline commit")
+		}
+		if len(f.planner.rejected) != 0 {
+			t.Fatal("step rejected although the refactoring could not be undone")
+		}
+	})
 }
 
 // A review plan that ends without a decision (a step failed, the plan was

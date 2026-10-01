@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/git"
@@ -130,6 +131,13 @@ func (decisionStore) GetProjectBoundaries(context.Context, string) (*boundary.Pr
 }
 func (decisionStore) UpsertProjectBoundaries(context.Context, *boundary.ProjectBoundaryConfig) error {
 	return nil
+}
+func (decisionStore) CreateReviewPipeline(context.Context, *review.Pipeline) error { return nil }
+func (decisionStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
+	if planID != "plan-1" {
+		return nil, domain.ErrNotFound
+	}
+	return &review.Pipeline{PlanID: planID, ProjectID: "proj-1"}, nil // no baseline recorded
 }
 
 type decisionPlanner struct{ approved, rejected []string }

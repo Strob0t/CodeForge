@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -33,27 +34,65 @@ func checkPlanID(planID string) error {
 }
 
 // snapshotWorkspace records the workspace (working tree with untracked files
-// that are not ignored, HEAD, the user's index) as the plan's baseline. A
-// baseline recorded before is kept.
-func snapshotWorkspace(ctx context.Context, repo *git.Repo, planID string) error {
+// that are not ignored, HEAD, the user's index) as the plan's baseline and
+// returns the baseline commit. The caller stores the commit in the Go DB,
+// which is what counts; the ref only keeps the commit from git gc. It is
+// created only if it does not exist.
+func snapshotWorkspace(ctx context.Context, repo *git.Repo, planID string) (string, error) {
 	if err := checkPlanID(planID); err != nil {
-		return err
+		return "", err
 	}
 	idx, err := newWorktreeIndex(ctx, repo)
 	if err != nil {
-		return fmt.Errorf("baseline tree: %w", err)
+		return "", fmt.Errorf("baseline tree: %w", err)
 	}
 	defer idx.remove()
 	tree, err := idx.writeTree(ctx, repo)
 	if err != nil {
-		return fmt.Errorf("baseline tree: %w", err)
+		return "", fmt.Errorf("baseline tree: %w", err)
 	}
 	commit, err := writeBaseCommit(ctx, repo, "codeforge-review-baseline: "+planID, tree)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := repo.Run(ctx, nil, "update-ref", "-m", "codeforge review baseline", reviewBaselineRef(planID), commit, ""); err != nil {
-		return fmt.Errorf("baseline ref: %w", err)
+		return "", fmt.Errorf("baseline ref: %w", err)
+	}
+	return commit, nil
+}
+
+// errBaselineTampered: the workspace's baseline does not match the recorded
+// one (the ref was deleted or moved, or the commit is gone).
+var errBaselineTampered = errors.New("the workspace baseline does not match the recorded one")
+
+// checkBaseline verifies the workspace against the recorded baseline commit:
+// the ref must still point to it and the commit must exist. The ref is
+// agent-writable, so a mismatch means the change cannot be measured.
+func checkBaseline(ctx context.Context, repo *git.Repo, planID, recorded string) error {
+	if !objectIDPattern.MatchString(recorded) {
+		return fmt.Errorf("%w: no baseline commit recorded", errBaselineTampered)
+	}
+	current, err := readBaseline(ctx, repo, planID)
+	if err != nil {
+		return err
+	}
+	switch current {
+	case "":
+		return fmt.Errorf("%w: the baseline ref was deleted", errBaselineTampered)
+	case recorded:
+	default:
+		return fmt.Errorf("%w: the baseline ref was moved to %s", errBaselineTampered, current)
+	}
+	return requireCommit(ctx, repo, recorded)
+}
+
+// requireCommit fails unless commit exists in the repository as a commit.
+func requireCommit(ctx context.Context, repo *git.Repo, commit string) error {
+	if !objectIDPattern.MatchString(commit) {
+		return fmt.Errorf("%w: no baseline commit recorded", errBaselineTampered)
+	}
+	if _, err := repo.Run(ctx, nil, "cat-file", "-e", commit+"^{commit}"); err != nil {
+		return fmt.Errorf("%w: the baseline commit %s is gone", errBaselineTampered, commit)
 	}
 	return nil
 }
