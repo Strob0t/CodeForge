@@ -992,6 +992,9 @@ func (m *mockStore) BeginConversationTurn(_ context.Context, _, _ string) error 
 func (m *mockStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
+func (m *mockStore) ClaimConversationTurnCompletion(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
 func (m *mockStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
 	return nil
 }

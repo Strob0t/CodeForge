@@ -743,6 +743,9 @@ func (s *testStore) BeginConversationTurn(_ context.Context, _, _ string) error 
 func (s *testStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
+func (s *testStore) ClaimConversationTurnCompletion(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
 func (s *testStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
 	return nil
 }

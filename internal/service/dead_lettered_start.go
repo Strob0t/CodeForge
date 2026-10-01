@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -43,18 +42,14 @@ func (s *ConversationService) HandleDeadLetteredRunStart(ctx context.Context, _ 
 	}
 	slog.Warn("conversation run start dead-lettered, ending the run",
 		"conversation_id", start.ConversationID, "turn_id", start.TurnID)
-	completion, err := json.Marshal(messagequeue.ConversationRunCompletePayload{
+	return s.completeConversationRun(ctx, &messagequeue.ConversationRunCompletePayload{
 		RunID:          start.ConversationID,
 		ConversationID: start.ConversationID,
 		TenantID:       start.TenantID,
 		TurnID:         start.TurnID,
 		Status:         "failed",
 		Error:          deadLetteredStartError,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal completion of dead-lettered start: %w", err)
-	}
-	return s.HandleConversationRunComplete(ctx, messagequeue.SubjectConversationRunComplete, completion)
+	}, false)
 }
 
 // StartDeadLetterSubscriber subscribes to dead-lettered conversation run starts.

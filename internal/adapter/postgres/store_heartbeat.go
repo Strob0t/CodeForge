@@ -76,6 +76,21 @@ func (s *Store) EndConversationTurn(ctx context.Context, conversationID, turnID 
 	return tag.RowsAffected() > 0, nil
 }
 
+// ClaimConversationTurnCompletion records that the worker's completion of
+// a turn of a conversation of the caller's tenant is being kept, once per
+// turn (see database.ConversationStore).
+func (s *Store) ClaimConversationTurnCompletion(ctx context.Context, conversationID, turnID string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO conversation_turn_completions (conversation_id, turn_id, tenant_id)
+		 SELECT id, $2, tenant_id FROM conversations WHERE id = $1 AND tenant_id = $3
+		 ON CONFLICT (conversation_id, turn_id) DO NOTHING`,
+		conversationID, turnID, tenantFromCtx(ctx))
+	if err != nil {
+		return false, fmt.Errorf("claim completion of conversation turn %s/%s: %w", conversationID, turnID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // TouchConversationTurnHeartbeat records a worker heartbeat of the active
 // turn of a conversation of the caller's tenant; heartbeats of another turn
 // (a stopped run) are ignored.

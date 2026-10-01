@@ -105,11 +105,17 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal conversation run complete: %w", err)
 	}
+	return s.completeConversationRun(ctx, &payload, true)
+}
 
-	// Idempotency is handled by unique Nats-Msg-Id headers on the Python side.
-	// No application-level dedup here — RunID equals ConversationID, so a map-based
-	// guard would block legitimate follow-up completions in the same conversation.
-
+// completeConversationRun processes the completion of a conversation turn:
+// the worker's (fromWorker), or one the Go Core reports itself for a turn it
+// ended (the stuck-work watchdog, a dead-lettered start). The worker's
+// completion of a turn is kept once (S2-G fix 2, 2): it is delivered at
+// least once, and a redelivery must not store the turn's messages and cost
+// again. The Go Core's own completion stores nothing and claims nothing, so
+// the worker's late completion of that turn is still kept.
+func (s *ConversationService) completeConversationRun(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload, fromWorker bool) error {
 	// Inject tenant context from NATS payload (background consumer has no tenant).
 	if payload.TenantID != "" {
 		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
@@ -133,8 +139,14 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	// keepEndedTurnCompletion). A completion without turn (a worker that
 	// sends none) counts as the active turn's.
 	if payload.TurnID != "" && !activeRun && !storedActive {
-		s.keepEndedTurnCompletion(ctx, &payload)
+		if first, err := s.firstTurnCompletion(ctx, payload, fromWorker); err != nil || !first {
+			return err
+		}
+		s.keepEndedTurnCompletion(ctx, payload)
 		return nil
+	}
+	if first, err := s.firstTurnCompletion(ctx, payload, fromWorker); err != nil || !first {
+		return err
 	}
 
 	slog.Info("conversation run complete received",
@@ -146,7 +158,7 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		"cost", payload.CostUSD,
 	)
 
-	s.storeCompletionMessages(ctx, &payload)
+	s.storeCompletionMessages(ctx, payload)
 
 	// Determine WS status.
 	wsStatus := "completed"
@@ -208,6 +220,26 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	}
 
 	return nil
+}
+
+// firstTurnCompletion claims the worker's completion of its turn and
+// reports whether it is the first (see completeConversationRun). A
+// completion without turn (an older worker) and the Go Core's own
+// completion are not claimed; a claim that fails is returned, so the
+// completion is retried.
+func (s *ConversationService) firstTurnCompletion(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload, fromWorker bool) (bool, error) {
+	if !fromWorker || payload.TurnID == "" {
+		return true, nil
+	}
+	first, err := s.db.ClaimConversationTurnCompletion(ctx, payload.ConversationID, payload.TurnID)
+	if err != nil {
+		return false, fmt.Errorf("claim conversation turn completion: %w", err)
+	}
+	if !first {
+		slog.InfoContext(ctx, "repeated completion of a conversation turn, ignored",
+			"conversation_id", payload.ConversationID, "turn_id", payload.TurnID)
+	}
+	return first, nil
 }
 
 // storeCompletionMessages stores what a turn produced: its intermediate tool

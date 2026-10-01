@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,19 +34,14 @@ func (s *ConversationService) EndConversationRunsWithLostWorker(ctx context.Cont
 			logBestEffort(convCtx, s.publishConversationCancel(convCtx, turn.ConversationID), "publishConversationCancel",
 				slog.String("conversation_id", turn.ConversationID))
 		}
-		data, err := json.Marshal(messagequeue.ConversationRunCompletePayload{
+		if err := s.completeConversationRun(convCtx, &messagequeue.ConversationRunCompletePayload{
 			RunID:          turn.ConversationID,
 			ConversationID: turn.ConversationID,
 			TenantID:       turn.TenantID,
 			TurnID:         turn.TurnID,
 			Status:         "failed",
 			Error:          lostWorkerReason(after),
-		})
-		if err != nil {
-			errs = append(errs, fmt.Errorf("conversation %s: %w", turn.ConversationID, err))
-			continue
-		}
-		if err := s.HandleConversationRunComplete(convCtx, messagequeue.SubjectConversationRunComplete, data); err != nil {
+		}, false); err != nil {
 			errs = append(errs, fmt.Errorf("conversation %s: %w", turn.ConversationID, err))
 			continue
 		}

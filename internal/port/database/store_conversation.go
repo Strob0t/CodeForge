@@ -28,6 +28,10 @@ type ConversationStore interface {
 	// (watchdog use) and holds only turns that had a heartbeat.
 	BeginConversationTurn(ctx context.Context, conversationID, turnID string) error
 	EndConversationTurn(ctx context.Context, conversationID, turnID string) (bool, error)
+	// ClaimConversationTurnCompletion records that the worker's completion
+	// of turn turnID is being kept and reports whether this call claimed it:
+	// false for a repeated completion, or a conversation of another tenant.
+	ClaimConversationTurnCompletion(ctx context.Context, conversationID, turnID string) (bool, error)
 	TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error
 	ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]conversation.ActiveTurn, error)
 }

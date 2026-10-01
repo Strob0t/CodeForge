@@ -358,3 +358,71 @@ func TestConversationRun_CompletionOfAStoppedTurn(t *testing.T) {
 		})
 	}
 }
+
+// countMessages counts the conversation's stored messages with content.
+func (e *convStopEnv) countMessages(t *testing.T, content string) int {
+	t.Helper()
+	msgs, err := e.conv.ListMessages(context.Background(), e.convID)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	n := 0
+	for i := range msgs {
+		if msgs[i].Content == content {
+			n++
+		}
+	}
+	return n
+}
+
+// TestConversationRun_RedeliveredCompletionIsStoredOnce (S2-G fix 2, 2):
+// conversation.run.complete is delivered at least once. A redelivery of a
+// completion processed as the active turn's found the turn ended and stored
+// its messages and cost a second time. A turn's completion from the worker
+// is kept once; Go's own failed completion of a turn (the stuck-work
+// watchdog) does not count, so the worker's late completion of that turn is
+// still kept, once.
+func TestConversationRun_RedeliveredCompletionIsStoredOnce(t *testing.T) {
+	t.Run("active turn", func(t *testing.T) {
+		env := newConvStopEnv(t, nil, nil)
+		metrics := &costRecorder{}
+		env.conv.SetMetrics(metrics)
+		if err := conversationRunStarters[0].start(context.Background(), env.conv, env.convID); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		turn := env.lastTurn(t)
+
+		for range 2 {
+			env.completeStoppedTurn(t, turn)
+		}
+
+		if got := env.countMessages(t, "partial answer of "+turn); got != 1 {
+			t.Errorf("answer stored %d times, want once", got)
+		}
+		if got := env.countMessages(t, "tool output of "+turn); got != 1 {
+			t.Errorf("tool message stored %d times, want once", got)
+		}
+		metrics.mu.Lock()
+		defer metrics.mu.Unlock()
+		if len(metrics.costs) != 1 {
+			t.Errorf("recorded costs = %v, want one", metrics.costs)
+		}
+	})
+
+	t.Run("turn ended by the watchdog", func(t *testing.T) {
+		env := newConvStopEnv(t, nil, nil)
+		if err := conversationRunStarters[0].start(context.Background(), env.conv, env.convID); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		turn := env.lastTurn(t)
+		env.endTurnByWatchdog(t, turn)
+
+		for range 2 {
+			env.completeStoppedTurn(t, turn)
+		}
+
+		if got := env.countMessages(t, "partial answer of "+turn); got != 1 {
+			t.Errorf("late answer stored %d times, want once", got)
+		}
+	})
+}

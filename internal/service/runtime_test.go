@@ -72,7 +72,9 @@ type runtimeMockStore struct {
 	runBeats  map[string]runBeat
 	turnBeats []turnBeat
 	turns     map[string]activeTurn
-	taskBeats map[string]runBeat
+	// turnCompletions are the turns whose completion was claimed.
+	turnCompletions map[string]bool
+	taskBeats       map[string]runBeat
 	// endTurnHook, if set, runs at the start of EndConversationTurn, outside
 	// the lock: a test injects what happens concurrently with the end.
 	endTurnHook func(conversationID, turnID string)

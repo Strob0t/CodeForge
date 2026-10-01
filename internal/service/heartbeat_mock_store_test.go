@@ -85,6 +85,20 @@ func (m *runtimeMockStore) EndConversationTurn(_ context.Context, conversationID
 	return false, nil
 }
 
+func (m *runtimeMockStore) ClaimConversationTurnCompletion(_ context.Context, conversationID, turnID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := conversationID + "/" + turnID
+	if m.turnCompletions[key] {
+		return false, nil
+	}
+	if m.turnCompletions == nil {
+		m.turnCompletions = map[string]bool{}
+	}
+	m.turnCompletions[key] = true
+	return true, nil
+}
+
 func (m *runtimeMockStore) TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
