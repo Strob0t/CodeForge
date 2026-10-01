@@ -389,12 +389,51 @@ func (s *ReviewPipelineService) PrepareStep(ctx context.Context, step *plan.Step
 	if err != nil {
 		return fmt.Errorf("record the workspace baseline: %w", err)
 	}
+	ours := rp.BaselineSHA
 	rp.State, rp.StepID = review.PipelineRefactoring, step.ID
-	if err := s.store.UpdateReviewPipeline(ctx, rp, review.PipelinePending); err != nil && !errors.Is(err, domain.ErrConflict) {
+	err = s.store.UpdateReviewPipeline(ctx, rp, review.PipelinePending)
+	if errors.Is(err, domain.ErrConflict) {
+		// The pipeline moved on meanwhile - its plan ended (PlanEnded already
+		// dropped the refs) or another attempt recorded its baseline: the ref
+		// written here must not stay (S6-F review 8).
+		s.releaseBaseline(ctx, proj.WorkspacePath, rp.PlanID, ours)
+		slog.Info("review baseline not recorded: the review pipeline moved on", "plan_id", rp.PlanID, "step_id", step.ID)
+		return nil
+	}
+	if err != nil {
+		s.releaseBaseline(ctx, proj.WorkspacePath, rp.PlanID, ours)
 		return fmt.Errorf("record the workspace baseline: %w", err)
 	}
 	slog.Info("review refactoring baseline recorded", "plan_id", rp.PlanID, "step_id", step.ID, "baseline", rp.BaselineSHA)
 	return nil
+}
+
+// releaseBaseline undoes a baseline ref this process wrote but could not
+// record: the ref goes back to the baseline the record holds, or is deleted
+// when it holds none - each a compare-and-swap on the commit written here, so
+// a ref that moved on is left alone.
+func (s *ReviewPipelineService) releaseBaseline(ctx context.Context, dir, planID, written string) {
+	recorded := ""
+	if rp, err := s.store.GetReviewPipeline(ctx, planID); err == nil && rp.BaselineSHA != written &&
+		(rp.State == review.PipelineRefactoring || rp.State == review.PipelineAwaitingDecision) {
+		recorded = rp.BaselineSHA
+	}
+	err := s.git.Run(ctx, func() error {
+		repo, err := git.OpenRepo(ctx, dir)
+		if err != nil {
+			return err
+		}
+		ref := reviewBaselineRef(planID)
+		if recorded != "" {
+			_, err = repo.Run(ctx, nil, "update-ref", "-m", "codeforge review", ref, recorded, written)
+		} else {
+			_, err = repo.Run(ctx, nil, "update-ref", "-d", ref, written)
+		}
+		return err
+	})
+	if err != nil {
+		slog.Info("review baseline ref not released (moved on or gone)", "plan_id", planID, "error", err)
+	}
 }
 
 // GateStep is the orchestrator's step gate (OrchestratorService.SetStepGate):

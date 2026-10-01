@@ -44,9 +44,12 @@ type fakeReviewStore struct {
 	upserted   *boundary.ProjectBoundaryConfig
 	pipelines  map[string]*review.Pipeline // by plan ID
 
-	failTaskAt     int   // CreateTask fails for the n-th task (1-based); 0 never
-	pipelineErr    error // GetReviewPipeline fails with it
-	activeReview   bool  // HasActiveReviewPipeline answers it
+	failTaskAt   int   // CreateTask fails for the n-th task (1-based); 0 never
+	pipelineErr  error // GetReviewPipeline fails with it
+	activeReview bool  // HasActiveReviewPipeline answers it
+	// onGetProject runs at the start of GetProject, once (it may call into
+	// the service).
+	onGetProject   func()
 	recordErr      error // CreateReviewPipeline fails with it
 	cancelledTasks []string
 }
@@ -123,6 +126,10 @@ func (f *fakeReviewStore) GetReviewPipeline(_ context.Context, planID string) (*
 }
 
 func (f *fakeReviewStore) GetProject(_ context.Context, id string) (*project.Project, error) {
+	if hook := f.onGetProject; hook != nil {
+		f.onGetProject = nil
+		hook()
+	}
 	if p, ok := f.projects[id]; ok {
 		return p, nil
 	}
@@ -1339,4 +1346,52 @@ func TestReviewPipeline_DecisionSurvivesThePurgedRun(t *testing.T) {
 			t.Fatalf("Decide = %v, want not found", err)
 		}
 	})
+}
+
+// Review finding 8: the plan is cancelled while its refactoring step is
+// prepared - PlanEnded ends the pipeline and drops its refs before the
+// baseline is written, and the preparation then loses the compare-and-swap:
+// it must not leave its baseline ref behind.
+func TestReviewPipeline_PrepareRacingThePlanEnd(t *testing.T) {
+	f := newReviewFixture(t)
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartReviewPipeline: %v", err)
+	}
+	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer"}
+	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusCancelled, Steps: []plan.Step{*step}}
+	f.store.onGetProject = func() { f.svc.PlanEnded(f.ctx, "plan-1", "cancelled") }
+
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineDone || rp.BaselineSHA != "" {
+		t.Fatalf("review record = %+v, want the ended pipeline untouched", rp)
+	}
+	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+		t.Fatal("the baseline ref of a pipeline that ended meanwhile dangles")
+	}
+}
+
+// A preparation that loses to another one puts the ref back to the baseline
+// the record holds, so the gate does not see a moved ref.
+func TestReviewPipeline_PrepareLosingToAnotherKeepsTheRecordedRef(t *testing.T) {
+	f := newReviewFixture(t)
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartReviewPipeline: %v", err)
+	}
+	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer"}
+	f.store.onGetProject = func() {
+		if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+			t.Errorf("inner PrepareStep: %v", err)
+		}
+		writeLines(t, f.dir, "a.go", 120, "changed between the two snapshots")
+	}
+
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
+	rp := f.store.pipelines["plan-1"]
+	if rp.State != review.PipelineRefactoring || reviewGit(t, f.dir, "rev-parse", reviewBaselineRef("plan-1")) != rp.BaselineSHA {
+		t.Fatalf("baseline ref does not point at the recorded baseline %s", rp.BaselineSHA)
+	}
 }
