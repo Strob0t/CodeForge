@@ -39,6 +39,7 @@ type fakeReviewStore struct {
 	runs       map[string]*run.Run
 	plans      map[string]*plan.ExecutionPlan
 	boundaries *boundary.ProjectBoundaryConfig
+	boundsErr  error // GetProjectBoundaries fails with it
 	upserted   *boundary.ProjectBoundaryConfig
 	pipelines  map[string]*review.Pipeline // by plan ID
 }
@@ -92,6 +93,9 @@ func (f *fakeReviewStore) GetPlan(_ context.Context, id string) (*plan.Execution
 }
 
 func (f *fakeReviewStore) GetProjectBoundaries(_ context.Context, _ string) (*boundary.ProjectBoundaryConfig, error) {
+	if f.boundsErr != nil {
+		return nil, f.boundsErr
+	}
 	if f.boundaries == nil {
 		return nil, domain.ErrNotFound
 	}
@@ -429,6 +433,31 @@ func TestReviewPipeline_GateScoresTheRefactoring(t *testing.T) {
 			},
 		},
 		{
+			// S6-F 9: boundary paths are compared normalised.
+			name:       "high: a boundary written as ./path crosses layers",
+			boundaries: []boundary.BoundaryFile{{Path: "./api.proto", Type: boundary.BoundaryTypeAPI}},
+			change:     func(dir string) { writeLines(t, dir, "api.proto", 6, "message") },
+			wantStatus: plan.StepStatusWaitingApproval,
+			wantEvent:  event.EventReviewApprovalRequired,
+			check: func(t *testing.T, ev event.ReviewImpactEvent) {
+				if !ev.CrossLayer {
+					t.Errorf("event = %+v, want cross-layer", ev)
+				}
+			},
+		},
+		{
+			name:       "high: a counterpart with backslashes and dot segments crosses layers",
+			boundaries: []boundary.BoundaryFile{{Path: "api.proto", Type: boundary.BoundaryTypeAPI, Counterpart: `.\gen\..\a.go`}},
+			change:     func(dir string) { writeLines(t, dir, "a.go", 102, "line") },
+			wantStatus: plan.StepStatusWaitingApproval,
+			wantEvent:  event.EventReviewApprovalRequired,
+			check: func(t *testing.T, ev event.ReviewImpactEvent) {
+				if !ev.CrossLayer {
+					t.Errorf("event = %+v, want cross-layer", ev)
+				}
+			},
+		},
+		{
 			name: "unmeasurable change needs approval",
 			// The repository lost its objects: the change cannot be diffed.
 			change:     func(dir string) { _ = os.RemoveAll(filepath.Join(dir, ".git", "objects")) },
@@ -465,6 +494,23 @@ func TestReviewPipeline_GateScoresTheRefactoring(t *testing.T) {
 				tt.check(t, events[0].Data)
 			}
 		})
+	}
+}
+
+// S6-F 9: whether a change crosses a boundary cannot be told when the
+// project's boundaries cannot be loaded: the refactoring waits for approval
+// however small it is.
+func TestReviewPipeline_BoundaryLookupErrorNeedsApproval(t *testing.T) {
+	f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 102, "line") })
+	f.store.boundsErr = errors.New("connection reset")
+
+	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+		t.Fatalf("GateStep = %s, want waiting_approval", got)
+	}
+	events := f.hub.snapshot()
+	if len(events) != 1 || events[0].EventType != event.EventReviewApprovalRequired ||
+		!strings.Contains(events[0].Data.Reason, "boundaries") {
+		t.Fatalf("events = %+v, want one approval request naming the boundaries", events)
 	}
 }
 

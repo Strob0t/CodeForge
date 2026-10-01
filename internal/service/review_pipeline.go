@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -363,7 +365,10 @@ func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.
 	}
 
 	stats := change.Stats
-	stats.CrossLayer = s.touchesBoundary(ctx, rp.ProjectID, change.Paths)
+	stats.CrossLayer, err = s.touchesBoundary(ctx, rp.ProjectID, change.Paths)
+	if err != nil {
+		return s.requireApproval(ctx, &ev, fmt.Sprintf("the project's boundaries could not be loaded: %v", err))
+	}
 	level := s.scorer.Score(stats)
 	ev.ImpactLevel = string(level)
 	ev.FilesChanged, ev.LinesAdded, ev.LinesRemoved = stats.FilesChanged, stats.LinesAdded, stats.LinesRemoved
@@ -395,19 +400,33 @@ func (s *ReviewPipelineService) requireApproval(ctx context.Context, ev *event.R
 
 // touchesBoundary reports whether a changed path is one of the project's
 // boundary files or their counterparts: the change crosses a layer contract.
-func (s *ReviewPipelineService) touchesBoundary(ctx context.Context, projectID string, paths []string) bool {
+// A project without recorded boundaries has none to cross; any other lookup
+// error is returned, so the caller fails closed. Paths are compared
+// normalised (normalizeRepoPath): the boundary analyzer writes them freely.
+func (s *ReviewPipelineService) touchesBoundary(ctx context.Context, projectID string, paths []string) (bool, error) {
 	cfg, err := s.store.GetProjectBoundaries(ctx, projectID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return false, nil
+	}
 	if err != nil {
-		return false
+		return false, err
+	}
+	changed := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		changed[normalizeRepoPath(p)] = true
 	}
 	for _, b := range cfg.Boundaries {
-		for _, p := range paths {
-			if p == b.Path || (b.Counterpart != "" && p == b.Counterpart) {
-				return true
-			}
+		if changed[normalizeRepoPath(b.Path)] || (b.Counterpart != "" && changed[normalizeRepoPath(b.Counterpart)]) {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
+}
+
+// normalizeRepoPath makes a repository-relative path comparable: forward
+// slashes, no "./" prefix, no "." or ".." segments.
+func normalizeRepoPath(p string) string {
+	return path.Clean(strings.ReplaceAll(p, "\\", "/")) // Clean also drops a "./" prefix
 }
 
 func (s *ReviewPipelineService) dropBaseline(ctx context.Context, dir, planID string) {
