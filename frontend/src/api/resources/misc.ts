@@ -316,9 +316,9 @@ export function createChannelsResource(c: CoreClient) {
     regenerateWebhookKey: (id: string) =>
       c.post<{ webhook_key: string }>(url`/channels/${id}/webhook-key`, {}),
 
-    /** Move the caller's read position to a message. */
+    /** Move the caller's read position to a message (undefined: not tracked, the caller has no account). */
     markRead: (id: string, messageId: string) =>
-      c.post<ChannelReadState>(url`/channels/${id}/read`, { message_id: messageId }),
+      c.post<ChannelReadState | undefined>(url`/channels/${id}/read`, { message_id: messageId }),
 
     readStates: (id: string) => c.get<ChannelReadState[]>(url`/channels/${id}/read`),
 

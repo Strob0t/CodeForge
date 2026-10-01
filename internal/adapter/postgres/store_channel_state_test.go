@@ -164,3 +164,38 @@ func TestStore_ChannelReadState(t *testing.T) {
 		t.Fatalf("another tenant sees read states: %+v", states)
 	}
 }
+
+// S6-H review 1: read positions are kept per account; a user without a row in
+// users (auth disabled, internal service key) gets no read state and no unread
+// counts instead of a foreign-key error. An unknown message is still not found.
+func TestStore_ChannelReadState_AccountlessUser(t *testing.T) {
+	store := setupStore(t)
+	tenant := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenant)
+	bob := createChannelTestUser(t, store, tenant)
+	ch := createStateTestChannel(ctx, t, store)
+	msg := postTestMessage(ctx, t, store, ch.ID, bob, "hello")
+
+	for _, id := range accountlessUserIDs {
+		t.Run(id, func(t *testing.T) {
+			if _, err := store.MarkChannelRead(ctx, ch.ID, id, msg.ID); !errors.Is(err, channel.ErrReadStateNotTracked) {
+				t.Fatalf("MarkChannelRead = %v, want ErrReadStateNotTracked", err)
+			}
+			if _, err := store.MarkChannelRead(ctx, ch.ID, id, uuid.New().String()); !errors.Is(err, domain.ErrNotFound) {
+				t.Fatalf("MarkChannelRead(unknown message) = %v, want ErrNotFound", err)
+			}
+			list, err := store.ListChannels(ctx, "", id)
+			if err != nil {
+				t.Fatalf("ListChannels: %v", err)
+			}
+			for i := range list {
+				if list[i].ID == ch.ID && list[i].UnreadCount != 0 {
+					t.Fatalf("unread count = %d, want 0 (not tracked)", list[i].UnreadCount)
+				}
+			}
+		})
+	}
+	if states, err := store.ListChannelReadStates(ctx, ch.ID); err != nil || len(states) != 0 {
+		t.Fatalf("read states = %+v, %v; want none", states, err)
+	}
+}

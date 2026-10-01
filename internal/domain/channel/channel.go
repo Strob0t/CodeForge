@@ -1,6 +1,15 @@
 package channel
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrReadStateNotTracked reports that read positions are not kept for the
+// user: it has no account row (the default user while auth is disabled, the
+// internal service key user), and one identity shared by every such request
+// has no personal read position.
+var ErrReadStateNotTracked = errors.New("read state is not tracked for a user without an account")
 
 // ChannelType distinguishes project channels from bot channels.
 type ChannelType string

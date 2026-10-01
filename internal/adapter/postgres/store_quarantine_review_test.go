@@ -84,3 +84,32 @@ func TestGDPRErasure_QuarantineReviews(t *testing.T) {
 		}
 	}
 }
+
+// accountlessUserIDs are request identities without a row in users: the
+// default user while auth is disabled and the internal service key user.
+var accountlessUserIDs = []string{
+	"00000000-0000-0000-0000-000000000000",
+	"00000000-0000-0000-0000-000000000001",
+}
+
+// S6-H review 1: reviewed_by_user_id references users, and a reviewer without
+// an account (auth disabled, internal service key) has no row. The review is
+// recorded with the reviewer's name and no user ID instead of failing on the
+// foreign key.
+func TestStore_UpdateQuarantineStatus_AccountlessReviewer(t *testing.T) {
+	store := setupStore(t)
+	ctx := ctxWithTenant(t, createTestTenant(t, store))
+	for _, id := range accountlessUserIDs {
+		t.Run(id, func(t *testing.T) {
+			msgID := reviewQuarantined(ctx, t, store, &user.User{ID: id, Name: "Admin"})
+			got, err := store.GetQuarantinedMessage(ctx, msgID)
+			if err != nil {
+				t.Fatalf("GetQuarantinedMessage: %v", err)
+			}
+			if got.Status != quarantine.StatusApproved || got.ReviewedByID != "" || got.ReviewedBy != "Admin" || got.ReviewNote != "checked" {
+				t.Fatalf("review = %s by %q (%q) %q, want approved by Admin without a user ID",
+					got.Status, got.ReviewedByID, got.ReviewedBy, got.ReviewNote)
+			}
+		})
+	}
+}

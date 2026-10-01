@@ -90,13 +90,17 @@ func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, s
 }
 
 // UpdateQuarantineStatus records the review of a pending message: its status,
-// the reviewer (user ID and name at the time) and the note. Only a pending
-// message changes (domain.ErrConflict otherwise).
+// the reviewer (user ID and name at the time) and the note. The user ID is
+// kept only for a reviewer with an account row; one without (auth disabled,
+// internal service key) is recorded by name. Only a pending message changes
+// (domain.ErrConflict otherwise).
 func (s *Store) UpdateQuarantineStatus(ctx context.Context, id string, status quarantine.Status, review *quarantine.Review) error {
 	now := time.Now().UTC()
 	const q = `
 		UPDATE quarantine_messages
-		SET status = $2, reviewed_by_user_id = NULLIF($3, '')::uuid, reviewed_by = $4, review_note = $5, reviewed_at = $6
+		SET status = $2,
+		    reviewed_by_user_id = (SELECT u.id FROM users u WHERE u.id = NULLIF($3, '')::uuid),
+		    reviewed_by = $4, review_note = $5, reviewed_at = $6
 		WHERE id = $1 AND tenant_id = $7 AND status = 'pending'`
 
 	tag, err := s.pool.Exec(ctx, q, id, string(status), review.ReviewerID, review.ReviewerName, review.Note, now, tenantFromCtx(ctx))

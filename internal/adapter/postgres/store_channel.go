@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 )
 
@@ -43,12 +44,13 @@ func (s *Store) GetChannel(ctx context.Context, id string) (*channel.Channel, er
 
 // ListChannels lists the tenant's channels, of one project when projectID is
 // set. With a user, each channel carries the number of top-level messages of
-// others after the user's read position.
+// others after the user's read position (0 for a user without an account row,
+// whose read position is not tracked).
 func (s *Store) ListChannels(ctx context.Context, projectID, userID string) ([]channel.Channel, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT c.id, c.tenant_id, COALESCE(c.project_id::text,''), c.name, c.type, c.description,
 		        COALESCE(c.created_by::text,''), c.created_at, c.webhook_key_hash IS NOT NULL,
-		        CASE WHEN $3::uuid IS NULL THEN 0 ELSE (
+		        CASE WHEN NOT EXISTS (SELECT 1 FROM users u WHERE u.id = $3::uuid) THEN 0 ELSE (
 		          SELECT COUNT(*) FROM channel_messages m
 		          WHERE m.channel_id = c.id AND m.parent_id IS NULL
 		            AND m.sender_id IS DISTINCT FROM $3::uuid
@@ -98,10 +100,27 @@ func (s *Store) GetChannelWebhookKeyHash(ctx context.Context, channelID string) 
 // MarkChannelRead moves the user's read position in a channel of the
 // caller's tenant to one of its messages; an older message does not move it
 // back. A channel or message that is not the tenant's, or not the channel's,
-// is not found.
+// is not found; a user without an account row gets
+// channel.ErrReadStateNotTracked.
 func (s *Store) MarkChannelRead(ctx context.Context, channelID, userID, messageID string) (*channel.ReadState, error) {
 	tid := tenantFromCtx(ctx)
-	tag, err := s.pool.Exec(ctx,
+	var messageFound, hasAccount bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM channel_messages m JOIN channels c ON c.id = m.channel_id
+		                WHERE m.id = $1 AND m.channel_id = $2 AND c.tenant_id = $3),
+		        EXISTS (SELECT 1 FROM users u WHERE u.id = $4::uuid)`,
+		messageID, channelID, tid, userID,
+	).Scan(&messageFound, &hasAccount)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("mark channel %s read: %w", channelID, err)
+	case !messageFound:
+		return nil, fmt.Errorf("mark channel %s read at message %s: %w", channelID, messageID, domain.ErrNotFound)
+	case !hasAccount:
+		return nil, fmt.Errorf("mark channel %s read: %w", channelID, channel.ErrReadStateNotTracked)
+	}
+
+	if _, err := s.pool.Exec(ctx,
 		`INSERT INTO channel_read_state (channel_id, user_id, tenant_id, last_read_message_id, last_read_at)
 		 SELECT m.channel_id, $2, m.tenant_id, m.id, m.created_at
 		 FROM channel_messages m JOIN channels c ON c.id = m.channel_id
@@ -110,17 +129,15 @@ func (s *Store) MarkChannelRead(ctx context.Context, channelID, userID, messageI
 		   SET last_read_message_id = EXCLUDED.last_read_message_id,
 		       last_read_at = EXCLUDED.last_read_at, updated_at = now()
 		   WHERE channel_read_state.last_read_at <= EXCLUDED.last_read_at`,
-		channelID, userID, messageID, tid)
-	if err != nil {
+		channelID, userID, messageID, tid); err != nil {
 		return nil, fmt.Errorf("mark channel %s read: %w", channelID, err)
 	}
 	var state channel.ReadState
 	err = s.pool.QueryRow(ctx,
 		`SELECT channel_id, user_id, COALESCE(last_read_message_id::text,''), last_read_at
 		 FROM channel_read_state
-		 WHERE channel_id = $1 AND user_id = $2 AND tenant_id = $3
-		   AND ($4 OR EXISTS (SELECT 1 FROM channel_messages m WHERE m.id = $5 AND m.channel_id = $1))`,
-		channelID, userID, tid, tag.RowsAffected() > 0, messageID,
+		 WHERE channel_id = $1 AND user_id = $2 AND tenant_id = $3`,
+		channelID, userID, tid,
 	).Scan(&state.ChannelID, &state.UserID, &state.LastReadMessageID, &state.LastReadAt)
 	if err != nil {
 		return nil, notFoundWrap(err, "mark channel %s read at message %s", channelID, messageID)

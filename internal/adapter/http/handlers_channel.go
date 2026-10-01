@@ -167,7 +167,8 @@ func (h *Handlers) RegenerateChannelWebhookKey(w http.ResponseWriter, r *http.Re
 }
 
 // MarkChannelRead handles POST /api/v1/channels/{id}/read: it moves the
-// caller's read position to a message.
+// caller's read position to a message (204 when the caller has no account
+// row, whose read position is not tracked).
 func (h *Handlers) MarkChannelRead(w http.ResponseWriter, r *http.Request) {
 	u := middleware.UserFromContext(r.Context())
 	if u == nil {
@@ -182,6 +183,12 @@ func (h *Handlers) MarkChannelRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, err := h.Channels.MarkRead(r.Context(), chi.URLParam(r, "id"), u.ID, req.MessageID)
+	if errors.Is(err, channel.ErrReadStateNotTracked) {
+		// No account row (auth disabled, internal service key): nothing is
+		// stored and nothing is broadcast.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		writeDomainError(w, err, "mark channel read")
 		return

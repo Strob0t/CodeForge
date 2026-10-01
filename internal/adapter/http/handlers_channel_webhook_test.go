@@ -20,6 +20,10 @@ import (
 
 const channelTestTenant = "aaaaaaaa-0000-4000-8000-000000000001"
 
+// accountlessUserID is the default user while auth is disabled: it has no
+// account row.
+const accountlessUserID = "00000000-0000-0000-0000-000000000000"
+
 // channelHTTPStore keeps one channel of channelTestTenant.
 type channelHTTPStore struct {
 	*mockStore
@@ -53,6 +57,9 @@ func (s *channelHTTPStore) CreateChannelMessage(ctx context.Context, msg *channe
 }
 
 func (s *channelHTTPStore) MarkChannelRead(_ context.Context, channelID, userID, messageID string) (*channel.ReadState, error) {
+	if userID == accountlessUserID {
+		return nil, channel.ErrReadStateNotTracked
+	}
 	rs := channel.ReadState{ChannelID: channelID, UserID: userID, LastReadMessageID: messageID, LastReadAt: time.Unix(1, 0).UTC()}
 	s.reads = append(s.reads, rs)
 	return &rs, nil
@@ -165,5 +172,23 @@ func TestChannelRead_MarkAndList(t *testing.T) {
 	router.ServeHTTP(w, channelRouteRequest(http.MethodGet, "/api/v1/channels/ch-1/read", "", viewer))
 	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"last_read_message_id":"msg-9"`)) {
 		t.Fatalf("list read states: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// S6-H review 1: the read position of a user without an account row (auth
+// disabled, internal service key) is not tracked; marking read is a no-op
+// (204) instead of a 500 from the foreign key.
+func TestChannelRead_AccountlessUserIsNoOp(t *testing.T) {
+	store := &channelHTTPStore{mockStore: &mockStore{}}
+	router := channelRouter(store)
+	admin := &user.User{ID: accountlessUserID, Name: "Admin", Role: user.RoleAdmin, TenantID: channelTestTenant}
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, channelRouteRequest(http.MethodPost, "/api/v1/channels/ch-1/read", `{"message_id":"msg-9"}`, admin))
+	if w.Code != http.StatusNoContent || w.Body.Len() != 0 {
+		t.Fatalf("mark read without an account = %d %q, want 204 and no body", w.Code, w.Body.String())
+	}
+	if len(store.reads) != 0 {
+		t.Fatalf("reads = %+v, want none", store.reads)
 	}
 }
