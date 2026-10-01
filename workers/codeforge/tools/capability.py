@@ -100,6 +100,13 @@ TOOLS_BY_CAPABILITY: dict[CapabilityLevel, frozenset[str]] = {
 }
 
 
+# Tools offered whenever they are registered, whatever the capability level or
+# the ToolRouter's selection: a run can only hand off (handoff_to is
+# registered only where a handoff is possible) if the model sees the tool, and
+# the router's keywords cannot predict that from the prompt.
+ALWAYS_OFFERED_TOOLS: frozenset[str] = frozenset({"handoff_to"})
+
+
 def classify_model(model: str) -> CapabilityLevel:
     """Classify a model's tool-use capability level.
 

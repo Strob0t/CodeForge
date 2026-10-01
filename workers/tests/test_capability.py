@@ -126,7 +126,7 @@ class TestFilterToolsForCapability:
         assert "bash" in names
         assert "edit_file" not in names
         assert "create_skill" not in names
-        assert "handoff_to" not in names
+        assert "handoff_to" in names  # always offered when registered (S6-G review, item 2)
 
     def test_api_with_tools_filters(self, sample_tools: list[dict]) -> None:
         from codeforge.agent_loop import AgentLoopExecutor
@@ -168,7 +168,8 @@ class TestFilterToolsForCapability:
             selected_tools=["read_file", "edit_file", "bash"],
         )
         names = {t["function"]["name"] for t in result}
-        assert names == {"read_file", "edit_file", "bash"}
+        # handoff_to is registered here and always offered (S6-G review, item 2).
+        assert names == {"read_file", "edit_file", "bash", "handoff_to"}
 
     def test_selected_tools_with_mode_tools(self, sample_tools: list[dict]) -> None:
         """Mode tools are always merged even with selected_tools."""
@@ -186,7 +187,7 @@ class TestFilterToolsForCapability:
         assert "bash" in names
 
     def test_selected_tools_empty_list_filters_all_except_mode(self, sample_tools: list[dict]) -> None:
-        """Empty selected_tools list means no base tools selected (only mode tools)."""
+        """Empty selected_tools list means no base tools selected (only mode tools and handoff_to)."""
         from codeforge.agent_loop import AgentLoopExecutor
 
         result = AgentLoopExecutor._filter_tools_for_capability(
@@ -196,7 +197,7 @@ class TestFilterToolsForCapability:
             selected_tools=[],
         )
         names = {t["function"]["name"] for t in result}
-        assert names == {"bash"}
+        assert names == {"bash", "handoff_to"}
 
     def test_selected_tools_none_uses_capability(self, sample_tools: list[dict]) -> None:
         """When selected_tools is None, falls back to capability-based filtering."""

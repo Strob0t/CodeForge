@@ -52,7 +52,7 @@ from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
 from codeforge.stall_detection import StallDetector, stall_error
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_executor import ToolExecutor
-from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
+from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
@@ -230,8 +230,9 @@ class AgentLoopExecutor:
     ) -> list[dict[str, object]]:
         """Filter tools based on model capability level and ToolRouter selection.
 
-        The mode's tools are always offered on top. Go sends them as canonical
-        policy names (Read, Edit, Bash, ...), so they are compared canonically.
+        The mode's tools and ALWAYS_OFFERED_TOOLS are always offered on top.
+        Go sends the mode's tools as canonical policy names (Read, Edit,
+        Bash, ...), so they are compared canonically.
         """
         if selected_tools is not None:
             allowed: frozenset[str] = frozenset(selected_tools)
@@ -243,7 +244,7 @@ class AgentLoopExecutor:
 
         def _is_allowed(tool: dict[str, object]) -> bool:
             name = tool.get("function", {}).get("name", "")
-            if name in allowed or canonical_tool(name) in mode_canonical:
+            if name in allowed or name in ALWAYS_OFFERED_TOOLS or canonical_tool(name) in mode_canonical:
                 return True
             if selected_tools is None and name.startswith("mcp__"):
                 tool_action = name.rsplit("__", 1)[-1]
