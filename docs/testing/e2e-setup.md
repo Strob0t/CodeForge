@@ -61,6 +61,8 @@ Testplan: `docs/testing/autonomous-goal-to-program-testplan.md` | Tool complexit
 **Project setup:**
 - Create project: `POST /projects` with `config: {"policy_preset": "trusted-mount-autonomous"}` (the backend also reads `execution_mode`, which only accepts `mount`, and the gate commands `test_command` / `lint_command`, validated on write; autonomy comes from the selected mode; `PUT /projects/{id}` merges config keys, `null` deletes one) and optional `"local_path": "/abs/path"` (auto-adopts workspace)
 - Alternatively: `POST /projects/{id}/adopt` with `{"path": "/abs/path"}` as separate call
+- **Adopt rules** (a path outside them is refused with 400): the directory (symlinks resolved) must lie inside the caller's tenant directory `<workspace.root>/<tenant_id>/`, or - for a platform admin only (an admin of the default tenant, which is what `admin@localhost` is when seeded) - inside a directory of `workspace.adopt_roots` outside the workspace root. For a test directory such as `/tmp/testrepo` start the backend with `CODEFORGE_WORKSPACE_ADOPT_ROOTS=/tmp` and log in as that admin; any other user adopts only inside its tenant directory
+- Workspaces are refused for every Go git operation (checkpoints, delivery, review) when they contain a submodule or a nested `.git` ([KI-88](../todo.md#known-issues)): create the test repository without them
 - TestRepo clone fails often — use local workspace creation instead
 - Auto-onboarding disabled (ChatPanel.tsx)
 - Model: `"openai/container"` or `"lm_studio/qwen/qwen3-30b-a3b"` (any healthy model)

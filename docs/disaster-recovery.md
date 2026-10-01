@@ -103,7 +103,7 @@ docker exec codeforge-postgres rm -rf /tmp/basebackup_${TIMESTAMP}
 
 ```bash
 # Stop all services that connect to PostgreSQL
-docker compose -f docker-compose.prod.yml stop core litellm workers
+docker compose -f docker-compose.prod.yml stop core litellm worker
 
 # Drop and recreate the database
 docker exec codeforge-postgres psql -U codeforge -c "DROP DATABASE IF EXISTS codeforge;"
@@ -121,7 +121,7 @@ docker exec codeforge-postgres pg_restore \
 docker exec codeforge-postgres rm /tmp/restore.dump
 
 # Restart services
-docker compose -f docker-compose.prod.yml up -d core litellm workers
+docker compose -f docker-compose.prod.yml up -d core litellm worker
 ```
 
 ### 4.2 From Base Backup with WAL Replay (PITR)
@@ -163,7 +163,7 @@ docker compose -f docker-compose.prod.yml up -d postgres
 docker logs -f codeforge-postgres
 
 # After recovery completes, restart remaining services
-docker compose -f docker-compose.prod.yml up -d core litellm workers
+docker compose -f docker-compose.prod.yml up -d core litellm worker
 ```
 
 ## 5. NATS JetStream Recovery
@@ -283,7 +283,7 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
 
 10. **Start Python Workers**
     ```bash
-    docker compose -f docker-compose.prod.yml up -d workers
+    docker compose -f docker-compose.prod.yml up -d worker
     ```
 
 11. **Verify end-to-end connectivity**
@@ -302,6 +302,25 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
     ```bash
     docker compose -f docker-compose.prod.yml up -d frontend
     ```
+
+### 7.1 With the Blue-Green Overlay
+
+When production runs with `docker-compose.blue-green.yml` (usage: [dev-setup.md](dev-setup.md#blue-green-deployment)),
+the single `core` and `frontend` services of the prod file are replaced by the colors `core-blue` / `frontend-blue`
+and `core-green` / `frontend-green` (Compose profiles `blue` and `green`), and Traefik is the only service that
+publishes ports. Adapt the runbook as follows:
+
+- Use both files in every `docker compose` command (`-f docker-compose.prod.yml -f docker-compose.blue-green.yml`) and
+  `ACME_EMAIL` / `CODEFORGE_DOMAIN` in `.env`.
+- Steps 3 to 7 (and 10) start the shared services and the worker; `up -d` of both files does that and starts no color.
+- Replace steps 8, 9 and 12 with `./scripts/deploy-blue-green.sh blue` (or `green`): it starts the color's core and
+  frontend without touching the shared services, waits until both are healthy and stops the other color. Check
+  health through Traefik (`https://<CODEFORGE_DOMAIN>/health`); the core publishes no port of its own.
+- To stop the core before a restore (section 4), stop both colors: set `COMPOSE_PROFILES=blue,green` and stop
+  `core-blue core-green frontend-blue frontend-green`.
+- Rolling back a bad release means deploying the previous color again with the previous image tag; the script refuses
+  to "deploy" the color that is already active, and a color that does not become healthy is stopped again while the
+  active one keeps serving.
 
 ## 8. Backup Verification
 

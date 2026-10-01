@@ -144,15 +144,14 @@ CodeForge/
 │   │   ├── user/             # User + auth models
 │   │   ├── vcsaccount/       # VCS account linking
 │   │   └── webhook/          # Webhook models
-│   ├── git/                  # Git worker pool (semaphore-bounded)
+│   ├── git/                  # Hardened git for workspaces (sanitised environment, config allowlist, no nested repositories) + worker pool
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
 │   ├── netutil/              # SSRF checks (private IP filter, safe HTTP transport)
-│   ├── port/                 # Interfaces + Registries (21 packages)
+│   ├── port/                 # Interfaces + Registries (20 packages)
 │   │   ├── agentbackend/     # Agent backend interface + registry
 │   │   ├── benchprovider/    # Benchmark provider interface
 │   │   ├── broadcast/        # Broadcaster interface (WS events)
-│   │   ├── cache/            # Cache interface (Get/Set/Delete)
 │   │   ├── codeintel/        # Code intelligence interface (LSP abstraction)
 │   │   ├── database/         # Store interface (80+ methods)
 │   │   ├── eventstore/       # Event store interface + trajectory types
@@ -170,7 +169,7 @@ CodeForge/
 │   │   ├── subscription/     # Subscription interface
 │   │   ├── tokenexchange/    # Token exchange interface (Copilot abstraction)
 │   │   └── wsticket/         # Single-use WebSocket ticket store
-│   ├── adapter/              # Concrete Implementations (35 packages)
+│   ├── adapter/              # Concrete Implementations (32 packages)
 │   │   ├── a2a/              # A2A protocol server/client
 │   │   ├── aider/            # Aider agent backend
 │   │   ├── auth/             # Authentication adapter
@@ -191,7 +190,6 @@ CodeForge/
 │   │   ├── markdownspec/     # Markdown spec provider (ROADMAP.md)
 │   │   ├── mcp/              # MCP server + client registry
 │   │   ├── nats/             # NATS JetStream adapter
-│   │   ├── natskv/           # NATS JetStream KV cache adapter (L2)
 │   │   ├── opencode/         # OpenCode agent backend
 │   │   ├── openhands/        # OpenHands agent backend
 │   │   ├── openspec/         # OpenSpec spec provider (openspec/ dir)
@@ -199,13 +197,12 @@ CodeForge/
 │   │   ├── otel/             # OpenTelemetry tracing + metrics
 │   │   ├── plandex/          # Plandex agent backend
 │   │   ├── plane/            # Plane.so PM provider
-│   │   ├── postgres/         # PostgreSQL store + 90 migrations
-│   │   ├── ristretto/        # Ristretto in-process cache adapter (L1)
+│   │   ├── postgres/         # PostgreSQL store + 110 migrations
 │   │   ├── slack/            # Slack notification + feedback adapter
 │   │   ├── speckit/          # Spec Kit provider
 │   │   ├── svn/              # SVN provider
-│   │   ├── tiered/           # Tiered cache (L1 + L2)
 │   │   └── ws/               # WebSocket hub + event broadcasting
+│   ├── proctemp/             # Per-process temporary directory (stale ones removed at startup)
 │   ├── resilience/           # Circuit breaker
 │   ├── secrets/              # Secrets vault (reloaded on SIGHUP)
 │   ├── telemetry/            # OTEL span helpers (API-only, no SDK dependency)
@@ -609,9 +606,9 @@ Example:
 | `auth.setup_timeout_minutes` | `CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES` | `5` | Setup wizard timeout |
 | `benchmark.datasets_dir` | (YAML only; `CODEFORGE_BENCHMARK_DATASETS_DIR` is read by the Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files |
 | `benchmark.watchdog_timeout` | `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck benchmark runs |
-| `github.client_id` | `GITHUB_CLIENT_ID` | `` | OAuth client ID for the GitHub device-flow subscription provider |
-| `github.client_secret` | `GITHUB_CLIENT_SECRET` | `` | Read but currently unused: the GitHub OAuth web flow (`/api/v1/auth/github`) is not wired and returns 501 ([KI-55](todo.md#known-issues)) |
-| `github.callback_url` | `GITHUB_CALLBACK_URL` | `` | Read but currently unused (see `github.client_secret`) |
+| `github.client_id` | `GITHUB_CLIENT_ID` | `` | OAuth client ID: alone it enables the GitHub device-flow subscription provider; with `client_secret` and `callback_url` it also enables the web flow |
+| `github.client_secret` | `GITHUB_CLIENT_SECRET` (or `GITHUB_CLIENT_SECRET_FILE`) | `` | OAuth client secret of the GitHub OAuth web flow (`POST /api/v1/auth/github` answers 501 until `client_id`, `client_secret` and `callback_url` are all set; `client_secret` or `callback_url` without the other two stops startup) |
+| `github.callback_url` | `GITHUB_CALLBACK_URL` | `` | Redirect URI of the web flow, the only one sent to GitHub: `https` (`http` only on localhost or loopback), path `/api/v1/auth/github/callback`, no user info, query or fragment. Register the same URL in the GitHub OAuth app; it must be on the origin the web UI uses for the API |
 | `postgres.max_conn_lifetime` | `CODEFORGE_PG_MAX_CONN_LIFETIME` | `30m` | Max connection lifetime |
 | `postgres.max_conn_idle_time` | `CODEFORGE_PG_MAX_CONN_IDLE_TIME` | `5m` | Max connection idle time |
 | `postgres.health_check` | `CODEFORGE_PG_HEALTH_CHECK` | `30s` | Health check interval |
@@ -623,17 +620,19 @@ Example:
 | `policy.custom_dir` | `CODEFORGE_POLICY_DIR` | `data/policies` | Custom policy profiles, per tenant in `<custom_dir>/<tenant_id>/<name>.yaml` (loaded at start; API-created profiles and Allow-Always clones are written atomically to the owning tenant's directory). Flat files directly in `custom_dir` (layout before 2026-09-30) are still loaded read-only for the default tenant; saving one writes a copy to the default tenant's directory. `""` keeps profiles in memory only and disables Allow-Always (409) |
 | `workspace.root` | `CODEFORGE_WORKSPACE_ROOT` | `data/workspaces` | Workspace root directory |
 | `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
+| `workspace.adopt_roots` | `CODEFORGE_WORKSPACE_ADOPT_ROOTS` | `` | Comma-separated absolute directories (not `/`) whose subdirectories platform admins may adopt as a workspace (`local_path`); a project's stored local `repo_url` may be cloned from them too. Without it everyone adopts only inside their tenant's directory `<workspace.root>/<tenant_id>/`; an adopt root never opens another tenant's area of the workspace root |
 | `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |
-| `runtime.stall_max_retries` | `CODEFORGE_STALL_MAX_RETRIES` | `2` | Max stall recovery retries |
+| `runtime.stall_max_retries` | `CODEFORGE_STALL_MAX_RETRIES` | `2` | New runs a plan step gets after runs that stalled (re-planning); `0` = none, negative is rejected |
 | `runtime.quality_gate_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Timeout per gate command (sent to the worker, which kills the command's process group); must be at least 1s |
 | `runtime.default_deliver_mode` | `CODEFORGE_DELIVER_MODE` | `` | Default delivery mode |
 | `runtime.default_test_command` | `CODEFORGE_TEST_COMMAND` | `` | Last fallback for the gate test command: project config `test_command` first, then the default of the language whose test runner is set up in the workspace |
 | `runtime.default_lint_command` | `CODEFORGE_LINT_COMMAND` | `` | Last fallback for the gate lint command (project config `lint_command` first, then the language default) |
 | `runtime.delivery_commit_prefix` | `CODEFORGE_COMMIT_PREFIX` | `codeforge:` | Git commit prefix |
-| `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | Expected worker heartbeat interval (the worker sends every 30 s) |
-| `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout; the stuck-work watchdog ends runs, conversation runs and backend tasks without a heartbeat for `heartbeat_timeout + 2 x heartbeat_interval`; `0` disables that check |
-| `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds); also sent to the worker, which waits this long plus 15 s for a tool-call decision |
-| `runtime.stale_check_interval` | (YAML only) | `60s` | How often the stuck-work watchdog runs (stuck quality gates, lost runs, conversation runs and backend tasks); must be > 0 |
+| `runtime.heartbeat_interval` | `CODEFORGE_HEARTBEAT_INTERVAL` | `30s` | How often workers report runs, conversation runs and backend tasks alive: sent as `heartbeat_seconds` on `runs.start`, `conversation.run.start` and `tasks.agent.*` (whole seconds); `0` = the default, otherwise at least `1s` (checked at load) |
+| `runtime.heartbeat_timeout` | `CODEFORGE_HEARTBEAT_TIMEOUT` | `120s` | Heartbeat timeout; the stuck-work watchdog ends runs, conversation runs and backend tasks without a heartbeat for `heartbeat_timeout + 2 x heartbeat_interval`; `0` disables that check, otherwise it must be longer than the interval (checked at load) |
+| `runtime.task_accept_timeout` | `CODEFORGE_TASK_ACCEPT_TIMEOUT` | `1h` | How long a dispatched backend task may wait for a worker to accept it before the watchdog fails it (check "tasks never accepted"); `0` turns the check off, negative is rejected |
+| `runtime.approval_timeout_seconds` | `CODEFORGE_APPROVAL_TIMEOUT_SECONDS` | `60` | HITL approval timeout (seconds); also sent to the worker, which waits this long plus 15 s for a tool-call decision. Raise it when approvals come by email |
+| `runtime.stale_check_interval` | (YAML only) | `60s` | How often the stuck-work watchdog runs (checks: lost tasks, tasks never accepted, quality gates, lost runs, lost conversation runs, ended teams, undecided review refactorings); must be > 0 |
 | `idempotency.bucket` | `CODEFORGE_IDEMPOTENCY_BUCKET` | `IDEMPOTENCY` | NATS KV bucket name |
 | `idempotency.ttl` | `CODEFORGE_IDEMPOTENCY_TTL` | `24h` | Idempotency key TTL |
 | `runtime.hybrid.command_image` | `CODEFORGE_HYBRID_IMAGE` | `` | Docker image for hybrid mode |
@@ -644,9 +643,6 @@ Example:
 | `runtime.sandbox.storage_gb` | `CODEFORGE_SANDBOX_STORAGE_GB` | `10` | Storage limit (GB) |
 | `runtime.sandbox.network_mode` | `CODEFORGE_SANDBOX_NETWORK` | `none` | Network mode |
 | `runtime.sandbox.image` | `CODEFORGE_SANDBOX_IMAGE` | `ubuntu:22.04` | Container image |
-| `cache.l1_max_size_mb` | `CODEFORGE_CACHE_L1_SIZE_MB` | `100` | L1 in-memory cache size (MB) |
-| `cache.l2_bucket` | `CODEFORGE_CACHE_L2_BUCKET` | `CACHE` | NATS KV cache bucket |
-| `cache.l2_ttl` | `CODEFORGE_CACHE_L2_TTL` | `10m` | L2 cache TTL |
 | `orchestrator.default_context_budget` | `CODEFORGE_ORCH_CONTEXT_BUDGET` | `4096` | Token budget for orchestrator context |
 | `orchestrator.prompt_reserve` | `CODEFORGE_ORCH_PROMPT_RESERVE` | `1024` | Prompt token reserve |
 | `orchestrator.subagent_enabled` | `CODEFORGE_ORCH_SUBAGENT_ENABLED` | `true` | Enable sub-agent search |
@@ -662,6 +658,8 @@ Example:
 | `notification.smtp_port` | `CODEFORGE_SMTP_PORT` | `587` | SMTP server port; startup rejects ports outside 1-65535 when `smtp_host` is set |
 | `notification.smtp_from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
 | `notification.smtp_password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
+| `notification.approval_recipients` | `CODEFORGE_NOTIFICATION_APPROVAL_RECIPIENTS` | `` | Comma-separated bare email addresses that get an email for each tool call awaiting approval of the default tenant (other tenants' requests are not mailed). Needs `smtp_host`, `smtp_from` and `web_ui_url` as well; the provider is registered only when all four are set and the startup log names what is missing |
+| `notification.web_ui_url` | `CODEFORGE_NOTIFICATION_WEB_UI_URL` | `` | Base URL of the web UI (absolute http(s), no user info, query or fragment); approval emails link to `<web_ui_url>/approvals/<run>/<call>`, which asks for a login |
 | `retention.interval` | `CODEFORGE_RETENTION_INTERVAL` | `24h` | How often the GDPR retention job runs (also once at startup); `0` disables it ([data-retention.md](data-retention.md)) |
 | `retention.sessions` | `CODEFORGE_RETENTION_SESSIONS` | `720h` | Delete agent sessions idle longer than this (`0` keeps them) |
 | `retention.conversations` | `CODEFORGE_RETENTION_CONVERSATIONS` | `8760h` | Delete conversations (with messages) idle longer than this |
@@ -669,7 +667,7 @@ Example:
 | `retention.audit_entries` | `CODEFORGE_RETENTION_AUDIT_ENTRIES` | `61320h` | Delete audit log entries older than this (7 years) |
 | `retention.audit_ip_addresses` | `CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES` | `4320h` | Remove IP addresses from audit entries older than this (180 days); periods under 24h are rejected |
 | `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
-| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated API keys |
+| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated A2A API keys, each `<key>` (default tenant) or `<tenant-uuid>:<key>` (that tenant; UUID in any case). Parsed only when A2A is enabled; a malformed tenant prefix, an empty key or a repeated key stops startup; without keys every `/a2a` request gets 401 |
 | `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
 | `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks (not enforced yet) |
 | `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `false` | Allow AgentCard discovery without A2A API key |
@@ -682,6 +680,8 @@ Example:
 | `agent.conversation_rollout_count` | `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT` | `1` | Conversation rollout count (1-8) |
 | `agent.summarize_threshold` | `CODEFORGE_SUMMARIZE_THRESHOLD` | `0` | Message count to trigger summarization (0 = disabled) |
 | `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |
+| `plane.api_token` | `CODEFORGE_PLANE_API_TOKEN` (or `_FILE`) | `` | Plane.so API token for PM sync and Plane webhooks |
+| `plane.base_url` | `CODEFORGE_PLANE_BASE_URL` | `https://api.plane.so` | Plane API the token belongs to (absolute http(s) URL); the token is sent only there, a project whose `plane_base_url` names another host is not synced by webhooks |
 | `copilot.hosts_file_path` | `CODEFORGE_COPILOT_HOSTS_FILE` | `` (falls back to `~/.config/github-copilot/hosts.json`) | Copilot hosts file path |
 | `experience.enabled` | `CODEFORGE_EXPERIENCE_ENABLED` | `false` | Experience pool (Go and worker): tenant-scoped cache used only for the first turn of a simple (non-agentic) chat |
 | `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum similarity to use a cached answer (0 < value <= 1) |
@@ -763,7 +763,7 @@ The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and L
 
 ### NATS Subjects
 
-The Go Core and Python Workers communicate via NATS JetStream subjects. The tables below are a subset; the authoritative lists are `internal/port/messagequeue/queue.go` (Go) and `workers/codeforge/nats_subjects.py` (Python). Not listed here: `runs.heartbeat`, `runs.qualitygate.*`, `runs.trajectory.event`, `benchmark.task.*`, `context.shared.updated`, `context.rerank.*`, `repomap.generate.*`, `conversation.run.*`, `conversation.compact.*`, `evaluation.gemmas.*`, `a2a.task.*`, `memory.*`, `handoff.request`, `backends.health.*`, `review.*`, `prompt.evolution.*`.
+The Go Core and Python Workers communicate via NATS JetStream subjects. The tables below are a subset; the authoritative lists are `internal/port/messagequeue/queue.go` (Go) and `workers/codeforge/nats_subjects.py` (Python). Not listed here: `runs.heartbeat`, `runs.qualitygate.*`, `runs.trajectory.event`, `benchmark.task.*`, `context.shared.updated`, `context.rerank.*`, `repomap.generate.*`, `conversation.run.*`, `conversation.compact.*`, `conversation.test.*` (workspace test run of the auto-agent, worker side), `evaluation.gemmas.*`, `a2a.task.*`, `memory.*`, `handoff.request` (worker -> Go Core) and `handoff.approved` (Go Core only), `backends.health.*`, `prompt.evolution.*`. Dead-letter copies (`<subject>.dlq`) of `runs.start`, `conversation.run.start`, `tasks.agent.*`, `handoff.request`, `handoff.approved` and `benchmark.run.request` end the work they carried as failed in the Go Core.
 
 #### Legacy Task Protocol (fire-and-forget)
 
@@ -772,7 +772,8 @@ The Go Core and Python Workers communicate via NATS JetStream subjects. The tabl
 | `tasks.agent.<name>` | Go -> Python | Dispatch task to agent backend (name = aider/goose/openhands/opencode/plandex) |
 | `tasks.result` | Python -> Go | Task result from worker |
 | `tasks.output` | Python -> Go | Streaming output line |
-| `tasks.cancel` | Go -> Python | Cancel a running task (does not stop a running backend process yet, [KI-22](todo.md#known-issues)) |
+| `tasks.cancel` | Go -> Python | Cancel a task: the worker stops the backend's process group; a cancel for a task still queued is remembered so it is not started later |
+| `tasks.heartbeat` | Python -> Go | Every `heartbeat_seconds` (from `runtime.heartbeat_interval`) while a worker executes a task; carries the dispatch ID of the task message |
 | `agents.output` | Python -> Go | Per-line backend output (re-broadcast over WebSocket) |
 
 #### Run Protocol (Phase 4B, step-by-step)
@@ -915,7 +916,39 @@ docker compose -f docker-compose.prod.yml down
 
 Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
-Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path), tmpfs `/tmp` for core and worker, images running as UID/GID 10001, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Remaining gap: the worker healthcheck only tests importability ([KI-34](todo.md#known-issues)); the blue-green overlay does not work ([KI-70](todo.md#known-issues)).
+Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path), tmpfs `/tmp` for core and worker, images running as UID/GID 10001, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
+
+#### Blue-green deployment
+
+`docker-compose.blue-green.yml` is an overlay of `docker-compose.prod.yml` that runs two colors of the core and the
+frontend behind Traefik (the only service that publishes ports, 80 and 443). The colors are Compose profiles
+(`blue`, `green`), so a plain `up -d` starts neither.
+
+```bash
+export ACME_EMAIL=ops@example.com          # Let's Encrypt account email (required)
+export CODEFORGE_DOMAIN=codeforge.example.com   # public host name (required); or set both in .env
+
+# 1. Shared services first: postgres, nats, litellm, worker and Traefik (no color yet)
+docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml up -d
+
+# 2. Start a color; the script waits until it is healthy, then stops the other one
+./scripts/deploy-blue-green.sh            # the color that is not running (blue first)
+./scripts/deploy-blue-green.sh green      # or name the color
+DRY_RUN=1 ./scripts/deploy-blue-green.sh  # print the plan; compose commands run with --dry-run
+```
+
+- Run step 1 once (and again whenever the shared services change). The script refuses to run unless postgres, nats
+  and litellm are running and healthy, and it starts a color with `--no-deps`, so a deployment never recreates them.
+- Traefik must be v3.6 or later (the pinned image is `traefik:v3.6`): older Docker providers speak an API version that
+  Docker Engine 29 refuses. It is configured with command flags in the overlay (ACME HTTP challenge, Docker provider
+  on the network `codeforge-public`, rate-limit and security-header middlewares from `traefik/dynamic/`); there is no
+  `traefik/traefik.yaml`.
+- Routing: `/api`, `/health`, `/ws`, `/.well-known` and `/a2a` go to the core of the running color, everything else to
+  its frontend. Each frontend's nginx proxies to its own core through `CORE_UPSTREAM` (default `core:8080`, the
+  overlay sets `core-blue:8080` / `core-green:8080`). Both cores carry the network alias `core`, which the worker
+  uses (`CODEFORGE_CORE_URL`); during a switch it resolves to both.
+- The overlay uses the Compose tags `!reset` and `!override`; pre-commit runs `check-yaml --unsafe` on this one file.
+- A failed color is stopped again and the active one keeps serving. Backup and restore: [disaster-recovery.md](disaster-recovery.md).
 
 #### CI/CD
 
@@ -975,7 +1008,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_QUARANTINE_THRESHOLD | 0.7                                  | Risk score for quarantine hold   |
 | CODEFORGE_QUARANTINE_BLOCK_THRESHOLD | 0.95                           | Risk score for immediate block   |
 | CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS | verified                       | Min trust level to bypass quarantine |
-| CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire |
+| CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire (stored as `expires_at`; nothing sets the status `expired` yet, [KI-91](todo.md#known-issues)) |
 | CODEFORGE_LSP_ENABLED       | false                                    | Enable LSP integration           |
 | CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED | false                          | Enable confidence-based review routing |
 | CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD | 0.7                      | Steps below this get routed to review |
@@ -985,7 +1018,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable the experience pool (worker and Go); tenant-scoped, first turn of a simple chat only |
 | CODEFORGE_TEST_DATABASE_URL | (unset)                                  | PostgreSQL URL for the worker's database tests (experience pool, skills); they are skipped when unset |
 | CODEFORGE_A2A_BASE_URL     | `http://localhost:<CODEFORGE_PORT>`      | Public URL for AgentCard         |
-| CODEFORGE_A2A_API_KEYS     |                                          | Comma-separated API keys         |
+| CODEFORGE_A2A_API_KEYS     |                                          | Comma-separated A2A API keys: `<key>` or `<tenant-uuid>:<key>` |
 | CODEFORGE_A2A_TRANSPORT    | jsonrpc                                  | Transport protocol (only `jsonrpc` is implemented) |
 | CODEFORGE_A2A_MAX_TASKS    | 100                                      | Max concurrent A2A tasks (not enforced yet) |
 | CODEFORGE_A2A_ALLOW_OPEN   | false                                    | Allow AgentCard discovery without A2A API key |
@@ -1603,7 +1636,7 @@ See `configs/benchmarks/README.md` for the full YAML schema and available fields
 
 ### A2A Protocol (Phase 27)
 
-The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external AI agents. When enabled, CodeForge exposes an AgentCard at `/.well-known/agent-card.json` and can delegate tasks to remote A2A agents. With auth enabled (default), the AgentCard and `/a2a` currently also sit behind the global JWT middleware, so they need a CodeForge JWT or API key; A2A API keys alone are not accepted ([KI-15](todo.md#known-issues)).
+The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external AI agents. When enabled, CodeForge exposes an AgentCard at `/.well-known/agent-card.json` and can delegate tasks to remote A2A agents. `/a2a` and the AgentCard are outside the JWT middleware and authenticate with A2A API keys (`Authorization: Bearer <key>`, see `a2a.api_keys`); a key maps to a tenant, the AgentCard is open without a key only with `a2a.allow_open`. The management endpoints under `/api/v1/a2a/*` use the normal CodeForge login.
 
 #### Configuration
 
@@ -1611,7 +1644,7 @@ The A2A (Agent-to-Agent) protocol enables CodeForge to communicate with external
 |---|---|---|---|
 | `a2a.enabled` | `CODEFORGE_A2A_ENABLED` | `false` | Enable A2A endpoints |
 | `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
-| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | (empty) | Comma-separated API keys for inbound auth |
+| `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | (empty) | Comma-separated API keys for inbound auth, each `<key>` (default tenant) or `<tenant-uuid>:<key>`; no keys = every `/a2a` request gets 401 |
 | `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
 | `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks (not enforced yet) |
 | `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `false` | Allow AgentCard discovery without A2A API key |
