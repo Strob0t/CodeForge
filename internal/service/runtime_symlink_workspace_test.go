@@ -62,3 +62,67 @@ func TestToolCall_RedirectionInSymlinkedWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// S6-H review 9: the workspace's real path follows the symlink when it is
+// retargeted or appears only later; it is not resolved once for good.
+func TestToolCall_SymlinkedWorkspaceIsResolvedAgainWhenItChanges(t *testing.T) {
+	base := t.TempDir()
+	first := filepath.Join(base, "first-ws")
+	second := filepath.Join(base, "second-ws")
+	for _, dir := range []string{first, second} {
+		if err := os.Mkdir(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "link-ws")
+
+	svc, store, queue, _ := newRuntimeTestEnvWithPolicy(service.NewPolicyService("trusted-mount-autonomous", nil))
+	store.mu.Lock()
+	store.projects[0].WorkspacePath = link
+	store.runs = append(store.runs, run.Run{
+		ID: "run-ln", TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
+		PolicyProfile: "trusted-mount-autonomous", Status: run.StatusRunning, StartedAt: time.Now(),
+	})
+	store.mu.Unlock()
+
+	redirectTo := func(callID, dir string) string {
+		t.Helper()
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.HandleToolCallRequest(context.Background(), &messagequeue.ToolCallRequestPayload{
+			RunID: "run-ln", CallID: callID, Tool: "Bash", Command: "echo x > " + filepath.Join(resolved, ".env"),
+		}); err != nil {
+			t.Fatalf("HandleToolCallRequest: %v", err)
+		}
+		return toolCallResponse(t, queue, callID).Decision
+	}
+
+	// The workspace does not exist yet: nothing to resolve.
+	if err := svc.HandleToolCallRequest(context.Background(), &messagequeue.ToolCallRequestPayload{
+		RunID: "run-ln", CallID: "call-0", Tool: "Bash", Command: "echo x > out.log",
+	}); err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+
+	if err := os.Symlink(first, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := redirectTo("call-1", first); got != "deny" {
+		t.Fatalf("redirection to the real .env after the link appeared -> %s, want deny", got)
+	}
+
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(second, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := redirectTo("call-2", second); got != "deny" {
+		t.Fatalf("redirection to the real .env after the link was retargeted -> %s, want deny", got)
+	}
+	if got := redirectTo("call-3", first); got != "allow" {
+		t.Fatalf("redirection into the former target -> %s, want allow (outside the workspace now)", got)
+	}
+}

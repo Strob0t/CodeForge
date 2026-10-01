@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -410,25 +411,55 @@ func (s *RuntimeService) policyEvalOptions(workspace string, m *mode.Mode, ann *
 	return opts
 }
 
-// workspaceRealPath returns the workspace path with its symlinks resolved,
-// resolved once per workspace and cached; "" for a workspace that is not an
-// absolute path or cannot be resolved (yet), which is then only checked in
-// its given form.
+// workspaceRealPath returns the workspace path with its symlinks resolved;
+// "" for a workspace that is not an absolute path or cannot be resolved (it
+// does not exist yet), which is then only checked in its given form.
+//
+// A resolution is cached per workspace path together with the directory it
+// led to, and reused only while the path still leads to that directory and
+// the resolved path still names it (two stat calls per tool call, instead of
+// a walk over every path component): a retargeted symlink or a moved
+// directory is resolved again. A failed resolution of an existing directory
+// is cached the same way; a missing one costs a single stat.
 func (s *RuntimeService) workspaceRealPath(workspace string) string {
 	if !filepath.IsAbs(workspace) {
 		return ""
 	}
+	dir, err := os.Stat(workspace)
+	if err != nil {
+		return ""
+	}
 	if cached, ok := s.workspaceRealPaths.Load(workspace); ok {
-		if path, isString := cached.(string); isString {
-			return path
+		if entry, isEntry := cached.(realPathEntry); isEntry && entry.stillValid(dir) {
+			return entry.resolved
 		}
 	}
 	resolved, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
-		return ""
+		resolved = ""
 	}
-	s.workspaceRealPaths.Store(workspace, resolved)
+	s.workspaceRealPaths.Store(workspace, realPathEntry{dir: dir, resolved: resolved})
 	return resolved
+}
+
+// realPathEntry is a cached workspace resolution: the directory the
+// workspace path led to and its real path ("" when it could not be resolved).
+type realPathEntry struct {
+	dir      os.FileInfo
+	resolved string
+}
+
+// stillValid reports whether the workspace path still leads to the cached
+// directory (dir is its current stat) and the real path still names it.
+func (e realPathEntry) stillValid(dir os.FileInfo) bool {
+	if !os.SameFile(e.dir, dir) {
+		return false
+	}
+	if e.resolved == "" {
+		return true
+	}
+	current, err := os.Stat(e.resolved)
+	return err == nil && os.SameFile(current, dir)
 }
 
 // HandleToolCallResult processes the outcome of an executed tool call.

@@ -60,7 +60,8 @@ type RuntimeService struct {
 	noRollbackBase sync.Map
 
 	// workspaceRealPaths caches the real path (symlinks resolved) of each
-	// workspace path the policy checks tool calls against.
+	// workspace path the policy checks tool calls against (realPathEntry,
+	// revalidated per call by workspaceRealPath).
 	workspaceRealPaths sync.Map
 
 	// toolOutputMaxChars is agent.tool_output_max_chars, sent on runs.start
