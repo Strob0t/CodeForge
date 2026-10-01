@@ -111,7 +111,7 @@
 
 #### Python Workers
 
-- httpx ^0.28 — async HTTP client for LiteLLM Proxy calls (litellm is a runtime dependency of the LiteLLM Docker sidecar, not installed in the worker venv; the `trajectory_verifier` / `logprob_verifier` evaluators still import it, KI-37)
+- httpx ^0.28 — async HTTP client for LiteLLM Proxy calls (litellm is a runtime dependency of the LiteLLM Docker sidecar, not installed in the worker venv; the `trajectory_verifier` / `logprob_verifier` evaluators call the proxy through the worker's HTTP client, KI-37)
 - NATS Client (`nats-py`) — asyncio-native, message queue to Go Core
 - pydantic ^2.10 — NATS message schemas
 - structlog ^25.0 — JSON logging

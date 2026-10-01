@@ -298,7 +298,7 @@
 - [x] AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing (A2A API keys authenticate the A2A routes since [KI-15](#known-issues))
 
 #### Phase 28 -- R2E-Gym / EntroPO Integration (COMPLETED)
-- [x] Hybrid verification pipeline (filter->rank), trajectory verifier (5-dimension LLM scoring; trajectory and logprob verifiers score 0.0 today, see [KI-37](#known-issues))
+- [x] Hybrid verification pipeline (filter->rank), trajectory verifier (5-dimension LLM scoring; the verifiers use the worker's LiteLLM client since [KI-37](#known-issues) and report unusable verdicts as evaluation errors, never as 0.0)
 - [x] Multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-UCB1)
 - [x] DPO/EntroPO trajectory export (JSONL), SWE-GEN synthetic task generation from Git history
 - [x] (2026-03-16) Evaluation improvements: logprob verifier, categorical trajectory scoring, longest/shortest selection strategies

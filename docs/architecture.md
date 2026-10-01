@@ -1511,14 +1511,14 @@ The benchmark system uses a provider registry pattern (matching the hexagonal ar
 
 - Evaluator plugins: LLMJudge, FunctionalTest, SPARC, FilesystemState (composable pipeline)
 - Go API: multi-compare, cost analysis, leaderboard, WebSocket progress events
-- Export pipelines: DPO training pairs, RLVR dataset (`GET /api/v1/benchmarks/runs/{id}/export/rlvr`)
+- Export pipelines: DPO training pairs, RLVR dataset (`GET /api/v1/benchmarks/runs/{id}/export/rlvr`); results with evaluation errors and no valid score are left out of both exports, a partial result uses its valid dimensions
 
 #### Hybrid Verification and Test-Time Scaling (Phase 28)
 
 Based on R2E-Gym (COLM 2025) and EntroPO (arXiv 2509.12434):
 
 - **Hybrid Verification Pipeline** (`workers/codeforge/evaluation/hybrid_pipeline.py`): Two-stage filter-then-rank evaluation. Execution-based filtering first (binary pass/fail), then LLM ranking of survivors only. Eliminates wasted tokens on broken outputs.
-- **Trajectory Verifier** (`workers/codeforge/evaluation/evaluators/trajectory_verifier.py`): 5-dimension LLM trajectory evaluation (solution_quality, approach_efficiency, code_quality, error_recovery, completeness). It currently always scores 0.0 because it imports `litellm`, which is not a worker dependency (also affects `logprob_verifier` and the hybrid pipeline's rank stage); see [Known Issues](todo.md#known-issues) KI-37.
+- **Trajectory Verifier** (`workers/codeforge/evaluation/evaluators/trajectory_verifier.py`): 5-dimension LLM trajectory evaluation (solution_quality, approach_efficiency, code_quality, error_recovery, completeness). It calls the model through the worker's LiteLLM HTTP client (`VerifierClient`: the worker's client is used as is, otherwise one client is created and closed by `aclose()`) with the resolved model (KI-37). A verdict it cannot use is an evaluation error per dimension, never a 0.0 score: a failed or partial verifier answer sets `EvalDimension.error`, the `logprob_verifier` reads a leading yes/no and treats an empty answer as an error, and the pipeline records an evaluator that raised as `<name>_error`. Errors travel apart from scores (`evaluation_errors` on the benchmark result, migration 110); averages skip the `*_error` keys, and a rollout with an error in the filter or rank stage ranks below fully evaluated ones, also for early stopping.
 - **Multi-Rollout Scaling** (`workers/codeforge/evaluation/runners/multi_rollout.py`): N sequential rollouts with early stopping and best-of-N selection (strategies: `best` via hybrid verification, `majority`, `longest`, `shortest`).
 - **Diversity-Aware MAB** (`workers/codeforge/routing/mab.py`): Entropy-enhanced UCB1 (`entropy_ucb1 = avg_reward + c * sqrt(ln(N)/n_i) + lambda * (-log(p_i))`) prevents diversity collapse during test-time scaling. The entropy-UCB1 logic lives in the `MABModelSelector` class.
 - **DPO Export** (`workers/codeforge/evaluation/export/trajectory_exporter.py`): Trajectory pairs (chosen/rejected) exported as JSONL for preference optimization training.

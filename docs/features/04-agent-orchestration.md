@@ -557,7 +557,7 @@ Extends Phase 20 benchmarks with hybrid verification, multi-rollout scaling, syn
 |-----------|------|---------|
 | **MultiRolloutRunner** | `workers/codeforge/evaluation/runners/multi_rollout.py` | Multi-rollout evaluation runner (sequential, early stopping) |
 | **HybridEvaluationPipeline** | `workers/codeforge/evaluation/hybrid_pipeline.py` | Two-stage hybrid verification: execution-based filter, then LLM rank |
-| **TrajectoryVerifier** | `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` | LLM trajectory rank stage of the hybrid pipeline (currently always scores 0.0, see [Known Issues](../todo.md#known-issues) KI-37) |
+| **TrajectoryVerifier** | `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` | LLM trajectory rank stage of the hybrid pipeline (uses the worker's LiteLLM client; an unusable verdict is an evaluation error per dimension, never a 0.0 score) |
 | **SWE-GEN** | `workers/codeforge/evaluation/generators/swegen.py` | Synthetic task generator for SWE-bench style evaluation |
 | **DPO Trajectory Exporter** | `workers/codeforge/evaluation/export/trajectory_exporter.py` | Export trajectories in DPO format for training |
 
@@ -566,7 +566,8 @@ Extends Phase 20 benchmarks with hybrid verification, multi-rollout scaling, syn
 - **Multi-rollout scaling**: Run N rollouts sequentially (with early stopping) via `MultiRolloutRunner`, score diversity, and select the best by hybrid verification, majority, longest or shortest strategy
 - **Hybrid verification**: `HybridEvaluationPipeline` filters with execution-based evaluators (e.g. functional tests), then ranks survivors with LLM-based evaluators (`TrajectoryVerifierEvaluator` among them) for robust pass/fail decisions
 - **Synthetic tasks**: `SWE-GEN` generates SWE-bench style tasks from real repositories for custom evaluation datasets
-- **DPO export**: `DPO Trajectory Exporter` converts successful/failed trajectory pairs into DPO training format for model fine-tuning
+- **DPO export**: `DPO Trajectory Exporter` converts successful/failed trajectory pairs into DPO training format for model fine-tuning; results with evaluation errors and no valid score are left out of the DPO and RLVR exports
+- **Evaluation errors**: a dimension an evaluator could not score is reported in `evaluation_errors` (benchmark results API and UI) and is not a score: averages skip it and a rollout with such an error ranks below fully evaluated ones
 
 ### Phase 21: Intelligent Agent Orchestration (2026-02-26)
 

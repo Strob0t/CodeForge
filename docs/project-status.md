@@ -144,7 +144,7 @@ Full A2A v0.3.0 implementation via a2a-go SDK. CodeForge as both A2A server (inb
 
 ### Phase 28: R2E-Gym / EntroPO Integration (COMPLETED)
 
-Hybrid verification pipeline (filter->rank), trajectory verifier evaluator (5-dimension LLM scoring), multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-enhanced UCB1), DPO/EntroPO trajectory export (JSONL chosen/rejected pairs), SWE-GEN synthetic task generation from Git history. Cross-layer bug fixes for DB fields, NATS wiring, and cost population. - **Known issue:** KI-37 (trajectory verifier always scores 0.0)
+Hybrid verification pipeline (filter->rank), trajectory verifier evaluator (5-dimension LLM scoring), multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-enhanced UCB1), DPO/EntroPO trajectory export (JSONL chosen/rejected pairs), SWE-GEN synthetic task generation from Git history. Cross-layer bug fixes for DB fields, NATS wiring, and cost population. Evaluation errors never score 0.0: they travel as `evaluation_errors` and ranking and training exports skip them (KI-37, S6-G).
 
 ### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
 
