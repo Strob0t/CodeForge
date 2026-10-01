@@ -1457,6 +1457,7 @@ const en = {
   "benchmark.startRun": "Start Run",
   "benchmark.taskName": "Task",
   "benchmark.scores": "Scores",
+  "benchmark.evaluationError": "evaluation error",
   "benchmark.cost": "Cost",
   "benchmark.duration": "Duration",
   "benchmark.noResults": "No results recorded for this run.",

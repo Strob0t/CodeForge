@@ -1466,6 +1466,7 @@ const de: Translations = {
   "benchmark.startRun": "Lauf starten",
   "benchmark.taskName": "Aufgabe",
   "benchmark.scores": "Bewertungen",
+  "benchmark.evaluationError": "Bewertungsfehler",
   "benchmark.cost": "Kosten",
   "benchmark.duration": "Dauer",
   "benchmark.noResults": "Keine Ergebnisse fuer diesen Lauf vorhanden.",

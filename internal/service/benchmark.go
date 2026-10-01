@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -273,6 +274,7 @@ func (s *BenchmarkService) HandleBenchmarkRunResult(ctx context.Context, _ strin
 			TokensOut:            tr.TokensOut,
 			DurationMs:           tr.DurationMs,
 			EvaluatorScores:      evalScoresJSON,
+			EvaluationErrors:     tr.EvaluationErrors,
 			FilesChanged:         tr.FilesChanged,
 			FunctionalTestOutput: tr.FunctionalTestOutput,
 			RolloutID:            tr.RolloutID,
@@ -656,16 +658,29 @@ func ComputeRLVRReward(scores map[string]float64) float64 {
 	return avg
 }
 
-// avgFromMap computes the average of a float64 map's values.
+// isEvaluatorErrorKey reports whether a score key is an evaluator's error
+// marker (`<evaluator>_error`): the worker reports evaluation errors apart
+// from the scores, and an older one sent the marker as a 0.0 score.
+func isEvaluatorErrorKey(key string) bool {
+	return strings.HasSuffix(key, "_error")
+}
+
+// avgFromMap computes the average of the scores, leaving out evaluator error
+// markers.
 func avgFromMap(m map[string]float64) float64 {
-	if len(m) == 0 {
+	var total float64
+	var n int
+	for k, v := range m {
+		if isEvaluatorErrorKey(k) {
+			continue
+		}
+		total += v
+		n++
+	}
+	if n == 0 {
 		return 0
 	}
-	var total float64
-	for _, v := range m {
-		total += v
-	}
-	return total / float64(len(m))
+	return total / float64(n)
 }
 
 // avgScoreFromJSON extracts the average score from a JSON scores map.
@@ -677,12 +692,5 @@ func avgScoreFromJSON(raw json.RawMessage) float64 {
 	if err := json.Unmarshal(raw, &scores); err != nil {
 		return 0
 	}
-	if len(scores) == 0 {
-		return 0
-	}
-	var total float64
-	for _, v := range scores {
-		total += v
-	}
-	return total / float64(len(scores))
+	return avgFromMap(scores)
 }

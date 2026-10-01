@@ -31,6 +31,9 @@
           "relevance": 0.9
         }
       },
+      "evaluation_errors": {
+        "trajectory_verifier_error": "verifier unavailable"
+      },
       "files_changed": [
         "/src/lru.py",
         "/tests/test_lru.py"

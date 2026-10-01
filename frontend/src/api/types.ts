@@ -1408,6 +1408,8 @@ export interface BenchmarkResult {
   tokens_out: number;
   duration_ms: number;
   evaluator_scores?: Record<string, Record<string, number>>;
+  /** Dimensions an evaluator could not score (dimension -> error); never in scores. */
+  evaluation_errors?: Record<string, string>;
   files_changed?: string[];
   functional_test_output?: string;
   rollout_id?: number;

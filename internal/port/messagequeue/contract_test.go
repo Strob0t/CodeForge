@@ -111,6 +111,8 @@ func sampleBenchmarkTaskResult() mq.BenchmarkTaskResult {
 			"llm_judge":       {"relevance": 0.9, "accuracy": 0.85},
 			"functional_test": {"pass_rate": 0.96},
 		},
+		// S6-G review, item 3: errored dimensions travel apart from the scores.
+		EvaluationErrors:     map[string]string{"trajectory_verifier_error": "verifier unavailable"},
 		FilesChanged:         []string{"/src/lru.py", "/tests/test_lru.py"},
 		FunctionalTestOutput: "25/25 tests passed",
 		RolloutID:            1,

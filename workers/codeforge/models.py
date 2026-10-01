@@ -645,6 +645,9 @@ class BenchmarkTaskResult(BaseModel):
     tokens_out: int = 0
     duration_ms: int = 0
     evaluator_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
+    # Dimensions an evaluator could not score (dimension name -> error); they
+    # are never in scores or evaluator_scores, so no average counts them.
+    evaluation_errors: dict[str, str] = Field(default_factory=dict)
     files_changed: list[str] = Field(default_factory=list)
     functional_test_output: str = ""
     rollout_id: int = 0
