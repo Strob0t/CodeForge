@@ -120,10 +120,17 @@ const retentionYear = 365 * 24 * time.Hour
 // retentionCutoff is the time before which data of the given maximum age has
 // expired. A period of whole 365-day years counts calendar years - the same
 // date that many years back - so the data is kept exactly that long, leap
-// days included; any other period is subtracted as a duration.
+// days included; any other period is subtracted as a duration. On 29
+// February the date may not exist that many years back: AddDate would
+// normalise it to 1 March and purge a day early, so the cutoff is 28 February
+// of that year instead (kept a day longer, never shorter).
 func retentionCutoff(now time.Time, maxAge time.Duration) time.Time {
 	if maxAge%retentionYear == 0 {
-		return now.AddDate(-int(maxAge/retentionYear), 0, 0)
+		cutoff := now.AddDate(-int(maxAge/retentionYear), 0, 0)
+		if cutoff.Day() != now.Day() { // 29 February normalised into March
+			cutoff = cutoff.AddDate(0, 0, -cutoff.Day())
+		}
+		return cutoff
 	}
 	return now.Add(-maxAge)
 }

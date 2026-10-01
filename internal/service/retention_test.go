@@ -235,14 +235,39 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 
 // A period of whole 365-day years (8760h, 61320h) keeps data for that many
 // calendar years on every day, leap days included, and not a day longer; any
-// other period is a plain duration.
+// other period is a plain duration. On 29 February the same date that many
+// years back may not exist: the cutoff is 28 February then, never 1 March
+// (which would purge data a day early, S6-F 11).
 func TestRetentionCutoff(t *testing.T) {
 	const day = 24 * time.Hour
 	for d := time.Date(2024, 1, 1, 6, 0, 0, 0, time.UTC); d.Year() < 2032; d = d.AddDate(0, 0, 1) {
 		for years := 1; years <= 7; years += 6 {
-			if got, want := retentionCutoff(d, time.Duration(years)*365*day), d.AddDate(-years, 0, 0); !got.Equal(want) {
+			want := time.Date(d.Year()-years, d.Month(), d.Day(), 6, 0, 0, 0, time.UTC)
+			if want.Month() != d.Month() { // 29 February in a common year
+				want = time.Date(d.Year()-years, time.February, 28, 6, 0, 0, 0, time.UTC)
+			}
+			if got := retentionCutoff(d, time.Duration(years)*365*day); !got.Equal(want) {
 				t.Fatalf("%d year(s) on %s: cutoff %s, want %s", years, d.Format(time.DateOnly), got, want)
 			}
+		}
+	}
+	leapDay := []struct {
+		now   time.Time
+		years int
+		want  time.Time
+	}{
+		{time.Date(2024, 2, 29, 6, 0, 0, 0, time.UTC), 1, time.Date(2023, 2, 28, 6, 0, 0, 0, time.UTC)}, // common target year: clamped
+		{time.Date(2024, 2, 29, 6, 0, 0, 0, time.UTC), 7, time.Date(2017, 2, 28, 6, 0, 0, 0, time.UTC)}, // common target year: clamped
+		{time.Date(2028, 2, 29, 6, 0, 0, 0, time.UTC), 4, time.Date(2024, 2, 29, 6, 0, 0, 0, time.UTC)}, // leap target year: same date
+		{time.Date(2025, 3, 1, 0, 30, 0, 0, time.UTC), 1, time.Date(2024, 3, 1, 0, 30, 0, 0, time.UTC)}, // the day after: unchanged
+	}
+	for _, tt := range leapDay {
+		got := retentionCutoff(tt.now, time.Duration(tt.years)*365*day)
+		if !got.Equal(tt.want) {
+			t.Errorf("%d year(s) on %s: cutoff %s, want %s", tt.years, tt.now, got, tt.want)
+		}
+		if kept := tt.now.Sub(got); kept < time.Duration(tt.years)*365*day {
+			t.Errorf("%d year(s) on %s: keeps %v, less than the configured period", tt.years, tt.now, kept)
 		}
 	}
 	now := time.Date(2024, 3, 1, 6, 0, 0, 0, time.UTC)
