@@ -28,4 +28,7 @@ type RetentionPurger interface {
 	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	// DeleteExpiredOAuthStates deletes the OAuth states of abandoned flows
+	// (past their own expiry; a system step of every sweep).
+	DeleteExpiredOAuthStates(ctx context.Context) (int64, error)
 }

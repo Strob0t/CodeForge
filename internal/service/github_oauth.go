@@ -58,9 +58,7 @@ func (s *GitHubOAuthService) AuthorizeURL(ctx context.Context) (authURL, state s
 		return "", "", fmt.Errorf("generate oauth state: %w", err)
 	}
 
-	// States of abandoned flows are only removed here.
-	_, delErr := s.db.DeleteExpiredOAuthStates(ctx)
-	logBestEffort(ctx, delErr, "delete expired oauth states")
+	// Expired states of abandoned flows are deleted by the retention job.
 	if err := s.db.CreateOAuthState(ctx, st); err != nil {
 		return "", "", fmt.Errorf("store oauth state: %w", err)
 	}
@@ -111,7 +109,7 @@ func (s *GitHubOAuthService) HandleCallback(ctx context.Context, code, statePara
 	if err != nil {
 		return nil, fmt.Errorf("invalid or expired oauth state: %w", err)
 	}
-	if oauthState == nil || oauthState.Provider != githubProvider || oauthState.TenantID == "" {
+	if oauthState == nil || oauthState.IsExpired() || oauthState.Provider != githubProvider || oauthState.TenantID == "" {
 		return nil, fmt.Errorf("invalid or expired oauth state: %w", domain.ErrNotFound)
 	}
 	ctx = tenantctx.WithTenant(ctx, oauthState.TenantID)

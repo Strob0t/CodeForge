@@ -45,6 +45,38 @@ type fakeRetentionStore struct {
 	onCall   func(ctx context.Context, category string) error
 	lockHeld bool  // another replica holds the retention lock
 	lockErr  error // taking the retention lock fails
+	// oauthDeletes counts DeleteExpiredOAuthStates calls (a system step).
+	oauthDeletes int
+}
+
+func (f *fakeRetentionStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.oauthDeletes++
+	return 0, f.errs["oauth_states"]
+}
+
+// S3-F review C8: expired OAuth states are deleted by the retention job as
+// a system step - every sweep, whatever the retention periods - not on the
+// request path; a failure does not stop the other categories.
+func TestRetention_DeletesExpiredOAuthStatesEverySweep(t *testing.T) {
+	store := &fakeRetentionStore{errs: map[string]error{"oauth_states": errors.New("db down")}}
+	newTestRetentionService(store, config.Retention{Interval: time.Hour}, time.Now()).RunCleanup(context.Background())
+	if store.oauthDeletes != 1 {
+		t.Fatalf("expired OAuth state deletions = %d, want 1 (periods are 0)", store.oauthDeletes)
+	}
+
+	store = &fakeRetentionStore{errs: map[string]error{"oauth_states": errors.New("db down")}}
+	newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
+	if store.oauthDeletes != 1 || len(store.calls) != len(retentionCategories) {
+		t.Fatalf("deletions %d, category calls %d; want 1 and every category", store.oauthDeletes, len(store.calls))
+	}
+
+	held := &fakeRetentionStore{lockHeld: true}
+	newTestRetentionService(held, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
+	if held.oauthDeletes != 0 {
+		t.Fatal("expired OAuth states deleted without the retention lock")
+	}
 }
 
 // Only one replica sweeps at a time: without the retention lock (held by

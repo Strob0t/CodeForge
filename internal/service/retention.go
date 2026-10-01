@@ -94,6 +94,23 @@ func (s *RetentionService) sweep(ctx context.Context, purge database.RetentionPu
 			slog.Error("retention: purge failed", "category", c.name, "error", err)
 		}
 	}
+	s.systemSteps(ctx)
+}
+
+// systemSteps remove data that has its own expiry, whatever the retention
+// periods: the OAuth states of abandoned flows (S3-F review C8; no longer
+// on the request path).
+func (s *RetentionService) systemSteps(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	n, err := s.store.DeleteExpiredOAuthStates(ctx)
+	if n > 0 {
+		slog.Info("retention: purged expired data", "category", "oauth_states", "action", "deleted", "rows", n)
+	}
+	if err != nil && ctx.Err() == nil {
+		slog.Error("retention: purge failed", "category", "oauth_states", "error", err)
+	}
 }
 
 // retentionYear is the 365-day year in which the configuration states

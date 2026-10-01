@@ -24,6 +24,10 @@ type oauthMockStore struct {
 	states         map[string]*vcsaccount.OAuthState
 	accounts       []*vcsaccount.VCSAccount
 	accountTenants []string
+	expiredDeletes int
+	// keepExpired makes ConsumeOAuthState return expired states too (a
+	// store that does not filter): the service must refuse them itself.
+	keepExpired bool
 }
 
 func newOAuthMockStore() *oauthMockStore {
@@ -49,7 +53,7 @@ func (m *oauthMockStore) ConsumeOAuthState(_ context.Context, stateToken string)
 		return nil, domain.ErrNotFound
 	}
 	delete(m.states, stateToken)
-	if time.Now().After(st.ExpiresAt) {
+	if !m.keepExpired && time.Now().After(st.ExpiresAt) {
 		return nil, domain.ErrNotFound
 	}
 	return st, nil
@@ -61,7 +65,36 @@ func (m *oauthMockStore) DeleteOAuthState(_ context.Context, stateToken string) 
 }
 
 func (m *oauthMockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) {
+	m.expiredDeletes++
 	return 0, nil
+}
+
+// S3-F review C8: expired states are deleted by the retention job, not on
+// the request path; the callback refuses an expired state itself.
+func TestGitHubOAuth_ExpiredStatesRefusedAndNotSweptPerRequest(t *testing.T) {
+	store := newOAuthMockStore()
+	store.keepExpired = true
+	svc := service.NewGitHubOAuthService(service.GitHubOAuthConfig{ClientID: "id", ClientSecret: "s"}, store, []byte("0123456789abcdef0123456789abcdef"))
+
+	if _, _, err := svc.AuthorizeURL(tenantctx.WithTenant(context.Background(), "tenant-a")); err != nil {
+		t.Fatal(err)
+	}
+	if store.expiredDeletes != 0 {
+		t.Fatalf("AuthorizeURL deleted expired states (%d calls); the retention job does that", store.expiredDeletes)
+	}
+
+	state, err := vcsaccount.NewOAuthState("github", "tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.ExpiresAt = time.Now().Add(-time.Minute)
+	store.states[state.State] = state
+	if _, err := svc.HandleCallback(context.Background(), "code", state.State); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("callback with an expired state = %v, want ErrNotFound", err)
+	}
+	if len(store.accounts) != 0 {
+		t.Fatal("an account was created")
+	}
 }
 
 func (m *oauthMockStore) CreateVCSAccount(ctx context.Context, a *vcsaccount.VCSAccount) (*vcsaccount.VCSAccount, error) {

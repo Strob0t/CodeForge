@@ -53,6 +53,12 @@ func (s *Store) DeleteOAuthState(ctx context.Context, stateToken string) error {
 	return nil
 }
 
+// DeleteExpiredOAuthStates deletes the states of abandoned OAuth flows. The
+// retention job runs it as a system step.
+//
+// INTENTIONALLY CROSS-TENANT: a system job without a tenant; it deletes
+// only rows past their own expiry, which ConsumeOAuthState refuses anyway
+// (each row is keyed by its secret state, no tenant data is read).
 func (s *Store) DeleteExpiredOAuthStates(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM oauth_states WHERE expires_at <= now()`,
