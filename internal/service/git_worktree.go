@@ -77,16 +77,21 @@ func (i *privateIndex) renormalizeIfFiltered(ctx context.Context, repo *git.Repo
 	}
 }
 
-// addWorktree updates the index to the working tree.
+// addWorktree updates the index to the working tree. `add -A` comes first:
+// it drops the entries of tracked files missing from the working tree,
+// which `add --renormalize` cannot stat (S3-F review C1); renormalizing
+// then re-reads the tracked files that exist (it adds no untracked ones).
 func (i *privateIndex) addWorktree(ctx context.Context, repo *git.Repo) error {
+	if _, err := repo.Run(ctx, i.env, "add", "-A"); err != nil {
+		return err
+	}
 	if i.renormalize {
 		if _, err := repo.Run(ctx, i.env, "add", "--renormalize", "--", "."); err != nil {
 			return err
 		}
 		i.renormalize = false
 	}
-	_, err := repo.Run(ctx, i.env, "add", "-A")
-	return err
+	return nil
 }
 
 // hasFilterAttributes reports whether an attributes file of the repository
