@@ -62,6 +62,19 @@ HANDOFF_TOOL_DEF = {
 }
 
 
+def _string_metadata(raw: object) -> dict[str, str] | None:
+    """The handoff metadata with string values, or None if it is no object.
+
+    The Go Core reads metadata as a map of strings; the LLM supplies a
+    free-form object, so a non-string value is sent JSON-encoded (S2-G fix, 4).
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        return None
+    return {str(key): value if isinstance(value, str) else json.dumps(value) for key, value in raw.items()}
+
+
 async def execute_handoff(
     run_id: str,
     arguments: dict[str, Any],
@@ -87,10 +100,12 @@ async def execute_handoff(
     artifacts: list[str] = arguments.get("artifacts", [])
     plan_id = arguments.get("plan_id", "")
     step_id = arguments.get("step_id", "")
-    metadata: dict[str, str] = dict(arguments.get("metadata", {}))
+    metadata = _string_metadata(arguments.get("metadata"))
 
     if not target or not context_msg:
         return "Error: target_agent_id and context are required"
+    if metadata is None:
+        return "Error: metadata must be an object of key-value pairs"
     if not workspace_path.strip():
         # The handoff run would fail without a workspace; refuse it here.
         return "Error: handoff not possible: this run has no workspace to hand over"
@@ -100,12 +115,12 @@ async def execute_handoff(
         metadata["handoff_chain_id"] = str(uuid.uuid4())
         metadata["handoff_hop"] = "0"
     else:
-        hop = int(metadata.get("handoff_hop", "0")) + 1
+        try:
+            hop = int(metadata.get("handoff_hop", "0")) + 1
+        except ValueError:
+            return "Error: metadata.handoff_hop must be a whole number"
         if hop > MAX_HANDOFF_HOPS:
-            return (
-                f"Error: handoff chain exceeded maximum of {MAX_HANDOFF_HOPS} hops"
-                " (possible cycle)"
-            )
+            return f"Error: handoff chain exceeded maximum of {MAX_HANDOFF_HOPS} hops (possible cycle)"
         metadata["handoff_hop"] = str(hop)
 
     payload = {

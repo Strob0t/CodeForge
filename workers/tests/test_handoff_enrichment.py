@@ -280,3 +280,67 @@ async def test_registered_handoff_tool_sends_the_run_workspace_and_approval_time
     payload = json.loads(js.publish.call_args.args[1])
     assert payload["workspace_path"] == "/data/workspaces/p"
     assert payload["approval_timeout_seconds"] == 90
+
+
+async def test_handoff_metadata_values_are_strings() -> None:
+    """S2-G fix, 4: the Go Core reads metadata as string values (map[string]string).
+
+    The LLM supplies a free-form object; a nested or numeric value made the
+    request fail to decode in Go and dead-lettered it silently. The worker
+    sends every value as a string, JSON-encoding the others.
+    """
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    result = await execute_handoff(
+        run_id="run-1",
+        arguments={
+            "target_agent_id": "agent-2",
+            "context": "Review this code",
+            "metadata": {
+                "priority": "high",
+                "attempts": 3,
+                "score": 0.5,
+                "urgent": True,
+                "none": None,
+                "files": ["a.go", "b.go"],
+                "nested": {"depth": 2, "tags": ["x"]},
+                "handoff_chain_id": "chain-1",
+                "handoff_hop": 1,
+            },
+        },
+        nats_publish=fake_publish,
+        workspace_path="/ws",
+    )
+
+    assert "initiated" in result
+    meta = json.loads(published[0][1])["metadata"]
+    assert all(isinstance(value, str) for value in meta.values()), meta
+    assert meta["priority"] == "high"
+    assert meta["attempts"] == "3"
+    assert meta["score"] == "0.5"
+    assert meta["urgent"] == "true"
+    assert meta["none"] == "null"
+    assert json.loads(meta["files"]) == ["a.go", "b.go"]
+    assert json.loads(meta["nested"]) == {"depth": 2, "tags": ["x"]}
+    assert meta["handoff_hop"] == "2", "a numeric hop counts on"
+
+
+@pytest.mark.parametrize("metadata", ["not an object", ["a"], {"handoff_chain_id": "c", "handoff_hop": "many"}])
+async def test_handoff_with_invalid_metadata_is_refused(metadata: object) -> None:
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    result = await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review", "metadata": metadata},
+        nats_publish=fake_publish,
+        workspace_path="/ws",
+    )
+
+    assert result.startswith("Error:")
+    assert published == []
