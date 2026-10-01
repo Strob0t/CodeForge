@@ -1286,6 +1286,12 @@ export interface CreateMCPServerRequest {
   enabled: boolean;
 }
 
+/** An MCP server to test: a new one, or a saved one being edited (with its id,
+ * whose stored env and header values stand in for "***"). */
+export interface TestMCPServerRequest extends CreateMCPServerRequest {
+  id?: string;
+}
+
 /** Result of an MCP server connection test */
 export interface MCPTestResult {
   success: boolean;

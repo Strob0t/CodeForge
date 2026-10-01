@@ -1279,6 +1279,8 @@ const de: Translations = {
   "mcp.testFailedTitle": "Verbindungstest fehlgeschlagen",
   "mcp.testFailedMessage": "Verbindungstest fehlgeschlagen: {{error}}. Trotzdem speichern?",
   "mcp.testFailedSaveAnyway": "Trotzdem speichern",
+  "mcp.stdioNoTest":
+    "stdio-Server laufen im Worker als Tool-Benutzer und koennen hier nicht getestet werden; sie starten mit dem ersten Lauf, der sie nutzt.",
   "mcp.toast.createdWithTools": "MCP-Server erstellt — {{count}} Tools entdeckt",
   "mcp.testAria": "Verbindung fuer {{name}} testen",
   "mcp.editAria": "Server {{name}} bearbeiten",

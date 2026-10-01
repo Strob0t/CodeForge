@@ -44,6 +44,7 @@ import type {
   StartRunRequest,
   SubAgentSearchRequest,
   SubAgentSearchResult,
+  TestMCPServerRequest,
   TrajectoryPage,
   UpdateGoalRequest,
 } from "../types";
@@ -261,7 +262,7 @@ export function createMCPResource(c: CoreClient) {
       c.put<MCPServer>(url`/mcp/servers/${id}`, data),
     deleteServer: (id: string) => c.del<undefined>(url`/mcp/servers/${id}`),
     testServer: (id: string) => c.post<MCPTestResult>(url`/mcp/servers/${id}/test`),
-    testConnection: (data: CreateMCPServerRequest) =>
+    testConnection: (data: TestMCPServerRequest) =>
       c.post<MCPTestResult>("/mcp/servers/test", data),
     listTools: (id: string) => c.get<MCPServerTool[]>(url`/mcp/servers/${id}/tools`),
     listProjectServers: (projectId: string) =>

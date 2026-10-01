@@ -1272,6 +1272,8 @@ const en = {
   "mcp.testFailedTitle": "Connection Test Failed",
   "mcp.testFailedMessage": "Connection test failed: {{error}}. Save anyway?",
   "mcp.testFailedSaveAnyway": "Save Anyway",
+  "mcp.stdioNoTest":
+    "stdio servers run in the worker as the tool user and cannot be tested here; they start with the first run that uses them.",
   "mcp.toast.createdWithTools": "MCP server created — {{count}} tools discovered",
   "mcp.testAria": "Test connection for {{name}}",
   "mcp.editAria": "Edit server {{name}}",
