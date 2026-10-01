@@ -622,6 +622,15 @@ func (s *OrchestratorService) replanStalledLocked(ctx context.Context, step *pla
 		return false
 	}
 
+	// A ping_pong step (a debate's) runs again for the same round: undo the
+	// count of the round that stalled, so advancePingPong picks the same step
+	// and counts the round again when it starts it (S6-F 3).
+	if p.Protocol == plan.ProtocolPingPong && step.Round > 0 {
+		if err := s.store.UpdatePlanStepRound(ctx, step.ID, step.Round-1); err != nil {
+			slog.Error("re-plan stalled step: undo its round", "step_id", step.ID, "error", err)
+			return false
+		}
+	}
 	if err := s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""); err != nil {
 		slog.Error("re-plan stalled step", "step_id", step.ID, "error", err)
 		return false

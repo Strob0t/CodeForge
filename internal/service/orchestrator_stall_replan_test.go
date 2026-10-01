@@ -112,3 +112,39 @@ func TestStallReplan_WorkerStallGetsANewRun(t *testing.T) {
 		t.Fatalf("plan %s, step %s with run %q: want the step running a new run", got.Status, step.Status, step.RunID)
 	}
 }
+
+// S6-F 3: in a ping_pong plan (a debate) the stalled step runs again for the
+// same round; the stall does not count as a round or hand the turn over.
+func TestStallReplan_PingPongRerunsTheSameRound(t *testing.T) {
+	store, orchSvc := newStallReplanSetup(1)
+	ctx := context.Background()
+	p := createPlan(t, orchSvc, plan.ProtocolPingPong, 0, []plan.CreateStepRequest{
+		{TaskID: "t1", AgentID: "a1"}, {TaskID: "t2", AgentID: "a2"},
+	})
+	endStep := func(i int, status run.Status, errMsg string) string {
+		t.Helper()
+		id := planState(t, store, p.ID).Steps[i].RunID
+		if err := store.CompleteRun(ctx, &run.CompletionRequest{ID: id, Status: status, Error: errMsg}); err != nil {
+			t.Fatalf("CompleteRun: %v", err)
+		}
+		orchSvc.HandleRunCompleted(ctx, id, status)
+		return id
+	}
+
+	stalled := endStep(0, run.StatusFailed, run.StallDetectedError)
+
+	got := planState(t, store, p.ID)
+	s0, s1 := got.Steps[0], got.Steps[1]
+	if got.Status != plan.StatusRunning || s0.Status != plan.StepStatusRunning || s0.RunID == stalled || s0.Round != 1 {
+		t.Fatalf("plan %s, step 0 %s round %d run %q: want step 0 running round 1 again with a new run", got.Status, s0.Status, s0.Round, s0.RunID)
+	}
+	if s1.Status != plan.StepStatusPending || s1.Round != 0 {
+		t.Fatalf("step 1 %s round %d: want it pending before its first round", s1.Status, s1.Round)
+	}
+
+	// The rounds go on alternating from there.
+	endStep(0, run.StatusCompleted, "")
+	if got := planState(t, store, p.ID); got.Steps[1].Status != plan.StepStatusRunning || got.Steps[1].Round != 1 {
+		t.Fatalf("step 1 %s round %d: want it running round 1", got.Steps[1].Status, got.Steps[1].Round)
+	}
+}
