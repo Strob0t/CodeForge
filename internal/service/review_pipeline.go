@@ -318,7 +318,7 @@ func firstStepError(p *plan.ExecutionPlan) string {
 }
 
 // GateStep is the orchestrator's step gate (OrchestratorService.SetStepGate):
-// it runs, under the plan scheduling lock, when a step's run completed. The
+// it runs, without the plan scheduling lock, when a step's run completed. The
 // boundary analyzer's result is stored as the project's boundaries; a review
 // pipeline's refactoring is scored and, if its impact is high (or cannot be
 // measured), the step waits for approval.

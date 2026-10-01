@@ -196,7 +196,7 @@ func (s *OrchestratorService) decideReview(ctx context.Context, planID, projectI
 // of its steps are forgotten.
 func (s *OrchestratorService) applyReviewDecision(ctx context.Context, planID string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.unlock()
 	p, err := s.store.GetPlan(ctx, planID)
 	if err != nil {
 		return err
@@ -342,9 +342,9 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 
 // handleDebateComplete is called when a debate sub-plan finishes.
 // It extracts the moderator's synthesis, injects it into shared context,
-// and dispatches the original step's run. It runs as a plan completion
-// callback, which completePlan and failPlan call while the plan is advanced
-// under s.mu: the parent plan is advanced without taking the lock again.
+// and dispatches the original step's run. planEnded calls it under s.mu,
+// while the plan is advanced: the parent plan is advanced without taking the
+// lock again.
 func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePlanID, status string) {
 	s.debateMu.Lock()
 	ds, ok := s.debateSteps[debatePlanID]
@@ -429,8 +429,7 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 	s.advancePlanLocked(ctx, parentPlan)
 }
 
-// completePlan marks the plan as completed. The caller holds s.mu (the plan
-// completion callbacks run under it).
+// completePlan marks the plan as completed. The caller holds s.mu.
 func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.ExecutionPlan) {
 	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusCompleted); err != nil {
 		logPlanEndFailure(ctx, err, p.ID, plan.StatusCompleted)
@@ -439,14 +438,22 @@ func (s *OrchestratorService) completePlan(ctx context.Context, p *plan.Executio
 	p.Status = plan.StatusCompleted
 	s.appendPlanEvent(ctx, event.TypePlanCompleted, p)
 	s.broadcastPlanStatus(ctx, p)
-	for _, fn := range s.onPlanCompleteCallbacks {
-		fn(ctx, p.ID, string(p.Status))
-	}
+	s.planEnded(ctx, p.ID, p.Status)
 	slog.Info("plan completed", "plan_id", p.ID)
 }
 
+// planEnded runs the end work of a plan that ended under s.mu: the debate
+// handler at once (it advances a debate's parent plan under the same lock),
+// the registered plan-end callbacks after the lock is released (unlock).
+func (s *OrchestratorService) planEnded(ctx context.Context, planID string, status plan.Status) {
+	s.handleDebateComplete(ctx, planID, string(status))
+	for _, fn := range s.onPlanCompleteCallbacks {
+		s.planEnds = append(s.planEnds, func() { fn(ctx, planID, string(status)) })
+	}
+}
+
 // failPlan marks the plan as failed and skips remaining pending steps. The
-// caller holds s.mu (the plan completion callbacks run under it).
+// caller holds s.mu.
 func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPlan) {
 	// The plan first: a plan that already ended keeps its steps.
 	if err := s.store.UpdatePlanStatus(ctx, p.ID, plan.StatusFailed); err != nil {
@@ -462,9 +469,7 @@ func (s *OrchestratorService) failPlan(ctx context.Context, p *plan.ExecutionPla
 	p.Status = plan.StatusFailed
 	s.appendPlanEvent(ctx, event.TypePlanFailed, p)
 	s.broadcastPlanStatus(ctx, p)
-	for _, fn := range s.onPlanCompleteCallbacks {
-		fn(ctx, p.ID, string(p.Status))
-	}
+	s.planEnded(ctx, p.ID, p.Status)
 	slog.Info("plan failed", "plan_id", p.ID)
 }
 
@@ -555,7 +560,7 @@ func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) erro
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.unlock()
 
 	step, err := s.store.GetPlanStepByRunID(ctx, runID)
 	if err != nil {
