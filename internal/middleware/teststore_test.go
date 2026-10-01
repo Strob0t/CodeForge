@@ -914,3 +914,7 @@ func (s *testStore) QueueTask(_ context.Context, _, _, _ string) error { return 
 func (s *testStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
 	return nil
 }
+
+func (s *testStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
+	return nil, nil
+}

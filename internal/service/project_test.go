@@ -1747,3 +1747,7 @@ func (m *mockStore) QueueTask(_ context.Context, id, agentID, dispatchID string)
 	}
 	return domain.ErrNotFound
 }
+
+func (m *mockStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
+	return nil, nil
+}

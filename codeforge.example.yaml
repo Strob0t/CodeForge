@@ -63,6 +63,7 @@ runtime:
   stall_max_retries: 2             # new runs for a plan step whose run stalled (0 = the step fails)
   quality_gate_timeout: "60s"      # per gate command (>= 1s); the worker kills the command's process group when it expires, and a run without gate result after 2x this + 1m fails (checked every stale_check_interval)
   default_deliver_mode: ""         # "": none, "patch", "commit-local", "branch", "pr"
+  task_accept_timeout: "1h"        # a dispatched backend task that no worker accepted within this fails ("0s" = never)
   # Quality gate commands: the project config keys test_command/lint_command,
   # else the defaults of the detected language (go, rust, typescript,
   # javascript, python), else these. A required check without a command fails

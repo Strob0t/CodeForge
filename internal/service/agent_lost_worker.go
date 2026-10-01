@@ -78,6 +78,82 @@ func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter ti
 	return handled, errors.Join(errs...)
 }
 
+// FailTasksNeverAccepted fails the backend tasks whose dispatch no worker
+// accepted within acceptAfter (runtime.task_accept_timeout; 0 disables the
+// check): the dispatch got no heartbeat because its message still waits in
+// NATS (every worker busy) or was lost. The dispatch is failed (announced
+// like a worker's result, which resets its agent to idle) in the task's
+// tenant, and a tasks.cancel is published so a worker that picks the
+// message up later skips it. A task whose dispatch ended meanwhile is
+// skipped. It returns how many tasks it failed.
+func (s *AgentService) FailTasksNeverAccepted(ctx context.Context, acceptAfter time.Duration) (int, error) {
+	if acceptAfter <= 0 {
+		return 0, nil
+	}
+	waiting, err := s.store.ListTasksNeverAccepted(ctx, acceptAfter, staleRunBatch)
+	if err != nil {
+		return 0, fmt.Errorf("list tasks never accepted: %w", err)
+	}
+	reason := fmt.Sprintf("no worker accepted the task within %s (task_accept_timeout)", acceptAfter)
+	handled := 0
+	var errs []error
+	for i := range waiting {
+		t := &waiting[i]
+		taskCtx := withEntityTenant(ctx, t.TenantID)
+		slog.WarnContext(taskCtx, "no worker accepted the task, failing it", "task_id", t.ID, "dispatch_id", t.DispatchID, "after", acceptAfter)
+		if err := s.failTaskDispatch(taskCtx, t, reason); err != nil {
+			if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrNotFound) {
+				slog.InfoContext(taskCtx, "unaccepted task ended or was dispatched again meanwhile, skipped", "task_id", t.ID)
+				continue
+			}
+			errs = append(errs, fmt.Errorf("task %s: %w", t.ID, err))
+			continue
+		}
+		s.tellWorkerToStopTask(taskCtx, t)
+		s.hub.BroadcastEvent(taskCtx, event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
+			TaskID:    t.ID,
+			ProjectID: t.ProjectID,
+			Reason:    reason,
+		})
+		handled++
+	}
+	return handled, errors.Join(errs...)
+}
+
+// deadLetteredTaskError is the error of a task whose dispatch was dead-lettered.
+const deadLetteredTaskError = "the task's dispatch could not be delivered to a worker (dead-lettered)"
+
+// HandleDeadLetteredTaskDispatch fails the task whose dispatch a worker
+// dead-lettered (rejected as invalid, or not accepted within its
+// deliveries), in the dispatch's tenant: no worker runs it and it sends no
+// heartbeat. Only the task's current dispatch of a task still queued or
+// running is failed; a dispatch that cannot be read, or of a task that ended
+// or was dispatched again, is ignored.
+func (s *AgentService) HandleDeadLetteredTaskDispatch(ctx context.Context, data []byte) error {
+	var dispatch messagequeue.TaskAgentPayload
+	if err := json.Unmarshal(data, &dispatch); err != nil || dispatch.TaskID == "" {
+		slog.Warn("dead-lettered task dispatch without a task, ignored", "error", err)
+		return nil
+	}
+	ctx = withPayloadTenant(ctx, dispatch.TenantID)
+	slog.WarnContext(ctx, "task dispatch dead-lettered, failing the task", "task_id", dispatch.TaskID, "dispatch_id", dispatch.DispatchID)
+	t := &task.Task{ID: dispatch.TaskID, ProjectID: dispatch.ProjectID, DispatchID: dispatch.DispatchID}
+	err := s.failTaskDispatch(ctx, t, deadLetteredTaskError)
+	if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrNotFound) {
+		slog.InfoContext(ctx, "dead-lettered dispatch of a task that ended or was dispatched again, ignored", "task_id", dispatch.TaskID)
+		return nil
+	}
+	return err
+}
+
+// StartDeadLetterSubscriber subscribes to the dead-lettered task dispatches
+// of every backend (tasks.agent.*.dlq).
+func (s *AgentService) StartDeadLetterSubscriber(ctx context.Context) (cancel func(), err error) {
+	return s.queue.Subscribe(ctx, messagequeue.SubjectTaskAgent+".*"+deadLetterSuffix, func(msgCtx context.Context, _ string, data []byte) error {
+		return s.HandleDeadLetteredTaskDispatch(msgCtx, data)
+	})
+}
+
 // tellWorkerToStopTask tells the worker executing a task to stop it through
 // the backend of the task's agent, as StopTask does; best effort. A task that
 // names no agent (dispatched before tasks recorded their agent) cannot be

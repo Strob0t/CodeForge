@@ -53,3 +53,24 @@ func TestRuntime_WorkerHeartbeatInterval(t *testing.T) {
 		t.Errorf("configured interval = %s, want 10s", got)
 	}
 }
+
+// TestValidate_TaskAcceptTimeout: runtime.task_accept_timeout (how long a
+// dispatched backend task may wait for a worker) defaults to 1h; 0 turns the
+// check off, a negative value is refused.
+func TestValidate_TaskAcceptTimeout(t *testing.T) {
+	if got := Defaults().Runtime.TaskAcceptTimeout; got != time.Hour {
+		t.Fatalf("default task_accept_timeout = %s, want 1h", got)
+	}
+	for _, tt := range []struct {
+		timeout time.Duration
+		wantErr bool
+	}{{0, false}, {time.Minute, false}, {-time.Second, true}} {
+		cfg := Defaults()
+		cfg.Auth.JWTSecret = strongTestSecret
+		cfg.Runtime.TaskAcceptTimeout = tt.timeout
+		err := validate(&cfg)
+		if tt.wantErr != (err != nil) || (err != nil && !strings.Contains(err.Error(), "runtime.task_accept_timeout")) {
+			t.Fatalf("validate(task_accept_timeout %s) = %v, wantErr %v", tt.timeout, err, tt.wantErr)
+		}
+	}
+}

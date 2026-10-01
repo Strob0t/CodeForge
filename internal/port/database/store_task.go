@@ -40,4 +40,8 @@ type TaskStore interface {
 	// across all tenants (watchdog use), with their dispatch. Dispatches
 	// without a heartbeat (not accepted by a worker yet) are not listed.
 	ListTasksWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]task.Task, error)
+	// ListTasksNeverAccepted returns up to limit queued tasks dispatched more
+	// than olderThan ago whose dispatch has no heartbeat (no worker accepted
+	// it), across all tenants (watchdog use), with their dispatch.
+	ListTasksNeverAccepted(ctx context.Context, olderThan time.Duration, limit int) ([]task.Task, error)
 }

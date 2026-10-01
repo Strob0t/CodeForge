@@ -298,6 +298,11 @@ func run() error {
 		return fmt.Errorf("task heartbeat subscriber: %w", err)
 	}
 
+	cancelTaskDeadLetters, err := agentSvc.StartDeadLetterSubscriber(ctx)
+	if err != nil {
+		return fmt.Errorf("task dead-letter subscriber: %w", err)
+	}
+
 	// --- Secrets Vault ---
 	vault, err := secrets.NewVault(secrets.EnvLoader("LITELLM_MASTER_KEY"))
 	if err != nil {
@@ -1083,6 +1088,9 @@ func run() error {
 		service.StuckWorkCheck{Name: "lost tasks", EndStuck: func(ctx context.Context) (int, error) {
 			return agentSvc.FailTasksWithLostWorker(ctx, service.LostWorkerAfter(&cfg.Runtime))
 		}},
+		service.StuckWorkCheck{Name: "tasks never accepted", EndStuck: func(ctx context.Context) (int, error) {
+			return agentSvc.FailTasksNeverAccepted(ctx, cfg.Runtime.TaskAcceptTimeout)
+		}},
 		service.StuckWorkCheck{Name: "quality gates", EndStuck: runtimeSvc.FailStuckQualityGates},
 		service.StuckWorkCheck{Name: "lost runs", EndStuck: runtimeSvc.EndRunsWithLostWorker},
 		service.StuckWorkCheck{Name: "lost conversation runs", EndStuck: conversationSvc.EndConversationRunsWithLostWorker},
@@ -1121,6 +1129,7 @@ func run() error {
 	cancelOutput()
 	cancelAgentOutput()
 	cancelTaskHeartbeats()
+	cancelTaskDeadLetters()
 	repoMapCancel()
 	convRunCancel()
 	convDeadLetterCancel()

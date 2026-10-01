@@ -155,3 +155,26 @@ func (s *Store) ListTasksWithStaleHeartbeat(ctx context.Context, idleFor time.Du
 		return scanDispatchedTask(r)
 	})
 }
+
+// ListTasksNeverAccepted returns up to limit queued tasks dispatched more
+// than olderThan ago whose current dispatch has no heartbeat, oldest
+// dispatch first, with their dispatch: no worker accepted them (the
+// message waits in NATS, or was lost or dead-lettered unnoticed).
+//
+// INTENTIONALLY CROSS-TENANT: the stuck-work watchdog fails the dispatches
+// of every tenant that no worker accepted. The returned tasks carry their
+// tenant_id, and the caller fails each one in its tenant's context.
+func (s *Store) ListTasksNeverAccepted(ctx context.Context, olderThan time.Duration, limit int) ([]task.Task, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+taskColumnsPrefixed+` FROM tasks t
+		 WHERE t.status = 'queued' AND t.dispatched_at < now() - $1::interval
+		   AND NOT EXISTS (SELECT 1 FROM task_heartbeats h
+		                   WHERE h.task_id = t.id AND h.dispatch_id IS NOT DISTINCT FROM t.dispatch_id)
+		 ORDER BY t.dispatched_at LIMIT $2`, olderThan, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks never accepted: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (task.Task, error) {
+		return scanDispatchedTask(r)
+	})
+}

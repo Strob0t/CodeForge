@@ -204,3 +204,19 @@ func (m *runtimeMockStore) EndTaskDispatch(_ context.Context, id, dispatchID str
 	}
 	return errMockNotFound
 }
+
+// ListTasksNeverAccepted lists the queued tasks whose dispatch has no heartbeat.
+func (m *runtimeMockStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, limit int) ([]task.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var waiting []task.Task
+	for i := range m.tasks {
+		if _, beat := m.taskBeats[m.tasks[i].ID]; !beat && m.tasks[i].Status == task.StatusQueued && m.tasks[i].DispatchID != "" {
+			waiting = append(waiting, m.tasks[i])
+		}
+	}
+	if len(waiting) > limit {
+		waiting = waiting[:limit]
+	}
+	return waiting, nil
+}

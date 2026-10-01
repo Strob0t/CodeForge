@@ -223,6 +223,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
 	setTyped(&cfg.Runtime.HeartbeatInterval, "CODEFORGE_HEARTBEAT_INTERVAL", time.ParseDuration)
 	setTyped(&cfg.Runtime.HeartbeatTimeout, "CODEFORGE_HEARTBEAT_TIMEOUT", time.ParseDuration)
+	setTyped(&cfg.Runtime.TaskAcceptTimeout, "CODEFORGE_TASK_ACCEPT_TIMEOUT", time.ParseDuration)
 	setTyped(&cfg.Runtime.ApprovalTimeoutSeconds, "CODEFORGE_APPROVAL_TIMEOUT_SECONDS", strconv.Atoi)
 
 	// Idempotency
@@ -487,6 +488,9 @@ func validate(cfg *Config) error {
 	}
 	if err := validateHeartbeat(&cfg.Runtime); err != nil {
 		return err
+	}
+	if cfg.Runtime.TaskAcceptTimeout < 0 {
+		return fmt.Errorf("runtime.task_accept_timeout must be 0 (check off) or positive (got %s)", cfg.Runtime.TaskAcceptTimeout)
 	}
 	if err := validateRetention(&cfg.Retention); err != nil {
 		return err

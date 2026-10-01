@@ -25,7 +25,7 @@ const (
 
 func TestHeartbeatQueries_IntentionallyCrossTenant(t *testing.T) {
 	src := readStoreSource(t, "store_heartbeat.go")
-	for _, name := range []string{"ListRunsWithStaleHeartbeat", "ListConversationTurnsWithStaleHeartbeat", "ListTasksWithStaleHeartbeat"} {
+	for _, name := range []string{"ListRunsWithStaleHeartbeat", "ListConversationTurnsWithStaleHeartbeat", "ListTasksWithStaleHeartbeat", "ListTasksNeverAccepted"} {
 		if doc := methodDocComment(t, src, "store_heartbeat.go", name); !strings.Contains(doc, "INTENTIONALLY CROSS-TENANT") {
 			t.Errorf("%s must document why it is intentionally cross-tenant", name)
 		}

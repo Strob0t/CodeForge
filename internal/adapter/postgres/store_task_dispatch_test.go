@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -68,5 +69,83 @@ func TestStore_EndTaskDispatch(t *testing.T) {
 
 	if err := f.store.EndTaskDispatch(f.ctx, uuid.New().String(), dispatch, task.StatusFailed, failed); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("EndTaskDispatch(unknown task) = %v, want ErrNotFound", err)
+	}
+}
+
+// TestStore_ListTasksNeverAccepted: a dispatch that no worker accepted (no
+// heartbeat for it) within the accept timeout is listed, across tenants,
+// with its tenant and dispatch (S2-F review, F5): nothing else ended a task
+// whose message never reached a worker.
+func TestStore_ListTasksNeverAccepted(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	pool := retentionPool(t)
+	dispatched := func(f *statusFixture) (*task.Task, string) {
+		t.Helper()
+		tk, err := f.store.CreateTask(f.ctx, task.CreateRequest{ProjectID: f.project.ID, Title: "accept", Prompt: "p"})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		dispatch := uuid.New().String()
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, dispatch); err != nil {
+			t.Fatalf("QueueTask: %v", err)
+		}
+		return tk, dispatch
+	}
+	age := func(id string) {
+		t.Helper()
+		if _, err := pool.Exec(context.Background(), `UPDATE tasks SET dispatched_at = NOW() - interval '`+ancientBeat+`' WHERE id = $1`, id); err != nil {
+			t.Fatalf("age dispatch: %v", err)
+		}
+	}
+
+	waiting, waitingDispatch := dispatched(a)
+	foreign, foreignDispatch := dispatched(b)
+	accepted, acceptedDispatch := dispatched(a)
+	recent, _ := dispatched(a)
+	ended, _ := dispatched(a)
+	redispatched, oldDispatch := dispatched(a)
+
+	if err := a.store.TouchTaskHeartbeat(a.ctx, accepted.ID, acceptedDispatch); err != nil {
+		t.Fatalf("TouchTaskHeartbeat: %v", err)
+	}
+	if err := a.store.UpdateTaskStatus(a.ctx, ended.ID, task.StatusFailed); err != nil {
+		t.Fatalf("UpdateTaskStatus: %v", err)
+	}
+	// Accepted once, then dispatched again: the new dispatch has no heartbeat.
+	if err := a.store.TouchTaskHeartbeat(a.ctx, redispatched.ID, oldDispatch); err != nil {
+		t.Fatalf("TouchTaskHeartbeat: %v", err)
+	}
+	if err := a.store.UpdateTaskStatus(a.ctx, redispatched.ID, task.StatusFailed); err != nil {
+		t.Fatalf("UpdateTaskStatus: %v", err)
+	}
+	newDispatch := uuid.New().String()
+	if err := a.store.QueueTask(a.ctx, redispatched.ID, a.agent.ID, newDispatch); err != nil {
+		t.Fatalf("QueueTask(again): %v", err)
+	}
+	for _, id := range []string{waiting.ID, foreign.ID, accepted.ID, ended.ID, redispatched.ID} {
+		age(id)
+	}
+
+	tasks, err := a.store.ListTasksNeverAccepted(context.Background(), staleForTest, 1000)
+	if err != nil {
+		t.Fatalf("ListTasksNeverAccepted: %v", err)
+	}
+	got := map[string]task.Task{}
+	for i := range tasks {
+		got[tasks[i].ID] = tasks[i]
+	}
+	for want, dispatch := range map[*task.Task]string{waiting: waitingDispatch, foreign: foreignDispatch, redispatched: newDispatch} {
+		tk, ok := got[want.ID]
+		if !ok {
+			t.Fatalf("never accepted task %s not listed", want.ID)
+		}
+		if tk.TenantID == "" || tk.ProjectID == "" || tk.DispatchID != dispatch {
+			t.Fatalf("listed task = %+v, want its tenant, project and dispatch %s", tk, dispatch)
+		}
+	}
+	for name, tk := range map[string]*task.Task{"accepted": accepted, "recent": recent, "ended": ended} {
+		if _, listed := got[tk.ID]; listed {
+			t.Errorf("%s task %s listed", name, tk.ID)
+		}
 	}
 }
