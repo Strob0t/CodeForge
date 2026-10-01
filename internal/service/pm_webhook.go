@@ -54,12 +54,12 @@ var webhookProviders = map[string]string{
 // is an error - no project for the reference (domain.ErrNotFound), a
 // provider that is not registered or not configured (domain.ErrValidation) -
 // so the sender sees it instead of a silent success (KI-56).
-func (s *PMWebhookService) prepareSync(ctx context.Context, source, projectRef string) (*roadmap.SyncConfig, error) {
+func (s *PMWebhookService) prepareSync(ctx context.Context, source, host, projectRef string) (*roadmap.SyncConfig, error) {
 	provider := webhookProviders[source]
 	if provider == "" {
 		return nil, fmt.Errorf("webhook source %q: %w", source, domain.ErrValidation)
 	}
-	proj, err := s.findProject(ctx, source, projectRef)
+	proj, err := s.findProject(ctx, source, host, projectRef)
 	if err != nil {
 		return nil, err
 	}
@@ -91,22 +91,18 @@ func (s *PMWebhookService) prepareSync(ctx context.Context, source, projectRef s
 	return cfg, nil
 }
 
-// findProject returns the project of the webhook's reference: the
-// repository path (owner/name, GitLab with subgroups) for GitHub and
-// GitLab, the project config key plane_project_id for Plane.
-func (s *PMWebhookService) findProject(ctx context.Context, source, projectRef string) (*project.Project, error) {
+// findProject returns the project of the webhook's reference: for GitHub
+// and GitLab the exact repository (host and full path, GitLab subgroups
+// included) in the webhook's tenant (S3-F review C3), for Plane the project
+// config key plane_project_id.
+func (s *PMWebhookService) findProject(ctx context.Context, source, host, projectRef string) (*project.Project, error) {
 	if source != "plane" {
-		proj, err := s.store.GetProjectByRepoName(ctx, projectRef)
+		proj, err := s.store.FindProjectByRepo(ctx, host, projectRef)
+		if err == nil && proj == nil {
+			err = domain.ErrNotFound
+		}
 		if err != nil {
-			return nil, fmt.Errorf("%s webhook: no project for repository %q: %w", source, projectRef, err)
-		}
-		// The store matches a substring of the repository URL; syncing
-		// acme/app's issues into acme/app-private must not happen.
-		if proj == nil {
-			return nil, fmt.Errorf("%s webhook: no project for repository %q: %w", source, projectRef, domain.ErrNotFound)
-		}
-		if _, path, ok := repoURLParts(proj.RepoURL); !ok || !strings.EqualFold(path, projectRef) {
-			return nil, fmt.Errorf("%s webhook: no project for repository %q (closest: %s): %w", source, projectRef, proj.RepoURL, domain.ErrNotFound)
+			return nil, fmt.Errorf("%s webhook: no project for repository %s/%s: %w", source, host, projectRef, err)
 		}
 		return proj, nil
 	}
@@ -217,10 +213,11 @@ func (s *PMWebhookService) announce(ctx context.Context, ev *event.PMSyncEvent) 
 	}
 }
 
-// accept prepares the sync of a webhook event and starts it.
-func (s *PMWebhookService) accept(ctx context.Context, evt *webhook.PMWebhookEvent) (*webhook.PMWebhookEvent, error) {
+// accept prepares the sync of a webhook event and starts it. host is the
+// repository host the webhook names (GitHub, GitLab).
+func (s *PMWebhookService) accept(ctx context.Context, evt *webhook.PMWebhookEvent, host string) (*webhook.PMWebhookEvent, error) {
 	slog.Info(evt.Provider+" webhook received", "action", evt.Action, "item_id", evt.ItemID, "project_ref", evt.ProjectRef)
-	cfg, err := s.prepareSync(ctx, evt.Provider, evt.ProjectRef)
+	cfg, err := s.prepareSync(ctx, evt.Provider, host, evt.ProjectRef)
 	if err != nil {
 		slog.Warn("webhook: sync not started", "provider", evt.Provider, "ref", evt.ProjectRef, "error", err)
 		return nil, err
@@ -240,6 +237,7 @@ func (s *PMWebhookService) HandleGitHubIssueWebhook(ctx context.Context, data []
 		} `json:"issue"`
 		Repository struct {
 			FullName string `json:"full_name"`
+			HTMLURL  string `json:"html_url"` // GitHub Enterprise: its own host
 		} `json:"repository"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -250,7 +248,16 @@ func (s *PMWebhookService) HandleGitHubIssueWebhook(ctx context.Context, data []
 		Action:     raw.Action,
 		ItemID:     fmt.Sprintf("%d", raw.Issue.Number),
 		ProjectRef: raw.Repository.FullName,
-	})
+	}, webhookHost(raw.Repository.HTMLURL, "github.com"))
+}
+
+// webhookHost returns the host of a repository URL from a webhook payload,
+// or fallback when the payload has none.
+func webhookHost(repoURL, fallback string) string {
+	if u, err := neturl.Parse(repoURL); err == nil && u.Hostname() != "" {
+		return strings.ToLower(u.Hostname())
+	}
+	return fallback
 }
 
 // HandleGitLabIssueWebhook processes a GitLab issue event webhook.
@@ -264,6 +271,7 @@ func (s *PMWebhookService) HandleGitLabIssueWebhook(ctx context.Context, data []
 		} `json:"object_attributes"`
 		Project struct {
 			PathWithNamespace string `json:"path_with_namespace"`
+			WebURL            string `json:"web_url"` // self-hosted GitLab: its own host
 		} `json:"project"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -274,7 +282,7 @@ func (s *PMWebhookService) HandleGitLabIssueWebhook(ctx context.Context, data []
 		Action:     raw.ObjectAttributes.Action,
 		ItemID:     fmt.Sprintf("%d", raw.ObjectAttributes.IID),
 		ProjectRef: raw.Project.PathWithNamespace,
-	})
+	}, webhookHost(raw.Project.WebURL, "gitlab.com"))
 }
 
 // HandlePlaneWebhook processes a Plane.so webhook event.
@@ -303,5 +311,5 @@ func (s *PMWebhookService) HandlePlaneWebhook(ctx context.Context, data []byte) 
 		Action:     action,
 		ItemID:     raw.Data.ID,
 		ProjectRef: fmt.Sprintf("%s/%s", raw.Data.Workspace, raw.Data.Project),
-	})
+	}, "")
 }

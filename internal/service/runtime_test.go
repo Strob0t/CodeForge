@@ -885,6 +885,9 @@ func (m *runtimeMockStore) DeleteOAuthState(_ context.Context, _ string) error  
 func (m *runtimeMockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) { return 0, nil }
 
 // Project repo lookup
+func (m *runtimeMockStore) FindProjectByRepo(_ context.Context, _, _ string) (*project.Project, error) {
+	return nil, nil
+}
 func (m *runtimeMockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
 	return nil, nil
 }

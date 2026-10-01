@@ -14,6 +14,9 @@ type ProjectStore interface {
 	UpdateProject(ctx context.Context, p *project.Project) error
 	DeleteProject(ctx context.Context, id string) error
 	GetProjectByRepoName(ctx context.Context, repoName string) (*project.Project, error)
+	// FindProjectByRepo returns the tenant's oldest project whose repository
+	// URL names repoPath on host exactly (case-insensitive).
+	FindProjectByRepo(ctx context.Context, host, repoPath string) (*project.Project, error)
 	BatchDeleteProjects(ctx context.Context, ids []string) ([]string, error)
 	BatchGetProjects(ctx context.Context, ids []string) ([]project.Project, error)
 }

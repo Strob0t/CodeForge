@@ -62,11 +62,11 @@ func (s *pmWebhookStore) ListProjects(_ context.Context) ([]project.Project, err
 	return s.projects, nil
 }
 
-// GetProjectByRepoName matches like the postgres store: the first project
-// whose repository URL contains the name.
-func (s *pmWebhookStore) GetProjectByRepoName(_ context.Context, name string) (*project.Project, error) {
+// FindProjectByRepo matches host and path exactly, like the postgres store.
+func (s *pmWebhookStore) FindProjectByRepo(_ context.Context, host, repoPath string) (*project.Project, error) {
 	for i := range s.projects {
-		if strings.Contains(s.projects[i].RepoURL, name) {
+		h, p, ok := project.RepoHostPath(s.projects[i].RepoURL)
+		if ok && strings.EqualFold(h, host) && strings.EqualFold(p, repoPath) {
 			return &s.projects[i], nil
 		}
 	}
@@ -75,7 +75,9 @@ func (s *pmWebhookStore) GetProjectByRepoName(_ context.Context, name string) (*
 
 func newPMWebhookEnv(configs map[string]map[string]string) (*PMWebhookService, *recordingSyncer) {
 	store := &pmWebhookStore{projects: []project.Project{
+		{ID: "gh-private", RepoURL: "https://github.com/acme/app-private.git"},
 		{ID: "gh", RepoURL: "https://github.com/acme/app.git"},
+		{ID: "ghe", RepoURL: "https://ghe.example.com/acme/app.git"},
 		{ID: "gl", RepoURL: "https://gitlab.example.com/group/sub/app.git"},
 		{ID: "pl", Config: map[string]string{"plane_workspace": "acme", "plane_project_id": "p-1"}},
 		{ID: "pl-evil", Config: map[string]string{"plane_workspace": "acme", "plane_project_id": "p-2", "plane_base_url": "https://evil.example"}},
@@ -99,7 +101,7 @@ func TestPMWebhook_StartsASyncTheProviderCanRun(t *testing.T) {
 		t.Fatalf("github sync = %+v", got)
 	}
 
-	if _, err := svc.HandleGitLabIssueWebhook(ctx, []byte(`{"object_attributes":{"iid":3,"action":"open"},"project":{"path_with_namespace":"group/sub/app"}}`)); err != nil {
+	if _, err := svc.HandleGitLabIssueWebhook(ctx, []byte(`{"object_attributes":{"iid":3,"action":"open"},"project":{"path_with_namespace":"group/sub/app","web_url":"https://gitlab.example.com/group/sub/app"}}`)); err != nil {
 		t.Fatalf("gitlab webhook: %v", err)
 	}
 	got := syncer.waitCall(t)
@@ -115,6 +117,32 @@ func TestPMWebhook_StartsASyncTheProviderCanRun(t *testing.T) {
 	got = syncer.waitCall(t)
 	if got.Provider != "plane" || got.ProjectID != "pl" || got.ProjectRef != "acme/p-1" || got.ProviderConfig["api_token"] != "plane-token" {
 		t.Fatalf("plane sync = %+v", got)
+	}
+}
+
+// S3-F review C3: the project is the exact repository on the webhook's
+// host - acme/app is found although acme/app-private was created first,
+// and a GitHub Enterprise repository of the same name is another project.
+func TestPMWebhook_FindsTheExactRepositoryOnTheWebhooksHost(t *testing.T) {
+	ctx := context.Background()
+	svc, syncer := newPMWebhookEnv(nil)
+	for _, tc := range []struct{ body, want string }{
+		{`{"action":"opened","issue":{"number":1},"repository":{"full_name":"acme/app"}}`, "gh"},
+		{`{"action":"opened","issue":{"number":1},"repository":{"full_name":"acme/app","html_url":"https://github.com/acme/app"}}`, "gh"},
+		{`{"action":"opened","issue":{"number":1},"repository":{"full_name":"acme/app","html_url":"https://ghe.example.com/acme/app"}}`, "ghe"},
+		{`{"action":"opened","issue":{"number":1},"repository":{"full_name":"ACME/App"}}`, "gh"},
+	} {
+		if _, err := svc.HandleGitHubIssueWebhook(ctx, []byte(tc.body)); err != nil {
+			t.Fatalf("webhook %s: %v", tc.body, err)
+		}
+		if got := syncer.waitCall(t); got.ProjectID != tc.want {
+			t.Fatalf("webhook %s synced project %s, want %s", tc.body, got.ProjectID, tc.want)
+		}
+	}
+	// A GitLab repository on another host is not this project.
+	_, err := svc.HandleGitLabIssueWebhook(ctx, []byte(`{"object_attributes":{"iid":1},"project":{"path_with_namespace":"group/sub/app","web_url":"https://gitlab.other.example/group/sub/app"}}`))
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("gitlab webhook from another host = %v, want ErrNotFound", err)
 	}
 }
 
@@ -162,7 +190,7 @@ func TestPMWebhook_PlaneTokenGoesOnlyToTheOperatorsPlane(t *testing.T) {
 // operator's GitLab host.
 func TestPMWebhook_GitLabTokenOnlyForTheOperatorsHost(t *testing.T) {
 	ctx := context.Background()
-	body := []byte(`{"object_attributes":{"iid":3,"action":"open"},"project":{"path_with_namespace":"group/sub/app"}}`)
+	body := []byte(`{"object_attributes":{"iid":3,"action":"open"},"project":{"path_with_namespace":"group/sub/app","web_url":"https://gitlab.example.com/group/sub/app"}}`)
 	tests := []struct {
 		name      string
 		gitlab    map[string]string

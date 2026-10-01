@@ -482,6 +482,9 @@ func (m *mockStore) DashboardCostTrend(_ context.Context, _ int) ([]cost.DailyCo
 }
 
 // Project repo lookup
+func (m *mockStore) FindProjectByRepo(_ context.Context, _, _ string) (*project.Project, error) {
+	return nil, nil
+}
 func (m *mockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
 	return nil, nil
 }

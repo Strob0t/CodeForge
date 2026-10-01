@@ -195,6 +195,9 @@ func (s *testStore) BatchDeleteProjects(_ context.Context, _ []string) ([]string
 func (s *testStore) BatchGetProjects(_ context.Context, _ []string) ([]project.Project, error) {
 	return nil, nil
 }
+func (s *testStore) FindProjectByRepo(_ context.Context, _, _ string) (*project.Project, error) {
+	return nil, nil
+}
 func (s *testStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
 	return nil, nil
 }
