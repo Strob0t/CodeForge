@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -26,7 +27,44 @@ var (
 	maxNestedWalkDepth   = 64
 )
 
-const gitlinkMode = "160000"
+// unsafeIndexEntry reports why an `ls-files -s` or `ls-tree` entry makes
+// the repository unsafe, or "" if it does not. git treats every mode with
+// the gitlink type bits as a gitlink (S_ISGITLINK: mode & 0170000 ==
+// 0160000) and prints the mode stored in the index as is, so a hand-written
+// index can hold 160755: the mode is parsed, not compared as text. A path
+// with a .git component never belongs in an index (git refuses to add one)
+// and would sit where the walk does not look.
+func unsafeIndexEntry(meta, path string) string {
+	modeField, _, _ := strings.Cut(meta, " ")
+	mode, err := strconv.ParseUint(modeField, 8, 32)
+	if err != nil {
+		return fmt.Sprintf("unreadable entry mode %q at %s", modeField, path)
+	}
+	if mode&0o170000 == 0o160000 {
+		return fmt.Sprintf("nested repository at %s is not supported (KI-77)", path)
+	}
+	for _, part := range strings.Split(path, "/") {
+		if strings.EqualFold(part, ".git") {
+			return fmt.Sprintf("index path %s has a .git component (KI-77)", path)
+		}
+	}
+	return ""
+}
+
+// refuseUnsafeEntries checks the entries of `ls-files -s -z` or
+// `ls-tree -z` output ("<meta>\t<path>", NUL separated).
+func refuseUnsafeEntries(out string) error {
+	for _, entry := range strings.Split(out, "\x00") {
+		if entry == "" {
+			continue
+		}
+		meta, path, _ := strings.Cut(entry, "\t")
+		if reason := unsafeIndexEntry(meta, path); reason != "" {
+			return unsafeRepo(reason)
+		}
+	}
+	return nil
+}
 
 func nestedRepo(path string) error {
 	return unsafeRepo(fmt.Sprintf("nested repository at %s is not supported (KI-77)", path))
@@ -46,11 +84,8 @@ func (r *Repo) checkNoNestedRepositories(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("list HEAD: %w", err)
 		}
-		for _, entry := range strings.Split(tree, "\x00") {
-			meta, path, _ := strings.Cut(entry, "\t")
-			if strings.HasPrefix(meta, gitlinkMode+" ") {
-				return nestedRepo(path)
-			}
+		if err := refuseUnsafeEntries(tree); err != nil {
+			return err
 		}
 	}
 	ignored, err := r.ignoredDirs(ctx)
@@ -69,13 +104,7 @@ func (r *Repo) RefuseGitlinks(ctx context.Context, indexEnv []string) error {
 	if err != nil {
 		return fmt.Errorf("list index: %w", err)
 	}
-	for _, entry := range strings.Split(out, "\x00") {
-		meta, path, _ := strings.Cut(entry, "\t")
-		if strings.HasPrefix(meta, gitlinkMode+" ") {
-			return nestedRepo(path)
-		}
-	}
-	return nil
+	return refuseUnsafeEntries(out)
 }
 
 // ignoredDirs returns the ignored directories of the working tree (as git
