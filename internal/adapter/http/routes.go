@@ -39,8 +39,10 @@ func WithAuditStore(s auditDB) RouteOption {
 	return func(o *routeOptions) { o.auditStore = s }
 }
 
-// auditFunc is the type for the audit middleware factory used across mount functions.
-type auditFunc func(action, resource string) func(http.Handler) http.Handler
+// auditFunc is the type for the audit middleware factory used across mount
+// functions. The entry names the resource of the {id} URL parameter, or of
+// resourceID when given (middleware.URLParamID, middleware.BodyFieldID).
+type auditFunc func(action, resource string, resourceID ...func(*http.Request) string) func(http.Handler) http.Handler
 
 // MountRoutes registers all API routes on the given chi router.
 //
@@ -78,9 +80,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 
 	// audit returns AuditLog middleware when an audit store is configured,
 	// or a pass-through no-op otherwise.
-	audit := auditFunc(func(action, resource string) func(http.Handler) http.Handler {
+	audit := auditFunc(func(action, resource string, resourceID ...func(*http.Request) string) func(http.Handler) http.Handler {
 		if ro.auditStore == nil {
 			return func(next http.Handler) http.Handler { return next }
+		}
+		if len(resourceID) > 0 {
+			return middleware.AuditLogID(ro.auditStore, action, resource, resourceID[0])
 		}
 		return middleware.AuditLog(ro.auditStore, action, resource)
 	})
@@ -697,23 +702,29 @@ func mountDevToolRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
 	r.Post("/projects/{id}/lsp/hover", h.LSPHover)
 
-	// MCP Servers (Phase 15C + 19H). Every user reads them. A server
-	// definition names a command the worker runs for agents (stdio) or an
-	// endpoint it connects to, and belongs to no project: only platform
-	// admins create, change or delete one. Admins test servers and assign
-	// them to their projects (KI-71).
+	// MCP Servers (Phase 15C + 19H). Every user of a tenant reads its
+	// servers (env and header values redacted). A server definition names a
+	// command the worker runs for agents (stdio) or an endpoint it connects
+	// to; servers belong to a tenant and are assigned only to projects of
+	// it. A tenant's admins create, change, delete, test and assign them
+	// (KI-71 review, ADR-017): stdio servers run as the tool user, with the
+	// rights the agents' Bash tool already has in that tenant's runs, never
+	// as the worker or in the Go Core.
 	adminOnly := middleware.RequireRole(user.RoleAdmin)
 	r.Get("/mcp/servers", h.ListMCPServers)
-	r.With(middleware.RequirePlatformAdmin, audit("create", "mcp_server")).Post("/mcp/servers", h.CreateMCPServer)
+	r.With(adminOnly, audit("create", "mcp_server")).Post("/mcp/servers", h.CreateMCPServer)
 	r.With(adminOnly).Post("/mcp/servers/test", h.TestMCPServerConnection) // pre-save test (no ID)
 	r.Get("/mcp/servers/{id}", h.GetMCPServer)
-	r.With(middleware.RequirePlatformAdmin, audit("update", "mcp_server")).Put("/mcp/servers/{id}", h.UpdateMCPServer)
-	r.With(middleware.RequirePlatformAdmin, audit("delete", "mcp_server")).Delete("/mcp/servers/{id}", h.DeleteMCPServer)
+	r.With(adminOnly, audit("update", "mcp_server")).Put("/mcp/servers/{id}", h.UpdateMCPServer)
+	r.With(adminOnly, audit("delete", "mcp_server")).Delete("/mcp/servers/{id}", h.DeleteMCPServer)
 	r.With(adminOnly).Post("/mcp/servers/{id}/test", h.TestMCPServer)
 	r.Get("/mcp/servers/{id}/tools", h.ListMCPServerTools)
 	r.Get("/projects/{id}/mcp-servers", h.ListProjectMCPServers)
-	r.With(adminOnly, audit("assign", "mcp_server")).Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
-	r.With(adminOnly, audit("unassign", "mcp_server")).Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
+	// Audited as actions on the server (its ID is in the body or the URL).
+	r.With(adminOnly, audit("assign", "mcp_server", middleware.BodyFieldID("server_id"))).
+		Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
+	r.With(adminOnly, audit("unassign", "mcp_server", middleware.URLParamID("serverId"))).
+		Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
 }
 
 // mountChannelRoutes registers real-time channel endpoints.

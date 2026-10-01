@@ -17,9 +17,10 @@ import (
 )
 
 // TestMCPServerRoutesNeedAdmin (KI-71): an MCP server definition names a
-// command the worker runs for agents. Only platform admins define servers
-// (they belong to no project); admins assign them to projects and test them;
-// every user reads them.
+// command the worker runs for agents, as the tool user. A tenant's admins
+// define, test and assign its servers (KI-71 review: servers are
+// tenant-scoped, a platform-admin-only rule left every other tenant without
+// any); every user reads them.
 func TestMCPServerRoutesNeedAdmin(t *testing.T) {
 	const otherTenant = "11111111-2222-3333-4444-555555555555"
 	platformAdmin := &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
@@ -39,9 +40,9 @@ func TestMCPServerRoutesNeedAdmin(t *testing.T) {
 		// The least role that may call the route: "platform", "admin" or "any".
 		needs string
 	}{
-		{"create server", http.MethodPost, "/api/v1/mcp/servers", stdioServer, "platform"},
-		{"update server", http.MethodPut, "/api/v1/mcp/servers/s1", stdioServer, "platform"},
-		{"delete server", http.MethodDelete, "/api/v1/mcp/servers/s1", "", "platform"},
+		{"create server", http.MethodPost, "/api/v1/mcp/servers", stdioServer, "admin"},
+		{"update server", http.MethodPut, "/api/v1/mcp/servers/s1", stdioServer, "admin"},
+		{"delete server", http.MethodDelete, "/api/v1/mcp/servers/s1", "", "admin"},
 		{"test new server", http.MethodPost, "/api/v1/mcp/servers/test", invalidSSE, "admin"},
 		{"test saved server", http.MethodPost, "/api/v1/mcp/servers/s1/test", "", "admin"},
 		{"assign to project", http.MethodPost, "/api/v1/projects/p1/mcp-servers", `{"server_id":"s1"}`, "admin"},

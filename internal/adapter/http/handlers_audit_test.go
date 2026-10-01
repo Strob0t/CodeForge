@@ -24,11 +24,13 @@ import (
 
 // auditStoreMock implements the auditDB interface (middleware.AuditStore + auditLogReader).
 type auditStoreMock struct {
-	entries []database.AuditEntry
-	listErr error
+	entries  []database.AuditEntry
+	listErr  error
+	inserted []database.AuditEntry
 }
 
-func (m *auditStoreMock) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
+func (m *auditStoreMock) InsertAuditEntry(_ context.Context, e *database.AuditEntry) error {
+	m.inserted = append(m.inserted, *e)
 	return nil
 }
 
@@ -342,5 +344,29 @@ func TestAuditLogs_WithActionFilter(t *testing.T) {
 	}
 	if entries[0].ID != "ae-filtered" {
 		t.Errorf("entry ID = %q, want %q", entries[0].ID, "ae-filtered")
+	}
+}
+
+// KI-71 review: assigning an MCP server to a project, or removing it, is
+// audited as an action on that server: the entry names the server, not the
+// project of the URL.
+func TestAudit_MCPServerAssignmentsNameTheServer(t *testing.T) {
+	auditStore := &auditStoreMock{}
+	r := newAuditTestRouter(auditStore, nil)
+
+	for _, req := range []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/mcp-servers", strings.NewReader(`{"server_id":"s1"}`)),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/projects/p1/mcp-servers/s2", http.NoBody),
+	} {
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	var got []string
+	for _, e := range auditStore.inserted {
+		got = append(got, e.Action+" "+e.Resource+" "+e.ResourceID)
+	}
+	if want := []string{"assign mcp_server s1", "unassign mcp_server s2"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("audit entries = %q, want %q", got, want)
 	}
 }
