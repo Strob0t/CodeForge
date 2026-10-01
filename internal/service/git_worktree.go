@@ -203,9 +203,26 @@ func seedIndex(repo *git.Repo, dst string) error {
 	if closeErr := out.Close(); copyErr == nil {
 		copyErr = closeErr
 	}
+	if copyErr == nil {
+		copyErr = keepIndexTime(in, dst)
+	}
 	if copyErr != nil {
 		_ = os.Remove(dst)
 		return fmt.Errorf("copy index: %w", copyErr)
 	}
 	return nil
+}
+
+// keepIndexTime gives the copy the source index's modification time. git
+// re-reads the content of an entry whose file is not older than the index
+// ("racily clean"): a file written in the same second as the index has
+// unchanged stat data even when its content changed. A copy with a newer
+// time would make git trust such entries, so a same-size change made right
+// after a checkpoint or commit was missed (TestDeliver_Patch flake).
+func keepIndexTime(src *os.File, dst string) error {
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
