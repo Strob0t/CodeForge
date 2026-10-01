@@ -718,26 +718,6 @@ class A2ATaskCompleteMessage(BaseModel):
     error: str = ""
 
 
-# --- Review/Refactor Models (Phase 31) ---
-
-
-class BoundaryEntry(BaseModel):
-    """A single detected layer boundary (matches Go ReviewBoundaryEntry)."""
-
-    path: str
-    type: str
-    counterpart: str = ""
-    auto_detected: bool = True
-
-
-class ReviewBoundaryAnalyzedPayload(BaseModel):
-    """Published when layer boundaries have been detected (matches Go ReviewBoundaryAnalyzedPayload)."""
-
-    project_id: str
-    tenant_id: str
-    boundaries: list[BoundaryEntry]
-
-
 # --- Prompt Evolution Models (Phase 33) ---
 
 

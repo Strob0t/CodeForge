@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -29,12 +28,8 @@ import (
 // "triggered" when nothing started), and approve/reject decide the waiting
 // refactoring through the review pipeline.
 
-// reviewTriggerStore knows project proj-1 and records nothing as recent.
+// reviewTriggerStore knows project proj-1.
 type reviewTriggerStore struct{}
-
-func (reviewTriggerStore) FindRecentReviewTrigger(context.Context, string, string, time.Duration) (bool, error) {
-	return false, nil
-}
 
 func (reviewTriggerStore) CreateReviewTrigger(context.Context, string, string, string) (string, error) {
 	return "trigger-1", nil
@@ -81,15 +76,15 @@ func TestReviewTriggerEndpoints(t *testing.T) {
 		wantCode int
 		wantBody string
 	}{
-		{"review started", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}, time.Minute),
+		{"review started", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}),
 			"/projects/proj-1/review-refactor", http.StatusAccepted, `"plan_id":"plan-1"`},
-		{"boundary analysis started", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}, time.Minute),
+		{"boundary analysis started", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}),
 			"/projects/proj-1/boundaries/analyze", http.StatusAccepted, `"triggered":true`},
-		{"no agents", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{err: service.ErrReviewNoAgents}, time.Minute),
+		{"no agents", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{err: service.ErrReviewNoAgents}),
 			"/projects/proj-1/review-refactor", http.StatusBadRequest, "no agents"},
-		{"unknown project", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}, time.Minute),
+		{"unknown project", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}),
 			"/projects/other/boundaries/analyze", http.StatusNotFound, "project not found"},
-		{"no pipeline wired", service.NewReviewTriggerService(reviewTriggerStore{}, nil, time.Minute),
+		{"no pipeline wired", service.NewReviewTriggerService(reviewTriggerStore{}, nil),
 			"/projects/proj-1/review-refactor", http.StatusServiceUnavailable, "not configured"},
 		{"no trigger service", nil, "/projects/proj-1/review-refactor", http.StatusServiceUnavailable, "not configured"},
 	}

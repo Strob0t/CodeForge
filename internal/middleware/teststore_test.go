@@ -864,9 +864,6 @@ func (s *testStore) DeleteProjectBoundaries(_ context.Context, _ string) error {
 func (s *testStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (s *testStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (s *testStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }

@@ -3543,9 +3543,6 @@ func (m *mockStore) DeleteProjectBoundaries(_ context.Context, _ string) error {
 func (m *mockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (m *mockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }

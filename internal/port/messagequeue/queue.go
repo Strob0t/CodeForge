@@ -124,9 +124,6 @@ const (
 	SubjectBackendHealthRequest = "backends.health.request" // Go → Python: check backend availability
 	SubjectBackendHealthResult  = "backends.health.result"  // Python → Go: health check results
 
-	// Review/Refactor subjects (Phase 31)
-	SubjectReviewApprovalRequired = "review.approval.required" // Python → Go: human approval needed
-
 	// Prompt evolution subjects (Phase 33)
 	SubjectPromptEvolutionReflect         = "prompt.evolution.reflect"          // Go → Python: request failure reflection
 	SubjectPromptEvolutionReflectComplete = "prompt.evolution.reflect.complete" // Python → Go: reflection results

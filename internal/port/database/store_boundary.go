@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 )
@@ -16,5 +15,4 @@ type BoundaryStore interface {
 
 	// Review Triggers
 	CreateReviewTrigger(ctx context.Context, projectID, commitSHA, source string) (string, error)
-	FindRecentReviewTrigger(ctx context.Context, projectID, commitSHA string, within time.Duration) (bool, error)
 }

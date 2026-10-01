@@ -2601,9 +2601,6 @@ func (m *runtimeMockStore) DeleteProjectBoundaries(_ context.Context, _ string) 
 func (m *runtimeMockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *runtimeMockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (m *runtimeMockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }

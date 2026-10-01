@@ -521,22 +521,6 @@ func sampleConversationCompactCompletePayload() mq.ConversationCompactCompletePa
 // The remaining subjects (tasks.*, runs.*, mcp.*, memory.*, handoff.*)
 // still need coverage — tracked in a follow-up TODO below.
 
-func sampleReviewApprovalRequiredPayload() mq.ReviewApprovalRequiredPayload {
-	return mq.ReviewApprovalRequiredPayload{
-		RunID:     "550e8400-e29b-41d4-a716-446655440020",
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		DiffStats: mq.ReviewDiffStats{
-			FilesChanged: 5,
-			LinesAdded:   120,
-			LinesRemoved: 30,
-			CrossLayer:   true,
-			Structural:   false,
-		},
-		ImpactLevel: "high",
-	}
-}
-
 func samplePromptEvolutionReflectPayload() mq.PromptEvolutionReflectPayload {
 	return mq.PromptEvolutionReflectPayload{
 		TenantID:      "550e8400-e29b-41d4-a716-446655440006",
@@ -676,8 +660,6 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectGraphSearchResult, sampleGraphSearchResultPayload()},
 		{mq.SubjectA2ATaskCreated, sampleA2ATaskCreatedPayload()},
 		{mq.SubjectA2ATaskComplete, sampleA2ATaskCompletePayload()},
-		// FIX-086: Review/Refactor subjects (Phase 31)
-		{mq.SubjectReviewApprovalRequired, sampleReviewApprovalRequiredPayload()},
 		// FIX-086: Prompt evolution subjects (Phase 33)
 		{mq.SubjectPromptEvolutionReflect, samplePromptEvolutionReflectPayload()},
 		{mq.SubjectPromptEvolutionReflectComplete, samplePromptEvolutionReflectCompletePayload()},
@@ -777,8 +759,6 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectGraphSearchResult:           {"project_id", "request_id", "results"},
 		mq.SubjectA2ATaskCreated:              {"task_id", "tenant_id", "skill_id", "prompt"},
 		mq.SubjectA2ATaskComplete:             {"task_id", "state"},
-		// FIX-086: Review/Refactor subjects
-		mq.SubjectReviewApprovalRequired: {"run_id", "project_id", "tenant_id", "impact_level"},
 		// FIX-086: Prompt evolution subjects
 		mq.SubjectPromptEvolutionReflect:         {"tenant_id", "mode_id", "model_family", "current_prompt"},
 		mq.SubjectPromptEvolutionReflectComplete: {"tenant_id", "mode_id", "model_family", "tactical_fixes"},

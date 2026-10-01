@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -18,19 +17,16 @@ import (
 // no orchestrator wired, and recorded the trigger before starting anything).
 
 type mockReviewTriggerStore struct {
-	recentExists bool
-	createdIDs   []string
+	createdIDs []string
+	sources    []string
 	// projects maps projectID -> tenantID for tenant isolation testing.
 	projects map[string]string
 }
 
-func (m *mockReviewTriggerStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return m.recentExists, nil
-}
-
-func (m *mockReviewTriggerStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
+func (m *mockReviewTriggerStore) CreateReviewTrigger(_ context.Context, _, _, source string) (string, error) {
 	id := "trigger-1"
 	m.createdIDs = append(m.createdIDs, id)
+	m.sources = append(m.sources, source)
 	return id, nil
 }
 
@@ -65,55 +61,41 @@ func (f *fakePipelineStarter) StartBoundaryAnalysis(context.Context, string) (*p
 	return f.start("boundaries")
 }
 
-func newTriggerTest(recent bool) (*mockReviewTriggerStore, *fakePipelineStarter, *ReviewTriggerService) {
-	store := &mockReviewTriggerStore{recentExists: recent, projects: map[string]string{"proj-1": tenantctx.DefaultTenantID}}
+func newTriggerTest() (*mockReviewTriggerStore, *fakePipelineStarter, *ReviewTriggerService) {
+	store := &mockReviewTriggerStore{projects: map[string]string{"proj-1": tenantctx.DefaultTenantID}}
 	starter := &fakePipelineStarter{}
-	return store, starter, NewReviewTriggerService(store, starter, 30*time.Minute)
+	return store, starter, NewReviewTriggerService(store, starter)
 }
 
-func TestReviewTriggerService_DedupSkipsRecentSHA(t *testing.T) {
-	store, starter, svc := newTriggerTest(true)
+// S6-F 15: the only trigger is the manual one; every trigger starts the
+// pipeline (the dedup branch for other sources was unreachable) and is
+// recorded once it started.
+func TestReviewTriggerService_StartsAndRecords(t *testing.T) {
+	store, starter, svc := newTriggerTest()
 
-	p, err := svc.TriggerReview(context.Background(), "proj-1", "abc123", "pipeline-completion")
-	if err != nil || p != nil {
-		t.Fatalf("TriggerReview = %+v, %v, want deduplicated (no plan, no error)", p, err)
+	for range 2 {
+		p, err := svc.TriggerReview(context.Background(), "proj-1", "abc123")
+		if err != nil || p == nil || p.ID != "plan-review" {
+			t.Fatalf("TriggerReview = %+v, %v, want the started review plan", p, err)
+		}
 	}
-	if len(starter.started) != 0 || len(store.createdIDs) != 0 {
-		t.Fatalf("started %v, recorded %v, want nothing", starter.started, store.createdIDs)
+	if len(starter.started) != 2 || len(store.createdIDs) != 2 {
+		t.Fatalf("started %v, recorded %d triggers, want two each", starter.started, len(store.createdIDs))
 	}
-}
-
-func TestReviewTriggerService_ManualBypassesDedup(t *testing.T) {
-	_, starter, svc := newTriggerTest(true)
-
-	p, err := svc.TriggerReview(context.Background(), "proj-1", "abc123", "manual")
-	if err != nil || p == nil || p.ID != "plan-review" {
-		t.Fatalf("TriggerReview = %+v, %v, want the started review plan", p, err)
-	}
-	if len(starter.started) != 1 {
-		t.Fatalf("started %v, want the review pipeline", starter.started)
-	}
-}
-
-func TestReviewTriggerService_NewSHATriggersReview(t *testing.T) {
-	store, starter, svc := newTriggerTest(false)
-
-	p, err := svc.TriggerReview(context.Background(), "proj-1", "newsha", "branch-merge")
-	if err != nil || p == nil {
-		t.Fatalf("TriggerReview = %+v, %v, want a plan", p, err)
-	}
-	if len(starter.started) != 1 || len(store.createdIDs) != 1 {
-		t.Fatalf("started %v, recorded %d triggers, want one each", starter.started, len(store.createdIDs))
+	for _, src := range store.sources {
+		if src != "manual" {
+			t.Fatalf("recorded source %q, want manual", src)
+		}
 	}
 }
 
 // A pipeline that does not start is an error, and the trigger is not
 // recorded: the next trigger of the same commit is not deduplicated away.
 func TestReviewTriggerService_FailedStartIsNotRecorded(t *testing.T) {
-	store, starter, svc := newTriggerTest(false)
+	store, starter, svc := newTriggerTest()
 	starter.err = ErrReviewNoAgents
 
-	p, err := svc.TriggerReview(context.Background(), "proj-1", "sha", "branch-merge")
+	p, err := svc.TriggerReview(context.Background(), "proj-1", "sha")
 	if !errors.Is(err, ErrReviewNoAgents) || p != nil {
 		t.Fatalf("TriggerReview = %+v, %v, want the start error", p, err)
 	}
@@ -124,9 +106,9 @@ func TestReviewTriggerService_FailedStartIsNotRecorded(t *testing.T) {
 
 func TestReviewTriggerService_NoPipelineIsAnError(t *testing.T) {
 	store := &mockReviewTriggerStore{projects: map[string]string{"proj-1": tenantctx.DefaultTenantID}}
-	svc := NewReviewTriggerService(store, nil, 30*time.Minute)
+	svc := NewReviewTriggerService(store, nil)
 
-	if p, err := svc.TriggerReview(context.Background(), "proj-1", "sha", "manual"); !errors.Is(err, ErrReviewPipelineUnavailable) || p != nil {
+	if p, err := svc.TriggerReview(context.Background(), "proj-1", "sha"); !errors.Is(err, ErrReviewPipelineUnavailable) || p != nil {
 		t.Fatalf("TriggerReview = %+v, %v, want ErrReviewPipelineUnavailable", p, err)
 	}
 	if p, err := svc.TriggerBoundaryAnalysis(context.Background(), "proj-1"); !errors.Is(err, ErrReviewPipelineUnavailable) || p != nil {
@@ -135,7 +117,7 @@ func TestReviewTriggerService_NoPipelineIsAnError(t *testing.T) {
 }
 
 func TestReviewTriggerService_BoundaryAnalysis(t *testing.T) {
-	_, starter, svc := newTriggerTest(true) // no dedup for the analysis
+	_, starter, svc := newTriggerTest()
 
 	p, err := svc.TriggerBoundaryAnalysis(context.Background(), "proj-1")
 	if err != nil || p == nil || p.ID != "plan-boundaries" {
@@ -152,19 +134,19 @@ func TestReviewTriggerService_TenantIsolation(t *testing.T) {
 
 	store := &mockReviewTriggerStore{projects: map[string]string{"proj-a": tenantA}}
 	starter := &fakePipelineStarter{}
-	svc := NewReviewTriggerService(store, starter, 30*time.Minute)
+	svc := NewReviewTriggerService(store, starter)
 
 	ctxA := tenantctx.WithTenant(context.Background(), tenantA)
-	if p, err := svc.TriggerReview(ctxA, "proj-a", "sha1", "pipeline-completion"); err != nil || p == nil {
+	if p, err := svc.TriggerReview(ctxA, "proj-a", "sha1"); err != nil || p == nil {
 		t.Fatalf("owner tenant: %+v, %v, want a plan", p, err)
 	}
 
 	ctxB := tenantctx.WithTenant(context.Background(), tenantB)
 	for name, trigger := range map[string]func() (*plan.ExecutionPlan, error){
-		"review":            func() (*plan.ExecutionPlan, error) { return svc.TriggerReview(ctxB, "proj-a", "sha2", "manual") },
+		"review":            func() (*plan.ExecutionPlan, error) { return svc.TriggerReview(ctxB, "proj-a", "sha2") },
 		"boundary analysis": func() (*plan.ExecutionPlan, error) { return svc.TriggerBoundaryAnalysis(ctxB, "proj-a") },
 		"unknown project": func() (*plan.ExecutionPlan, error) {
-			return svc.TriggerReview(ctxA, "proj-nonexistent", "sha3", "manual")
+			return svc.TriggerReview(ctxA, "proj-nonexistent", "sha3")
 		},
 	} {
 		p, err := trigger()

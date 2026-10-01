@@ -39,23 +39,20 @@ func (h *Handlers) UpdateProjectBoundaries(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, cfg)
 }
 
-// reviewTriggerResponse answers a review trigger: the plan it started, or
-// triggered false when a review of the same commit started recently.
+// reviewTriggerResponse answers a review trigger with the plan it started.
 type reviewTriggerResponse struct {
 	Triggered bool   `json:"triggered"`
 	PlanID    string `json:"plan_id,omitempty"`
 }
 
-// writeReviewTrigger answers 202 with the started plan, 200 with triggered
-// false for a deduplicated trigger, or the reason nothing started.
+// writeReviewTrigger answers 202 with the started plan, or the reason
+// nothing started.
 func writeReviewTrigger(w http.ResponseWriter, p *plan.ExecutionPlan, err error) {
 	switch {
 	case errors.Is(err, service.ErrReviewPipelineUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "review pipeline not configured")
 	case err != nil:
 		writeDomainError(w, err, "project not found")
-	case p == nil:
-		writeJSON(w, http.StatusOK, reviewTriggerResponse{})
 	default:
 		writeJSON(w, http.StatusAccepted, reviewTriggerResponse{Triggered: true, PlanID: p.ID})
 	}
@@ -87,7 +84,7 @@ func (h *Handlers) TriggerReviewRefactor(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusServiceUnavailable, "review pipeline not configured")
 		return
 	}
-	p, err := h.ReviewTrigger.TriggerReview(r.Context(), projectID, body.CommitSHA, "manual")
+	p, err := h.ReviewTrigger.TriggerReview(r.Context(), projectID, body.CommitSHA)
 	writeReviewTrigger(w, p, err)
 }
 

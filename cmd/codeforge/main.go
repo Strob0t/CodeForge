@@ -518,7 +518,7 @@ func run() error {
 		service.DefaultDiffImpactConfig())
 	orchSvc.SetStepGate(reviewPipelineSvc.GateStep)
 	orchSvc.AddOnPlanComplete(reviewPipelineSvc.PlanEnded)
-	reviewTriggerSvc := service.NewReviewTriggerService(store, reviewPipelineSvc, 30*time.Minute)
+	reviewTriggerSvc := service.NewReviewTriggerService(store, reviewPipelineSvc)
 	slog.Info("boundary and review pipeline services initialized")
 
 	// Wire auto-index dependencies into ProjectService so it can

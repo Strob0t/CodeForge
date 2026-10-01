@@ -144,10 +144,6 @@ func Validate(subject string, data []byte) error {
 	case subject == SubjectA2ATaskComplete:
 		target = &A2ATaskCompletePayload{}
 
-	// --- Review/Refactor subjects (Phase 31) ---
-	case subject == SubjectReviewApprovalRequired:
-		target = &ReviewApprovalRequiredPayload{}
-
 	// --- Prompt Evolution subjects (Phase 33) ---
 	case subject == SubjectPromptEvolutionReflect:
 		target = &PromptEvolutionReflectPayload{}

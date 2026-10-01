@@ -156,7 +156,6 @@ func allSubjectConstants(t *testing.T) map[string]string {
 		"SubjectTrajectoryEvent":                mq.SubjectTrajectoryEvent,
 		"SubjectBackendHealthRequest":           mq.SubjectBackendHealthRequest,
 		"SubjectBackendHealthResult":            mq.SubjectBackendHealthResult,
-		"SubjectReviewApprovalRequired":         mq.SubjectReviewApprovalRequired,
 		"SubjectPromptEvolutionReflect":         mq.SubjectPromptEvolutionReflect,
 		"SubjectPromptEvolutionReflectComplete": mq.SubjectPromptEvolutionReflectComplete,
 		"SubjectPromptEvolutionMutateComplete":  mq.SubjectPromptEvolutionMutateComplete,

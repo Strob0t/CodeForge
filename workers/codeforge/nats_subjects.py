@@ -23,7 +23,6 @@ STREAM_SUBJECTS = [
     "memory.>",
     "handoff.>",
     "backends.>",
-    "review.>",
     "prompt.>",
 ]
 
@@ -116,9 +115,6 @@ SUBJECT_BACKEND_HEALTH_RESULT = "backends.health.result"
 
 # Trajectory events
 SUBJECT_TRAJECTORY_EVENT = "runs.trajectory.event"
-
-# Review/Refactor subjects (Phase 31)
-SUBJECT_REVIEW_APPROVAL_REQUIRED = "review.approval.required"
 
 # Prompt evolution subjects (Phase 33)
 SUBJECT_PROMPT_EVOLUTION_REFLECT = "prompt.evolution.reflect"

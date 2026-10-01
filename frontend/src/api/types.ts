@@ -1860,7 +1860,7 @@ export interface BoundaryConfig {
   version: number;
 }
 
-/** Answer of a review trigger: the started plan, or triggered false when deduplicated. */
+/** Answer of a review trigger: the started plan (triggered is always true). */
 export interface ReviewTriggerResponse {
   triggered: boolean;
   plan_id?: string;
