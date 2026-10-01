@@ -132,11 +132,12 @@ func (m *runtimeMockStore) setTurnHeartbeat(conversationID string, at time.Time)
 	}
 }
 
-func (m *runtimeMockStore) TouchTaskHeartbeat(ctx context.Context, id string) error {
+func (m *runtimeMockStore) TouchTaskHeartbeat(ctx context.Context, id, dispatchID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.tasks {
-		if m.tasks[i].ID == id && (m.tasks[i].Status == task.StatusQueued || m.tasks[i].Status == task.StatusRunning) {
+		active := m.tasks[i].Status == task.StatusQueued || m.tasks[i].Status == task.StatusRunning
+		if m.tasks[i].ID == id && active && m.tasks[i].DispatchID == dispatchID {
 			if m.taskBeats == nil {
 				m.taskBeats = map[string]runBeat{}
 			}
@@ -164,7 +165,7 @@ func (m *runtimeMockStore) ListTasksWithStaleHeartbeat(_ context.Context, idleFo
 	return stale, nil
 }
 
-func (m *runtimeMockStore) QueueTask(_ context.Context, id, agentID string) error {
+func (m *runtimeMockStore) QueueTask(_ context.Context, id, agentID, dispatchID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.tasks {
@@ -176,6 +177,8 @@ func (m *runtimeMockStore) QueueTask(_ context.Context, id, agentID string) erro
 		}
 		m.tasks[i].Status = task.StatusQueued
 		m.tasks[i].AgentID = agentID
+		m.tasks[i].DispatchID = dispatchID
+		delete(m.taskBeats, id) // a heartbeat names its dispatch
 		return nil
 	}
 	return errMockNotFound

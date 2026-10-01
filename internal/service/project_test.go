@@ -984,7 +984,7 @@ func (m *mockStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ strin
 func (m *mockStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
 	return nil, nil
 }
-func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _ string) error { return nil }
+func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _, _ string) error { return nil }
 func (m *mockStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
@@ -1732,11 +1732,12 @@ func TestIsAllowedGiteaHost(t *testing.T) {
 }
 
 // QueueTask queues the task (the status guard is in queueTaskStore).
-func (m *mockStore) QueueTask(_ context.Context, id, agentID string) error {
+func (m *mockStore) QueueTask(_ context.Context, id, agentID, dispatchID string) error {
 	for i := range m.tasks {
 		if m.tasks[i].ID == id {
 			m.tasks[i].Status = task.StatusQueued
 			m.tasks[i].AgentID = agentID
+			m.tasks[i].DispatchID = dispatchID
 			return nil
 		}
 	}

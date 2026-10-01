@@ -96,7 +96,7 @@ class TaskHandlerMixin:
         dispatch: int | None,
     ) -> None:
         """Execute an accepted task and publish its result, reporting it alive meanwhile."""
-        beat = {"task_id": task.id, "tenant_id": task.tenant_id}
+        beat = {"task_id": task.id, "tenant_id": task.tenant_id, "dispatch_id": task.dispatch_id}
         alive = (
             heartbeats(self._js, SUBJECT_TASK_HEARTBEAT, beat, heartbeat_interval(task.heartbeat_seconds))
             if self._js is not None

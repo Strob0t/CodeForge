@@ -237,6 +237,7 @@ func sampleTaskAgentPayload() mq.TaskAgentPayload {
 		Backend:          "aider",
 		WorkspacePath:    "/data/workspaces/my-project",
 		HeartbeatSeconds: 30,
+		DispatchID:       "550e8400-e29b-41d4-a716-446655440043",
 	}
 }
 

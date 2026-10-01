@@ -41,6 +41,9 @@ class TaskMessage(BaseModel):
     # How often to report the work alive (Go runtime.heartbeat_interval;
     # 0 = the worker's default).
     heartbeat_seconds: int = 0
+    # This dispatch of the task; named on its heartbeats, which the Go Core
+    # counts for this dispatch only ("" in tasks published without one).
+    dispatch_id: str = ""
 
 
 class TaskResult(BaseModel):

@@ -55,10 +55,10 @@ func (s *lostTaskStore) UpdateTaskResult(ctx context.Context, id string, status 
 	return nil
 }
 
-func (s *lostTaskStore) TouchTaskHeartbeat(ctx context.Context, id string) error {
+func (s *lostTaskStore) TouchTaskHeartbeat(ctx context.Context, id, dispatchID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.beats = append(s.beats, tenantctx.FromContext(ctx)+"/"+id)
+	s.beats = append(s.beats, tenantctx.FromContext(ctx)+"/"+id+"@"+dispatchID)
 	return nil
 }
 
@@ -145,10 +145,11 @@ func TestFailTasksWithLostWorker_DisabledWithoutThreshold(t *testing.T) {
 func TestHandleTaskHeartbeat_RecordsInThePayloadsTenant(t *testing.T) {
 	store := &lostTaskStore{}
 	svc := NewAgentService(store, &mockQueue{}, &tenantRecorder{})
-	if err := svc.HandleTaskHeartbeat(context.Background(), &messagequeue.TaskHeartbeatPayload{TaskID: "t-a", TenantID: scopeTenantA}); err != nil {
+	if err := svc.HandleTaskHeartbeat(context.Background(), &messagequeue.TaskHeartbeatPayload{TaskID: "t-a", TenantID: scopeTenantA, DispatchID: "d-1"}); err != nil {
 		t.Fatalf("HandleTaskHeartbeat: %v", err)
 	}
-	if len(store.beats) != 1 || store.beats[0] != scopeTenantA+"/t-a" {
-		t.Fatalf("heartbeats = %v, want t-a in tenant A", store.beats)
+	// The heartbeat counts for the dispatch it names (S2-F review, F7).
+	if len(store.beats) != 1 || store.beats[0] != scopeTenantA+"/t-a@d-1" {
+		t.Fatalf("heartbeats = %v, want t-a's dispatch d-1 in tenant A", store.beats)
 	}
 }

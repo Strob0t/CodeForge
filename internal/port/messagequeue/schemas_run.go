@@ -22,6 +22,9 @@ type TaskAgentPayload struct {
 	// HeartbeatSeconds is how often the worker reports the task alive
 	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
 	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
+	// DispatchID identifies this dispatch of the task; the worker names it
+	// on its heartbeats, which count for this dispatch only.
+	DispatchID string `json:"dispatch_id,omitempty"`
 }
 
 // NewTaskAgentPayload builds the tasks.agent.{backend} payload of an execution.
@@ -37,6 +40,7 @@ func NewTaskAgentPayload(e *agentbackend.Execution, backend string) TaskAgentPay
 		Backend:          backend,
 		WorkspacePath:    e.WorkspacePath,
 		HeartbeatSeconds: e.HeartbeatSeconds,
+		DispatchID:       t.DispatchID,
 	}
 }
 
@@ -63,9 +67,12 @@ type TaskCancelPayload struct {
 // TaskHeartbeatPayload is the schema for tasks.heartbeat messages: the worker
 // executing a task sends one every 30 s (KI-65).
 type TaskHeartbeatPayload struct {
-	TaskID    string `json:"task_id"`
-	TenantID  string `json:"tenant_id,omitempty"`
-	Timestamp string `json:"timestamp"`
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"`
+	// DispatchID is the dispatch the heartbeat is sent for ("" from a task
+	// message without one).
+	DispatchID string `json:"dispatch_id,omitempty"`
+	Timestamp  string `json:"timestamp"`
 }
 
 // --- Run protocol payloads (Phase 4B) ---

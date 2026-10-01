@@ -144,12 +144,13 @@ const taskExistsSQL = `SELECT EXISTS (SELECT 1 FROM tasks WHERE id = $1 AND tena
 // queued or running: domain.ErrConflict then, domain.ErrNotFound for an
 // unknown task or one of another tenant. The status predicate decides
 // between concurrent dispatches. The task records its agent, so its result
-// can set the agent idle again.
-func (s *Store) QueueTask(ctx context.Context, id, agentID string) error {
+// can set the agent idle again, and the dispatch (ID and time), which its
+// heartbeats name.
+func (s *Store) QueueTask(ctx context.Context, id, agentID, dispatchID string) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE tasks SET status = 'queued', agent_id = $3
+		`UPDATE tasks SET status = 'queued', agent_id = $3, dispatch_id = $4, dispatched_at = now()
 		 WHERE id = $1 AND tenant_id = $2 AND status NOT IN ('queued', 'running')`,
-		id, tenantFromCtx(ctx), agentID)
+		id, tenantFromCtx(ctx), agentID, dispatchID)
 	return s.guardedUpdateResult(ctx, tag, err, taskExistsSQL, "queue task", id)
 }
 
@@ -209,13 +210,14 @@ func scanTask(row scannable) (task.Task, error) {
 	return t, err
 }
 
-// scanTenantTask scans the scanTask columns followed by tenant_id, for
-// cross-tenant queries whose callers must know each task's tenant.
-func scanTenantTask(row scannable) (task.Task, error) {
+// scanDispatchedTask scans the scanTask columns followed by tenant_id and
+// the dispatch ID, for the watchdog's cross-tenant queries, whose callers
+// must know each task's tenant and dispatch.
+func scanDispatchedTask(row scannable) (task.Task, error) {
 	var t task.Task
 	var agentID *string
 	var resultJSON []byte
-	err := row.Scan(&t.ID, &t.ProjectID, &agentID, &t.Title, &t.Prompt, &t.Status, &resultJSON, &t.CostUSD, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.TenantID)
+	err := row.Scan(&t.ID, &t.ProjectID, &agentID, &t.Title, &t.Prompt, &t.Status, &resultJSON, &t.CostUSD, &t.Version, &t.CreatedAt, &t.UpdatedAt, &t.TenantID, &t.DispatchID)
 	if err != nil {
 		return t, err
 	}

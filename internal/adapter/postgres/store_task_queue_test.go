@@ -1,6 +1,7 @@
 package postgres_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestStore_QueueTask(t *testing.T) {
 		if err := f.store.UpdateTaskStatus(f.ctx, tk.ID, status); err != nil {
 			t.Fatalf("UpdateTaskStatus: %v", err)
 		}
-		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID); err != nil {
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, "dispatch-"+string(status)); err != nil {
 			t.Fatalf("QueueTask(%s task): %v", status, err)
 		}
 		got, err := f.store.GetTask(f.ctx, tk.ID)
@@ -35,10 +36,20 @@ func TestStore_QueueTask(t *testing.T) {
 		if got.Status != task.StatusQueued || got.AgentID != f.agent.ID {
 			t.Fatalf("%s task queued: status = %s, agent = %q; want queued for %s", status, got.Status, got.AgentID, f.agent.ID)
 		}
-		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID); !errors.Is(err, domain.ErrConflict) {
+		// The dispatch is recorded with its time (S2-F review, F7).
+		var dispatch string
+		var dispatchedAt bool
+		if err := retentionPool(t).QueryRow(context.Background(),
+			`SELECT dispatch_id, dispatched_at IS NOT NULL FROM tasks WHERE id = $1`, tk.ID).Scan(&dispatch, &dispatchedAt); err != nil {
+			t.Fatalf("read dispatch: %v", err)
+		}
+		if dispatch != "dispatch-"+string(status) || !dispatchedAt {
+			t.Fatalf("dispatch = %q (time recorded: %v), want dispatch-%s with its time", dispatch, dispatchedAt, status)
+		}
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, "dispatch-"+string(status)); !errors.Is(err, domain.ErrConflict) {
 			t.Fatalf("second QueueTask = %v, want ErrConflict", err)
 		}
-		if err := other.store.QueueTask(other.ctx, tk.ID, other.agent.ID); !errors.Is(err, domain.ErrNotFound) {
+		if err := other.store.QueueTask(other.ctx, tk.ID, other.agent.ID, "dispatch-other"); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("QueueTask from another tenant = %v, want ErrNotFound", err)
 		}
 	}
@@ -50,10 +61,10 @@ func TestStore_QueueTask(t *testing.T) {
 	if err := f.store.UpdateTaskStatus(f.ctx, running.ID, task.StatusRunning); err != nil {
 		t.Fatalf("UpdateTaskStatus: %v", err)
 	}
-	if err := f.store.QueueTask(f.ctx, running.ID, f.agent.ID); !errors.Is(err, domain.ErrConflict) {
+	if err := f.store.QueueTask(f.ctx, running.ID, f.agent.ID, "dispatch-running"); !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("QueueTask(running) = %v, want ErrConflict", err)
 	}
-	if err := f.store.QueueTask(f.ctx, uuid.New().String(), f.agent.ID); !errors.Is(err, domain.ErrNotFound) {
+	if err := f.store.QueueTask(f.ctx, uuid.New().String(), f.agent.ID, "dispatch-unknown"); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("QueueTask(unknown) = %v, want ErrNotFound", err)
 	}
 }

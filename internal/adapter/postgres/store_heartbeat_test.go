@@ -221,21 +221,31 @@ func TestStore_ConversationTurnHeartbeat(t *testing.T) {
 	}
 }
 
+// TestStore_TaskHeartbeat: a task heartbeat names the dispatch it was sent
+// for and counts only for the task's current dispatch (S2-F review, F7). A
+// late heartbeat of an earlier dispatch used to be recorded for the task's
+// current version: it counted for a re-dispatch no worker had accepted, and
+// the watchdog failed that dispatch.
 func TestStore_TaskHeartbeat(t *testing.T) {
 	a, b := newStatusFixture(t), newStatusFixture(t)
 	pool := retentionPool(t)
-	newTask := func(f *statusFixture, status task.Status) *task.Task {
+	dispatched := func(f *statusFixture) (*task.Task, string) {
 		t.Helper()
 		tk, err := f.store.CreateTask(f.ctx, task.CreateRequest{ProjectID: f.project.ID, Title: "heartbeat", Prompt: "p"})
 		if err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
-		if status != task.StatusPending {
-			if err := f.store.UpdateTaskStatus(f.ctx, tk.ID, status); err != nil {
-				t.Fatalf("UpdateTaskStatus: %v", err)
-			}
+		dispatch := uuid.New().String()
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, dispatch); err != nil {
+			t.Fatalf("QueueTask: %v", err)
 		}
-		return tk
+		return tk, dispatch
+	}
+	beat := func(f *statusFixture, id, dispatch string) {
+		t.Helper()
+		if err := f.store.TouchTaskHeartbeat(f.ctx, id, dispatch); err != nil {
+			t.Fatalf("TouchTaskHeartbeat: %v", err)
+		}
 	}
 	ageBeat := func(id string) {
 		t.Helper()
@@ -244,29 +254,29 @@ func TestStore_TaskHeartbeat(t *testing.T) {
 		}
 	}
 
-	lost := newTask(a, task.StatusRunning)
-	lostQueued := newTask(a, task.StatusQueued)
-	healthy := newTask(a, task.StatusRunning)
-	queued := newTask(a, task.StatusQueued) // never accepted
-	done := newTask(a, task.StatusRunning)
-	foreign := newTask(b, task.StatusRunning)
+	lost, lostDispatch := dispatched(a)
+	lostRunning, lostRunningDispatch := dispatched(a)
+	healthy, healthyDispatch := dispatched(a)
+	queued, queuedDispatch := dispatched(a) // never accepted
+	done, doneDispatch := dispatched(a)
+	foreign, foreignDispatch := dispatched(b)
+	if err := a.store.UpdateTaskStatus(a.ctx, lostRunning.ID, task.StatusRunning); err != nil {
+		t.Fatalf("UpdateTaskStatus(running): %v", err)
+	}
 
-	for _, tk := range []*task.Task{lost, lostQueued, healthy, done} {
-		if err := a.store.TouchTaskHeartbeat(a.ctx, tk.ID); err != nil {
-			t.Fatalf("TouchTaskHeartbeat: %v", err)
-		}
-	}
-	if err := b.store.TouchTaskHeartbeat(b.ctx, foreign.ID); err != nil {
-		t.Fatalf("TouchTaskHeartbeat(foreign): %v", err)
-	}
-	// Another tenant's heartbeat for a task is not recorded.
-	if err := b.store.TouchTaskHeartbeat(b.ctx, queued.ID); err != nil {
-		t.Fatalf("TouchTaskHeartbeat(cross-tenant): %v", err)
-	}
+	beat(a, lost.ID, lostDispatch)
+	beat(a, lostRunning.ID, lostRunningDispatch)
+	beat(a, healthy.ID, healthyDispatch)
+	beat(a, done.ID, doneDispatch)
+	beat(b, foreign.ID, foreignDispatch)
+	// Another tenant's heartbeat for a task is not recorded, nor one that
+	// names another dispatch.
+	beat(b, queued.ID, queuedDispatch)
+	beat(a, queued.ID, uuid.New().String())
 	if err := a.store.UpdateTaskStatus(a.ctx, done.ID, task.StatusCompleted); err != nil {
 		t.Fatalf("UpdateTaskStatus(done): %v", err)
 	}
-	for _, id := range []string{lost.ID, lostQueued.ID, done.ID, foreign.ID, queued.ID} {
+	for _, id := range []string{lost.ID, lostRunning.ID, done.ID, foreign.ID, queued.ID} {
 		ageBeat(id)
 	}
 
@@ -283,13 +293,13 @@ func TestStore_TaskHeartbeat(t *testing.T) {
 		return got
 	}
 	got := list()
-	for _, want := range []*task.Task{lost, lostQueued, foreign} {
+	for want, dispatch := range map[*task.Task]string{lost: lostDispatch, lostRunning: lostRunningDispatch, foreign: foreignDispatch} {
 		tk, ok := got[want.ID]
 		if !ok {
 			t.Fatalf("task %s with a lost heartbeat not listed", want.ID)
 		}
-		if tk.TenantID == "" || tk.ProjectID == "" {
-			t.Fatalf("listed task = %+v, want its tenant and project", tk)
+		if tk.TenantID == "" || tk.ProjectID == "" || tk.DispatchID != dispatch {
+			t.Fatalf("listed task = %+v, want its tenant, project and dispatch %s", tk, dispatch)
 		}
 	}
 	for name, tk := range map[string]*task.Task{"healthy": healthy, "never accepted": queued, "ended": done} {
@@ -298,12 +308,27 @@ func TestStore_TaskHeartbeat(t *testing.T) {
 		}
 	}
 
-	// A re-dispatch (the task row changes after the last heartbeat) starts
-	// without heartbeat: the old dispatch's heartbeat does not count.
-	if err := a.store.UpdateTaskStatus(a.ctx, lost.ID, task.StatusQueued); err != nil {
-		t.Fatalf("UpdateTaskStatus(re-dispatch): %v", err)
+	// A re-dispatch starts without heartbeat: neither the old dispatch's
+	// heartbeat nor a late one of it counts for the new dispatch.
+	if err := a.store.UpdateTaskStatus(a.ctx, lost.ID, task.StatusFailed); err != nil {
+		t.Fatalf("UpdateTaskStatus(failed): %v", err)
+	}
+	redispatch := uuid.New().String()
+	if err := a.store.QueueTask(a.ctx, lost.ID, a.agent.ID, redispatch); err != nil {
+		t.Fatalf("QueueTask(re-dispatch): %v", err)
 	}
 	if _, listed := list()[lost.ID]; listed {
 		t.Error("re-dispatched task listed with the previous dispatch's heartbeat")
+	}
+	beat(a, lost.ID, lostDispatch)
+	ageBeat(lost.ID)
+	if _, listed := list()[lost.ID]; listed {
+		t.Error("a late heartbeat of the previous dispatch counted for the re-dispatch")
+	}
+	// The new dispatch's own heartbeat counts.
+	beat(a, lost.ID, redispatch)
+	ageBeat(lost.ID)
+	if tk, listed := list()[lost.ID]; !listed || tk.DispatchID != redispatch {
+		t.Errorf("re-dispatch with a lost heartbeat: listed %v (%+v), want it with dispatch %s", listed, tk, redispatch)
 	}
 }

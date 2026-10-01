@@ -743,7 +743,7 @@ func (s *testStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ strin
 func (s *testStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
 	return nil, nil
 }
-func (s *testStore) TouchTaskHeartbeat(_ context.Context, _ string) error { return nil }
+func (s *testStore) TouchTaskHeartbeat(_ context.Context, _, _ string) error { return nil }
 func (s *testStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
@@ -910,4 +910,4 @@ func (s *testStore) GetConsentPurpose(_ context.Context, _ string) (*database.Co
 	return nil, nil
 }
 
-func (s *testStore) QueueTask(_ context.Context, _, _ string) error { return nil }
+func (s *testStore) QueueTask(_ context.Context, _, _, _ string) error { return nil }

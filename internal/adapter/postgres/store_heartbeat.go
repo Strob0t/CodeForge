@@ -111,29 +111,33 @@ func (s *Store) ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idl
 }
 
 // TouchTaskHeartbeat records a worker heartbeat of a queued or running task
-// of the caller's tenant, for the task's current version: a task changed
-// (re-dispatched) afterwards has no heartbeat until its worker sends one.
-func (s *Store) TouchTaskHeartbeat(ctx context.Context, id string) error {
+// of the caller's tenant for its dispatch dispatchID. A heartbeat of another
+// dispatch (a late one of an earlier dispatch) is ignored: a re-dispatched
+// task has no heartbeat until the worker of its new dispatch sends one. A
+// task dispatched before dispatches had IDs matches dispatchID "".
+func (s *Store) TouchTaskHeartbeat(ctx context.Context, id, dispatchID string) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO task_heartbeats (task_id, tenant_id, task_version, beat_at)
-		 SELECT id, tenant_id, version, now() FROM tasks
+		`INSERT INTO task_heartbeats (task_id, tenant_id, task_version, dispatch_id, beat_at)
+		 SELECT id, tenant_id, version, dispatch_id, now() FROM tasks
 		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
+		   AND COALESCE(dispatch_id, '') = $3
 		 ON CONFLICT (task_id) DO UPDATE
-		 SET task_version = EXCLUDED.task_version, beat_at = EXCLUDED.beat_at`, id, tenantFromCtx(ctx))
+		 SET task_version = EXCLUDED.task_version, dispatch_id = EXCLUDED.dispatch_id, beat_at = EXCLUDED.beat_at`,
+		id, tenantFromCtx(ctx), dispatchID)
 	if err != nil {
 		return fmt.Errorf("touch task heartbeat %s: %w", id, err)
 	}
 	return nil
 }
 
-// taskColumnsPrefixed are the task columns scanTenantTask reads, of table alias t.
+// taskColumnsPrefixed are the task columns scanDispatchedTask reads, of table alias t.
 var taskColumnsPrefixed = "t." + strings.Join([]string{
 	"id", "project_id", "agent_id", "title", "prompt", "status", "result", "cost_usd", "version", "created_at", "updated_at", "tenant_id",
-}, ", t.")
+}, ", t.") + ", COALESCE(t.dispatch_id, '')"
 
 // ListTasksWithStaleHeartbeat returns up to limit queued or running tasks
-// whose last heartbeat for their current version is older than idleFor,
-// oldest heartbeat first.
+// whose last heartbeat for their current dispatch is older than idleFor,
+// oldest heartbeat first, with their dispatch.
 //
 // INTENTIONALLY CROSS-TENANT: the stuck-work watchdog fails the tasks of
 // every tenant whose worker died. The returned tasks carry their tenant_id,
@@ -141,13 +145,13 @@ var taskColumnsPrefixed = "t." + strings.Join([]string{
 func (s *Store) ListTasksWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]task.Task, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+taskColumnsPrefixed+` FROM tasks t
-		 JOIN task_heartbeats h ON h.task_id = t.id AND h.task_version = t.version
+		 JOIN task_heartbeats h ON h.task_id = t.id AND h.dispatch_id IS NOT DISTINCT FROM t.dispatch_id
 		 WHERE t.status IN ('queued', 'running') AND h.beat_at < now() - $1::interval
 		 ORDER BY h.beat_at LIMIT $2`, idleFor, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks with stale heartbeat: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (task.Task, error) {
-		return scanTenantTask(r)
+		return scanDispatchedTask(r)
 	})
 }

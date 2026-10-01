@@ -19,7 +19,8 @@ import (
 // recorded is logged and dropped: the next one follows.
 func (s *AgentService) HandleTaskHeartbeat(ctx context.Context, hb *messagequeue.TaskHeartbeatPayload) error {
 	ctx = withPayloadTenant(ctx, hb.TenantID)
-	logBestEffort(ctx, s.store.TouchTaskHeartbeat(ctx, hb.TaskID), "TouchTaskHeartbeat", slog.String("task_id", hb.TaskID))
+	logBestEffort(ctx, s.store.TouchTaskHeartbeat(ctx, hb.TaskID, hb.DispatchID), "TouchTaskHeartbeat",
+		slog.String("task_id", hb.TaskID), slog.String("dispatch_id", hb.DispatchID))
 	return nil
 }
 

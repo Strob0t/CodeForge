@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
+
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -103,10 +105,15 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	if t.Status == task.StatusQueued || t.Status == task.StatusRunning {
 		return fmt.Errorf("dispatch task %s: it is %s: %w", taskID, t.Status, domain.ErrConflict)
 	}
-	if err := s.store.QueueTask(ctx, taskID, agentID); err != nil {
+	// Every dispatch has its own ID: the worker's heartbeats name it, so a
+	// late heartbeat of an earlier dispatch never counts for this one.
+	dispatchID := uuid.NewString()
+	if err := s.store.QueueTask(ctx, taskID, agentID, dispatchID); err != nil {
 		return fmt.Errorf("queue task: %w", err)
 	}
 	t.AgentID = agentID
+	t.Status = task.StatusQueued
+	t.DispatchID = dispatchID
 
 	// Mark agent as running
 	if err := s.store.UpdateAgentStatus(ctx, agentID, agent.StatusRunning); err != nil {

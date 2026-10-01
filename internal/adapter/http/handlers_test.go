@@ -1615,7 +1615,7 @@ func (m *mockStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ strin
 func (m *mockStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
 	return nil, nil
 }
-func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _ string) error { return nil }
+func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _, _ string) error { return nil }
 func (m *mockStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
@@ -3720,4 +3720,4 @@ func TestGetTrajectory_LoadOK_StatsError_Returns200(t *testing.T) {
 	}
 }
 
-func (m *mockStore) QueueTask(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) QueueTask(_ context.Context, _, _, _ string) error { return nil }

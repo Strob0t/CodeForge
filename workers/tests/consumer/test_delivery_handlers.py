@@ -183,7 +183,9 @@ class TestTasks:
         from codeforge.backends._base import TaskResult as BackendTaskResult
 
         monkeypatch.setattr("codeforge.consumer._tasks.heartbeat_interval", lambda _seconds: 0.01)
-        payload = TaskMessage(id="task-beat", project_id="p1", tenant_id="tenant-1", title="t", prompt="do it")
+        payload = TaskMessage(
+            id="task-beat", project_id="p1", tenant_id="tenant-1", title="t", prompt="do it", dispatch_id="d-1"
+        )
         msg, _ = jetstream_msg(payload.model_dump_json().encode(), subject="tasks.agent.aider")
 
         def beats() -> list[dict[str, object]]:
@@ -203,7 +205,8 @@ class TestTasks:
         await asyncio.sleep(0.05)
 
         assert len(sent) >= 2, "heartbeats are sent while the task runs"
-        assert {(b["task_id"], b["tenant_id"]) for b in sent} == {("task-beat", "tenant-1")}
+        # The heartbeats name the dispatch (S2-F review, F7).
+        assert {(b["task_id"], b["tenant_id"], b["dispatch_id"]) for b in sent} == {("task-beat", "tenant-1", "d-1")}
         assert all(isinstance(b["timestamp"], str) for b in sent)
         assert beats() == sent, "the heartbeat stops when the task ends"
 

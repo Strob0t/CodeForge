@@ -20,7 +20,7 @@ type queueTaskStore struct {
 	*mockStore
 }
 
-func (s queueTaskStore) QueueTask(_ context.Context, id, agentID string) error {
+func (s queueTaskStore) QueueTask(_ context.Context, id, agentID, dispatchID string) error {
 	for i := range s.tasks {
 		if s.tasks[i].ID != id {
 			continue
@@ -30,6 +30,7 @@ func (s queueTaskStore) QueueTask(_ context.Context, id, agentID string) error {
 		}
 		s.tasks[i].Status = task.StatusQueued
 		s.tasks[i].AgentID = agentID
+		s.tasks[i].DispatchID = dispatchID
 		return nil
 	}
 	return domain.ErrNotFound
@@ -115,5 +116,30 @@ func TestAgentDispatch_ATaskThatEndedCanBeDispatchedAgain(t *testing.T) {
 				t.Errorf("task status = %q, want queued", store.tasks[0].Status)
 			}
 		})
+	}
+}
+
+// TestAgentDispatch_EachDispatchHasItsOwnID (S2-F review, F7): the dispatch
+// is recorded with an ID of its own, which the worker gets with the task and
+// names on its heartbeats; a later dispatch of the task gets another one.
+func TestAgentDispatch_EachDispatchHasItsOwnID(t *testing.T) {
+	probe := registerExecutionProbe(t)
+	store := dispatchStore("/data/workspaces/proj-1")
+	svc := NewAgentService(queueTaskStore{store}, &mockQueue{}, &mockBroadcaster{})
+
+	var ids []string
+	for range 2 {
+		if err := svc.Dispatch(context.Background(), "agent-1", "task-1"); err != nil {
+			t.Fatalf("Dispatch: %v", err)
+		}
+		got := probe.reset()
+		if len(got) != 1 || got[0].Task.DispatchID == "" || got[0].Task.DispatchID != store.tasks[0].DispatchID {
+			t.Fatalf("execution task dispatch = %+v, want the recorded dispatch %q", got, store.tasks[0].DispatchID)
+		}
+		ids = append(ids, store.tasks[0].DispatchID)
+		store.tasks[0].Status = task.StatusFailed // the dispatch ended
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("both dispatches have ID %q", ids[0])
 	}
 }
