@@ -8,8 +8,14 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcpprotocol "github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 )
+
+// ErrStdioTestInCore: the Go Core never starts a stdio MCP server. Its
+// command is agent tooling; it runs in the worker, as the tool user (KI-71),
+// like every other command that runs for agents.
+var ErrStdioTestInCore = fmt.Errorf("%w: stdio servers cannot be tested from the core; they run in the worker", domain.ErrValidation)
 
 // MCPTestResult is the outcome of a connection test to an MCP server.
 type MCPTestResult struct {
@@ -26,12 +32,16 @@ type MCPTestTool struct {
 	Description string `json:"description,omitempty"`
 }
 
-// TestConnection performs a real MCP handshake against the given server
-// definition. It creates a client, calls Initialize and ListTools, then
-// closes the connection. The whole operation is bounded by the configured timeout.
+// TestConnection performs a real MCP handshake against the given sse or
+// streamable_http server definition. It creates a client, calls Initialize and
+// ListTools, then closes the connection. The whole operation is bounded by the
+// configured timeout. A stdio definition is refused (ErrStdioTestInCore).
 func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*MCPTestResult, error) {
 	if err := def.Validate(); err != nil {
 		return nil, err
+	}
+	if def.Transport == mcp.TransportStdio {
+		return nil, ErrStdioTestInCore
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.limits.MCPTestTimeout)
@@ -85,12 +95,12 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	return result, nil
 }
 
-// createClient builds an mcp-go Client for the given server definition.
+// createClient builds an mcp-go Client for a remote server definition. It
+// never starts a process: stdio servers run only in the worker.
 func (s *MCPService) createClient(def *mcp.ServerDef) (mcpclient.MCPClient, error) {
 	switch def.Transport {
 	case mcp.TransportStdio:
-		env := envMapToSlice(def.Env)
-		return mcpclient.NewStdioMCPClient(def.Command, env, def.Args...)
+		return nil, ErrStdioTestInCore
 
 	case mcp.TransportSSE:
 		var opts []transport.ClientOption
@@ -109,16 +119,4 @@ func (s *MCPService) createClient(def *mcp.ServerDef) (mcpclient.MCPClient, erro
 	default:
 		return nil, fmt.Errorf("unsupported transport: %s", def.Transport)
 	}
-}
-
-// envMapToSlice converts a map to the KEY=VALUE slice format expected by exec.Cmd.
-func envMapToSlice(env map[string]string) []string {
-	if len(env) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(env))
-	for k, v := range env {
-		out = append(out, k+"="+v)
-	}
-	return out
 }

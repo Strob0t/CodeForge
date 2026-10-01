@@ -2,10 +2,15 @@ package http_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
@@ -74,5 +79,43 @@ func TestMCPServerRoutesNeedAdmin(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestMCPServerTest_StdioIsRefusedInTheCore (KI-71): the Go Core never starts
+// a stdio MCP server; only sse and streamable_http servers are tested there.
+func TestMCPServerTest_StdioIsRefusedInTheCore(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	stdio := mcp.ServerDef{
+		ID: "s1", Name: "s", Transport: mcp.TransportStdio, Command: "/bin/sh",
+		Args: []string{"-c", "touch " + marker}, Status: mcp.ServerStatusRegistered,
+	}
+	body, err := json.Marshal(stdio)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, path := range map[string]string{"new server": "/api/v1/mcp/servers/test", "saved server": "/api/v1/mcp/servers/s1/test"} {
+		t.Run(name, func(t *testing.T) {
+			store := &mockStore{mcpServers: []mcp.ServerDef{stdio}}
+			r := newTestRouterWithStore(store)
+			req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status %d, want 400 (body %s)", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), "stdio servers cannot be tested from the core; they run in the worker") {
+				t.Fatalf("body %s", w.Body.String())
+			}
+			if _, err := os.Stat(marker); err == nil {
+				t.Fatal("the core started the stdio command")
+			}
+			if store.mcpServers[0].Status != mcp.ServerStatusRegistered {
+				t.Fatalf("server status changed to %q", store.mcpServers[0].Status)
+			}
+		})
 	}
 }
