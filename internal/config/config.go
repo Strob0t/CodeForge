@@ -447,16 +447,35 @@ func a2aKeyID(key string) string {
 // a2aTenantPattern matches the tenant UUID of a "<tenant-uuid>:<key>" entry.
 var a2aTenantPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
+// looksLikeUUID reports whether s has the shape of a UUID (36 characters,
+// dashes after 8, 13, 18 and 23), whatever its characters.
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for _, i := range []int{8, 13, 18, 23} {
+		if s[i] != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // ParsedAPIKeys returns the A2A API keys with their tenants (KI-15). An entry
-// "<tenant-uuid>:<key>" maps its key to that tenant; any other entry is a key
-// of the default tenant. An empty key, and a key listed twice (its tenant
-// would be ambiguous), is an error.
+// "<tenant-uuid>:<key>" maps its key to that tenant (the UUID in any case,
+// stored lowercase); any other entry is a key of the default tenant. An empty
+// key, a key listed twice (its tenant would be ambiguous) and a tenant shaped
+// like a UUID that is none are errors.
 func (a *A2A) ParsedAPIKeys() ([]A2AAPIKey, error) {
 	keys := make([]A2AAPIKey, 0, len(a.APIKeys))
 	seen := make(map[string]bool, len(a.APIKeys))
 	for i, entry := range a.APIKeys {
 		k := A2AAPIKey{Key: strings.TrimSpace(entry), TenantID: tenantctx.DefaultTenantID}
-		if tenant, key, ok := strings.Cut(k.Key, ":"); ok && a2aTenantPattern.MatchString(tenant) {
+		if tenant, key, ok := strings.Cut(k.Key, ":"); ok && looksLikeUUID(tenant) {
+			tenant = strings.ToLower(tenant)
+			if !a2aTenantPattern.MatchString(tenant) {
+				return nil, fmt.Errorf("entry %d: tenant %q is not a UUID", i+1, tenant)
+			}
 			k = A2AAPIKey{Key: key, TenantID: tenant}
 		}
 		if k.Key == "" {

@@ -83,3 +83,21 @@ func TestA2A_KeyIDs(t *testing.T) {
 		}
 	}
 }
+
+// TestA2A_KeyTenantCase (S2-G fix, 12): an uppercase tenant UUID silently
+// made the whole entry a key of the default tenant. Tenant UUIDs are
+// accepted in any case and stored lowercase; a prefix shaped like a UUID
+// that is none is refused instead of becoming part of a default-tenant key.
+func TestA2A_KeyTenantCase(t *testing.T) {
+	const lettered = "abcdef01-2222-3333-4444-5555555555ab"
+	keys, err := (&A2A{APIKeys: []string{strings.ToUpper(lettered) + ":key-upper"}}).ParsedAPIKeys()
+	if err != nil {
+		t.Fatalf("ParsedAPIKeys: %v", err)
+	}
+	if keys[0].TenantID != lettered || keys[0].Key != "key-upper" {
+		t.Fatalf("key = %+v, want key-upper of tenant %s", keys[0], lettered)
+	}
+	if _, err := (&A2A{APIKeys: []string{"1111111g-2222-3333-4444-555555555555:key"}}).ParsedAPIKeys(); err == nil {
+		t.Fatal("an entry with a malformed tenant UUID was accepted")
+	}
+}
