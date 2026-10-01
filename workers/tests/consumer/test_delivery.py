@@ -332,6 +332,7 @@ class TestMessageLoopConsumerLifecycle:
         """After too many errors the worker is marked unhealthy and all loops stop, so it exits and restarts."""
         monkeypatch.setattr("codeforge.consumer._MAX_CONSECUTIVE_ERRORS", 3)
         consumer._nc = MagicMock(is_connected=True)
+        consumer._notifications = MagicMock(ready=True)
         loop = asyncio.get_running_loop()
         consumer._loop_tasks = [loop.create_task(asyncio.sleep(3600))]
         assert consumer.ready is True

@@ -154,13 +154,16 @@ def test_port_in_use_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _running_consumer(*, connected: bool = True, loops_done: tuple[bool, ...] = (False, False)) -> object:
+def _running_consumer(
+    *, connected: bool = True, loops_done: tuple[bool, ...] = (False, False), notifications_ready: bool = True
+) -> object:
     from codeforge.consumer import TaskConsumer
 
     consumer = TaskConsumer(nats_url="nats://test:4222")
     consumer._running = True
     consumer._nc = MagicMock(is_connected=connected)
     consumer._loop_tasks = [MagicMock(done=MagicMock(return_value=done)) for done in loops_done]
+    consumer._notifications = MagicMock(ready=notifications_ready)
     return consumer
 
 
@@ -173,6 +176,9 @@ def test_consumer_readiness() -> None:
     assert _running_consumer(connected=False).ready is False, "NATS disconnected (reconnecting)"
     assert _running_consumer(loops_done=()).ready is False, "no consumer loop started yet"
     assert _running_consumer(loops_done=(False, True)).ready is False, "a consumer loop ended"
+    assert _running_consumer(notifications_ready=False).ready is False, (
+        "notification consumers not restored after a reconnect, or missed notifications still to be read back"
+    )
 
     stopping = _running_consumer()
     stopping._running = False

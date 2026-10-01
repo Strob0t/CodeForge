@@ -16,3 +16,11 @@ func TestStreamConfig_UsesConfiguredMaxBytes(t *testing.T) {
 		}
 	}
 }
+
+// KI-71 review: the worker reads notification subjects back with batched
+// direct gets (workers/codeforge/notifications.py), which need direct access.
+func TestStreamConfig_AllowsDirectGet(t *testing.T) {
+	if !streamConfig(1 << 20).AllowDirect {
+		t.Fatal("AllowDirect = false, want true: the worker reads notifications back with direct gets")
+	}
+}

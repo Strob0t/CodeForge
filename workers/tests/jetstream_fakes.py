@@ -128,13 +128,15 @@ class FakeSubscription:
 class FakeNotificationHub:
     """Stands in for codeforge.notifications.NotificationHub: its subscriptions are the JetStream fake's."""
 
+    ready = True
+
     def __init__(self, js: object) -> None:
         self._js = js
 
     async def start(self) -> None:
         return None
 
-    async def restore(self) -> None:
+    def reconnected(self) -> None:
         return None
 
     async def subscribe(self, subject: str, config: object = None) -> object:

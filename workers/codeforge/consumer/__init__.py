@@ -199,7 +199,8 @@ class TaskConsumer(
 
     @property
     def ready(self) -> bool:
-        """Whether the worker consumes its subjects: running, connected to NATS, every loop alive, not given up.
+        """Whether the worker consumes its subjects: running, connected to NATS, every loop alive, its
+        notifications complete (consumers restored, nothing missed left to read back), not given up.
 
         Read by the health server thread (GET /health/ready).
         """
@@ -211,6 +212,8 @@ class TaskConsumer(
             and self._nc.is_connected
             and bool(loops)
             and not any(task.done() for task in loops)
+            and self._notifications is not None
+            and self._notifications.ready
         )
 
     def request_stop(self) -> None:
@@ -243,6 +246,7 @@ class TaskConsumer(
         logger.info("connected to NATS", url=redact_url(self.nats_url))
 
         try:
+            await self._wait_for_stream(js)
             # Before any work is fetched: runs and tasks listen for cancels
             # and tool-call decisions through it.
             hub = NotificationHub(self._nc, js)
@@ -275,8 +279,7 @@ class TaskConsumer(
     async def _subscribe_all(
         self, js: JetStreamContext
     ) -> list[tuple[str, Callable[[], Coroutine[object, object, None]]]]:
-        """Wait for the stream, ensure every durable; return the message loops (not started yet)."""
-        await self._wait_for_stream(js)
+        """Ensure every durable (the stream exists); return the message loops (not started yet)."""
 
         subscriptions: list[tuple[str, Callable[[nats.aio.msg.Msg], Awaitable[None]]]] = [
             (SUBJECT_AGENT, self._handle_message),
@@ -467,16 +470,11 @@ class TaskConsumer(
         return self._abort_task
 
     async def _restore_notifications(self) -> None:
-        """After a reconnect: recreate notification consumers the server lost (a restart
-        without their state, or more than their inactivity threshold without a worker).
+        """After a reconnect: the hub recreates notification consumers the server lost and
+        reads back what this worker missed, retrying until it succeeded (not ready meanwhile).
         """
-        if self._notifications is None:
-            return
-        try:
-            await self._notifications.restore()
-        except Exception as exc:
-            # Runs would miss their cancels and tool-call decisions until the next reconnect.
-            logger.error("notification consumers not restored after a reconnect", error=str(exc))
+        if self._notifications is not None:
+            self._notifications.reconnected()
 
     async def stop(self) -> None:
         """Gracefully shut down: fail unfinished accepted work, drain with timeout and close.

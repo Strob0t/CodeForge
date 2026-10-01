@@ -38,7 +38,12 @@ from codeforge.nats_subjects import (
     SUBJECT_TOOLCALL_RESPONSE,
     consumer_name,
 )
-from codeforge.notifications import NotificationHub, notification_consumer_name
+from codeforge.notifications import (
+    NotificationConsumerConflictError,
+    NotificationHub,
+    notification_consumer_name,
+    notification_deliver_subject,
+)
 from codeforge.runtime import notification_consumer
 
 if TYPE_CHECKING:
@@ -116,10 +121,17 @@ def _free_port() -> int:
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
-    work = tmp_path_factory.mktemp("nats")
+    port = _free_port()
+    proc = _start_server(tmp_path_factory.mktemp("nats"), port)
+    yield port
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def _start_server(work: Path, port: int) -> subprocess.Popen[bytes]:
+    """Start a nats-server with the production configuration on *port*, storing into *work*."""
     shutil.copy(CONFIG, work / "nats-server.conf")
     (work / "passwords.conf").write_text('CORE_PASSWORD: "core-pw"\nWORKER_PASSWORD: "worker-pw"\n')
-    port = _free_port()
     assert NATS_SERVER is not None
     proc = subprocess.Popen(  # noqa: S603 - the test's own server
         [
@@ -142,9 +154,7 @@ def server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
         with contextlib.suppress(OSError), socket.create_connection(("127.0.0.1", port), timeout=0.2):
             break
         time.sleep(0.05)
-    yield port
-    proc.terminate()
-    proc.wait(timeout=10)
+    return proc
 
 
 async def _connect(port: int, user: str = "", password: str = "") -> nats.NATS:
@@ -187,7 +197,8 @@ async def _core_with_stream(port: int) -> nats.NATS:
     core = await _connect(port, "core", "core-pw")
     js = core.jetstream()
     with contextlib.suppress(Exception):
-        await js.add_stream(StreamConfig(name=STREAM_NAME, subjects=STREAM_SUBJECTS))
+        # As the Go Core configures it (internal/adapter/nats/nats.go streamConfig).
+        await js.add_stream(StreamConfig(name=STREAM_NAME, subjects=STREAM_SUBJECTS, allow_direct=True))
     return core
 
 
@@ -440,7 +451,9 @@ async def test_the_worker_cannot_reconfigure_core_consumers(server: int, api: st
         await core.close()
 
 
-async def test_a_changed_notification_consumer_is_recreated(server: int) -> None:
+async def test_a_notification_consumer_with_other_settings_is_never_deleted(server: int) -> None:
+    """Another instance may use it: a consumer that cannot be updated and does not deliver what the
+    hub needs stops the hub instead of being deleted (finding 3)."""
     core = await _core_with_stream(server)
     worker = await _connect(server, "worker", "worker-pw")
     try:
@@ -450,19 +463,20 @@ async def test_a_changed_notification_consumer_is_recreated(server: int) -> None
             timeout=2,
         )
         hub = NotificationHub(worker, worker.jetstream())
-        await hub.start()
-        info = await core.jetstream().consumer_info(STREAM_NAME, notification_consumer_name(SUBJECT_RUN_CANCEL))
-        assert info.config.filter_subject == SUBJECT_RUN_CANCEL
-        sub = await hub.subscribe(SUBJECT_RUN_CANCEL)
-        await core.jetstream().publish(SUBJECT_RUN_CANCEL, b'{"run_id": "after-recreate"}')
-        assert json.loads((await sub.next_msg(timeout=5)).data)["run_id"] == "after-recreate"
+        with pytest.raises(NotificationConsumerConflictError, match=r"tasks\.output"):
+            await hub.start()
+        info = await core.jetstream().consumer_info(STREAM_NAME, NOTIFY_RUNS_CANCEL)
+        assert info.config.filter_subject == "tasks.output"
     finally:
+        with contextlib.suppress(Exception):
+            await core.jetstream().delete_consumer(STREAM_NAME, NOTIFY_RUNS_CANCEL)
         await worker.close()
         await core.close()
 
 
 async def test_a_lost_notification_consumer_is_restored(server: int) -> None:
-    """The worker recreates its notification consumers on a reconnect (codeforge.consumer)."""
+    """The worker recreates its notification consumers on a reconnect (codeforge.consumer) and
+    reads back what was published while it had none."""
     core = await _core_with_stream(server)
     worker = await _connect(server, "worker", "worker-pw")
     try:
@@ -470,14 +484,156 @@ async def test_a_lost_notification_consumer_is_restored(server: int) -> None:
         await hub.start()
         sub = await hub.subscribe(SUBJECT_RUN_CANCEL)
         await core.jetstream().delete_consumer(STREAM_NAME, NOTIFY_RUNS_CANCEL)
+        await core.jetstream().publish(SUBJECT_RUN_CANCEL, b'{"run_id": "without a consumer"}')
 
-        await hub.restore()
+        hub.reconnected()
+        await _eventually(lambda: hub.ready)
         await core.jetstream().publish(SUBJECT_RUN_CANCEL, b'{"run_id": "restored"}')
-        assert json.loads((await sub.next_msg(timeout=5)).data)["run_id"] == "restored"
+        assert await _run_ids(sub, until="restored") >= {"without a consumer", "restored"}
         assert worker._test_errors == []  # type: ignore[attr-defined]
     finally:
         await worker.close()
         await core.close()
+
+
+async def _run_ids(sub: object, until: str) -> set[str]:
+    """The run IDs *sub* receives up to *until* (a message read back may arrive twice)."""
+    seen: set[str] = set()
+    while until not in seen:
+        msg = await sub.next_msg(timeout=10)  # type: ignore[attr-defined]
+        seen.add(json.loads(msg.data)["run_id"])
+    return seen
+
+
+class _Proxy:
+    """A TCP proxy in front of the server whose connections the test can cut and restore."""
+
+    def __init__(self, port: int) -> None:
+        self._port = port
+        self._open = True
+        self._writers: set[asyncio.StreamWriter] = set()
+        self._server: asyncio.Server | None = None
+        self.port = 0
+
+    async def start(self) -> None:
+        self._server = await asyncio.start_server(self._accept, "127.0.0.1", 0)
+        self.port = self._server.sockets[0].getsockname()[1]
+
+    async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        if not self._open:
+            writer.close()
+            return
+        up_reader, up_writer = await asyncio.open_connection("127.0.0.1", self._port)
+        self._writers.update({writer, up_writer})
+
+        async def pump(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
+            with contextlib.suppress(Exception):
+                while data := await src.read(65536):
+                    dst.write(data)
+                    await dst.drain()
+            dst.close()
+
+        await asyncio.gather(pump(reader, up_writer), pump(up_reader, writer))
+
+    def cut(self) -> None:
+        self._open = False
+        for writer in list(self._writers):
+            writer.close()
+        self._writers.clear()
+
+    def restore(self) -> None:
+        self._open = True
+
+    async def close(self) -> None:
+        self.cut()
+        if self._server is not None:
+            self._server.close()
+
+
+@pytest.mark.parametrize("other_instance", [True, False], ids=["another instance stays", "alone"])
+async def test_no_notification_is_lost_while_an_instance_is_away(server: int, other_instance: bool) -> None:
+    """An instance that is disconnected while a cancel is published gets it after its reconnect,
+    whether another instance kept the shared consumer busy meanwhile or not (finding 3)."""
+    core = await _core_with_stream(server)
+    proxy = _Proxy(server)
+    await proxy.start()
+    disconnected, reconnected = asyncio.Event(), asyncio.Event()
+    hub: NotificationHub | None = None
+
+    async def on_disconnect() -> None:
+        disconnected.set()
+
+    async def on_reconnect() -> None:
+        reconnected.set()
+        assert hub is not None
+        hub.reconnected()
+
+    away = await nats.connect(
+        f"nats://worker:worker-pw@127.0.0.1:{proxy.port}",
+        inbox_prefix=INBOX_PREFIX,
+        reconnect_time_wait=0.1,
+        max_reconnect_attempts=-1,
+        disconnected_cb=on_disconnect,
+        reconnected_cb=on_reconnect,
+    )
+    other = await _connect(server, "worker", "worker-pw") if other_instance else None
+    try:
+        hub = NotificationHub(away, away.jetstream())
+        await hub.start()
+        listener = await hub.subscribe(SUBJECT_RUN_CANCEL)
+        if other is not None:
+            other_hub = NotificationHub(other, other.jetstream())
+            await other_hub.start()
+            other_listener = await other_hub.subscribe(SUBJECT_RUN_CANCEL)
+        await core.jetstream().publish(SUBJECT_RUN_CANCEL, b'{"run_id": "before"}')
+        assert await _run_ids(listener, until="before") == {"before"}
+
+        proxy.cut()
+        await asyncio.wait_for(disconnected.wait(), timeout=10)
+        await core.jetstream().publish(SUBJECT_RUN_CANCEL, b'{"run_id": "while away"}')
+        if other is not None:
+            assert await _run_ids(other_listener, until="while away") >= {"while away"}
+        proxy.restore()
+        await asyncio.wait_for(reconnected.wait(), timeout=10)
+
+        assert await _run_ids(listener, until="while away") >= {"while away"}
+        await _eventually(lambda: hub is not None and hub.ready)
+    finally:
+        await away.close()
+        if other is not None:
+            await other.close()
+        await core.close()
+        await proxy.close()
+
+
+async def test_the_worker_waits_for_the_stream_before_its_notification_consumers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 1: a worker that starts before the Go Core created the stream waits for it, then
+    creates its notification consumers and becomes ready (it used to exit)."""
+    monkeypatch.setattr("codeforge.consumer._STREAM_POLL_SECONDS", 0.05)
+    port = _free_port()
+    proc = _start_server(tmp_path, port)
+    try:
+        worker = TaskConsumer(nats_url=f"nats://worker:worker-pw@127.0.0.1:{port}", litellm_url="http://127.0.0.1:9")
+        started = asyncio.create_task(worker.start())
+        await asyncio.sleep(0.5)
+        assert not started.done(), "the worker must wait for the stream"
+        assert not worker.ready
+
+        core = await _core_with_stream(port)
+        try:
+            await _eventually(lambda: worker.ready or started.done(), timeout=20)
+            assert not started.done(), started.exception()
+            info = await core.jetstream().consumer_info(STREAM_NAME, NOTIFY_RUNS_CANCEL)
+            assert info.config.deliver_subject == notification_deliver_subject(SUBJECT_RUN_CANCEL)
+        finally:
+            await worker.stop()
+            await asyncio.wait_for(started, timeout=20)
+            await core.close()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 async def test_every_worker_instance_sees_every_notification(server: int) -> None:

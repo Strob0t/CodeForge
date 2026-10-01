@@ -131,7 +131,8 @@ func Connect(ctx context.Context, url string, streamMaxBytes int64) (*Queue, err
 
 // streamConfig describes the CODEFORGE stream. Subjects must cover every
 // subject prefix in port/messagequeue. Duplicates enables JetStream message
-// deduplication via the Nats-Msg-Id header.
+// deduplication via the Nats-Msg-Id header. AllowDirect lets the worker read
+// notification subjects back with batched direct gets (KI-71).
 func streamConfig(maxBytes int64) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:         streamName,
@@ -146,6 +147,7 @@ func streamConfig(maxBytes int64) jetstream.StreamConfig {
 		MaxConsumers: 200,
 		Discard:      jetstream.DiscardOld,
 		Compression:  jetstream.S2Compression,
+		AllowDirect:  true,
 	}
 }
 
