@@ -85,6 +85,7 @@ vi.mock("~/components/WebSocketProvider", () => ({
 }));
 
 import ChannelList from "./ChannelList";
+import { followedChannel, noteUntrackedRead, setFollowedChannel } from "./channelReading";
 import ChannelView from "./ChannelView";
 import ThreadPanel from "./ThreadPanel";
 
@@ -109,9 +110,19 @@ function channelMessage(m: ChannelMessageRecord): WSMessage {
   return { type: "channel.message", payload: { channel_id: m.channel_id, message: m } };
 }
 
+/** Gives the jsdom message list a scroll position (jsdom has no layout). */
+function scrollMessages(scrollTop: number): void {
+  const list = screen.getByTestId("channel-messages");
+  Object.defineProperty(list, "scrollHeight", { configurable: true, value: 2000 });
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 500 });
+  Object.defineProperty(list, "scrollTop", { configurable: true, value: scrollTop });
+  fireEvent.scroll(list);
+}
+
 beforeEach(() => {
   ws.handlers.clear();
   auth.admin = false;
+  setFollowedChannel(undefined);
   Element.prototype.scrollIntoView = () => undefined;
   apiMock.get.mockReset().mockResolvedValue({
     id: "ch-1",
@@ -277,6 +288,13 @@ describe("ChannelList unread counts", () => {
     return { id, name, type: "project", unread_count: unread, has_webhook_key: false };
   }
 
+  function readEvent(userId: string): WSMessage {
+    return {
+      type: "channel.read",
+      payload: { channel_id: "ch-1", user_id: userId, message_id: "m-1" },
+    };
+  }
+
   it("shows the server counts and follows new messages and own reads", async () => {
     apiMock.list.mockResolvedValue([channel("ch-1", "general", 2), channel("ch-2", "random", 0)]);
     render(() => <ChannelList />);
@@ -285,11 +303,89 @@ describe("ChannelList unread counts", () => {
     ws.emit(channelMessage({ ...record("m-5", "hi", "", "ch-2"), sender_id: "u-bob" }));
     await screen.findByLabelText("1 unread");
 
-    ws.emit({
-      type: "channel.read",
-      payload: { channel_id: "ch-1", user_id: "u-me", message_id: "m-1" },
-    });
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 0), channel("ch-2", "random", 1)]);
+    ws.emit(readEvent("u-me"));
     await waitFor(() => expect(screen.queryByLabelText("2 unread")).toBeNull());
     expect(screen.getByLabelText("1 unread")).toBeTruthy();
+  });
+
+  // S6-H review 7: a read position can be older than the newest message, so
+  // the counts come from the server after a read instead of dropping to 0.
+  it("takes the counts from the server after an own read, not after someone else's", async () => {
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 3)]);
+    render(() => <ChannelList />);
+    await screen.findByLabelText("3 unread");
+
+    ws.emit(readEvent("u-bob"));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(apiMock.list).toHaveBeenCalledTimes(1);
+
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 1)]);
+    ws.emit(readEvent("u-me"));
+    ws.emit(readEvent("u-me"));
+    await screen.findByLabelText("1 unread");
+    expect(apiMock.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches the counts after a read the server does not track", async () => {
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 2)]);
+    render(() => <ChannelList />);
+    await screen.findByLabelText("2 unread");
+
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 0)]);
+    noteUntrackedRead();
+    await waitFor(() => expect(screen.queryByLabelText("2 unread")).toBeNull());
+  });
+
+  it("counts messages of a channel that is open but not followed", async () => {
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 0)]);
+    render(() => <ChannelList />);
+    await screen.findByText("general");
+
+    setFollowedChannel("ch-1");
+    ws.emit(channelMessage({ ...record("m-6", "seen", "", "ch-1"), sender_id: "u-bob" }));
+    expect(screen.queryByLabelText("1 unread")).toBeNull();
+
+    setFollowedChannel(undefined);
+    ws.emit(channelMessage({ ...record("m-7", "below", "", "ch-1"), sender_id: "u-bob" }));
+    await screen.findByLabelText("1 unread");
+  });
+});
+
+// S6-H review 7: messages that arrive while the reader is scrolled up stay
+// unread until the reader reaches the bottom.
+describe("ChannelView following", () => {
+  it("marks messages read only once the reader reaches the bottom", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      apiMock.messages.mockResolvedValue([record("m-1", "first message")]);
+      render(() => <ChannelView />);
+      await screen.findByText("first message");
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(apiMock.markRead).toHaveBeenLastCalledWith("ch-1", "m-1");
+      expect(followedChannel()).toBe("ch-1");
+
+      scrollMessages(0);
+      expect(followedChannel()).toBeUndefined();
+      ws.emit(channelMessage(record("m-2", "while scrolled up")));
+      await screen.findByText("while scrolled up");
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(apiMock.markRead).toHaveBeenCalledTimes(1);
+
+      scrollMessages(1500);
+      expect(followedChannel()).toBe("ch-1");
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(apiMock.markRead).toHaveBeenLastCalledWith("ch-1", "m-2");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops following when it closes", async () => {
+    const { unmount } = render(() => <ChannelView />);
+    await screen.findByText("first message");
+    expect(followedChannel()).toBe("ch-1");
+    unmount();
+    expect(followedChannel()).toBeUndefined();
   });
 });

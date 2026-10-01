@@ -119,7 +119,7 @@ describe("applyUnreadEvent", () => {
     payload: { channel_id: "ch-1", user_id: userId, message_id: "m-1" },
   });
 
-  it("counts a top-level message of someone else in a channel that is not open", () => {
+  it("counts a top-level message of someone else in a channel that is not followed", () => {
     expect(applyUnreadEvent({ "ch-1": 2 }, channelEvent(fromBob), "u-me", "ch-9")).toEqual({
       "ch-1": 3,
     });
@@ -130,20 +130,14 @@ describe("applyUnreadEvent", () => {
   it.each<[string, WSMessage, string | undefined]>([
     ["own message", channelEvent({ ...stored, sender_id: "u-me" }), undefined],
     ["thread reply", channelEvent({ ...fromBob, parent_id: "m-0" }), undefined],
-    ["message in the open channel", channelEvent(fromBob), "ch-1"],
+    ["message in the followed channel", channelEvent(fromBob), "ch-1"],
     ["event of another type", { type: "task.output", payload: { line: "x" } }, undefined],
     ["read position of someone else", read("u-bob"), undefined],
-  ])("does not count an %s and keeps the same counts object", (_name, msg, open) => {
+    // S6-H review 7: a read position may be older than the newest message;
+    // the list refetches the counts from the server instead.
+    ["own read position", read("u-me"), undefined],
+  ])("does not count an %s and keeps the same counts object", (_name, msg, followed) => {
     const counts = { "ch-1": 2 };
-    expect(applyUnreadEvent(counts, msg, "u-me", open)).toBe(counts);
-  });
-
-  it("clears the count when the user read the channel, not when someone else did", () => {
-    expect(applyUnreadEvent({ "ch-1": 4 }, read("u-me"), "u-me", undefined)).toEqual({
-      "ch-1": 0,
-    });
-    expect(applyUnreadEvent({ "ch-1": 4 }, read("u-bob"), "u-me", undefined)).toEqual({
-      "ch-1": 4,
-    });
+    expect(applyUnreadEvent(counts, msg, "u-me", followed)).toBe(counts);
   });
 });

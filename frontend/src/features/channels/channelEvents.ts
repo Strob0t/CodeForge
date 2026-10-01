@@ -78,28 +78,23 @@ export function replyCounts(messages: readonly { parent_id: string }[]): Map<str
 }
 
 /**
- * Applies a live channel event to the unread counts shown for the channel
+ * Applies a live channel message to the unread counts shown for the channel
  * list, like the server counts them: top-level messages of others raise the
- * channel's count unless the channel is open; the user's own read position
- * (from any of their sessions) clears it. Returns `counts` itself when the
- * event changes nothing (most events are not channel events).
+ * channel's count unless the reader follows that channel (open and scrolled
+ * to the bottom). Read positions are not applied here: one may be older than
+ * the newest message, so the list takes the counts from the server after a
+ * read. Returns `counts` itself when the event changes nothing (most events
+ * are not channel messages).
  */
 export function applyUnreadEvent(
   counts: Readonly<Record<string, number>>,
   msg: WSMessage,
   me: string | undefined,
-  openChannelId: string | undefined,
+  followedChannelId: string | undefined,
 ): Readonly<Record<string, number>> {
   const message = parseChannelMessageEvent(msg);
-  if (message) {
-    const own = me !== undefined && message.sender_id === me;
-    const ownOrOpen = own || message.channel_id === openChannelId;
-    if (message.parent_id || ownOrOpen) return counts;
-    return { ...counts, [message.channel_id]: (counts[message.channel_id] ?? 0) + 1 };
-  }
-  const read = parseChannelReadEvent(msg);
-  if (read && read.user_id === me && counts[read.channel_id] !== 0) {
-    return { ...counts, [read.channel_id]: 0 };
-  }
-  return counts;
+  if (!message) return counts;
+  const own = me !== undefined && message.sender_id === me;
+  if (message.parent_id || own || message.channel_id === followedChannelId) return counts;
+  return { ...counts, [message.channel_id]: (counts[message.channel_id] ?? 0) + 1 };
 }

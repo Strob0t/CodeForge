@@ -1,5 +1,4 @@
-import { useLocation } from "@solidjs/router";
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, on, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import { useAuth } from "~/components/AuthProvider";
@@ -7,21 +6,19 @@ import { useSidebar } from "~/components/SidebarProvider";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { NavSection } from "~/ui/layout";
 
-import { applyUnreadEvent } from "./channelEvents";
+import { applyUnreadEvent, parseChannelReadEvent } from "./channelEvents";
+import { followedChannel, untrackedReads } from "./channelReading";
 
-/** The ID of the channel shown by the current route, if any. */
-function openChannelId(pathname: string): string | undefined {
-  const match = /^\/channels\/([^/]+)/.exec(pathname);
-  return match?.[1];
-}
+/** Delay before the counts are refetched after a read (bursts refetch once). */
+const UNREAD_REFETCH_DELAY_MS = 300;
 
 export default function ChannelList() {
-  const [channels] = createResource(() => api.channels.list());
+  const [channels, { refetch }] = createResource(() => api.channels.list());
   const { collapsed } = useSidebar();
   const { user } = useAuth();
-  const location = useLocation();
 
-  // Unread counts start from the server's and follow the live events.
+  // Unread counts start from the server's and follow the live messages; after
+  // the user read a channel (in any session) they come from the server again.
   const [unread, setUnread] = createSignal<Readonly<Record<string, number>>>({});
   createEffect(() => {
     const list = channels();
@@ -29,11 +26,27 @@ export default function ChannelList() {
     setUnread(Object.fromEntries(list.map((ch) => [ch.id, ch.unread_count])));
   });
 
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined;
+  function refetchCounts(): void {
+    if (refetchTimer !== undefined) clearTimeout(refetchTimer);
+    refetchTimer = setTimeout(() => {
+      refetchTimer = undefined;
+      void refetch();
+    }, UNREAD_REFETCH_DELAY_MS);
+  }
+  onCleanup(() => {
+    if (refetchTimer !== undefined) clearTimeout(refetchTimer);
+  });
+  createEffect(on(untrackedReads, refetchCounts, { defer: true }));
+
   const { onMessage } = useWebSocket();
   const unsubscribe = onMessage((msg) => {
-    setUnread((counts) =>
-      applyUnreadEvent(counts, msg, user()?.id, openChannelId(location.pathname)),
-    );
+    const read = parseChannelReadEvent(msg);
+    if (read) {
+      if (read.user_id === user()?.id) refetchCounts();
+      return;
+    }
+    setUnread((counts) => applyUnreadEvent(counts, msg, user()?.id, followedChannel()));
   });
   onCleanup(unsubscribe);
 

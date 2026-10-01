@@ -1,5 +1,13 @@
 import { useParams } from "@solidjs/router";
-import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type { ChannelMessageRecord } from "~/api/types";
@@ -12,6 +20,7 @@ import { addMessage, parseChannelMessageEvent, replyCounts } from "./channelEven
 import ChannelInput from "./ChannelInput";
 import type { ChannelMessageData } from "./ChannelMessage";
 import ChannelMessage from "./ChannelMessage";
+import { followedChannel, noteUntrackedRead, setFollowedChannel } from "./channelReading";
 import ThreadPanel from "./ThreadPanel";
 
 // ---------------------------------------------------------------------------
@@ -88,14 +97,34 @@ export default function ChannelView() {
       if (!newest || newest.id === lastMarked) return;
       lastMarked = newest.id;
       // A failed mark only leaves the channel's unread count as it is.
-      api.channels.markRead(params.id, newest.id).catch(() => {
-        lastMarked = "";
-      });
+      api.channels
+        .markRead(params.id, newest.id)
+        .then((state) => {
+          if (state === undefined) noteUntrackedRead();
+        })
+        .catch(() => {
+          lastMarked = "";
+        });
     }, MARK_READ_DELAY_MS);
   }
   onCleanup(() => {
     if (markTimer !== undefined) clearTimeout(markTimer);
   });
+
+  // The reader follows the channel while the list is scrolled to the bottom:
+  // new messages are then seen and marked read, and the channel list does not
+  // count them. Scrolled up, they stay unread until the reader reaches the
+  // bottom again.
+  createEffect(() => setFollowedChannel(params.id));
+  onCleanup(() => {
+    if (followedChannel() === params.id) setFollowedChannel(undefined);
+  });
+  function handleScroll(): void {
+    const following = followedChannel() === params.id;
+    if (isNearBottom() === following) return;
+    setFollowedChannel(following ? undefined : params.id);
+    if (!following) scheduleMarkRead();
+  }
 
   // Messages posted by other users, agents and webhooks arrive as channel.message.
   const { onMessage } = useWebSocket();
@@ -106,7 +135,7 @@ export default function ChannelView() {
       arrivedWhileLoading.push(incoming);
       return;
     }
-    const follow = isNearBottom();
+    const follow = followedChannel() === params.id;
     mutateMessages((prev) => addMessage(prev, incoming, "start"));
     // Keep following the conversation, but do not pull a reader of older
     // history back to the bottom.
@@ -240,7 +269,12 @@ export default function ChannelView() {
       </Show>
 
       {/* Message list */}
-      <div ref={listRef} class="flex-1 overflow-y-auto">
+      <div
+        ref={listRef}
+        class="flex-1 overflow-y-auto"
+        data-testid="channel-messages"
+        onScroll={handleScroll}
+      >
         <Show
           when={!messages.loading}
           fallback={
