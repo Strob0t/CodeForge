@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -1133,8 +1134,9 @@ func (m *runtimeMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMes
 func (m *runtimeMockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
 	return orchestration.HandoffClaim{Claimed: true}, nil
 }
-func (m *runtimeMockStore) FinishHandoff(_ context.Context, _, _ string) error  { return nil }
-func (m *runtimeMockStore) ReleaseHandoff(_ context.Context, _, _ string) error { return nil }
+func (m *runtimeMockStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (m *runtimeMockStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *runtimeMockStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (m *runtimeMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }
@@ -1413,6 +1415,10 @@ func TestStartRun_UnknownPolicyProfile(t *testing.T) {
 	_, err := svc.StartRun(ctx, &req)
 	if err == nil {
 		t.Fatal("expected error for unknown policy profile")
+	}
+	// S2-G fix 2, 1: a refusal, not a failure a retry may cure.
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("error = %v, want domain.ErrValidation", err)
 	}
 }
 

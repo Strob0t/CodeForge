@@ -63,12 +63,17 @@ func TestStore_HandoffClaims(t *testing.T) {
 		t.Fatalf("claim of a done stage = claimed %v, done %v; want done", claimed, done)
 	}
 
-	// Released: claimed again at once.
+	// Released: claimed again at once, with the task of the earlier attempt
+	// (S2-G fix 2, 1).
+	if err := a.store.SetHandoffTask(a.ctx, id, "approved", "task-1"); err != nil {
+		t.Fatalf("SetHandoffTask: %v", err)
+	}
 	if err := a.store.ReleaseHandoff(a.ctx, id, "approved"); err != nil {
 		t.Fatalf("ReleaseHandoff: %v", err)
 	}
-	if claimed, _, _ := claim(a, "approved"); !claimed {
-		t.Fatal("a released claim could not be claimed again")
+	c, err := a.store.ClaimHandoff(a.ctx, id, "approved", lease)
+	if err != nil || !c.Claimed || c.TaskID != "task-1" {
+		t.Fatalf("claim after release = %+v, %v; want claimed with task-1", c, err)
 	}
 	if _, err := a.store.ClaimHandoff(a.ctx, id, "elsewhere", lease); err == nil {
 		t.Fatal("an unknown stage was claimed")

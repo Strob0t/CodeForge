@@ -725,8 +725,9 @@ func (s *testStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) e
 func (s *testStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
 	return orchestration.HandoffClaim{Claimed: true}, nil
 }
-func (s *testStore) FinishHandoff(_ context.Context, _, _ string) error  { return nil }
-func (s *testStore) ReleaseHandoff(_ context.Context, _, _ string) error { return nil }
+func (s *testStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (s *testStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (s *testStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (s *testStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }

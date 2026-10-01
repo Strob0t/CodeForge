@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -63,6 +64,7 @@ type handoffStore struct {
 type handoffClaimState struct {
 	claimedAt time.Time
 	done      bool
+	taskID    string
 }
 
 func (s *handoffStore) ClaimHandoff(ctx context.Context, handoffID, stage string, lease time.Duration) (orchestration.HandoffClaim, error) {
@@ -78,7 +80,7 @@ func (s *handoffStore) ClaimHandoff(ctx context.Context, handoffID, stage string
 		return orchestration.HandoffClaim{Done: true}, nil
 	case time.Since(c.claimedAt) >= lease:
 		c.claimedAt = time.Now()
-		return orchestration.HandoffClaim{Claimed: true}, nil
+		return orchestration.HandoffClaim{Claimed: true, TaskID: c.taskID}, nil
 	}
 	return orchestration.HandoffClaim{Age: time.Since(c.claimedAt)}, nil
 }
@@ -92,11 +94,36 @@ func (s *handoffStore) FinishHandoff(ctx context.Context, handoffID, stage strin
 	return nil
 }
 
+// ReleaseHandoff makes the claim claimable at once and keeps its task.
 func (s *handoffStore) ReleaseHandoff(ctx context.Context, handoffID, stage string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.claims, tenantctx.FromContext(ctx)+"/"+handoffID+"/"+stage)
+	if c, ok := s.claims[tenantctx.FromContext(ctx)+"/"+handoffID+"/"+stage]; ok {
+		c.claimedAt = time.Time{}
+	}
 	return nil
+}
+
+func (s *handoffStore) SetHandoffTask(ctx context.Context, handoffID, stage, taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.claims[tenantctx.FromContext(ctx)+"/"+handoffID+"/"+stage]; ok {
+		c.taskID = taskID
+	}
+	return nil
+}
+
+func (s *handoffStore) GetTask(ctx context.Context, id string) (*task.Task, error) {
+	s.mu.Lock()
+	for i := range s.created {
+		if s.created[i].ID == id {
+			t := s.created[i]
+			s.mu.Unlock()
+			return &t, nil
+		}
+	}
+	s.mu.Unlock()
+	return s.runtimeMockStore.GetTask(ctx, id)
 }
 
 // claim sets the claim of a handoff stage of tenant A as another process left it.
@@ -201,7 +228,8 @@ type recordingRunStarter struct {
 	mu        sync.Mutex
 	started   []run.StartRequest
 	tenants   []string
-	failStart int // StartRun calls that fail
+	failStart int   // StartRun calls that fail
+	startErr  error // their error (default: the queue is unavailable)
 }
 
 func (r *recordingRunStarter) StartRun(ctx context.Context, req *run.StartRequest) (*run.Run, error) {
@@ -209,6 +237,9 @@ func (r *recordingRunStarter) StartRun(ctx context.Context, req *run.StartReques
 	defer r.mu.Unlock()
 	if r.failStart > 0 {
 		r.failStart--
+		if r.startErr != nil {
+			return nil, r.startErr
+		}
 		return nil, errors.New("start run: queue unavailable")
 	}
 	r.started = append(r.started, *req)
@@ -568,6 +599,10 @@ func TestHandoffRequest_TransientErrorsAreRetried(t *testing.T) {
 			if st := env.statuses(); len(st) != 1 || st[0].Status != "initiated" {
 				t.Fatalf("handoff.status = %+v, want initiated", st)
 			}
+			// S2-G fix 2, 1: the retry reuses the handoff's task.
+			if len(env.store.created) != 1 || env.runs.started[0].TaskID != env.store.created[0].ID {
+				t.Fatalf("tasks created = %d (run on %s), want one, reused by the retry", len(env.store.created), env.runs.started[0].TaskID)
+			}
 		})
 	}
 
@@ -672,4 +707,35 @@ func TestHandoffRequest_ClaimOfADeadProcess(t *testing.T) {
 			t.Fatalf("runs started = %d, want none for a handoff carried out before", len(env.runs.started))
 		}
 	})
+}
+
+// TestHandoffRequest_PermanentStartErrorIsAnnounced (S2-G fix 2, 1): every
+// StartRun error was retried, also a refusal (an unknown policy profile, a
+// rejected execution mode, a validation error): each redelivery created
+// another task, and the reason was never announced. A refusal fails the
+// handoff at once, with the reason.
+func TestHandoffRequest_PermanentStartErrorIsAnnounced(t *testing.T) {
+	for name, startErr := range map[string]error{
+		"validation": fmt.Errorf("unknown policy profile %q: %w", "gone", domain.ErrValidation),
+		"not found":  fmt.Errorf("get agent: %w", domain.ErrNotFound),
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newHandoffEnv(t, false)
+			env.runs.failStart, env.runs.startErr = 1, startErr
+			data := handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review", map[string]any{"handoff_id": "h-1"})
+
+			for range 2 { // and its redelivery
+				if err := env.svc.HandleHandoffRequest(context.Background(), data); err != nil {
+					t.Fatalf("HandleHandoffRequest = %v, want the refusal acked", err)
+				}
+			}
+			if len(env.store.created) != 1 {
+				t.Fatalf("tasks created = %d, want one", len(env.store.created))
+			}
+			st := env.statuses()
+			if len(st) != 1 || st[0].Status != "failed" || !strings.Contains(st[0].Context, startErr.Error()) {
+				t.Fatalf("handoff.status = %+v, want failed with %q", st, startErr)
+			}
+		})
+	}
 }

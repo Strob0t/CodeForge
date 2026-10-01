@@ -417,7 +417,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 	profile, ok := s.policy.GetProfile(ctx, profileName)
 	if !ok {
-		return nil, fmt.Errorf("unknown policy profile %q", profileName)
+		return nil, fmt.Errorf("unknown policy profile %q: %w", profileName, domain.ErrValidation)
 	}
 
 	ag, err := s.store.GetAgent(ctx, req.AgentID)

@@ -957,8 +957,9 @@ func (m *mockStore) SendAgentMessage(_ context.Context, msg *agent.InboxMessage)
 func (m *mockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
 	return orchestration.HandoffClaim{Claimed: true}, nil
 }
-func (m *mockStore) FinishHandoff(_ context.Context, _, _ string) error  { return nil }
-func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (m *mockStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (m *mockStore) ListAgentInbox(_ context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
 	var result []agent.InboxMessage
 	for _, msg := range m.inboxMessages {

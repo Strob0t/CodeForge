@@ -16,6 +16,7 @@ type HandoffClaim struct {
 	Claimed bool          // this call claimed the stage: a new claim, or one whose lease ran out
 	Done    bool          // the stage was carried out (or refused) before
 	Age     time.Duration // neither: how long the claim of another delivery has been in progress
+	TaskID  string        // claimed again: the task an earlier attempt created for the run
 }
 
 // HandoffMessage represents an explicit agent-to-agent handoff with context.

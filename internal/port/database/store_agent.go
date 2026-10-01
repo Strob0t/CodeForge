@@ -37,9 +37,12 @@ type AgentStore interface {
 	ClaimHandoff(ctx context.Context, handoffID, stage string, lease time.Duration) (orchestration.HandoffClaim, error)
 	// FinishHandoff marks a claimed stage done: it is never claimed again.
 	FinishHandoff(ctx context.Context, handoffID, stage string) error
-	// ReleaseHandoff removes a claim of ClaimHandoff, so a retry can claim
-	// the stage again.
+	// ReleaseHandoff lets a retry claim the stage again at once; the claim
+	// keeps its task.
 	ReleaseHandoff(ctx context.Context, handoffID, stage string) error
+	// SetHandoffTask records the task a claimed stage created for its run,
+	// which a retry of the stage reuses (HandoffClaim.TaskID).
+	SetHandoffTask(ctx context.Context, handoffID, stage, taskID string) error
 	ListAgentInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error)
 	MarkInboxRead(ctx context.Context, messageID string) error
 }
