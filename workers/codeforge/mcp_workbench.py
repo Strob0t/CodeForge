@@ -41,25 +41,38 @@ class McpServerConnection:
         return self._session is not None
 
     async def connect(self) -> None:
-        """Establish a connection to the MCP server."""
-        self._exit_stack = AsyncExitStack()
+        """Establish a connection to the MCP server.
 
+        A connection that fails closes what it opened (the server process,
+        its log handle) before the error is raised.
+        """
+        self._exit_stack = AsyncExitStack()
+        try:
+            await self._open(self._exit_stack)
+        except BaseException:
+            await self._exit_stack.aclose()
+            self._exit_stack = None
+            self._session = None
+            raise
+        logger.info("connected to MCP server %s (%s)", self._def.id, self._def.transport)
+
+    async def _open(self, stack: AsyncExitStack) -> None:
         if self._def.transport == "stdio":
             # The server runs as the tool user, like every agent tool (KI-71). Its
             # stderr needs a real file (an io.StringIO has no file descriptor).
-            errlog = self._exit_stack.enter_context(open(os.devnull, "w"))  # noqa: SIM115 - closed by the exit stack
-            read_stream, write_stream = await self._exit_stack.enter_async_context(
+            errlog = stack.enter_context(open(os.devnull, "w"))  # noqa: SIM115 - closed by the exit stack
+            read_stream, write_stream = await stack.enter_async_context(
                 tool_stdio_client(self._def.command, self._def.args, declared_env=self._def.env, errlog=errlog)
             )
         elif self._def.transport == "sse":
-            read_stream, write_stream = await self._exit_stack.enter_async_context(
+            read_stream, write_stream = await stack.enter_async_context(
                 sse_client(
                     url=self._def.url,
                     headers=self._def.headers or None,
                 )
             )
         elif self._def.transport == "streamable_http":
-            read_stream, write_stream = await self._exit_stack.enter_async_context(
+            read_stream, write_stream = await stack.enter_async_context(
                 streamablehttp_client(
                     url=self._def.url,
                     headers=self._def.headers or None,
@@ -69,9 +82,8 @@ class McpServerConnection:
             msg = f"unsupported transport: {self._def.transport}"
             raise ValueError(msg)
 
-        self._session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+        self._session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await self._session.initialize()
-        logger.info("connected to MCP server %s (%s)", self._def.id, self._def.transport)
 
     async def disconnect(self) -> None:
         """Close the connection to the MCP server."""
