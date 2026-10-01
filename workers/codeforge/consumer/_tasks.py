@@ -12,7 +12,7 @@ from codeforge.consumer._cancel_registry import task_key
 from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL, SUBJECT_TASK_HEARTBEAT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
-from codeforge.runtime import HEARTBEAT_INTERVAL_SECONDS, heartbeats, listen_for_cancel, notification_consumer
+from codeforge.runtime import heartbeat_interval, heartbeats, listen_for_cancel, notification_consumer
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,9 +23,6 @@ if TYPE_CHECKING:
     from codeforge.backends._base import TaskResult as BackendTaskResult
 
 logger = structlog.get_logger()
-
-# How often a running task is reported alive to the Go Core (KI-65).
-TASK_HEARTBEAT_INTERVAL_SECONDS = HEARTBEAT_INTERVAL_SECONDS
 
 
 class TaskHandlerMixin:
@@ -101,7 +98,7 @@ class TaskHandlerMixin:
         """Execute an accepted task and publish its result, reporting it alive meanwhile."""
         beat = {"task_id": task.id, "tenant_id": task.tenant_id}
         alive = (
-            heartbeats(self._js, SUBJECT_TASK_HEARTBEAT, beat, TASK_HEARTBEAT_INTERVAL_SECONDS)
+            heartbeats(self._js, SUBJECT_TASK_HEARTBEAT, beat, heartbeat_interval(task.heartbeat_seconds))
             if self._js is not None
             else contextlib.nullcontext()
         )

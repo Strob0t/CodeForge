@@ -287,6 +287,27 @@ class TestHandleConversationRun:
         assert runtime_cls.call_args.kwargs["approval_timeout_seconds"] == approval_timeout
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("heartbeat_seconds", "interval"), [(7, 7.0), (0, 30.0)])
+    async def test_heartbeats_at_the_go_heartbeat_interval(self, heartbeat_seconds: int, interval: float) -> None:
+        """S2-F review, F11: the run beats at Go's runtime.heartbeat_interval (30 s by default)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-heartbeat-test")
+        run_msg.heartbeat_seconds = heartbeat_seconds
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        runtime_cls = await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        runtime_cls.return_value.start_heartbeat.assert_awaited_once_with(interval)
+
+    @pytest.mark.asyncio
     async def test_invalid_json_is_dead_lettered_and_terminated(self) -> None:
         """Invalid JSON goes to the DLQ and is terminated: never NAK'd, never run."""
         handler = _make_handler()

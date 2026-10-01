@@ -200,6 +200,7 @@ func run() error {
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
 	agentSvc.SetEventStore(eventStore)
+	agentSvc.SetRuntimeConfig(&cfg.Runtime)
 
 	// --- Policy Service ---
 	policySvc := service.NewPolicyService(cfg.Policy.DefaultProfile, nil)

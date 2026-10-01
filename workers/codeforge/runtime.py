@@ -49,6 +49,12 @@ ARGUMENTS_PREVIEW_MAX_CHARS = 1000
 # stop for runtime.heartbeat_timeout (KI-65).
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 
+
+def heartbeat_interval(heartbeat_seconds: int) -> float:
+    """Seconds between two heartbeats of work whose start message sent *heartbeat_seconds* (0 = default)."""
+    return float(heartbeat_seconds) if heartbeat_seconds > 0 else HEARTBEAT_INTERVAL_SECONDS
+
+
 logger = structlog.get_logger()
 
 

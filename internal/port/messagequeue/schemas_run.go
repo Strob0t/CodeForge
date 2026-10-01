@@ -3,8 +3,8 @@ package messagequeue
 import (
 	"encoding/json"
 
-	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 )
 
 // TaskAgentPayload is the schema for tasks.agent.{backend} messages: a task
@@ -19,19 +19,24 @@ type TaskAgentPayload struct {
 	Prompt        string `json:"prompt"`
 	Backend       string `json:"backend"`
 	WorkspacePath string `json:"workspace_path"`
+	// HeartbeatSeconds is how often the worker reports the task alive
+	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
 }
 
-// NewTaskAgentPayload builds the tasks.agent.{backend} payload for t.
-func NewTaskAgentPayload(t *task.Task, backend, workspacePath string) TaskAgentPayload {
+// NewTaskAgentPayload builds the tasks.agent.{backend} payload of an execution.
+func NewTaskAgentPayload(e *agentbackend.Execution, backend string) TaskAgentPayload {
+	t := e.Task
 	return TaskAgentPayload{
-		TaskID:        t.ID,
-		ProjectID:     t.ProjectID,
-		TenantID:      t.TenantID,
-		AgentID:       t.AgentID,
-		Title:         t.Title,
-		Prompt:        t.Prompt,
-		Backend:       backend,
-		WorkspacePath: workspacePath,
+		TaskID:           t.ID,
+		ProjectID:        t.ProjectID,
+		TenantID:         t.TenantID,
+		AgentID:          t.AgentID,
+		Title:            t.Title,
+		Prompt:           t.Prompt,
+		Backend:          backend,
+		WorkspacePath:    e.WorkspacePath,
+		HeartbeatSeconds: e.HeartbeatSeconds,
 	}
 }
 
@@ -102,6 +107,9 @@ type RunStartPayload struct {
 	// tool call (config runtime.approval_timeout_seconds); the worker waits
 	// for policy responses longer than that.
 	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds"`
+	// HeartbeatSeconds is how often the worker reports the run alive
+	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
 }
 
 // TerminationPayload carries the termination limits for a run.

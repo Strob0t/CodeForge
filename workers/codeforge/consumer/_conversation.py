@@ -25,7 +25,7 @@ from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.loop_config import build_loop_config
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
-from codeforge.runtime import RuntimeClient
+from codeforge.runtime import RuntimeClient, heartbeat_interval
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -438,7 +438,7 @@ class ConversationHandlerMixin:
         workbench: McpWorkbench | None = None
         try:
             await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
-            await runtime.start_heartbeat()
+            await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
 
             registry: ToolRegistry = build_default_registry()
             if run_msg.mode:

@@ -6,5 +6,6 @@
   "title": "Fix bug",
   "prompt": "Fix the null pointer in handler.go",
   "backend": "aider",
-  "workspace_path": "/data/workspaces/my-project"
+  "workspace_path": "/data/workspaces/my-project",
+  "heartbeat_seconds": 30
 }

@@ -182,7 +182,7 @@ class TestTasks:
         """The Go Core fails a task whose heartbeats stop (KI-65): a running task sends them, an ended one not."""
         from codeforge.backends._base import TaskResult as BackendTaskResult
 
-        monkeypatch.setattr("codeforge.consumer._tasks.TASK_HEARTBEAT_INTERVAL_SECONDS", 0.01)
+        monkeypatch.setattr("codeforge.consumer._tasks.heartbeat_interval", lambda _seconds: 0.01)
         payload = TaskMessage(id="task-beat", project_id="p1", tenant_id="tenant-1", title="t", prompt="do it")
         msg, _ = jetstream_msg(payload.model_dump_json().encode(), subject="tasks.agent.aider")
 
@@ -206,6 +206,38 @@ class TestTasks:
         assert {(b["task_id"], b["tenant_id"]) for b in sent} == {("task-beat", "tenant-1")}
         assert all(isinstance(b["timestamp"], str) for b in sent)
         assert beats() == sent, "the heartbeat stops when the task ends"
+
+    @pytest.mark.parametrize(("heartbeat_seconds", "interval"), [(7, 7.0), (0, 30.0)])
+    async def test_heartbeat_interval_comes_from_the_task(
+        self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, heartbeat_seconds: int, interval: float
+    ) -> None:
+        """S2-F review, F11: the worker beats at the Go Core's runtime.heartbeat_interval (30 s by default)."""
+        import contextlib
+
+        from codeforge.backends._base import TaskResult as BackendTaskResult
+
+        intervals: list[float] = []
+
+        @contextlib.asynccontextmanager
+        async def recording_heartbeats(_js: object, _subject: str, _payload: object, every: float):  # type: ignore[no-untyped-def]
+            intervals.append(every)
+            yield
+
+        monkeypatch.setattr("codeforge.consumer._tasks.heartbeats", recording_heartbeats)
+        payload = TaskMessage(
+            id="task-interval", project_id="p1", title="t", prompt="do it", heartbeat_seconds=heartbeat_seconds
+        )
+        msg, _ = jetstream_msg(payload.model_dump_json().encode(), subject="tasks.agent.aider")
+
+        async def execute(**_kwargs: object) -> BackendTaskResult:
+            return BackendTaskResult(status="completed", output="ok")
+
+        consumer._backend_router = MagicMock()
+        consumer._backend_router.execute = execute
+
+        await consumer._handle_message(msg)
+
+        assert intervals == [interval]
 
     async def test_lost_result_publish_is_retried(
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch

@@ -38,6 +38,9 @@ class TaskMessage(BaseModel):
     backend: str = ""
     workspace_path: str = ""
     config: dict[str, str] = Field(default_factory=dict)
+    # How often to report the work alive (Go runtime.heartbeat_interval;
+    # 0 = the worker's default).
+    heartbeat_seconds: int = 0
 
 
 class TaskResult(BaseModel):
@@ -127,6 +130,9 @@ class RunStartMessage(BaseModel):
     # Go's HITL approval timeout; tool call decisions are awaited longer
     # (0 = the worker's default).
     approval_timeout_seconds: int = 0
+    # How often to report the work alive (Go runtime.heartbeat_interval;
+    # 0 = the worker's default).
+    heartbeat_seconds: int = 0
 
     @field_validator("config", mode="before")
     @classmethod
@@ -544,6 +550,9 @@ class ConversationRunStartMessage(BaseModel):
     # Go's HITL approval timeout; tool call decisions are awaited longer
     # (0 = the worker's default).
     approval_timeout_seconds: int = 0
+    # How often to report the work alive (Go runtime.heartbeat_interval;
+    # 0 = the worker's default).
+    heartbeat_seconds: int = 0
 
     @field_validator("mcp_servers", "context", "tools", "microagent_prompts", "reminders", mode="before")
     @classmethod

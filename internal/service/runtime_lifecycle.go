@@ -469,10 +469,11 @@ func (s *RuntimeService) checkTermination(r *run.Run, profile *policy.PolicyProf
 		return fmt.Sprintf("absolute execution timeout reached (%s)", elapsed.Truncate(time.Second))
 	}
 
-	// Check heartbeat timeout
-	if s.runtimeCfg.HeartbeatTimeout > 0 {
+	// Check heartbeat timeout, with the watchdog's allowance for the
+	// heartbeat interval and delivery delays.
+	if after := LostWorkerAfter(s.runtimeCfg); after > 0 {
 		if lastHB, ok := s.state.GetHeartbeat(r.ID); ok {
-			if time.Since(lastHB) > s.runtimeCfg.HeartbeatTimeout {
+			if time.Since(lastHB) > after {
 				return "heartbeat timeout (worker unresponsive)"
 			}
 		}

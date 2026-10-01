@@ -100,5 +100,6 @@
   "summarize_threshold": 50,
   "tool_output_max_chars": 20000,
   "turn_id": "550e8400-e29b-41d4-a716-446655440005",
-  "approval_timeout_seconds": 60
+  "approval_timeout_seconds": 60,
+  "heartbeat_seconds": 30
 }

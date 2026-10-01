@@ -19,23 +19,23 @@ import (
 // NATS for a free worker and is not ended; a healthy long run keeps sending
 // heartbeats, also while it waits for an LLM or a HITL approval.
 
-// defaultWorkerHeartbeatInterval is the worker's heartbeat interval when
-// runtime.heartbeat_interval is not set (workers/codeforge/runtime.py).
-const defaultWorkerHeartbeatInterval = 30 * time.Second
-
 // LostWorkerAfter is how long work may go without a worker heartbeat before
 // the watchdog ends it: runtime.heartbeat_timeout plus two heartbeat
 // intervals for delivery delays (a Go Core catching up on queued heartbeats).
-// Zero (no heartbeat_timeout) disables the heartbeat checks.
+// The interval is the one sent to the worker, but never less than the 30 s
+// of a worker that does not read it. Zero (no heartbeat_timeout) disables
+// the heartbeat checks.
 func LostWorkerAfter(cfg *config.Runtime) time.Duration {
 	if cfg == nil || cfg.HeartbeatTimeout <= 0 {
 		return 0
 	}
-	interval := cfg.HeartbeatInterval
-	if interval <= 0 {
-		interval = defaultWorkerHeartbeatInterval
-	}
+	interval := max(cfg.WorkerHeartbeatInterval(), config.DefaultWorkerHeartbeatInterval)
 	return cfg.HeartbeatTimeout + 2*interval
+}
+
+// heartbeatSeconds is the heartbeat interval sent to the worker with a start.
+func heartbeatSeconds(cfg *config.Runtime) int {
+	return int(cfg.WorkerHeartbeatInterval() / time.Second)
 }
 
 // lostWorkerReason is the error of work the watchdog ends.

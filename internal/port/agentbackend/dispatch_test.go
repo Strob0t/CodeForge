@@ -62,8 +62,9 @@ func TestNATSBackends_ExecutePublishesTaskAgentPayload(t *testing.T) {
 			}
 
 			result, err := newBackend(q).Execute(context.Background(), &agentbackend.Execution{
-				Task:          tsk,
-				WorkspacePath: "/data/workspaces/proj-1",
+				Task:             tsk,
+				WorkspacePath:    "/data/workspaces/proj-1",
+				HeartbeatSeconds: 10,
 			})
 			if err != nil {
 				t.Fatalf("Execute: %v", err)
@@ -82,7 +83,7 @@ func TestNATSBackends_ExecutePublishesTaskAgentPayload(t *testing.T) {
 			want := messagequeue.TaskAgentPayload{
 				TaskID: "task-1", TenantID: "tenant-1", ProjectID: "proj-1", AgentID: "agent-1",
 				Title: "Fix bug", Prompt: "fix the null pointer",
-				Backend: name, WorkspacePath: "/data/workspaces/proj-1",
+				Backend: name, WorkspacePath: "/data/workspaces/proj-1", HeartbeatSeconds: 10,
 			}
 			if got != want {
 				t.Fatalf("payload = %+v\nwant      %+v", got, want)

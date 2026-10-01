@@ -348,6 +348,7 @@ func (s *ConversationService) dispatchAgenticRun(
 	// The worker waits for policy responses longer than Go waits for a HITL
 	// approval of one of this run's tool calls (KI-21).
 	payload.ApprovalTimeoutSeconds = approvalTimeoutSeconds(s.runtimeCfg)
+	payload.HeartbeatSeconds = heartbeatSeconds(s.runtimeCfg)
 
 	data, err := json.Marshal(payload)
 	if err != nil {

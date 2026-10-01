@@ -88,6 +88,9 @@ type ConversationRunStartPayload struct {
 	// tool call of an agentic run; the worker waits for policy responses
 	// longer than that (0 = the worker's default).
 	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds,omitempty"`
+	// HeartbeatSeconds is how often the worker reports the run alive
+	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.

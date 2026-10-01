@@ -250,6 +250,21 @@ type Runtime struct {
 // defaultApprovalTimeoutSeconds is the HITL approval timeout when none is configured.
 const defaultApprovalTimeoutSeconds = 60
 
+// DefaultWorkerHeartbeatInterval is the worker heartbeat interval when
+// runtime.heartbeat_interval is not set, and the interval of a worker that
+// does not read heartbeat_seconds from its start message.
+const DefaultWorkerHeartbeatInterval = 30 * time.Second
+
+// WorkerHeartbeatInterval is how often a worker reports the work it executes
+// as alive. It is sent to the worker with every start (heartbeat_seconds).
+// A nil config or a value <= 0 means the default.
+func (r *Runtime) WorkerHeartbeatInterval() time.Duration {
+	if r == nil || r.HeartbeatInterval <= 0 {
+		return DefaultWorkerHeartbeatInterval
+	}
+	return r.HeartbeatInterval
+}
+
 // ApprovalTimeout is how long a tool call waits for a HITL decision. It is
 // the single source for the Go approval wait and for the worker, which gets
 // it with every run start and waits for the policy response at least this

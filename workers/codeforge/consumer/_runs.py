@@ -10,7 +10,7 @@ from codeforge.consumer._cancel_registry import run_key, task_key
 from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import SUBJECT_TASK_CANCEL
 from codeforge.models import RunStartMessage, TaskMessage
-from codeforge.runtime import RuntimeClient
+from codeforge.runtime import RuntimeClient, heartbeat_interval
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -84,7 +84,7 @@ class RunHandlerMixin:
             try:
                 await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL])
                 # Agent-loop runs take long; runtime.close() stops the heartbeat.
-                await runtime.start_heartbeat()
+                await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
                 task = self._build_run_task(run_msg, log)
                 await self._executor.execute_with_runtime(
                     task, runtime, mode=run_msg.mode, mcp_servers=run_msg.mcp_servers

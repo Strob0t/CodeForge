@@ -21,6 +21,9 @@ type Capabilities struct {
 type Execution struct {
 	Task          *task.Task
 	WorkspacePath string
+	// HeartbeatSeconds is how often a worker executing the task reports it
+	// alive (0 = the worker's default).
+	HeartbeatSeconds int
 }
 
 // Backend is the port interface for interacting with a coding agent backend.

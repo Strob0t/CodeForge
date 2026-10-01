@@ -485,6 +485,9 @@ func validate(cfg *Config) error {
 	if err := project.CheckGateCommand(cfg.Runtime.DefaultLintCommand); err != nil {
 		return fmt.Errorf("runtime.default_lint_command: %w", err)
 	}
+	if err := validateHeartbeat(&cfg.Runtime); err != nil {
+		return err
+	}
 	if err := validateRetention(&cfg.Retention); err != nil {
 		return err
 	}
@@ -580,6 +583,22 @@ const minRetentionPeriod = 24 * time.Hour
 // validateRetention rejects retention settings that would purge more than a
 // policy measured in days: every period is 0 (keep forever) or at least a
 // day, and the job interval is 0 (disabled) or at least a minute.
+// validateHeartbeat checks the worker heartbeat settings. The interval
+// reaches the worker in whole seconds. A timeout not longer than the
+// interval would end every healthy run between two heartbeats.
+func validateHeartbeat(r *Runtime) error {
+	if r.HeartbeatInterval < 0 || (r.HeartbeatInterval > 0 && r.HeartbeatInterval < time.Second) {
+		return fmt.Errorf("runtime.heartbeat_interval must be 0 (default %s) or at least 1s (got %s)", DefaultWorkerHeartbeatInterval, r.HeartbeatInterval)
+	}
+	if r.HeartbeatTimeout < 0 {
+		return fmt.Errorf("runtime.heartbeat_timeout must be 0 (heartbeat checks off) or positive (got %s)", r.HeartbeatTimeout)
+	}
+	if interval := r.WorkerHeartbeatInterval(); r.HeartbeatTimeout > 0 && r.HeartbeatTimeout <= interval {
+		return fmt.Errorf("runtime.heartbeat_timeout (%s) must be greater than the heartbeat interval (%s)", r.HeartbeatTimeout, interval)
+	}
+	return nil
+}
+
 func validateRetention(r *Retention) error {
 	if r.Interval < 0 || (r.Interval > 0 && r.Interval < time.Minute) {
 		return fmt.Errorf("retention.interval must be 0 (job disabled) or at least 1m (got %s)", r.Interval)

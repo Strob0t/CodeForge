@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -21,16 +22,21 @@ import (
 
 // AgentService handles agent lifecycle and task dispatch.
 type AgentService struct {
-	store  database.Store
-	queue  messagequeue.Queue
-	hub    broadcast.Broadcaster
-	events eventstore.Store
+	store      database.Store
+	queue      messagequeue.Queue
+	hub        broadcast.Broadcaster
+	events     eventstore.Store
+	runtimeCfg *config.Runtime
 }
 
 // NewAgentService creates a new AgentService.
 func NewAgentService(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster) *AgentService {
 	return &AgentService{store: store, queue: queue, hub: hub}
 }
+
+// SetRuntimeConfig sets the runtime config; its heartbeat interval is sent
+// to the worker with every task.
+func (s *AgentService) SetRuntimeConfig(cfg *config.Runtime) { s.runtimeCfg = cfg }
 
 // SetEventStore attaches an event store for trajectory recording.
 func (s *AgentService) SetEventStore(es eventstore.Store) {
@@ -111,7 +117,9 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	// Dispatch to backend (async via NATS). The worker echoes the tenant in
 	// its output and result messages, which scopes their WebSocket events.
 	t.TenantID = outgoingTenant(ctx, "tasks.agent")
-	if _, err := backend.Execute(ctx, &agentbackend.Execution{Task: t, WorkspacePath: proj.WorkspacePath}); err != nil {
+	if _, err := backend.Execute(ctx, &agentbackend.Execution{
+		Task: t, WorkspacePath: proj.WorkspacePath, HeartbeatSeconds: heartbeatSeconds(s.runtimeCfg),
+	}); err != nil {
 		// Revert agent status on failure
 		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
 		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))

@@ -197,6 +197,7 @@ func sampleConversationRunStartPayload() mq.ConversationRunStartPayload {
 		ToolOutputMaxChars:     20000,
 		TurnID:                 "550e8400-e29b-41d4-a716-446655440005",
 		ApprovalTimeoutSeconds: 60,
+		HeartbeatSeconds:       30,
 	}
 }
 
@@ -221,19 +222,21 @@ func sampleRunStartPayload() mq.RunStartPayload {
 		WorkspacePath:          "/data/workspaces/my-project",
 		Backend:                "aider",
 		ApprovalTimeoutSeconds: 60,
+		HeartbeatSeconds:       30,
 	}
 }
 
 func sampleTaskAgentPayload() mq.TaskAgentPayload {
 	return mq.TaskAgentPayload{
-		TaskID:        "550e8400-e29b-41d4-a716-446655440041",
-		ProjectID:     "550e8400-e29b-41d4-a716-446655440004",
-		TenantID:      "00000000-0000-0000-0000-000000000000",
-		AgentID:       "550e8400-e29b-41d4-a716-446655440042",
-		Title:         "Fix bug",
-		Prompt:        "Fix the null pointer in handler.go",
-		Backend:       "aider",
-		WorkspacePath: "/data/workspaces/my-project",
+		TaskID:           "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:        "550e8400-e29b-41d4-a716-446655440004",
+		TenantID:         "00000000-0000-0000-0000-000000000000",
+		AgentID:          "550e8400-e29b-41d4-a716-446655440042",
+		Title:            "Fix bug",
+		Prompt:           "Fix the null pointer in handler.go",
+		Backend:          "aider",
+		WorkspacePath:    "/data/workspaces/my-project",
+		HeartbeatSeconds: 30,
 	}
 }
 
