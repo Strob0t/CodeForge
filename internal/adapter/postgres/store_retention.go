@@ -76,6 +76,19 @@ type retentionPurger struct {
 	conn *pgxpool.Conn
 }
 
+// DeleteExpiredOAuthStates deletes the states of abandoned OAuth flows, on
+// the lock connection.
+//
+// INTENTIONALLY CROSS-TENANT: a system step of the retention sweep; it deletes
+// only rows past their own expiry (each keyed by its secret state).
+func (p retentionPurger) DeleteExpiredOAuthStates(ctx context.Context) (int64, error) {
+	tag, err := p.conn.Exec(ctx, deleteExpiredOAuthStatesSQL)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired oauth states: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // DeleteExpiredSessions deletes up to batchSize agent sessions that were last
 // used before the cutoff (last_activity_at: reuse and status changes count,
 // foreign key actions do not) and returns how many it deleted.
