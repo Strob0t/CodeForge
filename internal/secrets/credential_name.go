@@ -1,6 +1,9 @@
 package secrets
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // credentialNames are names that hold a credential as a whole.
 var credentialNames = map[string]bool{
@@ -21,11 +24,13 @@ var credentialNames = map[string]bool{
 }
 
 // credentialSuffixes mark names that hold a credential: openai_api_key,
-// client_secret, aws_secret_access_key, aws_session_token,
-// vertex_credentials, Proxy-Authorization, X-Amz-Signature, ...
+// oci_key, subscription_key, client_secret, aws_secret_access_key,
+// aws_session_token, vertex_credentials, Proxy-Authorization,
+// X-Amz-Signature, ... Any *_key is treated as a credential: hiding a
+// non-secret key name costs nothing, missing a secret one leaks it.
 var credentialSuffixes = []string{
-	"_api_key", "_apikey", "_secret", "_password", "_token", "_credential", "_credentials",
-	"_access_key", "_secret_key", "_private_key", "_authorization", "_signature",
+	"_key", "_apikey", "_secret", "_password", "_passwd", "_token", "_credential", "_credentials",
+	"_authorization", "_signature", "_cookie",
 }
 
 // nonSecretNames end like a credential but are none: tokenizer special
@@ -36,11 +41,12 @@ var nonSecretNames = map[string]bool{
 }
 
 // IsCredentialName reports whether a parameter, header or query parameter
-// name holds a credential. Names are compared case-insensitively with "-"
-// read as "_", exactly or by a defined suffix (never by substring, so
-// max_tokens or custom_tokenizer are not credentials).
+// name holds a credential. Names are normalised to snake case (camelCase
+// split, "-", "." and spaces read as "_", lower case) and compared exactly or
+// by a defined suffix, never by substring, so max_tokens or custom_tokenizer
+// are not credentials.
 func IsCredentialName(name string) bool {
-	n := strings.ReplaceAll(strings.ToLower(name), "-", "_")
+	n := normaliseName(name)
 	if n == "" || nonSecretNames[n] || strings.HasSuffix(n, "_per_token") {
 		return false
 	}
@@ -53,4 +59,25 @@ func IsCredentialName(name string) bool {
 		}
 	}
 	return false
+}
+
+// normaliseName turns accessToken, X-Api-Key or client.secret into
+// access_token, x_api_key and client_secret.
+func normaliseName(name string) string {
+	var b strings.Builder
+	runes := []rune(name)
+	for i, r := range runes {
+		switch {
+		case r == '-' || r == '.' || r == ' ':
+			b.WriteByte('_')
+		case unicode.IsUpper(r):
+			if i > 0 && (unicode.IsLower(runes[i-1]) || unicode.IsDigit(runes[i-1])) {
+				b.WriteByte('_')
+			}
+			b.WriteRune(unicode.ToLower(r))
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
