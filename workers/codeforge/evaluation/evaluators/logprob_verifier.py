@@ -105,7 +105,11 @@ class LogprobVerifierEvaluator:
 
 
 def _extract_score(response: ChatCompletionResponse) -> tuple[float, dict[str, str]]:
-    """Extract P(YES) from logprobs, falling back to text parsing."""
+    """Extract P(YES) from logprobs, falling back to text parsing.
+
+    An answer that is neither (no YES/NO logprob, no YES/NO text, e.g. an
+    empty one) is an evaluation error, not a 0.5 score.
+    """
     if response.top_logprobs:
         top = response.top_logprobs
         yes_lp = _find_token_logprob(top, _YES_TOKENS)
@@ -127,7 +131,8 @@ def _extract_score(response: ChatCompletionResponse) -> tuple[float, dict[str, s
         return 1.0, {"method": "text_fallback"}
     if text in ("NO", "N"):
         return 0.0, {"method": "text_fallback"}
-    return 0.5, {"method": "text_fallback"}
+    msg = f"logprob verifier gave no usable answer: {response.content[:80]!r}"
+    raise EvaluatorError(msg)
 
 
 def _find_token_logprob(top_logprobs: list[TokenLogprob], token_set: set[str]) -> float | None:

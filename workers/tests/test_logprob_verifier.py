@@ -134,16 +134,17 @@ class TestLogprobVerifierEvaluator:
         assert dims[0].details["method"] == "text_fallback"
 
     @pytest.mark.asyncio
-    async def test_fallback_text_ambiguous(self) -> None:
-        """logprobs=None, content='Maybe' -> score=0.5, method=text_fallback."""
-        mock_response = _mock_text_response("Maybe")
+    @pytest.mark.parametrize("content", ["Maybe", "", "   "])
+    async def test_unusable_answer_is_an_evaluation_error(self, content: str) -> None:
+        """No YES/NO logprobs and no YES/NO text -> EvaluatorError, not a 0.5 score (S6-G review, 7)."""
+        mock_response = _mock_text_response(content)
         evaluator = LogprobVerifierEvaluator(model="test-model")
 
-        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
-            dims = await evaluator.evaluate(_task(), _result())
-
-        assert dims[0].score == 0.5
-        assert dims[0].details["method"] == "text_fallback"
+        with (
+            patch.object(evaluator, "_call_verifier", return_value=mock_response),
+            pytest.raises(EvaluatorError, match="no usable answer"),
+        ):
+            await evaluator.evaluate(_task(), _result())
 
     @pytest.mark.asyncio
     async def test_llm_exception_is_an_evaluation_error(self) -> None:
