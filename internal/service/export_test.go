@@ -14,3 +14,15 @@ func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
 func (s *RuntimeService) LastHeartbeat(runID string) (time.Time, bool) {
 	return s.state.GetHeartbeat(runID)
 }
+
+// WaitForReviews waits until the step reviews being decided are done.
+func (s *OrchestratorService) WaitForReviews() {
+	s.reviews.Wait()
+}
+
+// ReviewDecisionCount returns how many decided reviews wait for their step's start.
+func (s *OrchestratorService) ReviewDecisionCount() int {
+	s.reviewMu.Lock()
+	defer s.reviewMu.Unlock()
+	return len(s.reviewDecisions)
+}

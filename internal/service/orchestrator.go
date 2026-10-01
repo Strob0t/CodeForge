@@ -53,6 +53,7 @@ type OrchestratorService struct {
 	reviewMu        sync.Mutex
 	reviewsInFlight map[string]bool // steps whose review is being decided
 	reviewDecisions map[string]bool // step ID -> routed to a debate, decided and not yet used
+	reviews         sync.WaitGroup  // review goroutines (decideReview)
 }
 
 // AddOnPlanComplete appends a callback invoked when a plan completes or fails.
@@ -265,6 +266,7 @@ func (s *OrchestratorService) markPlanCancelled(ctx context.Context, planID stri
 		return nil, err
 	}
 	p.Status = plan.StatusCancelled
+	s.forgetReviewDecisions(p.Steps, true)
 	return p, nil
 }
 
@@ -410,33 +412,43 @@ func (s *OrchestratorService) advancePlan(ctx context.Context, p *plan.Execution
 	s.advancePlanLocked(ctx, p)
 }
 
-// advancePlanLocked is advancePlan; the caller holds s.mu. When a step could
-// not be started (it ended failed), the plan is decided again at once:
+// advancePlanLocked is advancePlan; the caller holds s.mu. A plan that
+// cannot be read is logged and not advanced.
+func (s *OrchestratorService) advancePlanLocked(ctx context.Context, p *plan.ExecutionPlan) {
+	if err := s.reloadAndAdvanceLocked(ctx, p); err != nil {
+		slog.Error("reload plan", "plan_id", p.ID, "error", err)
+	}
+}
+
+// reloadAndAdvanceLocked advances the plan as stored now and returns the
+// error of a plan that cannot be read; the caller holds s.mu. When a step
+// could not be started (it ended failed), the plan is decided again at once:
 // nothing else would advance it when no other step runs. Every round turns a
 // pending step into a failed one, so the rounds are bounded by the steps.
-func (s *OrchestratorService) advancePlanLocked(ctx context.Context, p *plan.ExecutionPlan) {
+func (s *OrchestratorService) reloadAndAdvanceLocked(ctx context.Context, p *plan.ExecutionPlan) error {
 	for range len(p.Steps) + 1 {
 		// Decide from the plan as stored now, read under the lock: CancelPlan
 		// writes its status under the same lock, so no step starts after a cancel.
 		stored, err := s.store.GetPlan(ctx, p.ID)
 		if err != nil {
-			slog.Error("reload plan", "plan_id", p.ID, "error", err)
-			return
+			return err
 		}
 		p.Status = stored.Status
 		p.Steps = stored.Steps
+		s.forgetReviewDecisions(p.Steps, p.Status != plan.StatusRunning)
 
 		// Check if plan is already terminal
 		if p.Status != plan.StatusRunning {
-			return
+			return nil
 		}
 
 		s.skipBlockedSteps(ctx, p)
 
 		if !s.advanceProtocol(ctx, p) {
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
 // advanceProtocol makes one scheduling decision by the plan's protocol and

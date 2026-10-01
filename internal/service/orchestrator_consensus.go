@@ -139,37 +139,81 @@ func (s *OrchestratorService) takeReviewDecision(ctx context.Context, p *plan.Ex
 	if !s.reviewsInFlight[step.ID] {
 		s.reviewsInFlight[step.ID] = true
 		reviewed := *step // the goroutine decides on its own copy
+		s.reviews.Add(1)
 		go s.decideReview(detachTenant(ctx), p.ID, p.ProjectID, &reviewed)
 	}
 	return false, false
 }
 
-// decideReview decides a step's review without the scheduling lock, then
-// advances the step's plan under it. A plan that is no longer running starts
-// nothing, and the decision is dropped.
+// A decided review is applied by advancing its plan. A plan that cannot be
+// read is tried again reviewApplyAttempts times in all, the first retry after
+// reviewApplyBackoff and each next one after twice as long; after that the
+// decision waits for the plan's next advance.
+const (
+	reviewApplyAttempts = 5
+	reviewApplyBackoff  = 100 * time.Millisecond
+)
+
+// decideReview decides a step's review without the scheduling lock, keeps
+// the decision until the step starts (or leaves pending) and advances the
+// step's plan under the lock, so the step starts with it.
 func (s *OrchestratorService) decideReview(ctx context.Context, planID, projectID string, step *plan.Step) {
+	defer s.reviews.Done()
 	evalCtx, cancel := context.WithTimeout(ctx, reviewDecisionTimeout)
 	routed := s.evaluateStepReview(evalCtx, planID, projectID, step)
 	cancel()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.reviewMu.Lock()
 	delete(s.reviewsInFlight, step.ID)
 	s.reviewDecisions[step.ID] = routed
 	s.reviewMu.Unlock()
 
+	backoff := reviewApplyBackoff
+	for attempt := 1; ; attempt++ {
+		err := s.applyReviewDecision(ctx, planID)
+		if err == nil {
+			return
+		}
+		if attempt == reviewApplyAttempts {
+			slog.Error("plan not readable after its step's review; the decision waits for the plan's next advance",
+				"plan_id", planID, "step_id", step.ID, "attempts", attempt, "error", err)
+			return
+		}
+		slog.Warn("plan not readable after its step's review, retrying",
+			"plan_id", planID, "step_id", step.ID, "attempt", attempt, "error", err)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+		backoff *= 2
+	}
+}
+
+// applyReviewDecision advances the plan of a step whose review was decided,
+// under the scheduling lock, and returns the error of a plan that cannot be
+// read. A plan that is no longer running starts nothing, and the decisions
+// of its steps are forgotten.
+func (s *OrchestratorService) applyReviewDecision(ctx context.Context, planID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	p, err := s.store.GetPlan(ctx, planID)
-	if err == nil && p.Status == plan.StatusRunning {
-		s.advancePlanLocked(ctx, p)
-		return
-	}
 	if err != nil {
-		slog.Error("get plan after its step's review", "plan_id", planID, "step_id", step.ID, "error", err)
+		return err
 	}
+	return s.reloadAndAdvanceLocked(ctx, p)
+}
+
+// forgetReviewDecisions drops the review decisions of steps that left
+// pending (all of them with all): a decision is for the step's next start.
+func (s *OrchestratorService) forgetReviewDecisions(steps []plan.Step, all bool) {
 	s.reviewMu.Lock()
-	delete(s.reviewDecisions, step.ID)
-	s.reviewMu.Unlock()
+	defer s.reviewMu.Unlock()
+	for i := range steps {
+		if all || steps[i].Status != plan.StepStatusPending {
+			delete(s.reviewDecisions, steps[i].ID)
+		}
+	}
 }
 
 // evaluateStepReview runs the review router against a step and broadcasts the decision.
