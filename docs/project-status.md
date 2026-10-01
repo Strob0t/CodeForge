@@ -1,6 +1,6 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-09-30 (Known Issues fix plan: S0 and S1 done, S2 in progress)
+> Last update: 2026-10-01 (Known Issues fix plan: S0 to S6 done except KI-25 and KI-71)
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
 > A trailing "**Known issue:** KI-n" marks a completed phase whose key deliverable is not wired or not working yet; see [Known Issues](todo.md#known-issues).
@@ -19,7 +19,7 @@ Git local provider (clone, status, pull, branches, checkout), agent lifecycle wi
 
 ### Phase 3: Reliability, Performance & Agent Foundation (COMPLETED)
 
-Hierarchical config (defaults < YAML < ENV < CLI), structured JSON logging (Go slog + Python structlog), async logging with buffered channels, circuit breaker, graceful 4-phase shutdown, idempotency keys, optimistic locking, dead letter queue, event sourcing for agent trajectory, tiered cache (ristretto L1 + NATS KV L2; constructed at startup, not yet used by any service), rate limiting, DB pool tuning, worker pools.
+Hierarchical config (defaults < YAML < ENV < CLI), structured JSON logging (Go slog + Python structlog), async logging with buffered channels, circuit breaker, graceful 4-phase shutdown, idempotency keys, optimistic locking, dead letter queue, event sourcing for agent trajectory, tiered cache (ristretto L1 + NATS KV L2; removed again in S6, KI-60: nothing used it), rate limiting, DB pool tuning, worker pools.
 
 ### Phase 4: Agent Execution Engine (COMPLETED)
 
@@ -45,8 +45,8 @@ Roadmap/Feature-Map domain model (Roadmap, Milestone, Feature), spec provider an
 
 **9A:** OpenSpec, Markdown, GitHub Issues adapters, enhanced AutoDetect, spec/PM import.
 **9B:** SVN provider, Gitea/Forgejo PM adapter, VCS webhooks (GitHub + GitLab), bidirectional PM sync.
-**9C:** PM webhook processing (GitHub/GitLab/Plane), Slack + Discord notification adapters. - **Known issue:** KI-56 (webhook-triggered sync always fails)
-**9D:** OpenTelemetry (TracerProvider + MeterProvider), A2A protocol stub, AG-UI event protocol, blue-green deployment infrastructure. - **Known issue:** KI-47 (blue-green frontend port)
+**9C:** PM webhook processing (GitHub/GitLab/Plane), Slack + Discord notification adapters.
+**9D:** OpenTelemetry (TracerProvider + MeterProvider), A2A protocol stub, AG-UI event protocol, blue-green deployment infrastructure (working since S6, KI-47 and KI-70).
 **9E:** Plane.so PM adapter (full CRUD), full auto-detection engine (three-tier), Feature-Map visual editor (Kanban drag-and-drop).
 
 ### Phase 10: Frontend Foundations (COMPLETED)
@@ -117,14 +117,14 @@ Confidence-based moderator router with structured output, typed agent module sch
 
 ### Phase 22: Planned Pattern Implementation (COMPLETED)
 
-All 8 adopted patterns (list: `docs/architecture/project-reference.md`) implemented: RouterLLM scenario wiring, GitHub Copilot token exchange, composite memory scoring, experience pool (@exp_cache), HandoffMessage pattern, Microagents (YAML+Markdown triggers), Skills system (BM25-recommended snippets), Human Feedback Provider Protocol (Slack + Email adapters). - **Known issue:** KI-15 (`HandoffService` not wired), KI-57 (email HITL sends nothing)
+All 8 adopted patterns (list: `docs/architecture/project-reference.md`) implemented: RouterLLM scenario wiring, GitHub Copilot token exchange, composite memory scoring, experience pool (@exp_cache), HandoffMessage pattern, Microagents (YAML+Markdown triggers), Skills system (BM25-recommended snippets), Human Feedback Provider Protocol (Slack + Email adapters; the email adapter sends a link to the web approval page, KI-57). - **Known issue:** KI-84 (Slack buttons have no interaction endpoint, Slack gets every tenant's requests)
 
 ### Phase 23: Security & Identity Patterns (COMPLETED)
 
 **23A:** Trust annotations (4 levels: untrusted/partial/verified/full) auto-stamped on NATS payloads.
-**23B:** Message quarantine with risk scoring, admin review hold, evaluate/approve/reject. - **Known issue:** KI-15 (no wired path ever quarantines a message)
+**23B:** Message quarantine with risk scoring, admin review hold, evaluate/approve/reject (inbound A2A prompts and handoffs are screened since S6, KI-15; the reviewer is the logged-in user, KI-79). - **Known issue:** KI-91 (messages never expire)
 **23C:** Persistent agent identity (stats accumulation: total runs, cost, success rate, last active; agent inbox; active work visibility). Agent fingerprinting is not implemented.
-**23D:** War Room -- live multi-agent collaboration view with swim lanes and handoff arrows. - **Known issue:** KI-15 (handoff arrows never render)
+**23D:** War Room -- live multi-agent collaboration view with swim lanes and handoff arrows (rendered since S6, KI-15). - **Known issue:** KI-92 (arrows of `initiated` handoffs are never removed)
 
 ### Phase 24: Active Work Visibility (COMPLETED)
 
@@ -140,7 +140,7 @@ Provider interface pattern, evaluator plugins (LLMJudge, FunctionalTest, SPARC),
 
 ### Phase 27: A2A Protocol Integration (COMPLETED)
 
-Full A2A v0.3.0 implementation via a2a-go SDK. CodeForge as both A2A server (inbound tasks) and client (outbound federation). AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing prefix. - **Known issue:** KI-15 (A2A API keys rejected by the global JWT middleware, `a2a://` routing only in the unwired `HandoffService`)
+Full A2A v0.3.0 implementation via a2a-go SDK. CodeForge as both A2A server (inbound tasks) and client (outbound federation). AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing prefix; inbound calls authenticate with per-tenant A2A API keys (KI-15).
 
 ### Phase 28: R2E-Gym / EntroPO Integration (COMPLETED)
 
@@ -252,7 +252,7 @@ Live feed state lifted from child `BenchmarkLiveFeed` component to parent `Bench
 
 ### Phase 31: Contract-First Review/Refactor (COMPLETED)
 
-Contract-first review and refactoring pipeline: boundary domain model (ProjectBoundaryConfig), 2 new agent modes (`boundary_analyzer`, `contract_reviewer`), review-refactor pipeline template (4-step sequential: boundary analysis -> contract review -> intra-layer review -> refactoring), DiffImpactScorer with 3-tier threshold HITL (auto-apply/notify/approve), ReviewTriggerService with cascade dedup (pipeline-completion, branch-merge, manual), phase-aware context budget per pipeline step, waiting_approval step status with approve/reject flow, HTTP endpoints for boundaries CRUD and run approval, SolidJS RefactorApproval overlay and BoundariesPanel. - **Known issue:** KI-17 (review-refactor pipeline not wired, approval overlay listens for the wrong event), KI-22 (`review.trigger.request` never published)
+Contract-first review and refactoring pipeline: boundary domain model (ProjectBoundaryConfig), 2 new agent modes (`boundary_analyzer`, `contract_reviewer`), review-refactor pipeline template (4-step sequential: boundary analysis -> contract review -> intra-layer review -> refactoring), DiffImpactScorer with 3-tier threshold HITL (auto-apply/notify/approve), ReviewTriggerService (manual trigger), phase-aware context budget per pipeline step, waiting_approval step status with approve/reject flow, HTTP endpoints for boundaries CRUD and run approval, SolidJS RefactorApproval overlay and BoundariesPanel. Wired end to end in S6 (KI-17): review plan, baseline record, impact gate, keep/undo decision. - **Known issue:** KI-94 (leftovers of the review pipeline)
 
 ### Sidebar Restructure (COMPLETED)
 
@@ -355,7 +355,7 @@ Milestones of [known-issues-fix-plan.md](known-issues-fix-plan.md) on `staging` 
 - **S0 (CI) done:** golangci-lint v2.11.4, CI on pull requests to `staging`, integration-tagged tests, frontend typecheck/tests, test repairs (KI-1, KI-2, KI-3).
 - **S1 (policy and security) done:** policy enforcement per [ADR-015](architecture/adr/015-policy-deny-lists-and-tool-names.md) (KI-4 to KI-10), trusted-proxy client IP (KI-11), tenant-scoped WebSocket fan-out with ticket auth (KI-12), sandbox/hybrid exec modes rejected until isolated (KI-13), loopback-only dev ports (KI-14).
 - **S2 (messaging and runtime) done:** NATS delivery semantics per [ADR-016](architecture/adr/016-nats-delivery-semantics.md) (KI-18 to KI-20), runtime state (KI-24, KI-30 to KI-32), run path in the agent loop with workspace, backend and approval timeout in the payloads (KI-21, KI-23), backend task cancel and removal of the dead review trigger subjects (KI-22); follow-ups KI-63, KI-65 to KI-67, KI-76 in progress.
-- **S4 (operations) done:** deployment fixes (KI-43 to KI-50, KI-59), worker HTTP health and readiness (KI-34), worker logs in the Go schema (KI-35), OTEL export and trace propagation (KI-36), config drift (KI-51), SIGHUP secrets-only reload (KI-61); the blue-green overlay itself does not work yet (KI-70).
+- **S4 (operations) done:** deployment fixes (KI-43 to KI-50, KI-59), worker HTTP health and readiness (KI-34), worker logs in the Go schema (KI-35), OTEL export and trace propagation (KI-36), config drift (KI-51), SIGHUP secrets-only reload (KI-61); the blue-green overlay works since S6 (KI-70).
 - **S5 (frontend) done:** live updates (KI-39), model delete route (KI-40), config merge (KI-41), channel broadcasts (KI-42).
 - **S3 (quality gates and delivery) done:** checkpoints as a durable ref chain outside the workspace history (KI-27), delivery for every completed run with rollback only for failed checks (KI-26), project/language gate commands validated on write and fail-closed results (KI-29), gate timeout, heartbeats and the stuck-work watchdog (KI-28), hardened git in agent-writable workspaces (KI-77).
-- **S6 (trust, compliance, unwired features) in progress:** GDPR retention job (KI-52), audit listing after erasure (KI-53), deepeval telemetry off (KI-54), the Claude Code policy hook (KI-72), GDPR erasure/retention follow-ups, tenant-scoped policy profiles and platform-admin model management (KI-68, KI-75), policy follow-ups (KI-69), experience pool (KI-16) and `create_skill` tenant (KI-58) done; the Copilot token exposure (KI-80), verifiers (KI-37), tool configuration drift (KI-38) and tenant headers on NATS (KI-64) done; S2 follow-ups (KI-63, KI-65 to KI-67, KI-76) done with a review round in progress; unwired orchestration features (KI-17, KI-25, KI-33, KI-62), A2A/handoff trust (KI-15), the Go Core test run (KI-81), git allowlist (KI-82) and the remaining follow-ups in progress.
+- **S6 (trust, compliance, unwired features) done except KI-25 and KI-71:** GDPR retention job (KI-52), audit listing after erasure (KI-53), deepeval telemetry off (KI-54), the Claude Code policy hook (KI-72), tenant-scoped policy profiles and platform-admin model management (KI-68, KI-75), policy follow-ups (KI-69), experience pool (KI-16) and `create_skill` tenant (KI-58), the Copilot token exposure (KI-80), verifiers (KI-37), tool configuration drift (KI-38), tenant headers on NATS (KI-64), S2 follow-ups (KI-63, KI-65 to KI-67, KI-76); A2A/handoff trust (KI-15), the review pipeline (KI-17), team cleanup (KI-33), stall re-planning (KI-62), GitHub OAuth web flow (KI-55), PM webhooks (KI-56), approval emails (KI-57), removal of the unused tiered cache (KI-60), the workspace test run in the worker (KI-81), the git config allowlist (KI-82), blue-green (KI-70), channels (KI-73), live updates (KI-74), artifact validation (KI-78) and GDPR residuals (KI-79). Open: KI-25 (`spawn_subagent` is not offered until Go starts sub-agents), KI-71 (agent tools run with the worker's UID), the follow-ups KI-83 to KI-94 (LSP in the core, Slack approvals, webhook tenants and GitLab token, single replica, SVN password, nested repositories, channel users, retention of delivery records, quarantine expiry, handoff arrows, privacy page screens, review leftovers).

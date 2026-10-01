@@ -1,7 +1,7 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-09-30). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 in progress** (KI-18 to KI-20, KI-24, KI-30 to KI-32 done); **S4 in progress** (KI-43 to KI-46, KI-48 to KI-50, KI-59 done); **S5 done** (KI-39 to KI-42).
-> **Scope:** the verified defects KI-1 to KI-62 in [todo.md - Known Issues](todo.md#known-issues), found by the
+> **Status:** In progress (2026-10-01). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents) and KI-71 (tool process isolation)**; the follow-up Known Issues KI-83 to KI-94 are open.
+> **Scope:** the verified defects KI-1 to KI-94 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
 > promise, and a run pipeline that completes end to end - without changing the vision or the architecture.
@@ -22,13 +22,13 @@
 
 | Milestone | Theme | Known Issues | Effort |
 |---|---|---|---|
-| **S0** | Green CI with complete gates | KI-1, KI-2, KI-3 | M |
+| **S0** | Green CI with complete gates | ~~KI-1~~, ~~KI-2~~, ~~KI-3~~ | M |
 | **S1** | Policy and security enforcement | ~~KI-4~~, ~~KI-5~~, ~~KI-6~~, ~~KI-7~~, ~~KI-8~~, ~~KI-9~~, ~~KI-10~~, ~~KI-11~~, ~~KI-12~~, ~~KI-13~~, ~~KI-14~~ | L |
 | **S2** | Reliable messaging and runtime | ~~KI-18~~, ~~KI-19~~, ~~KI-20~~, ~~KI-21~~, ~~KI-22~~, ~~KI-23~~, ~~KI-24~~, ~~KI-30~~, ~~KI-31~~, ~~KI-32~~ | L |
 | **S3** | Quality gates and delivery | ~~KI-26~~, ~~KI-27~~, ~~KI-28~~, ~~KI-29~~ | M |
-| **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, KI-47, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
+| **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, ~~KI-47~~, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
-| **S6** | Trust, compliance, unwired features | KI-15, ~~KI-16~~, KI-17, KI-25, KI-33, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, KI-55, KI-56, KI-57, ~~KI-58~~, KI-60, KI-62 | L |
+| **S6** | Trust, compliance, unwired features | ~~KI-15~~, ~~KI-16~~, ~~KI-17~~, KI-25 (part), ~~KI-33~~, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, ~~KI-55~~, ~~KI-56~~, ~~KI-57~~, ~~KI-58~~, ~~KI-60~~, ~~KI-62~~ | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -100,7 +100,7 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-44** | **Done (2026-09-30).** Prod Postgres: either provision certificates or `ssl=off` behind the internal network, documented |
 | **KI-45** | **Done (2026-09-30).** Writable workspace volume for the prod core (read-only rootfs stays) |
 | **KI-46** | **Done (2026-09-30).** Go reads `*_FILE` secrets via the existing file provider; prod compose passes files instead of env; JWT secret and internal key wired; `validate-env.sh` checks the real names |
-| **KI-47** | **Port done (2026-09-30); overlay blockers: KI-70.** Traefik frontend service port 8080 |
+| **KI-47** | **Done (2026-10-01, with KI-70).** Traefik frontend service port 8080; the overlay itself works since KI-70 |
 | **KI-48** | **Done (2026-09-30).** Image scan uses a tag that is pushed |
 | **KI-49** | **Done (2026-09-30).** Restore script terminates connections with a working psql invocation |
 | **KI-50** | **Done (2026-09-30).** Devcontainer sets `LITELLM_BASE_URL` |
@@ -121,22 +121,22 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 
 | KI | Fix |
 |---|---|
-| **KI-15** | A2A routes outside the JWT group with their own API-key auth; quarantine inbound A2A; construct and wire `HandoffService` |
+| **KI-15** | **Done (2026-10-01).** A2A routes outside the JWT group with their own API-key auth (keys map to tenants); inbound A2A prompts quarantined with their task; `HandoffService` constructed and wired (claimed stages, `handoff.status` with `run_id`) |
 | **KI-16** | **Done (2026-09-30).** Experience pool tenant-scoped; `experience.enabled` honored |
-| **KI-17** | Wire the review pipeline orchestrator and `DiffImpactScorer`, or return 501 until wired (D-S3); fix the event name, payload and auth in RefactorApproval |
-| **KI-25** | `spawn_subagent` starts a real sub-agent run, or the tool is removed from BASE_TOOLS until it does (D-S3) |
-| **KI-33** | Clean up teams when their plan finishes |
+| **KI-17** | **Done (2026-10-01).** Review pipeline wired end to end (`review_pipelines` record, baseline, impact gate, keep/undo with a HEAD compare-and-swap, pending list); RefactorApproval uses the `review.approval_required` event and the API client |
+| **KI-25** | **Part done (2026-10-01).** The tool is no longer registered (D-S3); starting real sub-agent runs stays open |
+| **KI-33** | **Done (2026-10-01).** Teams end with their plan; the watchdog check "ended teams" is the backstop |
 | **KI-37** | **Done (2026-09-30).** Verifier metrics use the worker's LiteLLM HTTP client instead of the `litellm` package |
 | **KI-38** | **Done (2026-09-30).** Allowlist uses `handoff_to`; wire or remove `agent.builtin_tools` / `tool_output_max_chars` |
 | **KI-52** | **Done (2026-09-30).** Instantiate `RetentionService`; valid anonymization SQL (`WHERE id IN (SELECT ... LIMIT n)`) |
 | **KI-53** | **Done (2026-09-30).** Scan `admin_email` as nullable |
 | **KI-54** | **Done (2026-09-30).** Disable deepeval telemetry via env in the worker |
-| **KI-55** | Wire `GitHubOAuthService` into the handlers (config present) or keep 501 and document it |
-| **KI-56** | Provider names and per-provider config for webhook sync |
-| **KI-57** | Email HITL with configured recipients, public callback URL and POST-safe links (or disabled until configured) |
+| **KI-55** | **Done (2026-10-01).** Web flow wired when `github.client_id`, `client_secret` and `callback_url` are set; 501 otherwise |
+| **KI-56** | **Done (2026-10-01).** Provider names, exact project match, Plane token only to `plane.base_url`, honest status codes |
+| **KI-57** | **Done (2026-10-01).** Email HITL with configured recipients and web UI URL; the mail links to a web approval page; disabled until configured |
 | **KI-58** | **Done (2026-09-30).** `create_skill` uses the run's tenant ID |
-| **KI-60** | Inject the tiered cache where the docs say it is used, or document it as unused (D-S3) |
-| **KI-62** | Call `ReplanStep` from stall detection, or document re-planning as planned |
+| **KI-60** | **Done (2026-10-01).** The tiered cache is removed (ports, adapters, `cache.*` config, ristretto dependency) |
+| **KI-62** | **Done (2026-10-01).** Stalled runs are re-planned up to `runtime.stall_max_retries` times |
 
 ## Follow-up Known Issues (found while fixing, 2026-09-30)
 
@@ -152,24 +152,31 @@ scheduled as follows:
 | **KI-67** | Worker consumer lifecycle gaps (partly fixed) | S2 follow-up, **done 2026-09-30** (core-NATS notifications left) |
 | **KI-68** | Policy profiles are one global namespace | S6, **done 2026-09-30** |
 | **KI-69** | Policy follow-ups (tools offered despite mode, clone snapshots, run profile, feedback providers, redirections) | S6, **done 2026-09-30** |
-| **KI-70** | Blue-green overlay does not work | S4 |
-| **KI-71** | Agent tools can read the worker's secrets (same UID) | S6 (with KI-13) |
+| **KI-70** | Blue-green overlay does not work | S4, **done 2026-10-01** |
+| **KI-71** | Agent tools can read the worker's secrets (same UID) | S6 (with KI-13), open |
 | **KI-72** | Claude Code runs bypass the policy layer | S6, **done 2026-09-30** |
-| **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6 |
-| **KI-74** | Frontend live-update follow-ups | S6 |
+| **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6, **done 2026-10-01** |
+| **KI-74** | Frontend live-update follow-ups | S6, **done 2026-10-01** |
 | **KI-75** | LLM models are global across tenants | S6, **done 2026-09-30** (platform admins only) |
 | **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up, **done 2026-09-30** (review round in progress) |
 | **KI-77** | Go core git calls in agent-writable workspaces are not hardened (fsmonitor, filters, hooks, credential helpers) | S3 review round, **done 2026-09-30** |
-| **KI-78** | Artifact validation events/audit written before the run's end is decided | S6 |
-| **KI-79** | GDPR residuals (quarantine reviewer free text, privacy page wording) | S6 |
+| **KI-78** | Artifact validation events/audit written before the run's end is decided | S6, **done 2026-10-01** |
+| **KI-79** | GDPR residuals (quarantine reviewer free text, privacy page wording) | S6, **done 2026-10-01** |
 | **KI-80** | Copilot token handed to every authenticated user | S6, **done 2026-09-30** |
-| **KI-81** | Auto-agent runs workspace tests inside the Go Core with the core's environment | S3 follow-ups (high: do first) |
-| **KI-82** | Git config allowlist refuses common repositories | S3 follow-ups |
+| **KI-81** | Auto-agent runs workspace tests inside the Go Core with the core's environment | S3 follow-ups, **done 2026-10-01** |
+| **KI-82** | Git config allowlist refuses common repositories | S3 follow-ups, **done 2026-10-01** |
 | **KI-83** | LSP language servers run in the Go Core with the core's environment | S6 follow-up |
-| **KI-84** | Slack approval buttons have no interaction endpoint | S6 follow-up |
+| **KI-84** | Slack approval buttons have no interaction endpoint; the Slack provider receives every tenant's requests | S6 follow-up |
 | **KI-85** | Inbound webhooks act only in the default tenant; no GitLab PM token | S6 follow-up |
 | **KI-86** | Go Core assumes a single replica (in-memory approval and test waiters) | S6 follow-up |
 | **KI-87** | SVN password passed on the command line | S6 follow-up |
+| **KI-88** | Submodules and nested repositories are refused in workspaces; very large trees are refused | S3 follow-up (S3-F security review), open |
+| **KI-89** | `channel_messages.sender_id` / `channels.created_by` reference users: callers without a users row probably cannot post or create channels | S6 follow-up (S6-H review), open |
+| **KI-90** | No retention for `handoff_claims`, `task_result_costs`, `conversation_turn_completions` | S6 follow-up, open |
+| **KI-91** | Quarantine messages never expire (a held A2A task waits for a decision) | S6 follow-up, open |
+| **KI-92** | War Room arrows of `initiated` handoffs are never removed | S6 follow-up, open |
+| **KI-93** | Privacy page links to a Settings > Privacy export/delete screen that does not exist | S6 follow-up, open |
+| **KI-94** | Review pipeline and stall re-plan leftovers (edits during the refactorer, agent reservation, debate sub-plan cancel, partial approval, quoted paths, stall prompt, shared stall budget) | S6 follow-up, open |
 
 ## Decisions
 
