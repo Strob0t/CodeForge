@@ -267,6 +267,7 @@ class ConsumerBaseMixin:
         *,
         ack_on_accept: bool = False,
         cancelled: Callable[[RequestT], bool] | None = None,
+        report_skipped: Callable[[RequestT, structlog.BoundLogger], Awaitable[None]] | None = None,
     ) -> None:
         """Generic NATS handler with validation, dedup, processing, and delivery settlement.
 
@@ -283,7 +284,10 @@ class ConsumerBaseMixin:
         ID), so no second message ever executes the same run.
 
         A request for which *cancelled* is true (its work was stopped while
-        the message waited in NATS) is acked and not handled.
+        the message waited in NATS) is not handled: *report_skipped* tells the
+        Go Core (a cancelled completion), then the message is acked. If that
+        report fails, the message is released for a retry (dead-lettered on
+        its last delivery), so the skip is never lost.
         """
         request = await self._parse_request(msg, request_model)
         if request is None:
@@ -300,6 +304,14 @@ class ConsumerBaseMixin:
 
         if cancelled is not None and cancelled(request):
             log.info("request cancelled while it waited for a worker, skipping", dedup_key=key)
+            if report_skipped is not None:
+                try:
+                    await report_skipped(request, log)
+                except Exception as exc:
+                    log.exception("could not report the skipped request", error=str(exc))
+                    self._clear_processed(key)
+                    await self._retry_or_dead_letter(msg)
+                    return
             await msg.ack()
             return
 

@@ -377,13 +377,21 @@ class ConversationHandlerMixin:
             return
 
         # A conversation run stopped while its start waited in NATS is not
-        # executed: Go already ended it; a later turn (published after the
-        # stop) runs (KI-65 follow-up).
+        # executed; a later turn (published after the stop) runs (KI-65
+        # follow-up). Its cancelled completion ends the Go turn (S2-G fix, 2);
+        # if it cannot be published, the start is retried (dead-lettered on
+        # its last delivery, which Go ends).
         start = stream_sequence(msg)
         if start is not None and self._cancels.cancelled_any(
             [conversation_key(run_msg.conversation_id), run_key(run_id)], start
         ):
             log.info("conversation run stopped while it waited for a worker, skipping")
+            try:
+                await self._publish_skipped_completion(run_msg)
+            except Exception as exc:
+                log.exception("could not report the skipped conversation run", error=str(exc))
+                await self._retry_or_dead_letter(msg)
+                return
             await msg.ack()
             return
 
@@ -528,6 +536,29 @@ class ConversationHandlerMixin:
             SUBJECT_CONVERSATION_RUN_COMPLETE,
             json.dumps(stamped).encode(),
             headers={"Nats-Msg-Id": f"conv-complete-{uuid.uuid4()}"},
+        )
+
+    async def _publish_skipped_completion(self, run_msg: ConversationRunStartMessage) -> None:
+        """Publish the cancelled completion of a conversation run whose start is skipped; raises on failure."""
+        if self._js is None:
+            err_msg = "JetStream not available for the skipped conversation run's completion"
+            raise RuntimeError(err_msg)
+        skipped = ConversationRunCompleteMessage(
+            run_id=run_msg.run_id,
+            conversation_id=run_msg.conversation_id,
+            session_id=run_msg.session_id,
+            status="cancelled",
+            error="conversation run cancelled before a worker started it",
+            tenant_id=run_msg.tenant_id,
+            turn_id=run_msg.turn_id,
+        )
+        # One message ID per turn: a retried start publishes it again, and the
+        # Go Core deduplicates completions by Nats-Msg-Id.
+        await publish_with_retry(
+            self._js,
+            SUBJECT_CONVERSATION_RUN_COMPLETE,
+            skipped.model_dump_json().encode(),
+            headers={"Nats-Msg-Id": f"conv-skipped-{run_msg.run_id}-{run_msg.turn_id}"},
         )
 
     async def _publish_failed_completion(self, run_msg: ConversationRunStartMessage, error: str) -> None:

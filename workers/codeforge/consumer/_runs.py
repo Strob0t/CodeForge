@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.consumer._cancel_registry import run_key, task_key
+from codeforge.consumer._cancel_registry import run_key
 from codeforge.consumer._delivery import stream_sequence
-from codeforge.consumer._subjects import SUBJECT_TASK_CANCEL
-from codeforge.models import RunStartMessage, TaskMessage
+from codeforge.consumer._subjects import SUBJECT_RUN_COMPLETE, SUBJECT_TASK_CANCEL
+from codeforge.models import RunCompleteMessage, RunStartMessage, TaskMessage
+from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
 
 if TYPE_CHECKING:
@@ -32,8 +33,10 @@ class RunHandlerMixin:
         be executed a second time by another worker. If this worker dies, the Go
         Core's run timeout fails the run.
         """
-        # A run stopped while its start waited in NATS is not executed: Go
-        # already ended it (KI-65 follow-up).
+        # A run stopped while its start waited in NATS is not executed (KI-65
+        # follow-up); its cancelled completion ends the Go run. Only a cancel
+        # of the run skips it: a tasks.cancel stops a backend task and never
+        # ends a run on the task (S2-G fix, 2).
         start = stream_sequence(msg)
         await self._handle_request(
             msg=msg,
@@ -43,10 +46,25 @@ class RunHandlerMixin:
             result_subject=None,
             log_context=lambda r: {"run_id": r.run_id, "task_id": r.task_id},
             ack_on_accept=True,
-            cancelled=lambda r: (
-                start is not None and self._cancels.cancelled_any([run_key(r.run_id), task_key(r.task_id)], start)
-            ),
+            cancelled=lambda r: start is not None and self._cancels.cancelled(run_key(r.run_id), start),
+            report_skipped=self._report_skipped_run,
         )
+
+    async def _report_skipped_run(self, run_msg: RunStartMessage, log: structlog.BoundLogger) -> None:
+        """Publish the cancelled completion of a run whose start is skipped, so the Go Core ends it."""
+        if self._js is None:
+            err_msg = "JetStream not available for the skipped run's completion"
+            raise RuntimeError(err_msg)
+        completion = RunCompleteMessage(
+            run_id=run_msg.run_id,
+            task_id=run_msg.task_id,
+            tenant_id=run_msg.tenant_id,
+            project_id=run_msg.project_id,
+            status="cancelled",
+            error="run cancelled before a worker started it",
+        )
+        await publish_with_retry(self._js, SUBJECT_RUN_COMPLETE, completion.model_dump_json().encode())
+        log.info("skipped run reported as cancelled")
 
     async def _do_run_start(self, run_msg: RunStartMessage, log: structlog.BoundLogger) -> None:
         """Business logic for run start execution."""
