@@ -311,11 +311,6 @@ func run() error {
 		return fmt.Errorf("task dead-letter subscriber: %w", err)
 	}
 
-	cancelHandoffs, err := handoffSvc.StartSubscribers(ctx)
-	if err != nil {
-		return fmt.Errorf("handoff subscribers: %w", err)
-	}
-
 	// --- Secrets Vault ---
 	vault, err := secrets.NewVault(secrets.EnvLoader("LITELLM_MASTER_KEY"))
 	if err != nil {
@@ -924,6 +919,14 @@ func run() error {
 		defer a2aCompletionCancel()
 
 		slog.Info("a2a client service enabled", "completion_subscriber", true)
+	}
+
+	// The handoff subscribers start once every dependency of the handoff
+	// service is wired (the A2A client above): a handler must not read a
+	// dependency while it is still being set.
+	cancelHandoffs, err := handoffSvc.StartSubscribers(ctx)
+	if err != nil {
+		return fmt.Errorf("handoff subscribers: %w", err)
 	}
 
 	// A2A API keys with their tenants (validated at config load).
