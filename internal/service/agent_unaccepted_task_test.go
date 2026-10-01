@@ -34,17 +34,18 @@ func (s *unacceptedTaskStore) ListTasksNeverAccepted(_ context.Context, olderTha
 	return s.unaccepted, nil
 }
 
-func newUnacceptedEnv(t *testing.T) (*unacceptedTaskStore, *AgentService, *tenantRecorder, *executionProbeBackend) {
+func newUnacceptedEnv(t *testing.T) (*unacceptedTaskStore, *AgentService, *tenantRecorder, *mockQueue) {
 	t.Helper()
-	probe := registerExecutionProbe(t)
+	registerExecutionProbe(t)
 	store := &unacceptedTaskStore{}
 	store.agents = []agent.Agent{{ID: "agent-1", ProjectID: "p-a", Name: "a", Backend: "execution-probe", Status: agent.StatusRunning}}
 	hub := &tenantRecorder{}
-	return store, NewAgentService(store, &mockQueue{}, hub), hub, probe
+	queue := &mockQueue{}
+	return store, NewAgentService(store, queue, hub), hub, queue
 }
 
 func TestFailTasksNeverAccepted(t *testing.T) {
-	store, svc, hub, probe := newUnacceptedEnv(t)
+	store, svc, hub, queue := newUnacceptedEnv(t)
 	store.tasks = []task.Task{
 		{ID: "t-a", ProjectID: "p-a", TenantID: scopeTenantA, AgentID: "agent-1", Status: task.StatusQueued, DispatchID: "d-1"},
 		{ID: "t-ended", ProjectID: "p-a", TenantID: scopeTenantA, AgentID: "agent-1", Status: task.StatusQueued, DispatchID: "d-2"},
@@ -68,8 +69,8 @@ func TestFailTasksNeverAccepted(t *testing.T) {
 	}
 	// The dispatch may still wait in NATS: its worker is told it is
 	// cancelled, so a late pickup skips it.
-	if stops := probe.stops(); !slices.Equal(stops, []string{"t-a"}) {
-		t.Errorf("backend stops = %v, want t-a", stops)
+	if cancels := taskCancels(t, queue); !slices.Equal(cancels, []string{scopeTenantA + "/t-a"}) {
+		t.Errorf("tasks.cancel = %v, want t-a in tenant A", cancels)
 	}
 	if store.agents[0].Status != agent.StatusIdle {
 		t.Errorf("agent status = %s, want idle", store.agents[0].Status)

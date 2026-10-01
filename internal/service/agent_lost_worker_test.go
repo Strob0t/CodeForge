@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -33,6 +34,15 @@ type lostTaskStore struct {
 	results map[string]lostTaskResult
 	beats   []string        // tenant/task@dispatch of recorded heartbeats
 	ended   map[string]bool // tasks whose dispatch ended on another path
+
+	getAgentCalls int
+}
+
+func (s *lostTaskStore) GetAgent(ctx context.Context, id string) (*agent.Agent, error) {
+	s.mu.Lock()
+	s.getAgentCalls++
+	s.mu.Unlock()
+	return s.mockStore.GetAgent(ctx, id)
 }
 
 type lostTaskResult struct {
@@ -77,6 +87,23 @@ func (s *lostTaskStore) TouchTaskHeartbeat(ctx context.Context, id, dispatchID s
 	return nil
 }
 
+// taskCancels returns the tasks.cancel messages published, as tenant/task.
+func taskCancels(t *testing.T, q *mockQueue) []string {
+	t.Helper()
+	var cancels []string
+	for _, m := range q.published {
+		if m.subject != messagequeue.SubjectTaskCancel {
+			continue
+		}
+		var p messagequeue.TaskCancelPayload
+		if err := json.Unmarshal(m.data, &p); err != nil {
+			t.Fatalf("tasks.cancel payload %s: %v", m.data, err)
+		}
+		cancels = append(cancels, p.TenantID+"/"+p.TaskID)
+	}
+	return cancels
+}
+
 func TestFailTasksWithLostWorker(t *testing.T) {
 	probe := registerExecutionProbe(t)
 	store := &lostTaskStore{}
@@ -116,10 +143,18 @@ func TestFailTasksWithLostWorker(t *testing.T) {
 		t.Errorf("agent status = %s, want idle", store.agents[0].Status)
 	}
 
-	// The worker is told to stop through the agent's backend, as StopTask
-	// does; a task without agent cannot be routed to one.
-	if got := probe.stops(); !slices.Equal(got, []string{"t-a"}) {
-		t.Errorf("backend stops = %v, want t-a", got)
+	// S2-G fix, 8: the worker is told to stop with a tasks.cancel for the
+	// task in its tenant, which every worker listens to; the task's agent is
+	// not looked up, so a task without agent (or whose agent is gone) is
+	// stopped too, and the backend's own Stop is not involved.
+	if got := taskCancels(t, queue); !slices.Equal(got, []string{scopeTenantA + "/t-a", scopeTenantB + "/t-b"}) {
+		t.Errorf("tasks.cancel = %v, want t-a in tenant A and t-b in tenant B", got)
+	}
+	if got := probe.stops(); len(got) != 0 {
+		t.Errorf("backend stops = %v, want none", got)
+	}
+	if store.getAgentCalls != 0 {
+		t.Errorf("GetAgent called %d times to tell the worker to stop, want 0", store.getAgentCalls)
 	}
 
 	byTenant := map[string][]string{}
