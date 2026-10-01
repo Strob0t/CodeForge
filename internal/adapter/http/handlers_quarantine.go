@@ -13,6 +13,7 @@ import (
 // the same package. No external package needs to reference them directly.
 
 // listQuarantinedMessages handles GET /api/v1/quarantine?project_id=...&status=...&limit=...&offset=...
+// Without project_id it lists the messages without project (inbound A2A prompts).
 func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Request) {
 	if h.Quarantine == nil {
 		writeError(w, http.StatusServiceUnavailable, "quarantine not enabled")
@@ -20,10 +21,6 @@ func (h *Handlers) listQuarantinedMessages(w http.ResponseWriter, r *http.Reques
 	}
 
 	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
-		return
-	}
 
 	status := quarantine.Status(r.URL.Query().Get("status"))
 	limit, offset := parsePagination(r, 50)
@@ -99,6 +96,7 @@ func (h *Handlers) rejectQuarantinedMessage(w http.ResponseWriter, r *http.Reque
 }
 
 // quarantineStats handles GET /api/v1/quarantine/stats?project_id=...
+// Without project_id it counts the messages without project (inbound A2A prompts).
 func (h *Handlers) quarantineStats(w http.ResponseWriter, r *http.Request) {
 	if h.Quarantine == nil {
 		writeError(w, http.StatusServiceUnavailable, "quarantine not enabled")
@@ -106,10 +104,6 @@ func (h *Handlers) quarantineStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectID := r.URL.Query().Get("project_id")
-	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id is required")
-		return
-	}
 
 	// Compute stats by querying each status.
 	var stats quarantine.Stats

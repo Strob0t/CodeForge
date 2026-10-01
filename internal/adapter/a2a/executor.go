@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	sdka2a "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -12,6 +13,9 @@ import (
 
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -26,18 +30,29 @@ type cancelResult struct {
 	TaskID string `json:"task_id"`
 }
 
+// Screener checks an inbound message before it is published (the
+// quarantine service's Screen).
+type Screener interface {
+	Screen(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (quarantine.Verdict, error)
+}
+
 // Executor implements a2asrv.AgentExecutor for inbound A2A tasks.
 type Executor struct {
-	store database.Store
-	queue messagequeue.Queue
-	hub   broadcast.Broadcaster
-	modes []string
+	store    database.Store
+	queue    messagequeue.Queue
+	hub      broadcast.Broadcaster
+	modes    []string
+	screener Screener
 }
 
 // NewExecutor creates an Executor.
 func NewExecutor(store database.Store, queue messagequeue.Queue, hub broadcast.Broadcaster, modes []string) *Executor {
 	return &Executor{store: store, queue: queue, hub: hub, modes: modes}
 }
+
+// SetScreener makes every inbound prompt pass the screener (quarantine)
+// before it is published (KI-15).
+func (e *Executor) SetScreener(s Screener) { e.screener = s }
 
 // Execute handles an inbound A2A task (implements a2asrv.AgentExecutor).
 func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, eq eventqueue.Queue) error {
@@ -56,19 +71,15 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 		return fmt.Errorf("prompt exceeds maximum length (%d > %d)", len(prompt), MaxPromptLength)
 	}
 
-	// Create domain task.
+	// The caller's trust comes from its authentication (A2AAuth): partial
+	// for an A2A API key, untrusted otherwise.
 	taskID := fmt.Sprintf("a2a-%s", reqCtx.TaskID)
-	dt := a2adomain.NewA2ATask(taskID)
-	dt.State = a2adomain.TaskStateWorking
-	dt.Direction = a2adomain.DirectionInbound
-	dt.TrustOrigin = "a2a"
-	dt.TrustLevel = "untrusted"
-
-	if err := e.store.CreateA2ATask(ctx, dt); err != nil {
-		return fmt.Errorf("create a2a task: %w", err)
+	ann := &trust.Annotation{
+		Origin:     "a2a",
+		TrustLevel: trust.Level(middleware.A2ATrustFromContext(ctx)),
+		SourceID:   "a2a:" + string(reqCtx.TaskID),
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 	}
-
-	// Publish to NATS for worker pickup.
 	payload, marshalErr := json.Marshal(messagequeue.A2ATaskCreatedPayload{
 		TaskID:   taskID,
 		TenantID: tenantctx.FromContext(ctx),
@@ -79,19 +90,59 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 		slog.Error("a2a: failed to marshal task created payload", "task_id", taskID, "error", marshalErr)
 		return fmt.Errorf("marshal a2a task payload: %w", marshalErr)
 	}
-	if err := e.queue.Publish(ctx, messagequeue.SubjectA2ATaskCreated, payload); err != nil {
-		slog.Error("a2a: publish task created", "error", err)
+
+	// The prompt is screened before any worker sees it (KI-15). A held
+	// prompt waits for an admin's review, which publishes it when approved.
+	verdict := e.screen(ctx, ann, taskID, payload)
+	state, sdkState, note := a2adomain.TaskStateWorking, sdka2a.TaskStateWorking, ""
+	switch verdict {
+	case quarantine.VerdictHeld:
+		state, sdkState, note = a2adomain.TaskStateSubmitted, sdka2a.TaskStateSubmitted, "held for review"
+	case quarantine.VerdictRejected:
+		state, sdkState, note = a2adomain.TaskStateRejected, sdka2a.TaskStateRejected, "rejected by the quarantine"
 	}
 
-	// Emit working status event via SDK event queue.
-	// reqCtx implements a2a.TaskInfoProvider.
-	_ = eq.Write(ctx, sdka2a.NewStatusUpdateEvent(reqCtx, sdka2a.TaskStateWorking, nil))
+	dt := a2adomain.NewA2ATask(taskID)
+	dt.State = state
+	dt.Direction = a2adomain.DirectionInbound
+	dt.TrustOrigin = ann.Origin
+	dt.TrustLevel = string(ann.TrustLevel)
+	if err := e.store.CreateA2ATask(ctx, dt); err != nil {
+		return fmt.Errorf("create a2a task: %w", err)
+	}
 
-	// Broadcast to WS hub.
-	e.broadcastStatus(ctx, taskID, string(a2adomain.TaskStateWorking), "inbound")
+	if verdict == quarantine.VerdictPass {
+		if err := e.queue.Publish(ctx, messagequeue.SubjectA2ATaskCreated, payload); err != nil {
+			slog.Error("a2a: publish task created", "error", err)
+		}
+	}
 
-	slog.Info("a2a: task created", "task_id", taskID, "prompt_len", len(prompt))
+	// Emit the task's status via the SDK event queue (reqCtx implements
+	// a2a.TaskInfoProvider) and broadcast it to the WS hub.
+	var msg *sdka2a.Message
+	if note != "" {
+		msg = sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.TextPart{Text: note})
+	}
+	_ = eq.Write(ctx, sdka2a.NewStatusUpdateEvent(reqCtx, sdkState, msg))
+	e.broadcastStatus(ctx, taskID, string(state), "inbound")
+
+	slog.Info("a2a: task created", "task_id", taskID, "prompt_len", len(prompt), "state", state)
 	return nil
+}
+
+// screen returns the screener's verdict on an inbound task's message; pass
+// without a screener (quarantine disabled). A message that cannot be
+// screened is rejected (fail closed).
+func (e *Executor) screen(ctx context.Context, ann *trust.Annotation, taskID string, payload []byte) quarantine.Verdict {
+	if e.screener == nil {
+		return quarantine.VerdictPass
+	}
+	verdict, err := e.screener.Screen(ctx, ann, messagequeue.SubjectA2ATaskCreated, payload, "")
+	if err != nil {
+		slog.Error("a2a: screening inbound task failed, rejecting it", "task_id", taskID, "error", err)
+		return quarantine.VerdictRejected
+	}
+	return verdict
 }
 
 // Cancel cancels an inbound A2A task (implements a2asrv.AgentExecutor).

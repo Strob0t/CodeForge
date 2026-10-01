@@ -43,7 +43,7 @@ func A2AAuth(keys []config.A2AAPIKey) func(http.Handler) http.Handler {
 			}
 
 			ctx := tenantctx.WithTenant(r.Context(), key.TenantID)
-			ctx = context.WithValue(ctx, ctxKeyA2ATrust{}, A2ATrustPartial)
+			ctx = ContextWithA2ATrust(ctx, A2ATrustPartial)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -61,6 +61,11 @@ func matchA2AKey(keys []config.A2AAPIKey, token string) (config.A2AAPIKey, bool)
 		}
 	}
 	return found, match == 1 && token != ""
+}
+
+// ContextWithA2ATrust returns ctx carrying the A2A trust level of its caller.
+func ContextWithA2ATrust(ctx context.Context, level A2ATrustLevel) context.Context {
+	return context.WithValue(ctx, ctxKeyA2ATrust{}, level)
 }
 
 // A2ATrustFromContext returns the A2A trust level from the request context.

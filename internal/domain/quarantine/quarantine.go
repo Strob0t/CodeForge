@@ -5,6 +5,19 @@ package quarantine
 
 import "time"
 
+// Verdict is the outcome of screening a message.
+type Verdict string
+
+const (
+	// VerdictPass lets the message through.
+	VerdictPass Verdict = "pass"
+	// VerdictHeld holds the message for an admin's review; approving it
+	// publishes it to its subject.
+	VerdictHeld Verdict = "held"
+	// VerdictRejected blocks the message for good.
+	VerdictRejected Verdict = "rejected"
+)
+
 // Status represents the review state of a quarantined message.
 type Status string
 

@@ -32,8 +32,17 @@ func NewQuarantineService(db database.Store, queue messagequeue.Queue, hub broad
 // message was blocked (quarantined or rejected). Follows a fail-closed policy:
 // if evaluation or persistence errors, the message is blocked.
 func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (bool, error) {
+	verdict, err := s.Screen(ctx, ann, subject, payload, projectID)
+	return verdict != quarantine.VerdictPass, err
+}
+
+// Screen checks a message against the quarantine thresholds and tells
+// whether it passes, is held for review (stored pending; Approve publishes
+// it to subject) or is rejected (stored rejected). It fails closed: a
+// message that cannot be checked or stored is rejected, with the error.
+func (s *QuarantineService) Screen(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (quarantine.Verdict, error) {
 	if !s.cfg.Enabled {
-		return false, nil
+		return quarantine.VerdictPass, nil
 	}
 
 	// Verify project belongs to caller's tenant (fail-closed).
@@ -41,20 +50,20 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 		if _, err := s.db.GetProject(ctx, projectID); err != nil {
 			slog.Warn("quarantine: project access check failed, blocking message",
 				"project_id", projectID, "error", err)
-			return true, fmt.Errorf("quarantine project access check: %w", err)
+			return quarantine.VerdictRejected, fmt.Errorf("quarantine project access check: %w", err)
 		}
 	}
 
 	// Messages from sufficiently trusted sources bypass quarantine.
 	if ann != nil && ann.MeetsMinimum(trust.Level(s.cfg.MinTrustBypass)) {
-		return false, nil
+		return quarantine.VerdictPass, nil
 	}
 
 	score, factors := quarantine.ScoreMessage(ann, payload)
 
 	// Below quarantine threshold — allow through.
 	if score < s.cfg.QuarantineThreshold {
-		return false, nil
+		return quarantine.VerdictPass, nil
 	}
 
 	trustOrigin := ""
@@ -84,11 +93,11 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 		if err := s.db.QuarantineMessage(ctx, msg); err != nil {
 			slog.Error("failed to store auto-blocked message, blocking anyway (fail-closed)", "error", err)
 			// Fail-closed: block the message even if DB persistence fails.
-			return true, fmt.Errorf("quarantine db error: %w", err)
+			return quarantine.VerdictRejected, fmt.Errorf("quarantine db error: %w", err)
 		}
 		slog.Warn("message auto-blocked",
 			"subject", subject, "score", score, "factors", factors)
-		return true, nil
+		return quarantine.VerdictRejected, nil
 	}
 
 	// Between quarantine and block thresholds — hold for review.
@@ -96,7 +105,7 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 	if err := s.db.QuarantineMessage(ctx, msg); err != nil {
 		slog.Error("failed to quarantine message, blocking anyway (fail-closed)", "error", err)
 		// Fail-closed: block the message even if DB persistence fails.
-		return true, fmt.Errorf("quarantine db error: %w", err)
+		return quarantine.VerdictRejected, fmt.Errorf("quarantine db error: %w", err)
 	}
 
 	// Broadcast alert to admin UI.
@@ -110,7 +119,7 @@ func (s *QuarantineService) Evaluate(ctx context.Context, ann *trust.Annotation,
 
 	slog.Info("message quarantined",
 		"id", msg.ID, "subject", subject, "score", score, "factors", factors)
-	return true, nil
+	return quarantine.VerdictHeld, nil
 }
 
 // Approve releases a quarantined message, replaying the original payload to NATS.
@@ -170,7 +179,8 @@ func (s *QuarantineService) Reject(ctx context.Context, id, reviewedBy, note str
 	return nil
 }
 
-// List returns quarantined messages for a project, filtered by status.
+// List returns quarantined messages for a project ("" = the messages
+// without project, such as inbound A2A prompts), filtered by status.
 func (s *QuarantineService) List(ctx context.Context, projectID string, status quarantine.Status, limit, offset int) ([]*quarantine.Message, error) {
 	return s.db.ListQuarantinedMessages(ctx, projectID, status, limit, offset)
 }

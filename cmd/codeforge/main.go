@@ -994,6 +994,10 @@ func run() error {
 				cfa2a.WithStreaming(cfg.A2A.Streaming))
 			taskStoreAdapter := cfa2a.NewTaskStoreAdapter(store)
 			executor := cfa2a.NewExecutor(store, queue, hub, modeIDs)
+			if cfg.Quarantine.Enabled {
+				// Inbound A2A prompts are screened before any worker sees them (KI-15).
+				executor.SetScreener(quarantineSvc)
+			}
 
 			// Wire SDK handler.
 			a2aReqHandler := a2asrv.NewHandler(executor,
