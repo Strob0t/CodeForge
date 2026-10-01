@@ -25,6 +25,9 @@ import AgentFlowGraph from "./AgentFlowGraph";
 import { planEventEffect } from "./liveEvents";
 import StepDetailPanel from "./StepDetailPanel";
 
+/** How long plan events are collected before the panel refetches. */
+const PLAN_REFETCH_WINDOW_MS = 300;
+
 interface PlanPanelProps {
   projectId: string;
   tasks: Task[];
@@ -238,16 +241,37 @@ export default function PlanPanel(props: PlanPanelProps) {
     setReviewDecisions((prev) => ({ ...prev, [stepId]: decision }));
   };
 
+  // A running plan sends its step events in bursts (every step start and end):
+  // the refetches they ask for are collected and made once per window.
+  let pendingRefetch = { plans: false, selected: false };
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleRefetch(plans: boolean, selected: boolean): void {
+    pendingRefetch = {
+      plans: pendingRefetch.plans || plans,
+      selected: pendingRefetch.selected || selected,
+    };
+    if (refetchTimer !== undefined) return;
+    refetchTimer = setTimeout(() => {
+      const due = pendingRefetch;
+      pendingRefetch = { plans: false, selected: false };
+      refetchTimer = undefined;
+      if (due.plans) refetch();
+      if (due.selected) {
+        refetchSelectedPlan();
+        if (showFlowGraph()) refetchPlanGraph();
+      }
+    }, PLAN_REFETCH_WINDOW_MS);
+  }
+  onCleanup(() => clearTimeout(refetchTimer));
+
   // Live updates: plan and step status, review routing and debates.
   const { onMessage } = useWebSocket();
   // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
   const unsubscribe = onMessage((msg) => {
     const effect = planEventEffect(msg, props.projectId, selectedPlanId());
     if (!effect) return;
-    if (effect.refetchPlans) refetch();
-    if (effect.refetchSelected) {
-      refetchSelectedPlan();
-      if (showFlowGraph()) refetchPlanGraph();
+    if (effect.refetchPlans || effect.refetchSelected) {
+      scheduleRefetch(effect.refetchPlans, effect.refetchSelected);
     }
     if (effect.reviewDecision) {
       setStepReviewDecision(effect.reviewDecision.stepId, effect.reviewDecision.decision);

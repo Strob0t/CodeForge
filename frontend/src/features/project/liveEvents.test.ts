@@ -7,7 +7,9 @@ import {
   type AgentWork,
   agentWorkFromRuns,
   applyRunStatus,
+  collectLaneEvent,
   createProjectTaskIndex,
+  EMPTY_LANE_FEED,
   IDLE_WORK,
   isProjectEvent,
   parseTaskOutput,
@@ -399,5 +401,69 @@ describe("planEventEffect", () => {
     ],
   ])("ignores %s", (_name, msg) => {
     expect(planEventEffect(msg, "p-1", "pl-1")).toBeNull();
+  });
+});
+
+// KI-39 / KI-74: each lane shows only its own task's output and run's tool
+// calls, including what arrived before the lane mounted.
+describe("collectLaneEvent", () => {
+  const coder: AgentWork = { runId: "r-1", taskId: "t-1", steps: 0, costUsd: 0 };
+  const reviewer: AgentWork = { runId: "r-2", taskId: "t-2", steps: 0, costUsd: 0 };
+
+  it("keys output by task and tool calls by run of the tracked work", () => {
+    let feed = EMPTY_LANE_FEED;
+    feed = collectLaneEvent(feed, ws("task.output", { task_id: "t-1", line: "a" }), [
+      coder,
+      reviewer,
+    ]);
+    feed = collectLaneEvent(
+      feed,
+      ws("task.output", { task_id: "t-2", line: "b", stream: "stderr" }),
+      [coder, reviewer],
+    );
+    feed = collectLaneEvent(
+      feed,
+      ws("run.toolcall", { run_id: "r-1", call_id: "c-1", tool: "read_file", phase: "approved" }),
+      [coder, reviewer],
+    );
+    expect(feed.outputs).toEqual({
+      "t-1": [{ line: "a", stream: "stdout" }],
+      "t-2": [{ line: "b", stream: "stderr" }],
+    });
+    expect(feed.toolCalls).toEqual({
+      "r-1": [{ callId: "c-1", tool: "read_file", phase: "approved" }],
+    });
+  });
+
+  it("ignores output and tool calls of work no agent has", () => {
+    const feed = collectLaneEvent(
+      EMPTY_LANE_FEED,
+      ws("task.output", { task_id: "t-9", line: "stray" }),
+      [coder, IDLE_WORK],
+    );
+    expect(feed).toBe(EMPTY_LANE_FEED);
+    expect(
+      collectLaneEvent(
+        EMPTY_LANE_FEED,
+        ws("run.toolcall", { run_id: "r-9", call_id: "c", tool: "x", phase: "approved" }),
+        [coder],
+      ),
+    ).toBe(EMPTY_LANE_FEED);
+    expect(collectLaneEvent(EMPTY_LANE_FEED, ws("run.status", { run_id: "r-1" }), [coder])).toBe(
+      EMPTY_LANE_FEED,
+    );
+  });
+
+  it("keeps the newest lines and drops the entries of finished work", () => {
+    let feed = EMPTY_LANE_FEED;
+    for (let i = 0; i < 60; i++) {
+      feed = collectLaneEvent(feed, ws("task.output", { task_id: "t-1", line: `l${i}` }), [coder]);
+    }
+    expect(feed.outputs["t-1"]).toHaveLength(50);
+    expect(feed.outputs["t-1"]?.[49]?.line).toBe("l59");
+
+    const next: AgentWork = { runId: "r-3", taskId: "t-3", steps: 0, costUsd: 0 };
+    feed = collectLaneEvent(feed, ws("task.output", { task_id: "t-3", line: "next" }), [next]);
+    expect(Object.keys(feed.outputs)).toEqual(["t-3"]);
   });
 });

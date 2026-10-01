@@ -60,7 +60,7 @@ export function parseTaskOutput(msg: WSMessage): TaskOutputLine | null {
  * task.output carries no project ID: its sources (the workers' runs.output and
  * tasks.output messages) name only the task. Every task belongs to one project,
  * and before a task produces output the backend broadcasts a project event that
- * names it (task.status on dispatch, run.status on run start), so the index
+ * names it (task.status on dispatch and run start, run.status), so the index
  * knows a task by the time its output arrives, even before the task list is
  * refetched. Conversation runs stream through task.output with their run ID as
  * task ID; they are no tasks of the project and stay out (the chat shows them).
@@ -200,6 +200,78 @@ export function reduceAgentWork(work: AgentWork, msg: WSMessage, agentId: string
     default:
       return work;
   }
+}
+
+export interface LaneOutputLine {
+  line: string;
+  stream: "stdout" | "stderr";
+}
+
+export interface LaneToolCall {
+  callId: string;
+  tool: string;
+  phase: string;
+}
+
+/** The lanes' output by task ID and tool calls by run ID. */
+export interface LaneFeed {
+  outputs: Readonly<Record<string, readonly LaneOutputLine[]>>;
+  toolCalls: Readonly<Record<string, readonly LaneToolCall[]>>;
+}
+
+export const EMPTY_LANE_FEED: LaneFeed = { outputs: {}, toolCalls: {} };
+
+const MAX_LANE_LINES = 50;
+const MAX_LANE_TOOL_CALLS = 20;
+
+function keepKeys<T>(
+  entries: Readonly<Record<string, T>>,
+  keys: ReadonlySet<string>,
+): Record<string, T> {
+  const kept: Record<string, T> = {};
+  for (const [key, value] of Object.entries(entries)) {
+    if (keys.has(key)) kept[key] = value;
+  }
+  return kept;
+}
+
+/**
+ * Adds a task.output or run.toolcall event to the feed when it belongs to
+ * the task or run of one of the agents' work. The feed is kept outside the
+ * lanes, so a lane that mounts only after its agent appears in the refetched
+ * list still shows its run's first output. Entries of work no agent has any
+ * more are dropped. Returns `feed` itself when the event changes nothing.
+ */
+export function collectLaneEvent(
+  feed: LaneFeed,
+  msg: WSMessage,
+  works: readonly AgentWork[],
+): LaneFeed {
+  const taskIds = new Set(works.flatMap((w) => (w.taskId ? [w.taskId] : [])));
+  const runIds = new Set(works.flatMap((w) => (w.runId ? [w.runId] : [])));
+
+  const output = parseTaskOutput(msg);
+  if (output && taskIds.has(output.taskId)) {
+    const outputs = keepKeys(feed.outputs, taskIds);
+    const lines = outputs[output.taskId] ?? [];
+    outputs[output.taskId] = [
+      ...lines.slice(-(MAX_LANE_LINES - 1)),
+      { line: output.line, stream: output.stream },
+    ];
+    return { outputs, toolCalls: keepKeys(feed.toolCalls, runIds) };
+  }
+
+  const call = parseToolCall(msg);
+  if (call && runIds.has(call.run_id)) {
+    const toolCalls = keepKeys(feed.toolCalls, runIds);
+    const calls = toolCalls[call.run_id] ?? [];
+    toolCalls[call.run_id] = [
+      ...calls.slice(-(MAX_LANE_TOOL_CALLS - 1)),
+      { callId: call.call_id, tool: call.tool, phase: call.phase },
+    ];
+    return { outputs: keepKeys(feed.outputs, taskIds), toolCalls };
+  }
+  return feed;
 }
 
 /** The agent's newest active run (runs newest first), for a lane opened mid-run. */

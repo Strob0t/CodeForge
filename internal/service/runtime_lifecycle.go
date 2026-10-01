@@ -225,11 +225,7 @@ func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Stat
 	finalRun.TokensOut = payload.TokensOut
 	finalRun.Model = payload.Model
 	s.broadcastRunStatus(ctx, &finalRun, status)
-	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
-		AgentID:   r.AgentID,
-		ProjectID: r.ProjectID,
-		Status:    string(agent.StatusIdle),
-	})
+	s.broadcastTaskAndAgent(ctx, r, taskStatusForRun(status), agent.StatusIdle)
 
 	// Broadcast AG-UI run_finished alongside native event
 	aguiStatus := "completed"
@@ -582,6 +578,22 @@ func (s *RuntimeService) broadcastRunStatus(ctx context.Context, r *run.Run, sta
 		TokensIn:  r.TokensIn,
 		TokensOut: r.TokensOut,
 		Model:     r.Model,
+	})
+}
+
+// broadcastTaskAndAgent announces the task and agent status a run's start or
+// end wrote, so clients follow them without refetching on run.status.
+func (s *RuntimeService) broadcastTaskAndAgent(ctx context.Context, r *run.Run, taskStatus task.Status, agentStatus agent.Status) {
+	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(taskStatus),
+		AgentID:   r.AgentID,
+	})
+	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
+		AgentID:   r.AgentID,
+		ProjectID: r.ProjectID,
+		Status:    string(agentStatus),
 	})
 }
 

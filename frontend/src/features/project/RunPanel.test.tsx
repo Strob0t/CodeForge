@@ -116,7 +116,7 @@ beforeEach(() => {
   apiMock.listByTask.mockReset().mockResolvedValue([]);
 });
 
-async function startRun(): Promise<void> {
+function renderPanel(): void {
   render(() => (
     <I18nProvider>
       <ToastProvider>
@@ -124,9 +124,17 @@ async function startRun(): Promise<void> {
       </ToastProvider>
     </I18nProvider>
   ));
+}
+
+function clickStart(): void {
   fireEvent.change(screen.getByLabelText("Select task for run"), { target: { value: "t-1" } });
   fireEvent.change(screen.getByLabelText("Select agent for run"), { target: { value: "a-1" } });
   fireEvent.click(screen.getByRole("button", { name: "Start Run" }));
+}
+
+async function startRun(): Promise<void> {
+  renderPanel();
+  clickStart();
   await screen.findByText("running");
 }
 
@@ -186,5 +194,74 @@ describe("RunPanel live updates", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(apiMock.listByTask.mock.calls.length).toBe(after);
+  });
+
+  // KI-74: a fast run's first events arrived before api.runs.start resolved
+  // and were dropped.
+  it("applies the events that arrive while the run is being started", async () => {
+    let resolveStart: (run: Run) => void = () => undefined;
+    apiMock.start.mockReturnValue(
+      new Promise<Run>((resolve) => {
+        resolveStart = resolve;
+      }),
+    );
+    renderPanel();
+    clickStart();
+    await waitFor(() => expect(apiMock.start).toHaveBeenCalledTimes(1));
+
+    ws.emit("run.toolcall", {
+      run_id: "r-1",
+      call_id: "c-1",
+      tool: "early_tool",
+      phase: "approved",
+    });
+    ws.emit("run.toolcall", {
+      run_id: "r-9",
+      call_id: "c-9",
+      tool: "other_tool",
+      phase: "approved",
+    });
+    ws.emit("run.status", {
+      run_id: "r-1",
+      task_id: "t-1",
+      project_id: "p-1",
+      status: "completed",
+      step_count: 2,
+      model: "fast-model",
+    });
+    resolveStart(started);
+
+    await screen.findByText("early_tool");
+    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.getByText(/fast-model/)).toBeTruthy();
+    expect(screen.queryByText("other_tool")).toBeNull();
+  });
+
+  it("drops the buffered events when the start fails", async () => {
+    let rejectStart: (err: Error) => void = () => undefined;
+    apiMock.start.mockReturnValue(
+      new Promise<Run>((_, reject) => {
+        rejectStart = reject;
+      }),
+    );
+    renderPanel();
+    clickStart();
+    await waitFor(() => expect(apiMock.start).toHaveBeenCalledTimes(1));
+
+    ws.emit("run.toolcall", {
+      run_id: "r-1",
+      call_id: "c-1",
+      tool: "early_tool",
+      phase: "approved",
+    });
+    rejectStart(new Error("boom"));
+    await waitFor(() => expect(apiMock.start.mock.results[0]?.type).toBe("return"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // The next run starts with an empty buffer.
+    apiMock.start.mockResolvedValue(started);
+    clickStart();
+    await screen.findByText("running");
+    expect(screen.queryByText("early_tool")).toBeNull();
   });
 });

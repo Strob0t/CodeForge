@@ -137,4 +137,22 @@ describe("PlanPanel live updates", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(apiMock.list).toHaveBeenCalledTimes(1);
   });
+
+  // KI-74: every plan.step.status refetched the plans and the selected plan.
+  it("refetches once for a burst of step events", async () => {
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /Plan: Refactor/ }));
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(1));
+
+    for (const status of ["running", "completed", "running", "completed", "running"]) {
+      ws.emit("plan.step.status", { plan_id: "pl-1", step_id: "s-1", project_id: "p-1", status });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    await waitFor(() => expect(apiMock.list).toHaveBeenCalledTimes(2));
+    expect(apiMock.get).toHaveBeenCalledTimes(2);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(apiMock.list).toHaveBeenCalledTimes(2);
+    expect(apiMock.get).toHaveBeenCalledTimes(2);
+  });
 });

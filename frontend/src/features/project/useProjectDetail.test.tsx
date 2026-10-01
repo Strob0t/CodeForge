@@ -172,7 +172,9 @@ describe("useProjectDetail live output", () => {
     expect(detail.liveOutputLines()).toEqual([]);
   });
 
-  it("refetches tasks and agents when a project run changes status", async () => {
+  // KI-74: the runtime broadcasts task.status and agent.status on run start
+  // and end; run.status no longer refetches both lists.
+  it("refetches tasks on task.status and agents on agent.status only", async () => {
     const detail = renderDetail();
     await waitFor(() => expect(detail.tasks()).toHaveLength(1));
     const tasksBefore = apiMock.tasks.mock.calls.length;
@@ -185,8 +187,20 @@ describe("useProjectDetail live output", () => {
       status: "running",
       step_count: 0,
     });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(apiMock.tasks.mock.calls.length).toBe(tasksBefore);
+    expect(apiMock.agents.mock.calls.length).toBe(agentsBefore);
 
+    ws.emit("task.status", { task_id: "t-1", project_id: "p-1", status: "running" });
     await waitFor(() => expect(apiMock.tasks.mock.calls.length).toBe(tasksBefore + 1));
+    expect(apiMock.agents.mock.calls.length).toBe(agentsBefore);
+
+    ws.emit("agent.status", { agent_id: "a-1", project_id: "p-1", status: "running" });
+    await waitFor(() => expect(apiMock.agents.mock.calls.length).toBe(agentsBefore + 1));
+    expect(apiMock.tasks.mock.calls.length).toBe(tasksBefore + 1);
+
+    ws.emit("agent.status", { agent_id: "a-9", project_id: "p-2", status: "running" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
     expect(apiMock.agents.mock.calls.length).toBe(agentsBefore + 1);
   });
 

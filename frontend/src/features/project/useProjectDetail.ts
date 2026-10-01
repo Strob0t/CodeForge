@@ -111,11 +111,9 @@ export function useProjectDetail(projectId: () => string) {
         break;
       }
       case "run.status": {
+        // The run's task and agent announce their own status (task.status,
+        // agent.status), so the lists are not refetched here.
         if ((payload.project_id as string) === pid) {
-          // A run starting or ending also moves its task and agent, which
-          // broadcast no status of their own on this path.
-          refetchTasks();
-          refetchAgents();
           const status = payload.status as string;
           if (status === "completed") toast("info", t("detail.toast.runCompleted"));
           else if (status === "failed") toast("error", t("detail.toast.runFailed"));
@@ -248,6 +246,7 @@ export function useProjectDetail(projectId: () => string) {
     refetchTasks,
     gitStatus,
     agents,
+    refetchAgents,
     onboardGoals,
     onboardRoadmap,
     onboardSessions,

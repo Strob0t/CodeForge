@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@solidjs/testing-library";
-import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent, Run } from "~/api/types";
@@ -112,43 +111,28 @@ beforeEach(() => {
   apiMock.recentRuns.mockReset().mockResolvedValue([]);
 });
 
-// KI-39: every lane used to append every task's output.
 describe("AgentLane", () => {
-  it("shows only the output and tool calls of its own task and run", async () => {
-    const [work, setWork] = createSignal<AgentWork>({
-      runId: "r-1",
-      taskId: "t-1",
-      steps: 2,
-      costUsd: 0.5,
-    });
-    render(() => <AgentLane agent={agent("a-1", "Coder")} work={work()} />);
-
-    ws.emit("task.output", { task_id: "t-1", line: "own line", stream: "stdout" });
-    ws.emit("task.output", { task_id: "t-2", line: "foreign line", stream: "stdout" });
-    ws.emit("run.toolcall", { run_id: "r-1", call_id: "c-1", tool: "own_tool", phase: "approved" });
-    ws.emit("run.toolcall", {
-      run_id: "r-2",
-      call_id: "c-2",
-      tool: "foreign_tool",
-      phase: "approved",
-    });
-
-    await screen.findByText("own line");
+  it("shows the output and tool calls it is given with the work's progress", () => {
+    const work: AgentWork = { runId: "r-1", taskId: "t-1", steps: 2, costUsd: 0.5 };
+    render(() => (
+      <AgentLane
+        agent={agent("a-1", "Coder")}
+        work={work}
+        outputs={[{ line: "own line", stream: "stderr" }]}
+        toolCalls={[{ callId: "c-1", tool: "own_tool", phase: "approved" }]}
+      />
+    ));
+    expect(screen.getByText("own line").className).toContain("text-cf-danger-fg");
     expect(screen.getByText("own_tool")).toBeTruthy();
-    expect(screen.queryByText("foreign line")).toBeNull();
-    expect(screen.queryByText("foreign_tool")).toBeNull();
     expect(screen.getByText("Steps: 2")).toBeTruthy();
     expect(screen.getByText("$0.5000")).toBeTruthy();
-
-    setWork({ runId: "r-2", taskId: "t-2", steps: 0, costUsd: 0 });
-    ws.emit("task.output", { task_id: "t-2", line: "next task line", stream: "stdout" });
-    await screen.findByText("next task line");
   });
 
-  it("shows nothing while the agent has no task", async () => {
-    render(() => <AgentLane agent={agent("a-1", "Coder")} work={IDLE_WORK} />);
-    ws.emit("task.output", { task_id: "t-1", line: "stray line", stream: "stdout" });
-    await waitFor(() => expect(screen.queryByText("stray line")).toBeNull());
+  it("shows nothing while the agent has no task", () => {
+    render(() => (
+      <AgentLane agent={agent("a-1", "Coder")} work={IDLE_WORK} outputs={[]} toolCalls={[]} />
+    ));
+    expect(screen.getByText("Steps: 0")).toBeTruthy();
   });
 });
 
@@ -219,5 +203,55 @@ describe("WarRoom", () => {
     });
     ws.emit("task.output", { task_id: "t-9", line: "other project output", stream: "stdout" });
     await waitFor(() => expect(screen.queryByText("other project output")).toBeNull());
+  });
+
+  // KI-74: a lane mounts only after the agent list refetch; the output of
+  // the run's first moments arrived before and was lost.
+  it("shows the output that arrived before the lane mounted", async () => {
+    renderWarRoom();
+    await waitFor(() => expect(apiMock.active).toHaveBeenCalledTimes(1));
+
+    ws.emit("run.status", {
+      run_id: "r-1",
+      task_id: "t-1",
+      project_id: "p-1",
+      agent_id: "a-1",
+      status: "running",
+      step_count: 0,
+    });
+    ws.emit("task.output", { task_id: "t-1", line: "first line", stream: "stdout" });
+    ws.emit("run.toolcall", {
+      run_id: "r-1",
+      call_id: "c-1",
+      tool: "first_tool",
+      phase: "approved",
+    });
+
+    apiMock.active.mockResolvedValue([agent("a-1", "Coder")]);
+    ws.emit("agent.status", { agent_id: "a-1", project_id: "p-1", status: "running" });
+
+    await screen.findByText("Coder");
+    const lane = document.querySelector('[data-agent-id="a-1"]');
+    expect(lane?.textContent).toContain("first line");
+    expect(lane?.textContent).toContain("first_tool");
+  });
+
+  it("refetches the agents on agent.status, not on run.status", async () => {
+    renderWarRoom();
+    await waitFor(() => expect(apiMock.active).toHaveBeenCalledTimes(1));
+
+    ws.emit("run.status", {
+      run_id: "r-1",
+      task_id: "t-1",
+      project_id: "p-1",
+      agent_id: "a-1",
+      status: "running",
+      step_count: 0,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(apiMock.active).toHaveBeenCalledTimes(1);
+
+    ws.emit("agent.status", { agent_id: "a-1", project_id: "p-1", status: "idle" });
+    await waitFor(() => expect(apiMock.active).toHaveBeenCalledTimes(2));
   });
 });
