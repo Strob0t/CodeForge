@@ -16,6 +16,7 @@ from nats.js.api import AckPolicy, DeliverPolicy
 from codeforge.backends._base import TaskResult as BackendTaskResult
 from codeforge.consumer import TaskConsumer
 from codeforge.consumer._cancel_registry import task_key
+from codeforge.models import TaskMessage
 from tests.jetstream_fakes import FakeSubscription, RecordingJetStream, jetstream_msg
 
 
@@ -127,8 +128,55 @@ async def test_cancel_subscription_needs_no_acks(consumer: TaskConsumer, backend
     backend.release.set()
     await asyncio.wait_for(handler, timeout=2)
 
-    assert config.deliver_policy == DeliverPolicy.NEW  # type: ignore[union-attr]
     assert config.ack_policy == AckPolicy.NONE  # type: ignore[union-attr]
+
+
+async def test_the_task_listens_for_cancels_from_its_dispatch_on(consumer: TaskConsumer, backend: _Backend) -> None:
+    """S2-F review, F12: a cancel published just before the task's listener subscribed was lost.
+
+    The listener saw new messages only, and the cancel registry had not
+    processed it yet. The listener replays every cancel published after
+    the task's dispatch message (same stream), so none falls in between.
+    """
+    handler = await _start(consumer, backend)  # dispatched at stream sequence 10
+
+    config = _cancel_subscription(consumer).config
+    backend.release.set()
+    await asyncio.wait_for(handler, timeout=2)
+
+    assert config.deliver_policy == DeliverPolicy.BY_START_SEQUENCE  # type: ignore[union-attr]
+    assert config.opt_start_seq == 11  # type: ignore[union-attr]
+
+
+async def test_a_replayed_cancel_stops_the_task(consumer: TaskConsumer, backend: _Backend) -> None:
+    """A cancel published between the dispatch and the listener's subscription reaches the task."""
+    js = consumer._js
+    subscribe = js.subscribe  # type: ignore[union-attr]
+
+    async def subscribe_with_replay(subject: str, config: object = None) -> FakeSubscription:
+        sub = await subscribe(subject, config=config)
+        if subject == "tasks.cancel":
+            sub.deliver(json.dumps({"task_id": "task-1"}).encode(), stream_seq=15)
+        return sub
+
+    js.subscribe = subscribe_with_replay  # type: ignore[union-attr,method-assign]
+    msg, _ = jetstream_msg(_payload(), subject="tasks.agent.aider", stream_seq=10)
+
+    await asyncio.wait_for(consumer._handle_message(msg), timeout=2)
+
+    assert _results(consumer) == [("task-1", "cancelled")]
+
+
+async def test_a_task_without_stream_position_listens_for_new_cancels(
+    consumer: TaskConsumer, backend: _Backend
+) -> None:
+    backend.release.set()
+    task = TaskMessage.model_validate_json(_payload())
+
+    await consumer._run_backend(task, "aider", "", dispatch=None)
+
+    config = _cancel_subscription(consumer).config
+    assert config.deliver_policy == DeliverPolicy.NEW  # type: ignore[union-attr]
 
 
 async def test_worker_abort_stops_the_backend_without_reporting_cancelled(

@@ -152,10 +152,13 @@ class TaskHandlerMixin:
             msg = "JetStream not available for the task cancel listener"
             raise RuntimeError(msg)
         # Every worker sees every cancel: the task may run on any of them.
-        sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer())
+        # The listener replays the cancels published after the task's own
+        # message (one stream), so a cancel published while it subscribes
+        # is not lost.
+        sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer(after=dispatch))
         if dispatch is not None and self._cancels.cancelled(task_key(task.id), dispatch):
-            # Cancelled after the check in _handle_message, before this
-            # listener saw new messages.
+            # Cancelled after the check in _handle_message, already seen by
+            # the registry.
             logger.info("task cancelled by control plane before it started", task_id=task.id)
             await self._unsubscribe_task_cancel(sub, task.id)
             return None

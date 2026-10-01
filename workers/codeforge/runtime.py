@@ -88,13 +88,19 @@ async def heartbeats(
         await asyncio.wait({task})
 
 
-def notification_consumer() -> ConsumerConfig:
+def notification_consumer(after: int | None = None) -> ConsumerConfig:
     """Settings of the ephemeral consumers a run or task listens on (cancel messages, tool-call responses).
 
-    They see new messages only and are never acked: with explicit acks
-    JetStream would redeliver every message after the ack wait and stop
-    delivering once MaxAckPending messages were outstanding.
+    They see new messages only - with *after*, every message published after
+    that stream sequence (e.g. the work's own start message), so none
+    published while the listener subscribes is missed - and are never acked:
+    with explicit acks JetStream would redeliver every message after the ack
+    wait and stop delivering once MaxAckPending messages were outstanding.
     """
+    if after is not None:
+        return ConsumerConfig(
+            deliver_policy=DeliverPolicy.BY_START_SEQUENCE, opt_start_seq=after + 1, ack_policy=AckPolicy.NONE
+        )
     return ConsumerConfig(deliver_policy=DeliverPolicy.NEW, ack_policy=AckPolicy.NONE)
 
 
