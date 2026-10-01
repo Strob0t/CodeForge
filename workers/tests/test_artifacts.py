@@ -174,6 +174,8 @@ class TestValidateDecisionMD:
         ("BOUNDARIES.json", "[]", True),
         ("BOUNDARIES.json", "I could not find any boundaries.", False),
         ("BOUNDARIES.json", '["api.proto"]', False),
+        ("BOUNDARIES.json", 'See [1] and [docs].\n[{"path": "db/001.sql", "type": "data"}]\nAlso [2].', True),
+        ("BOUNDARIES.json", "Files [a.go] and [b.go]; [1, 2]", False),
         ("CONTRACT_REVIEW.md", "# Contract review\nNo inconsistencies.", True),
         ("CONTRACT_REVIEW.md", "  ", False),
         ("PROPOSAL.md", "Use the cache.", True),
@@ -183,3 +185,14 @@ class TestValidateDecisionMD:
 def test_review_and_debate_artifacts(artifact_type: str, output: str, valid: bool) -> None:
     """The review pipeline and debate artifacts mirror the Go validators (S6-F 1)."""
     assert validate_artifact(artifact_type, output).valid is valid
+
+
+def test_boundaries_skip_prose_brackets() -> None:
+    """Prose brackets before and after are skipped; a fenced block wins (S6-F 10)."""
+    from codeforge.artifacts import boundaries_from_output
+
+    out = 'Draft [] and [{"path": "old.proto"}]\n```json\n[{"path": "api.proto", "type": "api"}]\n```'
+    assert boundaries_from_output(out) == [{"path": "api.proto", "type": "api"}]
+    out = 'Previously [] known; now [{"path": "a.proto", "type": "api"}] (see [docs])'
+    assert boundaries_from_output(out) == [{"path": "a.proto", "type": "api"}]
+    assert boundaries_from_output("none [] found") == []

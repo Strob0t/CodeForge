@@ -106,22 +106,51 @@ def _validate_decision_md(output: str) -> list[str]:
     return errs
 
 
-def boundaries_from_output(output: str) -> list[dict[str, object]] | None:
-    """Return the BOUNDARIES.json array of an output, None when it has none.
+_JSON_FENCE = "```json"
 
-    Mirrors boundary.FromOutput in Go: the first JSON array in the output,
-    optionally in a code fence, whose entries are objects.
-    """
-    start, end = output.find("["), output.rfind("]")
-    if start < 0 or end <= start:
+
+def _decode_array(text: str) -> list[dict[str, object]] | None:
+    """Decode the JSON array of objects at the start of text; the rest is ignored."""
+    if not text.startswith("["):
         return None
     try:
-        data = json.loads(output[start : end + 1])
+        data, _ = json.JSONDecoder().raw_decode(text)
     except (json.JSONDecodeError, ValueError):
         return None
     if not isinstance(data, list) or not all(isinstance(e, dict) for e in data):
         return None
     return data
+
+
+def boundaries_from_output(output: str) -> list[dict[str, object]] | None:
+    """Return the BOUNDARIES.json array of an output, None when it has none.
+
+    Mirrors boundary.FromOutput in Go: a ```json block holding the array wins;
+    otherwise the output is scanned from each '[' for an array of objects
+    (prose brackets are skipped), the first non-empty one taken, an empty one
+    only when there is none.
+    """
+    rest = output
+    while (i := rest.find(_JSON_FENCE)) >= 0:
+        block = rest[i + len(_JSON_FENCE) :]
+        end = block.find("```")
+        if end < 0:
+            break
+        found = _decode_array(block[:end].strip())
+        if found is not None:
+            return found
+        rest = block[end + 3 :]
+
+    empty: list[dict[str, object]] | None = None
+    i = output.find("[")
+    while i >= 0:
+        found = _decode_array(output[i:])
+        if found:
+            return found
+        if found is not None and empty is None:
+            empty = found
+        i = output.find("[", i + 1)
+    return empty
 
 
 def _validate_boundaries_json(output: str) -> list[str]:
