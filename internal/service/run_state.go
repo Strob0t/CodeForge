@@ -10,7 +10,6 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
-	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // RunStateManager encapsulates the sync.Map fields that track ephemeral
@@ -28,9 +27,9 @@ type RunStateManager struct {
 	bypassedConvs    sync.Map // map[conversationID]bool
 	runSpans         sync.Map // map[runID]trace.Span
 
-	stopsMu         sync.Mutex
-	stops           map[string]int                              // runID -> control-plane stops of the run under way
-	stopCompletions map[string]*messagequeue.RunCompletePayload // runID -> worker completion received during its stops
+	stopsMu      sync.Mutex
+	stops        map[string]int                             // runID -> control-plane stops of the run under way
+	stopDeferred map[string]func(ctx context.Context) error // runID -> worker message received during its stops
 
 	convMu   sync.Mutex
 	convRuns map[string]*convRunState // conversationID -> run state (see Conversation Runs)
@@ -185,27 +184,28 @@ func (m *RunStateManager) BeginStop(runID string) {
 	m.stops[runID]++
 }
 
-// DeferCompletionIfStopping keeps the completion a worker reported while
-// its run is being stopped, and reports whether it did; the last EndStop of
-// the run returns it. Seeing the stop and keeping the completion is one step:
-// a stop that ends in between would otherwise never see the completion, and
-// a run whose stop failed would stay running.
-func (m *RunStateManager) DeferCompletionIfStopping(runID string, payload *messagequeue.RunCompletePayload) bool {
+// DeferIfStopping keeps handle, the handling of a worker message that ends
+// the run (its completion, its quality gate result), while the run is being
+// stopped, and reports whether it did; the last EndStop of the run returns
+// it. Seeing the stop and keeping the message is one step: a stop that ends
+// in between would otherwise never see the message, and a run whose stop
+// failed would stay running (or waiting for its gate).
+func (m *RunStateManager) DeferIfStopping(runID string, handle func(ctx context.Context) error) bool {
 	m.stopsMu.Lock()
 	defer m.stopsMu.Unlock()
 	if m.stops[runID] == 0 {
 		return false
 	}
-	if m.stopCompletions == nil {
-		m.stopCompletions = make(map[string]*messagequeue.RunCompletePayload)
+	if m.stopDeferred == nil {
+		m.stopDeferred = make(map[string]func(ctx context.Context) error)
 	}
-	m.stopCompletions[runID] = payload
+	m.stopDeferred[runID] = handle
 	return true
 }
 
 // EndStop records that a stop of the run is over. The last one returns the
-// worker's completion that arrived during the stops, if any.
-func (m *RunStateManager) EndStop(runID string) *messagequeue.RunCompletePayload {
+// handling of the worker message that arrived during the stops, if any.
+func (m *RunStateManager) EndStop(runID string) func(ctx context.Context) error {
 	m.stopsMu.Lock()
 	defer m.stopsMu.Unlock()
 	if m.stops[runID] > 1 {
@@ -213,16 +213,9 @@ func (m *RunStateManager) EndStop(runID string) *messagequeue.RunCompletePayload
 		return nil
 	}
 	delete(m.stops, runID)
-	deferred := m.stopCompletions[runID]
-	delete(m.stopCompletions, runID)
+	deferred := m.stopDeferred[runID]
+	delete(m.stopDeferred, runID)
 	return deferred
-}
-
-// IsStopping reports whether the control plane is stopping the run.
-func (m *RunStateManager) IsStopping(runID string) bool {
-	m.stopsMu.Lock()
-	defer m.stopsMu.Unlock()
-	return m.stops[runID] > 0
 }
 
 // --- Conversation Runs ---

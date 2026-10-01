@@ -96,13 +96,13 @@ func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Sta
 	s.state.BeginStop(r.ID)
 	s.tellWorkerToStop(ctx, r.ID)
 	err := s.finalizeRun(ctx, r, status, storedOutcome(r, status, reason))
-	completion := s.state.EndStop(r.ID)
-	if err == nil || completion == nil || errors.Is(err, domain.ErrConflict) {
+	deferred := s.state.EndStop(r.ID)
+	if err == nil || deferred == nil || errors.Is(err, domain.ErrConflict) {
 		return err
 	}
-	slog.WarnContext(ctx, "stop could not record the run's end, ending it with the worker's completion",
+	slog.WarnContext(ctx, "stop could not record the run's end, ending it with the worker's message",
 		"run_id", r.ID, "stop_status", status, "error", err)
-	if cerr := s.HandleRunComplete(ctx, completion); cerr != nil {
+	if cerr := deferred(ctx); cerr != nil {
 		return errors.Join(err, cerr)
 	}
 	return nil

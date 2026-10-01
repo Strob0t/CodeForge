@@ -331,3 +331,52 @@ func TestStop_WorkerCompletionRacingAFailedStop(t *testing.T) {
 		t.Errorf("usage = %.2f %d steps, want the worker's totals", r.CostUSD, r.StepCount)
 	}
 }
+
+// gateResultOnCancel plays a worker whose quality gate result arrives while
+// the control plane stops the run.
+type gateResultOnCancel struct {
+	runtimeMockQueue
+	svc    *service.RuntimeService
+	result messagequeue.QualityGateResultPayload
+	err    error
+}
+
+func (q *gateResultOnCancel) Publish(ctx context.Context, subject string, data []byte) error {
+	if err := q.runtimeMockQueue.Publish(ctx, subject, data); err != nil {
+		return err
+	}
+	if subject == messagequeue.SubjectRunCancel {
+		result := q.result
+		q.err = q.svc.HandleQualityGateResult(ctx, &result)
+	}
+	return nil
+}
+
+// TestStop_GateResultDuringAFailedStop (S2-G fix, 13): a gate result that
+// arrived while the run was being stopped was skipped (check, then skip);
+// when the stop could not record the run's end, nothing ended the run and
+// it stayed waiting for its gate. The gate result is now kept for the stop
+// in the step that sees it, like a worker's completion, and a failed stop
+// ends the run with it.
+func TestStop_GateResultDuringAFailedStop(t *testing.T) {
+	_, mock, _, bc := newRuntimeTestEnv()
+	store := &failingEndStore{runtimeMockStore: mock}
+	passed := true
+	queue := &gateResultOnCancel{result: messagequeue.QualityGateResultPayload{RunID: "run-gate-stop", TestsPassed: &passed, LintPassed: &passed}}
+	svc := service.NewRuntimeService(store, queue, bc, &runtimeMockEventStore{}, service.NewPolicyService("headless-safe-sandbox", nil), &config.Runtime{})
+	queue.svc = svc
+	setStoredRun(mock, &run.Run{
+		ID: "run-gate-stop", TaskID: "task-1", AgentID: "agent-1", ProjectID: "proj-1",
+		PolicyProfile: "headless-safe-sandbox", Status: run.StatusQualityGate,
+	})
+
+	if err := svc.CancelRun(context.Background(), "run-gate-stop"); err != nil {
+		t.Fatalf("CancelRun: %v, want the gate result to end the run", err)
+	}
+	if queue.err != nil {
+		t.Fatalf("HandleQualityGateResult during the stop: %v", queue.err)
+	}
+	if r := storedRun(t, mock, "run-gate-stop"); !r.Status.IsTerminal() {
+		t.Fatalf("run = %s, want ended by the gate result", r.Status)
+	}
+}
