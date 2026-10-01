@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -37,11 +38,12 @@ func (s *AgentService) StartHeartbeatSubscriber(ctx context.Context) (cancel fun
 
 // FailTasksWithLostWorker fails the queued or running backend tasks whose
 // worker sent no heartbeat for lostAfter (KI-65; see LostWorkerAfter): the
-// worker is told to stop the task (it may only have lost its connection),
-// the task is failed through the task result path (which resets its agent to
-// idle), in the task's tenant. Tasks a worker has not accepted yet have
-// no heartbeat and are not failed; lostAfter 0 disables the check. It returns
-// how many lost tasks it failed.
+// task's dispatch is failed (announced like a worker's result, which resets
+// its agent to idle), in the task's tenant, and its worker is told to stop
+// (it may only have lost its connection). A task whose result arrived or
+// that was dispatched again since it was listed is skipped. Tasks a worker
+// has not accepted yet have no heartbeat and are not failed; lostAfter 0
+// disables the check. It returns how many lost tasks it failed.
 func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter time.Duration) (int, error) {
 	if lostAfter <= 0 {
 		return 0, nil
@@ -56,12 +58,16 @@ func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter ti
 	for i := range lost {
 		t := &lost[i]
 		taskCtx := withEntityTenant(ctx, t.TenantID)
-		slog.WarnContext(taskCtx, "task worker heartbeat lost, failing the task", "task_id", t.ID, "after", lostAfter)
-		s.tellWorkerToStopTask(taskCtx, t)
-		if err := s.recordResult(taskCtx, task.StatusFailed, task.Result{Error: reason}, t.ID, t.ProjectID, 0); err != nil {
+		slog.WarnContext(taskCtx, "task worker heartbeat lost, failing the task", "task_id", t.ID, "dispatch_id", t.DispatchID, "after", lostAfter)
+		if err := s.failTaskDispatch(taskCtx, t, reason); err != nil {
+			if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrNotFound) {
+				slog.InfoContext(taskCtx, "lost task ended or was dispatched again meanwhile, skipped", "task_id", t.ID)
+				continue
+			}
 			errs = append(errs, fmt.Errorf("task %s: %w", t.ID, err))
 			continue
 		}
+		s.tellWorkerToStopTask(taskCtx, t)
 		s.hub.BroadcastEvent(taskCtx, event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
 			TaskID:    t.ID,
 			ProjectID: t.ProjectID,

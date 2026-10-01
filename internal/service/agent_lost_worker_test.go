@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -29,7 +31,8 @@ type lostTaskStore struct {
 	lost    []task.Task
 	idleFor time.Duration
 	results map[string]lostTaskResult
-	beats   []string // tenant/task of recorded heartbeats
+	beats   []string        // tenant/task@dispatch of recorded heartbeats
+	ended   map[string]bool // tasks whose dispatch ended on another path
 }
 
 type lostTaskResult struct {
@@ -43,6 +46,18 @@ func (s *lostTaskStore) ListTasksWithStaleHeartbeat(_ context.Context, idleFor t
 	defer s.mu.Unlock()
 	s.idleFor = idleFor
 	return s.lost, nil
+}
+
+// EndTaskDispatch refuses the tasks in ended, like the store's status and
+// dispatch predicate, and records the others' result.
+func (s *lostTaskStore) EndTaskDispatch(ctx context.Context, id, _ string, status task.Status, result task.Result) error {
+	s.mu.Lock()
+	refused := s.ended[id]
+	s.mu.Unlock()
+	if refused {
+		return fmt.Errorf("task %s: %w", id, domain.ErrConflict)
+	}
+	return s.UpdateTaskResult(ctx, id, status, result, 0)
 }
 
 func (s *lostTaskStore) UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, _ float64) error {
@@ -151,5 +166,38 @@ func TestHandleTaskHeartbeat_RecordsInThePayloadsTenant(t *testing.T) {
 	// The heartbeat counts for the dispatch it names (S2-F review, F7).
 	if len(store.beats) != 1 || store.beats[0] != scopeTenantA+"/t-a@d-1" {
 		t.Fatalf("heartbeats = %v, want t-a's dispatch d-1 in tenant A", store.beats)
+	}
+}
+
+// TestFailTasksWithLostWorker_KeepsAResultThatArrivedMeanwhile (S2-F review,
+// F9): the watchdog's failed result overwrote whatever the task had by then,
+// also the worker's own result that arrived after the task was listed, or a
+// later dispatch. Its write is refused then: the task is skipped, its worker
+// is not told to stop (it may run the later dispatch) and nothing is
+// announced.
+func TestFailTasksWithLostWorker_KeepsAResultThatArrivedMeanwhile(t *testing.T) {
+	probe := registerExecutionProbe(t)
+	store := &lostTaskStore{ended: map[string]bool{"t-a": true}}
+	store.agents = []agent.Agent{{ID: "agent-1", ProjectID: "p-a", Name: "a", Backend: "execution-probe", Status: agent.StatusIdle}}
+	store.tasks = []task.Task{{ID: "t-a", ProjectID: "p-a", TenantID: scopeTenantA, AgentID: "agent-1", Status: task.StatusQueued, DispatchID: "d-1"}}
+	store.lost = store.tasks
+	hub := &tenantRecorder{}
+	svc := NewAgentService(store, &mockQueue{}, hub)
+
+	failed, err := svc.FailTasksWithLostWorker(context.Background(), 3*time.Minute)
+	if err != nil || failed != 0 {
+		t.Fatalf("FailTasksWithLostWorker = %d, %v; want 0, nil", failed, err)
+	}
+	if len(store.results) != 0 {
+		t.Errorf("results stored: %v", store.results)
+	}
+	if got := probe.stops(); len(got) != 0 {
+		t.Errorf("backend stops = %v, want none", got)
+	}
+	if events := hub.snapshot(); len(events) != 0 {
+		t.Errorf("events = %v, want none", events)
+	}
+	if store.agents[0].Status != agent.StatusIdle {
+		t.Errorf("agent status = %s, want unchanged idle", store.agents[0].Status)
 	}
 }

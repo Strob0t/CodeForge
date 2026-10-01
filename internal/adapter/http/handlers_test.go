@@ -3721,3 +3721,6 @@ func TestGetTrajectory_LoadOK_StatsError_Returns200(t *testing.T) {
 }
 
 func (m *mockStore) QueueTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
+	return nil
+}

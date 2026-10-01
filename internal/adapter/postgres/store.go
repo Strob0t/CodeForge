@@ -167,6 +167,24 @@ func (s *Store) UpdateTaskResult(ctx context.Context, id string, status task.Sta
 	return execExpectOne(tag, err, "update task result %s", id)
 }
 
+// EndTaskDispatch ends a task's dispatch for the control plane (a lost
+// worker, a dead-lettered or never accepted dispatch) only while it is the
+// task's current dispatch and the task is queued or running: a result that
+// arrived meanwhile and a later dispatch are never overwritten. A task
+// dispatched before dispatches had IDs matches dispatchID "".
+func (s *Store) EndTaskDispatch(ctx context.Context, id, dispatchID string, status task.Status, result task.Result) error {
+	resultJSON, err := marshalJSON(result, "result")
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE tasks SET result = $3, status = $4
+		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
+		   AND COALESCE(dispatch_id, '') = $5`,
+		id, tenantFromCtx(ctx), resultJSON, string(status), dispatchID)
+	return s.guardedUpdateResult(ctx, tag, err, taskExistsSQL, "end task dispatch", id)
+}
+
 // --- Scanners ---
 
 func scanAgent(row scannable) (agent.Agent, error) {

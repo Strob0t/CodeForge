@@ -234,6 +234,27 @@ func (s *AgentService) recordResult(ctx context.Context, final task.Status, resu
 	if err := s.store.UpdateTaskResult(ctx, taskID, final, result, costUSD); err != nil {
 		return fmt.Errorf("update task result: %w", err)
 	}
+	s.announceTaskEnd(ctx, final, result, taskID, projectID, costUSD)
+	return nil
+}
+
+// failTaskDispatch fails a task's dispatch for the control plane (a lost
+// worker, a dead-lettered or never accepted dispatch) and announces it like
+// a worker's result. Only the task's current dispatch of a task still queued
+// or running is failed: domain.ErrConflict otherwise (its result arrived or
+// it was dispatched again), which callers skip.
+func (s *AgentService) failTaskDispatch(ctx context.Context, t *task.Task, reason string) error {
+	result := task.Result{Error: reason}
+	if err := s.store.EndTaskDispatch(ctx, t.ID, t.DispatchID, task.StatusFailed, result); err != nil {
+		return fmt.Errorf("end task dispatch: %w", err)
+	}
+	s.announceTaskEnd(ctx, task.StatusFailed, result, t.ID, t.ProjectID, 0)
+	return nil
+}
+
+// announceTaskEnd records the end of a task (event, task status broadcast)
+// and sets its agent idle again.
+func (s *AgentService) announceTaskEnd(ctx context.Context, final task.Status, result task.Result, taskID, projectID string, costUSD float64) {
 	status := string(final)
 	evType := event.TypeAgentFinished
 	if final != task.StatusCompleted {
@@ -268,7 +289,6 @@ func (s *AgentService) recordResult(ctx context.Context, final task.Status, resu
 	}
 
 	slog.Info("task result processed", "task_id", taskID, "status", status)
-	return nil
 }
 
 // StartResultSubscriber subscribes to task results from NATS and processes them.

@@ -911,3 +911,6 @@ func (s *testStore) GetConsentPurpose(_ context.Context, _ string) (*database.Co
 }
 
 func (s *testStore) QueueTask(_ context.Context, _, _, _ string) error { return nil }
+func (s *testStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
+	return nil
+}

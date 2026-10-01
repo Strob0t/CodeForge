@@ -208,6 +208,10 @@ func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Status,
 	return nil
 }
 
+func (m *mockStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
+	return nil
+}
+
 // --- Run methods (satisfy database.Store interface) ---
 
 func (m *mockStore) CreateRun(_ context.Context, _ *run.Run) error { return nil }

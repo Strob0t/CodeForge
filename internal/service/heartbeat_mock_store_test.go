@@ -183,3 +183,24 @@ func (m *runtimeMockStore) QueueTask(_ context.Context, id, agentID, dispatchID 
 	}
 	return errMockNotFound
 }
+
+// EndTaskDispatch applies the store's predicate: the task's current dispatch,
+// still queued or running.
+func (m *runtimeMockStore) EndTaskDispatch(_ context.Context, id, dispatchID string, status task.Status, result task.Result) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tasks {
+		if m.tasks[i].ID != id {
+			continue
+		}
+		active := m.tasks[i].Status == task.StatusQueued || m.tasks[i].Status == task.StatusRunning
+		if !active || m.tasks[i].DispatchID != dispatchID {
+			return errMockRunTransition
+		}
+		m.tasks[i].Status = status
+		r := result
+		m.tasks[i].Result = &r
+		return nil
+	}
+	return errMockNotFound
+}

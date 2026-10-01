@@ -21,6 +21,12 @@ type TaskStore interface {
 	// UpdateTaskResult stores a task's result and cost together with the status
 	// the result leaves it in.
 	UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, costUSD float64) error
+	// EndTaskDispatch ends the task's dispatch dispatchID with status and
+	// result, but only while it is the task's current dispatch and the task
+	// is queued or running: domain.ErrConflict otherwise (a result arrived
+	// or the task was dispatched again), domain.ErrNotFound for an unknown
+	// task or one of another tenant.
+	EndTaskDispatch(ctx context.Context, id, dispatchID string, status task.Status, result task.Result) error
 
 	// Active Work Visibility (Phase 24)
 	ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error)
