@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"net/mail"
-	"net/url"
 )
 
 // validateEmailApprovals checks the approval email settings: bare email
@@ -18,12 +17,7 @@ func validateEmailApprovals(n *Notification) error {
 	if n.WebUIURL == "" {
 		return nil
 	}
-	u, err := url.Parse(n.WebUIURL)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" ||
-		u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
-		return fmt.Errorf("notification.web_ui_url: %q must be an absolute http(s) URL without user info, query or fragment", n.WebUIURL)
-	}
-	return nil
+	return checkHTTPBaseURL("notification.web_ui_url", n.WebUIURL)
 }
 
 // EmailApprovalsMissing names the settings approval emails still need

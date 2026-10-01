@@ -78,6 +78,8 @@ func newPMWebhookEnv(configs map[string]map[string]string) (*PMWebhookService, *
 		{ID: "gh", RepoURL: "https://github.com/acme/app.git"},
 		{ID: "gl", RepoURL: "https://gitlab.example.com/group/sub/app.git"},
 		{ID: "pl", Config: map[string]string{"plane_workspace": "acme", "plane_project_id": "p-1"}},
+		{ID: "pl-evil", Config: map[string]string{"plane_workspace": "acme", "plane_project_id": "p-2", "plane_base_url": "https://evil.example"}},
+		{ID: "pl-same", Config: map[string]string{"plane_workspace": "acme", "plane_project_id": "p-3", "plane_base_url": "https://plane.example.com/"}},
 	}}
 	syncer := &recordingSyncer{done: make(chan struct{}, 4)}
 	return NewPMWebhookService(nil, syncer, store, configs), syncer
@@ -85,7 +87,10 @@ func newPMWebhookEnv(configs map[string]map[string]string) (*PMWebhookService, *
 
 func TestPMWebhook_StartsASyncTheProviderCanRun(t *testing.T) {
 	ctx := context.Background()
-	svc, syncer := newPMWebhookEnv(map[string]map[string]string{"plane": {"api_token": "plane-token"}, "gitlab": {"token": "gl-token"}})
+	svc, syncer := newPMWebhookEnv(map[string]map[string]string{
+		"plane":  {"api_token": "plane-token"},
+		"gitlab": {"token": "gl-token", "base_url": "https://gitlab.example.com"},
+	})
 
 	if _, err := svc.HandleGitHubIssueWebhook(ctx, []byte(`{"action":"opened","issue":{"number":7},"repository":{"full_name":"acme/app"}}`)); err != nil {
 		t.Fatalf("github webhook: %v", err)
@@ -110,6 +115,83 @@ func TestPMWebhook_StartsASyncTheProviderCanRun(t *testing.T) {
 	got = syncer.waitCall(t)
 	if got.Provider != "plane" || got.ProjectID != "pl" || got.ProjectRef != "acme/p-1" || got.ProviderConfig["api_token"] != "plane-token" {
 		t.Fatalf("plane sync = %+v", got)
+	}
+}
+
+// S3-F security review S3: the operator's Plane token goes only to the
+// operator's Plane (plane.base_url); a project-set plane_base_url that
+// points elsewhere is not synced by the webhook.
+func TestPMWebhook_PlaneTokenGoesOnlyToTheOperatorsPlane(t *testing.T) {
+	ctx := context.Background()
+	svc, syncer := newPMWebhookEnv(map[string]map[string]string{"plane": {"api_token": "plane-token", "base_url": "https://plane.example.com"}})
+	hub := &internalMockBroadcaster{}
+	svc.hub = hub
+
+	for _, planeProject := range []string{"p-1", "p-3"} {
+		if _, err := svc.HandlePlaneWebhook(ctx, []byte(`{"event":"issue.created","data":{"id":"i","workspace":"w","project":"`+planeProject+`"}}`)); err != nil {
+			t.Fatalf("plane webhook %s: %v", planeProject, err)
+		}
+		if got := syncer.waitCall(t); got.ProviderConfig["base_url"] != "https://plane.example.com" || got.ProviderConfig["api_token"] != "plane-token" {
+			t.Fatalf("plane sync %s = %+v", planeProject, got)
+		}
+	}
+
+	_, err := svc.HandlePlaneWebhook(ctx, []byte(`{"event":"issue.created","data":{"id":"i","workspace":"w","project":"p-2"}}`))
+	if !errors.Is(err, domain.ErrValidation) || !strings.Contains(err.Error(), "plane_base_url") {
+		t.Fatalf("plane webhook for a project with another plane_base_url = %v, want a validation error naming plane_base_url", err)
+	}
+	select {
+	case <-syncer.done:
+		t.Fatal("a sync started with the operator's token for another host")
+	case <-time.After(50 * time.Millisecond):
+	}
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	var failed bool
+	for _, e := range hub.events {
+		if ev, ok := e.data.(event.PMSyncEvent); ok && e.eventType == "pm.sync" && ev.ProjectID == "pl-evil" && ev.Status == "failed" {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Fatalf("no pm.sync failed event for the refused project: %+v", hub.events)
+	}
+}
+
+// The same rule for an operator GitLab token: it goes only to the
+// operator's GitLab host.
+func TestPMWebhook_GitLabTokenOnlyForTheOperatorsHost(t *testing.T) {
+	ctx := context.Background()
+	body := []byte(`{"object_attributes":{"iid":3,"action":"open"},"project":{"path_with_namespace":"group/sub/app"}}`)
+	tests := []struct {
+		name      string
+		gitlab    map[string]string
+		wantErr   bool
+		wantToken string
+	}{
+		{name: "no operator token: the project's host, no credentials"},
+		{name: "token for this host", gitlab: map[string]string{"token": "t", "base_url": "https://gitlab.example.com/"}, wantToken: "t"},
+		{name: "token for another host", gitlab: map[string]string{"token": "t", "base_url": "https://gitlab.other.example"}, wantErr: true},
+		{name: "token without its host", gitlab: map[string]string{"token": "t"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, syncer := newPMWebhookEnv(map[string]map[string]string{"gitlab": tc.gitlab})
+			_, err := svc.HandleGitLabIssueWebhook(ctx, body)
+			if tc.wantErr {
+				if !errors.Is(err, domain.ErrValidation) {
+					t.Fatalf("webhook = %v, want ErrValidation", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("webhook: %v", err)
+			}
+			got := syncer.waitCall(t)
+			if got.ProviderConfig["base_url"] != "https://gitlab.example.com" || got.ProviderConfig["token"] != tc.wantToken {
+				t.Fatalf("gitlab sync = %+v", got)
+			}
+		})
 	}
 }
 

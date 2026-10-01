@@ -465,7 +465,7 @@ func run() error {
 	}
 	var pmProvs []pmprovider.Provider
 	pmConfigs := map[string]map[string]string{
-		"plane": {"api_token": cfg.Plane.APIToken},
+		"plane": {"api_token": cfg.Plane.APIToken, "base_url": cfg.Plane.BaseURL},
 	}
 	for _, name := range pmprovider.Available() {
 		p, err := pmprovider.New(name, pmConfigs[name])

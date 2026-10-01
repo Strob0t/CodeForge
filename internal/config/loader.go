@@ -375,6 +375,7 @@ func loadEnv(cfg *Config) {
 
 	// Plane
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
+	setString(&cfg.Plane.BaseURL, "CODEFORGE_PLANE_BASE_URL")
 
 	// Retention
 	setTyped(&cfg.Retention.Interval, "CODEFORGE_RETENTION_INTERVAL", time.ParseDuration)
@@ -507,6 +508,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := validateStallMaxRetries(cfg.Runtime.StallMaxRetries); err != nil {
+		return err
+	}
+	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
 		return err
 	}
 

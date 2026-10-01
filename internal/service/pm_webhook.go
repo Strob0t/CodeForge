@@ -68,6 +68,12 @@ func (s *PMWebhookService) prepareSync(ctx context.Context, source, projectRef s
 		// webhook names the workspace by its ID.
 		projectRef = proj.Config["plane_workspace"] + "/" + proj.Config["plane_project_id"]
 	}
+	providerCfg, err := s.providerConfig(provider, proj)
+	if err != nil {
+		slog.Error("webhook: sync refused", "provider", provider, "project", proj.ID, "error", err)
+		s.announce(ctx, &event.PMSyncEvent{ProjectID: proj.ID, Provider: provider, Status: "failed", Error: err.Error()})
+		return nil, err
+	}
 	cfg := &roadmap.SyncConfig{
 		ProjectID:      proj.ID,
 		ProjectRef:     projectRef,
@@ -75,7 +81,7 @@ func (s *PMWebhookService) prepareSync(ctx context.Context, source, projectRef s
 		Direction:      roadmap.SyncDirectionPull,
 		CreateNew:      true,
 		UpdateExist:    true,
-		ProviderConfig: s.providerConfig(provider, proj),
+		ProviderConfig: providerCfg,
 	}
 	// Constructing the provider checks its configuration (Plane requires
 	// an api_token) before the webhook is accepted.
@@ -139,24 +145,52 @@ func repoURLParts(repoURL string) (base, path string, ok bool) {
 }
 
 // providerConfig is the operator's configuration of the provider plus what
-// the project determines: GitLab's API base URL comes from the project's
-// repository URL, Plane's from the project config key plane_base_url.
-func (s *PMWebhookService) providerConfig(provider string, proj *project.Project) map[string]string {
+// the project determines. The operator's credentials go only to the
+// operator's host (S3-F security review S3): a project can name another
+// host (plane_base_url, its repository URL), but never get the operator's
+// token sent there.
+//   - Plane: the base URL is the operator's (plane.base_url); a project
+//     whose plane_base_url names another one is refused.
+//   - GitLab: the base URL is the project's repository host. An operator
+//     token is used only with the operator's base URL, and only for a
+//     project on that host; without a token the sync is anonymous.
+func (s *PMWebhookService) providerConfig(provider string, proj *project.Project) (map[string]string, error) {
 	cfg := maps.Clone(s.providerConfigs[provider])
 	if cfg == nil {
 		cfg = map[string]string{}
 	}
 	switch provider {
 	case "gitlab":
-		if base, _, ok := repoURLParts(proj.RepoURL); ok {
-			cfg["base_url"] = base
+		base, _, ok := repoURLParts(proj.RepoURL)
+		if !ok {
+			return nil, fmt.Errorf("gitlab webhook: project %s has no GitLab repository URL: %w", proj.ID, domain.ErrValidation)
 		}
+		if cfg["token"] != "" && !sameBaseURL(cfg["base_url"], base) {
+			return nil, fmt.Errorf("gitlab webhook: project %s is on %s, the operator's GitLab token is for %q: %w",
+				proj.ID, base, cfg["base_url"], domain.ErrValidation)
+		}
+		cfg["base_url"] = base
 	case "plane":
-		if base := proj.Config["plane_base_url"]; base != "" {
-			cfg["base_url"] = base
+		if own := proj.Config["plane_base_url"]; own != "" && !sameBaseURL(own, cfg["base_url"]) {
+			return nil, fmt.Errorf("plane webhook: project %s sets plane_base_url %q, not the operator's Plane %q "+
+				"(plane.base_url) - the operator's token is not sent there: %w", proj.ID, own, cfg["base_url"], domain.ErrValidation)
 		}
 	}
-	return cfg
+	return cfg, nil
+}
+
+// sameBaseURL compares two base URLs, ignoring case of scheme and host and
+// trailing slashes. An empty URL matches nothing.
+func sameBaseURL(a, b string) bool {
+	norm := func(raw string) string {
+		u, err := neturl.Parse(strings.TrimRight(raw, "/"))
+		if err != nil || u.Host == "" {
+			return ""
+		}
+		return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + u.EscapedPath()
+	}
+	na := norm(a)
+	return na != "" && na == norm(b)
 }
 
 // runSync runs a prepared sync in the background (it outlives the webhook
@@ -173,8 +207,13 @@ func (s *PMWebhookService) runSync(ctx context.Context, cfg *roadmap.SyncConfig)
 			"created", result.Created, "updated", result.Updated)
 		ev.Created, ev.Updated = result.Created, result.Updated
 	}
+	s.announce(ctx, &ev)
+}
+
+// announce broadcasts the outcome of a webhook sync as a pm.sync event.
+func (s *PMWebhookService) announce(ctx context.Context, ev *event.PMSyncEvent) {
 	if s.hub != nil {
-		s.hub.BroadcastEvent(ctx, "pm.sync", ev)
+		s.hub.BroadcastEvent(ctx, "pm.sync", *ev)
 	}
 }
 

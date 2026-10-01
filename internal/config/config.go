@@ -108,6 +108,9 @@ type Ollama struct {
 // Plane holds Plane.so project management integration configuration.
 type Plane struct {
 	APIToken string `yaml:"api_token" json:"-"` // Plane.so API token for PM sync
+	// BaseURL is the Plane API the token belongs to; the token is never sent
+	// to another host (a project's plane_base_url must match it).
+	BaseURL string `yaml:"base_url"`
 }
 
 // Agent holds agentic conversation loop configuration.
@@ -594,6 +597,7 @@ func Defaults() Config {
 		},
 		Webhook:      Webhook{},
 		Notification: Notification{SMTPPort: 587},
+		Plane:        Plane{BaseURL: "https://api.plane.so"},
 		OTEL: OTEL{
 			Enabled:     false,
 			Endpoint:    "localhost:4317",
