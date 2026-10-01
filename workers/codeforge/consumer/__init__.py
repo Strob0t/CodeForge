@@ -76,6 +76,14 @@ from codeforge.logger import redact_url, setup_logging, stop_logging
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
+from codeforge.secrets import SECRETS_DIR, lock_secrets_dir
+from codeforge.tool_process import (
+    TOOL_UMASK,
+    IsolationConfig,
+    IsolationStatus,
+    configure_tool_isolation,
+    share_workspace_root,
+)
 from codeforge.tracing import tracing_manager
 from codeforge.tracing.propagation import TracingJetStreamContext
 
@@ -481,11 +489,45 @@ class TaskConsumer(
         logger.info("consumer stopped")
 
 
+def setup_tool_isolation(settings: WorkerSettings) -> IsolationStatus:
+    """Check how agent tool processes run (KI-71) and log it; call once every secret was read.
+
+    With isolation required the worker creates files with umask 002 (the
+    workspaces are shared with the tool user and the Go Core through the
+    workspace group), locks its secrets directory and opens workspaces created
+    before isolation to the workspace group.
+    """
+    config = IsolationConfig.from_settings(settings)
+    if config.required:
+        os.umask(TOOL_UMASK)
+    status = configure_tool_isolation(config)
+    if not config.required:
+        logger.info("tool isolation off: agent tool processes run as the worker user", worker_uid=os.getuid())
+        return status
+    if status.ready:
+        logger.info(
+            "tool isolation required: agent tool processes run as the tool user",
+            worker_uid=os.getuid(),
+            tool_uid=config.uid,
+            tool_gid=config.gid,
+            workspace_gid=config.workspace_gid,
+        )
+    else:
+        logger.error("tool isolation required but not available: every tool call fails", reason=status.reason)
+    if lock_secrets_dir():
+        logger.info("secrets directory locked after reading the secrets", path=str(SECRETS_DIR))
+    if status.ready and settings.workspace_root:
+        changed = share_workspace_root(settings.workspace_root, config.workspace_gid)
+        if changed:
+            logger.info("workspaces opened to the workspace group", root=settings.workspace_root, entries=changed)
+    return status
+
+
 async def main() -> None:
     """Entry point for running the consumer."""
     from codeforge.secrets import get_secret
 
-    settings = WorkerSettings()
+    settings = get_settings()
     setup_logging(service=settings.log_service, level=settings.log_level)
 
     # Docker Secrets override: prefer /run/secrets/* files, fall back to env/config.
@@ -493,6 +535,8 @@ async def main() -> None:
     if litellm_key == DEV_LITELLM_MASTER_KEY:
         logger.warning("using the development LiteLLM master key - set LITELLM_MASTER_KEY for production")
     tracing_manager.log_status()
+    # After every secret was read: it locks the secrets directory.
+    await asyncio.to_thread(setup_tool_isolation, settings)
 
     consumer = TaskConsumer(
         nats_url=settings.nats_url,

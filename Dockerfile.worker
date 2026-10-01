@@ -35,11 +35,21 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-# Fixed UID/GID shared with the core image: both write the shared workspaces
-# volume mounted at /data/workspaces (created here so a fresh volume gets this
-# ownership).
-RUN groupadd -r -g 10001 codeforge && useradd -r -u 10001 -g codeforge codeforge && \
-    mkdir -p /data/workspaces && chown -R codeforge:codeforge /data
+# Users (KI-71): the worker runs as codeforge (10001, the core image's UID),
+# agent tool processes as codeforge-tool (10002). Both, and the Go Core, are
+# in codeforge-ws (10010), which owns the shared workspaces volume mounted at
+# /data/workspaces: setgid, so everything created in it joins the group
+# (created here so a fresh volume gets this ownership and mode). Tool
+# processes run git in workspaces another user created; safe.directory
+# accepts them (the Go Core sets its own per repository, KI-77).
+RUN groupadd -r -g 10010 codeforge-ws && \
+    groupadd -r -g 10001 codeforge && useradd -r -u 10001 -g codeforge -G codeforge-ws codeforge && \
+    groupadd -r -g 10002 codeforge-tool && \
+    useradd -r -u 10002 -g codeforge-tool -G codeforge-ws -d /home/codeforge-tool -m codeforge-tool && \
+    chmod 0700 /home/codeforge-tool && \
+    mkdir -p /data/workspaces && chown codeforge:codeforge /data && \
+    chown codeforge:codeforge-ws /data/workspaces && chmod 2775 /data/workspaces && \
+    git config --system safe.directory '*'
 
 WORKDIR /app
 
@@ -48,6 +58,7 @@ COPY --from=build /app/workers /app/workers
 COPY --from=build /app/VERSION /app/VERSION
 COPY --from=build /app/pyproject.toml /app/pyproject.toml
 COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
+COPY --chmod=0755 scripts/worker-entrypoint.sh /app/scripts/worker-entrypoint.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -61,7 +72,15 @@ ENV DEEPEVAL_TELEMETRY_OPT_OUT=YES \
     DEEPEVAL_DISABLE_DOTENV=1 \
     DEEPEVAL_DISABLE_LEGACY_KEYFILE=1
 
-USER codeforge
+# Agent tool processes run as codeforge-tool (codeforge.tool_process); a
+# tool call fails when they cannot. The container starts as root (no USER):
+# the entrypoint runs the worker as codeforge with only CAP_SETUID, CAP_SETGID
+# and CAP_KILL (docker-compose.prod.yml drops every other capability).
+ENV CODEFORGE_TOOL_ISOLATION=required \
+    CODEFORGE_TOOL_UID=10002 \
+    CODEFORGE_TOOL_GID=10002 \
+    CODEFORGE_WORKSPACE_GID=10010 \
+    CODEFORGE_TOOL_HOME=/home/codeforge-tool
 
 # The worker serves GET /health (liveness) and GET /health/ready (connected to
 # NATS, every consumer loop running) on CODEFORGE_WORKER_HEALTH_PORT (8081);
@@ -69,4 +88,5 @@ USER codeforge
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD python /app/scripts/worker-healthcheck.py || exit 1
 
-ENTRYPOINT ["python", "-m", "codeforge.consumer"]
+ENTRYPOINT ["/app/scripts/worker-entrypoint.sh"]
+CMD ["python", "-m", "codeforge.consumer"]

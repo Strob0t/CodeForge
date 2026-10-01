@@ -22,6 +22,7 @@ from codeforge.config import resolve_backend_path
 from codeforge.constants import DEFAULT_BACKEND_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
 from codeforge.subprocess_utils import check_cli_available, terminate_process_group
+from codeforge.tool_process import start_tool_process
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class CLIBackendExecutor(ABC):
         logger.info("%s exec task=%s cmd=%s cwd=%s", name, task_id, cmd[:4], cwd)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await start_tool_process(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,

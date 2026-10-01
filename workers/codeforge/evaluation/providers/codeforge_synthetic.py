@@ -19,6 +19,7 @@ from codeforge.evaluation.providers.base import (
     register_provider,
 )
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import run_tool_process
 
 if TYPE_CHECKING:
     from codeforge.evaluation.generators.swegen import LLMClient
@@ -88,17 +89,9 @@ class CodeForgeSyntheticProvider:
 def _load_commits(workspace: str, max_commits: int = 150) -> list[CommitInfo]:
     """Load recent commits from a Git repository."""
     try:
-        log_output = subprocess.run(  # noqa: S603
-            [  # noqa: S607
-                "git",
-                "log",
-                f"-{max_commits}",
-                "--format=%H%n%P%n%s%n---COMMIT_SEP---",
-                "--no-merges",
-            ],
+        log_output = run_tool_process(
+            ["git", "log", f"-{max_commits}", "--format=%H%n%P%n%s%n---COMMIT_SEP---", "--no-merges"],
             cwd=workspace,
-            capture_output=True,
-            text=True,
             timeout=30,
             env=tool_env(),
         )
@@ -127,11 +120,9 @@ def _load_commits(workspace: str, max_commits: int = 150) -> list[CommitInfo]:
 
         # Get diff and stat for this commit.
         try:
-            diff_result = subprocess.run(  # noqa: S603
-                ["git", "diff", f"{parent_sha}..{sha}", "--stat", "--patch"],  # noqa: S607
+            diff_result = run_tool_process(
+                ["git", "diff", f"{parent_sha}..{sha}", "--stat", "--patch"],
                 cwd=workspace,
-                capture_output=True,
-                text=True,
                 timeout=15,
                 env=tool_env(),
             )

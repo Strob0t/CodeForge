@@ -45,6 +45,7 @@ from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
 from codeforge.subprocess_env import tool_env
 from codeforge.subprocess_utils import terminate_process_group
+from codeforge.tool_process import share_with_tools, start_tool_process
 
 if TYPE_CHECKING:
     from codeforge.runtime import RuntimeClient
@@ -274,7 +275,8 @@ class _BadPolicyRequestError(Exception):
 class PolicySocketServer:
     """Answers the policy hook's decision requests of one Claude Code run.
 
-    Listens on a unix socket in a fresh private directory (0700). Each
+    Listens on a unix socket in a fresh private directory (0700; with tool
+    isolation open to the workspace group, as the CLI runs as the tool user). Each
     connection carries one JSON line ``{"token", "tool_name", "tool_input"}``
     and gets ``{"decision": "allow"|"deny", "reason"}`` back. The decision is
     the Go policy's (``request_tool_call``, which also waits for a HITL
@@ -299,7 +301,7 @@ class PolicySocketServer:
 
     @property
     def directory(self) -> str:
-        """The run's private directory (0700), removed with the server."""
+        """The run's private directory, removed with the server."""
         return self._dir
 
     @property
@@ -328,6 +330,10 @@ class PolicySocketServer:
                 self._handle, path=self.socket_path, limit=MAX_POLICY_REQUEST_BYTES
             )
             os.chmod(self.socket_path, 0o600)
+            # The CLI and its hook run as the tool user (KI-71): the directory and
+            # the socket open to its group only; the token still authenticates.
+            share_with_tools(self._dir, writable=False)
+            share_with_tools(self.socket_path, writable=True)
         except BaseException:
             shutil.rmtree(self._dir, ignore_errors=True)
             raise
@@ -479,13 +485,14 @@ def build_cli_command(cli_path: str, *, max_turns: int, system_prompt_file: str,
 
 
 def _write_private_file(directory: str, name: str, content: str) -> str:
-    """Write ``content`` to a new 0600 file in ``directory``; return its path ("" for no content)."""
+    """Write ``content`` to a new 0600 file in ``directory`` the CLI may read; return its path ("" for no content)."""
     if not content:
         return ""
     path = os.path.join(directory, name)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
+    share_with_tools(path, writable=False)
     return path
 
 
@@ -544,6 +551,7 @@ async def _check_hidden_options(cli: str) -> None:
     with "unknown option" before anything else.
     """
     with tempfile.TemporaryDirectory(prefix="cf-cc-check-") as home:
+        share_with_tools(home, writable=True)
         env = {"PATH": os.environ.get("PATH", ""), "HOME": home, "CLAUDE_CONFIG_DIR": home}
         missing_file = os.path.join(home, "no-system-prompt")
         args = ["-p", "--max-turns", "1", "--system-prompt-file", missing_file]
@@ -564,7 +572,7 @@ def _unsupported(cli: str, what: str) -> str:
 async def _run_check(cli: str, args: list[str], env: dict[str, str]) -> tuple[int, str]:
     """Run the CLI for a capability check; return its exit code and output (stdout, then stderr)."""
     try:
-        proc = await asyncio.create_subprocess_exec(
+        proc = await start_tool_process(
             cli,
             *args,
             stdin=asyncio.subprocess.DEVNULL,
@@ -786,7 +794,7 @@ class ClaudeCodeExecutor:
         still runs when the run ends (timeout, cancel, a caller's
         cancellation) is stopped, including the commands its tools started.
         """
-        process = await asyncio.create_subprocess_exec(
+        process = await start_tool_process(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,

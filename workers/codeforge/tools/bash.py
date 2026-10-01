@@ -9,6 +9,7 @@ from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_process
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ class BashTool(ToolExecutor):
             return ToolResult(output="", error=block_reason, success=False)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await start_tool_process(
                 "bash",
                 "-c",
                 command,

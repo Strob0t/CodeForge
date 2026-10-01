@@ -11,6 +11,7 @@ import signal
 
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_process
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,12 @@ async def check_cli_available(
     if shutil.which(cli_path) is not None:
         return True
     try:
-        proc = await asyncio.create_subprocess_exec(
+        proc = await start_tool_process(
             cli_path,
             "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=tool_env(),
         )
         await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return proc.returncode == 0
@@ -80,7 +82,7 @@ async def run_subprocess(
     """
     stderr_target = asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.PIPE
 
-    proc = await asyncio.create_subprocess_exec(
+    proc = await start_tool_process(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=stderr_target,

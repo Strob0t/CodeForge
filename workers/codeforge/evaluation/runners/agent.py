@@ -19,6 +19,7 @@ import structlog
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import share_with_tools, start_tool_shell
 
 if TYPE_CHECKING:
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -57,6 +58,8 @@ def _compute_files_changed(before: dict[str, str], after: dict[str, str]) -> lis
 def _setup_workspace(task: TaskSpec, base_dir: str | None = None) -> Path:
     """Create a temporary workspace and write initial files from task spec."""
     workspace = Path(tempfile.mkdtemp(prefix="bench_agent_", dir=base_dir))
+    # The agent's tools and the test command run as the tool user.
+    share_with_tools(str(workspace), writable=True)
     for rel_path, content in task.initial_files.items():
         fpath = workspace / rel_path
         fpath.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +70,7 @@ def _setup_workspace(task: TaskSpec, base_dir: str | None = None) -> Path:
 async def _run_test_command(test_command: str, workspace: Path, timeout: int = 60) -> tuple[str, int]:
     """Run a test command in the workspace and return (output, exit_code)."""
     try:
-        proc = await asyncio.create_subprocess_shell(
+        proc = await start_tool_shell(
             test_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

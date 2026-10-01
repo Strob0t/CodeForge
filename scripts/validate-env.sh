@@ -22,8 +22,9 @@ INSECURE_PATTERN='codeforge_dev|sk-codeforge-dev|codeforge-internal-dev|codeforg
 SECRET_FILES=(
     "postgres-password|16"
     "database-url|1"
-    "nats-url|1"
-    "nats-auth.conf|1"
+    "nats-core-url|1"
+    "nats-worker-url|1"
+    "nats-passwords.conf|1"
     "litellm-master-key|16"
     "codeforge-auth-jwt-secret|32"
     "codeforge-auth-llm-key-encryption-secret|32"
@@ -99,16 +100,30 @@ if [ -f "$SECRETS_DIR/database-url" ]; then
     fi
 fi
 
-# nats-url must carry the credentials the NATS server accepts.
-if [ -f "$SECRETS_DIR/nats-url" ] && [ -f "$SECRETS_DIR/nats-auth.conf" ]; then
-    url="$(read_secret nats-url)"
-    if [[ "$url" =~ ^nats://([^:@/]+):([^@/]*)@ ]]; then
-        conf="$(< "$SECRETS_DIR/nats-auth.conf")"
-        if [[ "$conf" != *"user: \"${BASH_REMATCH[1]}\""* ]] || [[ "$conf" != *"password: \"${BASH_REMATCH[2]}\""* ]]; then
-            fail "nats-url and nats-auth.conf hold different credentials"
+# The NATS URLs must carry the users and passwords the NATS server accepts
+# (configs/nats/nats-server.conf: users "core" and "worker", passwords from
+# nats-passwords.conf), and the two services must not share a password.
+if [ -f "$SECRETS_DIR/nats-passwords.conf" ]; then
+    conf="$(< "$SECRETS_DIR/nats-passwords.conf")"
+    declare -A nats_passwords=()
+    for entry in "nats-core-url|core|CORE_PASSWORD" "nats-worker-url|worker|WORKER_PASSWORD"; do
+        IFS='|' read -r name user variable <<< "$entry"
+        [ -f "$SECRETS_DIR/$name" ] || continue
+        url="$(read_secret "$name")"
+        if [[ "$url" =~ ^nats://([^:@/]+):([^@/]*)@ ]]; then
+            if [ "${BASH_REMATCH[1]}" != "$user" ]; then
+                fail "$name connects as '${BASH_REMATCH[1]}', expected the NATS user '$user'"
+            fi
+            nats_passwords[$user]="${BASH_REMATCH[2]}"
+            if [[ "$conf" != *"${variable}: \"${BASH_REMATCH[2]}\""* ]]; then
+                fail "$name and nats-passwords.conf hold different passwords for '$user'"
+            fi
+        else
+            fail "$name is not a nats://user:password@host URL"
         fi
-    else
-        fail "nats-url is not a nats://user:password@host URL"
+    done
+    if [ -n "${nats_passwords[core]:-}" ] && [ "${nats_passwords[core]:-}" = "${nats_passwords[worker]:-}" ]; then
+        fail "nats-core-url and nats-worker-url use the same password"
     fi
 fi
 

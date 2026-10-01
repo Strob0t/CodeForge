@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from codeforge import tool_process
 from codeforge.config import get_settings
 from codeforge.consumer._base import ConsumerBaseMixin
 from tests.fake_llm import FakeLLM
@@ -47,6 +48,16 @@ def _fresh_worker_settings() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_tool_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check tool isolation (KI-71) again from each test's settings.
+
+    The isolation status is cached for the worker's lifetime; a test that
+    installs one must not leak it into the next.
+    """
+    monkeypatch.setattr(tool_process, "_status", None)
 
 
 @pytest.fixture(autouse=True)

@@ -17,6 +17,7 @@ import structlog
 from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
 from codeforge.models import QualityGateRequest, QualityGateResult
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_process
 
 logger = structlog.get_logger()
 
@@ -162,7 +163,7 @@ class QualityGateExecutor:
             return None, f"command not allowed: {command!r}. Only approved commands may run."
         log.debug("running gate command", command=command, cwd=cwd, timeout_seconds=timeout)
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await start_tool_process(
                 *argv,
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,

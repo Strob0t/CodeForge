@@ -13,6 +13,7 @@ import structlog
 
 from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_shell
 
 logger = structlog.get_logger()
 
@@ -83,7 +84,7 @@ class FunctionalTestEvaluator:
 
     async def _run_command(self, command: str) -> tuple[float, str, int]:
         """Execute a shell command and return (score, output, exit_code)."""
-        proc = await asyncio.create_subprocess_shell(
+        proc = await start_tool_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,

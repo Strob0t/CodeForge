@@ -53,6 +53,7 @@ from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
 from codeforge.stall_detection import StallDetector, stall_error
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_executor import ToolExecutor
+from codeforge.tool_process import start_tool_process
 from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
@@ -824,9 +825,10 @@ class AgentLoopExecutor:
 async def _run_git(workspace_path: str, *args: str) -> None:
     """Run a git sub-command and raise on non-zero exit.
 
-    Uses create_subprocess_exec (no shell) to avoid injection risks.
+    No shell, to avoid injection risks; git runs as a tool process (it
+    executes the workspace's hooks and config).
     """
-    proc = await asyncio.create_subprocess_exec(
+    proc = await start_tool_process(
         "git",
         *args,
         cwd=workspace_path,

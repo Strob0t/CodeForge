@@ -64,6 +64,44 @@ def _resolve_str(env_key: str, yaml_value: object, default: str) -> str:
     return default
 
 
+FILE_ENV_SUFFIX = "_FILE"
+
+# Contents of the secret files read so far. A secret file is read once: the
+# worker locks its secrets directory after startup (codeforge.secrets), and
+# settings built later must still see the values.
+_secret_file_values: dict[str, str] = {}
+
+
+def read_secret_file(path: str) -> str:
+    """Return the content of a secret file without surrounding whitespace (read once, then cached)."""
+    if path not in _secret_file_values:
+        value = Path(path).read_text().strip()
+        if not value:
+            msg = f"secret file {path} is empty"
+            raise ValueError(msg)
+        _secret_file_values[path] = value
+    return _secret_file_values[path]
+
+
+def _resolve_secret(env_key: str, yaml_value: object, default: str) -> str:
+    """Resolve a secret: <env_key>_FILE (a Docker secret file) or env var > YAML > default.
+
+    Like the Go Core, a secret set both directly and as a file is rejected.
+    """
+    file_key = env_key + FILE_ENV_SUFFIX
+    path = os.environ.get(file_key, "")
+    if not path:
+        return _resolve_str(env_key, yaml_value, default)
+    if os.environ.get(env_key, ""):
+        msg = f"both {env_key} and {file_key} are set, set only one"
+        raise ValueError(msg)
+    try:
+        return read_secret_file(path)
+    except (OSError, ValueError) as exc:
+        msg = f"{file_key}: {exc}"
+        raise ValueError(msg) from exc
+
+
 def _resolve_bool(env_key: str, yaml_value: object, default: bool) -> bool:
     """Resolve a bool setting: env var > YAML > default."""
     env = os.environ.get(env_key, "")
@@ -128,7 +166,15 @@ class WorkerSettings:
     app_env: str
     database_url: str
     workspace: str
+    workspace_root: str
     config_file: str
+
+    # Tool isolation (KI-71, codeforge.tool_process)
+    tool_isolation: str
+    tool_uid: int
+    tool_gid: int
+    workspace_gid: int
+    tool_home: str
 
     # LLM
     default_model: str
@@ -191,10 +237,12 @@ class WorkerSettings:
         routing_cfg: dict = yaml_cfg.get("routing", {}) if isinstance(yaml_cfg.get("routing"), dict) else {}
         trust_cfg: dict = yaml_cfg.get("trust", {}) if isinstance(yaml_cfg.get("trust"), dict) else {}
 
-        self.nats_url = _resolve_str("NATS_URL", nats_cfg.get("url"), "nats://localhost:4222")
+        self.nats_url = _resolve_secret("NATS_URL", nats_cfg.get("url"), "nats://localhost:4222")
         self.litellm_url = _resolve_str("LITELLM_BASE_URL", litellm_cfg.get("url"), "http://localhost:4000")
         # The worker entry point warns about the development key once logging is set up.
-        self.litellm_api_key = _resolve_str("LITELLM_MASTER_KEY", litellm_cfg.get("master_key"), DEV_LITELLM_MASTER_KEY)
+        self.litellm_api_key = _resolve_secret(
+            "LITELLM_MASTER_KEY", litellm_cfg.get("master_key"), DEV_LITELLM_MASTER_KEY
+        )
         self.log_level = _resolve_str("CODEFORGE_WORKER_LOG_LEVEL", logging_cfg.get("level"), "info")
         self.log_service = _resolve_str("CODEFORGE_WORKER_LOG_SERVICE", None, "codeforge-worker")
         self.health_port = _resolve_int("CODEFORGE_WORKER_HEALTH_PORT", None, 8081)
@@ -205,15 +253,26 @@ class WorkerSettings:
         # --- Core / Infrastructure ---
         core_cfg: dict = yaml_cfg.get("core", {}) if isinstance(yaml_cfg.get("core"), dict) else {}
         self.core_url = _resolve_str("CODEFORGE_CORE_URL", core_cfg.get("url"), "http://localhost:8080")
-        self.internal_key = _resolve_str("CODEFORGE_INTERNAL_KEY", core_cfg.get("internal_key"), "")
+        self.internal_key = _resolve_secret("CODEFORGE_INTERNAL_KEY", core_cfg.get("internal_key"), "")
         self.app_env = _resolve_str("APP_ENV", yaml_cfg.get("app_env"), "")
-        self.database_url = _resolve_str(
+        self.database_url = _resolve_secret(
             "DATABASE_URL",
             yaml_cfg.get("postgres", {}).get("dsn") if isinstance(yaml_cfg.get("postgres"), dict) else None,
             "postgresql://codeforge:codeforge_dev@localhost:5432/codeforge",
         )
         self.workspace = _resolve_str("CODEFORGE_WORKSPACE", None, "/workspaces/CodeForge")
+        # The Go Core's workspace root (same variable); with tool isolation the
+        # worker opens workspaces created before it to the workspace group.
+        self.workspace_root = _resolve_str("CODEFORGE_WORKSPACE_ROOT", None, "")
         self.config_file = os.environ.get("CODEFORGE_CONFIG_FILE", "")
+
+        # --- Tool isolation (KI-71): who agent tool processes run as ---
+        # "required" in the worker image and docker-compose.prod.yml, "off" elsewhere.
+        self.tool_isolation = _resolve_str("CODEFORGE_TOOL_ISOLATION", None, "off")
+        self.tool_uid = _resolve_int("CODEFORGE_TOOL_UID", None, 10002)
+        self.tool_gid = _resolve_int("CODEFORGE_TOOL_GID", None, 10002)
+        self.workspace_gid = _resolve_int("CODEFORGE_WORKSPACE_GID", None, 10010)
+        self.tool_home = _resolve_str("CODEFORGE_TOOL_HOME", None, "/home/codeforge-tool")
 
         # --- LLM ---
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")

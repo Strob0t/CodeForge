@@ -9,6 +9,7 @@ from typing import Any
 
 from codeforge.constants import MAX_SEARCH_MATCHES
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_process
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ class SearchFilesTool(ToolExecutor):
         cmd.extend(["-m", str(MAX_MATCHES), "--", pattern, str(safe_path)])
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await start_tool_process(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

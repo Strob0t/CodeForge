@@ -8,13 +8,20 @@
 #   Secrets are Docker secret files from ${SECRETS_DIR:-./secrets}, mounted at
 #   /run/secrets/<name>. Services get the file paths (*_FILE), never the values,
 #   so no secret appears in the compose environment or in `docker inspect`.
-#   The Go core reads *_FILE natively; postgres uses the image's
-#   POSTGRES_PASSWORD_FILE; nats reads its credentials from a config file;
-#   litellm and the worker export their secrets from the files in a small
+#   The Go core and the worker read *_FILE natively; postgres uses the image's
+#   POSTGRES_PASSWORD_FILE; nats reads the users' passwords from a file its
+#   config includes; litellm exports its secrets from the files in a small
 #   entrypoint wrapper.
 #   Compose bind-mounts the files with their host owner and mode (uid/gid/mode
-#   are Swarm-only), so they must be readable by the non-root container users:
-#   generate-secrets.sh writes them 0644 inside a 0700 directory.
+#   are Swarm-only and ignored here), so they must be readable by the non-root
+#   container users: generate-secrets.sh writes them 0644 inside a 0700
+#   directory. The worker's agent tool processes run as another user, so the
+#   worker mounts /run/secrets as a tmpfs only the worker user may enter
+#   (KI-71).
+#
+# NATS: every client authenticates (configs/nats/nats-server.conf); the core
+# connects as "core", the worker as "worker", each limited to what it
+# publishes (KI-71).
 
 x-logging: &default-logging
   driver: json-file
@@ -114,12 +121,17 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Users "core" and "worker" with their permissions; the config includes
+    # the passwords from the secret mounted next to it.
+    configs:
+      - source: nats-server-conf
+        target: /etc/nats/codeforge/nats-server.conf
     secrets:
-      - nats-auth-conf
-    # The config file only holds the authorization block (user and password).
+      - source: nats-passwords
+        target: /etc/nats/codeforge/passwords.conf
     command:
       - "--config"
-      - "/run/secrets/nats-auth-conf"
+      - "/etc/nats/codeforge/nats-server.conf"
       - "--jetstream"
       - "--store_dir"
       - "/data"
@@ -216,7 +228,8 @@ services:
       - "no-new-privileges:true"
     secrets:
       - database-url
-      - nats-url
+      - source: nats-core-url
+        target: nats-url
       - litellm-master-key
       - codeforge-auth-jwt-secret
       - codeforge-auth-llm-key-encryption-secret
@@ -273,36 +286,46 @@ services:
       dockerfile: Dockerfile.worker
     restart: unless-stopped
     read_only: true
+    # Tool isolation (KI-71): the container starts as root with only these
+    # three capabilities; the image entrypoint runs the worker as uid 10001
+    # and keeps them to start agent tool processes as the tool user (uid
+    # 10002: no capabilities, no_new_privs) and to stop them.
+    user: "0:0"
     cap_drop:
       - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - KILL
     security_opt:
       - "no-new-privileges:true"
     secrets:
       - database-url
-      - nats-url
+      - source: nats-worker-url
+        target: nats-url
       - litellm-master-key
       - codeforge-internal-key
+    # Secrets as file paths only: no secret is in the worker's environment.
     environment:
       APP_ENV: production
       LITELLM_BASE_URL: "http://litellm:4000"
       CODEFORGE_CORE_URL: "http://core:8080"
-    # The worker reads these settings only from the environment.
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        set -eu
-        DATABASE_URL="$$(cat /run/secrets/database-url)"
-        NATS_URL="$$(cat /run/secrets/nats-url)"
-        LITELLM_MASTER_KEY="$$(cat /run/secrets/litellm-master-key)"
-        CODEFORGE_INTERNAL_KEY="$$(cat /run/secrets/codeforge-internal-key)"
-        export DATABASE_URL NATS_URL LITELLM_MASTER_KEY CODEFORGE_INTERNAL_KEY
-        exec python -m codeforge.consumer
+      DATABASE_URL_FILE: /run/secrets/database-url
+      NATS_URL_FILE: /run/secrets/nats-url
+      LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
+      CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
+      CODEFORGE_TOOL_ISOLATION: required
+      CODEFORGE_WORKSPACE_ROOT: /data/workspaces
     # Agent tools edit the workspaces in place, at the paths the core sends.
     volumes:
       - workspaces:/data/workspaces
     tmpfs:
       - /tmp
+      # Only the worker user may enter the secrets directory (the secret files
+      # are mounted inside); the worker locks it once it read them.
+      - /run/secrets:uid=10001,gid=10001,mode=0700
+      # HOME of the tool user.
+      - /home/codeforge-tool:uid=10002,gid=10002,mode=0700
     depends_on:
       nats:
         condition: service_healthy
@@ -368,10 +391,12 @@ secrets:
     file: ${SECRETS_DIR:-./secrets}/postgres-tls.key
   database-url:
     file: ${SECRETS_DIR:-./secrets}/database-url
-  nats-auth-conf:
-    file: ${SECRETS_DIR:-./secrets}/nats-auth.conf
-  nats-url:
-    file: ${SECRETS_DIR:-./secrets}/nats-url
+  nats-passwords:
+    file: ${SECRETS_DIR:-./secrets}/nats-passwords.conf
+  nats-core-url:
+    file: ${SECRETS_DIR:-./secrets}/nats-core-url
+  nats-worker-url:
+    file: ${SECRETS_DIR:-./secrets}/nats-worker-url
   litellm-master-key:
     file: ${SECRETS_DIR:-./secrets}/litellm-master-key
   codeforge-auth-jwt-secret:
@@ -380,6 +405,10 @@ secrets:
     file: ${SECRETS_DIR:-./secrets}/codeforge-auth-llm-key-encryption-secret
   codeforge-internal-key:
     file: ${SECRETS_DIR:-./secrets}/codeforge-internal-key
+
+configs:
+  nats-server-conf:
+    file: ./configs/nats/nats-server.conf
 
 volumes:
   postgres_data:
