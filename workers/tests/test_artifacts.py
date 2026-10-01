@@ -165,3 +165,21 @@ class TestValidateDecisionMD:
     def test_too_short(self) -> None:
         result = validate_artifact("DECISION.md", "decision reason")
         assert not result.valid
+
+
+@pytest.mark.parametrize(
+    ("artifact_type", "output", "valid"),
+    [
+        ("BOUNDARIES.json", 'Found:\n```json\n[{"path": "api.proto", "type": "api"}]\n```', True),
+        ("BOUNDARIES.json", "[]", True),
+        ("BOUNDARIES.json", "I could not find any boundaries.", False),
+        ("BOUNDARIES.json", '["api.proto"]', False),
+        ("CONTRACT_REVIEW.md", "# Contract review\nNo inconsistencies.", True),
+        ("CONTRACT_REVIEW.md", "  ", False),
+        ("PROPOSAL.md", "Use the cache.", True),
+        ("SYNTHESIS.md", "", False),
+    ],
+)
+def test_review_and_debate_artifacts(artifact_type: str, output: str, valid: bool) -> None:
+    """The review pipeline and debate artifacts mirror the Go validators (S6-F 1)."""
+    assert validate_artifact(artifact_type, output).valid is valid

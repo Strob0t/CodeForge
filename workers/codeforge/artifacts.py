@@ -21,6 +21,10 @@ class ArtifactType(StrEnum):
     TEST_REPORT = "TEST_REPORT"
     AUDIT_REPORT = "AUDIT_REPORT"
     DECISION_MD = "DECISION.md"
+    BOUNDARIES_JSON = "BOUNDARIES.json"
+    CONTRACT_REVIEW_MD = "CONTRACT_REVIEW.md"
+    PROPOSAL_MD = "PROPOSAL.md"
+    SYNTHESIS_MD = "SYNTHESIS.md"
 
 
 class ArtifactValidationResult(BaseModel):
@@ -102,6 +106,39 @@ def _validate_decision_md(output: str) -> list[str]:
     return errs
 
 
+def boundaries_from_output(output: str) -> list[dict[str, object]] | None:
+    """Return the BOUNDARIES.json array of an output, None when it has none.
+
+    Mirrors boundary.FromOutput in Go: the first JSON array in the output,
+    optionally in a code fence, whose entries are objects.
+    """
+    start, end = output.find("["), output.rfind("]")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(output[start : end + 1])
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, list) or not all(isinstance(e, dict) for e in data):
+        return None
+    return data
+
+
+def _validate_boundaries_json(output: str) -> list[str]:
+    if boundaries_from_output(output) is None:
+        return ["no BOUNDARIES.json array (a JSON array of boundary objects) in the output"]
+    return []
+
+
+def _non_empty(artifact_type: str):
+    def validate(output: str) -> list[str]:
+        if not output.strip():
+            return [f"{artifact_type} must not be empty"]
+        return []
+
+    return validate
+
+
 _VALIDATORS: dict[str, callable] = {
     ArtifactType.PLAN_MD: _validate_plan_md,
     ArtifactType.DIFF: _validate_diff,
@@ -109,6 +146,10 @@ _VALIDATORS: dict[str, callable] = {
     ArtifactType.TEST_REPORT: _validate_test_report,
     ArtifactType.AUDIT_REPORT: _validate_audit_report,
     ArtifactType.DECISION_MD: _validate_decision_md,
+    ArtifactType.BOUNDARIES_JSON: _validate_boundaries_json,
+    ArtifactType.CONTRACT_REVIEW_MD: _non_empty(ArtifactType.CONTRACT_REVIEW_MD),
+    ArtifactType.PROPOSAL_MD: _non_empty(ArtifactType.PROPOSAL_MD),
+    ArtifactType.SYNTHESIS_MD: _non_empty(ArtifactType.SYNTHESIS_MD),
 }
 
 

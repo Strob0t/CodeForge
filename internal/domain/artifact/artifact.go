@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+
+	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 )
 
 // ArtifactType identifies the kind of artifact a mode is expected to produce.
@@ -18,6 +20,14 @@ const (
 	TypeTestReport  ArtifactType = "TEST_REPORT"
 	TypeAuditReport ArtifactType = "AUDIT_REPORT"
 	TypeDecisionMD  ArtifactType = "DECISION.md"
+
+	// Review pipeline modes (boundary_analyzer, contract_reviewer).
+	TypeBoundariesJSON   ArtifactType = "BOUNDARIES.json"
+	TypeContractReviewMD ArtifactType = "CONTRACT_REVIEW.md"
+
+	// Debate modes (proponent, moderator).
+	TypeProposalMD  ArtifactType = "PROPOSAL.md"
+	TypeSynthesisMD ArtifactType = "SYNTHESIS.md"
 )
 
 // knownTypes maps artifact type strings to their validator function.
@@ -28,6 +38,11 @@ var knownTypes = map[ArtifactType]func(string) []string{
 	TypeTestReport:  validateTestReport,
 	TypeAuditReport: validateAuditReport,
 	TypeDecisionMD:  validateDecisionMD,
+
+	TypeBoundariesJSON:   validateBoundariesJSON,
+	TypeContractReviewMD: nonEmpty(TypeContractReviewMD),
+	TypeProposalMD:       nonEmpty(TypeProposalMD),
+	TypeSynthesisMD:      nonEmpty(TypeSynthesisMD),
 }
 
 // ValidationResult holds the outcome of validating run output against an artifact schema.
@@ -168,6 +183,25 @@ func validateAuditReport(output string) []string {
 		errs = append(errs, "AUDIT_REPORT must contain at least one security keyword (vulnerability, risk, finding, security)")
 	}
 	return errs
+}
+
+// validateBoundariesJSON accepts an output holding a JSON array of boundary
+// objects (fenced or bare); an empty array means no boundaries were found.
+func validateBoundariesJSON(output string) []string {
+	if _, err := boundary.FromOutput(output); err != nil {
+		return []string{err.Error()}
+	}
+	return nil
+}
+
+// nonEmpty is the validator of a free-form report that only has to exist.
+func nonEmpty(t ArtifactType) func(string) []string {
+	return func(output string) []string {
+		if strings.TrimSpace(output) == "" {
+			return []string{string(t) + " must not be empty"}
+		}
+		return nil
+	}
 }
 
 func validateDecisionMD(output string) []string {

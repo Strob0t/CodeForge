@@ -2,11 +2,9 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -304,16 +302,12 @@ func (s *ReviewPipelineService) storeBoundaries(ctx context.Context, step *plan.
 	slog.Info("boundaries stored", "project_id", r.ProjectID, "detected", len(detected))
 }
 
-// parseBoundaries reads the BOUNDARIES.json array from a run output: the
-// first JSON array in it, optionally in a code fence. Invalid entries are
-// dropped; every entry is marked auto-detected.
+// parseBoundaries reads the BOUNDARIES.json array from a run output
+// (boundary.FromOutput). Invalid entries are dropped; every entry is marked
+// auto-detected.
 func parseBoundaries(output string) []boundary.BoundaryFile {
-	start, end := strings.Index(output, "["), strings.LastIndex(output, "]")
-	if start < 0 || end <= start {
-		return nil
-	}
-	var entries []boundary.BoundaryFile
-	if err := json.Unmarshal([]byte(output[start:end+1]), &entries); err != nil {
+	entries, err := boundary.FromOutput(output)
+	if err != nil {
 		return nil
 	}
 	valid := entries[:0]
