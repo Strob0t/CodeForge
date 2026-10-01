@@ -152,7 +152,7 @@ func (s *QuarantineService) Approve(ctx context.Context, id, reviewedBy, note st
 	}
 	if !waits {
 		reason := fmt.Sprintf("its A2A task %s no longer waits for it", a2aTaskIDOf(msg))
-		if task != nil {
+		if task != nil && task.State != a2adomain.TaskStateSubmitted {
 			reason = fmt.Sprintf("its A2A task %s is %s", task.ID, task.State)
 		}
 		if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, reviewedBy, reason); err != nil {
@@ -246,9 +246,11 @@ func a2aTaskIDOf(msg *quarantine.Message) string {
 }
 
 // heldA2ATask returns the inbound A2A task whose prompt msg holds, and
-// whether it still waits for it (submitted). A message of another subject
-// has no task and "waits" (it is replayed as before); a held prompt whose
-// task is gone does not wait.
+// whether it still waits for it: submitted, and naming msg as its held
+// prompt (a task that could not record it was failed and its message
+// withdrawn; S2-G fix 2, 6). A message of another subject has no task and
+// "waits" (it is replayed as before); a held prompt whose task is gone does
+// not wait.
 func (s *QuarantineService) heldA2ATask(ctx context.Context, msg *quarantine.Message) (*a2adomain.A2ATask, bool, error) {
 	if msg.Subject != messagequeue.SubjectA2ATaskCreated {
 		return nil, true, nil
@@ -264,7 +266,8 @@ func (s *QuarantineService) heldA2ATask(ctx context.Context, msg *quarantine.Mes
 	if err != nil {
 		return nil, false, fmt.Errorf("get the held a2a task %s: %w", taskID, err)
 	}
-	return task, task.State == a2adomain.TaskStateSubmitted, nil
+	waits := task.State == a2adomain.TaskStateSubmitted && task.Metadata[a2adomain.MetadataQuarantineMessageID] == msg.ID
+	return task, waits, nil
 }
 
 // resolveHeldA2ATask moves a held A2A task to state and announces it; best

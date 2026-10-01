@@ -52,6 +52,7 @@ func heldA2AEnv(t *testing.T, state a2adomain.TaskState) (*a2aQuarantineStore, *
 	store.messages["q-a2a"] = &quarantine.Message{ID: "q-a2a", Subject: messagequeue.SubjectA2ATaskCreated, Payload: payload, Status: quarantine.StatusPending}
 	task := a2adomain.NewA2ATask("a2a-held")
 	task.State = state
+	task.Metadata[a2adomain.MetadataQuarantineMessageID] = "q-a2a"
 	store.a2aTasks[task.ID] = task
 	queue := &mockQueue{}
 	return store, queue, NewQuarantineService(store, queue, &mockBroadcaster{}, config.Quarantine{Enabled: true})
@@ -99,6 +100,21 @@ func TestQuarantine_ApproveOfACancelledA2ATaskPublishesNothing(t *testing.T) {
 			}
 			if got := store.messages["q-a2a"].Status; got != quarantine.StatusRejected {
 				t.Fatalf("message status = %s, want rejected", got)
+			}
+		})
+	}
+
+	// S2-G fix 2, 6: a task that does not name the message as its held
+	// prompt (it could not record it) does not wait for it.
+	for name, ref := range map[string]string{"task without the message": "", "task of another message": "q-other"} {
+		t.Run(name, func(t *testing.T) {
+			store, queue, svc := heldA2AEnv(t, a2adomain.TaskStateSubmitted)
+			store.a2aTasks["a2a-held"].Metadata[a2adomain.MetadataQuarantineMessageID] = ref
+			if err := svc.Approve(context.Background(), "q-a2a", "admin", "ok"); !errors.Is(err, domain.ErrConflict) {
+				t.Fatalf("Approve = %v, want ErrConflict", err)
+			}
+			if len(queue.published) != 0 {
+				t.Fatalf("published = %v, want nothing", queue.published)
 			}
 		})
 	}

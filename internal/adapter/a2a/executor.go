@@ -30,10 +30,6 @@ type cancelResult struct {
 	TaskID string `json:"task_id"`
 }
 
-// quarantineMessageKey is the task metadata naming a held task's
-// quarantine message.
-const quarantineMessageKey = "quarantine_message_id"
-
 // Screener checks an inbound message before it is published (the
 // quarantine service): ScreenMessage returns the verdict and the stored
 // message's ID; Withdraw takes a held message back when its task's caller
@@ -121,12 +117,13 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 		if dt.Metadata == nil {
 			dt.Metadata = map[string]string{}
 		}
-		dt.Metadata[quarantineMessageKey] = heldID
+		dt.Metadata[a2adomain.MetadataQuarantineMessageID] = heldID
 	case quarantine.VerdictRejected:
 		state, sdkState, note = a2adomain.TaskStateRejected, sdka2a.TaskStateRejected, "rejected by the quarantine"
 	}
 	dt.State = state
 	if err := e.store.UpdateA2ATask(ctx, dt); err != nil {
+		e.failUnrecordedTask(ctx, dt, verdict, heldID, err)
 		return fmt.Errorf("record the screened a2a task: %w", err)
 	}
 
@@ -147,6 +144,24 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 
 	slog.Info("a2a: task created", "task_id", taskID, "prompt_len", len(prompt), "state", state)
 	return nil
+}
+
+// failUnrecordedTask handles a task whose screening could not be recorded
+// (S2-G fix 2, 6). A held prompt whose task does not name it could neither
+// be withdrawn by the caller's cancel nor be told apart by an approval: it is
+// withdrawn at once (fail closed), and the task is failed; best effort.
+func (e *Executor) failUnrecordedTask(ctx context.Context, dt *a2adomain.A2ATask, verdict quarantine.Verdict, heldID string, cause error) {
+	if verdict == quarantine.VerdictHeld && heldID != "" && e.screener != nil {
+		if err := e.screener.Withdraw(ctx, heldID, "its A2A task could not record it"); err != nil {
+			slog.Error("a2a: held prompt of an unrecorded task not withdrawn", "task_id", dt.ID, "quarantine_id", heldID, "error", err)
+		}
+	}
+	dt.State = a2adomain.TaskStateFailed
+	dt.ErrorMessage = "the screened task could not be recorded: " + cause.Error()
+	delete(dt.Metadata, a2adomain.MetadataQuarantineMessageID)
+	if err := e.store.UpdateA2ATask(ctx, dt); err != nil {
+		slog.Error("a2a: unrecorded task not failed", "task_id", dt.ID, "error", err)
+	}
 }
 
 // screen returns the screener's verdict on an inbound task's message, and
@@ -180,7 +195,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq
 	// A held task's prompt is withdrawn from the quarantine, so an admin's
 	// later approval publishes nothing (S2-G fix, 9; the approval also
 	// checks the task's state).
-	if id := dt.Metadata[quarantineMessageKey]; id != "" && dt.State == a2adomain.TaskStateSubmitted && e.screener != nil {
+	if id := dt.Metadata[a2adomain.MetadataQuarantineMessageID]; id != "" && dt.State == a2adomain.TaskStateSubmitted && e.screener != nil {
 		if err := e.screener.Withdraw(ctx, id, "cancelled by the A2A caller"); err != nil {
 			slog.Warn("a2a: held prompt of a cancelled task not withdrawn", "task_id", taskID, "quarantine_id", id, "error", err)
 		}

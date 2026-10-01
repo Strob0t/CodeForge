@@ -131,7 +131,7 @@ func TestExecutor_ScreensInboundPrompts(t *testing.T) {
 				t.Fatalf("stored task = %+v, want %s with partial trust", dt, tt.state)
 			}
 			// S2-G fix, 9: a held task names its quarantine message.
-			if held := tt.verdict == quarantine.VerdictHeld && tt.err == nil; (dt.Metadata["quarantine_message_id"] == heldMessageID) != held {
+			if held := tt.verdict == quarantine.VerdictHeld && tt.err == nil; (dt.Metadata[a2adomain.MetadataQuarantineMessageID] == heldMessageID) != held {
 				t.Errorf("task metadata = %v, want the quarantine message only when held", dt.Metadata)
 			}
 			if got := len(queue.published) == 1 && queue.published[0].subject == messagequeue.SubjectA2ATaskCreated; got != tt.published {
@@ -213,5 +213,32 @@ func TestExecutor_CancelOfAHeldTaskWithdrawsItsMessage(t *testing.T) {
 	}
 	if dt := store.tasks["a2a-remote-4"]; dt.State != a2adomain.TaskStateCanceled {
 		t.Fatalf("task state = %s, want canceled", dt.State)
+	}
+}
+
+// TestExecutor_HeldPromptWithoutItsTaskIsWithdrawn (S2-G fix 2, 6): when the
+// task could not record its held prompt's quarantine message, the caller's
+// cancel could not withdraw it and an admin could still approve it. The
+// executor withdraws the message at once (fail closed) and fails the task.
+func TestExecutor_HeldPromptWithoutItsTaskIsWithdrawn(t *testing.T) {
+	store := newFakeStore()
+	store.updateErr = errors.New("database unavailable")
+	screener := &fakeScreener{verdict: quarantine.VerdictHeld}
+	queue := &recordingQueue{}
+	exec := NewExecutor(store, queue, fakeBroadcaster{}, nil)
+	exec.SetScreener(screener)
+	reqCtx := &a2asrv.RequestContext{
+		TaskID:  "remote-5",
+		Message: &sdka2a.Message{Role: sdka2a.MessageRoleUser, Parts: []sdka2a.Part{sdka2a.TextPart{Text: "hello"}}},
+	}
+
+	if err := exec.Execute(tenantctx.WithTenant(context.Background(), screenTenant), reqCtx, fakeEventQueue{}); err == nil {
+		t.Fatal("Execute succeeded although the task could not record its held prompt")
+	}
+	if len(screener.withdrawn) != 1 || screener.withdrawn[0] != heldMessageID {
+		t.Fatalf("withdrawn = %v, want the held prompt %s", screener.withdrawn, heldMessageID)
+	}
+	if len(queue.published) != 0 {
+		t.Fatalf("published = %v, want nothing", queue.published)
 	}
 }

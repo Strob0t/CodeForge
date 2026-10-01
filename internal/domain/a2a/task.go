@@ -71,6 +71,11 @@ type A2ATask struct {
 	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
+// MetadataQuarantineMessageID is the metadata of a held inbound task naming
+// the quarantine message that holds its prompt: the caller's cancel
+// withdraws it, and an approval publishes only the message its task names.
+const MetadataQuarantineMessageID = "quarantine_message_id"
+
 // Validate checks required fields on an A2ATask.
 func (t *A2ATask) Validate() error {
 	if t.ID == "" {
