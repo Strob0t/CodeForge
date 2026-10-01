@@ -176,12 +176,12 @@ class TestTrajectoryVerifierEvaluator:
         assert evaluator.name == "trajectory_verifier"
 
     @pytest.mark.asyncio
-    async def test_unknown_category_maps_to_zero(self) -> None:
-        """Unknown category string maps to 0.0."""
+    async def test_unknown_or_missing_dimensions_are_errors(self) -> None:
+        """Unknown labels and missing dimensions are evaluation errors per dimension, not 0.0 (S6-G review, 10)."""
         mock_response = _Answer()
         mock_response.content = (
             '{"solution_quality": "UNKNOWN", "approach_efficiency": "MAYBE", '
-            '"code_quality": "ACHIEVED", "error_recovery": "ACHIEVED", "completeness": "ACHIEVED"}'
+            '"code_quality": "ACHIEVED", "error_recovery": [1], "unrelated": "ACHIEVED"}'
         )
 
         evaluator = TrajectoryVerifierEvaluator(model="test-model")
@@ -189,10 +189,17 @@ class TestTrajectoryVerifierEvaluator:
         with patch.object(evaluator, "_call_verifier", return_value=mock_response):
             dims = await evaluator.evaluate(_task(), _result_with_trajectory())
 
-        by_name = {d.name: d.score for d in dims}
-        assert by_name["trajectory_solution_quality"] == 0.0  # UNKNOWN -> 0.0
-        assert by_name["trajectory_approach_efficiency"] == 0.0  # MAYBE -> 0.0
-        assert by_name["trajectory_code_quality"] == 1.0  # ACHIEVED -> 1.0
+        by_name = {d.name: d for d in dims}
+        assert len(dims) == 5
+        assert by_name["trajectory_code_quality"].score == 1.0
+        assert by_name["trajectory_code_quality"].error == ""
+        for name, reason in (
+            ("trajectory_solution_quality", "unknown label"),
+            ("trajectory_approach_efficiency", "unknown label"),
+            ("trajectory_error_recovery", "unusable value"),
+            ("trajectory_completeness", "missing"),
+        ):
+            assert reason in by_name[name].error, (name, by_name[name].error)
 
     @pytest.mark.asyncio
     async def test_achieved_maps_to_1(self) -> None:

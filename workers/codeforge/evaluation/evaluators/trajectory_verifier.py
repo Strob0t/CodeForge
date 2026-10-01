@@ -140,18 +140,16 @@ class TrajectoryVerifierEvaluator:
 
         try:
             response = await self._call_verifier(prompt)
-            scores = _parse_scores(response.content)
+            verdict = _parse_verdict(response.content)
         except Exception as exc:
             msg = f"trajectory verifier failed: {exc}"
             raise EvaluatorError(msg) from exc
 
-        return [
-            EvalDimension(
-                name=f"trajectory_{dim}",
-                score=scores.get(dim, 0.0),
-            )
-            for dim in _SCORE_DIMENSIONS
-        ]
+        dims: list[EvalDimension] = []
+        for dim in _SCORE_DIMENSIONS:
+            score, error = _score_of(verdict, dim)
+            dims.append(EvalDimension(name=f"trajectory_{dim}", score=score, error=error))
+        return dims
 
     async def _call_verifier(self, prompt: str) -> ChatCompletionResponse:
         """Call the verifier model through the LiteLLM proxy."""
@@ -203,8 +201,8 @@ def _format_trajectory(task: TaskSpec, result: ExecutionResult) -> str:
     return "\n".join(lines)
 
 
-def _parse_scores(content: str) -> dict[str, float]:
-    """Parse categorical JSON scores from LLM response; raises when the answer is not such JSON."""
+def _parse_verdict(content: str) -> dict[str, Any]:
+    """Parse the verifier's JSON object; raises when the answer is not one."""
     try:
         text = content.strip()
         if text.startswith("```"):
@@ -214,15 +212,27 @@ def _parse_scores(content: str) -> dict[str, float]:
         if not isinstance(raw, dict):
             msg = "verifier answer is not a JSON object"
             raise TypeError(msg)
-        result: dict[str, float] = {}
-        for k, v in raw.items():
-            if k in _SCORE_DIMENSIONS:
-                if isinstance(v, str):
-                    result[k] = _CATEGORY_SCORES.get(v.upper(), 0.0)
-                else:
-                    # Backward compat: if someone passes a float, clamp it
-                    result[k] = max(0.0, min(1.0, float(v)))
-        return result
+        return raw
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         logger.warning("trajectory verifier parse failed", error=str(exc), content=content[:200])
         raise
+
+
+def _score_of(verdict: dict[str, Any], dim: str) -> tuple[float, str]:
+    """The score of one dimension, or (0.0, error) when the verdict has no usable one.
+
+    A missing dimension, an unknown label or another value is an evaluation
+    error for that dimension, never a fabricated 0.0 score.
+    """
+    if dim not in verdict:
+        return 0.0, f"dimension {dim} missing from the verifier answer"
+    value = verdict[dim]
+    if isinstance(value, str):
+        score = _CATEGORY_SCORES.get(value.strip().upper())
+        if score is None:
+            return 0.0, f"unknown label {value[:40]!r} for {dim}"
+        return score, ""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        # Backward compat: a numeric score is clamped to [0, 1].
+        return max(0.0, min(1.0, float(value))), ""
+    return 0.0, f"unusable value for {dim}"
