@@ -21,6 +21,9 @@ type runCommit struct {
 	parent  string   // the commit HEAD pointed to, "" on an unborn branch
 	headRef string   // the branch HEAD points to, "" when detached
 	changed []string // paths the commit changes relative to its parent
+	// preIndex is the user's index before the run as a tree ("" when it
+	// had unmerged entries): syncIndex keeps the changes staged there.
+	preIndex string
 }
 
 // buildRunCommit builds the commit of the run's change: a three-way merge of
@@ -94,10 +97,11 @@ func buildRunCommit(ctx context.Context, repo *git.Repo, runID, message string) 
 		return nil, fmt.Errorf("changed paths: %w", err)
 	}
 	return &runCommit{
-		commit:  trimLine(out),
-		parent:  head,
-		headRef: headRef,
-		changed: strings.FieldsFunc(changed, func(r rune) bool { return r == 0 }),
+		commit:   trimLine(out),
+		parent:   head,
+		headRef:  headRef,
+		changed:  strings.FieldsFunc(changed, func(r rune) bool { return r == 0 }),
+		preIndex: base.indexTree,
 	}, nil
 }
 
@@ -215,17 +219,103 @@ func (rc *runCommit) checkoutNewBranch(ctx context.Context, repo *git.Repo, bran
 
 // syncIndex sets the user's index entries of the paths the commit changed to
 // the commit's content, so the delivered change is not shown as staged or
-// unstaged; the user's other entries, staged ones included, are kept. The
+// unstaged; the user's other entries, staged ones included, are kept. A
+// path the user had staged a change of before the run keeps that change
+// staged on top of the commit's content (S3-F review C6): a three-way merge
+// of the staged blob, the parent's and the commit's. When they do not merge,
+// the entry takes the commit's content and a warning names the path. The
 // commit is delivered either way: a failure (a concurrent git holding the
 // index lock) is logged.
 func (rc *runCommit) syncIndex(ctx context.Context, repo *git.Repo) {
 	if len(rc.changed) == 0 {
 		return
 	}
-	if err := resetPaths(ctx, repo, rc.commit, rc.changed); err != nil {
-		slog.Warn("delivery: index not updated for the delivered paths; git status shows them as changed",
-			"workspace", repo.Dir, "commit", rc.commit, "error", err)
+	reset := rc.changed
+	var kept []indexEntry
+	if rc.preIndex != "" {
+		reset = nil
+		for _, path := range rc.changed {
+			entry, ok := rc.keepStaged(ctx, repo, path)
+			if ok {
+				kept = append(kept, entry)
+			} else {
+				reset = append(reset, path)
+			}
+		}
 	}
+	if len(reset) > 0 {
+		if err := resetPaths(ctx, repo, rc.commit, reset); err != nil {
+			slog.Warn("delivery: index not updated for the delivered paths; git status shows them as changed",
+				"workspace", repo.Dir, "commit", rc.commit, "error", err)
+		}
+	}
+	for _, e := range kept {
+		if _, err := repo.Run(ctx, nil, "update-index", "--cacheinfo", e.mode+","+e.oid+","+e.path); err != nil {
+			slog.Warn("delivery: the user's staged change could not be kept in the index",
+				"workspace", repo.Dir, "path", e.path, "error", err)
+		}
+	}
+}
+
+// indexEntry is a path's mode and blob in a tree or index.
+type indexEntry struct{ mode, oid, path string }
+
+// keepStaged returns the index entry that keeps the user's pre-run staged
+// change of path on top of the commit's content, or false when the user had
+// staged nothing there (or the change does not merge: logged).
+func (rc *runCommit) keepStaged(ctx context.Context, repo *git.Repo, path string) (indexEntry, bool) {
+	staged, ok := treeEntry(ctx, repo, rc.preIndex, path)
+	if !ok {
+		return indexEntry{}, false
+	}
+	parent, inParent := indexEntry{}, false
+	if rc.parent != "" {
+		parent, inParent = treeEntry(ctx, repo, rc.parent, path)
+	}
+	if inParent && parent.oid == staged.oid && parent.mode == staged.mode {
+		return indexEntry{}, false // nothing staged
+	}
+	unmerged := func(reason string) (indexEntry, bool) {
+		slog.Warn("delivery: the user's staged change does not merge with the delivered content; the index takes the delivered content",
+			"workspace", repo.Dir, "path", path, "reason", reason)
+		return indexEntry{}, false
+	}
+	delivered, ok := treeEntry(ctx, repo, rc.commit, path)
+	if !ok {
+		return unmerged("the run deleted the file")
+	}
+	if !isRegularFileMode(staged.mode) || !isRegularFileMode(delivered.mode) || (inParent && !isRegularFileMode(parent.mode)) {
+		return unmerged("not a regular file")
+	}
+	baseOID := parent.oid
+	if !inParent {
+		out, err := repo.Run(ctx, nil, "hash-object", "-w", "--no-filters", os.DevNull)
+		if err != nil {
+			return unmerged("empty blob: " + err.Error())
+		}
+		baseOID = trimLine(out)
+	}
+	out, err := repo.Run(ctx, nil, "merge-file", "--object-id", staged.oid, baseOID, delivered.oid)
+	if err != nil {
+		return unmerged(err.Error())
+	}
+	return indexEntry{mode: staged.mode, oid: trimLine(out), path: path}, true
+}
+
+func isRegularFileMode(mode string) bool { return mode == "100644" || mode == "100755" }
+
+// treeEntry returns path's entry in the tree (or commit) tree-ish.
+func treeEntry(ctx context.Context, repo *git.Repo, treeish, path string) (indexEntry, bool) {
+	out, err := repo.Run(ctx, []string{"GIT_LITERAL_PATHSPECS=1"}, "ls-tree", "-z", "--full-tree", treeish, "--", path)
+	if err != nil {
+		return indexEntry{}, false
+	}
+	meta, name, found := strings.Cut(strings.TrimSuffix(out, "\x00"), "\t")
+	fields := strings.Fields(meta)
+	if !found || name != path || len(fields) != 3 || fields[1] != "blob" {
+		return indexEntry{}, false
+	}
+	return indexEntry{mode: fields[0], oid: fields[2], path: path}, true
 }
 
 func resetPaths(ctx context.Context, repo *git.Repo, commit string, paths []string) error {
