@@ -411,6 +411,7 @@ func run() error {
 	// --- Mode Service (Phase 5E) ---
 	modeSvc := service.NewModeService()
 	runtimeSvc.SetModeService(modeSvc)
+	handoffSvc.SetModeService(modeSvc)
 	// Auto-load custom modes from .codeforge/modes/ directory.
 	if customModeFiles, globErr := filepath.Glob(".codeforge/modes/*.yaml"); globErr == nil {
 		for _, f := range customModeFiles {

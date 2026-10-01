@@ -166,6 +166,7 @@ func newHandoffEnv(t *testing.T, quarantineOn bool) *handoffEnv {
 	runs := &recordingRunStarter{}
 	svc := service.NewHandoffService(store, queue, hub)
 	svc.SetRunStarter(runs)
+	svc.SetModeService(service.NewModeService())
 	if quarantineOn {
 		svc.SetQuarantineService(service.NewQuarantineService(store, queue, hub, config.Quarantine{
 			Enabled: true, QuarantineThreshold: 0.7, BlockThreshold: 0.95, MinTrustBypass: "verified", ExpiryHours: 72,
@@ -375,4 +376,54 @@ type subscribingQueue struct {
 func (q *subscribingQueue) Subscribe(_ context.Context, subject string, _ messagequeue.Handler) (func(), error) {
 	q.subjects = append(q.subjects, subject)
 	return func() {}, nil
+}
+
+// TestHandoffRequest_TargetMode (S2-G fix, 7): the LLM's target_mode became
+// the handoff run's mode unchecked; an unknown mode ran with no mode
+// payload. The target agent's configured mode wins; target_mode is used
+// only for an agent without one, and only a known mode. An unknown mode
+// refuses the handoff before anything is created.
+func TestHandoffRequest_TargetMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentMode string
+		requested string
+		wantMode  string
+		wantError string
+	}{
+		{name: "the agent's mode wins", agentMode: "coder", requested: "reviewer", wantMode: "coder"},
+		{name: "a known mode for an agent without one", requested: "reviewer", wantMode: "reviewer"},
+		{name: "no mode: the run's default", wantMode: ""},
+		{name: "an unknown requested mode", requested: "root-shell", wantError: "root-shell"},
+		{name: "an unknown configured mode", agentMode: "gone", requested: "reviewer", wantError: "gone"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newHandoffEnv(t, false)
+			for i := range env.store.agents {
+				if env.store.agents[i].ID == "agent-tgt" {
+					env.store.agents[i].ModeID = tc.agentMode
+				}
+			}
+			data := handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review", map[string]any{"target_mode_id": tc.requested})
+
+			if err := env.svc.HandleHandoffRequest(context.Background(), data); err != nil {
+				t.Fatalf("HandleHandoffRequest: %v", err)
+			}
+
+			st := env.statuses()
+			if tc.wantError != "" {
+				if len(env.runs.started) != 0 || len(env.store.created) != 0 {
+					t.Fatalf("runs %v, tasks %v; want nothing started for an unknown mode", env.runs.started, env.store.created)
+				}
+				if len(st) != 1 || st[0].Status != "failed" || !strings.Contains(st[0].Context, tc.wantError) {
+					t.Fatalf("handoff.status = %+v, want failed naming %q", st, tc.wantError)
+				}
+				return
+			}
+			if len(env.runs.started) != 1 || env.runs.started[0].ModeID != tc.wantMode {
+				t.Fatalf("runs started = %+v, want one in mode %q", env.runs.started, tc.wantMode)
+			}
+		})
+	}
 }

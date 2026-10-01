@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -37,6 +38,11 @@ type handoffRunStarter interface {
 	StartRun(ctx context.Context, req *run.StartRequest) (*run.Run, error)
 }
 
+// handoffModes looks up the modes a handoff run may run in (ModeService).
+type handoffModes interface {
+	Get(id string) (*mode.Mode, error)
+}
+
 // HandoffService hands work from one agent to another (Phase 23B, KI-15).
 // The Go Core owns the handoff: a worker's handoff_to call arrives as
 // handoff.request; the source and the target are checked in the request's
@@ -50,6 +56,7 @@ type HandoffService struct {
 	quarantine *QuarantineService
 	a2a        *A2AService
 	runs       handoffRunStarter
+	modes      handoffModes
 }
 
 // SetQuarantineService injects the quarantine evaluator (circular-dep breaker).
@@ -60,6 +67,9 @@ func (s *HandoffService) SetA2AService(svc *A2AService) { s.a2a = svc }
 
 // SetRunStarter sets what starts the target agent's run (the RuntimeService).
 func (s *HandoffService) SetRunStarter(rs handoffRunStarter) { s.runs = rs }
+
+// SetModeService sets the modes a handoff's run mode is checked against.
+func (s *HandoffService) SetModeService(ms handoffModes) { s.modes = ms }
 
 // NewHandoffService creates a HandoffService. The optional hub parameter enables
 // WS broadcasting for the War Room (Phase 23D).
@@ -175,6 +185,10 @@ func (s *HandoffService) startRun(ctx context.Context, msg *orchestration.Handof
 	if err := requireProject("agent", target.ID, target.ProjectID, msg.ProjectID); err != nil {
 		return nil, fmt.Errorf("handoff target: %w", err)
 	}
+	modeID, err := s.handoffMode(target, msg.TargetModeID)
+	if err != nil {
+		return nil, err
+	}
 	t, err := s.db.CreateTask(ctx, task.CreateRequest{
 		ProjectID: msg.ProjectID,
 		Title:     handoffTitle(msg),
@@ -187,12 +201,38 @@ func (s *HandoffService) startRun(ctx context.Context, msg *orchestration.Handof
 		TaskID:    t.ID,
 		AgentID:   target.ID,
 		ProjectID: msg.ProjectID,
-		ModeID:    msg.TargetModeID,
+		ModeID:    modeID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start handoff run: %w", err)
 	}
 	return r, nil
+}
+
+// handoffMode is the mode of a handoff's run (S2-G fix, 7): the target
+// agent's configured mode; the requested one (the LLM's target_mode) only
+// for an agent without a mode; "" (the run's default) when neither is set.
+// The mode must be known: an unknown one refuses the handoff instead of
+// running without mode. Without modes to check against, a requested mode is
+// refused and a configured one is used as for any run of the agent.
+func (s *HandoffService) handoffMode(target *agent.Agent, requested string) (string, error) {
+	modeID, source := target.ModeID, "configured"
+	if modeID == "" {
+		modeID, source = requested, "requested"
+	}
+	if modeID == "" {
+		return "", nil
+	}
+	if s.modes == nil {
+		if source == "configured" {
+			return modeID, nil
+		}
+		return "", fmt.Errorf("handoff mode %q cannot be checked: no modes configured", modeID)
+	}
+	if _, err := s.modes.Get(modeID); err != nil {
+		return "", fmt.Errorf("handoff %s mode %q is unknown", source, modeID)
+	}
+	return modeID, nil
 }
 
 // handoffPrompt is the target run's prompt: the handoff's context and artifacts.
