@@ -52,6 +52,14 @@ tags:
     description: Knowledge base management and indexing
   - name: Policies
     description: Policy profiles for agent tool-call permissions
+  - name: Agents
+    description: Agent task dispatch
+  - name: Review
+    description: Contract-first review and refactoring pipeline
+  - name: Quarantine
+    description: Held messages (inbound A2A prompts, handoffs) awaiting an admin's review
+  - name: Webhooks
+    description: Public webhook endpoints with their own authentication
 
 paths:
   # -----------------------------------------------
@@ -296,6 +304,77 @@ paths:
                     example: "ok"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /auth/github:
+    post:
+      tags: [Auth]
+      summary: Start the GitHub OAuth web flow
+      description: |
+        Stores a single-use state for the caller's tenant, sets an HttpOnly, SameSite=Lax state cookie
+        (path `/api/v1/auth/github/callback`, 10 minutes) and returns GitHub's authorization URL for the UI to
+        open. The redirect URI is the configured `github.callback_url`, never a request value. Answers 501
+        until `github.client_id`, `github.client_secret` and `github.callback_url` are set.
+      operationId: startGitHubOAuth
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url:
+                    type: string
+                    description: GitHub authorization URL
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "501":
+          description: The GitHub OAuth web flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/github/callback:
+    get:
+      tags: [Auth]
+      summary: GitHub OAuth callback (redirect target of GitHub)
+      description: |
+        Public (GitHub's redirect carries no session). Checks the state cookie against the `state` query
+        parameter, consumes the state once, exchanges the code, creates the VCS account in the tenant that
+        started the flow and redirects (303) to the web UI: `/settings?github_oauth=connected`, or
+        `/settings?github_oauth=failed&reason=<code>` with `reason` one of `denied`, `invalid_request`,
+        `state_mismatch`, `invalid_state`, `exchange_failed`. Answers 501 while the flow is not configured.
+      operationId: githubOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        "303":
+          description: Redirect to the settings page with the outcome
+          headers:
+            Location:
+              schema:
+                type: string
+        "501":
+          description: The GitHub OAuth web flow is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /ws/ticket:
     post:
@@ -693,7 +772,8 @@ paths:
       description: |
         Creates and starts a new run for a given task and agent.
         Requires admin or editor role. Rejected with 400 before anything is
-        created when the project has no workspace, or when the task or the
+        created when the project has no workspace, when `policy_profile` (or the
+        project's profile) names an unknown profile, or when the task or the
         agent belongs to another project.
       operationId: startRun
       security:
@@ -834,6 +914,193 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           description: No pending approval for this run/call
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /runs/{id}/approvals/{callId}:
+    get:
+      tags: [Runs]
+      summary: Get a pending tool-call approval
+      description: |
+        The tool call of this run that awaits a decision, for the web approval page that approval emails link
+        to (`<notification.web_ui_url>/approvals/<run>/<call>`). Requires admin or editor role; only a call
+        pending in the caller's tenant is found.
+      operationId: getPendingApproval
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+        - name: callId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pending request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingApproval"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Not pending (answered, timed out, the run ended) or of another tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /feedback/{run_id}/{call_id}:
+    post:
+      tags: [Runs]
+      summary: Decide a pending tool call from the web approval page
+      description: |
+        Decides the tool call like `POST /runs/{id}/approve/{callId}`, with the decision as a query parameter
+        (the web approval page that approval emails link to). Requires admin or editor role; only a call
+        pending in the caller's tenant is decided. The feedback audit entry records the tool and the deciding user.
+      operationId: decideFeedback
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: decision
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [allow, deny]
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "resolved"
+                  decision:
+                    type: string
+                    enum: [allow, deny]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No pending approval for this run/call
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /runs/{id}/approve:
+    post:
+      tags: [Review]
+      summary: Keep the refactoring of a review step
+      description: |
+        Keeps the refactoring of the review plan step whose refactorer run is `{id}` (a step that waits for
+        approval is approved with it). Also possible after a failed or cancelled refactoring. Requires admin or
+        editor role. Decisions are matched on the review record, so they survive run retention.
+      operationId: approveReviewRefactoring
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          description: Decision applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The refactoring's measurement is still being recorded, try again in a moment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /runs/{id}/reject:
+    post:
+      tags: [Review]
+      summary: Undo the refactoring of a review step
+      description: |
+        Undoes the refactoring of the review plan step whose refactorer run is `{id}`: only the paths it changed
+        are set back (three-way merge) and HEAD moves back only if it still points to the refactoring's commit
+        (compare-and-swap). If the undo fails nothing is decided. Requires admin or editor role.
+      operationId: rejectReviewRefactoring
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewDecisionRequest"
+      responses:
+        "200":
+          description: Decision applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The refactoring's measurement is still being recorded, try again in a moment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /runs/{id}/approve-partial:
+    post:
+      tags: [Review]
+      summary: Approve part of a refactoring (not implemented)
+      description: Requires admin or editor role. Approve or reject the refactoring as a whole.
+      operationId: approveReviewRefactoringPartial
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RunID"
+      responses:
+        "501":
+          description: Not implemented
           content:
             application/json:
               schema:
@@ -1621,6 +1888,10 @@ paths:
     get:
       tags: [Channels]
       summary: List real-time channels
+      description: |
+        Each channel carries `has_webhook_key` and the caller's `unread_count` (top-level messages of others
+        after the caller's read position; 0 for callers without a users row, such as auth disabled or the
+        internal service key).
       operationId: listChannels
       security:
         - bearerAuth: []
@@ -1794,6 +2065,247 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /channels/{id}/webhook-key:
+    post:
+      tags: [Channels]
+      summary: Generate the channel's webhook key
+      description: |
+        Admin only. Makes a new key and returns it once (only its SHA-256 is stored); a previous key stops
+        working. External systems post with it to `POST /webhooks/channels/{id}`.
+      operationId: regenerateChannelWebhookKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: The new key (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhook_key]
+                properties:
+                  webhook_key:
+                    type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /channels/{id}/read:
+    post:
+      tags: [Channels]
+      summary: Move the caller's read position in a channel
+      description: |
+        Moves the caller's read position to a message and broadcasts `channel.read`. Answers 204 without storing
+        anything for callers without a users row (auth disabled, internal service key).
+      operationId: markChannelRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id]
+              properties:
+                message_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: The new read position
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelReadState"
+        "204":
+          description: Read positions are not tracked for this caller
+        "404":
+          $ref: "#/components/responses/NotFound"
+    get:
+      tags: [Channels]
+      summary: List the members' read positions in a channel
+      operationId: listChannelReadStates
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Read positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChannelReadState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Webhooks (public, outside the JWT middleware)
+  # -----------------------------------------------
+  /webhooks/channels/{id}:
+    post:
+      tags: [Webhooks]
+      summary: Post a message to a channel from an external system
+      description: |
+        Authenticated by the channel's webhook key in `X-Webhook-Key` (constant-time comparison). Answers 401
+        without the header and one uniform 403 for a wrong key, an unknown channel and a channel ID that is not a
+        UUID. The message is posted as a webhook sender in the channel's tenant.
+      operationId: postChannelWebhookMessage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Webhook-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                sender_name:
+                  type: string
+                  description: Display label of the sender
+      responses:
+        "201":
+          description: Message posted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /webhooks/pm/github:
+    post:
+      tags: [Webhooks]
+      summary: GitHub issue webhook (roadmap sync)
+      description: |
+        Verified with the HMAC header `X-Hub-Signature-256` (`webhook.github_secret`). The project is found by an
+        exact match of repository host and full path, case-insensitive, in the webhook's tenant. Answers 202 when
+        the pull sync started (its outcome is announced as a `pm.sync` WebSocket event with `status` `completed`
+        or `failed` and an `error`), 404 when no project matches, 400 when the provider cannot sync (not
+        registered or configured, project on another host), 200 `{status: ignored}` for other event types.
+        The body of a 202 is the parsed event.
+      operationId: githubPMWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Sync started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PMWebhookEvent"
+        "200":
+          description: Event type ignored
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /webhooks/pm/gitlab:
+    post:
+      tags: [Webhooks]
+      summary: GitLab issue webhook (roadmap sync)
+      description: |
+        Verified with the token header `X-Gitlab-Token` (`webhook.gitlab_token`). Same answers as
+        `POST /webhooks/pm/github`; the sync is anonymous (no GitLab API token is configurable) and uses the
+        project's repository host.
+      operationId: gitlabPMWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Sync started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PMWebhookEvent"
+        "200":
+          description: Event type ignored
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /webhooks/pm/plane:
+    post:
+      tags: [Webhooks]
+      summary: Plane webhook (roadmap sync)
+      description: |
+        Verified with the HMAC header `X-Plane-Signature` (`webhook.plane_secret`). The project is the one whose
+        config has the webhook's `plane_project_id` and a `plane_workspace`. The operator's Plane token
+        (`plane.api_token`) is sent only to `plane.base_url`: a project whose `plane_base_url` names another host
+        gets 400 and a `pm.sync` event with `status` `failed`. Other answers as for `POST /webhooks/pm/github`.
+      operationId: planePMWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "202":
+          description: Sync started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PMWebhookEvent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # -----------------------------------------------
   # Policies
   # -----------------------------------------------
@@ -1904,6 +2416,45 @@ paths:
           description: Unknown project or profile
         "409":
           description: No policy directory configured (policy.custom_dir is empty)
+
+  /policies/{name}/evaluate:
+    post:
+      tags: [Policies]
+      summary: Evaluate a tool call against a policy profile (policy tester)
+      description: |
+        Evaluates the call like a run would, in a synthetic workspace `/workspace` (the tester has no
+        project): relative paths and Bash redirection targets are placed under it, an absolute path only when
+        it is under `/workspace`.
+      operationId: evaluatePolicy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tool]
+              properties:
+                tool:
+                  type: string
+                command:
+                  type: string
+                path:
+                  type: string
+      responses:
+        "200":
+          description: The decision and its reason
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # -----------------------------------------------
   # Benchmarks (dev-mode only)
@@ -2034,6 +2585,396 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BenchmarkRun"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /benchmarks/runs/{id}/results:
+    get:
+      tags: [Benchmarks]
+      summary: List the results of a benchmark run
+      description: |
+        Requires APP_ENV=development. A dimension an evaluator could not score is never a 0.0 score: it is
+        missing from `scores` and named in `evaluation_errors` (dimension -> error).
+      operationId: listBenchmarkResults
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BenchmarkResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /benchmarks/runs/{id}/export/rlvr:
+    get:
+      tags: [Benchmarks]
+      summary: Export RLVR rewards of a benchmark run
+      description: |
+        Requires APP_ENV=development. JSONL by default, a JSON array with `format=json`. Results with
+        evaluation errors and no valid score are left out; a partial result uses its valid dimensions. The
+        training-pair export (`/export/training`) follows the same rule.
+      operationId: exportBenchmarkRLVR
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        "200":
+          description: RLVR entries
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # -----------------------------------------------
+  # Agents
+  # -----------------------------------------------
+  /agents/{id}/dispatch:
+    post:
+      tags: [Agents]
+      summary: Dispatch a task to an agent's backend
+      description: Requires admin or editor role. A task that is already queued or running is not dispatched again.
+      operationId: dispatchAgentTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id]
+              properties:
+                task_id:
+                  type: string
+      responses:
+        "200":
+          description: Dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "dispatched"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The task is queued or running (dispatching it again would start a second run)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # -----------------------------------------------
+  # Review (contract-first review and refactoring)
+  # -----------------------------------------------
+  /projects/{id}/review-refactor:
+    post:
+      tags: [Review]
+      summary: Start the review-refactor pipeline
+      description: |
+        Requires admin or editor role. Starts a review plan (boundary analysis, contract review, review,
+        refactoring) and answers 202 with its plan ID. 400 for a workspace that is not a git repository, a
+        project without agents or a workspace; 409 when the project already has an active review pipeline or the
+        agent belongs to another plan; 503 when the review pipeline is not configured.
+      operationId: triggerReviewRefactor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                commit_sha:
+                  type: string
+      responses:
+        "202":
+          description: Plan started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewTriggerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Another review pipeline or plan holds the project or the agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /projects/{id}/boundaries/analyze:
+    post:
+      tags: [Review]
+      summary: Start a boundary analysis
+      description: Requires admin or editor role. Same answers as `POST /projects/{id}/review-refactor`.
+      operationId: triggerBoundaryAnalysis
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "202":
+          description: Plan started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewTriggerResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another review pipeline or plan holds the project or the agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Review pipeline not configured
+
+  /projects/{id}/review/pending:
+    get:
+      tags: [Review]
+      summary: List the refactorings that wait for a keep or undo decision
+      description: Oldest first. They wait until decided; there is no timeout.
+      operationId: listPendingReviewDecisions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: Pending decisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingReviewDecision"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Review pipeline not configured
+
+  # -----------------------------------------------
+  # Quarantine (admin only)
+  # -----------------------------------------------
+  /quarantine:
+    get:
+      tags: [Quarantine]
+      summary: List quarantined messages
+      description: |
+        Admin only. Without `project_id` it lists the messages without a project (inbound A2A prompts).
+        Answers 503 while the quarantine is disabled (`quarantine.enabled`).
+      operationId: listQuarantinedMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, expired]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuarantineMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Quarantine not enabled
+
+  /quarantine/stats:
+    get:
+      tags: [Quarantine]
+      summary: Count quarantined messages by status
+      description: Admin only. Without `project_id` it counts the messages without a project (inbound A2A prompts).
+      operationId: quarantineStats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: integer
+                  approved:
+                    type: integer
+                  rejected:
+                    type: integer
+                  expired:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: Quarantine not enabled
+
+  /quarantine/{id}/approve:
+    post:
+      tags: [Quarantine]
+      summary: Approve a quarantined message
+      description: |
+        Admin only. Replays the held message to its subject. The reviewer is the logged-in user (`reviewed_by_id`
+        is recorded when the user has an account row; a name in the body is ignored). The held prompt of an
+        inbound A2A task is replayed only while its task still waits for it (state `submitted`): otherwise the
+        message is rejected instead and the call answers 409.
+      operationId: approveQuarantinedMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Approved and replayed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "approved"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The held A2A task no longer waits for the message (the message is rejected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /quarantine/{id}/reject:
+    post:
+      tags: [Quarantine]
+      summary: Reject a quarantined message
+      description: |
+        Admin only. Blocks the message for good; the inbound A2A task whose prompt it held is rejected with it.
+        The reviewer is the logged-in user.
+      operationId: rejectQuarantinedMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "rejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -2762,9 +3703,205 @@ components:
           format: uuid
         member_count:
           type: integer
+        has_webhook_key:
+          type: boolean
+          description: A webhook key was generated (the key itself is never returned again)
+        unread_count:
+          type: integer
+          description: Top-level messages of others after the caller's read position
         created_at:
           type: string
           format: date-time
+
+    ChannelReadState:
+      type: object
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        last_read_message_id:
+          type: string
+          format: uuid
+        last_read_at:
+          type: string
+          format: date-time
+
+    PendingApproval:
+      type: object
+      description: A tool call awaiting a human decision (the agui.permission_request payload)
+      properties:
+        run_id:
+          type: string
+        call_id:
+          type: string
+        tool:
+          type: string
+        command:
+          type: string
+        path:
+          type: string
+        profile:
+          type: string
+          description: The policy profile that asked
+        arguments_preview:
+          type: string
+          description: Display-only preview of the call's arguments
+
+    PMWebhookEvent:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [github, gitlab, plane]
+        action:
+          type: string
+        item_id:
+          type: string
+        project_ref:
+          type: string
+
+    ReviewTriggerResponse:
+      type: object
+      properties:
+        triggered:
+          type: boolean
+          example: true
+        plan_id:
+          type: string
+
+    ReviewDecisionRequest:
+      type: object
+      required: [plan_id, step_id]
+      properties:
+        plan_id:
+          type: string
+        step_id:
+          type: string
+
+    ReviewDecision:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+          description: approved = refactoring kept, rejected = undone
+        head_restored:
+          type: boolean
+          description: The refactoring had moved HEAD and HEAD was moved back
+        message:
+          type: string
+          description: What the undo could not do, for example why HEAD was left
+        restored_paths:
+          type: array
+          items:
+            type: string
+
+    PendingReviewDecision:
+      type: object
+      properties:
+        run_id:
+          type: string
+        plan_id:
+          type: string
+        step_id:
+          type: string
+        project_id:
+          type: string
+        impact_level:
+          type: string
+        files_changed:
+          type: integer
+        lines_added:
+          type: integer
+        lines_removed:
+          type: integer
+        cross_layer:
+          type: boolean
+        structural:
+          type: boolean
+        reason:
+          type: string
+          description: Why approval is needed when the change could not be measured
+        step_status:
+          type: string
+          description: waiting_approval, or failed / cancelled
+        plan_status:
+          type: string
+        since:
+          type: string
+          format: date-time
+
+    QuarantineMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+        subject:
+          type: string
+        trust_origin:
+          type: string
+        trust_level:
+          type: string
+        risk_score:
+          type: number
+          format: double
+        risk_factors:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired]
+        reviewed_by_id:
+          type: string
+          description: The reviewing user (empty without an account row or after the reviewer's erasure)
+        reviewed_by:
+          type: string
+          description: The reviewer's name at the time ("Deleted user" after erasure)
+        review_note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    BenchmarkResult:
+      type: object
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        task_id:
+          type: string
+        task_name:
+          type: string
+        scores:
+          type: object
+          additionalProperties:
+            type: number
+          description: Valid scores only; a dimension that could not be evaluated is not here
+        evaluation_errors:
+          type: object
+          additionalProperties:
+            type: string
+          description: Dimension -> error for the dimensions an evaluator could not score
+        cost_usd:
+          type: number
+          format: double
+        duration_ms:
+          type: integer
 
     PolicyProfile:
       type: object
