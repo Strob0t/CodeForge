@@ -233,7 +233,9 @@ func (s *OrchestratorService) ListPlans(ctx context.Context, projectID string) (
 	return s.store.ListPlansByProject(ctx, projectID)
 }
 
-// CancelPlan cancels a running plan: skips pending steps, cancels running runs.
+// CancelPlan cancels a running plan: skips pending steps, cancels running
+// runs, then ends the plan like a completed or failed one (S6-F 5): the
+// debate handler and the plan-end callbacks run.
 func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) error {
 	p, err := s.markPlanCancelled(ctx, planID)
 	if err != nil {
@@ -259,6 +261,10 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 
 	s.appendPlanEvent(ctx, event.TypePlanCancelled, p)
 	s.broadcastPlanStatus(ctx, p)
+
+	s.mu.Lock()
+	s.planEnded(ctx, p.ID, plan.StatusCancelled)
+	s.unlock()
 
 	slog.Info("plan cancelled", "plan_id", planID)
 	return nil

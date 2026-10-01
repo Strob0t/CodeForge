@@ -194,11 +194,15 @@ func (s *PoolManagerService) CleanupTeam(ctx context.Context, teamID string, fai
 }
 
 // PlanEnded is an orchestrator plan-end callback (AddOnPlanComplete, KI-33):
-// the team of a plan that completed or failed ends with it, unless another
-// plan of the team has not ended.
+// the team of a plan that completed, failed or was cancelled ends with it,
+// unless another plan of the team has not ended.
 func (s *PoolManagerService) PlanEnded(ctx context.Context, planID, status string) {
 	p, err := s.store.GetPlan(ctx, planID)
-	if err != nil || p.TeamID == "" {
+	if err != nil {
+		logBestEffort(ctx, err, "GetPlan: team not ended with its plan, the watchdog ends it later", slog.String("plan_id", planID))
+		return
+	}
+	if p.TeamID == "" {
 		return
 	}
 	plans, err := s.store.ListPlansByProject(ctx, p.ProjectID)

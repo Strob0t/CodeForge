@@ -574,11 +574,22 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 // step failed, or the plan was cancelled) is dropped.
 func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, _ string) {
 	rp, err := s.store.GetReviewPipeline(ctx, planID)
-	if err != nil || rp.BaselineSHA == "" {
+	if errors.Is(err, domain.ErrNotFound) {
+		return // not a review plan
+	}
+	if err != nil {
+		logBestEffort(ctx, err, "GetReviewPipeline: review baseline not dropped", slog.String("plan_id", planID))
+		return
+	}
+	if rp.BaselineSHA == "" {
 		return
 	}
 	proj, err := s.store.GetProject(ctx, rp.ProjectID)
-	if err != nil || proj.WorkspacePath == "" {
+	if err != nil {
+		logBestEffort(ctx, err, "GetProject: review baseline not dropped", slog.String("plan_id", planID))
+		return
+	}
+	if proj.WorkspacePath == "" {
 		return
 	}
 	s.dropBaseline(ctx, proj.WorkspacePath, planID)
