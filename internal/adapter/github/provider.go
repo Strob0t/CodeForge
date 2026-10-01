@@ -173,7 +173,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 
 // Pull fetches and merges updates for the given repository.
 func (p *Provider) Pull(ctx context.Context, repoPath string) error {
-	if _, err := runGit(ctx, repoPath, "pull"); err != nil {
+	if _, err := runGit(ctx, repoPath, "pull", "--no-recurse-submodules"); err != nil {
 		return fmt.Errorf("github: pull: %w", err)
 	}
 	return nil

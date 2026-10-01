@@ -28,14 +28,16 @@ const (
 // neutralised), credential settings (helpers are dropped on the command
 // line), gc/maintenance (auto runs are disabled on the command line) and
 // settings of commands the Go Core does not run (rerere, format, apply,
-// blame, notes, rebase, ...).
+// blame, notes, rebase, ...). The sections of the network and checkout
+// commands the Go Core runs (push, fetch, pull, checkout) are listed key by
+// key in allowedKeys (S3-F security review S2).
 var allowedSections = map[string]bool{
 	"user": true, "author": true, "committer": true,
 	"color": true, "advice": true, "column": true, "i18n": true, "gui": true, "alias": true, "help": true,
 	"branch": true, "lfs": true, "credential": true, "gc": true, "maintenance": true,
 	"commit": true, "tag": true, "log": true, "pretty": true, "format": true, "versionsort": true,
 	"rerere": true, "apply": true, "blame": true, "notes": true, "rebase": true, "status": true,
-	"pull": true, "fetch": true, "push": true, "checkout": true, "clone": true, "add": true,
+	"clone": true, "add": true,
 	"index": true, "pack": true, "repack": true, "sparse": true, "feature": true, "grep": true,
 	"transfer": true, "receive": true, "safe": true, "worktree": true, "splitindex": true,
 }
@@ -93,6 +95,18 @@ var allowedKeys = map[string]bool{
 	"diff.autorefreshindex": true, "diff.renamelimit": true, "diff.trustexitcode": true,
 	"gpg.format":              true,
 	"extensions.objectformat": true,
+	// push, fetch, pull, checkout: recursion and signing are overridden on
+	// the command line; everything else here is data.
+	"push.default": true, "push.autosetupremote": true, "push.followtags": true, "push.recursesubmodules": true,
+	"push.gpgsign": true, "push.pushoption": true, "push.negotiate": true, "push.useforceifincludes": true,
+	"push.usebitmaps":         true,
+	"fetch.recursesubmodules": true, "fetch.fsckobjects": true, "fetch.unpacklimit": true, "fetch.prune": true,
+	"fetch.prunetags": true, "fetch.all": true, "fetch.output": true, "fetch.negotiationalgorithm": true,
+	"fetch.showforcedupdates": true, "fetch.parallel": true, "fetch.writecommitgraph": true,
+	"fetch.bundlecreationtoken": true,
+	"pull.ff":                   true, "pull.rebase": true,
+	"checkout.defaultremote": true, "checkout.guess": true, "checkout.workers": true,
+	"checkout.thresholdforparallelism": true,
 }
 
 // allowedSubsectionKeys are the section.<name>.variable keys allowed for any
@@ -146,6 +160,8 @@ func classifyKey(key, value string) keyClass {
 		return keyNetworkOnly
 	case section == "gpg" && subsection == "" && variable == "format":
 		return keyAllowed
+	case section == "fetch" && subsection == "fsck":
+		return keyAllowed // fetch.fsck.<message-id> severities, fetch.fsck.skipList (read as data)
 	case allowedSections[section]:
 		return keyAllowed
 	case networkOnlySections[section]:

@@ -242,11 +242,8 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 		commitHash := rc.commit
 
 		// The remote and its transport come from agent-writable config: a
-		// repository that configures transports is not pushed from.
-		pushErr := repo.RequireNetworkSafe()
-		if pushErr == nil {
-			_, pushErr = repo.Run(ctx, nil, "push", "--no-verify", "-u", "origin", branchName)
-		}
+		// repository that configures transports is not pushed from (Push).
+		pushErr := repo.Push(ctx, "--no-verify", "-u", "origin", branchName)
 		var pushError string
 		if pushErr != nil {
 			pushError = pushErr.Error()

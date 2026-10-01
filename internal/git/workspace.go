@@ -98,6 +98,9 @@ var commonOverrides = [][2]string{
 	{"maintenance.auto", "false"},
 	{"submodule.recurse", "false"},
 	{"fetch.recurseSubmodules", "false"},
+	// A recursive push runs `git push` in nested repositories, whose config
+	// OpenRepo never checks (S3-F security review S2).
+	{"push.recurseSubmodules", "no"},
 	// Signature checks would run gpg/ssh-keygen; submodule summaries and
 	// log-style submodule diffs would run git in submodule repositories,
 	// whose config OpenRepo does not inspect.
@@ -353,6 +356,16 @@ func (r *Repo) FetchFrom(ctx context.Context, url string) error {
 	}
 	_, err := runGit(ctx, r.Dir, r.env([][2]string{{"protocol.file.allow", "always"}}),
 		"fetch", "--no-recurse-submodules", "--", url, "+refs/heads/*:refs/remotes/origin/*")
+	return err
+}
+
+// Push pushes from a network-safe repository, never into nested
+// repositories (submodules), whatever the config says.
+func (r *Repo) Push(ctx context.Context, args ...string) error {
+	if err := r.RequireNetworkSafe(); err != nil {
+		return err
+	}
+	_, err := runGit(ctx, r.Dir, r.env(nil), slices.Concat([]string{"push", "--no-recurse-submodules"}, args)...)
 	return err
 }
 
