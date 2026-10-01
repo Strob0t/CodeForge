@@ -600,7 +600,7 @@ func TestReviewPipeline_GateScoresTheRefactoring(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f, step := gateFixture(t, tt.boundaries, tt.change)
 
-			if got := f.svc.GateStep(f.ctx, step); got != tt.wantStatus {
+			if got := gateNow(f, step); got != tt.wantStatus {
 				t.Fatalf("GateStep = %s, want %s", got, tt.wantStatus)
 			}
 			events := f.hub.snapshot()
@@ -630,7 +630,7 @@ func TestReviewPipeline_BoundaryLookupErrorNeedsApproval(t *testing.T) {
 	f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 102, "line") })
 	f.store.boundsErr = errors.New("connection reset")
 
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 		t.Fatalf("GateStep = %s, want waiting_approval", got)
 	}
 	events := f.hub.snapshot()
@@ -681,7 +681,7 @@ func TestReviewPipeline_GateDoesNotTrustTheRef(t *testing.T) {
 			f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 101, "line") }) // low impact
 			tt.tamper(t, f)
 
-			if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+			if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 				t.Fatalf("GateStep = %s, want waiting for approval", got)
 			}
 			events := f.hub.snapshot()
@@ -709,7 +709,7 @@ func TestReviewPipeline_GateMeasuresOnlyTheRefactorersChange(t *testing.T) {
 	}
 	writeLines(t, f.dir, "api.proto", 6, "message")
 
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusCompleted {
+	if got := gateNow(f, step); got != plan.StepStatusCompleted {
 		t.Fatalf("GateStep = %s, want completed (a one-line refactoring)", got)
 	}
 	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) || hasRef(t, f.dir, reviewResultRef("plan-1")) {
@@ -727,10 +727,10 @@ func TestReviewPipeline_GateIgnoresOtherPlans(t *testing.T) {
 	f.store.plans["plan-9"] = &plan.ExecutionPlan{ID: "plan-9", ProjectID: "proj-1"}
 	writeLines(t, f.dir, "a.go", 500, "x")
 	step := &plan.Step{ID: "s", PlanID: "plan-9", ModeID: "refactorer", RunID: "r"}
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusCompleted {
+	if got := gateNow(f, step); got != plan.StepStatusCompleted {
 		t.Fatalf("GateStep = %s, want completed", got)
 	}
-	if other := (&plan.Step{ID: "s2", PlanID: "plan-9", ModeID: "coder"}); f.svc.GateStep(f.ctx, other) != plan.StepStatusCompleted {
+	if other := (&plan.Step{ID: "s2", PlanID: "plan-9", ModeID: "coder"}); gateNow(f, other) != plan.StepStatusCompleted {
 		t.Fatal("a step in another mode must complete")
 	}
 }
@@ -743,7 +743,7 @@ func waitingStep(t *testing.T) (*reviewFixture, *plan.Step) {
 		writeLines(t, dir, "a.go", 300, "rewritten")
 		writeLines(t, dir, "new.go", 3, "x")
 	})
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 		t.Fatalf("GateStep = %s", got)
 	}
 	step.Status = plan.StepStatusWaitingApproval
@@ -796,7 +796,7 @@ func TestReviewPipeline_RejectKeepsTheUsersEdits(t *testing.T) {
 		t.Fatalf("PrepareStep: %v", err)
 	}
 	writeLines(t, f.dir, "a.go", 300, "rewritten")
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 		t.Fatalf("GateStep = %s", got)
 	}
 	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
@@ -864,7 +864,7 @@ func TestReviewPipeline_RejectUndoesACommittedRefactoring(t *testing.T) {
 		writeLines(t, dir, "a.go", 300, "rewritten")
 		reviewGit(t, dir, "commit", "-qam", "refactor")
 	})
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 		t.Fatalf("GateStep = %s, want waiting for approval", got)
 	}
 	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
@@ -891,7 +891,7 @@ func TestReviewPipeline_RejectLeavesAMovedHead(t *testing.T) {
 		writeLines(t, dir, "a.go", 300, "rewritten")
 		reviewGit(t, dir, "commit", "-qam", "refactor")
 	})
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 		t.Fatalf("GateStep = %s, want waiting for approval", got)
 	}
 	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
@@ -1017,7 +1017,7 @@ func TestReviewPipeline_StoresTheBoundaryAnalysis(t *testing.T) {
 		"\n```"}
 	step := &plan.Step{ID: "s", PlanID: "p", ModeID: "boundary_analyzer", RunID: "run-1"}
 
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusCompleted {
+	if got := gateNow(f, step); got != plan.StepStatusCompleted {
 		t.Fatalf("GateStep = %s, want completed", got)
 	}
 	cfg := f.store.upserted
@@ -1037,7 +1037,7 @@ func TestReviewPipeline_StoresTheBoundaryAnalysis(t *testing.T) {
 func TestReviewPipeline_BoundaryAnalysisWithoutResultKeepsBoundaries(t *testing.T) {
 	f := newReviewFixture(t)
 	f.store.runs["run-1"] = &run.Run{ID: "run-1", ProjectID: "proj-1", Output: "I could not find any boundaries."}
-	f.svc.GateStep(f.ctx, &plan.Step{ModeID: "boundary_analyzer", RunID: "run-1"})
+	gateNow(f, &plan.Step{ModeID: "boundary_analyzer", RunID: "run-1"})
 	if f.store.upserted != nil {
 		t.Fatalf("stored %+v from an output without BOUNDARIES.json", f.store.upserted)
 	}
@@ -1251,7 +1251,7 @@ func TestReviewPipeline_ApprovalRequestTakesTheProjectFromThePlan(t *testing.T) 
 	f.store.pipelines = nil // GetReviewPipeline fails below
 	f.store.pipelineErr = errors.New("connection reset")
 
-	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 		t.Fatalf("GateStep = %s, want waiting for approval", got)
 	}
 	events := f.hub.snapshot()
@@ -1394,4 +1394,59 @@ func TestReviewPipeline_PrepareLosingToAnotherKeepsTheRecordedRef(t *testing.T) 
 	if rp.State != review.PipelineRefactoring || reviewGit(t, f.dir, "rev-parse", reviewBaselineRef("plan-1")) != rp.BaselineSHA {
 		t.Fatalf("baseline ref does not point at the recorded baseline %s", rp.BaselineSHA)
 	}
+}
+
+// gateNow gates a step and applies the answer at once, as the orchestrator
+// does once it stored the step status.
+func gateNow(f *reviewFixture, step *plan.Step) plan.StepStatus {
+	status, apply := f.svc.GateStep(f.ctx, step)
+	if apply != nil {
+		apply(f.ctx)
+	}
+	return status
+}
+
+// Review finding 9: the gate runs without the scheduling lock, and the step
+// waits only once the orchestrator stored its status. The decision is
+// recorded and announced only then (apply); until it is, keep works and
+// undo asks to try again, and a step kept meanwhile is not offered again.
+func TestReviewPipeline_DecisionBeforeTheGateIsApplied(t *testing.T) {
+	t.Run("nothing is offered before the step waits", func(t *testing.T) {
+		f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 300, "rewritten") })
+		status, apply := f.svc.GateStep(f.ctx, step)
+		if status != plan.StepStatusWaitingApproval || apply == nil {
+			t.Fatalf("GateStep = %s (apply %v), want waiting with an apply", status, apply != nil)
+		}
+		if len(f.hub.snapshot()) != 0 || f.store.pipelines["plan-1"].State != review.PipelineRefactoring {
+			t.Fatal("a decision was offered before the step waits")
+		}
+		// The step still runs: there is nothing to decide.
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); !errors.Is(err, domain.ErrValidation) {
+			t.Fatalf("Decide while gating = %v, want a validation error", err)
+		}
+		f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
+		apply(f.ctx)
+		if events := f.hub.snapshot(); len(events) != 1 || f.store.pipelines["plan-1"].State != review.PipelineAwaitingDecision {
+			t.Fatalf("after apply: %d events, state %s, want one request and the decision recorded", len(events), f.store.pipelines["plan-1"].State)
+		}
+	})
+	t.Run("kept between the status and the record", func(t *testing.T) {
+		f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 300, "rewritten") })
+		_, apply := f.svc.GateStep(f.ctx, step)
+		f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
+
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrConflict) {
+			t.Fatalf("undo before the record = %v, want try again (conflict)", err)
+		}
+		if d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); err != nil || d.Status != "approved" {
+			t.Fatalf("keep before the record = %+v, %v", d, err)
+		}
+		if len(f.planner.approved) != 1 || f.store.pipelines["plan-1"].State != review.PipelineDone {
+			t.Fatal("want the step approved and the pipeline done")
+		}
+		apply(f.ctx)
+		if len(f.hub.snapshot()) != 0 || f.store.pipelines["plan-1"].State != review.PipelineDone {
+			t.Fatal("a decided refactoring was offered again")
+		}
+	})
 }

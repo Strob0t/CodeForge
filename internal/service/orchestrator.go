@@ -93,8 +93,12 @@ func (s *OrchestratorService) SetSharedContext(sc *SharedContextService) {
 // successfully: plan.StepStatusCompleted, or plan.StepStatusWaitingApproval
 // to hold the plan until ApproveStep or RejectStep. It runs without the
 // scheduling lock (S6-F 12), so it may do git and database work; its answer
-// is dropped when the plan ended meanwhile.
-type StepGate func(ctx context.Context, step *plan.Step) plan.StepStatus
+// is dropped when the plan ended meanwhile. What the answer needs recorded
+// or announced goes into apply (may be nil): the orchestrator calls it under
+// the lock right after it stored the step status, and never for a dropped
+// answer - a decision is not offered before the step waits for it (S6-F
+// review 9).
+type StepGate func(ctx context.Context, step *plan.Step) (status plan.StepStatus, apply func(context.Context))
 
 // SetStepGate installs the step gate (the review pipeline's threshold HITL,
 // KI-17).
@@ -402,8 +406,9 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 	case run.StatusCancelled:
 		stepStatus = plan.StepStatusCancelled
 	}
+	var applyGate func(context.Context)
 	if stepStatus == plan.StepStatusCompleted && s.stepGate != nil {
-		if stepStatus, step, ok = s.gateLocked(ctx, step, runID); !ok {
+		if stepStatus, applyGate, step, ok = s.gateLocked(ctx, step, runID); !ok {
 			return
 		}
 	}
@@ -411,6 +416,9 @@ func (s *OrchestratorService) HandleRunCompleted(ctx context.Context, runID stri
 	if err := s.store.UpdatePlanStepStatus(ctx, step.ID, stepStatus, "", errMsg); err != nil {
 		slog.Error("update plan step status", "step_id", step.ID, "error", err)
 		return
+	}
+	if applyGate != nil {
+		applyGate(ctx)
 	}
 
 	p, err := s.store.GetPlan(ctx, step.PlanID)
@@ -462,20 +470,20 @@ func (s *OrchestratorService) waitingStepLocked(ctx context.Context, runID strin
 // work and taken again. The step is read again: ok is false when it no
 // longer waits for this run (its plan was cancelled meanwhile), and the
 // gate's answer is dropped. The caller holds s.mu.
-func (s *OrchestratorService) gateLocked(ctx context.Context, step *plan.Step, runID string) (plan.StepStatus, *plan.Step, bool) {
+func (s *OrchestratorService) gateLocked(ctx context.Context, step *plan.Step, runID string) (plan.StepStatus, func(context.Context), *plan.Step, bool) {
 	gate := s.stepGate
 	s.gating[step.ID] = true
 	s.unlock()
-	gated := gate(ctx, step)
+	gated, apply := gate(ctx, step)
 	s.mu.Lock()
 	delete(s.gating, step.ID)
 
 	current, ok := s.waitingStepLocked(ctx, runID)
 	if !ok {
 		slog.Info("gated plan step ended meanwhile, gate result dropped", "run_id", runID, "step_id", step.ID, "gate", gated)
-		return "", nil, false
+		return "", nil, nil, false
 	}
-	return gated, current, true
+	return gated, apply, current, true
 }
 
 // advancePlan is the core scheduling loop. It checks the current state of all steps

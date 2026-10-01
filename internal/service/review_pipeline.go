@@ -441,14 +441,14 @@ func (s *ReviewPipelineService) releaseBaseline(ctx context.Context, dir, planID
 // boundary analyzer's result is stored as the project's boundaries; a review
 // pipeline's refactoring is scored and, if its impact is high (or cannot be
 // measured), the step waits for approval.
-func (s *ReviewPipelineService) GateStep(ctx context.Context, step *plan.Step) plan.StepStatus {
+func (s *ReviewPipelineService) GateStep(ctx context.Context, step *plan.Step) (status plan.StepStatus, apply func(context.Context)) {
 	switch step.ModeID {
 	case boundaryAnalyzerMode:
 		s.storeBoundaries(ctx, step)
 	case refactorerMode:
 		return s.gateRefactoring(ctx, step)
 	}
-	return plan.StepStatusCompleted
+	return plan.StepStatusCompleted, nil
 }
 
 // storeBoundaries replaces the auto-detected boundaries of the step's project
@@ -517,12 +517,16 @@ func parseBoundaries(output string) []boundary.BoundaryFile {
 // missing or moved baseline ref, a missing repository or a baseline commit
 // that is gone means the change cannot be measured, and the step waits for a
 // decision (fail closed).
-func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.Step) plan.StepStatus {
+//
+// What the answer records - the decision that waits, or the finished
+// pipeline - and announces is returned as apply, which the orchestrator runs
+// once the step status is stored (S6-F review 9).
+func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.Step) (status plan.StepStatus, apply func(context.Context)) {
 	ev := event.ReviewImpactEvent{RunID: step.RunID, PlanID: step.PlanID, StepID: step.ID, ImpactLevel: string(ImpactHigh)}
 	rp, err := s.store.GetReviewPipeline(ctx, step.PlanID)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		return plan.StepStatusCompleted
+		return plan.StepStatusCompleted, nil
 	case err != nil:
 		// The dialog shows the request only with its project: take it from
 		// the plan (S6-F 6). The step waits for approval either way.
@@ -561,11 +565,12 @@ func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.
 
 	switch level {
 	case ImpactLow, ImpactMedium:
-		s.finish(ctx, rp, proj.WorkspacePath, review.PipelineRefactoring)
-		if level == ImpactMedium {
-			s.hub.BroadcastEvent(ctx, event.EventReviewRefactorApplied, ev)
+		return plan.StepStatusCompleted, func(ctx context.Context) {
+			s.finish(ctx, rp, proj.WorkspacePath, review.PipelineRefactoring)
+			if level == ImpactMedium {
+				s.hub.BroadcastEvent(ctx, event.EventReviewRefactorApplied, ev)
+			}
 		}
-		return plan.StepStatusCompleted
 	default:
 		return s.requireApproval(ctx, &ev, rp, "")
 	}
@@ -594,31 +599,41 @@ func (s *ReviewPipelineService) measure(ctx context.Context, dir string, rp *rev
 	return change, err
 }
 
-// requireApproval makes the step wait for a decision: the measured impact is
-// recorded with the review (awaiting_decision, when rp is still refactoring)
-// and review.approval_required is broadcast.
-func (s *ReviewPipelineService) requireApproval(ctx context.Context, ev *event.ReviewImpactEvent, rp *review.Pipeline, reason string) plan.StepStatus {
+// requireApproval makes the step wait for a decision. Its apply records the
+// measured impact with the review (awaiting_decision, when rp is still
+// refactoring) and broadcasts review.approval_required - once the step
+// waits, so a decision is never offered for a step that does not wait yet.
+func (s *ReviewPipelineService) requireApproval(_ context.Context, ev *event.ReviewImpactEvent, rp *review.Pipeline, reason string) (status plan.StepStatus, apply func(context.Context)) {
 	ev.Reason = reason
 	if reason != "" {
 		slog.Warn("review refactoring needs approval", "plan_id", ev.PlanID, "step_id", ev.StepID, "reason", reason)
 	}
-	if rp != nil && rp.State == review.PipelineRefactoring {
-		s.awaitDecision(ctx, rp, ev)
+	announced := *ev
+	return plan.StepStatusWaitingApproval, func(ctx context.Context) {
+		if rp != nil && rp.State == review.PipelineRefactoring && !s.awaitDecision(ctx, rp, &announced) {
+			return
+		}
+		s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, announced)
 	}
-	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, *ev)
-	return plan.StepStatusWaitingApproval
 }
 
 // awaitDecision records that the measured refactoring of rp waits for the
-// user's keep or undo.
-func (s *ReviewPipelineService) awaitDecision(ctx context.Context, rp *review.Pipeline, ev *event.ReviewImpactEvent) {
+// user's keep or undo, and reports whether it should be announced: false
+// when the refactoring was decided meanwhile (the record left refactoring);
+// a failed write is logged and still announced (fail closed).
+func (s *ReviewPipelineService) awaitDecision(ctx context.Context, rp *review.Pipeline, ev *event.ReviewImpactEvent) bool {
 	rp.State, rp.StepID, rp.RunID = review.PipelineAwaitingDecision, ev.StepID, ev.RunID
 	rp.Impact = &review.Impact{
 		Level: ev.ImpactLevel, FilesChanged: ev.FilesChanged, LinesAdded: ev.LinesAdded, LinesRemoved: ev.LinesRemoved,
 		CrossLayer: ev.CrossLayer, Structural: ev.Structural, Reason: ev.Reason,
 	}
-	logBestEffort(ctx, s.store.UpdateReviewPipeline(ctx, rp, review.PipelineRefactoring),
-		"UpdateReviewPipeline: refactoring awaits a decision", slog.String("plan_id", rp.PlanID))
+	err := s.store.UpdateReviewPipeline(ctx, rp, review.PipelineRefactoring)
+	if errors.Is(err, domain.ErrConflict) {
+		slog.Info("review refactoring decided meanwhile, no decision requested", "plan_id", rp.PlanID)
+		return false
+	}
+	logBestEffort(ctx, err, "UpdateReviewPipeline: refactoring awaits a decision", slog.String("plan_id", rp.PlanID))
+	return true
 }
 
 // touchesBoundary reports whether a changed path is one of the project's
@@ -768,6 +783,9 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 		return nil, fmt.Errorf("run %s of step %s in plan %s: %w", runID, stepID, planID, domain.ErrNotFound)
 	}
 	waiting := step.Status == plan.StepStatusWaitingApproval
+	// The step waits but the gate has not recorded the decision yet (the
+	// orchestrator stores the step status first): it can be kept, not undone.
+	recording := waiting && !pending && rp != nil && rp.State == review.PipelineRefactoring && rp.StepID == stepID
 	if !waiting && !pending {
 		return nil, fmt.Errorf("%w: step %s is %s, no refactoring of it waits for a decision", domain.ErrValidation, stepID, step.Status)
 	}
@@ -779,6 +797,9 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 	decision := &ReviewDecision{Status: "approved"}
 	if !approve {
 		decision.Status = "rejected"
+		if recording {
+			return nil, fmt.Errorf("%w: the refactoring's measurement is still being recorded; try again in a moment", domain.ErrConflict)
+		}
 		if !pending || rp.BaselineSHA == "" || rp.ResultSHA == "" {
 			return nil, fmt.Errorf("%w: no measured refactoring recorded to undo; keep it, or cancel the plan and revert the change by hand", domain.ErrValidation)
 		}
@@ -805,8 +826,11 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 			return nil, err
 		}
 	}
-	if pending {
+	switch {
+	case pending:
 		s.finish(ctx, rp, proj.WorkspacePath, review.PipelineAwaitingDecision)
+	case recording && approve:
+		s.finish(ctx, rp, proj.WorkspacePath, review.PipelineRefactoring)
 	}
 	slog.Info("review refactoring decided", "plan_id", planID, "step_id", stepID, "approved", approve,
 		"head_restored", decision.HeadRestored, "restored_paths", len(decision.RestoredPaths))
@@ -883,7 +907,8 @@ func (s *ReviewPipelineService) askAfterEnd(ctx context.Context, rp *review.Pipe
 		ev.CrossLayer, ev.Structural = stats.CrossLayer, stats.Structural
 	}
 	slog.Warn("ended refactoring waits for keep or undo", "plan_id", rp.PlanID, "step_id", step.ID, "reason", ev.Reason)
-	s.awaitDecision(ctx, rp, &ev)
-	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, ev)
+	if s.awaitDecision(ctx, rp, &ev) {
+		s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, ev)
+	}
 	return true
 }

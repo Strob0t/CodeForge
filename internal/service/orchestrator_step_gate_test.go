@@ -17,12 +17,12 @@ func TestStepGate_HoldsAStepForApproval(t *testing.T) {
 	store, orchSvc, _ := newOrchRuntimeSetup()
 	ctx := context.Background()
 	var gated []string
-	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) plan.StepStatus {
+	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) (plan.StepStatus, func(context.Context)) {
 		gated = append(gated, step.ModeID)
 		if step.ModeID == "refactorer" {
-			return plan.StepStatusWaitingApproval
+			return plan.StepStatusWaitingApproval, nil
 		}
-		return plan.StepStatusCompleted
+		return plan.StepStatusCompleted, nil
 	})
 	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{
 		{TaskID: "t1", AgentID: "a1", ModeID: "reviewer"},
@@ -64,9 +64,9 @@ func TestStepGate_OnlyCompletedRuns(t *testing.T) {
 	store, orchSvc, _ := newOrchRuntimeSetup()
 	ctx := context.Background()
 	calls := 0
-	orchSvc.SetStepGate(func(context.Context, *plan.Step) plan.StepStatus {
+	orchSvc.SetStepGate(func(context.Context, *plan.Step) (plan.StepStatus, func(context.Context)) {
 		calls++
-		return plan.StepStatusWaitingApproval
+		return plan.StepStatusWaitingApproval, nil
 	})
 	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1", ModeID: "refactorer"}})
 	id := planState(t, store, p.ID).Steps[0].RunID
@@ -115,9 +115,9 @@ func TestStepGate_RunsWithoutTheSchedulingLock(t *testing.T) {
 	ctx := context.Background()
 	other := pendingPlan(t, orchSvc)
 	free := false
-	orchSvc.SetStepGate(func(context.Context, *plan.Step) plan.StepStatus {
+	orchSvc.SetStepGate(func(context.Context, *plan.Step) (plan.StepStatus, func(context.Context)) {
 		free = lockFree(t, orchSvc, other.ID)
-		return plan.StepStatusCompleted
+		return plan.StepStatusCompleted, nil
 	})
 	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}})
 	id := planState(t, store, p.ID).Steps[0].RunID
@@ -169,12 +169,12 @@ func TestStepGate_DuplicateCompletionWhileGating(t *testing.T) {
 	ctx := context.Background()
 	entered, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
-	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) plan.StepStatus {
+	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) (plan.StepStatus, func(context.Context)) {
 		if step.TaskID == "t1" && calls.Add(1) == 1 {
 			close(entered)
 			<-release
 		}
-		return plan.StepStatusCompleted
+		return plan.StepStatusCompleted, nil
 	})
 	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{
 		{TaskID: "t1", AgentID: "a1"}, {TaskID: "t2", AgentID: "a2", DependsOn: []string{"0"}},
@@ -206,12 +206,12 @@ func TestStepGate_PlanCancelledWhileGating(t *testing.T) {
 	store, orchSvc, _ := newOrchRuntimeSetup()
 	ctx := context.Background()
 	entered, release := make(chan struct{}), make(chan struct{})
-	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) plan.StepStatus {
+	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) (plan.StepStatus, func(context.Context)) {
 		if step.TaskID == "t1" {
 			close(entered)
 			<-release
 		}
-		return plan.StepStatusCompleted
+		return plan.StepStatusCompleted, nil
 	})
 	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{
 		{TaskID: "t1", AgentID: "a1"}, {TaskID: "t2", AgentID: "a2", DependsOn: []string{"0"}},
@@ -236,5 +236,64 @@ func TestStepGate_PlanCancelledWhileGating(t *testing.T) {
 	if got.Status != plan.StatusCancelled || got.Steps[0].Status != plan.StepStatusCancelled || got.Steps[1].Status != plan.StepStatusSkipped {
 		t.Fatalf("plan %s, steps %s / %s: want the plan cancelled, the gated step cancelled, the next skipped",
 			got.Status, got.Steps[0].Status, got.Steps[1].Status)
+	}
+}
+
+// Review finding 9: the gate's apply runs once the step status is stored -
+// the step already waits when the decision is recorded and announced - and
+// never for an answer dropped because the plan was cancelled meanwhile.
+func TestStepGate_ApplyRunsAfterTheStatusIsStored(t *testing.T) {
+	store, orchSvc, _ := newOrchRuntimeSetup()
+	ctx := context.Background()
+	var seen []plan.StepStatus
+	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) (plan.StepStatus, func(context.Context)) {
+		return plan.StepStatusWaitingApproval, func(context.Context) {
+			s, err := store.GetPlanStepByRunID(ctx, step.RunID)
+			if err != nil {
+				t.Errorf("GetPlanStepByRunID: %v", err)
+				return
+			}
+			seen = append(seen, s.Status)
+		}
+	})
+	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1", ModeID: "refactorer"}})
+	id := planState(t, store, p.ID).Steps[0].RunID
+	if err := store.CompleteRun(ctx, &run.CompletionRequest{ID: id, Status: run.StatusCompleted}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	orchSvc.HandleRunCompleted(ctx, id, run.StatusCompleted)
+	if len(seen) != 1 || seen[0] != plan.StepStatusWaitingApproval {
+		t.Fatalf("apply saw the step as %v, want it called once with the step waiting", seen)
+	}
+}
+
+func TestStepGate_DroppedAnswerIsNotApplied(t *testing.T) {
+	store, orchSvc, _ := newOrchRuntimeSetup()
+	ctx := context.Background()
+	entered, release := make(chan struct{}), make(chan struct{})
+	applied := false
+	orchSvc.SetStepGate(func(context.Context, *plan.Step) (plan.StepStatus, func(context.Context)) {
+		close(entered)
+		<-release
+		return plan.StepStatusWaitingApproval, func(context.Context) { applied = true }
+	})
+	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1", ModeID: "refactorer"}})
+	id := planState(t, store, p.ID).Steps[0].RunID
+	if err := store.CompleteRun(ctx, &run.CompletionRequest{ID: id, Status: run.StatusCompleted}); err != nil {
+		t.Fatalf("CompleteRun: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		orchSvc.HandleRunCompleted(ctx, id, run.StatusCompleted)
+		close(done)
+	}()
+	<-entered
+	if err := orchSvc.CancelPlan(ctx, p.ID); err != nil {
+		t.Fatalf("CancelPlan: %v", err)
+	}
+	close(release)
+	<-done
+	if applied {
+		t.Fatal("the answer of a gate whose plan was cancelled was applied")
 	}
 }
