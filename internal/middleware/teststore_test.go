@@ -720,6 +720,9 @@ func (s *testStore) UpdateAgentState(_ context.Context, _ string, _ map[string]s
 	return nil
 }
 func (s *testStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error { return nil }
+
+func (s *testStore) ClaimHandoff(_ context.Context, _, _ string) (bool, error) { return true, nil }
+func (s *testStore) ReleaseHandoff(_ context.Context, _, _ string) error       { return nil }
 func (s *testStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }

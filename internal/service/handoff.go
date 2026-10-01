@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
@@ -31,7 +34,49 @@ const (
 	handoffFailed        = "failed"
 	handoffA2ADelegated  = "a2a_delegated"
 	handoffTitleMaxRunes = 80
+
+	// Claim stages (S2-G fix, 3): a handoff's request and its approval
+	// after the quarantine are each carried out once.
+	handoffStageRequest  = "request"
+	handoffStageApproved = "approved"
+
+	handoffDeadLettered = "the handoff could not be carried out: its retries ran out (dead-lettered)"
 )
+
+// retryableError marks a handoff failure that a retry may cure (the store,
+// starting the run): the message is redelivered instead of the handoff
+// being refused.
+type retryableError struct{ err error }
+
+func (e *retryableError) Error() string { return e.err.Error() }
+func (e *retryableError) Unwrap() error { return e.err }
+
+func retryable(err error) error { return &retryableError{err: err} }
+
+func isRetryable(err error) bool {
+	var r *retryableError
+	return errors.As(err, &r)
+}
+
+// storeReadError is the error of a store read: retryable unless the record
+// does not exist in the caller's tenant (a refusal).
+func storeReadError(err error) error {
+	if errors.Is(err, domain.ErrNotFound) {
+		return err
+	}
+	return retryable(err)
+}
+
+// handoffIdentity is a handoff's ID: the worker's handoff_id or, for a
+// message without one (an older worker, a handoff held before handoffs had
+// IDs), one derived from the message, which its redeliveries share.
+func handoffIdentity(id string, data []byte) string {
+	if id != "" {
+		return id
+	}
+	sum := sha256.Sum256(data)
+	return "msg-" + hex.EncodeToString(sum[:16])
+}
 
 // handoffRunStarter starts the run a handoff hands over (RuntimeService).
 type handoffRunStarter interface {
@@ -106,11 +151,10 @@ func (s *HandoffService) CreateHandoff(ctx context.Context, msg *orchestration.H
 
 	verdict, err := s.screen(ctx, msg)
 	switch {
-	case err != nil || verdict == quarantine.VerdictRejected:
+	case err != nil:
+		return retryable(fmt.Errorf("screen handoff: %w", err))
+	case verdict == quarantine.VerdictRejected:
 		s.broadcastStatus(ctx, msg, handoffRejected, "", msg.Context)
-		if err != nil {
-			return fmt.Errorf("handoff rejected: screening failed: %w", err)
-		}
 		return fmt.Errorf("handoff from %s to %s rejected by the quarantine", msg.SourceAgentID, msg.TargetAgentID)
 	case verdict == quarantine.VerdictHeld:
 		slog.InfoContext(ctx, "handoff quarantined", "source", msg.SourceAgentID, "target", msg.TargetAgentID)
@@ -134,16 +178,23 @@ func (s *HandoffService) screen(ctx context.Context, msg *orchestration.HandoffM
 	return s.quarantine.Screen(ctx, msg.Trust, messagequeue.SubjectHandoffApproved, data, msg.ProjectID)
 }
 
-// dispatch carries out a handoff that passed the quarantine.
+// dispatch carries out a handoff that passed the quarantine. A refusal is
+// announced; a retryable failure is not (its message is redelivered).
 func (s *HandoffService) dispatch(ctx context.Context, msg *orchestration.HandoffMessage) error {
 	// A2A routing (Phase 27M): if target is "a2a://<remoteAgentID>", delegate to A2A.
 	if strings.HasPrefix(msg.TargetAgentID, "a2a://") {
-		return s.routeToA2A(ctx, msg)
+		if err := s.routeToA2A(ctx, msg); err != nil {
+			s.broadcastStatus(ctx, msg, handoffFailed, "", err.Error())
+			return err
+		}
+		return nil
 	}
 
 	r, err := s.startRun(ctx, msg)
 	if err != nil {
-		s.broadcastStatus(ctx, msg, handoffFailed, "", err.Error())
+		if !isRetryable(err) {
+			s.broadcastStatus(ctx, msg, handoffFailed, "", err.Error())
+		}
 		return err
 	}
 
@@ -180,7 +231,7 @@ func (s *HandoffService) startRun(ctx context.Context, msg *orchestration.Handof
 	}
 	target, err := s.db.GetAgent(ctx, msg.TargetAgentID)
 	if err != nil {
-		return nil, fmt.Errorf("handoff target agent %s: %w", msg.TargetAgentID, err)
+		return nil, storeReadError(fmt.Errorf("handoff target agent %s: %w", msg.TargetAgentID, err))
 	}
 	if err := requireProject("agent", target.ID, target.ProjectID, msg.ProjectID); err != nil {
 		return nil, fmt.Errorf("handoff target: %w", err)
@@ -195,7 +246,7 @@ func (s *HandoffService) startRun(ctx context.Context, msg *orchestration.Handof
 		Prompt:    handoffPrompt(msg),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create handoff task: %w", err)
+		return nil, retryable(fmt.Errorf("create handoff task: %w", err))
 	}
 	r, err := s.runs.StartRun(ctx, &run.StartRequest{
 		TaskID:    t.ID,
@@ -204,7 +255,9 @@ func (s *HandoffService) startRun(ctx context.Context, msg *orchestration.Handof
 		ModeID:    modeID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("start handoff run: %w", err)
+		// The retry creates a task of its own; this one never runs.
+		logBestEffort(ctx, s.db.UpdateTaskStatus(ctx, t.ID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", t.ID))
+		return nil, retryable(fmt.Errorf("start handoff run: %w", err))
 	}
 	return r, nil
 }
@@ -300,8 +353,8 @@ func (s *HandoffService) routeToA2A(ctx context.Context, msg *orchestration.Hand
 // conversation or run that called the tool) must be of the request's
 // project. The handoff's content was written by an LLM, so it is screened
 // with partial trust whatever the worker stamped on it. The request is
-// handled at most once: a refused or failed handoff is logged and announced
-// (handoff.status), not retried.
+// carried out once (see once): a refused handoff is announced
+// (handoff.status) and not retried, a transient failure is retried.
 func (s *HandoffService) HandleHandoffRequest(ctx context.Context, data []byte) error {
 	var req messagequeue.HandoffRequestPayload
 	if err := json.Unmarshal(data, &req); err != nil {
@@ -309,13 +362,28 @@ func (s *HandoffService) HandleHandoffRequest(ctx context.Context, data []byte) 
 		return nil
 	}
 	ctx = withPayloadTenant(ctx, req.TenantID)
+	handoffID := handoffIdentity(req.HandoffID, data)
+	// Until the source is known, the handoff is announced from the
+	// conversation or run that called handoff_to.
+	announced := &orchestration.HandoffMessage{
+		HandoffID: handoffID, SourceAgentID: req.SourceRunID, TargetAgentID: req.TargetAgentID, PlanID: req.PlanID, StepID: req.StepID,
+	}
+	return s.once(ctx, handoffID, handoffStageRequest, announced, func() error {
+		return s.handleRequest(ctx, &req, announced)
+	})
+}
 
+// handleRequest checks a worker's handoff request and hands the work over.
+func (s *HandoffService) handleRequest(ctx context.Context, req *messagequeue.HandoffRequestPayload, announced *orchestration.HandoffMessage) error {
 	source, err := s.handoffSource(ctx, req.SourceRunID, req.ProjectID)
 	if err != nil {
-		slog.WarnContext(ctx, "handoff request refused", "source_run_id", req.SourceRunID, "target", req.TargetAgentID, "error", err)
-		return nil
+		if !isRetryable(err) {
+			s.broadcastStatus(ctx, announced, handoffFailed, "", "handoff refused: "+err.Error())
+		}
+		return err
 	}
 	msg := &orchestration.HandoffMessage{
+		HandoffID:     announced.HandoffID,
 		TenantID:      tenantctx.FromContext(ctx),
 		ProjectID:     req.ProjectID,
 		SourceAgentID: source,
@@ -333,10 +401,41 @@ func (s *HandoffService) HandleHandoffRequest(ctx context.Context, data []byte) 
 			Timestamp:  time.Now().UTC().Format(time.RFC3339),
 		},
 	}
-	if err := s.CreateHandoff(ctx, msg); err != nil {
-		slog.WarnContext(ctx, "handoff request failed", "source", source, "target", req.TargetAgentID, "error", err)
+	return s.CreateHandoff(ctx, msg)
+}
+
+// once carries out a stage of the handoff handoffID at most once (S2-G fix,
+// 3): the stage is claimed before anything starts, so a redelivered message
+// does nothing. A refusal (carryOut announced it) settles the message. A
+// retryable failure releases the claim and is returned, so the message is
+// redelivered; its last delivery is dead-lettered and announced failed
+// (HandleDeadLetteredHandoff). A claim that cannot be released would turn
+// the retry into a no-op: the handoff fails at once then.
+func (s *HandoffService) once(ctx context.Context, handoffID, stage string, announced *orchestration.HandoffMessage, carryOut func() error) error {
+	claimed, err := s.db.ClaimHandoff(ctx, handoffID, stage)
+	if err != nil {
+		return fmt.Errorf("claim handoff %s: %w", handoffID, err)
 	}
-	return nil
+	if !claimed {
+		slog.InfoContext(ctx, "handoff already carried out, redelivery ignored", "handoff_id", handoffID, "stage", stage)
+		return nil
+	}
+	err = carryOut()
+	if err == nil {
+		return nil
+	}
+	if !isRetryable(err) {
+		slog.WarnContext(ctx, "handoff refused", "handoff_id", handoffID, "stage", stage, "error", err)
+		return nil
+	}
+	if rerr := s.db.ReleaseHandoff(ctx, handoffID, stage); rerr != nil {
+		slog.ErrorContext(ctx, "handoff failed and its claim could not be released for a retry",
+			"handoff_id", handoffID, "stage", stage, "error", err, "release_error", rerr)
+		s.broadcastStatus(ctx, announced, handoffFailed, "", err.Error())
+		return nil
+	}
+	slog.WarnContext(ctx, "handoff failed, retried", "handoff_id", handoffID, "stage", stage, "error", err)
+	return err
 }
 
 // handoffSource returns the agent that hands over: the conversation that
@@ -347,15 +446,19 @@ func (s *HandoffService) handoffSource(ctx context.Context, sourceRunID, project
 	if sourceRunID == "" {
 		return "", errors.New("handoff request without source_run_id")
 	}
-	if conv, err := s.db.GetConversation(ctx, sourceRunID); err == nil && conv != nil {
+	conv, err := s.db.GetConversation(ctx, sourceRunID)
+	switch {
+	case err == nil && conv != nil:
 		if err := requireProject("conversation", conv.ID, conv.ProjectID, projectID); err != nil {
 			return "", err
 		}
 		return conv.ID, nil
+	case err != nil && !errors.Is(err, domain.ErrNotFound):
+		return "", retryable(fmt.Errorf("handoff source %s: %w", sourceRunID, err))
 	}
 	r, err := s.db.GetRun(ctx, sourceRunID)
 	if err != nil {
-		return "", fmt.Errorf("handoff source %s: %w", sourceRunID, err)
+		return "", storeReadError(fmt.Errorf("handoff source %s: %w", sourceRunID, err))
 	}
 	if err := requireProject("run", r.ID, r.ProjectID, projectID); err != nil {
 		return "", err
@@ -365,7 +468,8 @@ func (s *HandoffService) handoffSource(ctx context.Context, sourceRunID, project
 
 // HandleApprovedHandoff carries out a handoff an admin released from the
 // quarantine (Approve replays it to handoff.approved). It is checked like
-// any handoff in its tenant but not screened again. Handled at most once.
+// any handoff in its tenant but not screened again, and carried out once
+// (see once).
 func (s *HandoffService) HandleApprovedHandoff(ctx context.Context, data []byte) error {
 	var msg orchestration.HandoffMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
@@ -377,30 +481,82 @@ func (s *HandoffService) HandleApprovedHandoff(ctx context.Context, data []byte)
 		return nil
 	}
 	ctx = withPayloadTenant(ctx, msg.TenantID)
-	if err := s.dispatch(ctx, &msg); err != nil {
-		slog.WarnContext(ctx, "approved handoff failed", "source", msg.SourceAgentID, "target", msg.TargetAgentID, "error", err)
+	msg.HandoffID = handoffIdentity(msg.HandoffID, data)
+	return s.once(ctx, msg.HandoffID, handoffStageApproved, &msg, func() error {
+		return s.dispatch(ctx, &msg)
+	})
+}
+
+// HandleDeadLetteredHandoff announces a handoff whose retries ran out
+// (handoff.request.dlq, handoff.approved.dlq) as failed, in its tenant. A
+// message that cannot be read is dropped.
+func (s *HandoffService) HandleDeadLetteredHandoff(ctx context.Context, subject string, data []byte) error {
+	msg, ok := deadLetteredHandoff(subject, data)
+	if !ok {
+		slog.Warn("unreadable dead-lettered handoff, dropped", "subject", subject)
+		return nil
 	}
+	ctx = withPayloadTenant(ctx, msg.TenantID)
+	slog.WarnContext(ctx, "handoff dead-lettered, announced failed",
+		"subject", subject, "handoff_id", msg.HandoffID, "target", msg.TargetAgentID)
+	s.broadcastStatus(ctx, msg, handoffFailed, "", handoffDeadLettered)
 	return nil
 }
 
-// StartSubscribers subscribes to the workers' handoff requests and to the
-// handoffs released from the quarantine.
+// deadLetteredHandoff reads a dead-lettered handoff message of subject.
+func deadLetteredHandoff(subject string, data []byte) (*orchestration.HandoffMessage, bool) {
+	switch strings.TrimSuffix(subject, deadLetterSuffix) {
+	case messagequeue.SubjectHandoffRequest:
+		var req messagequeue.HandoffRequestPayload
+		if json.Unmarshal(data, &req) != nil {
+			return nil, false
+		}
+		return &orchestration.HandoffMessage{
+			HandoffID: req.HandoffID, TenantID: req.TenantID, SourceAgentID: req.SourceRunID,
+			TargetAgentID: req.TargetAgentID, PlanID: req.PlanID, StepID: req.StepID,
+		}, true
+	case messagequeue.SubjectHandoffApproved:
+		var msg orchestration.HandoffMessage
+		if json.Unmarshal(data, &msg) != nil {
+			return nil, false
+		}
+		return &msg, true
+	}
+	return nil, false
+}
+
+// StartSubscribers subscribes to the workers' handoff requests, to the
+// handoffs released from the quarantine and to both dead-letter subjects.
 func (s *HandoffService) StartSubscribers(ctx context.Context) (cancel func(), err error) {
-	cancelRequests, err := s.queue.Subscribe(ctx, messagequeue.SubjectHandoffRequest, func(msgCtx context.Context, _ string, data []byte) error {
-		return s.HandleHandoffRequest(msgCtx, data)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("subscribe %s: %w", messagequeue.SubjectHandoffRequest, err)
+	deadLettered := func(msgCtx context.Context, subject string, data []byte) error {
+		return s.HandleDeadLetteredHandoff(msgCtx, subject, data)
 	}
-	cancelApproved, err := s.queue.Subscribe(ctx, messagequeue.SubjectHandoffApproved, func(msgCtx context.Context, _ string, data []byte) error {
-		return s.HandleApprovedHandoff(msgCtx, data)
-	})
-	if err != nil {
-		cancelRequests()
-		return nil, fmt.Errorf("subscribe %s: %w", messagequeue.SubjectHandoffApproved, err)
+	subscriptions := []struct {
+		subject string
+		handler messagequeue.Handler
+	}{
+		{messagequeue.SubjectHandoffRequest, func(msgCtx context.Context, _ string, data []byte) error {
+			return s.HandleHandoffRequest(msgCtx, data)
+		}},
+		{messagequeue.SubjectHandoffApproved, func(msgCtx context.Context, _ string, data []byte) error {
+			return s.HandleApprovedHandoff(msgCtx, data)
+		}},
+		{messagequeue.SubjectHandoffRequest + deadLetterSuffix, deadLettered},
+		{messagequeue.SubjectHandoffApproved + deadLetterSuffix, deadLettered},
 	}
-	return func() {
-		cancelRequests()
-		cancelApproved()
-	}, nil
+	var cancels []func()
+	cancelAll := func() {
+		for _, c := range cancels {
+			c()
+		}
+	}
+	for _, sub := range subscriptions {
+		c, err := s.queue.Subscribe(ctx, sub.subject, sub.handler)
+		if err != nil {
+			cancelAll()
+			return nil, fmt.Errorf("subscribe %s: %w", sub.subject, err)
+		}
+		cancels = append(cancels, c)
+	}
+	return cancelAll, nil
 }

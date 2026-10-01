@@ -256,8 +256,11 @@ type QualityGateResultPayload struct {
 // sends its workspace and approval timeout, which the Go Core takes from the
 // project and its config instead.
 type HandoffRequestPayload struct {
-	TenantID      string            `json:"tenant_id"`
-	ProjectID     string            `json:"project_id"`
+	TenantID  string `json:"tenant_id"`
+	ProjectID string `json:"project_id"`
+	// HandoffID identifies the handoff (the worker generates it): the Go
+	// Core carries a handoff out once, whatever its redeliveries.
+	HandoffID     string            `json:"handoff_id,omitempty"`
 	SourceRunID   string            `json:"source_run_id"` // the conversation or run that called handoff_to
 	TargetAgentID string            `json:"target_agent_id"`
 	TargetModeID  string            `json:"target_mode_id,omitempty"`

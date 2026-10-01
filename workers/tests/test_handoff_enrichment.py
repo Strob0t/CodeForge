@@ -344,3 +344,23 @@ async def test_handoff_with_invalid_metadata_is_refused(metadata: object) -> Non
 
     assert result.startswith("Error:")
     assert published == []
+
+
+async def test_handoff_carries_a_handoff_id() -> None:
+    """S2-G fix, 3: the Go Core carries a handoff out once per handoff_id, whatever its redeliveries."""
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    arguments = {"target_agent_id": "agent-2", "context": "Review"}
+    await execute_handoff(run_id="run-1", arguments=arguments, nats_publish=fake_publish, workspace_path="/ws")
+    await execute_handoff(run_id="run-1", arguments=arguments, nats_publish=fake_publish, workspace_path="/ws")
+    await execute_handoff(
+        run_id="run-1", arguments=arguments, nats_publish=fake_publish, workspace_path="/ws", handoff_id="given"
+    )
+
+    ids = [json.loads(data)["handoff_id"] for _, data in published]
+    assert all(ids[:2])
+    assert ids[0] != ids[1], "every handoff_to call is a handoff of its own"
+    assert ids[2] == "given"

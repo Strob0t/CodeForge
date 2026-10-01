@@ -27,6 +27,14 @@ type AgentStore interface {
 	IncrementAgentStats(ctx context.Context, id string, costDelta float64, success bool) error
 	UpdateAgentState(ctx context.Context, id string, state map[string]string) error
 	SendAgentMessage(ctx context.Context, msg *agent.InboxMessage) error
+	// ClaimHandoff records that the stage ("request", "approved") of the
+	// handoff handoffID is being carried out in the caller's tenant and
+	// reports whether this call claimed it: false when it was claimed
+	// before (a redelivered message).
+	ClaimHandoff(ctx context.Context, handoffID, stage string) (bool, error)
+	// ReleaseHandoff removes a claim of ClaimHandoff, so a retry can claim
+	// the stage again.
+	ReleaseHandoff(ctx context.Context, handoffID, stage string) error
 	ListAgentInbox(ctx context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error)
 	MarkInboxRead(ctx context.Context, messageID string) error
 }

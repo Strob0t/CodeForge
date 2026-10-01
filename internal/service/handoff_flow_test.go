@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -51,6 +52,27 @@ type handoffStore struct {
 	createdTenant []string
 	inbox         []agent.InboxMessage
 	quarantined   map[string]*quarantine.Message
+	claims        map[string]bool // tenant/handoff/stage
+	failCreate    int             // CreateTask calls that fail (a database error)
+	failGetRun    error           // GetRun error (a database error)
+}
+
+func (s *handoffStore) ClaimHandoff(ctx context.Context, handoffID, stage string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := tenantctx.FromContext(ctx) + "/" + handoffID + "/" + stage
+	if s.claims[key] {
+		return false, nil
+	}
+	s.claims[key] = true
+	return true, nil
+}
+
+func (s *handoffStore) ReleaseHandoff(ctx context.Context, handoffID, stage string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.claims, tenantctx.FromContext(ctx)+"/"+handoffID+"/"+stage)
+	return nil
 }
 
 func newHandoffStore() *handoffStore {
@@ -64,6 +86,7 @@ func newHandoffStore() *handoffStore {
 		},
 		agentTenants: map[string]string{"agent-tgt": handoffTenantA, "agent-src": handoffTenantA, "agent-other-project": handoffTenantA, "agent-b": handoffTenantB},
 		quarantined:  map[string]*quarantine.Message{},
+		claims:       map[string]bool{},
 	}
 	s.agents = []agent.Agent{
 		{ID: "agent-tgt", ProjectID: "proj-1", Name: "reviewer"},
@@ -83,6 +106,9 @@ func (s *handoffStore) GetConversation(ctx context.Context, id string) (*convers
 }
 
 func (s *handoffStore) GetRun(ctx context.Context, id string) (*run.Run, error) {
+	if s.failGetRun != nil {
+		return nil, s.failGetRun
+	}
 	r, ok := s.runsByID[id]
 	if !ok || r.TenantID != tenantctx.FromContext(ctx) {
 		return nil, errMockNotFound
@@ -104,6 +130,10 @@ func (s *handoffStore) GetProject(context.Context, string) (*project.Project, er
 func (s *handoffStore) CreateTask(ctx context.Context, req task.CreateRequest) (*task.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.failCreate > 0 {
+		s.failCreate--
+		return nil, errors.New("database unavailable")
+	}
 	t := task.Task{ID: uuid.NewString(), ProjectID: req.ProjectID, Title: req.Title, Prompt: req.Prompt, Status: task.StatusPending}
 	s.created = append(s.created, t)
 	s.createdTenant = append(s.createdTenant, tenantctx.FromContext(ctx))
@@ -137,14 +167,19 @@ func (s *handoffStore) UpdateQuarantineStatus(_ context.Context, id string, stat
 
 // recordingRunStarter records the runs a handoff starts.
 type recordingRunStarter struct {
-	mu      sync.Mutex
-	started []run.StartRequest
-	tenants []string
+	mu        sync.Mutex
+	started   []run.StartRequest
+	tenants   []string
+	failStart int // StartRun calls that fail
 }
 
 func (r *recordingRunStarter) StartRun(ctx context.Context, req *run.StartRequest) (*run.Run, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.failStart > 0 {
+		r.failStart--
+		return nil, errors.New("start run: queue unavailable")
+	}
 	r.started = append(r.started, *req)
 	r.tenants = append(r.tenants, tenantctx.FromContext(ctx))
 	return &run.Run{ID: uuid.NewString(), TaskID: req.TaskID, AgentID: req.AgentID, ProjectID: req.ProjectID, Status: run.StatusRunning}, nil
@@ -282,6 +317,10 @@ func TestHandoffRequest_RefusedOutsideTheSourcesTenantAndProject(t *testing.T) {
 			if len(env.runs.started) != 0 || len(env.store.created) != 0 || len(env.store.inbox) != 0 {
 				t.Fatalf("runs %v, tasks %v, inbox %v; want nothing", env.runs.started, env.store.created, env.store.inbox)
 			}
+			// S2-G fix, 3: a refusal is announced, not only logged.
+			if st := env.statuses(); len(st) != 1 || st[0].Status != "failed" || st[0].Context == "" {
+				t.Fatalf("handoff.status = %+v, want failed with the reason", st)
+			}
 		})
 	}
 }
@@ -325,8 +364,10 @@ func TestHandoffRequest_QuarantineHold(t *testing.T) {
 	if !ok {
 		t.Fatal("approval replayed nothing to handoff.approved")
 	}
-	if err := env.svc.HandleApprovedHandoff(context.Background(), replayed.Data); err != nil {
-		t.Fatalf("HandleApprovedHandoff: %v", err)
+	for range 2 { // redelivered: one run (S2-G fix, 3)
+		if err := env.svc.HandleApprovedHandoff(context.Background(), replayed.Data); err != nil {
+			t.Fatalf("HandleApprovedHandoff: %v", err)
+		}
 	}
 	if len(env.runs.started) != 1 || env.runs.started[0].AgentID != "agent-tgt" || env.runs.tenants[0] != handoffTenantA {
 		t.Fatalf("approved handoff runs = %+v in %v, want agent-tgt's run in tenant A", env.runs.started, env.runs.tenants)
@@ -360,7 +401,10 @@ func TestHandoffService_Subscribes(t *testing.T) {
 		t.Fatalf("StartSubscribers: %v", err)
 	}
 	defer cancel()
-	for _, subject := range []string{messagequeue.SubjectHandoffRequest, messagequeue.SubjectHandoffApproved} {
+	for _, subject := range []string{
+		messagequeue.SubjectHandoffRequest, messagequeue.SubjectHandoffApproved,
+		messagequeue.SubjectHandoffRequest + ".dlq", messagequeue.SubjectHandoffApproved + ".dlq",
+	} {
 		if !slices.Contains(queue.subjects, subject) {
 			t.Errorf("subscriptions = %v, want %s", queue.subjects, subject)
 		}
@@ -425,5 +469,130 @@ func TestHandoffRequest_TargetMode(t *testing.T) {
 				t.Fatalf("runs started = %+v, want one in mode %q", env.runs.started, tc.wantMode)
 			}
 		})
+	}
+}
+
+// TestHandoffRequest_RedeliveryIsANoOp (S2-G fix, 3): handoff.request is
+// delivered at least once and starts a workspace-changing run; a redelivery
+// started a second run. Every handoff has a handoff_id (the worker's, or one
+// derived from the message for an older worker), claimed before anything
+// starts.
+func TestHandoffRequest_RedeliveryIsANoOp(t *testing.T) {
+	for name, extra := range map[string]map[string]any{
+		"with the worker's handoff_id":         {"handoff_id": "h-1"},
+		"without handoff_id (an older worker)": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newHandoffEnv(t, false)
+			data := handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review", extra)
+			for range 2 {
+				if err := env.svc.HandleHandoffRequest(context.Background(), data); err != nil {
+					t.Fatalf("HandleHandoffRequest: %v", err)
+				}
+			}
+			if len(env.runs.started) != 1 || len(env.store.created) != 1 {
+				t.Fatalf("runs %d, tasks %d; want one each", len(env.runs.started), len(env.store.created))
+			}
+			if st := env.statuses(); len(st) != 1 || st[0].Status != "initiated" {
+				t.Fatalf("handoff.status = %+v, want one initiated", st)
+			}
+			// Another handoff of the same tenant is not taken for a redelivery.
+			other := handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review again", map[string]any{"handoff_id": "h-2"})
+			if err := env.svc.HandleHandoffRequest(context.Background(), other); err != nil {
+				t.Fatalf("HandleHandoffRequest(another): %v", err)
+			}
+			if len(env.runs.started) != 2 {
+				t.Fatalf("runs = %d, want the other handoff's run too", len(env.runs.started))
+			}
+		})
+	}
+}
+
+// TestHandoffRequest_TransientErrorsAreRetried (S2-G fix, 3): a database or
+// run start error was acked, and the handoff was lost. It is returned now
+// (the message is redelivered) without announcing a failure, and the claim
+// is released, so the redelivery carries the handoff out.
+func TestHandoffRequest_TransientErrorsAreRetried(t *testing.T) {
+	for name, fail := range map[string]func(*handoffEnv){
+		"creating the task": func(e *handoffEnv) { e.store.failCreate = 1 },
+		"starting the run":  func(e *handoffEnv) { e.runs.failStart = 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newHandoffEnv(t, false)
+			fail(env)
+			data := handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review", map[string]any{"handoff_id": "h-1"})
+
+			if err := env.svc.HandleHandoffRequest(context.Background(), data); err == nil {
+				t.Fatal("HandleHandoffRequest = nil, want the error so the message is redelivered")
+			}
+			if st := env.statuses(); len(st) != 0 {
+				t.Fatalf("handoff.status = %+v, want none before the last delivery", st)
+			}
+			if err := env.svc.HandleHandoffRequest(context.Background(), data); err != nil {
+				t.Fatalf("HandleHandoffRequest(redelivered): %v", err)
+			}
+			if len(env.runs.started) != 1 {
+				t.Fatalf("runs started = %d, want 1 after the retry", len(env.runs.started))
+			}
+			if st := env.statuses(); len(st) != 1 || st[0].Status != "initiated" {
+				t.Fatalf("handoff.status = %+v, want initiated", st)
+			}
+		})
+	}
+
+	t.Run("reading the source", func(t *testing.T) {
+		env := newHandoffEnv(t, false)
+		env.store.failGetRun = errors.New("database unavailable")
+		data := handoffRequest(t, handoffTenantA, "run-src", "agent-tgt", "Review", map[string]any{"handoff_id": "h-1"})
+		if err := env.svc.HandleHandoffRequest(context.Background(), data); err == nil {
+			t.Fatal("HandleHandoffRequest = nil, want the database error retried")
+		}
+		if st := env.statuses(); len(st) != 0 {
+			t.Fatalf("handoff.status = %+v, want none: the source was not refused", st)
+		}
+	})
+}
+
+// TestHandoffDeadLetter_AnnouncesTheFailure (S2-G fix, 3): a handoff whose
+// retries ran out is dead-lettered; the Go Core announces it failed in its
+// tenant.
+func TestHandoffDeadLetter_AnnouncesTheFailure(t *testing.T) {
+	env := newHandoffEnv(t, false)
+	request := handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review", map[string]any{"handoff_id": "h-1"})
+	if err := env.svc.HandleDeadLetteredHandoff(context.Background(), messagequeue.SubjectHandoffRequest+".dlq", request); err != nil {
+		t.Fatalf("HandleDeadLetteredHandoff(request): %v", err)
+	}
+	approved, err := json.Marshal(map[string]any{
+		"tenant_id": handoffTenantA, "project_id": "proj-1", "source_agent_id": "agent-src",
+		"target_agent_id": "agent-tgt", "context": "Review", "handoff_id": "h-2",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.svc.HandleDeadLetteredHandoff(context.Background(), messagequeue.SubjectHandoffApproved+".dlq", approved); err != nil {
+		t.Fatalf("HandleDeadLetteredHandoff(approved): %v", err)
+	}
+	if err := env.svc.HandleDeadLetteredHandoff(context.Background(), messagequeue.SubjectHandoffRequest+".dlq", []byte("{")); err != nil {
+		t.Fatalf("HandleDeadLetteredHandoff(unreadable) = %v, want it dropped", err)
+	}
+
+	st := env.statuses()
+	if len(st) != 2 {
+		t.Fatalf("handoff.status = %+v, want two failed", st)
+	}
+	for _, s := range st {
+		if s.Status != "failed" || s.TargetAgentID != "agent-tgt" || s.Context == "" {
+			t.Errorf("handoff.status = %+v, want failed for agent-tgt with the reason", s)
+		}
+	}
+	if st[0].SourceAgentID != "conv-1" || st[1].SourceAgentID != "agent-src" {
+		t.Errorf("sources = %q, %q; want conv-1 and agent-src", st[0].SourceAgentID, st[1].SourceAgentID)
+	}
+	env.hub.mu.Lock()
+	defer env.hub.mu.Unlock()
+	for _, ev := range env.hub.events {
+		if ev.tenant != handoffTenantA {
+			t.Errorf("event in tenant %q, want tenant A", ev.tenant)
+		}
 	}
 }

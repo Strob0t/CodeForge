@@ -206,7 +206,7 @@ func TestValidateRepoMapSubjects(t *testing.T) {
 // a raw nested or numeric value does not decode, so such a request would be
 // dead-lettered.
 func TestValidateHandoffRequestMetadata(t *testing.T) {
-	fromWorker := []byte(`{"tenant_id":"t","project_id":"p","source_run_id":"r","target_agent_id":"a","context":"c",` +
+	fromWorker := []byte(`{"tenant_id":"t","project_id":"p","handoff_id":"h-1","source_run_id":"r","target_agent_id":"a","context":"c",` +
 		`"metadata":{"priority":"high","attempts":"3","urgent":"true","none":"null","files":"[\"a.go\", \"b.go\"]",` +
 		`"nested":"{\"depth\": 2, \"tags\": [\"x\"]}","handoff_chain_id":"chain-1","handoff_hop":"2"}}`)
 	if err := Validate(SubjectHandoffRequest, fromWorker); err != nil {
@@ -218,6 +218,9 @@ func TestValidateHandoffRequestMetadata(t *testing.T) {
 	}
 	if p.Metadata["attempts"] != "3" || p.Metadata["nested"] != `{"depth": 2, "tags": ["x"]}` {
 		t.Fatalf("metadata = %v", p.Metadata)
+	}
+	if p.HandoffID != "h-1" { // S2-G fix, 3
+		t.Fatalf("handoff_id = %q, want h-1", p.HandoffID)
 	}
 
 	for _, raw := range []string{`{"attempts":3}`, `{"nested":{"depth":2}}`} {

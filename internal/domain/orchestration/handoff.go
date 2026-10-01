@@ -10,6 +10,7 @@ import (
 
 // HandoffMessage represents an explicit agent-to-agent handoff with context.
 type HandoffMessage struct {
+	HandoffID     string            `json:"handoff_id,omitempty"` // The handoff's ID: carried out once per stage (request, approval)
 	TenantID      string            `json:"tenant_id,omitempty"`  // Tenant of the handoff run; its live events go to this tenant only
 	ProjectID     string            `json:"project_id,omitempty"` // Project of the handoff run (a local target is an agent of it)
 	SourceAgentID string            `json:"source_agent_id"`

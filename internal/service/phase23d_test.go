@@ -8,6 +8,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 type handoffMockBroadcaster struct {
@@ -18,12 +19,13 @@ type handoffMockBroadcaster struct {
 type broadcastCapture struct {
 	eventType string
 	payload   any
+	tenant    string
 }
 
-func (b *handoffMockBroadcaster) BroadcastEvent(_ context.Context, eventType string, payload any) {
+func (b *handoffMockBroadcaster) BroadcastEvent(ctx context.Context, eventType string, payload any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.events = append(b.events, broadcastCapture{eventType: eventType, payload: payload})
+	b.events = append(b.events, broadcastCapture{eventType: eventType, payload: payload, tenant: tenantctx.FromContext(ctx)})
 }
 
 func TestHandoff_BroadcastsToWSHub(t *testing.T) {

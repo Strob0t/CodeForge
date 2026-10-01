@@ -952,6 +952,9 @@ func (m *mockStore) SendAgentMessage(_ context.Context, msg *agent.InboxMessage)
 	m.inboxMessages = append(m.inboxMessages, *msg)
 	return nil
 }
+
+func (m *mockStore) ClaimHandoff(_ context.Context, _, _ string) (bool, error) { return true, nil }
+func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error       { return nil }
 func (m *mockStore) ListAgentInbox(_ context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
 	var result []agent.InboxMessage
 	for _, msg := range m.inboxMessages {

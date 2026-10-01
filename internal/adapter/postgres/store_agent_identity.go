@@ -102,3 +102,26 @@ func (s *Store) MarkInboxRead(ctx context.Context, messageID string) error {
 	tag, err := s.pool.Exec(ctx, q, messageID, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "mark inbox message %s as read", messageID)
 }
+
+// ClaimHandoff records that the stage of the handoff handoffID is being
+// carried out in the caller's tenant (see database.AgentStore).
+func (s *Store) ClaimHandoff(ctx context.Context, handoffID, stage string) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO handoff_claims (tenant_id, handoff_id, stage) VALUES ($1, $2, $3)
+		 ON CONFLICT (tenant_id, handoff_id, stage) DO NOTHING`,
+		tenantFromCtx(ctx), handoffID, stage)
+	if err != nil {
+		return false, fmt.Errorf("claim handoff %s: %w", handoffID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// ReleaseHandoff removes the caller's tenant's claim of a handoff stage.
+func (s *Store) ReleaseHandoff(ctx context.Context, handoffID, stage string) error {
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM handoff_claims WHERE tenant_id = $1 AND handoff_id = $2 AND stage = $3`,
+		tenantFromCtx(ctx), handoffID, stage); err != nil {
+		return fmt.Errorf("release handoff %s: %w", handoffID, err)
+	}
+	return nil
+}

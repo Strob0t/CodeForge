@@ -84,6 +84,7 @@ async def execute_handoff(
     *,
     workspace_path: str,
     approval_timeout_seconds: int = 0,
+    handoff_id: str = "",
 ) -> str:
     """Execute a handoff_to tool call by publishing a handoff request to the Go Core.
 
@@ -92,7 +93,9 @@ async def execute_handoff(
     its run (KI-15). tenant_id and project_id are the source run's: the
     handoff run belongs to the same tenant and project. workspace_path and
     approval_timeout_seconds are informational: the Go Core takes them from
-    the project and its config.
+    the project and its config. handoff_id identifies the handoff (a new
+    one when not given): the Go Core carries a handoff out once, whatever
+    the redeliveries of its request.
     """
     target = arguments.get("target_agent_id", "")
     context_msg = arguments.get("context", "")
@@ -124,6 +127,7 @@ async def execute_handoff(
         metadata["handoff_hop"] = str(hop)
 
     payload = {
+        "handoff_id": handoff_id or str(uuid.uuid4()),
         "tenant_id": tenant_id,
         "project_id": project_id,
         "source_run_id": run_id,

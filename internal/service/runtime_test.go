@@ -1127,6 +1127,11 @@ func (m *runtimeMockStore) UpdateAgentState(_ context.Context, _ string, _ map[s
 func (m *runtimeMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error {
 	return nil
 }
+
+func (m *runtimeMockStore) ClaimHandoff(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *runtimeMockStore) ReleaseHandoff(_ context.Context, _, _ string) error { return nil }
 func (m *runtimeMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }
