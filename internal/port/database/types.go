@@ -8,8 +8,11 @@ type A2ATaskFilter struct {
 	Direction string
 	ProjectID string
 	TenantID  string
-	Limit     int
-	Cursor    string
+	// CallerKeyID narrows the list to the tasks created by one A2A key
+	// ("" = no narrowing; the A2A protocol handler always sets it).
+	CallerKeyID string
+	Limit       int
+	Cursor      string
 }
 
 // A2APushConfig represents a push notification configuration for an A2A task.

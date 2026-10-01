@@ -26,7 +26,7 @@ func TestA2A_ParsedAPIKeys(t *testing.T) {
 		t.Fatalf("keys = %+v, want %+v", keys, want)
 	}
 	for i := range want {
-		if keys[i] != want[i] {
+		if keys[i].Key != want[i].Key || keys[i].TenantID != want[i].TenantID {
 			t.Errorf("key %d = %+v, want %+v", i, keys[i], want[i])
 		}
 	}
@@ -55,5 +55,31 @@ func TestValidate_A2AAPIKeys(t *testing.T) {
 	cfg.A2A.Enabled = false
 	if err := validate(&cfg); err != nil {
 		t.Fatalf("validate() with A2A disabled = %v", err)
+	}
+}
+
+// TestA2A_KeyIDs (S2-G fix, V1): every key has a stable ID that its inbound
+// A2A tasks record. It is derived from the key (SHA-256 prefix), so it
+// survives restarts, and never contains the key itself.
+func TestA2A_KeyIDs(t *testing.T) {
+	parse := func() []A2AAPIKey {
+		t.Helper()
+		keys, err := (&A2A{APIKeys: []string{"key-one", testTenant + ":key-two"}}).ParsedAPIKeys()
+		if err != nil {
+			t.Fatalf("ParsedAPIKeys: %v", err)
+		}
+		return keys
+	}
+	first, again := parse(), parse()
+	if first[0].ID == "" || first[0].ID == first[1].ID {
+		t.Fatalf("key IDs = %q, %q; want two distinct IDs", first[0].ID, first[1].ID)
+	}
+	for i := range first {
+		if first[i].ID != again[i].ID {
+			t.Errorf("key %d ID changed between parses: %q, %q", i, first[i].ID, again[i].ID)
+		}
+		if strings.Contains(first[i].ID, first[i].Key) {
+			t.Errorf("key %d ID %q contains the key", i, first[i].ID)
+		}
 	}
 }

@@ -3,6 +3,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"regexp"
@@ -430,6 +432,16 @@ type A2A struct {
 type A2AAPIKey struct {
 	Key      string
 	TenantID string
+	// ID identifies the key without revealing it (a SHA-256 prefix of the
+	// key): the inbound A2A tasks a key creates record it, and the A2A
+	// protocol handler shows a caller only its own tasks.
+	ID string
+}
+
+// a2aKeyID is the stable ID of an A2A API key.
+func a2aKeyID(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return "key-" + hex.EncodeToString(sum[:8])
 }
 
 // a2aTenantPattern matches the tenant UUID of a "<tenant-uuid>:<key>" entry.
@@ -454,6 +466,7 @@ func (a *A2A) ParsedAPIKeys() ([]A2AAPIKey, error) {
 			return nil, fmt.Errorf("entry %d repeats a key", i+1)
 		}
 		seen[k.Key] = true
+		k.ID = a2aKeyID(k.Key)
 		keys = append(keys, k)
 	}
 	return keys, nil

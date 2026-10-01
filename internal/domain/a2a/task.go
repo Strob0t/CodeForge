@@ -47,24 +47,28 @@ const (
 
 // A2ATask is the domain model for an A2A protocol task.
 type A2ATask struct {
-	ID            string            `json:"id"`
-	ContextID     string            `json:"context_id"`
-	State         TaskState         `json:"state"`
-	Direction     Direction         `json:"direction"`
-	SkillID       string            `json:"skill_id"`
-	TrustOrigin   string            `json:"trust_origin"`
-	TrustLevel    string            `json:"trust_level"`
-	SourceAddr    string            `json:"source_addr"`
-	ProjectID     string            `json:"project_id"`
-	RemoteAgentID string            `json:"remote_agent_id"`
-	TenantID      string            `json:"tenant_id"`
-	Metadata      map[string]string `json:"metadata"`
-	History       []byte            `json:"history"`
-	Artifacts     []byte            `json:"artifacts"`
-	ErrorMessage  string            `json:"error_message"`
-	Version       int               `json:"version"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	ID            string    `json:"id"`
+	ContextID     string    `json:"context_id"`
+	State         TaskState `json:"state"`
+	Direction     Direction `json:"direction"`
+	SkillID       string    `json:"skill_id"`
+	TrustOrigin   string    `json:"trust_origin"`
+	TrustLevel    string    `json:"trust_level"`
+	SourceAddr    string    `json:"source_addr"`
+	ProjectID     string    `json:"project_id"`
+	RemoteAgentID string    `json:"remote_agent_id"`
+	TenantID      string    `json:"tenant_id"`
+	// CallerKeyID is the ID of the A2A key that created an inbound task
+	// (config.A2AAPIKey.ID); the A2A protocol handler shows a caller only
+	// its own tasks. Not serialized.
+	CallerKeyID  string            `json:"-"`
+	Metadata     map[string]string `json:"metadata"`
+	History      []byte            `json:"history"`
+	Artifacts    []byte            `json:"artifacts"`
+	ErrorMessage string            `json:"error_message"`
+	Version      int               `json:"version"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 // Validate checks required fields on an A2ATask.

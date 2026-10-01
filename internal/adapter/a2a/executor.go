@@ -107,6 +107,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 	dt.Direction = a2adomain.DirectionInbound
 	dt.TrustOrigin = ann.Origin
 	dt.TrustLevel = string(ann.TrustLevel)
+	dt.CallerKeyID = middleware.A2ACallerFromContext(ctx)
 	if err := e.store.CreateA2ATask(ctx, dt); err != nil {
 		return fmt.Errorf("create a2a task: %w", err)
 	}
@@ -153,6 +154,10 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq
 	dt, err := e.store.GetA2ATask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("get a2a task for cancel: %w", err)
+	}
+	// A caller cancels only the inbound tasks its own key created.
+	if !ownedByCaller(ctx, dt) {
+		return fmt.Errorf("get a2a task for cancel: %w", sdka2a.ErrTaskNotFound)
 	}
 	dt.State = a2adomain.TaskStateCanceled
 	if err := e.store.UpdateA2ATask(ctx, dt); err != nil {

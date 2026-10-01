@@ -8,10 +8,14 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/a2a"
 
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
-// TaskStoreAdapter wraps database.Store to implement a2asrv.TaskStore.
+// TaskStoreAdapter wraps database.Store to implement a2asrv.TaskStore, the
+// tasks the A2A protocol handler reads and writes. A caller sees only the
+// inbound tasks its own A2A key created (S2-G fix, V1): not the outbound
+// tasks of the tenant, not the tasks of the tenant's other keys.
 type TaskStoreAdapter struct {
 	store database.Store
 }
@@ -26,6 +30,7 @@ func (a *TaskStoreAdapter) Save(ctx context.Context, task *sdka2a.Task, _ sdka2a
 	dt := sdkToDomainTask(task, "inbound")
 	if prev == sdka2a.TaskVersionMissing {
 		dt.Version = 1
+		dt.CallerKeyID = middleware.A2ACallerFromContext(ctx)
 		if err := a.store.CreateA2ATask(ctx, dt); err != nil {
 			return 0, err
 		}
@@ -44,13 +49,27 @@ func (a *TaskStoreAdapter) Get(ctx context.Context, id sdka2a.TaskID) (*sdka2a.T
 	if err != nil {
 		return nil, 0, err
 	}
+	if !ownedByCaller(ctx, dt) {
+		return nil, 0, sdka2a.ErrTaskNotFound
+	}
 	t := domainToSDKTask(dt)
 	return t, sdka2a.TaskVersion(dt.Version), nil
 }
 
+// ownedByCaller reports whether dt is an inbound task the calling A2A key
+// created. A request without a caller owns nothing.
+func ownedByCaller(ctx context.Context, dt *a2adomain.A2ATask) bool {
+	caller := middleware.A2ACallerFromContext(ctx)
+	return caller != "" && dt.Direction == a2adomain.DirectionInbound && dt.CallerKeyID == caller
+}
+
 // List returns tasks matching the filter (implements a2asrv.TaskStore).
 func (a *TaskStoreAdapter) List(ctx context.Context, req *sdka2a.ListTasksRequest) (*sdka2a.ListTasksResponse, error) {
-	filter := &database.A2ATaskFilter{}
+	caller := middleware.A2ACallerFromContext(ctx)
+	if caller == "" {
+		return &sdka2a.ListTasksResponse{}, nil
+	}
+	filter := &database.A2ATaskFilter{Direction: string(a2adomain.DirectionInbound), CallerKeyID: caller}
 	if req != nil {
 		if req.Status != "" {
 			filter.State = string(req.Status)

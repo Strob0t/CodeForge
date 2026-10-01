@@ -132,3 +132,23 @@ func TestMatchA2AKey(t *testing.T) {
 		t.Error("nil keys matched")
 	}
 }
+
+// TestA2AAuth_KeySetsTheCaller (S2-G fix, V1): the matched key's ID is the
+// caller of the request; the A2A protocol handler shows a caller only the
+// inbound tasks it created.
+func TestA2AAuth_KeySetsTheCaller(t *testing.T) {
+	keys := []config.A2AAPIKey{
+		{Key: "key-1", TenantID: tenantctx.DefaultTenantID, ID: "id-1"},
+		{Key: "key-2", TenantID: tenantctx.DefaultTenantID, ID: "id-2"},
+	}
+	for key, want := range map[string]string{"key-1": "id-1", "key-2": "id-2"} {
+		var got string
+		rr := serveA2A(t, keys, "Bearer "+key, func(w http.ResponseWriter, r *http.Request) {
+			got = A2ACallerFromContext(r.Context())
+			w.WriteHeader(http.StatusOK)
+		})
+		if rr.Code != http.StatusOK || got != want {
+			t.Errorf("key %s: status %d, caller %q; want 200 as %q", key, rr.Code, got, want)
+		}
+	}
+}

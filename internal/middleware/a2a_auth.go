@@ -20,7 +20,10 @@ const (
 	A2ATrustPartial A2ATrustLevel = "partial"
 )
 
-type ctxKeyA2ATrust struct{}
+type (
+	ctxKeyA2ATrust  struct{}
+	ctxKeyA2ACaller struct{}
+)
 
 // A2AAuth returns middleware that authenticates A2A requests by their
 // Bearer token against the A2A API keys (KI-15); the global JWT middleware
@@ -44,6 +47,7 @@ func A2AAuth(keys []config.A2AAPIKey) func(http.Handler) http.Handler {
 
 			ctx := tenantctx.WithTenant(r.Context(), key.TenantID)
 			ctx = ContextWithA2ATrust(ctx, A2ATrustPartial)
+			ctx = ContextWithA2ACaller(ctx, key.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -66,6 +70,19 @@ func matchA2AKey(keys []config.A2AAPIKey, token string) (config.A2AAPIKey, bool)
 // ContextWithA2ATrust returns ctx carrying the A2A trust level of its caller.
 func ContextWithA2ATrust(ctx context.Context, level A2ATrustLevel) context.Context {
 	return context.WithValue(ctx, ctxKeyA2ATrust{}, level)
+}
+
+// ContextWithA2ACaller returns ctx carrying the ID of the A2A key that
+// authenticated its caller.
+func ContextWithA2ACaller(ctx context.Context, keyID string) context.Context {
+	return context.WithValue(ctx, ctxKeyA2ACaller{}, keyID)
+}
+
+// A2ACallerFromContext returns the ID of the A2A key that authenticated the
+// request ("" without one).
+func A2ACallerFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(ctxKeyA2ACaller{}).(string)
+	return id
 }
 
 // A2ATrustFromContext returns the A2A trust level from the request context.
