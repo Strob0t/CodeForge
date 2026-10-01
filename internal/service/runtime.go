@@ -99,11 +99,13 @@ func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.S
 // cancelled so that its remaining tool-call requests are rejected immediately
 // without waiting for policy evaluation, until the next run's start of the
 // conversation is published or the stopped run reports its end. The
-// conversation has no active run afterwards.
-func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
-	s.state.SetCancelledConversation(conversationID)
+// conversation has no active run afterwards. It returns the turn of the run
+// it stopped ("" when this process had no active run of the conversation).
+func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) string {
+	stopped := s.state.SetCancelledConversation(conversationID)
 	s.cleanupRunState(conversationID)
-	slog.Info("conversation run marked cancelled", "conversation_id", conversationID)
+	slog.Info("conversation run marked cancelled", "conversation_id", conversationID, "turn_id", stopped)
+	return stopped
 }
 
 // BeginConversationRun makes the run with turnID the conversation's active

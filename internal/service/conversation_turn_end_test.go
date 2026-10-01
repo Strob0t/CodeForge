@@ -195,3 +195,53 @@ func TestConversationRun_ToolCallsOfTheStoredActiveTurn(t *testing.T) {
 		t.Fatalf("call without turn: %q (%s), want allow", resp.Decision, resp.Reason)
 	}
 }
+
+// TestStopConversation_EndsOnlyTheStoppedTurn (S2-F review, F10): a stop
+// released the run in memory, then cleared whatever turn was stored as
+// active; a run that began in between lost its fresh turn, and the
+// watchdog and the turn checks no longer knew it. The stop ends the stored
+// turn of the run it stopped only.
+func TestStopConversation_EndsOnlyTheStoppedTurn(t *testing.T) {
+	env := newConvStopEnv(t, nil, nil)
+	ctx := context.Background()
+	start := conversationRunStarters[0].start
+	if err := start(ctx, env.conv, env.convID); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	var next string
+	env.store.endTurnHook = func(string, string) {
+		env.store.endTurnHook = nil
+		// The next message arrives while the stop is under way.
+		if err := start(ctx, env.conv, env.convID); err != nil {
+			t.Errorf("run started during the stop: %v", err)
+			return
+		}
+		next = env.lastTurn(t)
+	}
+	if err := env.conv.StopConversation(ctx, env.convID); err != nil {
+		t.Fatalf("StopConversation: %v", err)
+	}
+	if next == "" {
+		t.Fatal("no run started during the stop")
+	}
+	if got := env.store.activeTurnOf(env.convID); got != next {
+		t.Fatalf("stored active turn = %q, want the run that began during the stop %q", got, next)
+	}
+}
+
+// TestStopConversation_EndsTheStoredTurnAfterARestart: a process that did
+// not dispatch the run (a restart) ends the stored active turn.
+func TestStopConversation_EndsTheStoredTurnAfterARestart(t *testing.T) {
+	env := newConvStopEnv(t, nil, nil)
+	ctx := context.Background()
+	if err := env.store.BeginConversationTurn(ctx, env.convID, "turn-before-restart"); err != nil {
+		t.Fatalf("BeginConversationTurn: %v", err)
+	}
+	if err := env.conv.StopConversation(ctx, env.convID); err != nil {
+		t.Fatalf("StopConversation: %v", err)
+	}
+	if got := env.store.activeTurnOf(env.convID); got != "" {
+		t.Fatalf("stored active turn after the stop = %q, want none", got)
+	}
+}

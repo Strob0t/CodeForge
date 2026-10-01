@@ -73,6 +73,9 @@ type runtimeMockStore struct {
 	turnBeats []turnBeat
 	turns     map[string]activeTurn
 	taskBeats map[string]runBeat
+	// endTurnHook, if set, runs at the start of EndConversationTurn, outside
+	// the lock: a test injects what happens concurrently with the end.
+	endTurnHook func(conversationID, turnID string)
 }
 
 func (m *runtimeMockStore) ListProjects(_ context.Context) ([]project.Project, error) {

@@ -327,7 +327,8 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 	if s.queue == nil {
 		return errors.New("stop requires NATS queue")
 	}
-	if _, err := s.db.GetConversation(ctx, conversationID); err != nil {
+	conv, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
@@ -337,12 +338,20 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 	// The run ends now: its remaining tool calls are rejected and the
 	// conversation takes its next message. Its own completion no longer
 	// reaches a waiter (it is not the active run), so the stop ends the wait.
+	// Only the stopped run's stored turn ends: a run that begins meanwhile
+	// keeps its own. Without a run dispatched here (a restart), the stored
+	// turn read above is the stopped one.
+	stopped := conv.ActiveTurnID
 	if s.runTracker != nil {
-		s.runTracker.MarkConversationRunCancelled(conversationID)
+		if turn := s.runTracker.MarkConversationRunCancelled(conversationID); turn != "" {
+			stopped = turn
+		}
 	}
 	s.notifyCompletionWaiter(conversationID, CompletionResult{Status: "cancelled", Error: "stopped"})
-	_, err := s.db.EndConversationTurn(ctx, conversationID, "")
-	logBestEffort(ctx, err, "EndConversationTurn", slog.String("conversation_id", conversationID))
+	if stopped != "" {
+		_, endErr := s.db.EndConversationTurn(ctx, conversationID, stopped)
+		logBestEffort(ctx, endErr, "EndConversationTurn", slog.String("conversation_id", conversationID))
+	}
 
 	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
 		RunID:  conversationID,

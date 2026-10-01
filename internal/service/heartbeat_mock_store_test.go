@@ -73,6 +73,9 @@ func (m *runtimeMockStore) BeginConversationTurn(ctx context.Context, conversati
 }
 
 func (m *runtimeMockStore) EndConversationTurn(_ context.Context, conversationID, turnID string) (bool, error) {
+	if hook := m.endTurnHook; hook != nil {
+		hook(conversationID, turnID)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if at, ok := m.turns[conversationID]; ok && (turnID == "" || at.turn == turnID) {

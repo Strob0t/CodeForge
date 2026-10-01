@@ -335,16 +335,19 @@ func (m *RunStateManager) IsActiveConversationRun(convID, turnID string) bool {
 
 // SetCancelledConversation records a stop of the conversation's run: the
 // active run ends and tool calls of the conversation are rejected until the
-// next run's start is published or the stopped run reports its end.
-func (m *RunStateManager) SetCancelledConversation(convID string) {
+// next run's start is published or the stopped run reports its end. It
+// returns the turn of the run it stopped ("" when none was active).
+func (m *RunStateManager) SetCancelledConversation(convID string) string {
 	m.convMu.Lock()
 	defer m.convMu.Unlock()
 	st := m.convRun(convID)
 	st.cancelled = true
-	if st.active != "" {
-		st.stopped = st.active
+	stopped := st.active
+	if stopped != "" {
+		st.stopped = stopped
 		st.active = ""
 	}
+	return stopped
 }
 
 // ClearCancelledConversation forgets the cancel mark of a conversation.
