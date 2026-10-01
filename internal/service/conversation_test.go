@@ -114,6 +114,17 @@ func (m *convMockStore) CreateMessage(_ context.Context, msg *conversation.Messa
 	return msg, nil
 }
 
+// CreateToolMessages stores a turn's tool messages like CreateMessage.
+func (m *convMockStore) CreateToolMessages(_ context.Context, conversationID string, msgs []conversation.Message) error {
+	for i := range msgs {
+		msg := msgs[i]
+		msg.ConversationID = conversationID
+		msg.ID = fmt.Sprintf("msg-%d", len(m.messages)+1)
+		m.messages = append(m.messages, msg)
+	}
+	return nil
+}
+
 func (m *convMockStore) ListMessages(_ context.Context, conversationID string) ([]conversation.Message, error) {
 	var result []conversation.Message
 	for i := range m.messages {

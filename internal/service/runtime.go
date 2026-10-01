@@ -143,6 +143,12 @@ func (s *RuntimeService) IsActiveConversationRun(conversationID, turnID string) 
 	return s.state.IsActiveConversationRun(conversationID, turnID)
 }
 
+// ActiveConversationRun returns the turn of the conversation's active run
+// dispatched by this process ("" when none).
+func (s *RuntimeService) ActiveConversationRun(conversationID string) string {
+	return s.state.ActiveConversationRun(conversationID)
+}
+
 // ForgetConversation drops the run state of a deleted conversation.
 func (s *RuntimeService) ForgetConversation(conversationID string) {
 	s.state.ForgetConversation(conversationID)

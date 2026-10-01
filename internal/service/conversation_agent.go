@@ -129,13 +129,11 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	// process dispatched, or the stored one (a restart, another replica) - is
 	// processed, once. A turn that already ended (stopped, ended by the
 	// stuck-work watchdog or after its start was dead-lettered) was completed
-	// then; its late completion would store its messages after the next
-	// turn's, announce the next turn as finished and wake its waiter. A
-	// completion without turn (a worker that sends none) counts as the active
-	// turn's.
+	// then; its late completion keeps only the turn's work (see
+	// keepEndedTurnCompletion). A completion without turn (a worker that
+	// sends none) counts as the active turn's.
 	if payload.TurnID != "" && !activeRun && !storedActive {
-		slog.Info("completion of a conversation turn that already ended, dropped",
-			"conversation_id", payload.ConversationID, "turn_id", payload.TurnID, "status", payload.Status)
+		s.keepEndedTurnCompletion(ctx, &payload)
 		return nil
 	}
 
@@ -148,45 +146,7 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		"cost", payload.CostUSD,
 	)
 
-	// Store intermediate tool messages (assistant messages with tool_calls + tool results).
-	if len(payload.ToolMessages) > 0 {
-		toolMsgs := make([]conversation.Message, 0, len(payload.ToolMessages))
-		for _, tm := range payload.ToolMessages {
-			msg := conversation.Message{
-				ConversationID: payload.ConversationID,
-				Role:           tm.Role,
-				Content:        tm.Content,
-				ToolCallID:     tm.ToolCallID,
-				ToolName:       tm.Name,
-			}
-			// Serialize tool_calls for assistant messages.
-			if len(tm.ToolCalls) > 0 {
-				tcJSON, err := json.Marshal(tm.ToolCalls)
-				if err == nil {
-					msg.ToolCalls = tcJSON
-				}
-			}
-			toolMsgs = append(toolMsgs, msg)
-		}
-		if err := s.db.CreateToolMessages(ctx, payload.ConversationID, toolMsgs); err != nil {
-			slog.Error("failed to store tool messages", "conversation_id", payload.ConversationID, "error", err)
-		}
-	}
-
-	// Store final assistant message.
-	if payload.AssistantContent != "" || payload.Status == "completed" {
-		assistantMsg := &conversation.Message{
-			ConversationID: payload.ConversationID,
-			Role:           "assistant",
-			Content:        payload.AssistantContent,
-			TokensIn:       payload.TokensIn,
-			TokensOut:      payload.TokensOut,
-			Model:          payload.Model,
-		}
-		if _, err := s.db.CreateMessage(ctx, assistantMsg); err != nil {
-			slog.Error("failed to store assistant message", "conversation_id", payload.ConversationID, "error", err)
-		}
-	}
+	s.storeCompletionMessages(ctx, &payload)
 
 	// Determine WS status.
 	wsStatus := "completed"
@@ -248,6 +208,88 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	}
 
 	return nil
+}
+
+// storeCompletionMessages stores what a turn produced: its intermediate tool
+// messages (assistant messages with tool calls, tool results) and its final
+// or partial assistant answer.
+func (s *ConversationService) storeCompletionMessages(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload) {
+	if len(payload.ToolMessages) > 0 {
+		toolMsgs := make([]conversation.Message, 0, len(payload.ToolMessages))
+		for _, tm := range payload.ToolMessages {
+			msg := conversation.Message{
+				ConversationID: payload.ConversationID,
+				Role:           tm.Role,
+				Content:        tm.Content,
+				ToolCallID:     tm.ToolCallID,
+				ToolName:       tm.Name,
+			}
+			// Serialize tool_calls for assistant messages.
+			if len(tm.ToolCalls) > 0 {
+				tcJSON, err := json.Marshal(tm.ToolCalls)
+				if err == nil {
+					msg.ToolCalls = tcJSON
+				}
+			}
+			toolMsgs = append(toolMsgs, msg)
+		}
+		if err := s.db.CreateToolMessages(ctx, payload.ConversationID, toolMsgs); err != nil {
+			slog.Error("failed to store tool messages", "conversation_id", payload.ConversationID, "error", err)
+		}
+	}
+
+	// Store final assistant message.
+	if payload.AssistantContent != "" || payload.Status == "completed" {
+		assistantMsg := &conversation.Message{
+			ConversationID: payload.ConversationID,
+			Role:           "assistant",
+			Content:        payload.AssistantContent,
+			TokensIn:       payload.TokensIn,
+			TokensOut:      payload.TokensOut,
+			Model:          payload.Model,
+		}
+		if _, err := s.db.CreateMessage(ctx, assistantMsg); err != nil {
+			slog.Error("failed to store assistant message", "conversation_id", payload.ConversationID, "error", err)
+		}
+	}
+}
+
+// keepEndedTurnCompletion handles the completion of a turn that already
+// ended (S2-G fix, 5): stopped, ended by the stuck-work watchdog or after
+// its start was dead-lettered. The end was announced then and the
+// conversation released, so nothing is broadcast, no waiter is woken and no
+// turn becomes active. While no newer turn has started, the turn's messages
+// (the work it did before it ended) and its cost are kept; once a newer
+// turn is active, only its cost is: its messages would land after the
+// newer turn's.
+func (s *ConversationService) keepEndedTurnCompletion(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload) {
+	newer := s.newerTurnActive(ctx, payload.ConversationID)
+	slog.Info("completion of a conversation turn that already ended",
+		"conversation_id", payload.ConversationID, "turn_id", payload.TurnID, "status", payload.Status,
+		"messages_kept", !newer, "cost", payload.CostUSD)
+	if !newer {
+		s.storeCompletionMessages(ctx, payload)
+	}
+	if s.metrics != nil && payload.CostUSD > 0 {
+		s.metrics.RecordRunCost(ctx, payload.CostUSD, "type", "conversation_agentic", "status", payload.Status)
+	}
+}
+
+// newerTurnActive reports whether a turn of the conversation is active,
+// dispatched by this process or stored; it is called for a turn that is
+// not, so an active turn is a newer one. A conversation that cannot be read
+// counts as having one: messages are dropped rather than stored out of
+// order.
+func (s *ConversationService) newerTurnActive(ctx context.Context, conversationID string) bool {
+	if s.runTracker != nil && s.runTracker.ActiveConversationRun(conversationID) != "" {
+		return true
+	}
+	conv, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		logBestEffort(ctx, err, "GetConversation", slog.String("conversation_id", conversationID))
+		return true
+	}
+	return conv.ActiveTurnID != ""
 }
 
 // CompletionWaiter receives the end of a conversation's next run. Register

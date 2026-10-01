@@ -81,5 +81,6 @@ type convRunTracker interface {
 	EndConversationRun(conversationID, turnID string)
 	MarkConversationRunCancelled(conversationID string) string
 	IsActiveConversationRun(conversationID, turnID string) bool
+	ActiveConversationRun(conversationID string) string
 	ForgetConversation(conversationID string)
 }

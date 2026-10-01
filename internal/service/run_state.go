@@ -318,6 +318,17 @@ func (m *RunStateManager) EndConversationRun(convID, turnID string) {
 	m.dropIdleConvRun(convID)
 }
 
+// ActiveConversationRun returns the turn of the conversation's active run
+// ("" when none).
+func (m *RunStateManager) ActiveConversationRun(convID string) string {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	if st, ok := m.convRuns[convID]; ok {
+		return st.active
+	}
+	return ""
+}
+
 // IsActiveConversationRun reports whether turnID is the conversation's active run.
 func (m *RunStateManager) IsActiveConversationRun(convID, turnID string) bool {
 	m.convMu.Lock()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -243,5 +244,117 @@ func TestStopConversation_EndsTheStoredTurnAfterARestart(t *testing.T) {
 	}
 	if got := env.store.activeTurnOf(env.convID); got != "" {
 		t.Fatalf("stored active turn after the stop = %q, want none", got)
+	}
+}
+
+// costRecorder records the run metrics of conversation completions.
+type costRecorder struct {
+	mu       sync.Mutex
+	costs    []float64
+	outcomes []string
+}
+
+func (r *costRecorder) RecordRunStarted(context.Context, ...string) {}
+func (r *costRecorder) RecordRunCompleted(context.Context, ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, "completed")
+}
+
+func (r *costRecorder) RecordRunFailed(context.Context, ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, "failed")
+}
+func (r *costRecorder) RecordToolCall(context.Context, ...string)             {}
+func (r *costRecorder) RecordRunDuration(context.Context, float64, ...string) {}
+func (r *costRecorder) RecordRunCost(_ context.Context, cost float64, _ ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.costs = append(r.costs, cost)
+}
+
+// completeStoppedTurn reports the completion of a stopped turn: the tool
+// messages and the partial answer it produced, and its cost.
+func (e *convStopEnv) completeStoppedTurn(t *testing.T, turn string) {
+	t.Helper()
+	data, err := json.Marshal(messagequeue.ConversationRunCompletePayload{
+		RunID: e.convID, ConversationID: e.convID, Status: "cancelled", TurnID: turn,
+		AssistantContent: "partial answer of " + turn,
+		ToolMessages: []messagequeue.ConversationMessagePayload{
+			{Role: "tool", Content: "tool output of " + turn, ToolCallID: "call-1", Name: "read_file"},
+		},
+		CostUSD: 0.25,
+	})
+	if err != nil {
+		t.Fatalf("marshal completion: %v", err)
+	}
+	if err := e.conv.HandleConversationRunComplete(context.Background(), messagequeue.SubjectConversationRunComplete, data); err != nil {
+		t.Fatalf("HandleConversationRunComplete: %v", err)
+	}
+}
+
+// TestConversationRun_CompletionOfAStoppedTurn (S2-G fix, 5): a stopped
+// turn's own completion was always dropped, so the tool messages, the
+// partial answer and the cost of the work the turn did before the stop were
+// lost. While no newer turn has started, its messages and cost are kept;
+// the stop already announced the run's end and released the conversation,
+// so nothing is broadcast and no turn becomes active. Once a newer turn is
+// active, only the cost is kept: its messages would land after the newer
+// turn's.
+func TestConversationRun_CompletionOfAStoppedTurn(t *testing.T) {
+	for _, newerTurn := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no newer turn", true: "a newer turn is active"}[newerTurn], func(t *testing.T) {
+			env := newConvStopEnv(t, nil, nil)
+			metrics := &costRecorder{}
+			env.conv.SetMetrics(metrics)
+			ctx := context.Background()
+			start := conversationRunStarters[0].start
+			if err := start(ctx, env.conv, env.convID); err != nil {
+				t.Fatalf("first run: %v", err)
+			}
+			stopped := env.lastTurn(t)
+			if err := env.conv.StopConversation(ctx, env.convID); err != nil {
+				t.Fatalf("StopConversation: %v", err)
+			}
+			next := ""
+			if newerTurn {
+				if err := start(ctx, env.conv, env.convID); err != nil {
+					t.Fatalf("next run: %v", err)
+				}
+				next = env.lastTurn(t)
+			}
+			finished := env.finishedEvents()
+
+			env.completeStoppedTurn(t, stopped)
+
+			kept := env.hasMessage(t, "partial answer of "+stopped) && env.hasMessage(t, "tool output of "+stopped)
+			if kept == newerTurn {
+				t.Errorf("stopped turn's messages stored = %v, want %v", kept, !newerTurn)
+			}
+			if got := env.finishedEvents(); got != finished {
+				t.Errorf("run finished broadcasts = %d, want %d: the stop announced the end", got, finished)
+			}
+			metrics.mu.Lock()
+			costs, outcomes := metrics.costs, metrics.outcomes
+			metrics.mu.Unlock()
+			if len(costs) != 1 || costs[0] != 0.25 {
+				t.Errorf("recorded costs = %v, want the stopped turn's 0.25", costs)
+			}
+			if len(outcomes) != 0 {
+				t.Errorf("run outcomes = %v, want none: the stop ended the run", outcomes)
+			}
+			if got := env.store.activeTurnOf(env.convID); got != next {
+				t.Errorf("stored active turn = %q, want %q", got, next)
+			}
+			if newerTurn && !env.runtime.IsActiveConversationRun(env.convID, next) {
+				t.Error("the newer turn is no longer active")
+			}
+			if !newerTurn {
+				if err := start(ctx, env.conv, env.convID); err != nil {
+					t.Errorf("a run after the stopped turn's completion: %v", err)
+				}
+			}
+		})
 	}
 }
