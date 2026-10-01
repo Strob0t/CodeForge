@@ -687,6 +687,36 @@ class TestHandleRequest:
         assert worker.calls == ["j1"], "the redelivery must not be skipped as a duplicate"
         assert redelivered_client.settlements() == ["ack(sync)"]
 
+    async def test_unconfirmed_accept_on_the_last_delivery_is_dead_lettered(self) -> None:
+        """S2-F review, F6: a NAK on the last delivery was the end of the message.
+
+        JetStream redelivers no more after MaxDeliver: without a dead-letter
+        copy nobody ran the work and nobody ended it (its run or conversation
+        stayed active forever). The last delivery's unconfirmed accept is
+        dead-lettered (copy + term), so the Go Core's DLQ subscribers end it.
+        """
+        js = RecordingJetStream()
+        worker = _Worker(js)
+        msg, client = jetstream_msg(VALID, subject="runs.start", num_delivered=MAX_DELIVER)
+        client.fail_requests = True
+
+        await worker.handle(msg, ack_on_accept=True)
+
+        assert worker.calls == []
+        assert js.published == [("runs.start.dlq", VALID)]
+        assert client.settlements() == ["term"]
+
+    async def test_unconfirmed_accept_on_the_last_delivery_without_a_dlq_copy_is_not_terminated(self) -> None:
+        js = RecordingJetStream(failing={"runs.start.dlq"})
+        worker = _Worker(js)
+        msg, client = jetstream_msg(VALID, subject="runs.start", num_delivered=MAX_DELIVER)
+        client.fail_requests = True
+
+        await worker.handle(msg, ack_on_accept=True)
+
+        assert worker.calls == []
+        assert client.settlements() == [NAK_DELAYED], "never settle a message that has no dead-letter copy"
+
 
 class TestMoveToDlq:
     async def test_copies_headers_to_the_dead_letter(self) -> None:

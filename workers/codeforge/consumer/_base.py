@@ -156,8 +156,7 @@ class ConsumerBaseMixin:
         """Accepted at-most-once work and background tasks, failed and cancelled if the worker must stop."""
         return InFlightWork()
 
-    @staticmethod
-    async def _accept(msg: nats.aio.msg.Msg) -> bool:
+    async def _accept(self, msg: nats.aio.msg.Msg) -> bool:
         """Ack an at-most-once message before its work starts; False if the ack was not confirmed.
 
         A plain ack is fire-and-forget: if it were lost, JetStream would hand the
@@ -167,7 +166,9 @@ class ConsumerBaseMixin:
         not started and the message is NAK'd, so a message whose ack never
         arrived goes to the next worker at once (the server ignores the NAK of
         a message whose ack did arrive; that run is ended by the Go Core,
-        ADR-016 section 6).
+        ADR-016 section 6). On the last delivery nothing would redeliver it:
+        the message is dead-lettered (copy, then term) instead, so the Go
+        Core's dead-letter subscribers end its work.
         """
         for attempt in range(1, ACCEPT_ATTEMPTS + 1):
             try:
@@ -176,6 +177,10 @@ class ConsumerBaseMixin:
                 logger.warning("ack on accept not confirmed", subject=msg.subject, attempt=attempt, error=str(exc))
             else:
                 return True
+        if is_last_attempt(msg):
+            logger.error("ack on accept not confirmed on the last delivery, dead-lettering", subject=msg.subject)
+            await self._move_to_dlq(msg, terminate=True)
+            return False
         logger.error("ack on accept not confirmed, releasing the message", subject=msg.subject)
         try:
             await msg.nak()
