@@ -49,7 +49,7 @@ from codeforge.quality_tracking import (
 )
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
-from codeforge.stall_detection import StallDetector
+from codeforge.stall_detection import StallDetector, stall_error
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_executor import ToolExecutor
 from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
@@ -539,10 +539,7 @@ class AgentLoopExecutor:
         """Check for stall and handle abort or escape injection. Returns True to break."""
         if stall_detector.should_abort():
             abort_info = stall_detector.get_abort_info()
-            state.error = (
-                f"stall detected: repeated {abort_info['repeated_action']} "
-                f"after {abort_info['escape_count']} escape attempts"
-            )
+            state.error = stall_error(abort_info["repeated_action"], abort_info["escape_count"])
             logger.warning("agent loop aborted due to stall: %s", state.error)
             try:
                 await self._runtime.publish_trajectory_event(

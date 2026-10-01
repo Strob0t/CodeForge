@@ -98,3 +98,17 @@ func TestStallReplan_OnlyStalls(t *testing.T) {
 		})
 	}
 }
+
+// S6-F 8: a run the worker's agent loop aborted for a stall is re-planned
+// like one the Go Core stopped.
+func TestStallReplan_WorkerStallGetsANewRun(t *testing.T) {
+	store, orchSvc := newStallReplanSetup(1)
+	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}})
+
+	stalled := endFirstRun(t, store, orchSvc, p.ID, run.StatusFailed, "stall detected: repeated read_file after 2 escape attempts")
+
+	got := planState(t, store, p.ID)
+	if step := got.Steps[0]; got.Status != plan.StatusRunning || step.Status != plan.StepStatusRunning || step.RunID == stalled {
+		t.Fatalf("plan %s, step %s with run %q: want the step running a new run", got.Status, step.Status, step.RunID)
+	}
+}
