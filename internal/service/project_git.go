@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,12 +23,20 @@ import (
 
 // resolveGitProvider creates a git provider for the given project.
 // For local projects with an empty provider field, it defaults to "local".
+// The provider gets the project config plus repo_url, the project's
+// repository URL (never the config's own value): the SVN provider contacts
+// no URL outside it (S3-F security review S4).
 func resolveGitProvider(p *project.Project) (gitprovider.Provider, error) {
 	name := p.Provider
 	if name == "" {
 		name = "local"
 	}
-	return gitprovider.New(name, p.Config)
+	cfg := maps.Clone(p.Config)
+	if cfg == nil {
+		cfg = map[string]string{}
+	}
+	cfg["repo_url"] = p.RepoURL
+	return gitprovider.New(name, cfg)
 }
 
 // repoInfoClient is the shared HTTP client for repo info API calls.

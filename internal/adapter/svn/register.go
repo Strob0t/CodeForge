@@ -13,6 +13,9 @@ func init() {
 		}
 		// Operators hosting local repositories allow file:// URLs.
 		p.allowFileURLs = cfg["allow_file_urls"] == "true"
+		// The project's repository URL (set by the project service, never by
+		// the project config): svn contacts nothing outside it.
+		p.repoURL = cfg["repo_url"]
 		return p, nil
 	})
 }

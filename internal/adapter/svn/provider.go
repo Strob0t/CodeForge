@@ -15,10 +15,16 @@
 //     svn cannot be pointed at another tenant's working copy;
 //   - the repository URL of a working copy comes from its agent-writable
 //     wc.db: operations that contact the repository (update, switch, log,
-//     ls) are refused unless its scheme is http, https, svn or svn+ssh, so
-//     the agent cannot redirect them to a local (file://) repository, e.g.
-//     another tenant's. file:// repositories are allowed only when the
-//     operator enables them (config key allow_file_urls).
+//     ls, checkout) are refused unless its scheme is http, https, svn or
+//     svn+ssh, so the agent cannot redirect them to a local (file://)
+//     repository, e.g. another tenant's. file:// repositories are allowed
+//     only with the config key allow_file_urls;
+//   - every URL svn contacts must lie inside the project's configured
+//     repository (same scheme, host and port, a path at or below the
+//     project's directory), since svn sends the configured --username and
+//     --password to that server; trunk and branch URLs are built from the
+//     configured URL, not from the working copy. With credentials
+//     configured, the project's repository URL is required.
 package svn
 
 import (
@@ -30,6 +36,7 @@ import (
 	neturl "net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -51,6 +58,10 @@ type Provider struct {
 	// allowFileURLs lets working copies of local (file://) repositories be
 	// updated; off by default (see the package comment).
 	allowFileURLs bool
+	// repoURL is the project's configured repository URL (config key
+	// repo_url, set by the project service): svn contacts only URLs inside
+	// the project it names (contactable).
+	repoURL string
 
 	configOnce sync.Once
 	configDir  string
@@ -102,7 +113,7 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 
 	o := gitprovider.ApplyCloneOptions(opts)
 	checkoutURL := resolveBranchURL(url, o.Branch)
-	if err := p.checkRepositoryURL(checkoutURL); err != nil {
+	if err := p.contactable(checkoutURL); err != nil {
 		return err
 	}
 
@@ -180,7 +191,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 		status.CommitHash = strings.TrimSpace(info)
 
 		// Get the last log entry; svn log contacts the repository.
-		if _, err := p.repositoryRoot(ctx, repoPath); err == nil {
+		if err := p.checkWorkingCopyURL(ctx, repoPath); err == nil {
 			logOut, err := p.runSVN(ctx, repoPath, "log", "-l", "1")
 			if err == nil {
 				lines := strings.Split(strings.TrimSpace(logOut), "\n")
@@ -232,7 +243,7 @@ func (p *Provider) Pull(ctx context.Context, repoPath string) error {
 		if err := checkWorkingCopy(repoPath); err != nil {
 			return err
 		}
-		if _, err := p.repositoryRoot(ctx, repoPath); err != nil {
+		if err := p.checkWorkingCopyURL(ctx, repoPath); err != nil {
 			return err
 		}
 		if _, err := p.runSVN(ctx, repoPath, "update", "--ignore-externals"); err != nil {
@@ -249,13 +260,16 @@ func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project
 		if err := checkWorkingCopy(repoPath); err != nil {
 			return err
 		}
-		rootURL, err := p.repositoryRoot(ctx, repoPath)
+		baseURL, err := p.layoutBase(ctx, repoPath)
 		if err != nil {
 			return err
 		}
 
 		// List branches
-		branchesURL := rootURL + "/branches"
+		branchesURL := baseURL + "/branches"
+		if err := p.contactable(branchesURL); err != nil {
+			return err
+		}
 		out, err := p.runSVN(ctx, "", "ls", branchesURL)
 		if err != nil {
 			// No branches directory -- return trunk only
@@ -294,16 +308,19 @@ func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error 
 		if err := checkWorkingCopy(repoPath); err != nil {
 			return err
 		}
-		rootURL, err := p.repositoryRoot(ctx, repoPath)
+		baseURL, err := p.layoutBase(ctx, repoPath)
 		if err != nil {
 			return err
 		}
 
 		var targetURL string
 		if branch == "trunk" {
-			targetURL = rootURL + "/trunk"
+			targetURL = baseURL + "/trunk"
 		} else {
-			targetURL = rootURL + "/branches/" + branch
+			targetURL = baseURL + "/branches/" + branch
+		}
+		if err := p.contactable(targetURL); err != nil {
+			return err
 		}
 
 		if _, err := p.runSVN(ctx, repoPath, "switch", "--ignore-externals", targetURL); err != nil {
@@ -348,6 +365,95 @@ func (p *Provider) repositoryRoot(ctx context.Context, repoPath string) (string,
 		return "", err
 	}
 	return root, nil
+}
+
+// checkWorkingCopyURL checks that svn may contact the URL of the working
+// copy (from its wc.db; contactable): update, switch and log use it.
+func (p *Provider) checkWorkingCopyURL(ctx context.Context, repoPath string) error {
+	out, err := p.runSVN(ctx, repoPath, "info", "--show-item", "url")
+	if err != nil {
+		return fmt.Errorf("svn: get working copy URL: %w", err)
+	}
+	return p.contactable(strings.TrimSpace(out))
+}
+
+// layoutBase returns the URL that trunk/ and branches/ are below: the
+// project's directory in the repository when its URL is configured (after
+// checking the working copy's URL), else the repository root the working
+// copy records.
+func (p *Provider) layoutBase(ctx context.Context, repoPath string) (string, error) {
+	if p.repoURL == "" {
+		return p.repositoryRoot(ctx, repoPath)
+	}
+	if err := p.checkWorkingCopyURL(ctx, repoPath); err != nil {
+		return "", err
+	}
+	return projectBase(p.repoURL), nil
+}
+
+// contactable checks a URL svn is about to contact (S3-F security review
+// S4): an allowed scheme (checkRepositoryURL), and - when the project's
+// repository URL is known - inside the project: same scheme, host and port,
+// and a path at or below the project's directory (projectBase). svn sends
+// the configured credentials to that server, and the URL may come from the
+// agent-writable wc.db. With credentials configured the project's URL is
+// required.
+func (p *Provider) contactable(raw string) error {
+	if err := p.checkRepositoryURL(raw); err != nil {
+		return err
+	}
+	if p.repoURL == "" {
+		if p.username != "" || p.password != "" {
+			return fmt.Errorf("svn: %q: credentials are configured but the project has no repository URL to check against: %w", raw, errUnsafeWorkingCopy)
+		}
+		return nil
+	}
+	base := projectBase(p.repoURL)
+	target, ok1 := parseLocation(raw)
+	scope, ok2 := parseLocation(base)
+	if !ok1 || !ok2 || !target.within(scope) {
+		return fmt.Errorf("svn: %q is outside the project's repository %q (same scheme, host and port, a path below it): %w", raw, base, errUnsafeWorkingCopy)
+	}
+	return nil
+}
+
+// projectBase is the project's directory in the repository: its configured
+// URL without a trailing /trunk, /branches/<name> or /tags/<name>.
+func projectBase(raw string) string {
+	base := strings.TrimRight(raw, "/")
+	if b, ok := strings.CutSuffix(base, "/trunk"); ok {
+		return b
+	}
+	for _, dir := range []string{"/branches/", "/tags/"} {
+		if i := strings.LastIndex(base, dir); i >= 0 && !strings.Contains(base[i+len(dir):], "/") {
+			return base[:i]
+		}
+	}
+	return base
+}
+
+// location is a URL normalised for comparison.
+type location struct{ scheme, host, port, path string }
+
+var defaultPorts = map[string]string{"http": "80", "https": "443", "svn": "3690", "svn+ssh": "22"}
+
+func parseLocation(raw string) (location, bool) {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Opaque != "" {
+		return location{}, false
+	}
+	l := location{scheme: strings.ToLower(u.Scheme), host: strings.ToLower(u.Hostname()), port: u.Port()}
+	if l.port == "" {
+		l.port = defaultPorts[l.scheme]
+	}
+	l.path = strings.TrimRight(path.Clean("/"+u.Path), "/")
+	return l, true
+}
+
+// within reports whether l is base or below it.
+func (l location) within(base location) bool {
+	return l.scheme == base.scheme && l.host == base.host && l.port == base.port &&
+		(l.path == base.path || strings.HasPrefix(l.path, base.path+"/"))
 }
 
 // allowedSchemes are the repository URL schemes svn may contact.
