@@ -140,7 +140,7 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 
 ## Follow-up Known Issues (found while fixing, 2026-09-30)
 
-Reviews of the S1, S2 and S4 fixes found further defects. They are tracked in [todo.md](todo.md#known-issues) and
+Reviews of the S1 to S6 fixes found further defects. They are tracked in [todo.md](todo.md#known-issues) and
 scheduled as follows:
 
 | KI | Summary | Milestone |
@@ -165,6 +165,11 @@ scheduled as follows:
 | **KI-80** | Copilot token handed to every authenticated user | S6, **done 2026-09-30** |
 | **KI-81** | Auto-agent runs workspace tests inside the Go Core with the core's environment | S3 follow-ups (high: do first) |
 | **KI-82** | Git config allowlist refuses common repositories | S3 follow-ups |
+| **KI-83** | LSP language servers run in the Go Core with the core's environment | S6 follow-up |
+| **KI-84** | Slack approval buttons have no interaction endpoint | S6 follow-up |
+| **KI-85** | Inbound webhooks act only in the default tenant; no GitLab PM token | S6 follow-up |
+| **KI-86** | Go Core assumes a single replica (in-memory approval and test waiters) | S6 follow-up |
+| **KI-87** | SVN password passed on the command line | S6 follow-up |
 
 ## Decisions
 
