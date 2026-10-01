@@ -27,6 +27,13 @@ type TaskStore interface {
 	// or the task was dispatched again), domain.ErrNotFound for an unknown
 	// task or one of another tenant.
 	EndTaskDispatch(ctx context.Context, id, dispatchID string, status task.Status, result task.Result) error
+	// RecordTaskResult records a worker's result of the task's dispatch
+	// dispatchID. The result of the task's current dispatch (the task queued
+	// or running) ends it with status, result and cost and reports current;
+	// a result of another dispatch (ended, or replaced by a newer one) only
+	// adds its cost, once per dispatch, and reports not current.
+	// domain.ErrNotFound for an unknown task or one of another tenant.
+	RecordTaskResult(ctx context.Context, id, dispatchID string, status task.Status, result task.Result, costUSD float64) (current bool, err error)
 
 	// Active Work Visibility (Phase 24)
 	ListActiveWork(ctx context.Context, projectID string) ([]task.ActiveWorkItem, error)

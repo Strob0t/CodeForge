@@ -53,7 +53,7 @@ func TestAgentServiceHandleResult_RecordsTheTaskAgent(t *testing.T) {
 			svc := NewAgentService(&mockStore{tasks: tc.tasks}, &mockQueue{}, &mockBroadcaster{})
 			svc.SetEventStore(es)
 
-			if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "t1", "p1", 0.01); err != nil {
+			if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "t1", "p1", "", 0.01); err != nil {
 				t.Fatalf("HandleResult: %v", err)
 			}
 			if len(es.events) != 1 {
@@ -72,7 +72,7 @@ func TestAgentServiceHandleResult_LogsAppendError(t *testing.T) {
 	svc := NewAgentService(&mockStore{}, &mockQueue{}, &mockBroadcaster{})
 	svc.SetEventStore(&mockEventStore{appendErr: errors.New("db down")})
 
-	if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "t1", "p1", 0); err != nil {
+	if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "t1", "p1", "", 0); err != nil {
 		t.Fatalf("HandleResult: %v", err)
 	}
 	assertLogged(t, logs, "best-effort operation failed", "AppendEvent", "db down", "task_id=t1")

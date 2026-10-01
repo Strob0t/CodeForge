@@ -39,6 +39,7 @@ from codeforge.models import (
     SubAgentSearchRequest,
     SubAgentSearchResult,
     TaskMessage,
+    TaskResult,
     WorkspaceTestRequest,
     WorkspaceTestResult,
 )
@@ -52,6 +53,7 @@ SUBJECT_MODEL_MAP: dict[str, type[BaseModel]] = {
     "conversation.run.complete": ConversationRunCompleteMessage,
     "runs.start": RunStartMessage,
     "tasks.agent": TaskMessage,
+    "tasks.result": TaskResult,
     "benchmark.run.request": BenchmarkRunRequest,
     "benchmark.run.result": BenchmarkRunResult,
     "evaluation.gemmas.request": GemmasEvalRequest,

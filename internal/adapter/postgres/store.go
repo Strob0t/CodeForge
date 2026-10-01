@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
@@ -226,6 +227,48 @@ func (s *Store) EndTaskDispatch(ctx context.Context, id, dispatchID string, stat
 		return nil
 	}
 	return s.refusedUpdate(ctx, taskExistsSQL, "end task dispatch", id)
+}
+
+// RecordTaskResult records a worker's task result for the dispatch
+// dispatchID (see database.TaskStore). The task's cost is the sum of its
+// dispatches' costs; result_dispatch_id names the last dispatch whose result
+// was recorded, so a repeated result adds nothing.
+func (s *Store) RecordTaskResult(ctx context.Context, id, dispatchID string, status task.Status, result task.Result, costUSD float64) (bool, error) {
+	resultJSON, err := marshalJSON(result, "result")
+	if err != nil {
+		return false, err
+	}
+	tenantID := tenantFromCtx(ctx)
+	n, err := s.updateEndingDispatch(ctx,
+		`UPDATE tasks SET result = $3, status = $4, cost_usd = cost_usd + $5, result_dispatch_id = $6, dispatch_id = NULL
+		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
+		   AND `+isCurrentDispatch("$6"),
+		id, tenantID, resultJSON, string(status), costUSD, dispatchID)
+	if err != nil {
+		return false, fmt.Errorf("record task result %s: %w", id, err)
+	}
+	if n > 0 {
+		return true, nil
+	}
+	// Not the task's current dispatch: record its cost, once.
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE tasks SET cost_usd = cost_usd + $3, result_dispatch_id = $4
+		 WHERE id = $1 AND tenant_id = $2 AND result_dispatch_id IS DISTINCT FROM $4`,
+		id, tenantID, costUSD, dispatchID)
+	if err != nil {
+		return false, fmt.Errorf("record task cost %s: %w", id, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return false, nil
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, taskExistsSQL, id, tenantID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("record task result %s: %w", id, err)
+	}
+	if !exists {
+		return false, fmt.Errorf("record task result %s: %w", id, domain.ErrNotFound)
+	}
+	return false, nil // a repeated result
 }
 
 // --- Scanners ---

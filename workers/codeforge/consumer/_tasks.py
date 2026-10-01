@@ -76,6 +76,7 @@ class TaskHandlerMixin:
                 task_id=task.id,
                 tenant_id=task.tenant_id,
                 project_id=task.project_id,
+                dispatch_id=task.dispatch_id,
                 status=TaskStatus.FAILED,
                 error=error,
             )
@@ -116,6 +117,7 @@ class TaskHandlerMixin:
                         task_id=task.id,
                         tenant_id=task.tenant_id,
                         project_id=task.project_id,
+                        dispatch_id=task.dispatch_id,
                         status=TaskStatus.CANCELLED,
                         error="cancelled by user",
                     )
@@ -124,6 +126,7 @@ class TaskHandlerMixin:
                         task_id=task.id,
                         tenant_id=task.tenant_id,
                         project_id=task.project_id,
+                        dispatch_id=task.dispatch_id,
                         status=TaskStatus.COMPLETED if backend_result.status == "completed" else TaskStatus.FAILED,
                         output=backend_result.output,
                         error=backend_result.error,

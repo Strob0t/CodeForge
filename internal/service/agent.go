@@ -207,10 +207,25 @@ func stopOnBackend(ctx context.Context, ag *agent.Agent, taskID string) error {
 	return nil
 }
 
-// HandleResult processes a task result received from a worker with the
-// status the worker reported (see resultStatus).
-func (s *AgentService) HandleResult(ctx context.Context, reported string, result task.Result, taskID, projectID string, costUSD float64) error {
-	return s.recordResult(ctx, resultStatus(reported, &result), result, taskID, projectID, costUSD)
+// HandleResult processes a worker's result of the task's dispatch
+// dispatchID with the status the worker reported (see resultStatus). Only
+// the result of the task's current dispatch ends the task: a late result of
+// a dispatch that ended (the watchdog failed it, it was stopped) or that a
+// newer dispatch replaced only records its cost, and a repeated result
+// changes nothing (store.RecordTaskResult).
+func (s *AgentService) HandleResult(ctx context.Context, reported string, result task.Result, taskID, projectID, dispatchID string, costUSD float64) error {
+	final := resultStatus(reported, &result)
+	current, err := s.store.RecordTaskResult(ctx, taskID, dispatchID, final, result, costUSD)
+	if err != nil {
+		return fmt.Errorf("record task result: %w", err)
+	}
+	if !current {
+		slog.InfoContext(ctx, "result of a task dispatch that is not current, only its cost recorded",
+			"task_id", taskID, "dispatch_id", dispatchID, "status", final)
+		return nil
+	}
+	s.announceTaskEnd(ctx, final, result, taskID, projectID, costUSD)
+	return nil
 }
 
 // resultStatus is the final status of a task from the status its worker
@@ -226,16 +241,6 @@ func resultStatus(reported string, result *task.Result) task.Status {
 	default:
 		return task.StatusFailed
 	}
-}
-
-// recordResult stores a worker's task result with the final status, records
-// the event and broadcasts the status.
-func (s *AgentService) recordResult(ctx context.Context, final task.Status, result task.Result, taskID, projectID string, costUSD float64) error {
-	if err := s.store.UpdateTaskResult(ctx, taskID, final, result, costUSD); err != nil {
-		return fmt.Errorf("update task result: %w", err)
-	}
-	s.announceTaskEnd(ctx, final, result, taskID, projectID, costUSD)
-	return nil
 }
 
 // failTaskDispatch fails a task's dispatch for the control plane (a lost
@@ -308,7 +313,7 @@ func (s *AgentService) StartResultSubscriber(ctx context.Context) (cancel func()
 			TokensOut: result.TokensOut,
 		}
 
-		return s.HandleResult(msgCtx, result.Status, taskResult, result.TaskID, result.ProjectID, result.CostUSD)
+		return s.HandleResult(msgCtx, result.Status, taskResult, result.TaskID, result.ProjectID, result.DispatchID, result.CostUSD)
 	})
 }
 

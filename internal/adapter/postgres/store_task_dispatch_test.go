@@ -224,3 +224,108 @@ func TestStore_EndedDispatchDoesNotWatchARun(t *testing.T) {
 		})
 	}
 }
+
+// TestStore_RecordTaskResult (S2-G fix, 6): a worker's task result named no
+// dispatch, so a late result of a dispatch the watchdog had failed
+// overwrote the task's next dispatch. Only the result of the task's current
+// dispatch ends it (status, result, cost); a result of another dispatch
+// only adds its cost, once; a repeated result changes nothing. A result
+// without dispatch ID (an older worker) is current only for a task never
+// dispatched with an ID.
+func TestStore_RecordTaskResult(t *testing.T) {
+	f := newStatusFixture(t)
+	other := newStatusFixture(t)
+	pool := retentionPool(t)
+	newTask := func() *task.Task {
+		t.Helper()
+		tk, err := f.store.CreateTask(f.ctx, task.CreateRequest{ProjectID: f.project.ID, Title: "result", Prompt: "p"})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		return tk
+	}
+	queue := func(tk *task.Task) string {
+		t.Helper()
+		dispatch := uuid.New().String()
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, dispatch); err != nil {
+			t.Fatalf("QueueTask: %v", err)
+		}
+		return dispatch
+	}
+	record := func(tk *task.Task, dispatch string, status task.Status, output string, cost float64) bool {
+		t.Helper()
+		current, err := f.store.RecordTaskResult(f.ctx, tk.ID, dispatch, status, task.Result{Output: output}, cost)
+		if err != nil {
+			t.Fatalf("RecordTaskResult(%s): %v", dispatch, err)
+		}
+		return current
+	}
+	check := func(tk *task.Task, status task.Status, output string, cost float64) {
+		t.Helper()
+		got, err := f.store.GetTask(f.ctx, tk.ID)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		gotOutput := ""
+		if got.Result != nil {
+			gotOutput = got.Result.Output
+		}
+		if got.Status != status || gotOutput != output || got.CostUSD != cost {
+			t.Fatalf("task = %s %q cost %v, want %s %q cost %v", got.Status, gotOutput, got.CostUSD, status, output, cost)
+		}
+	}
+
+	// The current dispatch's result ends it; repeated, it changes nothing.
+	tk := newTask()
+	d1 := queue(tk)
+	if !record(tk, d1, task.StatusCompleted, "done", 0.1) {
+		t.Fatal("the current dispatch's result was not current")
+	}
+	if record(tk, d1, task.StatusCompleted, "done", 0.1) {
+		t.Fatal("a repeated result was current")
+	}
+	check(tk, task.StatusCompleted, "done", 0.1)
+
+	// The watchdog failed d1 and the task was dispatched again: the late
+	// result of d1 adds only its cost, once, and d2's result ends d2.
+	late := newTask()
+	old := queue(late)
+	if err := f.store.EndTaskDispatch(f.ctx, late.ID, old, task.StatusFailed, task.Result{Error: "lost"}); err != nil {
+		t.Fatalf("EndTaskDispatch: %v", err)
+	}
+	d2 := queue(late)
+	for range 2 { // delivered twice
+		if record(late, old, task.StatusCompleted, "late", 0.2) {
+			t.Fatal("a result of an ended dispatch was current")
+		}
+	}
+	check(late, task.StatusQueued, "", 0.2)
+	if !record(late, d2, task.StatusFailed, "second", 0.3) {
+		t.Fatal("the result of the current dispatch was not current")
+	}
+	check(late, task.StatusFailed, "second", 0.5)
+
+	// No dispatch ID: not current for a task dispatched with an ID.
+	withID := newTask()
+	queue(withID)
+	if record(withID, "", task.StatusCompleted, "anonymous", 0) {
+		t.Fatal("a result without dispatch ID ended a dispatch with an ID")
+	}
+	check(withID, task.StatusQueued, "", 0)
+	// It is for a task dispatched before dispatches had IDs.
+	legacy := newTask()
+	if _, err := pool.Exec(context.Background(), `UPDATE tasks SET status = 'queued' WHERE id = $1`, legacy.ID); err != nil {
+		t.Fatalf("queue legacy task: %v", err)
+	}
+	if !record(legacy, "", task.StatusCompleted, "legacy", 0.4) {
+		t.Fatal("a result without dispatch ID did not end a dispatch without ID")
+	}
+	check(legacy, task.StatusCompleted, "legacy", 0.4)
+
+	if _, err := other.store.RecordTaskResult(other.ctx, tk.ID, d1, task.StatusFailed, task.Result{}, 0); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("RecordTaskResult(other tenant) = %v, want ErrNotFound", err)
+	}
+	if _, err := f.store.RecordTaskResult(f.ctx, uuid.New().String(), d1, task.StatusFailed, task.Result{}, 0); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("RecordTaskResult(unknown task) = %v, want ErrNotFound", err)
+	}
+}

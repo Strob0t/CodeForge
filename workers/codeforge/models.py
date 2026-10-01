@@ -52,6 +52,9 @@ class TaskResult(BaseModel):
     task_id: str
     tenant_id: str = ""
     project_id: str = ""
+    # The dispatch the result reports (TaskMessage.dispatch_id): the Go Core
+    # ignores a result of a dispatch that is no longer the task's current one.
+    dispatch_id: str = ""
     status: TaskStatus
     output: str = ""
     files: list[str] = Field(default_factory=list)

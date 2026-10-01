@@ -3725,6 +3725,10 @@ func (m *mockStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Statu
 	return nil
 }
 
+func (m *mockStore) RecordTaskResult(_ context.Context, _, _ string, _ task.Status, _ task.Result, _ float64) (bool, error) {
+	return true, nil
+}
+
 func (m *mockStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }

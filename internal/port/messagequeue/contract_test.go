@@ -595,6 +595,23 @@ func sampleQualityGateRequestPayload() mq.QualityGateRequestPayload {
 	}
 }
 
+// sampleTaskResultPayload is a worker's task result; it names the dispatch
+// it reports (S2-G fix, 6).
+func sampleTaskResultPayload() mq.TaskResultPayload {
+	return mq.TaskResultPayload{
+		TaskID:     "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:  "550e8400-e29b-41d4-a716-446655440004",
+		TenantID:   "00000000-0000-0000-0000-000000000000",
+		DispatchID: "550e8400-e29b-41d4-a716-446655440043",
+		Status:     "completed",
+		Output:     "Fixed the null pointer",
+		Files:      []string{"handler.go"},
+		TokensIn:   1200,
+		TokensOut:  300,
+		CostUSD:    0.0042,
+	}
+}
+
 func sampleQualityGateResultPayload() mq.QualityGateResultPayload {
 	passed, failed := true, false
 	return mq.QualityGateResultPayload{
@@ -610,7 +627,7 @@ func sampleQualityGateResultPayload() mq.QualityGateResultPayload {
 
 // TODO(FIX-086): The following NATS subjects still need contract test coverage:
 //
-//  - tasks.result / tasks.output / tasks.cancel (legacy task dispatch)
+//  - tasks.output / tasks.cancel (legacy task dispatch)
 //  - runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
 //  - runs.complete / runs.cancel / runs.output / runs.heartbeat
 //  - context.shared.updated
@@ -635,6 +652,7 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectConversationRunStart, sampleConversationRunStartPayload()},
 		{mq.SubjectRunStart, sampleRunStartPayload()},
 		{mq.SubjectTaskAgent, sampleTaskAgentPayload()},
+		{mq.SubjectTaskResult, sampleTaskResultPayload()},
 		{mq.SubjectConversationRunComplete, sampleConversationRunCompletePayload()},
 		{mq.SubjectConversationCompactComplete, sampleConversationCompactCompletePayload()},
 		// Auto-agent workspace tests (KI-81)
@@ -735,6 +753,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id", "approval_timeout_seconds"},
 		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend", "approval_timeout_seconds"},
 		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path"},
+		mq.SubjectTaskResult:                  {"task_id", "project_id", "tenant_id", "dispatch_id", "status", "cost_usd"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
 		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds"},

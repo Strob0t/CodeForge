@@ -205,6 +205,12 @@ func (m *runtimeMockStore) EndTaskDispatch(_ context.Context, id, dispatchID str
 	return errMockNotFound
 }
 
+// RecordTaskResult records a worker's result as the task's result; the mock
+// has no dispatch check.
+func (m *runtimeMockStore) RecordTaskResult(ctx context.Context, id, _ string, status task.Status, result task.Result, costUSD float64) (bool, error) {
+	return true, m.UpdateTaskResult(ctx, id, status, result, costUSD)
+}
+
 // ListTasksNeverAccepted lists the queued tasks whose dispatch has no heartbeat.
 func (m *runtimeMockStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, limit int) ([]task.Task, error) {
 	m.mu.Lock()

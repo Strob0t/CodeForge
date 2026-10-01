@@ -209,6 +209,34 @@ class TestTasks:
         assert all(isinstance(b["timestamp"], str) for b in sent)
         assert beats() == sent, "the heartbeat stops when the task ends"
 
+    @pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+    async def test_result_names_the_dispatch(self, consumer: TaskConsumer, outcome: str) -> None:
+        """S2-G fix, 6: a late result of an ended dispatch overwrote the task's next dispatch.
+
+        Every result echoes the dispatch it reports, so the Go Core ignores a
+        result of a dispatch that is no longer the task's current one.
+        """
+        from codeforge.backends._base import TaskResult as BackendTaskResult
+
+        payload = TaskMessage(
+            id="task-d", project_id="p1", tenant_id="tenant-1", title="t", prompt="do it", dispatch_id="d-7"
+        )
+        msg, _ = jetstream_msg(payload.model_dump_json().encode(), subject="tasks.agent.aider")
+        consumer._backend_router = MagicMock()
+        if outcome == "completed":
+            consumer._backend_router.execute = AsyncMock(
+                return_value=BackendTaskResult(status="completed", output="ok")
+            )
+        elif outcome == "failed":
+            consumer._backend_router.execute = AsyncMock(side_effect=RuntimeError("backend down"))
+        else:
+            consumer._run_backend = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        await consumer._handle_message(msg)
+
+        results = _task_results(consumer)
+        assert [(r["task_id"], r["status"], r["dispatch_id"]) for r in results] == [("task-d", outcome, "d-7")]
+
     @pytest.mark.parametrize(("heartbeat_seconds", "interval"), [(7, 7.0), (0, 30.0)])
     async def test_heartbeat_interval_comes_from_the_task(
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch, heartbeat_seconds: int, interval: float

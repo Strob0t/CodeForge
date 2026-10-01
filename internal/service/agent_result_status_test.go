@@ -18,9 +18,9 @@ type taskStatusStore struct {
 	patches  int
 }
 
-func (s *taskStatusStore) UpdateTaskResult(_ context.Context, id string, status task.Status, _ task.Result, _ float64) error {
+func (s *taskStatusStore) RecordTaskResult(_ context.Context, id, _ string, status task.Status, _ task.Result, _ float64) (bool, error) {
 	s.statuses[id] = status
-	return nil
+	return true, nil
 }
 
 func (s *taskStatusStore) UpdateTaskStatus(_ context.Context, id string, status task.Status) error {
@@ -48,7 +48,7 @@ func TestAgentServiceHandleResult_TaskStatusFollowsTheResult(t *testing.T) {
 			bc := &mockBroadcaster{}
 			svc := NewAgentService(store, &mockQueue{}, bc)
 
-			if err := svc.HandleResult(context.Background(), "completed", tc.result, "t1", "p1", 0.01); err != nil {
+			if err := svc.HandleResult(context.Background(), "completed", tc.result, "t1", "p1", "", 0.01); err != nil {
 				t.Fatalf("HandleResult: %v", err)
 			}
 			if got := store.statuses["t1"]; got != tc.want {

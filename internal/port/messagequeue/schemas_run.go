@@ -46,16 +46,20 @@ func NewTaskAgentPayload(e *agentbackend.Execution, backend string) TaskAgentPay
 
 // TaskResultPayload is the schema for tasks.result messages.
 type TaskResultPayload struct {
-	TaskID    string   `json:"task_id"`
-	ProjectID string   `json:"project_id"`
-	TenantID  string   `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
-	Status    string   `json:"status"`
-	Output    string   `json:"output"`
-	Files     []string `json:"files"`
-	Error     string   `json:"error"`
-	TokensIn  int64    `json:"tokens_in"`
-	TokensOut int64    `json:"tokens_out"`
-	CostUSD   float64  `json:"cost_usd"`
+	TaskID    string `json:"task_id"`
+	ProjectID string `json:"project_id"`
+	TenantID  string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	// DispatchID is the dispatch the result reports (TaskAgentPayload's,
+	// echoed by the worker): only a result of the task's current dispatch
+	// ends the task. Empty from workers older than dispatch IDs.
+	DispatchID string   `json:"dispatch_id,omitempty"`
+	Status     string   `json:"status"`
+	Output     string   `json:"output"`
+	Files      []string `json:"files"`
+	Error      string   `json:"error"`
+	TokensIn   int64    `json:"tokens_in"`
+	TokensOut  int64    `json:"tokens_out"`
+	CostUSD    float64  `json:"cost_usd"`
 }
 
 // TaskCancelPayload is the schema for tasks.cancel messages.

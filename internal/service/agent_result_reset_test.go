@@ -22,7 +22,7 @@ func TestHandleResult_ResetsTheAgent(t *testing.T) {
 			hub := &mockBroadcaster{}
 			svc := NewAgentService(store, &mockQueue{}, hub)
 
-			if err := svc.HandleResult(context.Background(), reported, task.Result{Output: "done"}, "t1", "p1", 0.01); err != nil {
+			if err := svc.HandleResult(context.Background(), reported, task.Result{Output: "done"}, "t1", "p1", "", 0.01); err != nil {
 				t.Fatalf("HandleResult: %v", err)
 			}
 
@@ -49,7 +49,7 @@ func TestHandleResult_TaskWithoutAgent(t *testing.T) {
 	hub := &mockBroadcaster{}
 	svc := NewAgentService(store, &mockQueue{}, hub)
 
-	if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "t1", "p1", 0); err != nil {
+	if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "t1", "p1", "", 0); err != nil {
 		t.Fatalf("HandleResult: %v", err)
 	}
 	for _, ev := range hub.events {
@@ -72,7 +72,7 @@ func TestDispatchThenResult_AgentIsIdleAgain(t *testing.T) {
 	if store.agents[0].Status != agent.StatusRunning || store.tasks[0].AgentID != "agent-1" {
 		t.Fatalf("after dispatch: agent %q, task agent %q; want running and agent-1", store.agents[0].Status, store.tasks[0].AgentID)
 	}
-	if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "task-1", "proj-1", 0); err != nil {
+	if err := svc.HandleResult(context.Background(), "completed", task.Result{Output: "done"}, "task-1", "proj-1", "", 0); err != nil {
 		t.Fatalf("HandleResult: %v", err)
 	}
 	if store.agents[0].Status != agent.StatusIdle {
