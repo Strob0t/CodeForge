@@ -6,6 +6,13 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: check-yaml
+        exclude: ^docker-compose\.blue-green\.yml$
+      # The blue-green overlay uses the Compose YAML tags !reset and !override,
+      # which the safe loader rejects: check its syntax only.
+      - id: check-yaml
+        name: check yaml (compose tags)
+        files: ^docker-compose\.blue-green\.yml$
+        args: [--unsafe]
       - id: check-json
       - id: check-merge-conflict
       - id: detect-private-key
