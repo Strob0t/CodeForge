@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -414,6 +416,47 @@ func (s *BenchmarkService) HandleBenchmarkTaskProgress(ctx context.Context, _ st
 	return nil
 }
 
+// deadLetteredBenchmarkRunError is the error of a benchmark run whose
+// request was dead-lettered.
+const deadLetteredBenchmarkRunError = "the benchmark run request could not be delivered to a worker (dead-lettered)"
+
+// HandleDeadLetteredRunRequest fails the benchmark run whose request a
+// worker dead-lettered (rejected as invalid, or not accepted within its
+// deliveries; S2-G fix, f3), in the request's tenant: no worker runs it, and
+// it would stay running until the watchdog's timeout. A request that cannot
+// be read, or of a run that is unknown in its tenant or already ended, is
+// ignored; a store error is retried.
+func (s *BenchmarkService) HandleDeadLetteredRunRequest(ctx context.Context, _ string, data []byte) error {
+	var req messagequeue.BenchmarkRunRequestPayload
+	if err := json.Unmarshal(data, &req); err != nil || req.RunID == "" {
+		slog.Warn("dead-lettered benchmark run request without a run, ignored", "error", err)
+		return nil
+	}
+	ctx = withPayloadTenant(ctx, req.TenantID)
+	run, err := s.store.GetBenchmarkRun(ctx, req.RunID)
+	if errors.Is(err, domain.ErrNotFound) {
+		slog.InfoContext(ctx, "dead-lettered request of an unknown benchmark run, ignored", "run_id", req.RunID)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get benchmark run %s: %w", req.RunID, err)
+	}
+	if run.Status != benchmark.StatusRunning {
+		slog.InfoContext(ctx, "dead-lettered request of a benchmark run that ended, ignored", "run_id", run.ID, "status", run.Status)
+		return nil
+	}
+	run.Status = benchmark.StatusFailed
+	run.ErrorMessage = deadLetteredBenchmarkRunError
+	if err := s.Runs.UpdateRun(ctx, run); err != nil {
+		return fmt.Errorf("fail dead-lettered benchmark run %s: %w", run.ID, err)
+	}
+	slog.WarnContext(ctx, "benchmark run request dead-lettered, run failed", "run_id", run.ID)
+	if s.hub != nil {
+		s.hub.BroadcastEvent(ctx, "benchmark.run.progress", BenchmarkRunProgressPayload{RunID: run.ID, Status: string(run.Status)})
+	}
+	return nil
+}
+
 // StartResultSubscriber subscribes to benchmark NATS subjects.
 // Returns a cancel function to stop all subscriptions.
 func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), error) {
@@ -439,10 +482,19 @@ func (s *BenchmarkService) StartResultSubscriber(ctx context.Context) (func(), e
 		return func() {}, fmt.Errorf("subscribe benchmark task progress: %w", err)
 	}
 
+	cancelDeadLettered, err := s.queue.Subscribe(ctx, messagequeue.SubjectBenchmarkRunRequest+deadLetterSuffix, s.HandleDeadLetteredRunRequest)
+	if err != nil {
+		cancelResult()
+		cancelStarted()
+		cancelProgress()
+		return func() {}, fmt.Errorf("subscribe dead-lettered benchmark run requests: %w", err)
+	}
+
 	return func() {
 		cancelResult()
 		cancelStarted()
 		cancelProgress()
+		cancelDeadLettered()
 	}, nil
 }
 
