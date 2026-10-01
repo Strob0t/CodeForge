@@ -7,6 +7,11 @@
 #   Traefik routes to whichever color runs. If the new color does not become
 #   healthy it is stopped and the active one keeps serving.
 #
+#   The shared services (postgres, nats, litellm) must already run and be
+#   healthy (`docker compose -f docker-compose.prod.yml -f
+#   docker-compose.blue-green.yml up -d`). The color is started with
+#   --no-deps, so the deployment never recreates them.
+#
 # Environment:
 #   ACME_EMAIL, CODEFORGE_DOMAIN  required by the overlay (or set in .env)
 #   DRY_RUN=1                     print the plan and run the changing compose
@@ -20,6 +25,9 @@ cd "$(dirname "$0")/.."
 COMPOSE=(docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml)
 # The colors are compose profiles; naming them lets ps/stop see both.
 export COMPOSE_PROFILES=blue,green
+
+# The services the colors depend on (core's depends_on in the prod file).
+SHARED_SERVICES=(postgres nats litellm)
 
 HEALTH_TIMEOUT=${HEALTH_TIMEOUT:-120}
 HEALTH_INTERVAL=${HEALTH_INTERVAL:-5}
@@ -58,18 +66,41 @@ detect_active() {
     fi
 }
 
+# health prints the health of a container: healthy, starting, unhealthy, or
+# none when it has no health check.
+health() {
+    docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2>/dev/null || echo unknown
+}
+
+# require_shared_services fails unless every shared service runs and, when it
+# has a health check, is healthy: the colors are started with --no-deps, so
+# nothing else starts them (and an `up` with dependencies could recreate them).
+require_shared_services() {
+    local service id state missing=()
+    for service in "${SHARED_SERVICES[@]}"; do
+        id=$(running_id "$service")
+        state=$([ -n "$id" ] && health "$id" || echo "not running")
+        if [ "$state" != "healthy" ] && [ "$state" != "none" ]; then
+            missing+=("$service ($state)")
+        fi
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo "ERROR: shared services are not running and healthy: ${missing[*]}" >&2
+        echo "Start them first: ${COMPOSE[*]} up -d" >&2
+        return 1
+    fi
+    echo "Shared services running: ${SHARED_SERVICES[*]}"
+}
+
 # wait_healthy waits until the service's container reports healthy.
 wait_healthy() {
-    local service=$1 elapsed=0 id health
+    local service=$1 elapsed=0 id
     echo "Waiting for $service to be healthy..."
     while [ "$elapsed" -lt "$HEALTH_TIMEOUT" ]; do
         id=$(running_id "$service")
-        if [ -n "$id" ]; then
-            health=$(docker inspect --format '{{.State.Health.Status}}' "$id" 2>/dev/null || echo unknown)
-            if [ "$health" = "healthy" ]; then
-                echo "$service is healthy"
-                return 0
-            fi
+        if [ -n "$id" ] && [ "$(health "$id")" = "healthy" ]; then
+            echo "$service is healthy"
+            return 0
         fi
         sleep "$HEALTH_INTERVAL"
         elapsed=$((elapsed + HEALTH_INTERVAL))
@@ -97,6 +128,7 @@ if [ "$TARGET" = "$ACTIVE" ]; then
     exit 2
 fi
 echo "Deploying: $TARGET"
+require_shared_services
 
 if [ "$DRY_RUN" = "1" ]; then
     # A dry-run pull still asks the registry; the plan is shown instead.
@@ -104,23 +136,34 @@ if [ "$DRY_RUN" = "1" ]; then
 else
     change pull "core-$TARGET" "frontend-$TARGET"
 fi
+
+# start_healthy starts one service of the color without its dependencies and
+# waits until it is healthy; on failure the color is stopped again.
+start_healthy() {
+    change up -d --no-deps "$1"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "(dry run) would wait for $1 to be healthy"
+        return 0
+    fi
+    if ! wait_healthy "$1"; then
+        echo "Deployment of $TARGET failed; stopping it, $ACTIVE keeps serving." >&2
+        change stop "core-$TARGET" "frontend-$TARGET"
+        exit 1
+    fi
+}
+
 # Traefik routes to the colors; it is started here if it is not running yet.
-change up -d traefik
-change up -d "core-$TARGET" "frontend-$TARGET"
+change up -d --no-deps traefik
+# The frontend proxies to its color's core: the core first.
+start_healthy "core-$TARGET"
+start_healthy "frontend-$TARGET"
 
 if [ "$DRY_RUN" = "1" ]; then
-    echo "(dry run) would wait for core-$TARGET and frontend-$TARGET to be healthy"
     if [ "$ACTIVE" != "none" ]; then
         change stop "core-$ACTIVE" "frontend-$ACTIVE"
     fi
     echo "(dry run) done; nothing was changed"
     exit 0
-fi
-
-if ! wait_healthy "core-$TARGET" || ! wait_healthy "frontend-$TARGET"; then
-    echo "Deployment of $TARGET failed; stopping it, $ACTIVE keeps serving." >&2
-    change stop "core-$TARGET" "frontend-$TARGET"
-    exit 1
 fi
 
 if [ "$ACTIVE" != "none" ]; then
