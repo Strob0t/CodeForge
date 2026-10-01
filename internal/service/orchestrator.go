@@ -34,6 +34,7 @@ type OrchestratorService struct {
 	sharedCtx               *SharedContextService
 	reviewRouter            *ReviewRouterService
 	stepGate                StepGate
+	preparer                StepPreparer
 	onPlanCompleteCallbacks []func(ctx context.Context, planID string, status string)
 	// mu serializes plan scheduling: plan and step decisions are made and
 	// steps are started under it. Functions named ...Locked expect it held;
@@ -61,6 +62,12 @@ type OrchestratorService struct {
 	reviewsInFlight map[string]bool // steps whose review is being decided
 	reviewDecisions map[string]bool // step ID -> routed to a debate, decided and not yet used
 	reviews         sync.WaitGroup  // review goroutines (decideReview)
+
+	// Step preparations (S6-F 2): PrepareStep runs outside mu, a step waits
+	// pending until it is prepared.
+	prepMu    sync.Mutex
+	preparing map[string]bool        // steps being prepared
+	prepared  map[string]preparation // step ID -> outcome, not yet used
 }
 
 // AddOnPlanComplete appends a callback invoked when a plan completes or
@@ -123,6 +130,8 @@ func NewOrchestratorService(
 		reviewsInFlight: make(map[string]bool),
 		reviewDecisions: make(map[string]bool),
 		gating:          make(map[string]bool),
+		preparing:       make(map[string]bool),
+		prepared:        make(map[string]preparation),
 	}
 	return svc
 }

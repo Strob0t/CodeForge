@@ -63,8 +63,24 @@ func (f *fakeReviewStore) CreateReviewPipeline(_ context.Context, rp *review.Pip
 	if f.pipelines == nil {
 		f.pipelines = map[string]*review.Pipeline{}
 	}
+	if rp.State == "" {
+		rp.State = review.PipelinePending
+	}
 	stored := *rp
 	f.pipelines[rp.PlanID] = &stored
+	return nil
+}
+
+func (f *fakeReviewStore) UpdateReviewPipeline(_ context.Context, rp *review.Pipeline, from review.PipelineState) error {
+	stored, ok := f.pipelines[rp.PlanID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if stored.State != from {
+		return domain.ErrConflict
+	}
+	updated := *rp
+	f.pipelines[rp.PlanID] = &updated
 	return nil
 }
 
@@ -336,12 +352,45 @@ func TestReviewPipeline_StartReviewRefactor(t *testing.T) {
 	if req.TeamID != "team-1" || len(f.teams.created) != 1 || f.teams.created[0].Members[0].AgentID != "idle" {
 		t.Fatalf("team = %q (%+v), want a team of the idle agent", req.TeamID, f.teams.created)
 	}
-	if !hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
-		t.Fatal("no workspace baseline recorded for the refactoring")
+	// The baseline is taken when the refactorer step starts (S6-F 2).
+	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+		t.Fatal("a baseline was recorded when the pipeline started")
 	}
 	rp := f.store.pipelines["plan-1"]
-	if rp == nil || rp.BaselineSHA != reviewGit(t, f.dir, "rev-parse", reviewBaselineRef("plan-1")) || rp.ProjectID != "proj-1" {
-		t.Fatalf("review record = %+v, want the plan's baseline commit", rp)
+	if rp == nil || rp.State != review.PipelinePending || rp.BaselineSHA != "" || rp.ProjectID != "proj-1" {
+		t.Fatalf("review record = %+v, want a pending one", rp)
+	}
+}
+
+// S6-F 2: the baseline is the workspace when the refactorer step starts,
+// recorded once; a refactorer step of another plan needs nothing.
+func TestReviewPipeline_PrepareRecordsTheBaseline(t *testing.T) {
+	f := newReviewFixture(t)
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartReviewPipeline: %v", err)
+	}
+	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer"}
+	if !f.svc.NeedsPreparation(step) || f.svc.NeedsPreparation(&plan.Step{ModeID: "reviewer"}) {
+		t.Fatal("only refactorer steps need preparation")
+	}
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
+	rp := f.store.pipelines["plan-1"]
+	if rp.State != review.PipelineRefactoring || rp.StepID != "step-3" ||
+		rp.BaselineSHA != reviewGit(t, f.dir, "rev-parse", reviewBaselineRef("plan-1")) {
+		t.Fatalf("review record = %+v, want the baseline of step-3", rp)
+	}
+
+	// A re-planned refactoring step keeps the first baseline.
+	first := rp.BaselineSHA
+	writeLines(t, f.dir, "a.go", 120, "partial")
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil || f.store.pipelines["plan-1"].BaselineSHA != first {
+		t.Fatalf("second PrepareStep = %v, baseline %s, want the first one kept", err, f.store.pipelines["plan-1"].BaselineSHA)
+	}
+
+	if err := f.svc.PrepareStep(f.ctx, &plan.Step{ID: "s", PlanID: "plan-9", ModeID: "refactorer"}); err != nil {
+		t.Fatalf("PrepareStep of another plan: %v", err)
 	}
 }
 
@@ -406,6 +455,9 @@ func gateFixture(t *testing.T, boundaries []boundary.BoundaryFile, change func(d
 	}
 	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer", RunID: "run-4", Status: plan.StepStatusRunning}
 	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusRunning, Steps: []plan.Step{*step}}
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
 	change(f.dir)
 	return f, step
 }
@@ -584,6 +636,9 @@ func TestReviewPipeline_GateDoesNotTrustTheRef(t *testing.T) {
 		{"no baseline recorded", func(_ *testing.T, f *reviewFixture) {
 			f.store.pipelines["plan-1"].BaselineSHA = ""
 		}},
+		{"the refactoring started without a baseline", func(_ *testing.T, f *reviewFixture) {
+			f.store.pipelines["plan-1"].State = review.PipelinePending
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -601,23 +656,31 @@ func TestReviewPipeline_GateDoesNotTrustTheRef(t *testing.T) {
 	}
 }
 
-// Changes the user had in the workspace before the pipeline started are not
-// part of the refactoring.
-func TestReviewPipeline_GateMeasuresOnlyThePipelinesChange(t *testing.T) {
+// Changes the user made before the refactorer step started - before the
+// pipeline or while its reports were written - are not part of the
+// refactoring (S6-F 2).
+func TestReviewPipeline_GateMeasuresOnlyTheRefactorersChange(t *testing.T) {
 	f := newReviewFixture(t)
 	writeLines(t, f.dir, "a.go", 400, "user")
 	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
 		t.Fatalf("StartReviewPipeline: %v", err)
 	}
-	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusRunning}
+	writeLines(t, f.dir, "notes.md", 300, "while the reports were written")
+	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer", RunID: "run-4"}
+	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusRunning, Steps: []plan.Step{*step}}
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
 	writeLines(t, f.dir, "api.proto", 6, "message")
 
-	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer", RunID: "run-4"}
 	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusCompleted {
 		t.Fatalf("GateStep = %s, want completed (a one-line refactoring)", got)
 	}
-	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
-		t.Fatal("the baseline of a decided refactoring is kept")
+	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) || hasRef(t, f.dir, reviewResultRef("plan-1")) {
+		t.Fatal("the refs of a decided refactoring are kept")
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineDone {
+		t.Fatalf("review state = %s, want done", rp.State)
 	}
 }
 
@@ -655,9 +718,16 @@ func waitingStep(t *testing.T) (*reviewFixture, *plan.Step) {
 func TestReviewPipeline_RejectUndoesTheRefactoring(t *testing.T) {
 	f, step := waitingStep(t)
 	baseline := reviewGit(t, f.dir, "show", "HEAD:a.go")
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineAwaitingDecision || rp.ResultSHA == "" || rp.Impact == nil {
+		t.Fatalf("review record = %+v, want the measured refactoring awaiting a decision", rp)
+	}
 
-	if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+	d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false)
+	if err != nil {
 		t.Fatalf("Decide(reject): %v", err)
+	}
+	if d.Status != "rejected" || d.HeadRestored || d.Message != "" || !slices.Equal(d.RestoredPaths, []string{"a.go", "new.go"}) {
+		t.Fatalf("decision = %+v, want a.go and new.go restored, HEAD untouched", d)
 	}
 	if got := readFile(t, f.dir, "a.go"); got != baseline+"\n" {
 		t.Fatalf("a.go after reject is not the baseline:\n%.60s", got)
@@ -668,8 +738,61 @@ func TestReviewPipeline_RejectUndoesTheRefactoring(t *testing.T) {
 	if len(f.planner.rejected) != 1 || len(f.planner.approved) != 0 {
 		t.Fatalf("rejected %v approved %v, want the step rejected", f.planner.rejected, f.planner.approved)
 	}
-	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
-		t.Fatal("baseline kept after the decision")
+	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) || hasRef(t, f.dir, reviewResultRef("plan-1")) {
+		t.Fatal("refs kept after the decision")
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineDone {
+		t.Fatalf("review state = %s, want done", rp.State)
+	}
+}
+
+// S6-F 2: the undo is path-scoped. Edits the user made before the refactorer
+// started and edits made since the measurement in other paths are kept.
+func TestReviewPipeline_RejectKeepsTheUsersEdits(t *testing.T) {
+	f := newReviewFixture(t)
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartReviewPipeline: %v", err)
+	}
+	writeLines(t, f.dir, "before.md", 3, "edited while the reports were written")
+	step := &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer", RunID: "run-4", Status: plan.StepStatusRunning}
+	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusRunning, Steps: []plan.Step{*step}}
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
+	writeLines(t, f.dir, "a.go", 300, "rewritten")
+	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+		t.Fatalf("GateStep = %s", got)
+	}
+	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
+	writeLines(t, f.dir, "after.md", 2, "edited while the decision waited")
+
+	if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+		t.Fatalf("Decide(reject): %v", err)
+	}
+	if strings.Contains(readFile(t, f.dir, "a.go"), "rewritten") {
+		t.Fatal("the refactoring was not undone")
+	}
+	if !strings.Contains(readFile(t, f.dir, "before.md"), "while the reports") || !strings.Contains(readFile(t, f.dir, "after.md"), "decision waited") {
+		t.Fatal("the user's edits were undone with the refactoring")
+	}
+}
+
+// An edit in the same lines as the refactoring since the measurement cannot
+// be separated from it: the undo fails, names the file and changes nothing.
+func TestReviewPipeline_RejectOverlappingEditFails(t *testing.T) {
+	f, step := waitingStep(t)
+	writeLines(t, f.dir, "a.go", 300, "edited again")
+	before := readFile(t, f.dir, "a.go")
+
+	_, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false)
+	if !errors.Is(err, domain.ErrValidation) || !strings.Contains(err.Error(), "a.go") {
+		t.Fatalf("Decide(reject) = %v, want a validation error naming a.go", err)
+	}
+	if readFile(t, f.dir, "a.go") != before || len(f.planner.rejected) != 0 {
+		t.Fatal("a failed undo changed the workspace or rejected the step")
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineAwaitingDecision {
+		t.Fatalf("review state = %s, want the decision still pending", rp.State)
 	}
 }
 
@@ -682,8 +805,9 @@ func TestReviewPipeline_RejectUsesTheRecordedBaseline(t *testing.T) {
 	tree := reviewGit(t, f.dir, "write-tree")
 	forged := reviewGit(t, f.dir, "commit-tree", tree, "-m", "forged baseline")
 	reviewGit(t, f.dir, "update-ref", reviewBaselineRef("plan-1"), forged)
+	reviewGit(t, f.dir, "reset", "-q")
 
-	if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+	if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
 		t.Fatalf("Decide(reject): %v", err)
 	}
 	if got := readFile(t, f.dir, "a.go"); got != original+"\n" {
@@ -694,9 +818,9 @@ func TestReviewPipeline_RejectUsesTheRecordedBaseline(t *testing.T) {
 	}
 }
 
-// A refactoring the agent committed is undone too: HEAD returns to the commit
-// checked out when the pipeline started, the working tree and the user's
-// index to their state then (the baseline is a base checkpoint commit).
+// A refactoring the agent committed is undone too: HEAD still points at the
+// refactoring's commit, so it moves back with a compare-and-swap, and the
+// workspace is clean again.
 func TestReviewPipeline_RejectUndoesACommittedRefactoring(t *testing.T) {
 	var started string
 	f, step := gateFixture(t, nil, func(dir string) {
@@ -709,8 +833,12 @@ func TestReviewPipeline_RejectUndoesACommittedRefactoring(t *testing.T) {
 	}
 	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
 
-	if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+	d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false)
+	if err != nil {
 		t.Fatalf("Decide(reject): %v", err)
+	}
+	if !d.HeadRestored || d.Message != "" {
+		t.Fatalf("decision = %+v, want HEAD moved back", d)
 	}
 	if head := reviewGit(t, f.dir, "rev-parse", "HEAD"); head != started {
 		t.Fatalf("HEAD = %s after reject, want %s", head, started)
@@ -720,11 +848,43 @@ func TestReviewPipeline_RejectUndoesACommittedRefactoring(t *testing.T) {
 	}
 }
 
+// HEAD that moved on since the measurement (the user committed) is left
+// where it is: only the files are restored, and the answer says so.
+func TestReviewPipeline_RejectLeavesAMovedHead(t *testing.T) {
+	f, step := gateFixture(t, nil, func(dir string) {
+		writeLines(t, dir, "a.go", 300, "rewritten")
+		reviewGit(t, dir, "commit", "-qam", "refactor")
+	})
+	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+		t.Fatalf("GateStep = %s, want waiting for approval", got)
+	}
+	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusWaitingApproval
+	writeLines(t, f.dir, "user.go", 2, "user")
+	reviewGit(t, f.dir, "add", "user.go")
+	reviewGit(t, f.dir, "commit", "-qm", "user's commit")
+	userHead := reviewGit(t, f.dir, "rev-parse", "HEAD")
+
+	d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false)
+	if err != nil {
+		t.Fatalf("Decide(reject): %v", err)
+	}
+	if d.HeadRestored || !strings.Contains(d.Message, "HEAD was left") || !slices.Equal(d.RestoredPaths, []string{"a.go"}) {
+		t.Fatalf("decision = %+v, want HEAD left with a message and a.go restored", d)
+	}
+	if head := reviewGit(t, f.dir, "rev-parse", "HEAD"); head != userHead {
+		t.Fatalf("HEAD = %s, want the user's commit %s", head, userHead)
+	}
+	if strings.Contains(readFile(t, f.dir, "a.go"), "rewritten") || readFile(t, f.dir, "user.go") == "" {
+		t.Fatal("want a.go restored and the user's file kept")
+	}
+}
+
 func TestReviewPipeline_ApproveKeepsTheRefactoring(t *testing.T) {
 	f, step := waitingStep(t)
 
-	if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); err != nil {
-		t.Fatalf("Decide(approve): %v", err)
+	d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true)
+	if err != nil || d.Status != "approved" {
+		t.Fatalf("Decide(approve) = %+v, %v", d, err)
 	}
 	if !strings.Contains(readFile(t, f.dir, "a.go"), "rewritten") {
 		t.Fatal("approved refactoring was undone")
@@ -732,19 +892,23 @@ func TestReviewPipeline_ApproveKeepsTheRefactoring(t *testing.T) {
 	if len(f.planner.approved) != 1 || len(f.planner.rejected) != 0 {
 		t.Fatalf("approved %v rejected %v, want the step approved", f.planner.approved, f.planner.rejected)
 	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineDone || hasRef(t, f.dir, reviewResultRef("plan-1")) {
+		t.Fatalf("review state = %s, want done and the refs dropped", rp.State)
+	}
 }
 
 func TestReviewPipeline_DecideErrors(t *testing.T) {
 	t.Run("run of another step", func(t *testing.T) {
 		f, step := waitingStep(t)
-		if err := f.svc.Decide(f.ctx, "run-other", "plan-1", step.ID, true); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := f.svc.Decide(f.ctx, "run-other", "plan-1", step.ID, true); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("Decide = %v, want not found", err)
 		}
 	})
-	t.Run("step not waiting", func(t *testing.T) {
+	t.Run("nothing to decide", func(t *testing.T) {
 		f, step := waitingStep(t)
 		f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusCompleted
-		if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
+		f.store.pipelines["plan-1"].State = review.PipelineDone
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("Decide = %v, want a validation error", err)
 		}
 		if len(f.planner.rejected) != 0 {
@@ -756,7 +920,7 @@ func TestReviewPipeline_DecideErrors(t *testing.T) {
 		if err := os.RemoveAll(filepath.Join(f.dir, ".git")); err != nil {
 			t.Fatal(err)
 		}
-		if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err == nil {
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err == nil {
 			t.Fatal("Decide succeeded without undoing the refactoring")
 		}
 		if len(f.planner.rejected) != 0 {
@@ -769,7 +933,7 @@ func TestReviewPipeline_RejectWithoutBaselineIsRefused(t *testing.T) {
 	t.Run("no baseline recorded", func(t *testing.T) {
 		f, step := waitingStep(t)
 		f.store.pipelines["plan-1"].BaselineSHA = ""
-		if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("Decide(reject) = %v, want a validation error", err)
 		}
 		if len(f.planner.rejected) != 0 {
@@ -779,7 +943,7 @@ func TestReviewPipeline_RejectWithoutBaselineIsRefused(t *testing.T) {
 	t.Run("recorded baseline commit is gone", func(t *testing.T) {
 		f, step := waitingStep(t)
 		f.store.pipelines["plan-1"].BaselineSHA = "1111111111111111111111111111111111111111"
-		if err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err == nil {
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err == nil {
 			t.Fatal("Decide(reject) succeeded without the baseline commit")
 		}
 		if len(f.planner.rejected) != 0 {
@@ -788,18 +952,17 @@ func TestReviewPipeline_RejectWithoutBaselineIsRefused(t *testing.T) {
 	})
 }
 
-// A review plan that ends without a decision (a step failed, the plan was
-// cancelled) leaves no baseline behind.
-func TestReviewPipeline_PlanEndDropsTheBaseline(t *testing.T) {
-	f := newReviewFixture(t)
-	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
-		t.Fatalf("StartReviewPipeline: %v", err)
-	}
-	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Steps: []plan.Step{{ModeID: "refactorer"}}}
+// A review plan that ends without a refactoring waiting for a decision is
+// done and leaves no refs behind.
+func TestReviewPipeline_PlanEndDropsTheRefs(t *testing.T) {
+	f, _ := gateFixture(t, nil, func(string) {})
 
-	f.svc.PlanEnded(f.ctx, "plan-1", "failed")
+	f.svc.PlanEnded(f.ctx, "plan-1", "completed")
 	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
 		t.Fatal("baseline kept after the plan ended")
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineDone {
+		t.Fatalf("review state = %s, want done", rp.State)
 	}
 	f.svc.PlanEnded(f.ctx, "unknown", "completed") // not a review plan: nothing to do
 }

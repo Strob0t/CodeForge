@@ -517,6 +517,7 @@ func run() error {
 	reviewPipelineSvc := service.NewReviewPipelineService(store, pipelineSvc, orchSvc, poolManagerSvc, gitPool, hub,
 		service.DefaultDiffImpactConfig())
 	orchSvc.SetStepGate(reviewPipelineSvc.GateStep)
+	orchSvc.SetStepPreparer(reviewPipelineSvc)
 	orchSvc.AddOnPlanComplete(reviewPipelineSvc.PlanEnded)
 	reviewTriggerSvc := service.NewReviewTriggerService(store, reviewPipelineSvc)
 	slog.Info("boundary and review pipeline services initialized")

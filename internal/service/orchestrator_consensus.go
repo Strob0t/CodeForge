@@ -85,6 +85,17 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		// Not routed, or the debate could not be started: run the step.
 	}
 
+	if s.preparer != nil && s.preparer.NeedsPreparation(step) {
+		done, err := s.takePreparation(ctx, p, step)
+		if !done {
+			return true // the step starts once it is prepared
+		}
+		if err != nil {
+			s.failStepStart(ctx, p, step, "prepare step: "+err.Error())
+			return false
+		}
+	}
+
 	req := &run.StartRequest{
 		TaskID:        step.TaskID,
 		AgentID:       step.AgentID,
@@ -98,13 +109,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	r, err := s.runtime.StartRun(ctx, req)
 	if err != nil {
 		slog.Error("start step run", "step_id", stepID, "error", err)
-		logBestEffort(ctx, s.store.UpdatePlanStepStatus(ctx, stepID, plan.StepStatusFailed, "", err.Error()), "UpdatePlanStepStatus", slog.String("step_id", stepID))
-		s.broadcastStepStatus(ctx, p, step, plan.StepStatusFailed)
-		s.hub.BroadcastEvent(ctx, event.AGUIStepFinished, event.AGUIStepFinishedEvent{
-			RunID:  "",
-			StepID: step.ID,
-			Status: string(plan.StepStatusFailed),
-		})
+		s.failStepStart(ctx, p, step, err.Error())
 		return false
 	}
 

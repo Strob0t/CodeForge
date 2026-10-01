@@ -131,6 +131,9 @@ func (decisionStore) UpsertProjectBoundaries(context.Context, *boundary.ProjectB
 	return nil
 }
 func (decisionStore) CreateReviewPipeline(context.Context, *review.Pipeline) error { return nil }
+func (decisionStore) UpdateReviewPipeline(context.Context, *review.Pipeline, review.PipelineState) error {
+	return nil
+}
 func (decisionStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
 	if planID != "plan-1" {
 		return nil, domain.ErrNotFound
@@ -180,9 +183,9 @@ func TestReviewDecisionEndpoints(t *testing.T) {
 	t.Run("approve", func(t *testing.T) {
 		h, planner := newHandlers(plan.StepStatusWaitingApproval)
 		rec := serveReview(h, "/runs/run-4/approve", step)
-		var body map[string]string
+		var body service.ReviewDecision
 		_ = json.Unmarshal(rec.Body.Bytes(), &body)
-		if rec.Code != http.StatusOK || body["status"] != "approved" || len(planner.approved) != 1 {
+		if rec.Code != http.StatusOK || body.Status != "approved" || len(planner.approved) != 1 {
 			t.Fatalf("approve = %d %s (approved %v), want 200 approved", rec.Code, rec.Body.String(), planner.approved)
 		}
 	})

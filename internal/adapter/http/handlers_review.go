@@ -95,8 +95,9 @@ type reviewDecisionRequest struct {
 	StepID string `json:"step_id"`
 }
 
-// decideReview approves or rejects the refactoring of a review step that
-// waits for approval; a rejection undoes the refactoring first.
+// decideReview keeps (approve) or undoes (reject) the refactoring of a review
+// step. The answer says whether HEAD was moved back and, if not, why
+// (service.ReviewDecision).
 func (h *Handlers) decideReview(w http.ResponseWriter, r *http.Request, approve bool) {
 	if h.ReviewPipeline == nil {
 		writeError(w, http.StatusServiceUnavailable, "review pipeline not configured")
@@ -110,15 +111,12 @@ func (h *Handlers) decideReview(w http.ResponseWriter, r *http.Request, approve 
 	if !requireField(w, body.PlanID, "plan_id") || !requireField(w, body.StepID, "step_id") {
 		return
 	}
-	if err := h.ReviewPipeline.Decide(r.Context(), runID, body.PlanID, body.StepID, approve); err != nil {
+	decision, err := h.ReviewPipeline.Decide(r.Context(), runID, body.PlanID, body.StepID, approve)
+	if err != nil {
 		writeDomainError(w, err, "no refactoring of run "+runID+" waits in this step")
 		return
 	}
-	status := "rejected"
-	if approve {
-		status = "approved"
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": status})
+	writeJSON(w, http.StatusOK, decision)
 }
 
 // ApproveRun handles POST /api/v1/runs/{id}/approve

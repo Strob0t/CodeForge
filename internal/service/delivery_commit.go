@@ -159,30 +159,43 @@ func scratchCommit(ctx context.Context, repo *git.Repo, tree string) (string, er
 }
 
 // mergeRunChange merges the changes base..theirs into ours and returns the
-// resulting tree; overlapping changes fail with the files named. git
-// merge-tree exits 1 on conflicts (its output starts with the tree) but also
-// on some errors (no output), so a conflict is recognized by its output.
+// resulting tree; overlapping changes fail with the files named.
 func mergeRunChange(ctx context.Context, repo *git.Repo, base, ours, theirs string) (string, error) {
+	tree, conflicts, err := mergeTrees(ctx, repo, base, ours, theirs)
+	if err != nil {
+		return "", fmt.Errorf("merge the run's change onto HEAD: %w", err)
+	}
+	if len(conflicts) > 0 {
+		return "", fmt.Errorf("the run's change overlaps uncommitted changes made before the run in %s; commit or stash them and deliver again",
+			strings.Join(conflicts, ", "))
+	}
+	return tree, nil
+}
+
+// mergeTrees merges the changes base..theirs into ours (commits) with git
+// merge-tree and returns the resulting tree, or the files whose changes
+// overlap. git merge-tree exits 1 on conflicts (its output starts with the
+// tree) but also on some errors (no output), so a conflict is recognized by
+// its output.
+func mergeTrees(ctx context.Context, repo *git.Repo, base, ours, theirs string) (tree string, conflicts []string, err error) {
 	out, err := repo.Run(ctx, nil, "merge-tree", "--write-tree", "--no-messages", "--name-only", "-z",
 		"--merge-base="+base, ours, theirs)
 	fields := strings.Split(out, "\x00")
 	if code, ran := exitCode(err); ran && code == 1 && objectIDPattern.MatchString(fields[0]) {
-		var files []string
 		for _, f := range fields[1:] {
-			if f != "" && !slices.Contains(files, f) {
-				files = append(files, f)
+			if f != "" && !slices.Contains(conflicts, f) {
+				conflicts = append(conflicts, f)
 			}
 		}
-		return "", fmt.Errorf("the run's change overlaps uncommitted changes made before the run in %s; commit or stash them and deliver again",
-			strings.Join(files, ", "))
+		return "", conflicts, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("merge the run's change onto HEAD: %w", err)
+		return "", nil, err
 	}
 	if !objectIDPattern.MatchString(fields[0]) {
-		return "", fmt.Errorf("merge the run's change onto HEAD: unexpected output %q", out)
+		return "", nil, fmt.Errorf("unexpected merge-tree output %q", out)
 	}
-	return fields[0], nil
+	return fields[0], nil, nil
 }
 
 const deliveryReflog = "codeforge delivery"

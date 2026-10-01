@@ -73,6 +73,7 @@ type reviewPipelineStore interface {
 	UpsertProjectBoundaries(ctx context.Context, cfg *boundary.ProjectBoundaryConfig) error
 	CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) error
 	GetReviewPipeline(ctx context.Context, planID string) (*review.Pipeline, error)
+	UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, from review.PipelineState) error
 }
 
 // reviewPlanner creates, starts and decides the review plans.
@@ -139,10 +140,12 @@ func (s *ReviewPipelineService) StartBoundaryAnalysis(ctx context.Context, proje
 }
 
 // start instantiates the template with one task per step and an idle agent of
-// the project, creates the plan and starts it. A pipeline that refactors gets
-// a team (the reports reach later steps through its shared context) and a
-// baseline of the workspace to measure and undo the refactoring. An error
-// means no step is running, and what the start created is undone (S6-F 13).
+// the project, creates the plan and starts it. A pipeline with several steps
+// gets a team (the reports reach later steps through its shared context). A
+// pipeline that refactors needs a git workspace: its refactoring is measured
+// and undone against a baseline taken when the refactorer step starts
+// (PrepareStep). An error means no step is running, and what the start
+// created is undone (S6-F 13).
 func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID string) (*plan.ExecutionPlan, error) {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -167,7 +170,7 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 	}
 
 	created := &reviewStart{}
-	p, err := s.createAndStart(ctx, proj, ag, tmpl, refactors, created)
+	p, err := s.createAndStart(ctx, proj, ag, tmpl, created)
 	if err != nil {
 		s.undoStart(ctx, created)
 		return nil, err
@@ -202,7 +205,7 @@ func (s *ReviewPipelineService) undoStart(ctx context.Context, created *reviewSt
 // createAndStart creates the pipeline's tasks, team and plan, records the
 // pipeline and starts the plan, noting in created what it created.
 func (s *ReviewPipelineService) createAndStart(
-	ctx context.Context, proj *project.Project, ag *agent.Agent, tmpl *pipeline.Template, refactors bool, created *reviewStart,
+	ctx context.Context, proj *project.Project, ag *agent.Agent, tmpl *pipeline.Template, created *reviewStart,
 ) (*plan.ExecutionPlan, error) {
 	bindings := make([]pipeline.StepBinding, len(tmpl.Steps))
 	for i, st := range tmpl.Steps {
@@ -246,20 +249,8 @@ func (s *ReviewPipelineService) createAndStart(
 	}
 	created.planID = p.ID
 
-	rp := &review.Pipeline{PlanID: p.ID, ProjectID: proj.ID}
-	if refactors {
-		err := s.git.Run(ctx, func() error {
-			repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
-			if err != nil {
-				return err
-			}
-			rp.BaselineSHA, err = snapshotWorkspace(ctx, repo, p.ID)
-			return err
-		})
-		if err != nil {
-			return nil, fmt.Errorf("record the workspace baseline: %w", err)
-		}
-	}
+	// The baseline is recorded when the refactorer step starts (PrepareStep).
+	rp := &review.Pipeline{PlanID: p.ID, ProjectID: proj.ID, State: review.PipelinePending}
 	if err := s.store.CreateReviewPipeline(ctx, rp); err != nil {
 		return nil, fmt.Errorf("record the review pipeline: %w", err)
 	}
@@ -315,6 +306,53 @@ func firstStepError(p *plan.ExecutionPlan) string {
 		}
 	}
 	return "unknown error"
+}
+
+// NeedsPreparation is the orchestrator's step preparer check
+// (OrchestratorService.SetStepPreparer): a refactoring step is prepared.
+func (s *ReviewPipelineService) NeedsPreparation(step *plan.Step) bool {
+	return step.ModeID == refactorerMode
+}
+
+// PrepareStep records the workspace baseline of a review pipeline's
+// refactoring step before its run starts (S6-F 2): the refactoring is
+// measured and undone against the workspace as it is then, so edits made
+// while the reports were written are kept. It runs once per pipeline: a
+// re-planned refactoring step keeps the first baseline. A refactorer step of
+// a plan the review pipeline did not start needs nothing. An error fails the
+// step: the refactoring could be neither measured nor undone.
+func (s *ReviewPipelineService) PrepareStep(ctx context.Context, step *plan.Step) error {
+	rp, err := s.store.GetReviewPipeline(ctx, step.PlanID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load the review record: %w", err)
+	}
+	if rp.State != review.PipelinePending {
+		return nil
+	}
+	proj, err := s.store.GetProject(ctx, rp.ProjectID)
+	if err != nil {
+		return fmt.Errorf("get project: %w", err)
+	}
+	err = s.git.Run(ctx, func() error {
+		repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
+		if err != nil {
+			return err
+		}
+		rp.BaselineSHA, err = snapshotWorkspace(ctx, repo, rp.PlanID, reviewBaselineRef(rp.PlanID), "codeforge-review-baseline")
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("record the workspace baseline: %w", err)
+	}
+	rp.State, rp.StepID = review.PipelineRefactoring, step.ID
+	if err := s.store.UpdateReviewPipeline(ctx, rp, review.PipelinePending); err != nil && !errors.Is(err, domain.ErrConflict) {
+		return fmt.Errorf("record the workspace baseline: %w", err)
+	}
+	slog.Info("review refactoring baseline recorded", "plan_id", rp.PlanID, "step_id", step.ID, "baseline", rp.BaselineSHA)
+	return nil
 }
 
 // GateStep is the orchestrator's step gate (OrchestratorService.SetStepGate):
@@ -388,15 +426,16 @@ func parseBoundaries(output string) []boundary.BoundaryFile {
 }
 
 // gateRefactoring scores the change a review pipeline's refactoring step made
-// since the recorded baseline: low impact completes the step, medium
-// completes it and notifies (review.refactor_applied), high makes it wait for
-// approval (review.approval_required). A refactorer step of a plan the review
+// since its baseline: low impact completes the step, medium completes it and
+// notifies (review.refactor_applied), high makes it wait for a decision
+// (review.approval_required). A refactorer step of a plan the review
 // pipeline did not start is not gated.
 //
-// Only the baseline recorded in the Go DB counts (V1): the workspace and its
-// baseline ref are agent-writable. A missing record lookup, a missing or
-// moved ref, a missing repository or a baseline commit that is gone means the
-// change cannot be measured, and the step waits for approval (fail closed).
+// Only the commits recorded in the Go DB count (V1): the workspace and its
+// refs are agent-writable. A failed record lookup, no recorded baseline, a
+// missing or moved baseline ref, a missing repository or a baseline commit
+// that is gone means the change cannot be measured, and the step waits for a
+// decision (fail closed).
 func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.Step) plan.StepStatus {
 	ev := event.ReviewImpactEvent{RunID: step.RunID, PlanID: step.PlanID, StepID: step.ID, ImpactLevel: string(ImpactHigh)}
 	rp, err := s.store.GetReviewPipeline(ctx, step.PlanID)
@@ -404,34 +443,25 @@ func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.
 	case errors.Is(err, domain.ErrNotFound):
 		return plan.StepStatusCompleted
 	case err != nil:
-		return s.requireApproval(ctx, &ev, fmt.Sprintf("the review record could not be loaded: %v", err))
+		return s.requireApproval(ctx, &ev, nil, fmt.Sprintf("the review record could not be loaded: %v", err))
 	}
 	ev.ProjectID = rp.ProjectID
+	if rp.State != review.PipelineRefactoring {
+		return s.requireApproval(ctx, &ev, rp, fmt.Sprintf("no baseline was recorded when the refactoring started (%s)", rp.State))
+	}
 	proj, err := s.store.GetProject(ctx, rp.ProjectID)
 	if err != nil {
-		return s.requireApproval(ctx, &ev, fmt.Sprintf("the project could not be loaded: %v", err))
+		return s.requireApproval(ctx, &ev, rp, fmt.Sprintf("the project could not be loaded: %v", err))
 	}
 
-	var change *workspaceChange
-	err = s.git.Run(ctx, func() error {
-		repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
-		if err != nil {
-			return err
-		}
-		if err := checkBaseline(ctx, repo, rp.PlanID, rp.BaselineSHA); err != nil {
-			return err
-		}
-		change, err = changeSince(ctx, repo, rp.BaselineSHA)
-		return err
-	})
+	change, err := s.measure(ctx, proj.WorkspacePath, rp)
 	if err != nil {
-		return s.requireApproval(ctx, &ev, fmt.Sprintf("the change could not be measured: %v", err))
+		return s.requireApproval(ctx, &ev, rp, fmt.Sprintf("the change could not be measured: %v", err))
 	}
-
 	stats := change.Stats
 	stats.CrossLayer, err = s.touchesBoundary(ctx, rp.ProjectID, change.Paths)
 	if err != nil {
-		return s.requireApproval(ctx, &ev, fmt.Sprintf("the project's boundaries could not be loaded: %v", err))
+		return s.requireApproval(ctx, &ev, rp, fmt.Sprintf("the project's boundaries could not be loaded: %v", err))
 	}
 	level := s.scorer.Score(stats)
 	ev.ImpactLevel = string(level)
@@ -441,25 +471,65 @@ func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.
 		"files", stats.FilesChanged, "lines_added", stats.LinesAdded, "lines_removed", stats.LinesRemoved)
 
 	switch level {
-	case ImpactLow:
-		s.dropBaseline(ctx, proj.WorkspacePath, rp.PlanID)
-		return plan.StepStatusCompleted
-	case ImpactMedium:
-		s.dropBaseline(ctx, proj.WorkspacePath, rp.PlanID)
-		s.hub.BroadcastEvent(ctx, event.EventReviewRefactorApplied, ev)
+	case ImpactLow, ImpactMedium:
+		s.finish(ctx, rp, proj.WorkspacePath, review.PipelineRefactoring)
+		if level == ImpactMedium {
+			s.hub.BroadcastEvent(ctx, event.EventReviewRefactorApplied, ev)
+		}
 		return plan.StepStatusCompleted
 	default:
-		return s.requireApproval(ctx, &ev, "")
+		return s.requireApproval(ctx, &ev, rp, "")
 	}
 }
 
-func (s *ReviewPipelineService) requireApproval(ctx context.Context, ev *event.ReviewImpactEvent, reason string) plan.StepStatus {
+// measure records the workspace now as the refactoring's result (also when
+// the change cannot be measured, so it can still be undone) and measures the
+// change since the recorded baseline. rp.ResultSHA is set when the result was
+// recorded.
+func (s *ReviewPipelineService) measure(ctx context.Context, dir string, rp *review.Pipeline) (*workspaceChange, error) {
+	var change *workspaceChange
+	err := s.git.Run(ctx, func() error {
+		repo, err := git.OpenRepo(ctx, dir)
+		if err != nil {
+			return err
+		}
+		if rp.ResultSHA, err = snapshotWorkspace(ctx, repo, rp.PlanID, reviewResultRef(rp.PlanID), "codeforge-review-result"); err != nil {
+			return err
+		}
+		if err := checkBaseline(ctx, repo, rp.PlanID, rp.BaselineSHA); err != nil {
+			return err
+		}
+		change, err = changeBetween(ctx, repo, rp.BaselineSHA, rp.ResultSHA)
+		return err
+	})
+	return change, err
+}
+
+// requireApproval makes the step wait for a decision: the measured impact is
+// recorded with the review (awaiting_decision, when rp is still refactoring)
+// and review.approval_required is broadcast.
+func (s *ReviewPipelineService) requireApproval(ctx context.Context, ev *event.ReviewImpactEvent, rp *review.Pipeline, reason string) plan.StepStatus {
 	ev.Reason = reason
 	if reason != "" {
 		slog.Warn("review refactoring needs approval", "plan_id", ev.PlanID, "step_id", ev.StepID, "reason", reason)
 	}
+	if rp != nil && rp.State == review.PipelineRefactoring {
+		s.awaitDecision(ctx, rp, ev)
+	}
 	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, *ev)
 	return plan.StepStatusWaitingApproval
+}
+
+// awaitDecision records that the measured refactoring of rp waits for the
+// user's keep or undo.
+func (s *ReviewPipelineService) awaitDecision(ctx context.Context, rp *review.Pipeline, ev *event.ReviewImpactEvent) {
+	rp.State, rp.StepID, rp.RunID = review.PipelineAwaitingDecision, ev.StepID, ev.RunID
+	rp.Impact = &review.Impact{
+		Level: ev.ImpactLevel, FilesChanged: ev.FilesChanged, LinesAdded: ev.LinesAdded, LinesRemoved: ev.LinesRemoved,
+		CrossLayer: ev.CrossLayer, Structural: ev.Structural, Reason: ev.Reason,
+	}
+	logBestEffort(ctx, s.store.UpdateReviewPipeline(ctx, rp, review.PipelineRefactoring),
+		"UpdateReviewPipeline: refactoring awaits a decision", slog.String("plan_id", rp.PlanID))
 }
 
 // touchesBoundary reports whether a changed path is one of the project's
@@ -493,7 +563,18 @@ func normalizeRepoPath(p string) string {
 	return path.Clean(strings.ReplaceAll(p, "\\", "/")) // Clean also drops a "./" prefix
 }
 
-func (s *ReviewPipelineService) dropBaseline(ctx context.Context, dir, planID string) {
+// finish marks the review pipeline done (compare-and-swap from state from)
+// and drops its refs.
+func (s *ReviewPipelineService) finish(ctx context.Context, rp *review.Pipeline, dir string, from review.PipelineState) {
+	rp.State = review.PipelineDone
+	logBestEffort(ctx, s.store.UpdateReviewPipeline(ctx, rp, from), "UpdateReviewPipeline: review done", slog.String("plan_id", rp.PlanID))
+	s.dropRefs(ctx, dir, rp.PlanID)
+}
+
+func (s *ReviewPipelineService) dropRefs(ctx context.Context, dir, planID string) {
+	if dir == "" {
+		return
+	}
 	err := s.git.Run(ctx, func() error {
 		repo, err := git.OpenRepo(ctx, dir)
 		if errors.Is(err, git.ErrNotRepository) {
@@ -502,22 +583,34 @@ func (s *ReviewPipelineService) dropBaseline(ctx context.Context, dir, planID st
 		if err != nil {
 			return err
 		}
-		return deleteBaseline(ctx, repo, planID)
+		return deleteReviewRefs(ctx, repo, planID)
 	})
-	logBestEffort(ctx, err, "delete review baseline", slog.String("plan_id", planID))
+	logBestEffort(ctx, err, "delete review refs", slog.String("plan_id", planID))
 }
 
-// Decide approves or rejects the refactoring of a review step that waits for
-// approval; runID must be the step's run. A rejection first restores the
-// workspace to the pipeline's baseline, so the refactoring is undone before
-// the step fails; if the restore fails, the step keeps waiting.
-func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepID string, approve bool) error {
+// ReviewDecision is the answer to a keep or undo decision.
+type ReviewDecision struct {
+	Status string `json:"status"` // approved (kept) or rejected (undone)
+	// HeadRestored: the refactoring had moved HEAD (it committed) and HEAD
+	// was moved back to the commit checked out at the baseline.
+	HeadRestored bool `json:"head_restored"`
+	// Message says what the undo could not do, e.g. why HEAD was left.
+	Message       string   `json:"message,omitempty"`
+	RestoredPaths []string `json:"restored_paths,omitempty"`
+}
+
+// Decide keeps (approve) or undoes (reject) the refactoring of a review
+// step; runID must be the step's run. A step waiting for approval is
+// approved or rejected with it. The undo is path-scoped (undoRefactoring):
+// only what the refactoring changed is set back, and HEAD moves back only
+// with a compare-and-swap. If the undo fails, nothing is decided.
+func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepID string, approve bool) (*ReviewDecision, error) {
 	s.decideMu.Lock()
 	defer s.decideMu.Unlock()
 
 	p, err := s.store.GetPlan(ctx, planID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var step *plan.Step
 	for i := range p.Steps {
@@ -526,71 +619,78 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 		}
 	}
 	if step == nil || step.RunID != runID {
-		return fmt.Errorf("run %s of step %s in plan %s: %w", runID, stepID, planID, domain.ErrNotFound)
+		return nil, fmt.Errorf("run %s of step %s in plan %s: %w", runID, stepID, planID, domain.ErrNotFound)
 	}
-	if step.Status != plan.StepStatusWaitingApproval {
-		return fmt.Errorf("%w: step %s is %s, not waiting for approval", domain.ErrValidation, stepID, step.Status)
+	rp, err := s.store.GetReviewPipeline(ctx, planID)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+	pending := rp != nil && rp.State == review.PipelineAwaitingDecision && rp.StepID == stepID && rp.RunID == runID
+	waiting := step.Status == plan.StepStatusWaitingApproval
+	if !waiting && !pending {
+		return nil, fmt.Errorf("%w: step %s is %s, no refactoring of it waits for a decision", domain.ErrValidation, stepID, step.Status)
 	}
 	proj, err := s.store.GetProject(ctx, p.ProjectID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	decision := &ReviewDecision{Status: "approved"}
 	if !approve {
-		rp, err := s.store.GetReviewPipeline(ctx, planID)
-		switch {
-		case errors.Is(err, domain.ErrNotFound) || (err == nil && rp.BaselineSHA == ""):
-			return fmt.Errorf("%w: no baseline recorded to undo the refactoring; cancel the plan and revert the change by hand", domain.ErrValidation)
-		case err != nil:
-			return err
+		decision.Status = "rejected"
+		if !pending || rp.BaselineSHA == "" || rp.ResultSHA == "" {
+			return nil, fmt.Errorf("%w: no measured refactoring recorded to undo; keep it, or cancel the plan and revert the change by hand", domain.ErrValidation)
 		}
-		// The recorded baseline, never the agent-writable ref (V1).
-		err = s.git.Run(ctx, func() error {
+		var out *undoOutcome
+		err := s.git.Run(ctx, func() error {
 			repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
 			if err != nil {
 				return err
 			}
-			if err := requireCommit(ctx, repo, rp.BaselineSHA); err != nil {
-				return err
-			}
-			return restoreWorkspace(ctx, repo, rp.BaselineSHA)
+			out, err = undoRefactoring(ctx, repo, rp.BaselineSHA, rp.ResultSHA)
+			return err
 		})
 		if err != nil {
-			return fmt.Errorf("undo the refactoring: %w", err)
+			return nil, fmt.Errorf("undo the refactoring: %w", err)
 		}
-		if err := s.plans.RejectStep(ctx, planID, stepID); err != nil {
-			return err
+		decision.HeadRestored, decision.Message, decision.RestoredPaths = out.HeadRestored, out.HeadNote, out.Restored
+		if waiting {
+			if err := s.plans.RejectStep(ctx, planID, stepID); err != nil {
+				return nil, err
+			}
 		}
-	} else if err := s.plans.ApproveStep(ctx, planID, stepID); err != nil {
-		return err
+	} else if waiting {
+		if err := s.plans.ApproveStep(ctx, planID, stepID); err != nil {
+			return nil, err
+		}
 	}
-	s.dropBaseline(ctx, proj.WorkspacePath, p.ID)
-	slog.Info("review refactoring decided", "plan_id", planID, "step_id", stepID, "approved", approve)
-	return nil
+	if pending {
+		s.finish(ctx, rp, proj.WorkspacePath, review.PipelineAwaitingDecision)
+	}
+	slog.Info("review refactoring decided", "plan_id", planID, "step_id", stepID, "approved", approve,
+		"head_restored", decision.HeadRestored, "restored_paths", len(decision.RestoredPaths))
+	return decision, nil
 }
 
-// PlanEnded is an orchestrator plan-end callback (AddOnPlanComplete): the
-// baseline ref of a review plan that ended without a decided refactoring (a
-// step failed, or the plan was cancelled) is dropped.
+// PlanEnded is an orchestrator plan-end callback (AddOnPlanComplete): a
+// review plan that ended without a refactoring waiting for a decision is
+// done and its refs are dropped; a decision that waits stays.
 func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, _ string) {
 	rp, err := s.store.GetReviewPipeline(ctx, planID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return // not a review plan
 	}
 	if err != nil {
-		logBestEffort(ctx, err, "GetReviewPipeline: review baseline not dropped", slog.String("plan_id", planID))
+		logBestEffort(ctx, err, "GetReviewPipeline: review pipeline not ended", slog.String("plan_id", planID))
 		return
 	}
-	if rp.BaselineSHA == "" {
+	if rp.State == review.PipelineAwaitingDecision || rp.State == review.PipelineDone {
 		return
 	}
 	proj, err := s.store.GetProject(ctx, rp.ProjectID)
 	if err != nil {
-		logBestEffort(ctx, err, "GetProject: review baseline not dropped", slog.String("plan_id", planID))
-		return
+		logBestEffort(ctx, err, "GetProject: review refs not dropped", slog.String("plan_id", planID))
+		proj = &project.Project{}
 	}
-	if proj.WorkspacePath == "" {
-		return
-	}
-	s.dropBaseline(ctx, proj.WorkspacePath, planID)
+	s.finish(ctx, rp, proj.WorkspacePath, rp.State)
 }

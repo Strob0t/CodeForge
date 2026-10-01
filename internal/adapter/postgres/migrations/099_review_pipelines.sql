@@ -1,15 +1,25 @@
 -- +goose Up
 -- Review pipelines (KI-17): the plans the contract-first review pipeline
--- started and the baseline commit of their refactoring. The threshold HITL
--- trusts this record, not the workspace: the baseline ref there
--- (refs/codeforge/review/<plan>) is agent-writable and only keeps the
--- baseline commit from git's garbage collection.
+-- started and the commits their refactoring is measured and undone against.
+-- The threshold HITL trusts this record, not the workspace: the refs there
+-- (refs/codeforge/review/<plan>, refs/codeforge/review-result/<plan>) are
+-- agent-writable and only keep the commits from git's garbage collection.
+--   state: pending (no refactoring yet) -> refactoring (baseline recorded
+--   when the refactorer step started) -> awaiting_decision (change measured,
+--   keep or undo is up to the user) -> done.
 CREATE TABLE IF NOT EXISTS review_pipelines (
     plan_id      UUID PRIMARY KEY REFERENCES execution_plans(id) ON DELETE CASCADE,
     tenant_id    UUID NOT NULL,
     project_id   UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    state        TEXT NOT NULL DEFAULT 'pending'
+                 CHECK (state IN ('pending', 'refactoring', 'awaiting_decision', 'done')),
     baseline_sha TEXT NOT NULL DEFAULT '',
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    result_sha   TEXT NOT NULL DEFAULT '',
+    step_id      TEXT NOT NULL DEFAULT '',
+    run_id       TEXT NOT NULL DEFAULT '',
+    impact       JSONB,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_review_pipelines_tenant_project ON review_pipelines (tenant_id, project_id);
 
