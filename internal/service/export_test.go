@@ -26,3 +26,10 @@ func (s *OrchestratorService) ReviewDecisionCount() int {
 	defer s.reviewMu.Unlock()
 	return len(s.reviewDecisions)
 }
+
+// PreparedOutcomeCount returns how many step preparations wait for their step's start.
+func (s *OrchestratorService) PreparedOutcomeCount() int {
+	s.prepMu.Lock()
+	defer s.prepMu.Unlock()
+	return len(s.prepared)
+}

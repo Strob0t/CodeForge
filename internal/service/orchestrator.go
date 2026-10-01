@@ -304,7 +304,7 @@ func (s *OrchestratorService) markPlanCancelled(ctx context.Context, planID stri
 		return nil, err
 	}
 	p.Status = plan.StatusCancelled
-	s.forgetReviewDecisions(p.Steps, true)
+	s.forgetStepOutcomes(p.Steps, true)
 	return p, nil
 }
 
@@ -517,7 +517,7 @@ func (s *OrchestratorService) reloadAndAdvanceLocked(ctx context.Context, p *pla
 		}
 		p.Status = stored.Status
 		p.Steps = stored.Steps
-		s.forgetReviewDecisions(p.Steps, p.Status != plan.StatusRunning)
+		s.forgetStepOutcomes(p.Steps, p.Status != plan.StatusRunning)
 
 		// Check if plan is already terminal
 		if p.Status != plan.StatusRunning {

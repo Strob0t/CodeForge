@@ -209,14 +209,19 @@ func (s *OrchestratorService) applyReviewDecision(ctx context.Context, planID st
 	return s.reloadAndAdvanceLocked(ctx, p)
 }
 
-// forgetReviewDecisions drops the review decisions of steps that left
-// pending (all of them with all): a decision is for the step's next start.
-func (s *OrchestratorService) forgetReviewDecisions(steps []plan.Step, all bool) {
+// forgetStepOutcomes drops what was decided for steps about to start - the
+// review decisions and the preparation outcomes (S6-F review 12) - of the
+// steps that left pending (all of them with all): an outcome is for the
+// step's next start only.
+func (s *OrchestratorService) forgetStepOutcomes(steps []plan.Step, all bool) {
 	s.reviewMu.Lock()
+	s.prepMu.Lock()
+	defer s.prepMu.Unlock()
 	defer s.reviewMu.Unlock()
 	for i := range steps {
 		if all || steps[i].Status != plan.StepStatusPending {
 			delete(s.reviewDecisions, steps[i].ID)
+			delete(s.prepared, steps[i].ID)
 		}
 	}
 }

@@ -134,3 +134,54 @@ func (b *blockingPreparer) PrepareStep(context.Context, *plan.Step) error {
 	<-b.release
 	return nil
 }
+
+// Review finding 12: a preparation outcome stored for a step that does not
+// start then (another step waits for approval) is dropped when the plan
+// ends, like the review decisions.
+func TestStepPreparer_OutcomeOfAPlanThatEndedIsDropped(t *testing.T) {
+	store, orchSvc, _ := newOrchRuntimeSetup()
+	ctx := context.Background()
+	release := make(chan struct{})
+	prep := &refactorerPreparer{blockingPreparer{release: release, entered: make(chan struct{})}}
+	orchSvc.SetStepPreparer(prep)
+	orchSvc.SetStepGate(func(_ context.Context, step *plan.Step) (plan.StepStatus, func(context.Context)) {
+		return plan.StepStatusWaitingApproval, nil
+	})
+	p := createPlan(t, orchSvc, plan.ProtocolParallel, 2, []plan.CreateStepRequest{
+		{TaskID: "t1", AgentID: "a1", ModeID: "reviewer"},
+		{TaskID: "t2", AgentID: "a2", ModeID: "refactorer"},
+	})
+	<-prep.entered
+	var id string
+	for _, st := range planState(t, store, p.ID).Steps {
+		if st.ModeID == "reviewer" {
+			id = st.RunID
+		}
+	}
+	if err := store.CompleteRun(ctx, &run.CompletionRequest{ID: id, Status: run.StatusCompleted}); err != nil {
+		t.Fatalf("CompleteRun %q: %v", id, err)
+	}
+	orchSvc.HandleRunCompleted(ctx, id, run.StatusCompleted) // the reviewer step waits for approval
+	close(release)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for orchSvc.PreparedOutcomeCount() != 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("prepared outcomes = %d, want the refactorer's kept while the plan waits", orchSvc.PreparedOutcomeCount())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := orchSvc.CancelPlan(ctx, p.ID); err != nil {
+		t.Fatalf("CancelPlan: %v", err)
+	}
+	if n := orchSvc.PreparedOutcomeCount(); n != 0 {
+		t.Fatalf("prepared outcomes after the plan ended = %d, want 0", n)
+	}
+}
+
+// refactorerPreparer blocks the preparation of refactorer steps only.
+type refactorerPreparer struct{ blockingPreparer }
+
+func (r *refactorerPreparer) NeedsPreparation(step *plan.Step) bool {
+	return step.ModeID == "refactorer"
+}
