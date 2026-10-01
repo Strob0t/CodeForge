@@ -50,6 +50,21 @@ class VerificationResult:
     rank_scores: list[EvalDimension] = field(default_factory=list)
     combined_score: EvalScore | None = None
 
+    @property
+    def fully_evaluated(self) -> bool:
+        """Ranked, and every rank evaluator scored the result (none failed)."""
+        return self.combined_score is not None and not any(d.error for d in self.rank_scores)
+
+    def rank_key(self) -> tuple[bool, float]:
+        """Sort key: fully evaluated results first, then by combined score.
+
+        An errored dimension is left out of the average, so a result whose
+        rank evaluator failed would otherwise be ranked on its filter scores
+        alone and could outrank verified results.
+        """
+        score = self.combined_score.average_score() if self.combined_score else -1.0
+        return self.fully_evaluated, score
+
 
 class HybridEvaluationPipeline:
     """Two-stage verification: filter (execution-based) → rank (LLM-based).
@@ -182,11 +197,8 @@ class HybridEvaluationPipeline:
                     )
                 )
 
-        # Sort by combined score descending (None scores last).
-        ranked_vrs.sort(
-            key=lambda vr: vr.combined_score.average_score() if vr.combined_score else -1.0,
-            reverse=True,
-        )
+        # Fully evaluated results first, then by combined score (None last).
+        ranked_vrs.sort(key=VerificationResult.rank_key, reverse=True)
         return ranked_vrs
 
 

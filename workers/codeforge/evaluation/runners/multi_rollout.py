@@ -182,26 +182,39 @@ class MultiRolloutRunner:
         return getattr(self, "_metadata", MultiRolloutMetadata())
 
     async def _select_best_hybrid(self, task: TaskSpec, outcomes: list[RolloutOutcome]) -> None:
-        """Use hybrid verification to select the best rollout."""
+        """Use hybrid verification to select the best rollout.
+
+        A fully evaluated rollout always wins over one whose rank evaluator
+        failed (VerificationResult.rank_key); only when no rollout is fully
+        evaluated does the best partial one win, which is logged.
+        """
         best_idx = -1
-        best_score = -1.0
+        best_key: tuple[bool, float] = (False, -2.0)
 
         for i, outcome in enumerate(outcomes):
             vr = await self._hybrid.verify(task, outcome.result)  # type: ignore[union-attr]
             outcome.verification = vr
-            score = vr.combined_score.average_score() if vr.combined_score else -1.0
-            if score > best_score:
-                best_score = score
+            key = vr.rank_key()
+            if key > best_key:
+                best_key = key
                 best_idx = i
 
         if best_idx >= 0:
             outcomes[best_idx].is_best = True
+            if not best_key[0]:
+                logger.warning(
+                    "no fully evaluated rollout, best partial one selected",
+                    task_id=task.id,
+                    best_rollout=best_idx,
+                    best_score=best_key[1],
+                )
 
         logger.info(
             "best-of-N selected",
             task_id=task.id,
             best_rollout=best_idx,
-            best_score=best_score,
+            best_score=best_key[1],
+            fully_evaluated=best_key[0],
             rollout_count=len(outcomes),
         )
 
