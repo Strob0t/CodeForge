@@ -523,6 +523,36 @@ func TestEvaluatePolicy_CanonicalToolNames(t *testing.T) {
 	}
 }
 
+// TestEvaluatePolicy_RedirectionsInASyntheticWorkspace (S6-G review, item 5):
+// the tester has no project, so it places the files a command redirects to in
+// a synthetic workspace (/workspace) instead of denying every redirection
+// because no workspace is known; its decisions match a run's.
+func TestEvaluatePolicy_RedirectionsInASyntheticWorkspace(t *testing.T) {
+	r := newTestRouter()
+	for _, tc := range []struct {
+		command string
+		want    policy.Decision
+	}{
+		{"go test ./... > out.log", policy.DecisionAllow},
+		{"echo x > .env", policy.DecisionDeny},
+		{"echo x > secrets/key", policy.DecisionDeny},
+		{"echo x > /workspace/.env", policy.DecisionDeny},
+		{"echo x > ../other/.env", policy.DecisionAllow},
+	} {
+		w := postJSON(t, r, "/api/v1/policies/trusted-mount-autonomous/evaluate", policy.ToolCall{Tool: "Bash", Command: tc.command})
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var result policy.EvaluationResult
+		if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Decision != tc.want {
+			t.Errorf("%q -> %s (%s), want %s", tc.command, result.Decision, result.Reason, tc.want)
+		}
+	}
+}
+
 // TestPolicyProfiles_TenantScoped: custom profiles belong to the caller's
 // tenant; another tenant can neither list, read, evaluate, replace nor
 // delete them (KI-68).

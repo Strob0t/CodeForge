@@ -42,7 +42,15 @@ func (ph *PolicyHandlers) GetPolicyProfile(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, p)
 }
 
-// EvaluatePolicy handles POST /api/v1/policies/{name}/evaluate
+// policyTesterWorkspace is the synthetic workspace the policy tester
+// evaluates calls in: it has no project, and without an absolute workspace
+// every Bash redirection would be denied as unplaceable. Relative paths and
+// redirection targets are placed under it, so the tester decides like a run;
+// an absolute path is placed only when it is under /workspace.
+const policyTesterWorkspace = "/workspace"
+
+// EvaluatePolicy handles POST /api/v1/policies/{name}/evaluate. The call is
+// evaluated in the synthetic workspace policyTesterWorkspace.
 func (ph *PolicyHandlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
@@ -55,7 +63,7 @@ func (ph *PolicyHandlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	result, err := ph.Policies.EvaluateWithReason(r.Context(), name, call)
+	result, err := ph.Policies.EvaluateWithReason(r.Context(), name, call, policy.WithWorkspace(policyTesterWorkspace))
 	if err != nil {
 		writeDomainError(w, err, "policy not found")
 		return
