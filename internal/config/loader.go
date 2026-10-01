@@ -588,14 +588,6 @@ func validateStallMaxRetries(n int) error {
 	return nil
 }
 
-// minRetentionPeriod is the shortest retention period accepted. The policy is
-// measured in days; a shorter value is a unit mistake ("30m" meant as months
-// would purge everything older than 30 minutes).
-const minRetentionPeriod = 24 * time.Hour
-
-// validateRetention rejects retention settings that would purge more than a
-// policy measured in days: every period is 0 (keep forever) or at least a
-// day, and the job interval is 0 (disabled) or at least a minute.
 // validateHeartbeat checks the worker heartbeat settings. The interval
 // reaches the worker in whole seconds. A timeout not longer than the
 // interval would end every healthy run between two heartbeats.
@@ -612,6 +604,14 @@ func validateHeartbeat(r *Runtime) error {
 	return nil
 }
 
+// minRetentionPeriod is the shortest retention period accepted. The policy is
+// measured in days; a shorter value is a unit mistake ("30m" meant as months
+// would purge everything older than 30 minutes).
+const minRetentionPeriod = 24 * time.Hour
+
+// validateRetention rejects retention settings that would purge more than a
+// policy measured in days: every period is 0 (keep forever) or at least a
+// day, and the job interval is 0 (disabled) or at least a minute.
 func validateRetention(r *Retention) error {
 	if r.Interval < 0 || (r.Interval > 0 && r.Interval < time.Minute) {
 		return fmt.Errorf("retention.interval must be 0 (job disabled) or at least 1m (got %s)", r.Interval)
