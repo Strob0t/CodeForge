@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,10 @@ const (
 
 // ErrReviewNoAgents: the project has no agent to run the review pipeline.
 var ErrReviewNoAgents = fmt.Errorf("%w: project has no agents: add an agent to run the review pipeline", domain.ErrValidation)
+
+// ErrReviewNeedsGit: the review-refactor pipeline measures and undoes its
+// refactoring with git, so its workspace must be a git repository.
+var ErrReviewNeedsGit = fmt.Errorf("%w: the review pipeline needs a git workspace", domain.ErrValidation)
 
 // reviewStepPrompts is the task prompt of each review pipeline step, by mode.
 // Later steps read the earlier steps' output from the team's shared context.
@@ -144,19 +149,23 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 	if proj.WorkspacePath == "" {
 		return nil, fmt.Errorf("%w: project has no workspace", domain.ErrValidation)
 	}
-	ag, err := s.pickAgent(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
 	tmpl, err := s.pipelines.Get(templateID)
 	if err != nil {
 		return nil, err
 	}
+	refactors := slices.ContainsFunc(tmpl.Steps, func(st pipeline.Step) bool { return st.ModeID == refactorerMode })
+	if refactors {
+		if err := s.requireGitWorkspace(ctx, proj.WorkspacePath); err != nil {
+			return nil, err
+		}
+	}
+	ag, err := s.pickAgent(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
 
-	refactors := false
 	bindings := make([]pipeline.StepBinding, len(tmpl.Steps))
 	for i, st := range tmpl.Steps {
-		refactors = refactors || st.ModeID == refactorerMode
 		t, err := s.store.CreateTask(ctx, task.CreateRequest{
 			ProjectID: projectID,
 			Title:     tmpl.Name + ": " + st.Name,
@@ -225,6 +234,22 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 	}
 	slog.Info("review pipeline started", "plan_id", started.ID, "template", templateID, "project_id", projectID)
 	return started, nil
+}
+
+// requireGitWorkspace fails with ErrReviewNeedsGit unless dir is a git
+// repository.
+func (s *ReviewPipelineService) requireGitWorkspace(ctx context.Context, dir string) error {
+	err := s.git.Run(ctx, func() error {
+		_, err := git.OpenRepo(ctx, dir)
+		return err
+	})
+	if errors.Is(err, git.ErrNotRepository) {
+		return ErrReviewNeedsGit
+	}
+	if err != nil {
+		return fmt.Errorf("open the workspace repository: %w", err)
+	}
+	return nil
 }
 
 // pickAgent returns an idle agent of the project.

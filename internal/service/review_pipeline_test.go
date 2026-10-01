@@ -805,3 +805,25 @@ func TestReviewPipeline_BoundaryAnalysisWithoutResultKeepsBoundaries(t *testing.
 		t.Fatalf("stored %+v from an output without BOUNDARIES.json", f.store.upserted)
 	}
 }
+
+// S6-F 14: the review-refactor pipeline measures and undoes its refactoring
+// with git: a workspace that is no git repository is a validation error (400)
+// before anything is created, not a 500 after the plan exists. The boundary
+// analysis only reads and runs there.
+func TestReviewPipeline_StartNeedsAGitWorkspace(t *testing.T) {
+	f := newReviewFixture(t)
+	plain := t.TempDir()
+	f.store.projects["proj-1"].WorkspacePath = plain
+
+	p, err := f.svc.StartReviewPipeline(f.ctx, "proj-1")
+	if !errors.Is(err, domain.ErrValidation) || p != nil || !strings.Contains(err.Error(), "needs a git workspace") {
+		t.Fatalf("StartReviewPipeline = %+v, %v, want a validation error naming the git workspace", p, err)
+	}
+	if len(f.store.tasks) != 0 || f.planner.created != nil {
+		t.Fatalf("created %d tasks and plan %+v, want nothing", len(f.store.tasks), f.planner.created)
+	}
+
+	if _, err := f.svc.StartBoundaryAnalysis(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartBoundaryAnalysis in a plain directory: %v", err)
+	}
+}

@@ -82,6 +82,8 @@ func TestReviewTriggerEndpoints(t *testing.T) {
 			"/projects/proj-1/boundaries/analyze", http.StatusAccepted, `"triggered":true`},
 		{"no agents", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{err: service.ErrReviewNoAgents}),
 			"/projects/proj-1/review-refactor", http.StatusBadRequest, "no agents"},
+		{"no git workspace", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{err: service.ErrReviewNeedsGit}),
+			"/projects/proj-1/review-refactor", http.StatusBadRequest, "the review pipeline needs a git workspace"},
 		{"unknown project", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}),
 			"/projects/other/boundaries/analyze", http.StatusNotFound, "project not found"},
 		{"no pipeline wired", service.NewReviewTriggerService(reviewTriggerStore{}, nil),
