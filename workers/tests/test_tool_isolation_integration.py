@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -106,3 +107,50 @@ async def test_mcp_stdio_server_runs_as_the_tool_user(shared_tmp: Path) -> None:
     assert fields["CapEff"].strip() == "0000000000000000"
     assert fields["CapAmb"].strip() == "0000000000000000"
     assert fields["NoNewPrivs"].strip() == "1"
+
+
+# What the tool user creates with owner-only modes (mkdtemp, mkdir -m 0700,
+# umask 077) must stay readable and deletable for the worker and the Go Core
+# (both in the workspace group): project deletion (GDPR erasure), git add -A
+# of checkpoints and delivery, and the benchmark workspace cleanup (KI-71
+# review, finding 7).
+_PRIVATE_FILES = """
+umask 077
+mkdir -m 0700 private && echo secret > private/file
+tmp=$(mktemp -d -p .) && echo tmp > "$tmp/file" && mv "$tmp" made-by-mktemp
+mkdir other-group && chgrp 10002 other-group && chmod 0700 other-group && echo x > other-group/file
+echo outside > "$OUTSIDE" && chmod 0600 "$OUTSIDE" && ln -s "$OUTSIDE" link-to-outside
+"""
+
+
+def _as_worker(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run *args* as the worker user (uid 10001, workspace group 10010), like the worker and the Go Core."""
+    setpriv = ["setpriv", f"--reuid={WORKER_UID}", f"--regid={WORKER_UID}", f"--groups={WORKSPACE_GID}", "--"]
+    return subprocess.run([*setpriv, *args], cwd=cwd, capture_output=True, text=True, check=False)  # noqa: S603
+
+
+async def test_files_the_tool_user_keeps_private_are_shared_with_the_workspace_group(shared_tmp: Path) -> None:
+    from codeforge.tool_process import configure_tool_isolation, start_tool_shell
+    from tests.tool_isolation_check import CONFIG
+
+    assert configure_tool_isolation(CONFIG).ready
+    workspace = shared_tmp / "workspace"
+    workspace.mkdir()
+    os.chown(workspace, WORKER_UID, WORKSPACE_GID)
+    workspace.chmod(0o2775)
+    home = shared_tmp / "tool-home"  # the tool user's own directory, outside the workspace
+    home.mkdir()
+    os.chown(home, CONFIG.uid, CONFIG.gid)
+    outside = home / "outside"
+
+    proc = await start_tool_shell(
+        _PRIVATE_FILES, env={"PATH": "/usr/bin:/bin", "OUTSIDE": str(outside)}, cwd=str(workspace)
+    )
+    assert await proc.wait() == 0
+
+    read = _as_worker(["sh", "-c", "cat private/file made-by-mktemp/file other-group/file"], workspace)
+    assert read.returncode == 0, read.stderr
+    removed = _as_worker(["rm", "-rf", "private", "made-by-mktemp", "other-group"], workspace)
+    assert removed.returncode == 0, removed.stderr
+    # A symlink is never followed: the file it points to keeps its mode.
+    assert outside.stat().st_mode & 0o777 == 0o600

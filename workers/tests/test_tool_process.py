@@ -508,8 +508,61 @@ def test_share_workspace_root(tmp_path: Path) -> None:
     assert stat.S_IMODE(private.stat().st_mode) == 0o660
     # Symlinks and their targets are left alone.
     assert stat.S_IMODE(outside.stat().st_mode) == 0o600
-    # Once the root is shared, nothing is walked again.
+    # Once the root is shared, nothing is walked again (finding 10: a version
+    # stamp, not the root's mode, says so).
+    source.chmod(0o644)
+    root.chmod(0o755)
     assert share_workspace_root(str(root), os.getgid()) == 0
+    assert stat.S_IMODE(source.stat().st_mode) == 0o644
+
+
+def test_share_workspace_root_walks_again_after_an_upgrade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import codeforge.tool_process as tool_process
+
+    root = tmp_path / "workspaces"
+    (root / "project").mkdir(parents=True)
+    source = root / "project" / "main.py"
+    source.write_text("x")
+    share_workspace_root(str(root), os.getgid())
+    source.chmod(0o644)
+
+    monkeypatch.setattr(tool_process, "WORKSPACE_SHARING_VERSION", "999")
+    assert share_workspace_root(str(root), os.getgid()) == 1
+    assert stat.S_IMODE(source.stat().st_mode) == 0o664
+
+
+def test_share_workspace_root_of_another_user_is_reported_once_and_never_walked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = tmp_path / "workspaces"
+    (root / "project").mkdir(parents=True)
+    walked: list[str] = []
+    monkeypatch.setattr(os, "walk", lambda *args, **kwargs: walked.append("walk") or iter(()))
+    monkeypatch.setattr(os, "getuid", lambda: root.stat().st_uid + 1)
+
+    with caplog.at_level("ERROR"):
+        assert share_workspace_root(str(root), os.getgid()) == 0
+
+    assert walked == []
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert "chown" in errors[0]
+    assert str(root) in errors[0]
+
+
+def test_share_workspace_root_never_writes_through_a_planted_stamp(tmp_path: Path) -> None:
+    """The root is group-writable: the tool user may plant a symlink where the stamp goes."""
+    import codeforge.tool_process as tool_process
+
+    root = tmp_path / "workspaces"
+    root.mkdir()
+    target = tmp_path / "target"
+    target.write_text("keep")
+    (root / tool_process._SHARING_STAMP).symlink_to(target)
+
+    share_workspace_root(str(root), os.getgid())
+
+    assert target.read_text() == "keep"
 
 
 def test_share_workspace_root_missing_root_is_no_error(tmp_path: Path) -> None:
@@ -735,7 +788,10 @@ def test_setup_tool_isolation(
     )
     monkeypatch.setattr(consumer_module.os, "umask", lambda value: umasks.append(value) or 0o022)
 
-    status = consumer_module.setup_tool_isolation(WorkerSettings())
+    settings = WorkerSettings()
+    status = consumer_module.setup_tool_isolation(settings)
+    assert not [c for c in calls if c.startswith("share")], "the walk runs later, with the health server up"
+    consumer_module.share_workspaces(settings, status)
 
     assert status.ready is ready
     assert calls[0] == "check"

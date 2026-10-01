@@ -13,6 +13,7 @@ from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import HEADER_REQUEST_ID, SUBJECT_RESULT, SUBJECT_TASK_CANCEL, SUBJECT_TASK_HEARTBEAT
 from codeforge.models import TaskMessage, TaskResult, TaskStatus
 from codeforge.runtime import heartbeat_interval, heartbeats, listen_for_cancel, notification_consumer
+from codeforge.tool_process import share_tool_files
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -200,6 +201,9 @@ class TaskHandlerMixin:
             with contextlib.suppress(asyncio.CancelledError):
                 await listener
             await self._unsubscribe_task_cancel(sub, task.id)
+            # What the backend's processes created (KI-71 review).
+            if task.workspace_path:
+                await share_tool_files(task.workspace_path)
 
     @staticmethod
     async def _unsubscribe_task_cancel(sub: NotificationSubscription, task_id: str) -> None:

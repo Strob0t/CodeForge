@@ -19,7 +19,7 @@ import structlog
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 from codeforge.subprocess_env import tool_env
-from codeforge.tool_process import share_with_tools, start_tool_shell
+from codeforge.tool_process import share_tool_files, share_with_tools, start_tool_shell
 
 if TYPE_CHECKING:
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -137,7 +137,8 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
         try:
             result = await self._run_agent(task, workspace, log)
         finally:
-            # Clean up workspace
+            # Clean up workspace; the tool user's files first become deletable (KI-71 review).
+            await share_tool_files(str(workspace))
             shutil.rmtree(workspace, ignore_errors=True)
             log.debug("workspace cleaned up")
 

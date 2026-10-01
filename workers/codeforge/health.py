@@ -30,9 +30,13 @@ class HealthServer(ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, address: tuple[str, int], is_ready: Callable[[], bool]) -> None:
+    def __init__(
+        self, address: tuple[str, int], is_ready: Callable[[], bool], describe: Callable[[], str] | None = None
+    ) -> None:
         super().__init__(address, HealthHandler)
         self.is_ready = is_ready
+        # The status a not-ready worker reports (e.g. "starting").
+        self.describe = describe or (lambda: "not ready")
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -48,7 +52,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if self._ready():
                 self._send_json(HTTPStatus.OK, {"status": "ready"})
             else:
-                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"status": "not ready"})
+                self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"status": self._not_ready_status()})
         else:
             self.send_response(HTTPStatus.NOT_FOUND)
             self.end_headers()
@@ -60,6 +64,13 @@ class HealthHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             logger.warning("readiness check failed", error=str(exc))
             return False
+
+    def _not_ready_status(self) -> str:
+        try:
+            return str(self.server.describe())
+        except Exception as exc:
+            logger.warning("readiness status failed", error=str(exc))
+            return "not ready"
 
     def _send_json(self, status: HTTPStatus, body: dict[str, str]) -> None:
         payload = json.dumps(body).encode()
@@ -73,12 +84,16 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass  # healthchecks every few seconds would flood the log
 
 
-def start_health_server(port: int, is_ready: Callable[[], bool]) -> HealthServer:
+def start_health_server(
+    port: int, is_ready: Callable[[], bool], describe: Callable[[], str] | None = None
+) -> HealthServer:
     """Serve the health endpoints on *port* (all interfaces; 0 picks a free port) in a daemon thread.
+
+    *describe* gives the status a not-ready worker reports ("not ready" by default).
 
     Raises OSError if the port cannot be bound and OverflowError if it is out
     of range. Stop the server with shutdown() and server_close().
     """
-    server = HealthServer(("", port), is_ready)
+    server = HealthServer(("", port), is_ready, describe)
     threading.Thread(target=server.serve_forever, name="health-server", daemon=True).start()
     return server

@@ -12,6 +12,7 @@ import functools
 import os
 import signal
 import sys
+import threading
 import traceback
 from typing import TYPE_CHECKING
 
@@ -538,11 +539,20 @@ def setup_tool_isolation(settings: WorkerSettings) -> IsolationStatus:
         logger.error("tool isolation required but not available: every tool call fails", reason=status.reason)
     if lock_secrets_dir():
         logger.info("secrets directory locked after reading the secrets", path=str(SECRETS_DIR))
-    if status.ready and settings.workspace_root:
-        changed = share_workspace_root(settings.workspace_root, config.workspace_gid)
-        if changed:
-            logger.info("workspaces opened to the workspace group", root=settings.workspace_root, entries=changed)
     return status
+
+
+def share_workspaces(settings: WorkerSettings, status: IsolationStatus) -> None:
+    """Open workspaces created before tool isolation to the workspace group (once per upgrade).
+
+    May walk a large tree: main() runs it with the health endpoint up
+    (starting) and before the consumer takes work.
+    """
+    if not status.config.required or not status.ready or not settings.workspace_root:
+        return
+    changed = share_workspace_root(settings.workspace_root, status.config.workspace_gid)
+    if changed:
+        logger.info("workspaces opened to the workspace group", root=settings.workspace_root, entries=changed)
 
 
 async def main() -> None:
@@ -558,7 +568,7 @@ async def main() -> None:
         logger.warning("using the development LiteLLM master key - set LITELLM_MASTER_KEY for production")
     tracing_manager.log_status()
     # After every secret was read: it locks the secrets directory.
-    await asyncio.to_thread(setup_tool_isolation, settings)
+    isolation = await asyncio.to_thread(setup_tool_isolation, settings)
 
     consumer = TaskConsumer(
         nats_url=settings.nats_url,
@@ -568,8 +578,14 @@ async def main() -> None:
 
     # A worker without its health endpoint would be restarted as unhealthy:
     # fail at once, before connecting to NATS.
+    shared = threading.Event()
     try:
-        health = start_health_server(settings.health_port, lambda: consumer.ready)
+        health = start_health_server(
+            settings.health_port,
+            lambda: consumer.ready,
+            # Not ready while the workspaces are shared: starting.
+            describe=lambda: "not ready" if shared.is_set() else "starting",
+        )
     except (OSError, OverflowError) as exc:
         logger.error("health server failed to start", port=settings.health_port, error=str(exc))
         stop_logging()
@@ -596,6 +612,9 @@ async def main() -> None:
         # start() returns once every loop ended (after a stop request or a
         # give-up), or at once when a stop was requested during its setup.
         try:
+            # Before any work, with the health endpoint answering (starting).
+            await asyncio.to_thread(share_workspaces, settings, isolation)
+            shared.set()
             await consumer.start()
         except Exception as exc:  # e.g. NATS unreachable at startup
             crashed = True

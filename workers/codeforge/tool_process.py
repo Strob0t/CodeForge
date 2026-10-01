@@ -413,7 +413,30 @@ async def start_tool_process(
         "start_new_session": start_new_session,
         **{name: value for name, value in optional.items() if value is not None},
     }
-    return await asyncio.create_subprocess_exec(*argv, **options)  # type: ignore[arg-type]
+    proc = await asyncio.create_subprocess_exec(*argv, **options)  # type: ignore[arg-type]
+    if umask is not None and cwd is not None:
+        _share_after_exit(proc, cwd)
+    return proc
+
+
+def _share_after_exit(proc: asyncio.subprocess.Process, root: str) -> None:
+    """Make waiting for *proc* (wait(), communicate()) also share what it created under *root*.
+
+    The callers continue only once the files are shared, before the Go
+    Core checkpoints or delivers the workspace.
+    """
+    wait = proc.wait
+    shared = False
+
+    async def wait_then_share() -> int:
+        nonlocal shared
+        code = await wait()
+        if not shared:
+            shared = True
+            await share_tool_files(root)
+        return code
+
+    proc.wait = wait_then_share  # type: ignore[method-assign]
 
 
 async def start_tool_shell(
@@ -452,7 +475,76 @@ def run_tool_process(
     options: dict[str, object] = {"cwd": cwd, "env": process_env, "timeout": timeout}
     if umask is not None:
         options["umask"] = umask
-    return subprocess.run(argv, capture_output=True, text=True, check=False, **options)  # type: ignore[call-overload]  # noqa: S603 - the program is the caller's (no shell)
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, check=False, **options)  # type: ignore[call-overload]  # noqa: S603 - the program is the caller's (no shell)
+    finally:
+        if umask is not None and cwd is not None:
+            share_tool_files_sync(cwd)
+
+
+def _share_command(root: str, config: IsolationConfig) -> list[str]:
+    """One walk of *root* (never across file systems, never following a symlink): the files and
+    directories the tool user owns move into the workspace group and become group-readable and
+    -writable, directories also searchable and setgid. Only what needs a change is changed.
+    """
+    uid, gid = str(config.uid), str(config.workspace_gid)
+    return [
+        "find", "-P", root, "-xdev",
+        "(", "-user", uid, "(", "-type", "d", "-o", "-type", "f", ")", "!", "-group", gid,
+        "-exec", "chgrp", gid, "{}", "+", ")",
+        ",",
+        "(", "-user", uid, "-type", "d", "!", "-perm", "-2070", "-exec", "chmod", "g+rwxs", "{}", "+", ")",
+        ",",
+        "(", "-user", uid, "-type", "f", "!", "-perm", "-0060", "-exec", "chmod", "g+rw", "{}", "+", ")",
+    ]  # fmt: skip
+
+
+def _share_launch(root: str) -> tuple[list[str], dict[str, str], int | None] | None:
+    status = tool_isolation()
+    if not status.config.required or not status.ready:
+        return None
+    return _launch(_share_command(root, status.config), {"PATH": _PROBE_PATH})
+
+
+async def share_tool_files(root: str) -> None:
+    """Share what the tool user created under *root* with the workspace group (KI-71 review).
+
+    Agents create files with owner-only modes (mkdtemp, mkdir -m 0700,
+    umask 077) that the worker and the Go Core (uid 10001, workspace group)
+    could neither read nor delete: project deletion (GDPR erasure), git add
+    of checkpoints and delivery, and benchmark cleanups failed. The pass
+    runs as the tool user, which owns them; it changes nothing of anybody
+    else's. A pass that could not share everything is logged.
+    """
+    launch = _share_launch(root)
+    if launch is None:
+        return
+    argv, env, umask = launch
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv, env=env, umask=umask, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+        )
+        _, err = await proc.communicate()
+    except OSError as exc:
+        logger.warning("could not share the tool files under %s: %s", root, exc)
+        return
+    if proc.returncode:
+        logger.warning("could not share every tool file under %s: %s", root, err.decode(errors="replace")[-500:])
+
+
+def share_tool_files_sync(root: str) -> None:
+    """share_tool_files for synchronous callers."""
+    launch = _share_launch(root)
+    if launch is None:
+        return
+    argv, env, umask = launch
+    try:
+        done = subprocess.run(argv, env=env, umask=umask, capture_output=True, text=True, check=False)  # noqa: S603 - fixed program
+    except OSError as exc:
+        logger.warning("could not share the tool files under %s: %s", root, exc)
+        return
+    if done.returncode:
+        logger.warning("could not share every tool file under %s: %s", root, done.stderr[-500:])
 
 
 def tool_stdio_client(
@@ -530,26 +622,72 @@ def _share_entry(path: str, gid: int, uid: int) -> bool:
     return True
 
 
+# Bumped when the walk over the workspaces must run again after an upgrade:
+# 1 opened the worker's files to the workspace group (KI-71), 2 also shares
+# the files the tool user kept private (share_tool_files).
+WORKSPACE_SHARING_VERSION = "2"
+_SHARING_STAMP = ".codeforge-workspace-sharing"
+
+
 def share_workspace_root(root: str, gid: int) -> int:
-    """Open the workspaces under *root* to the workspace group *gid*, once; return how many entries changed.
+    """Open the workspaces under *root* to the workspace group *gid*; return how many entries changed.
 
     Workspaces created before tool isolation belong to the worker user and
     its own group with mode 0644/0755, which the tool user cannot write. The
     worker owns them, so it moves them into the workspace group, makes them
-    group-writable and directories setgid. The root is changed last: once it
-    is shared, nothing is walked again. Symlinks and entries of other users
-    are left alone.
+    group-writable and directories setgid; files the tool user kept private
+    are shared as the tool user. Symlinks and entries of other users are
+    left alone. The walk runs once per WORKSPACE_SHARING_VERSION: a stamp in
+    the root records it. A root of another user is not walked (the worker
+    could not finish it and would walk it on every start): that is logged
+    once, with the fix.
     """
     try:
         info = os.stat(root)
     except FileNotFoundError:
         return 0
-    if info.st_gid == gid and stat.S_IMODE(info.st_mode) & 0o2070 == 0o2070:
-        return 0
     uid = os.getuid()
+    if info.st_uid != uid:
+        logger.error(
+            "workspace root %s belongs to uid %d, not the worker (uid %d): workspaces created before "
+            "tool isolation stay closed to agent tools. Fix: chown %d:%d %s && chmod 2775 %s; "
+            "the worker shares the workspaces on its next start",
+            root, info.st_uid, uid, uid, gid, root, root,
+        )  # fmt: skip
+        return 0
+    if _read_stamp(root) == WORKSPACE_SHARING_VERSION:
+        return 0
     changed = 0
     for dirpath, dirnames, filenames in os.walk(root):
         for name in (*dirnames, *filenames):
+            if dirpath == root and name == _SHARING_STAMP:
+                continue
             changed += _share_entry(os.path.join(dirpath, name), gid, uid)
     changed += _share_entry(root, gid, uid)
+    share_tool_files_sync(root)
+    _write_stamp(root)
     return changed
+
+
+def _read_stamp(root: str) -> str:
+    try:
+        fd = os.open(os.path.join(root, _SHARING_STAMP), os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return ""
+    with os.fdopen(fd) as stamp:
+        return stamp.read().strip()
+
+
+def _write_stamp(root: str) -> None:
+    """Record the walk; never through a symlink (the tool user may write the root)."""
+    path = os.path.join(root, _SHARING_STAMP)
+    with contextlib.suppress(FileNotFoundError):
+        if os.path.islink(path):
+            os.unlink(path)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o664)
+    except OSError as exc:
+        logger.warning("cannot record the workspace sharing in %s (walked again on the next start): %s", root, exc)
+        return
+    with os.fdopen(fd, "w") as stamp:
+        stamp.write(WORKSPACE_SHARING_VERSION + "\n")

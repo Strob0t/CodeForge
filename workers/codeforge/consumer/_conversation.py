@@ -26,6 +26,7 @@ from codeforge.loop_config import build_loop_config
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
+from codeforge.tool_process import share_tool_files
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -511,6 +512,9 @@ class ConversationHandlerMixin:
             await runtime.close()
             if workbench is not None:
                 await workbench.disconnect_all()
+            # What MCP servers and tool processes still running at the end created (KI-71 review).
+            if run_msg.workspace_path:
+                await share_tool_files(run_msg.workspace_path)
 
     async def _publish_completion(
         self,

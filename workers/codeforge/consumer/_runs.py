@@ -12,6 +12,7 @@ from codeforge.consumer._subjects import SUBJECT_RUN_COMPLETE, SUBJECT_TASK_CANC
 from codeforge.models import RunCompleteMessage, RunStartMessage, TaskMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
+from codeforge.tool_process import share_tool_files
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -123,6 +124,9 @@ class RunHandlerMixin:
                 await self._report_run_failure(runtime, str(exc), log)
             finally:
                 await runtime.close()
+                # What tool processes still running at the end created (KI-71 review).
+                if run_msg.workspace_path:
+                    await share_tool_files(run_msg.workspace_path)
         log.info(
             "run processing complete",
             mode_id=run_msg.mode.id if run_msg.mode else None,
