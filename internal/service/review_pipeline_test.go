@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -42,9 +43,23 @@ type fakeReviewStore struct {
 	boundsErr  error // GetProjectBoundaries fails with it
 	upserted   *boundary.ProjectBoundaryConfig
 	pipelines  map[string]*review.Pipeline // by plan ID
+
+	failTaskAt     int   // CreateTask fails for the n-th task (1-based); 0 never
+	recordErr      error // CreateReviewPipeline fails with it
+	cancelledTasks []string
+}
+
+func (f *fakeReviewStore) UpdateTaskStatus(_ context.Context, id string, status task.Status) error {
+	if status == task.StatusCancelled {
+		f.cancelledTasks = append(f.cancelledTasks, id)
+	}
+	return nil
 }
 
 func (f *fakeReviewStore) CreateReviewPipeline(_ context.Context, rp *review.Pipeline) error {
+	if f.recordErr != nil {
+		return f.recordErr
+	}
 	if f.pipelines == nil {
 		f.pipelines = map[string]*review.Pipeline{}
 	}
@@ -74,6 +89,9 @@ func (f *fakeReviewStore) ListAgents(_ context.Context, _ string) ([]agent.Agent
 }
 
 func (f *fakeReviewStore) CreateTask(_ context.Context, req task.CreateRequest) (*task.Task, error) {
+	if f.failTaskAt == len(f.tasks)+1 {
+		return nil, errors.New("insert task: connection reset")
+	}
 	f.tasks = append(f.tasks, req)
 	return &task.Task{ID: fmt.Sprintf("task-%d", len(f.tasks)), ProjectID: req.ProjectID, Prompt: req.Prompt}, nil
 }
@@ -108,14 +126,19 @@ func (f *fakeReviewStore) UpsertProjectBoundaries(_ context.Context, cfg *bounda
 }
 
 type fakeReviewPlanner struct {
-	created    *plan.CreatePlanRequest
-	startFails bool
-	cancelled  []string
-	approved   []string
-	rejected   []string
+	created     *plan.CreatePlanRequest
+	createFails bool
+	startFails  bool  // the first step does not start: the plan fails
+	startErr    error // StartPlan fails with it
+	cancelled   []string
+	approved    []string
+	rejected    []string
 }
 
 func (f *fakeReviewPlanner) CreatePlan(_ context.Context, req *plan.CreatePlanRequest) (*plan.ExecutionPlan, error) {
+	if f.createFails {
+		return nil, errors.New("insert plan: connection reset")
+	}
 	f.created = req
 	p := &plan.ExecutionPlan{ID: "plan-1", ProjectID: req.ProjectID, TeamID: req.TeamID, Status: plan.StatusPending}
 	for i, st := range req.Steps {
@@ -125,6 +148,9 @@ func (f *fakeReviewPlanner) CreatePlan(_ context.Context, req *plan.CreatePlanRe
 }
 
 func (f *fakeReviewPlanner) StartPlan(_ context.Context, id string) (*plan.ExecutionPlan, error) {
+	if f.startErr != nil {
+		return nil, f.startErr
+	}
 	if f.startFails {
 		return &plan.ExecutionPlan{ID: id, Status: plan.StatusFailed, Steps: []plan.Step{{ID: "step-0", Error: "get agent: not found"}}}, nil
 	}
@@ -146,7 +172,16 @@ func (f *fakeReviewPlanner) RejectStep(_ context.Context, _, stepID string) erro
 	return nil
 }
 
-type fakeReviewTeams struct{ created []*agent.CreateTeamRequest }
+type fakeReviewTeams struct {
+	created     []*agent.CreateTeamRequest
+	createFails bool
+	ended       []string
+}
+
+func (f *fakeReviewTeams) CleanupTeam(_ context.Context, teamID string, _ bool) error {
+	f.ended = append(f.ended, teamID)
+	return nil
+}
 
 // reviewEventRecorder records the review events with the tenant they went to.
 type reviewEventRecorder struct {
@@ -175,6 +210,9 @@ func (r *reviewEventRecorder) snapshot() []recordedReviewEvent {
 }
 
 func (f *fakeReviewTeams) CreateTeam(_ context.Context, req *agent.CreateTeamRequest) (*agent.Team, error) {
+	if f.createFails {
+		return nil, errors.New("insert team: connection reset")
+	}
 	f.created = append(f.created, req)
 	return &agent.Team{ID: "team-1", ProjectID: req.ProjectID}, nil
 }
@@ -825,5 +863,46 @@ func TestReviewPipeline_StartNeedsAGitWorkspace(t *testing.T) {
 
 	if _, err := f.svc.StartBoundaryAnalysis(f.ctx, "proj-1"); err != nil {
 		t.Fatalf("StartBoundaryAnalysis in a plain directory: %v", err)
+	}
+}
+
+// S6-F 13: a start that fails after it created something leaves no orphans:
+// the tasks it created are cancelled, its team is ended and a plan that did
+// not end is cancelled.
+func TestReviewPipeline_FailedStartLeavesNoOrphans(t *testing.T) {
+	tests := []struct {
+		name          string
+		modify        func(f *reviewFixture)
+		wantTasks     []string // cancelled
+		wantTeamEnded bool
+		wantCancelled bool // the plan
+	}{
+		{"third task fails", func(f *reviewFixture) { f.store.failTaskAt = 3 }, []string{"task-1", "task-2"}, false, false},
+		{"team fails", func(f *reviewFixture) { f.teams.createFails = true }, []string{"task-1", "task-2", "task-3", "task-4"}, false, false},
+		{"plan fails", func(f *reviewFixture) { f.planner.createFails = true }, []string{"task-1", "task-2", "task-3", "task-4"}, true, false},
+		{"record fails", func(f *reviewFixture) { f.store.recordErr = errors.New("insert: connection reset") },
+			[]string{"task-1", "task-2", "task-3", "task-4"}, true, true},
+		{"start fails", func(f *reviewFixture) { f.planner.startErr = errors.New("update plan: connection reset") },
+			[]string{"task-1", "task-2", "task-3", "task-4"}, true, true},
+		{"first step does not start", func(f *reviewFixture) { f.planner.startFails = true },
+			[]string{"task-1", "task-2", "task-3", "task-4"}, true, false}, // the plan already failed
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newReviewFixture(t)
+			tt.modify(f)
+			if p, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err == nil || p != nil {
+				t.Fatalf("StartReviewPipeline = %+v, %v, want an error", p, err)
+			}
+			if !slices.Equal(f.store.cancelledTasks, tt.wantTasks) {
+				t.Errorf("cancelled tasks = %v, want %v", f.store.cancelledTasks, tt.wantTasks)
+			}
+			if ended := slices.Equal(f.teams.ended, []string{"team-1"}); ended != tt.wantTeamEnded {
+				t.Errorf("ended teams = %v, want team-1 ended: %v", f.teams.ended, tt.wantTeamEnded)
+			}
+			if cancelled := slices.Equal(f.planner.cancelled, []string{"plan-1"}); cancelled != tt.wantCancelled {
+				t.Errorf("cancelled plans = %v, want plan-1 cancelled: %v", f.planner.cancelled, tt.wantCancelled)
+			}
+		})
 	}
 }

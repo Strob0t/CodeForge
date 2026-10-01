@@ -112,6 +112,7 @@ func (decisionStore) ListAgents(context.Context, string) ([]agent.Agent, error) 
 func (decisionStore) CreateTask(context.Context, task.CreateRequest) (*task.Task, error) {
 	return nil, domain.ErrValidation
 }
+func (decisionStore) UpdateTaskStatus(context.Context, string, task.Status) error { return nil }
 func (decisionStore) GetRun(context.Context, string) (*run.Run, error) {
 	return nil, domain.ErrNotFound
 }
@@ -160,6 +161,8 @@ type noTeams struct{}
 func (noTeams) CreateTeam(context.Context, *agent.CreateTeamRequest) (*agent.Team, error) {
 	return nil, domain.ErrValidation
 }
+
+func (noTeams) CleanupTeam(context.Context, string, bool) error { return nil }
 
 type noEvents struct{}
 

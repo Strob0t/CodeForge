@@ -66,6 +66,7 @@ type reviewPipelineStore interface {
 	GetProject(ctx context.Context, id string) (*project.Project, error)
 	ListAgents(ctx context.Context, projectID string) ([]agent.Agent, error)
 	CreateTask(ctx context.Context, req task.CreateRequest) (*task.Task, error)
+	UpdateTaskStatus(ctx context.Context, id string, status task.Status) error
 	GetRun(ctx context.Context, id string) (*run.Run, error)
 	GetPlan(ctx context.Context, id string) (*plan.ExecutionPlan, error)
 	GetProjectBoundaries(ctx context.Context, projectID string) (*boundary.ProjectBoundaryConfig, error)
@@ -87,6 +88,7 @@ type reviewPlanner interface {
 // reports from step to step.
 type reviewTeams interface {
 	CreateTeam(ctx context.Context, req *agent.CreateTeamRequest) (*agent.Team, error)
+	CleanupTeam(ctx context.Context, teamID string, failed bool) error
 }
 
 // ReviewPipelineService runs the contract-first review pipelines (Phase 31):
@@ -140,7 +142,7 @@ func (s *ReviewPipelineService) StartBoundaryAnalysis(ctx context.Context, proje
 // the project, creates the plan and starts it. A pipeline that refactors gets
 // a team (the reports reach later steps through its shared context) and a
 // baseline of the workspace to measure and undo the refactoring. An error
-// means no step is running.
+// means no step is running, and what the start created is undone (S6-F 13).
 func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID string) (*plan.ExecutionPlan, error) {
 	proj, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
@@ -164,23 +166,61 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 		return nil, err
 	}
 
+	created := &reviewStart{}
+	p, err := s.createAndStart(ctx, proj, ag, tmpl, refactors, created)
+	if err != nil {
+		s.undoStart(ctx, created)
+		return nil, err
+	}
+	slog.Info("review pipeline started", "plan_id", p.ID, "template", templateID, "project_id", projectID)
+	return p, nil
+}
+
+// reviewStart is what a review pipeline start created so far.
+type reviewStart struct {
+	taskIDs   []string
+	teamID    string
+	planID    string
+	planEnded bool // the plan failed when it started
+}
+
+// undoStart removes what a failed start created: a plan that did not end is
+// cancelled, the tasks are cancelled and the team is ended.
+func (s *ReviewPipelineService) undoStart(ctx context.Context, created *reviewStart) {
+	ctx = context.WithoutCancel(ctx)
+	if created.planID != "" && !created.planEnded {
+		logBestEffort(ctx, s.plans.CancelPlan(ctx, created.planID), "CancelPlan", slog.String("plan_id", created.planID))
+	}
+	for _, id := range created.taskIDs {
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, id, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", id))
+	}
+	if created.teamID != "" {
+		logBestEffort(ctx, s.teams.CleanupTeam(ctx, created.teamID, true), "CleanupTeam", slog.String("team_id", created.teamID))
+	}
+}
+
+// createAndStart creates the pipeline's tasks, team and plan, records the
+// pipeline and starts the plan, noting in created what it created.
+func (s *ReviewPipelineService) createAndStart(
+	ctx context.Context, proj *project.Project, ag *agent.Agent, tmpl *pipeline.Template, refactors bool, created *reviewStart,
+) (*plan.ExecutionPlan, error) {
 	bindings := make([]pipeline.StepBinding, len(tmpl.Steps))
 	for i, st := range tmpl.Steps {
 		t, err := s.store.CreateTask(ctx, task.CreateRequest{
-			ProjectID: projectID,
+			ProjectID: proj.ID,
 			Title:     tmpl.Name + ": " + st.Name,
 			Prompt:    reviewStepPrompts[st.ModeID],
 		})
 		if err != nil {
 			return nil, fmt.Errorf("create task for step %q: %w", st.Name, err)
 		}
+		created.taskIDs = append(created.taskIDs, t.ID)
 		bindings[i] = pipeline.StepBinding{TaskID: t.ID, AgentID: ag.ID}
 	}
 
-	var teamID string
 	if len(tmpl.Steps) > 1 {
 		team, err := s.teams.CreateTeam(ctx, &agent.CreateTeamRequest{
-			ProjectID: projectID,
+			ProjectID: proj.ID,
 			Name:      tmpl.Name,
 			Protocol:  string(tmpl.Protocol),
 			Members:   []agent.CreateMemberRequest{{AgentID: ag.ID, Role: agent.RoleCoder}},
@@ -188,12 +228,12 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 		if err != nil {
 			return nil, fmt.Errorf("create review team: %w", err)
 		}
-		teamID = team.ID
+		created.teamID = team.ID
 	}
 
-	req, err := s.pipelines.Instantiate(ctx, templateID, pipeline.InstantiateRequest{
-		ProjectID: projectID,
-		TeamID:    teamID,
+	req, err := s.pipelines.Instantiate(ctx, tmpl.ID, pipeline.InstantiateRequest{
+		ProjectID: proj.ID,
+		TeamID:    created.teamID,
 		PlanName:  fmt.Sprintf("%s %s", tmpl.Name, time.Now().UTC().Format("2006-01-02 15:04")),
 		Bindings:  bindings,
 	})
@@ -204,8 +244,9 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 	if err != nil {
 		return nil, fmt.Errorf("create review plan: %w", err)
 	}
+	created.planID = p.ID
 
-	rp := &review.Pipeline{PlanID: p.ID, ProjectID: projectID}
+	rp := &review.Pipeline{PlanID: p.ID, ProjectID: proj.ID}
 	if refactors {
 		err := s.git.Run(ctx, func() error {
 			repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
@@ -216,12 +257,10 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 			return err
 		})
 		if err != nil {
-			logBestEffort(ctx, s.plans.CancelPlan(ctx, p.ID), "CancelPlan", slog.String("plan_id", p.ID))
 			return nil, fmt.Errorf("record the workspace baseline: %w", err)
 		}
 	}
 	if err := s.store.CreateReviewPipeline(ctx, rp); err != nil {
-		logBestEffort(ctx, s.plans.CancelPlan(ctx, p.ID), "CancelPlan", slog.String("plan_id", p.ID))
 		return nil, fmt.Errorf("record the review pipeline: %w", err)
 	}
 
@@ -230,9 +269,9 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 		return nil, fmt.Errorf("start review plan: %w", err)
 	}
 	if started.Status == plan.StatusFailed {
+		created.planEnded = true
 		return nil, fmt.Errorf("%w: review plan %s failed to start its first step: %s", domain.ErrValidation, started.ID, firstStepError(started))
 	}
-	slog.Info("review pipeline started", "plan_id", started.ID, "template", templateID, "project_id", projectID)
 	return started, nil
 }
 
