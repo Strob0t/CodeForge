@@ -14,8 +14,17 @@ const redactedUserinfo = "[REDACTED]"
 // brackets, and comma-separated server lists, whatever follows the host. It
 // errs on the side of redacting: an "@" later in the path or query of a URL
 // is treated as the end of its userinfo. Unlike url.URL.Redacted it also hides
-// a token-only userinfo. It runs in linear time.
+// a token-only userinfo. The values of credential query parameters
+// (IsCredentialName: key, api_key, token, X-Amz-Signature, ...) are replaced
+// with [REDACTED] as well. It runs in linear time.
 func RedactURL(s string) string {
+	// Query values first: a redacted userinfo ("[REDACTED]@") would end the
+	// URL for the query scan at its bracket.
+	return redactUserinfo(redactQueryCredentials(s))
+}
+
+// redactUserinfo replaces the userinfo of every URL in s (see RedactURL).
+func redactUserinfo(s string) string {
 	var b strings.Builder
 	copied := 0 // s[:copied] is already in b
 	pos := 0
@@ -65,4 +74,56 @@ func authorityEnd(s string) int {
 		}
 	}
 	return len(s)
+}
+
+// redactQueryCredentials replaces the values of the credential query
+// parameters of every URL in s with [REDACTED]; an empty or already redacted
+// value stays.
+func redactQueryCredentials(s string) string {
+	var b strings.Builder
+	copied := 0 // s[:copied] is already in b
+	pos := 0
+	for {
+		k := strings.Index(s[pos:], "://")
+		if k < 0 {
+			break
+		}
+		sep := pos + k
+		start := sep + 3
+		pos = start
+		if sep == 0 || !isSchemeByte(s[sep-1]) {
+			continue
+		}
+		end := start + authorityEnd(s[start:])
+		pos = end
+		q := strings.IndexByte(s[start:end], '?')
+		if q < 0 {
+			continue
+		}
+		queryEnd := end
+		if hash := strings.IndexByte(s[start+q:end], '#'); hash >= 0 {
+			queryEnd = start + q + hash
+		}
+		for i := start + q + 1; i < queryEnd; {
+			paramEnd := queryEnd
+			if amp := strings.IndexByte(s[i:queryEnd], '&'); amp >= 0 {
+				paramEnd = i + amp
+			}
+			if eq := strings.IndexByte(s[i:paramEnd], '='); eq >= 0 {
+				valueStart := i + eq + 1
+				value := s[valueStart:paramEnd]
+				if value != "" && value != redactedUserinfo && IsCredentialName(s[i:i+eq]) {
+					b.WriteString(s[copied:valueStart])
+					b.WriteString(redactedUserinfo)
+					copied = paramEnd
+				}
+			}
+			i = paramEnd + 1
+		}
+	}
+	if copied == 0 {
+		return s
+	}
+	b.WriteString(s[copied:])
+	return b.String()
 }

@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
@@ -29,29 +29,43 @@ func (h *Handlers) ListLLMModels(w http.ResponseWriter, r *http.Request) {
 	writeJSONList(w, http.StatusOK, models)
 }
 
-// credentialParamParts mark LiteLLM parameter names that hold credentials:
-// api_key, aws_secret_access_key, vertex_credentials, an Authorization
-// header, a registered Copilot token, ...
-var credentialParamParts = []string{"key", "secret", "token", "password", "credential", "authorization"}
-
-// redactCredentials returns the LiteLLM parameters without credentials,
-// also in nested maps such as extra_headers.
+// redactCredentials returns the LiteLLM parameters without credentials: a
+// parameter whose name holds one (secrets.IsCredentialName: api_key,
+// aws_secret_access_key, vertex_credentials, an Authorization header, ...) is
+// dropped, and the values are walked (redactParamValue). The parameters are
+// the proxy's free-form model config, hence the map of JSON values.
 func redactCredentials(params map[string]any) map[string]any {
 	if params == nil {
 		return nil
 	}
 	out := make(map[string]any, len(params))
 	for name, value := range params {
-		lower := strings.ToLower(name)
-		if slices.ContainsFunc(credentialParamParts, func(part string) bool { return strings.Contains(lower, part) }) {
+		if secrets.IsCredentialName(name) {
 			continue
 		}
-		if nested, ok := value.(map[string]any); ok {
-			value = redactCredentials(nested)
-		}
-		out[name] = value
+		out[name] = redactParamValue(value)
 	}
 	return out
+}
+
+// redactParamValue redacts a JSON parameter value by shape: URL userinfo and
+// credential query parameters in strings, credential keys in objects, and the
+// elements of arrays. Numbers, booleans and null are kept.
+func redactParamValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		return secrets.RedactURL(v)
+	case map[string]any:
+		return redactCredentials(v)
+	case []any:
+		out := make([]any, len(v))
+		for i := range v {
+			out[i] = redactParamValue(v[i])
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // AddLLMModel handles POST /api/v1/llm/models
