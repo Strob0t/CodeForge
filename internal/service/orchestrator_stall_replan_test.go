@@ -2,6 +2,8 @@ package service_test
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -146,5 +148,58 @@ func TestStallReplan_PingPongRerunsTheSameRound(t *testing.T) {
 	endStep(0, run.StatusCompleted, "")
 	if got := planState(t, store, p.ID); got.Steps[1].Status != plan.StepStatusRunning || got.Steps[1].Round != 1 {
 		t.Fatalf("step 1 %s round %d: want it running round 1", got.Steps[1].Status, got.Steps[1].Round)
+	}
+}
+
+// Review finding 1: a stall in any round re-runs that round of the stalled
+// step - round 2 and 3 included - and the rounds then alternate as before:
+// each step runs every round once, and the plan completes.
+func TestStallReplan_PingPongStallInLaterRounds(t *testing.T) {
+	for _, stallRound := range []int{1, 2, 3} {
+		t.Run(fmt.Sprintf("round %d", stallRound), func(t *testing.T) {
+			store, orchSvc := newStallReplanSetup(1)
+			ctx := context.Background()
+			p := createPlan(t, orchSvc, plan.ProtocolPingPong, 0, []plan.CreateStepRequest{
+				{TaskID: "t1", AgentID: "a1"}, {TaskID: "t2", AgentID: "a2"},
+			})
+
+			// Each completed round as "step:round"; step 0 stalls once in stallRound.
+			var rounds []string
+			stalled := false
+			for range 10 {
+				got := planState(t, store, p.ID)
+				if got.Status != plan.StatusRunning {
+					break
+				}
+				i := -1
+				for j := range got.Steps {
+					if got.Steps[j].Status == plan.StepStatusRunning {
+						i = j
+					}
+				}
+				if i < 0 {
+					t.Fatalf("no running step in a running plan (steps %s / %s)", got.Steps[0].Status, got.Steps[1].Status)
+				}
+				step := got.Steps[i]
+				status, errMsg := run.StatusCompleted, ""
+				if i == 0 && step.Round == stallRound && !stalled {
+					status, errMsg, stalled = run.StatusFailed, run.StallDetectedError, true
+				} else {
+					rounds = append(rounds, fmt.Sprintf("%d:%d", i, step.Round))
+				}
+				if err := store.CompleteRun(ctx, &run.CompletionRequest{ID: step.RunID, Status: status, Error: errMsg}); err != nil {
+					t.Fatalf("CompleteRun: %v", err)
+				}
+				orchSvc.HandleRunCompleted(ctx, step.RunID, status)
+			}
+
+			want := []string{"0:1", "1:1", "0:2", "1:2", "0:3", "1:3"}
+			if !stalled || !slices.Equal(rounds, want) {
+				t.Fatalf("rounds = %v (stalled %v), want %v", rounds, stalled, want)
+			}
+			if got := planState(t, store, p.ID); got.Status != plan.StatusCompleted {
+				t.Fatalf("plan = %s, want completed", got.Status)
+			}
+		})
 	}
 }
