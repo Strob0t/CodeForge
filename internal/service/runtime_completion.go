@@ -43,6 +43,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if r.Status.IsTerminal() {
 		slog.Info("completion for a run that already ended, usage kept", "run_id", r.ID, "status", r.Status)
 		s.keepWorkerTotals(ctx, r.ID, payload)
+		s.confirmWorkerStop(ctx, r.ID)
 		return nil
 	}
 	// runs.complete is delivered at least once: a run waiting for its quality

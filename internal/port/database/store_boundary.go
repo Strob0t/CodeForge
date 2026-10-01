@@ -6,6 +6,14 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 )
 
+// EndedReviewRefactoring is a review pipeline whose refactoring is not
+// decided although its plan ended (the stuck-work watchdog measures it).
+type EndedReviewRefactoring struct {
+	PlanID     string
+	TenantID   string
+	PlanStatus string
+}
+
 // BoundaryStore defines database operations for boundaries and review triggers (Phase 31).
 type BoundaryStore interface {
 	// Boundaries

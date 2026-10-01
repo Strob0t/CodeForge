@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -22,6 +23,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -74,6 +76,36 @@ func (f *fakeReviewStore) CreateReviewPipeline(_ context.Context, rp *review.Pip
 	stored := *rp
 	f.pipelines[rp.PlanID] = &stored
 	return nil
+}
+
+func (f *fakeReviewStore) GetPlanStepByRunID(_ context.Context, runID string) (*plan.Step, error) {
+	for _, p := range f.plans {
+		for i := range p.Steps {
+			if p.Steps[i].RunID == runID {
+				st := p.Steps[i]
+				st.PlanID = p.ID
+				return &st, nil
+			}
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+// fakeRunEnds answers which runs' workers may still write.
+type fakeRunEnds struct{ mayWrite map[string]bool }
+
+func (f *fakeRunEnds) WorkerMayStillWrite(runID string) bool { return f.mayWrite[runID] }
+func (f *fakeRunEnds) WorkerStopGrace() time.Duration        { return time.Minute }
+
+// fakeEndedRefactorings lists ended refactorings for the watchdog check.
+type fakeEndedRefactorings struct {
+	rows   []database.EndedReviewRefactoring
+	before time.Time
+}
+
+func (f *fakeEndedRefactorings) ListEndedReviewRefactorings(_ context.Context, endedBefore time.Time, _ int) ([]database.EndedReviewRefactoring, error) {
+	f.before = endedBefore
+	return f.rows, nil
 }
 
 func (f *fakeReviewStore) HasActiveReviewPipeline(context.Context, string) (bool, error) {
@@ -1449,4 +1481,66 @@ func TestReviewPipeline_DecisionBeforeTheGateIsApplied(t *testing.T) {
 			t.Fatal("a decided refactoring was offered again")
 		}
 	})
+}
+
+// Review finding 4: a cancelled (or timed-out, stopped) refactoring run is
+// terminal at once, but its worker may still write until it confirms the
+// stop. The change is measured only then - or, when the worker never
+// confirms, by the watchdog check after the grace - so the worker's late
+// writes are part of the refactoring and an undo reverts them.
+func TestReviewPipeline_EndedRefactoringWaitsForItsWorker(t *testing.T) {
+	f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 104, "half done") })
+	runs := &fakeRunEnds{mayWrite: map[string]bool{"run-4": true}}
+	f.svc.SetRunEnds(runs)
+	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusCancelled
+	f.store.plans["plan-1"].Status = plan.StatusCancelled
+
+	f.svc.PlanEnded(f.ctx, "plan-1", "cancelled")
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineRefactoring || len(f.hub.snapshot()) != 0 {
+		t.Fatalf("state %s, %d events: want the refactoring unmeasured while its worker may write", rp.State, len(f.hub.snapshot()))
+	}
+
+	writeLines(t, f.dir, "late.go", 3, "written after the stop") // the worker still writes
+	runs.mayWrite["run-4"] = false
+	f.svc.WorkerStopped(f.ctx, "run-4")
+
+	rp := f.store.pipelines["plan-1"]
+	if rp.State != review.PipelineAwaitingDecision || rp.Impact == nil || rp.Impact.FilesChanged != 2 || len(f.hub.snapshot()) != 1 {
+		t.Fatalf("record %+v (impact %+v): want the decision with both files", rp, rp.Impact)
+	}
+	if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+		t.Fatalf("Decide(undo): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "late.go")); !os.IsNotExist(err) {
+		t.Fatalf("late.go after the undo: %v, want the worker's late write undone", err)
+	}
+
+	// A second confirmation finds nothing left to measure.
+	f.svc.WorkerStopped(f.ctx, "run-4")
+	if len(f.hub.snapshot()) != 1 {
+		t.Fatal("a refactoring was offered twice")
+	}
+}
+
+// The watchdog check measures ended refactorings whose worker never
+// confirmed the stop, once the grace has passed, in their own tenant.
+func TestReviewPipeline_WatchdogMeasuresEndedRefactorings(t *testing.T) {
+	f, _ := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 104, "half done") })
+	f.svc.SetRunEnds(&fakeRunEnds{mayWrite: map[string]bool{"run-4": true}})
+	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusCancelled
+	f.store.plans["plan-1"].Status = plan.StatusCancelled
+	f.svc.PlanEnded(f.ctx, "plan-1", "cancelled")
+
+	lister := &fakeEndedRefactorings{rows: []database.EndedReviewRefactoring{{PlanID: "plan-1", TenantID: reviewTenant, PlanStatus: "cancelled"}}}
+	n, err := f.svc.EndUndecidedRefactorings(context.Background(), lister)
+	if err != nil || n != 1 {
+		t.Fatalf("EndUndecidedRefactorings = %d, %v, want 1", n, err)
+	}
+	if time.Since(lister.before) < time.Minute {
+		t.Fatalf("listed refactorings ended before %s, want at least the grace ago", lister.before)
+	}
+	events := f.hub.snapshot()
+	if f.store.pipelines["plan-1"].State != review.PipelineAwaitingDecision || len(events) != 1 || events[0].Tenant != reviewTenant {
+		t.Fatal("want the decision recorded and announced in the pipeline's tenant")
+	}
 }

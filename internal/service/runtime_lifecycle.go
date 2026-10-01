@@ -94,6 +94,7 @@ const workerStopTimeout = 5 * time.Second
 // the run instead (KI-76); without it the run would stay running.
 func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Status, reason string) error {
 	s.state.BeginStop(r.ID)
+	s.noteWorkerStop(r.ID)
 	s.tellWorkerToStop(ctx, r.ID)
 	err := s.finalizeRun(ctx, r, status, storedOutcome(r, status, reason))
 	deferred := s.state.EndStop(r.ID)

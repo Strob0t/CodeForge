@@ -23,6 +23,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
+	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Pipeline templates the review service starts (internal/domain/pipeline).
@@ -76,6 +78,7 @@ type reviewPipelineStore interface {
 	UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, from review.PipelineState) error
 	ListPendingReviewDecisions(ctx context.Context, projectID string) ([]review.Pipeline, error)
 	HasActiveReviewPipeline(ctx context.Context, projectID string) (bool, error)
+	GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error)
 	ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error)
 }
 
@@ -86,6 +89,20 @@ type reviewPlanner interface {
 	CancelPlan(ctx context.Context, planID string) error
 	ApproveStep(ctx context.Context, planID, stepID string) error
 	RejectStep(ctx context.Context, planID, stepID string) error
+}
+
+// reviewRunEnds tells whether the worker of a run the control plane stopped
+// may still write to the workspace (RuntimeService, S6-F review 4).
+type reviewRunEnds interface {
+	WorkerMayStillWrite(runID string) bool
+	WorkerStopGrace() time.Duration
+}
+
+// endedRefactoringLister finds the review pipelines whose refactoring is not
+// decided although their plan ended, across tenants
+// (postgres.Store.ListEndedReviewRefactorings).
+type endedRefactoringLister interface {
+	ListEndedReviewRefactorings(ctx context.Context, endedBefore time.Time, limit int) ([]database.EndedReviewRefactoring, error)
 }
 
 // reviewTeams creates the team whose shared context carries the review
@@ -108,6 +125,10 @@ type ReviewPipelineService struct {
 	hub       broadcast.Broadcaster
 	scorer    *DiffImpactScorer
 
+	// runEnds, when set, defers measuring a refactoring whose run was stopped
+	// until its worker stopped writing.
+	runEnds reviewRunEnds
+
 	// decideMu serializes decisions, so an approval and a rejection of the
 	// same step cannot both pass the waiting check (a rejection undoes the
 	// workspace before the step fails).
@@ -128,6 +149,12 @@ func NewReviewPipelineService(
 		store: store, pipelines: pipelines, plans: plans, teams: teams,
 		git: gitPool, hub: hub, scorer: NewDiffImpactScorer(impact),
 	}
+}
+
+// SetRunEnds lets the pipeline wait for the worker of a stopped refactoring
+// run before it measures the change (S6-F review 4).
+func (s *ReviewPipelineService) SetRunEnds(runs reviewRunEnds) {
+	s.runEnds = runs
 }
 
 // StartReviewPipeline starts the review-refactor pipeline for the project and
@@ -668,10 +695,19 @@ func normalizeRepoPath(p string) string {
 }
 
 // finish marks the review pipeline done (compare-and-swap from state from)
-// and drops its refs.
+// and drops its refs. A record that moved on meanwhile (another path asks for
+// a decision, or finished it) keeps its refs.
 func (s *ReviewPipelineService) finish(ctx context.Context, rp *review.Pipeline, dir string, from review.PipelineState) {
 	rp.State = review.PipelineDone
-	logBestEffort(ctx, s.store.UpdateReviewPipeline(ctx, rp, from), "UpdateReviewPipeline: review done", slog.String("plan_id", rp.PlanID))
+	err := s.store.UpdateReviewPipeline(ctx, rp, from)
+	if errors.Is(err, domain.ErrConflict) {
+		slog.Info("review pipeline moved on, not finished here", "plan_id", rp.PlanID, "from", from)
+		return
+	}
+	if err != nil {
+		logBestEffort(ctx, err, "UpdateReviewPipeline: review done", slog.String("plan_id", rp.PlanID))
+		return
+	}
 	s.dropRefs(ctx, dir, rp.PlanID)
 }
 
@@ -843,8 +879,10 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 // changed the workspace: the change is measured and waits for a decision
 // through the same endpoints and dialog as a high-impact refactoring; the
 // plan stays as it ended, and the refs are dropped only after the decision.
-// Any other review plan without a decision waiting is done and its refs are
-// dropped.
+// A refactoring run the control plane stopped is measured only once its
+// worker stopped writing (WorkerStopped, or EndUndecidedRefactorings after
+// the grace; S6-F review 4). Any other review plan without a decision
+// waiting is done and its refs are dropped.
 func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, status string) {
 	rp, err := s.store.GetReviewPipeline(ctx, planID)
 	if errors.Is(err, domain.ErrNotFound) {
@@ -857,9 +895,94 @@ func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, status st
 	if rp.State == review.PipelineAwaitingDecision || rp.State == review.PipelineDone {
 		return
 	}
+	if rp.State == review.PipelineRefactoring && status != string(plan.StatusCompleted) && s.runEnds != nil {
+		if step := s.refactoringStep(ctx, rp); step != nil && step.RunID != "" && s.runEnds.WorkerMayStillWrite(step.RunID) {
+			slog.Info("ended refactoring is measured once its worker stopped", "plan_id", planID, "run_id", step.RunID)
+			return
+		}
+	}
+	s.endPipeline(ctx, rp, status)
+}
+
+// WorkerStopped is the runtime's callback (RuntimeService.SetOnWorkerStopped)
+// when the worker of a stopped run confirmed the stop: an undecided
+// refactoring of that run whose plan ended is measured now.
+func (s *ReviewPipelineService) WorkerStopped(ctx context.Context, runID string) {
+	step, err := s.store.GetPlanStepByRunID(ctx, runID)
+	if err != nil || step.ModeID != refactorerMode {
+		return
+	}
+	rp, err := s.store.GetReviewPipeline(ctx, step.PlanID)
+	if err != nil || rp.State != review.PipelineRefactoring || rp.StepID != step.ID {
+		return
+	}
+	p, err := s.store.GetPlan(ctx, step.PlanID)
+	if err != nil {
+		logBestEffort(ctx, err, "GetPlan: stopped refactoring not measured", slog.String("plan_id", step.PlanID))
+		return
+	}
+	if !p.Status.IsTerminal() {
+		return // the plan goes on: its gate or its end measures the refactoring
+	}
+	s.endPipeline(ctx, rp, string(p.Status))
+}
+
+// endedRefactoringBatch limits the refactorings one watchdog check measures.
+const endedRefactoringBatch = 50
+
+// EndUndecidedRefactorings is a stuck-work watchdog check: refactorings whose
+// plan ended more than the worker-stop grace ago and that are still not
+// decided - the worker never confirmed the stop, or Go Core restarted - are
+// measured now, each in its own tenant. It returns how many it handled.
+func (s *ReviewPipelineService) EndUndecidedRefactorings(ctx context.Context, lister endedRefactoringLister) (int, error) {
+	grace := defaultWorkerStopGrace
+	if s.runEnds != nil {
+		grace = s.runEnds.WorkerStopGrace()
+	}
+	ended, err := lister.ListEndedReviewRefactorings(ctx, time.Now().Add(-grace), endedRefactoringBatch)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range ended {
+		tctx := tenantctx.WithTenant(ctx, e.TenantID)
+		rp, err := s.store.GetReviewPipeline(tctx, e.PlanID)
+		if err != nil {
+			logBestEffort(tctx, err, "GetReviewPipeline: ended refactoring not measured", slog.String("plan_id", e.PlanID))
+			continue
+		}
+		if rp.State != review.PipelineRefactoring {
+			continue
+		}
+		s.endPipeline(tctx, rp, e.PlanStatus)
+		n++
+	}
+	return n, nil
+}
+
+// refactoringStep returns the review pipeline's refactoring step, nil when
+// it cannot be loaded.
+func (s *ReviewPipelineService) refactoringStep(ctx context.Context, rp *review.Pipeline) *plan.Step {
+	p, err := s.store.GetPlan(ctx, rp.PlanID)
+	if err != nil {
+		logBestEffort(ctx, err, "GetPlan: refactoring step not loaded", slog.String("plan_id", rp.PlanID))
+		return nil
+	}
+	for i := range p.Steps {
+		if p.Steps[i].ID == rp.StepID {
+			return &p.Steps[i]
+		}
+	}
+	return nil
+}
+
+// endPipeline ends a review pipeline whose plan ended: an undecided
+// refactoring that changed the workspace asks keep or undo, anything else is
+// done and its refs are dropped.
+func (s *ReviewPipelineService) endPipeline(ctx context.Context, rp *review.Pipeline, status string) {
 	proj, err := s.store.GetProject(ctx, rp.ProjectID)
 	if err != nil {
-		logBestEffort(ctx, err, "GetProject: review refs not dropped", slog.String("plan_id", planID))
+		logBestEffort(ctx, err, "GetProject: review refs not dropped", slog.String("plan_id", rp.PlanID))
 		return
 	}
 	if rp.State == review.PipelineRefactoring && status != string(plan.StatusCompleted) && s.askAfterEnd(ctx, rp, proj.WorkspacePath, status) {
@@ -873,17 +996,7 @@ func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, status st
 // keep/undo decision and announces it (review.approval_required). It
 // reports whether a decision waits.
 func (s *ReviewPipelineService) askAfterEnd(ctx context.Context, rp *review.Pipeline, dir, status string) bool {
-	p, err := s.store.GetPlan(ctx, rp.PlanID)
-	if err != nil {
-		logBestEffort(ctx, err, "GetPlan: ended refactoring not measured", slog.String("plan_id", rp.PlanID))
-		return false
-	}
-	var step *plan.Step
-	for i := range p.Steps {
-		if p.Steps[i].ID == rp.StepID {
-			step = &p.Steps[i]
-		}
-	}
+	step := s.refactoringStep(ctx, rp)
 	if step == nil || step.RunID == "" {
 		return false // the refactoring never ran
 	}

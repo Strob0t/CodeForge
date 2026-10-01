@@ -143,6 +143,9 @@ func (decisionStore) UpdateReviewPipeline(context.Context, *review.Pipeline, rev
 func (decisionStore) HasActiveReviewPipeline(context.Context, string) (bool, error) {
 	return false, nil
 }
+func (decisionStore) GetPlanStepByRunID(context.Context, string) (*plan.Step, error) {
+	return nil, domain.ErrNotFound
+}
 func (decisionStore) ListPlansByProject(context.Context, string) ([]plan.ExecutionPlan, error) {
 	return nil, nil
 }

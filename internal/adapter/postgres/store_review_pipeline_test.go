@@ -180,3 +180,49 @@ func TestRetention_PendingReviewDecisionSurvivesTheRunPurge(t *testing.T) {
 		t.Fatalf("pending decisions after the purge = %+v, %v, want the decision with its run", pending, err)
 	}
 }
+
+// Review finding 4: a refactoring whose plan ended but that is not decided
+// yet (it is measured once its worker stopped) keeps the project's pipeline
+// active and is listed for the watchdog once its plan ended before the
+// cutoff, across tenants.
+func TestStore_ListEndedReviewRefactorings(t *testing.T) {
+	f := newStatusFixture(t)
+	p := f.reviewPlan(t)
+	rp := &review.Pipeline{PlanID: p.ID, ProjectID: f.project.ID}
+	if err := f.store.CreateReviewPipeline(f.ctx, rp); err != nil {
+		t.Fatalf("CreateReviewPipeline: %v", err)
+	}
+	rp.State, rp.StepID = review.PipelineRefactoring, p.Steps[0].ID
+	if err := f.store.UpdateReviewPipeline(f.ctx, rp, review.PipelinePending); err != nil {
+		t.Fatalf("UpdateReviewPipeline: %v", err)
+	}
+	if err := f.store.UpdatePlanStatus(f.ctx, p.ID, plan.StatusCancelled); err != nil {
+		t.Fatalf("UpdatePlanStatus: %v", err)
+	}
+	if active, err := f.store.HasActiveReviewPipeline(f.ctx, f.project.ID); err != nil || !active {
+		t.Fatalf("HasActiveReviewPipeline with an undecided refactoring = %v, %v, want true", active, err)
+	}
+
+	listed := func(before time.Time) bool {
+		t.Helper()
+		rows, err := f.store.ListEndedReviewRefactorings(context.Background(), before, 1000)
+		if err != nil {
+			t.Fatalf("ListEndedReviewRefactorings: %v", err)
+		}
+		for _, r := range rows {
+			if r.PlanID == p.ID {
+				if r.TenantID == "" || r.PlanStatus != string(plan.StatusCancelled) {
+					t.Fatalf("row = %+v, want its tenant and the cancelled status", r)
+				}
+				return true
+			}
+		}
+		return false
+	}
+	if !listed(time.Now().Add(time.Minute)) {
+		t.Fatal("an ended, undecided refactoring is not listed")
+	}
+	if listed(time.Now().Add(-time.Hour)) {
+		t.Fatal("a refactoring whose plan ended after the cutoff is listed")
+	}
+}

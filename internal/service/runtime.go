@@ -45,6 +45,7 @@ type RuntimeService struct {
 	mcpSvc        runtimeMCPResolver
 	microagentSvc runtimeMicroagentMatcher
 	onRunComplete func(ctx context.Context, runID string, status run.Status)
+	workerStops   workerStops
 	runtimeCfg    *config.Runtime
 	state         *RunStateManager
 	quarantine    runtimeQuarantineEvaluator

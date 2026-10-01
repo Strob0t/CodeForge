@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // --- Review pipelines (KI-17) ---
@@ -19,13 +21,16 @@ const reviewPipelineColumns = `plan_id, tenant_id, project_id, state, baseline_s
 const reviewPipelineExistsSQL = `SELECT EXISTS (SELECT 1 FROM review_pipelines WHERE plan_id = $1 AND tenant_id = $2)`
 
 // activeReviewPipelineSQL ($1 project, $2 tenant, $3 plan to leave out or
-// NULL, $4 statuses of plans that have not ended, $5 awaiting_decision): a
+// NULL, $4 statuses of plans that have not ended, $5 undecided states): a
 // review pipeline of the project whose plan has not ended or whose
-// refactoring waits for a decision.
+// refactoring is not decided (it is measured once its worker stopped, or
+// waits for keep or undo).
 const activeReviewPipelineSQL = `SELECT EXISTS (
 	SELECT 1 FROM review_pipelines rp JOIN execution_plans p ON p.id = rp.plan_id
 	WHERE rp.project_id = $1 AND rp.tenant_id = $2 AND ($3::uuid IS NULL OR rp.plan_id <> $3::uuid)
-	  AND (p.status = ANY($4) OR rp.state = $5))`
+	  AND (p.status = ANY($4) OR rp.state = ANY($5)))`
+
+var undecidedReviewStates = []string{string(review.PipelineRefactoring), string(review.PipelineAwaitingDecision)}
 
 // agentInUseSQL ($1 plan, $2 tenant, $3 statuses of plans that have not
 // ended): an agent of the plan's steps is assigned to a step of another
@@ -42,7 +47,7 @@ var activePlanStatuses = []string{string(plan.StatusPending), string(plan.Status
 func (s *Store) HasActiveReviewPipeline(ctx context.Context, projectID string) (bool, error) {
 	var active bool
 	err := s.pool.QueryRow(ctx, activeReviewPipelineSQL,
-		projectID, tenantFromCtx(ctx), nil, activePlanStatuses, string(review.PipelineAwaitingDecision)).Scan(&active)
+		projectID, tenantFromCtx(ctx), nil, activePlanStatuses, undecidedReviewStates).Scan(&active)
 	if err != nil {
 		return false, fmt.Errorf("check active review pipelines: %w", err)
 	}
@@ -77,7 +82,7 @@ func (s *Store) CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) e
 	}
 	var active, agentBusy bool
 	if err := tx.QueryRow(ctx, activeReviewPipelineSQL,
-		rp.ProjectID, tid, rp.PlanID, activePlanStatuses, string(review.PipelineAwaitingDecision)).Scan(&active); err != nil {
+		rp.ProjectID, tid, rp.PlanID, activePlanStatuses, undecidedReviewStates).Scan(&active); err != nil {
 		return fmt.Errorf("check active review pipelines: %w", err)
 	}
 	if active {
@@ -152,6 +157,29 @@ func (s *Store) ListPendingReviewDecisions(ctx context.Context, projectID string
 			return review.Pipeline{}, err
 		}
 		return *rp, nil
+	})
+}
+
+// ListEndedReviewRefactorings returns up to limit review pipelines whose
+// refactoring started but is not decided although their plan ended before
+// endedBefore (S6-F review 4), oldest first.
+//
+// INTENTIONALLY CROSS-TENANT: stuck-work watchdog check; each row carries its
+// tenant and is handled in that tenant's context.
+func (s *Store) ListEndedReviewRefactorings(ctx context.Context, endedBefore time.Time, limit int) ([]database.EndedReviewRefactoring, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT rp.plan_id, rp.tenant_id, p.status
+		 FROM review_pipelines rp JOIN execution_plans p ON p.id = rp.plan_id AND p.tenant_id = rp.tenant_id
+		 WHERE rp.state = $1 AND p.status = ANY($2) AND p.updated_at < $3
+		 ORDER BY p.updated_at LIMIT $4`,
+		string(review.PipelineRefactoring), planTerminalStatuses, endedBefore, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list ended review refactorings: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (database.EndedReviewRefactoring, error) {
+		var e database.EndedReviewRefactoring
+		err := r.Scan(&e.PlanID, &e.TenantID, &e.PlanStatus)
+		return e, err
 	})
 }
 

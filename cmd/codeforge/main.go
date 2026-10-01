@@ -514,6 +514,8 @@ func run() error {
 		service.DefaultDiffImpactConfig())
 	orchSvc.SetStepGate(reviewPipelineSvc.GateStep)
 	orchSvc.SetStepPreparer(reviewPipelineSvc)
+	reviewPipelineSvc.SetRunEnds(runtimeSvc)
+	runtimeSvc.SetOnWorkerStopped(reviewPipelineSvc.WorkerStopped)
 	orchSvc.AddOnPlanComplete(reviewPipelineSvc.PlanEnded)
 	reviewTriggerSvc := service.NewReviewTriggerService(store, reviewPipelineSvc)
 	slog.Info("boundary and review pipeline services initialized")
@@ -1117,8 +1119,13 @@ func run() error {
 	endedTeams := service.StuckWorkCheck{Name: "ended teams", EndStuck: func(ctx context.Context) (int, error) {
 		return poolManagerSvc.CleanupEndedTeams(ctx, store)
 	}}
+	// Refactorings whose plan ended but whose worker never confirmed the stop
+	// (or that ended while Go Core was down) are measured after the grace.
+	undecidedRefactorings := service.StuckWorkCheck{Name: "undecided review refactorings", EndStuck: func(ctx context.Context) (int, error) {
+		return reviewPipelineSvc.EndUndecidedRefactorings(ctx, store)
+	}}
 	// Teams whose plans ended while Go Core was down end at startup.
-	service.NewStuckWorkWatchdog(0, endedTeams).RunOnce(ctx)
+	service.NewStuckWorkWatchdog(0, endedTeams, undecidedRefactorings).RunOnce(ctx)
 	stopStuckWorkWatchdog := service.NewStuckWorkWatchdog(cfg.Runtime.StaleCheckInterval,
 		service.StuckWorkCheck{Name: "lost tasks", EndStuck: func(ctx context.Context) (int, error) {
 			return agentSvc.FailTasksWithLostWorker(ctx, service.LostWorkerAfter(&cfg.Runtime))
@@ -1130,6 +1137,7 @@ func run() error {
 		service.StuckWorkCheck{Name: "lost runs", EndStuck: runtimeSvc.EndRunsWithLostWorker},
 		service.StuckWorkCheck{Name: "lost conversation runs", EndStuck: conversationSvc.EndConversationRunsWithLostWorker},
 		endedTeams,
+		undecidedRefactorings,
 	).Start(ctx)
 
 	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
