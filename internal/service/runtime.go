@@ -231,16 +231,6 @@ func (s *RuntimeService) PersistGoalProposal(ctx context.Context, projectID, kin
 	return err
 }
 
-// SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
-func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
-	s.state.SetHeartbeat(runID, t)
-}
-
-// LastHeartbeat returns the last heartbeat kept in memory for a run. Intended for testing.
-func (s *RuntimeService) LastHeartbeat(runID string) (time.Time, bool) {
-	return s.state.GetHeartbeat(runID)
-}
-
 // prepareSandbox creates and starts a sandbox or hybrid container for the run.
 // Returns nil if exec mode is mount or if no sandbox service is configured.
 func (s *RuntimeService) prepareSandbox(ctx context.Context, runID, projectID string, execMode run.ExecMode) error {

@@ -308,18 +308,6 @@ func (s *ConversationService) notifyCompletionWaiter(conversationID string, resu
 	}
 }
 
-// WaitForCompletion blocks until the conversation run finishes or the context
-// is cancelled. It misses a run that ended before it was called: to dispatch
-// and wait, register with ExpectCompletion first.
-func (s *ConversationService) WaitForCompletion(ctx context.Context, conversationID string) (CompletionResult, error) {
-	w, err := s.ExpectCompletion(conversationID)
-	if err != nil {
-		return CompletionResult{}, err
-	}
-	defer w.Close()
-	return w.Wait(ctx)
-}
-
 // StopConversation cancels an active agentic run by publishing a cancel
 // message to NATS. The conversation must be one of the caller's tenant
 // (the store is tenant-scoped): the cancel reaches every worker by ID.
