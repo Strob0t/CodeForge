@@ -42,6 +42,7 @@ def test_default_wait_outlasts_the_go_default() -> None:
 def _runtime(js: RecordingJetStream, approval_timeout: float) -> RuntimeClient:
     return RuntimeClient(
         js=js,  # type: ignore[arg-type]
+        notifications=js,  # type: ignore[arg-type]
         run_id="run-1",
         task_id="task-1",
         project_id="proj-1",

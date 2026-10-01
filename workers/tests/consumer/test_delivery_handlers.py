@@ -30,7 +30,7 @@ from codeforge.models import (
     TerminationConfig,
 )
 from codeforge.runtime import RuntimeClient
-from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
+from tests.jetstream_fakes import RecordingJetStream, jetstream_msg, patch_notification_hub
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,6 +42,7 @@ MAX_DELIVER = 4  # JetStream delivery limit: first delivery plus 3 retries
 def consumer() -> TaskConsumer:
     worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
     worker._js = RecordingJetStream()  # type: ignore[assignment]
+    worker._notifications = worker._js
     return worker
 
 
@@ -277,6 +278,7 @@ class TestTasks:
 
         monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         consumer._js = RecordingJetStream(failing_times={"tasks.result": 2})  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         consumer._backend_router = MagicMock()
         consumer._backend_router.execute = AsyncMock(return_value=BackendTaskResult(status="completed", output="ok"))
         msg, _ = jetstream_msg(_task_payload("task-retry"), subject="tasks.agent.aider")
@@ -383,6 +385,7 @@ class TestRunStart:
     ) -> None:
         monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         consumer._js = RecordingJetStream(failing_times={"runs.complete": 1})  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         msg, _ = jetstream_msg(_run_start_payload("run-retry"), subject="runs.start")
 
         async def complete(_task: object, runtime: RuntimeClient, **_kwargs: object) -> None:
@@ -533,6 +536,7 @@ class TestConversationRun:
         monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         js = RecordingJetStream(failing_times={"conversation.run.complete": 1})
         consumer._js = js  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         _patch_conversation_pipeline(consumer, monkeypatch)
         msg, _ = jetstream_msg(_conversation_payload("conv-retry"), subject="conversation.run.start")
 
@@ -571,7 +575,9 @@ class TestConversationRun:
 class TestRuntimeClose:
     async def test_close_releases_cancel_listeners_and_heartbeat(self) -> None:
         js = RecordingJetStream()
-        runtime = RuntimeClient(js=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+        runtime = RuntimeClient(
+            js=js, notifications=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig()
+        )  # type: ignore[arg-type]
         await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
         await runtime.start_heartbeat(interval=0.01)
         await asyncio.sleep(0.03)
@@ -597,6 +603,7 @@ class TestRuntimeClose:
         js = RecordingJetStream()
         runtime = RuntimeClient(
             js=js,  # type: ignore[arg-type]
+            notifications=js,  # type: ignore[arg-type]
             run_id="conv-1",
             task_id="",
             project_id="p1",
@@ -753,6 +760,7 @@ class TestBenchmarkRun:
 
         monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         consumer._js = RecordingJetStream(failing_times={"benchmark.run.result": 1})  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         monkeypatch.setattr(
             "codeforge.consumer._benchmark._build_evaluators", MagicMock(side_effect=RuntimeError("no evaluator"))
         )
@@ -872,7 +880,9 @@ class TestRuntimeCancelListener:
     async def test_malformed_cancel_messages_do_not_stop_the_listener(self) -> None:
         """One bad message on runs.cancel must not disable cancellation for every active run."""
         js = RecordingJetStream()
-        runtime = RuntimeClient(js=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+        runtime = RuntimeClient(
+            js=js, notifications=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig()
+        )  # type: ignore[arg-type]
         await runtime.start_cancel_listener()
         sub = js.subscriptions[0]
 
@@ -888,7 +898,9 @@ class TestRuntimeCancelListener:
     async def test_empty_ids_never_match(self) -> None:
         """A run without a task ID must not be cancelled by a cancel message for 'no task'."""
         js = RecordingJetStream()
-        runtime = RuntimeClient(js=js, run_id="r1", task_id="", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+        runtime = RuntimeClient(
+            js=js, notifications=js, run_id="r1", task_id="", project_id="p1", termination=TerminationConfig()
+        )  # type: ignore[arg-type]
         await runtime.start_cancel_listener(extra_subjects=["tasks.cancel"])
 
         js.subscriptions[1].deliver(b'{"task_id": ""}')
@@ -902,7 +914,9 @@ class TestRuntimeCancelListener:
         """The listener never acks: with explicit acks JetStream would redeliver every cancel
         message and stop delivering once MaxAckPending messages are outstanding."""
         js = RecordingJetStream()
-        runtime = RuntimeClient(js=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+        runtime = RuntimeClient(
+            js=js, notifications=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig()
+        )  # type: ignore[arg-type]
         await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
         configs = [sub.config for sub in js.subscriptions]
         await runtime.close()
@@ -911,7 +925,9 @@ class TestRuntimeCancelListener:
 
     async def test_tool_call_response_subscription_needs_no_acks(self) -> None:
         js = RecordingJetStream()
-        runtime = RuntimeClient(js=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig())  # type: ignore[arg-type]
+        runtime = RuntimeClient(
+            js=js, notifications=js, run_id="r1", task_id="t1", project_id="p1", termination=TerminationConfig()
+        )  # type: ignore[arg-type]
 
         request = asyncio.create_task(runtime.request_tool_call("read_file", path="a.py"))
         for _ in range(500):
@@ -1095,6 +1111,7 @@ async def _start_until_given_up(
     js = consumer._js
     js.find_stream_name_by_subject = AsyncMock(return_value="CODEFORGE")  # type: ignore[union-attr]
     monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    patch_notification_hub(monkeypatch, js)
     monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=MagicMock()))
     pending = [msg]
 
@@ -1233,6 +1250,7 @@ async def _start_until_stopped(
     js = consumer._js
     js.find_stream_name_by_subject = AsyncMock(return_value="CODEFORGE")  # type: ignore[union-attr]
     monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    patch_notification_hub(monkeypatch, js)
     published_at_drain: list[int] = []
 
     async def drain() -> None:

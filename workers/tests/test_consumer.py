@@ -38,6 +38,7 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
     backend_result = BackendTaskResult(status="completed", output="Done")
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._backend_router = MagicMock()
     consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
@@ -67,6 +68,7 @@ async def test_handle_message_invalid_json(consumer: TaskConsumer) -> None:
     msg.term = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
 
     await consumer._handle_message(msg)
 
@@ -98,6 +100,7 @@ async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
     backend_result = BackendTaskResult(status="failed", error="LLM timeout")
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._backend_router = MagicMock()
     consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
@@ -129,6 +132,7 @@ async def test_handle_message_request_id_propagated(consumer: TaskConsumer) -> N
     backend_result = BackendTaskResult(status="completed", output="OK")
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._backend_router = MagicMock()
     consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
@@ -160,6 +164,7 @@ async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
     msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
 
@@ -192,6 +197,7 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
     msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
 
@@ -221,6 +227,7 @@ async def test_handle_run_start_passes_workspace_and_backend(consumer: TaskConsu
     msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
 
@@ -251,6 +258,7 @@ async def test_handle_run_start_passes_mcp_servers(consumer: TaskConsumer) -> No
     msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
 

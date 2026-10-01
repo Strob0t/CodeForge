@@ -68,6 +68,7 @@ async def test_run_listener_survives_malformed_messages(data: object) -> None:
     js = RecordingJetStream()
     runtime = RuntimeClient(
         js=js,  # type: ignore[arg-type]
+        notifications=js,  # type: ignore[arg-type]
         run_id="run-1",
         task_id="task-1",
         project_id="p",

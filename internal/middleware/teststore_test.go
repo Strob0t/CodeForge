@@ -921,6 +921,14 @@ func (s *testStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ strin
 	return 0, nil
 }
 
+func (s *testStore) UnconsumedQuarantineRelease(_ context.Context, _ string, _ []byte) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (s *testStore) ConsumeQuarantineRelease(_ context.Context, _ string) error {
+	return domain.ErrNotFound
+}
+
 // Consent stubs (GDPR)
 func (s *testStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
 	return false, nil

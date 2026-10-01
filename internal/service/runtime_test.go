@@ -2663,6 +2663,14 @@ func (m *runtimeMockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, 
 	return 0, nil
 }
 
+func (m *runtimeMockStore) UnconsumedQuarantineRelease(_ context.Context, _ string, _ []byte) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (m *runtimeMockStore) ConsumeQuarantineRelease(_ context.Context, _ string) error {
+	return domain.ErrNotFound
+}
+
 // Consent stubs (GDPR)
 func (m *runtimeMockStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
 	return false, nil

@@ -18,6 +18,7 @@ import pytest
 
 import codeforge.consumer as consumer_module
 from codeforge.consumer import TaskConsumer
+from tests.jetstream_fakes import patch_notification_hub
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -73,6 +74,7 @@ def js() -> AsyncMock:
 @pytest.fixture
 def consumer(monkeypatch: pytest.MonkeyPatch, js: AsyncMock) -> TaskConsumer:
     monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    patch_notification_hub(monkeypatch, js)
     return TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
 
 
@@ -217,6 +219,7 @@ async def test_sigterm_while_connecting_stops_the_worker(
     monkeypatch.setattr("codeforge.consumer.nats.connect", connect)
     monkeypatch.setattr("codeforge.consumer.ensure_durable", ensure)
     monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    patch_notification_hub(monkeypatch, js)
 
     main = asyncio.create_task(consumer_module.main())
     await asyncio.wait_for(connect.called.wait(), timeout=10)

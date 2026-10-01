@@ -21,6 +21,7 @@ from codeforge.nats_subjects import SUBJECT_RUN_COMPLETE
 def consumer() -> TaskConsumer:
     consumer = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
     return consumer

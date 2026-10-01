@@ -86,6 +86,7 @@ class RunHandlerMixin:
             tenant_id=run_msg.tenant_id,
             mode_id=run_msg.mode.id,
             approval_timeout_seconds=run_msg.approval_timeout_seconds,
+            notifications=self._notifications,
         )
 
         # Go rejects these runs at start; this catches run starts that bypass it

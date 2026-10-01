@@ -35,6 +35,7 @@ def _make_client(js: MagicMock | None = None) -> RuntimeClient:
         js = _make_js_mock()
     return RuntimeClient(
         js=js,
+        notifications=js,
         run_id="run-123",
         task_id="task-456",
         project_id="proj-789",
@@ -229,6 +230,7 @@ async def test_request_tool_call_payload_contract() -> None:
     js = _make_js_mock()
     client = RuntimeClient(
         js=js,
+        notifications=js,
         run_id="conv-1",
         task_id="conv-1",
         project_id="proj-1",

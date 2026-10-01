@@ -107,6 +107,32 @@ func (s *Store) UpdateQuarantineStatus(ctx context.Context, id string, status qu
 	return s.guardedUpdateResult(ctx, tag, err, quarantineExistsSQL, "update quarantine status for message", id)
 }
 
+// UnconsumedQuarantineRelease returns the ID of an approved, unconsumed
+// quarantine message of subject in the current tenant whose payload is
+// exactly payload (the oldest approval first); domain.ErrNotFound if none.
+func (s *Store) UnconsumedQuarantineRelease(ctx context.Context, subject string, payload []byte) (string, error) {
+	const q = `
+		SELECT id FROM quarantine_messages
+		WHERE tenant_id = $1 AND subject = $2 AND status = 'approved' AND consumed_at IS NULL AND payload = $3
+		ORDER BY reviewed_at
+		LIMIT 1`
+	var id string
+	if err := s.pool.QueryRow(ctx, q, tenantFromCtx(ctx), subject, payload).Scan(&id); err != nil {
+		return "", notFoundWrap(err, "unconsumed quarantine release on %s", subject)
+	}
+	return id, nil
+}
+
+// ConsumeQuarantineRelease records that the replay of the approved message
+// id was carried out; only an approved, unconsumed message changes.
+func (s *Store) ConsumeQuarantineRelease(ctx context.Context, id string) error {
+	const q = `
+		UPDATE quarantine_messages SET consumed_at = now()
+		WHERE id = $1 AND tenant_id = $2 AND status = 'approved' AND consumed_at IS NULL`
+	tag, err := s.pool.Exec(ctx, q, id, tenantFromCtx(ctx))
+	return s.guardedUpdateResult(ctx, tag, err, quarantineExistsSQL, "consume quarantine release", id)
+}
+
 const quarantineExistsSQL = `SELECT EXISTS (SELECT 1 FROM quarantine_messages WHERE id = $1 AND tenant_id = $2)`
 
 // AnonymizeQuarantineReviewsForUser replaces the reviewer name of the user's

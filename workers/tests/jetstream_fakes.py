@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import TYPE_CHECKING
 
 from nats.aio.msg import Msg
 from nats.js.api import PubAck
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class RecordingClient:
@@ -119,6 +123,30 @@ class FakeSubscription:
 
     async def unsubscribe(self) -> None:
         self.unsubscribed = True
+
+
+class FakeNotificationHub:
+    """Stands in for codeforge.notifications.NotificationHub: its subscriptions are the JetStream fake's."""
+
+    def __init__(self, js: object) -> None:
+        self._js = js
+
+    async def start(self) -> None:
+        return None
+
+    async def restore(self) -> None:
+        return None
+
+    async def subscribe(self, subject: str, config: object = None) -> object:
+        return await self._js.subscribe(subject, config=config)  # type: ignore[attr-defined]
+
+    def close(self) -> None:
+        return None
+
+
+def patch_notification_hub(monkeypatch: pytest.MonkeyPatch, js: object) -> None:
+    """Let TaskConsumer.start() use a FakeNotificationHub over *js* (the worker's JetStream fake)."""
+    monkeypatch.setattr("codeforge.consumer.NotificationHub", lambda _nc, _js: FakeNotificationHub(js))
 
 
 class RecordingJetStream:

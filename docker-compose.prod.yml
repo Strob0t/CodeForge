@@ -115,7 +115,10 @@ services:
     logging: *default-logging
 
   nats:
-    image: nats:2-alpine
+    # The minor version configs/nats/nats-server.conf is tested with
+    # (workers/tests/test_nats_permissions.py, CI): the worker's rights rely
+    # on how the server checks consumer names in JetStream API subjects.
+    image: nats:2.15-alpine
     restart: unless-stopped
     cap_drop:
       - ALL

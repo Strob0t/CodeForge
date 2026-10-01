@@ -41,6 +41,8 @@ if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
     from pydantic import BaseModel
 
+    from codeforge.notifications import Notifications, NotificationSubscription
+
 logger = structlog.get_logger()
 
 RequestT = TypeVar("RequestT", bound="BaseModel")
@@ -66,6 +68,8 @@ class ConsumerBaseMixin:
 
     # These attributes are set on the concrete TaskConsumer class.
     _js: JetStreamContext | None
+    # Cancels and tool-call decisions (the NotificationHub, set by start()).
+    _notifications: Notifications | None = None
     _litellm_url: str
     _litellm_key: str
 
@@ -131,7 +135,7 @@ class ConsumerBaseMixin:
 
         The listeners run until the worker aborts its background tasks.
         """
-        if self._js is None:
+        if self._notifications is None:
             return
         sources: list[tuple[str, Callable[[str, str], str]]] = [
             (SUBJECT_TASK_CANCEL, lambda _run_id, task_id: task_key(task_id)),
@@ -139,10 +143,10 @@ class ConsumerBaseMixin:
             (SUBJECT_CONVERSATION_RUN_CANCEL, lambda run_id, _task_id: conversation_key(run_id)),
         ]
         for subject, key_of in sources:
-            sub = await self._js.subscribe(subject, config=notification_consumer())
+            sub = await self._notifications.subscribe(subject, config=notification_consumer())
             self._in_flight.start_background(self._record_cancels(sub, key_of), name=f"cancel registry {subject}")
 
-    async def _record_cancels(self, sub: JetStreamContext.PushSubscription, key_of: Callable[[str, str], str]) -> None:
+    async def _record_cancels(self, sub: NotificationSubscription, key_of: Callable[[str, str], str]) -> None:
         try:
             await record_cancels(sub, self._cancels, key_of)
         finally:

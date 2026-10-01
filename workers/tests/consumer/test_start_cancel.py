@@ -32,6 +32,7 @@ from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
 def consumer() -> TaskConsumer:
     worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
     worker._js = RecordingJetStream()  # type: ignore[assignment]
+    worker._notifications = worker._js
     return worker
 
 
@@ -98,6 +99,7 @@ class TestRunStart:
         """The start is released for a retry (dead-lettered on its last delivery, which Go ends), never lost."""
         monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         consumer._js = RecordingJetStream(failing={"runs.complete"})  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         consumer._executor = MagicMock()
         consumer._executor.execute_with_runtime = AsyncMock()
         consumer._cancels.record(run_key("run-q"), 20)
@@ -109,6 +111,7 @@ class TestRunStart:
         assert [s for s in client.settlements() if s.startswith("nak")], "the start is released for a retry"  # type: ignore[attr-defined]
         redelivered, redelivered_client = _run_start(seq=10)
         consumer._js = RecordingJetStream()  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         await consumer._handle_run_start(redelivered)  # type: ignore[arg-type]
         assert redelivered_client.settlements() == ["ack"]  # type: ignore[attr-defined]
         assert [c["status"] for c in _completions(consumer, "runs.complete")] == ["cancelled"]
@@ -149,6 +152,7 @@ class TestConversationRunStart:
     ) -> None:
         monkeypatch.setattr("codeforge.nats_publish.PUBLISH_BACKOFF_SECONDS", 0.0)
         consumer._js = RecordingJetStream(failing={"conversation.run.complete"})  # type: ignore[assignment]
+        consumer._notifications = consumer._js
         run = AsyncMock()
         monkeypatch.setattr(consumer, "_run_conversation", run)
         consumer._cancels.record(run_key("conv-q"), 20)

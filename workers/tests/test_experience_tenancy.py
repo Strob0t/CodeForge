@@ -248,6 +248,7 @@ async def _execute(run_msg: ConversationRunStartMessage, pool: MagicMock | None,
     handler._litellm_key = ""
     runtime = RuntimeClient(
         js=handler._js,  # type: ignore[arg-type]
+        notifications=handler._js,  # type: ignore[arg-type]
         run_id=run_msg.run_id,
         task_id=run_msg.run_id,
         project_id=run_msg.project_id,

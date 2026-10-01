@@ -85,6 +85,7 @@ def _msg(payload: dict) -> MagicMock:
 def _runtime(js: MagicMock, tenant_id: str = TENANT) -> RuntimeClient:
     return RuntimeClient(
         js=js,
+        notifications=js,
         run_id="run-1",
         task_id="task-1",
         project_id="proj-1",
@@ -141,7 +142,9 @@ async def test_runtime_client_echoes_tenant_on_tool_call_request() -> None:
 
 async def test_runtime_client_without_tenant_sends_empty_tenant() -> None:
     js = _js()
-    runtime = RuntimeClient(js=js, run_id="r", task_id="t", project_id="p", termination=TerminationConfig())
+    runtime = RuntimeClient(
+        js=js, notifications=js, run_id="r", task_id="t", project_id="p", termination=TerminationConfig()
+    )
 
     await runtime.send_output("line")
 
@@ -156,6 +159,7 @@ class _RunHandler(RunHandlerMixin, ConsumerBaseMixin):
 async def test_run_start_passes_tenant_to_runtime_client() -> None:
     handler = _RunHandler()
     handler._js = _js()
+    handler._notifications = handler._js
     handler._executor = SimpleNamespace(execute_with_runtime=AsyncMock())
     run_msg = RunStartMessage(
         run_id=str(uuid.uuid4()),
@@ -178,6 +182,7 @@ async def test_run_start_passes_the_approval_timeout_to_runtime_client() -> None
 
     handler = _RunHandler()
     handler._js = _js()
+    handler._notifications = handler._js
     handler._executor = SimpleNamespace(execute_with_runtime=AsyncMock())
     run_msg = RunStartMessage(
         run_id=str(uuid.uuid4()),
@@ -205,6 +210,7 @@ def _repomap_result() -> RepoMapResult:
 class _RepoMapHandler(RepoMapHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js = _js()
+        self._notifications = self._js
         self._repomap_generator = MagicMock()
         self._repomap_generator.generate = AsyncMock(return_value=_repomap_result())
 
@@ -212,6 +218,7 @@ class _RepoMapHandler(RepoMapHandlerMixin, ConsumerBaseMixin):
 class _QualityGateHandler(QualityGateHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js = _js()
+        self._notifications = self._js
         self._gate_executor = MagicMock()
         self._gate_executor.execute = AsyncMock(return_value=QualityGateResult(run_id="run-1", tests_passed=True))
 
@@ -245,6 +252,7 @@ class _NoTenantResult(BaseModel):
 class _EchoHandler(ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js = _js()
+        self._notifications = self._js
 
 
 async def test_handle_request_leaves_results_without_tenant_field_alone() -> None:
@@ -306,6 +314,7 @@ def test_request_and_result_models_carry_tenant(request_model: type[BaseModel], 
 class _TaskHandler(TaskHandlerMixin, ConsumerBaseMixin):
     def __init__(self) -> None:
         self._js = _js()
+        self._notifications = self._js
 
         async def execute(**kwargs: object) -> SimpleNamespace:
             await kwargs["on_output"]("working")  # type: ignore[operator]

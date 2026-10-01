@@ -18,9 +18,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     import nats.aio.msg
-    from nats.js.client import JetStreamContext
 
     from codeforge.backends._base import TaskResult as BackendTaskResult
+    from codeforge.notifications import NotificationSubscription
 
 logger = structlog.get_logger()
 
@@ -148,14 +148,14 @@ class TaskHandlerMixin:
         (CLI backends) or remote conversation (OpenHands). A cancellation of
         this handler (the worker stops) is passed on, not reported as a cancel.
         """
-        if self._js is None:
-            msg = "JetStream not available for the task cancel listener"
+        if self._notifications is None:
+            msg = "notifications not available for the task cancel listener"
             raise RuntimeError(msg)
         # Every worker sees every cancel: the task may run on any of them.
         # The listener replays the cancels published after the task's own
         # message (one stream), so a cancel published while it subscribes
         # is not lost.
-        sub = await self._js.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer(after=dispatch))
+        sub = await self._notifications.subscribe(SUBJECT_TASK_CANCEL, config=notification_consumer(after=dispatch))
         if dispatch is not None and self._cancels.cancelled(task_key(task.id), dispatch):
             # Cancelled after the check in _handle_message, already seen by
             # the registry.
@@ -202,7 +202,7 @@ class TaskHandlerMixin:
             await self._unsubscribe_task_cancel(sub, task.id)
 
     @staticmethod
-    async def _unsubscribe_task_cancel(sub: JetStreamContext.PushSubscription, task_id: str) -> None:
+    async def _unsubscribe_task_cancel(sub: NotificationSubscription, task_id: str) -> None:
         try:
             await sub.unsubscribe()
         except Exception as exc:

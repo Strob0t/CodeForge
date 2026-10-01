@@ -24,7 +24,7 @@ from codeforge.runtime import cancel_ids
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from nats.js.client import JetStreamContext
+    from codeforge.notifications import NotificationSubscription
 
 logger = structlog.get_logger()
 
@@ -100,7 +100,7 @@ class CancelRegistry:
 
 
 async def record_cancels(
-    sub: JetStreamContext.PushSubscription,
+    sub: NotificationSubscription,
     registry: CancelRegistry,
     key_of: Callable[[str, str], str] = lambda _run_id, task_id: task_key(task_id),
 ) -> None:

@@ -105,6 +105,7 @@ def _task(workspace: str) -> TaskMessage:
 def _runtime(js: PolicyJetStream) -> RuntimeClient:
     return RuntimeClient(
         js=js,  # type: ignore[arg-type]
+        notifications=js,  # type: ignore[arg-type]
         run_id="run-1",
         task_id="task-1",
         project_id="proj-1",

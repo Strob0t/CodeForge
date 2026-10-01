@@ -151,6 +151,7 @@ async def test_run_offers_only_the_mode_tools(tmp_path: Path, monkeypatch: pytes
     js = _AllowAll()
     runtime = RuntimeClient(
         js=js,  # type: ignore[arg-type]
+        notifications=js,  # type: ignore[arg-type]
         run_id="run-1",
         task_id="task-1",
         project_id="proj-1",
@@ -176,6 +177,7 @@ async def test_run_offers_only_the_mode_tools(tmp_path: Path, monkeypatch: pytes
 async def test_conversation_offers_only_the_mode_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
     worker._js = RecordingJetStream()  # type: ignore[assignment]
+    worker._notifications = worker._js
     seen: dict[str, list[str]] = {}
 
     async def build_messages(run_msg: object, runtime: object, registry: ToolRegistry, log: object) -> list[object]:

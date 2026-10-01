@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -55,6 +56,7 @@ type handoffStore struct {
 	createdTenant []string
 	inbox         []agent.InboxMessage
 	quarantined   map[string]*quarantine.Message
+	consumed      map[string]bool               // quarantine message IDs whose replay was consumed
 	claims        map[string]*handoffClaimState // tenant/handoff/stage
 	failCreate    int                           // CreateTask calls that fail (a database error)
 	failGetRun    error                         // GetRun error (a database error)
@@ -144,6 +146,7 @@ func newHandoffStore() *handoffStore {
 		},
 		agentTenants: map[string]string{"agent-tgt": handoffTenantA, "agent-src": handoffTenantA, "agent-other-project": handoffTenantA, "agent-b": handoffTenantB},
 		quarantined:  map[string]*quarantine.Message{},
+		consumed:     map[string]bool{},
 		claims:       map[string]*handoffClaimState{},
 	}
 	s.agents = []agent.Agent{
@@ -205,9 +208,36 @@ func (s *handoffStore) SendAgentMessage(_ context.Context, msg *agent.InboxMessa
 	return nil
 }
 
-func (s *handoffStore) QuarantineMessage(_ context.Context, msg *quarantine.Message) error {
+func (s *handoffStore) QuarantineMessage(ctx context.Context, msg *quarantine.Message) error {
 	msg.ID = fmt.Sprintf("q-%d", len(s.quarantined)+1)
+	msg.TenantID = tenantctx.FromContext(ctx)
 	s.quarantined[msg.ID] = msg
+	return nil
+}
+
+func (s *handoffStore) UnconsumedQuarantineRelease(ctx context.Context, subject string, payload []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, msg := range s.quarantined {
+		if msg.TenantID == tenantctx.FromContext(ctx) && msg.Subject == subject && msg.Status == quarantine.StatusApproved &&
+			!s.consumed[id] && bytes.Equal(msg.Payload, payload) {
+			return id, nil
+		}
+	}
+	return "", errMockNotFound
+}
+
+func (s *handoffStore) ConsumeQuarantineRelease(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msg, ok := s.quarantined[id]
+	if !ok || msg.TenantID != tenantctx.FromContext(ctx) {
+		return errMockNotFound
+	}
+	if msg.Status != quarantine.StatusApproved || s.consumed[id] {
+		return domain.ErrConflict
+	}
+	s.consumed[id] = true
 	return nil
 }
 
@@ -436,6 +466,75 @@ func TestHandoffRequest_QuarantineHold(t *testing.T) {
 	}
 	if len(env.store.quarantined) != 1 {
 		t.Fatalf("the approved handoff was screened again: %d quarantined messages", len(env.store.quarantined))
+	}
+	if !env.store.consumed[held.ID] {
+		t.Fatal("the approval's replay was not recorded as consumed")
+	}
+}
+
+// TestApprovedHandoff_NeedsAnUnconsumedApproval (KI-71 review): a message on
+// handoff.approved starts a run only when it is exactly the payload of an
+// approved quarantine message of its tenant whose replay was not consumed;
+// anything else (a message no admin approved, one still pending, another
+// tenant's approval, an approval already used) starts nothing and does not
+// use up the handoff ID of a handoff still waiting for its review.
+func TestApprovedHandoff_NeedsAnUnconsumedApproval(t *testing.T) {
+	approved := func(t *testing.T, handoffID, tenant string) []byte {
+		t.Helper()
+		data, err := json.Marshal(map[string]any{
+			"tenant_id": tenant, "project_id": "proj-1", "source_agent_id": "agent-src",
+			"target_agent_id": "agent-tgt", "context": "Review", "handoff_id": handoffID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	hold := func(env *handoffEnv, tenant string, data []byte, status quarantine.Status) string {
+		msg := &quarantine.Message{Subject: messagequeue.SubjectHandoffApproved, Payload: data, Status: status}
+		if err := env.store.QuarantineMessage(tenantctx.WithTenant(context.Background(), tenant), msg); err != nil {
+			t.Fatalf("QuarantineMessage: %v", err)
+		}
+		return msg.ID
+	}
+
+	for _, tc := range []struct {
+		name  string
+		setup func(env *handoffEnv, data []byte)
+	}{
+		{name: "no approval", setup: func(*handoffEnv, []byte) {}},
+		{name: "still pending", setup: func(env *handoffEnv, data []byte) { hold(env, handoffTenantA, data, quarantine.StatusPending) }},
+		{name: "rejected", setup: func(env *handoffEnv, data []byte) { hold(env, handoffTenantA, data, quarantine.StatusRejected) }},
+		{name: "approved in another tenant", setup: func(env *handoffEnv, data []byte) {
+			hold(env, handoffTenantB, data, quarantine.StatusApproved)
+		}},
+		{name: "another payload approved", setup: func(env *handoffEnv, data []byte) {
+			hold(env, handoffTenantA, append(bytes.Clone(data), ' '), quarantine.StatusApproved)
+		}},
+		{name: "approval already consumed", setup: func(env *handoffEnv, data []byte) {
+			env.store.consumed[hold(env, handoffTenantA, data, quarantine.StatusApproved)] = true
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newHandoffEnv(t, true)
+			data := approved(t, "h-forged", handoffTenantA)
+			tc.setup(env, data)
+			if err := env.svc.HandleApprovedHandoff(context.Background(), data); err != nil {
+				t.Fatalf("HandleApprovedHandoff = %v, want the message dropped", err)
+			}
+			if len(env.runs.started) != 0 || len(env.store.created) != 0 {
+				t.Fatalf("runs %v, tasks %v; want nothing", env.runs.started, env.store.created)
+			}
+
+			// The handoff ID is not used up: its real approval still starts it.
+			hold(env, handoffTenantA, data, quarantine.StatusApproved)
+			if err := env.svc.HandleApprovedHandoff(context.Background(), data); err != nil {
+				t.Fatalf("HandleApprovedHandoff(approved): %v", err)
+			}
+			if len(env.runs.started) != 1 || env.runs.tenants[0] != handoffTenantA {
+				t.Fatalf("runs = %+v in %v, want one in tenant A", env.runs.started, env.runs.tenants)
+			}
+		})
 	}
 }
 

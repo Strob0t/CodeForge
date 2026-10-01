@@ -540,7 +540,11 @@ func (s *HandoffService) handoffSource(ctx context.Context, sourceRunID, project
 }
 
 // HandleApprovedHandoff carries out a handoff an admin released from the
-// quarantine (Approve replays it to handoff.approved). It is checked like
+// quarantine (Approve replays it to handoff.approved). Only a message that
+// is exactly the payload of an approved quarantine message of its tenant
+// whose replay was not consumed yet is carried out (KI-71 review: a message
+// that merely arrives on handoff.approved starts nothing); the replay is
+// consumed once the handoff was carried out or refused. It is checked like
 // any handoff in its tenant but not screened again, and carried out once
 // (see once).
 func (s *HandoffService) HandleApprovedHandoff(ctx context.Context, data []byte) error {
@@ -555,8 +559,24 @@ func (s *HandoffService) HandleApprovedHandoff(ctx context.Context, data []byte)
 	}
 	ctx = withPayloadTenant(ctx, msg.TenantID)
 	msg.HandoffID = handoffIdentity(msg.HandoffID, data)
+	release, err := s.db.UnconsumedQuarantineRelease(ctx, messagequeue.SubjectHandoffApproved, data)
+	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		// Checked before the claim: a message that is no release must not
+		// use up the handoff ID of one still waiting for its review.
+		slog.WarnContext(ctx, "approved handoff without an unconsumed quarantine approval, dropped",
+			"handoff_id", msg.HandoffID, "target", msg.TargetAgentID)
+		return nil
+	case err != nil:
+		return fmt.Errorf("quarantine release of handoff %s: %w", msg.HandoffID, err)
+	}
 	return s.once(ctx, msg.HandoffID, handoffStageApproved, &msg, func(attempt *handoffAttempt) error {
-		return s.dispatch(ctx, &msg, attempt)
+		err := s.dispatch(ctx, &msg, attempt)
+		if err == nil || !isRetryable(err) {
+			logBestEffort(ctx, s.db.ConsumeQuarantineRelease(ctx, release), "ConsumeQuarantineRelease",
+				slog.String("handoff_id", msg.HandoffID), slog.String("quarantine_id", release))
+		}
+		return err
 	})
 }
 

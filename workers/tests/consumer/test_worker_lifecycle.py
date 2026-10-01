@@ -19,7 +19,7 @@ import pytest
 
 import codeforge.consumer as consumer_module
 from codeforge.consumer import TaskConsumer
-from tests.jetstream_fakes import FakeSubscription
+from tests.jetstream_fakes import FakeSubscription, patch_notification_hub
 
 
 def _nats_client() -> MagicMock:
@@ -57,6 +57,7 @@ def js() -> AsyncMock:
 @pytest.fixture
 def consumer(monkeypatch: pytest.MonkeyPatch, js: AsyncMock) -> TaskConsumer:
     monkeypatch.setattr("codeforge.consumer.TracingJetStreamContext", lambda _nc: js)
+    patch_notification_hub(monkeypatch, js)
     monkeypatch.setattr("codeforge.consumer.nats.connect", AsyncMock(return_value=_nats_client()))
     monkeypatch.setattr("codeforge.consumer._STREAM_POLL_SECONDS", 0.01)
     return TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")

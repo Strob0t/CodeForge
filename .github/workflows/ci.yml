@@ -47,9 +47,9 @@ jobs:
           sleep 2
 
       - name: nats-server binary for the NATS authentication tests (KI-71)
-        # The production image's server; the tests start it with configs/nats/nats-server.conf.
+        # The production image's server (docker-compose.prod.yml); the tests start it with configs/nats/nats-server.conf.
         run: |
-          docker create --name nats-bin nats:2-alpine
+          docker create --name nats-bin nats:2.15-alpine
           docker cp nats-bin:/usr/local/bin/nats-server "$RUNNER_TEMP/nats-server"
           docker rm nats-bin
           echo "NATS_SERVER_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
@@ -92,9 +92,9 @@ jobs:
           python-version: "3.12"
 
       - name: nats-server binary for the NATS authentication tests (KI-71)
-        # The production image's server; the tests start it with configs/nats/nats-server.conf.
+        # The production image's server (docker-compose.prod.yml); the tests start it with configs/nats/nats-server.conf.
         run: |
-          docker create --name nats-bin nats:2-alpine
+          docker create --name nats-bin nats:2.15-alpine
           docker cp nats-bin:/usr/local/bin/nats-server "$RUNNER_TEMP/nats-server"
           docker rm nats-bin
           echo "NATS_SERVER_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"

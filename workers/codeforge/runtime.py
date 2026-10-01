@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
 
     from codeforge.models import TerminationConfig
+    from codeforge.notifications import Notifications, NotificationSubscription
 
 # Maximum length (characters) of the arguments preview sent with a tool call.
 ARGUMENTS_PREVIEW_MAX_CHARS = 1000
@@ -108,13 +109,14 @@ async def heartbeats(
 
 
 def notification_consumer(after: int | None = None) -> ConsumerConfig:
-    """Settings of the ephemeral consumers a run or task listens on (cancel messages, tool-call responses).
+    """What a run or task listens to on a notification subject (cancel messages, tool-call responses).
 
-    They see new messages only - with *after*, every message published after
-    that stream sequence (e.g. the work's own start message), so none
-    published while the listener subscribes is missed - and are never acked:
-    with explicit acks JetStream would redeliver every message after the ack
-    wait and stop delivering once MaxAckPending messages were outstanding.
+    New messages only - with *after*, every message published after that
+    stream sequence (e.g. the work's own start message), so none published
+    while the listener subscribes is missed (``NotificationHub.subscribe``).
+    Notifications are never acked: with explicit acks JetStream would
+    redeliver every message after the ack wait and stop delivering once
+    MaxAckPending messages were outstanding.
     """
     if after is not None:
         return ConsumerConfig(
@@ -139,7 +141,7 @@ def cancel_ids(data: object) -> tuple[str, str] | None:
 
 
 async def listen_for_cancel(
-    sub: JetStreamContext.PushSubscription,
+    sub: NotificationSubscription,
     matches: Callable[[str, str], bool],
     on_cancel: Callable[[], None],
     *,
@@ -207,8 +209,11 @@ class RuntimeClient:
         mode_id: str = "",
         turn_id: str = "",
         approval_timeout_seconds: float = 0,
+        notifications: Notifications | None = None,
     ) -> None:
         self._js = js
+        # Cancels and tool-call decisions (the worker's NotificationHub).
+        self._notifications = notifications
         self.run_id = run_id
         self.task_id = task_id
         self.project_id = project_id
@@ -229,7 +234,7 @@ class RuntimeClient:
         self._metrics = ExecutionMetrics()
         self._cancelled = False
         self._completed = False
-        self._cancel_subs: list[JetStreamContext.PushSubscription] = []
+        self._cancel_subs: list[NotificationSubscription] = []
         self._cancel_tasks: list[asyncio.Task[None]] = []
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._log = logger.bind(run_id=run_id, task_id=task_id)
@@ -246,10 +251,16 @@ class RuntimeClient:
         """
         subjects = [SUBJECT_RUN_CANCEL] + (extra_subjects or [])
         for subject in subjects:
-            sub = await self._js.subscribe(subject, config=notification_consumer(after))
+            sub = await self._notification_source().subscribe(subject, config=notification_consumer(after))
             self._cancel_subs.append(sub)
             listener = listen_for_cancel(sub, self._names_this_run, self._mark_cancelled, until=self._is_cancelled)
             self._cancel_tasks.append(asyncio.create_task(listener))
+
+    def _notification_source(self) -> Notifications:
+        if self._notifications is None:
+            msg = "no notification source: the run cannot see cancels or tool-call decisions"
+            raise RuntimeError(msg)
+        return self._notifications
 
     def _names_this_run(self, run_id: str, task_id: str) -> bool:
         # Empty IDs never match: a run without a task ID is not cancelled by a
@@ -363,7 +374,7 @@ class RuntimeClient:
         # Subscribe BEFORE publishing to avoid a race condition where Go
         # responds before the subscription is established. Only new messages
         # matter: the response to the request we are about to publish.
-        sub = await self._js.subscribe(SUBJECT_TOOLCALL_RESPONSE, config=notification_consumer())
+        sub = await self._notification_source().subscribe(SUBJECT_TOOLCALL_RESPONSE, config=notification_consumer())
         try:
             try:
                 await self._js.publish(

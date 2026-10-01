@@ -20,6 +20,7 @@ from tests.jetstream_fakes import RecordingJetStream, jetstream_msg
 def consumer() -> TaskConsumer:
     worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
     worker._js = RecordingJetStream()  # type: ignore[assignment]
+    worker._notifications = worker._js
     worker._backend_router = MagicMock()
     worker._backend_router.execute = AsyncMock(return_value=BackendTaskResult(status="completed", output="ok"))
     return worker

@@ -41,6 +41,7 @@ class TestRuntimeClientCancelByTaskID:
     def runtime(self, mock_js: AsyncMock) -> RuntimeClient:
         return RuntimeClient(
             js=mock_js,
+            notifications=mock_js,
             run_id="run-abc",
             task_id="task-xyz",
             project_id="proj-1",

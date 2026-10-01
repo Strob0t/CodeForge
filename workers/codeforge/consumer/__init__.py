@@ -74,6 +74,7 @@ from codeforge.graphrag import CodeGraphBuilder, GraphSearcher
 from codeforge.health import start_health_server
 from codeforge.llm import LiteLLMClient
 from codeforge.logger import redact_url, setup_logging, stop_logging
+from codeforge.notifications import NotificationHub
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
@@ -160,6 +161,7 @@ class TaskConsumer(
         self._litellm_key = litellm_key
         self._nc: NATSClient | None = None
         self._js: JetStreamContext | None = None
+        self._notifications: NotificationHub | None = None
         self._running = False
         # Sticky: once set, start() shuts down instead of starting its loops.
         self._stop_requested = False
@@ -226,7 +228,9 @@ class TaskConsumer(
         Returns without consuming if a stop was requested meanwhile (see
         request_stop); otherwise returns once every message loop ended.
         """
-        self._nc = await nats.connect(self.nats_url, inbox_prefix=INBOX_PREFIX)
+        self._nc = await nats.connect(
+            self.nats_url, inbox_prefix=INBOX_PREFIX, reconnected_cb=self._restore_notifications
+        )
         if self._stop_requested:
             # stop() may have run while connecting, with no connection to drain.
             logger.info("stop requested while connecting, the consumer does not start")
@@ -239,6 +243,11 @@ class TaskConsumer(
         logger.info("connected to NATS", url=redact_url(self.nats_url))
 
         try:
+            # Before any work is fetched: runs and tasks listen for cancels
+            # and tool-call decisions through it.
+            hub = NotificationHub(self._nc, js)
+            await hub.start()
+            self._notifications = hub
             loops = await self._subscribe_all(js)
         except Exception:
             if self._stop_requested:
@@ -457,6 +466,18 @@ class TaskConsumer(
             )
         return self._abort_task
 
+    async def _restore_notifications(self) -> None:
+        """After a reconnect: recreate notification consumers the server lost (a restart
+        without their state, or more than their inactivity threshold without a worker).
+        """
+        if self._notifications is None:
+            return
+        try:
+            await self._notifications.restore()
+        except Exception as exc:
+            # Runs would miss their cancels and tool-call decisions until the next reconnect.
+            logger.error("notification consumers not restored after a reconnect", error=str(exc))
+
     async def stop(self) -> None:
         """Gracefully shut down: fail unfinished accepted work, drain with timeout and close.
 
@@ -484,6 +505,8 @@ class TaskConsumer(
                 await self._nc.close()
             except Exception as exc:
                 logger.warning("NATS drain failed", error=str(exc))
+        if self._notifications is not None:
+            self._notifications.close()
 
         # The final OTLP export blocks; keep the event loop responsive meanwhile.
         await asyncio.to_thread(tracing_manager.shutdown)
