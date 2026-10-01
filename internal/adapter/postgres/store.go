@@ -230,45 +230,63 @@ func (s *Store) EndTaskDispatch(ctx context.Context, id, dispatchID string, stat
 }
 
 // RecordTaskResult records a worker's task result for the dispatch
-// dispatchID (see database.TaskStore). The task's cost is the sum of its
-// dispatches' costs; result_dispatch_id names the last dispatch whose result
-// was recorded, so a repeated result adds nothing.
+// dispatchID (see database.TaskStore), in one transaction. The first result
+// of a dispatch records its cost (task_result_costs, one row per task and
+// dispatch) and adds it to the task's cost, the sum of its dispatches'
+// costs; a repeated result of a dispatch adds nothing (S2-G fix 2, 4). The
+// result of the task's current dispatch also ends the dispatch with its
+// status and result.
 func (s *Store) RecordTaskResult(ctx context.Context, id, dispatchID string, status task.Status, result task.Result, costUSD float64) (bool, error) {
 	resultJSON, err := marshalJSON(result, "result")
 	if err != nil {
 		return false, err
 	}
 	tenantID := tenantFromCtx(ctx)
-	n, err := s.updateEndingDispatch(ctx,
-		`UPDATE tasks SET result = $3, status = $4, cost_usd = cost_usd + $5, result_dispatch_id = $6, dispatch_id = NULL
-		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
-		   AND `+isCurrentDispatch("$6"),
-		id, tenantID, resultJSON, string(status), costUSD, dispatchID)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("record task result %s: %w", id, err)
+		return false, fmt.Errorf("record task result %s: begin tx: %w", id, err)
 	}
-	if n > 0 {
-		return true, nil
-	}
-	// Not the task's current dispatch: record its cost, once.
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE tasks SET cost_usd = cost_usd + $3, result_dispatch_id = $4
-		 WHERE id = $1 AND tenant_id = $2 AND result_dispatch_id IS DISTINCT FROM $4`,
-		id, tenantID, costUSD, dispatchID)
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO task_result_costs (task_id, dispatch_id, tenant_id, cost_usd)
+		 SELECT id, $3, tenant_id, $4 FROM tasks WHERE id = $1 AND tenant_id = $2
+		 ON CONFLICT (task_id, dispatch_id) DO NOTHING`,
+		id, tenantID, dispatchID, costUSD)
 	if err != nil {
 		return false, fmt.Errorf("record task cost %s: %w", id, err)
 	}
-	if tag.RowsAffected() > 0 {
-		return false, nil
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if err := tx.QueryRow(ctx, taskExistsSQL, id, tenantID).Scan(&exists); err != nil {
+			return false, fmt.Errorf("record task result %s: %w", id, err)
+		}
+		if !exists {
+			return false, fmt.Errorf("record task result %s: %w", id, domain.ErrNotFound)
+		}
+		return false, nil // a repeated result of the dispatch
 	}
-	var exists bool
-	if err := s.pool.QueryRow(ctx, taskExistsSQL, id, tenantID).Scan(&exists); err != nil {
+
+	var ended int64
+	err = tx.QueryRow(ctx, endingDispatch(
+		`UPDATE tasks SET result = $3, status = $4, cost_usd = cost_usd + $5, dispatch_id = NULL
+		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
+		   AND `+isCurrentDispatch("$6")),
+		id, tenantID, resultJSON, string(status), costUSD, dispatchID).Scan(&ended)
+	if err != nil {
 		return false, fmt.Errorf("record task result %s: %w", id, err)
 	}
-	if !exists {
-		return false, fmt.Errorf("record task result %s: %w", id, domain.ErrNotFound)
+	if ended == 0 {
+		// Not the task's current dispatch: only its cost counts.
+		if _, err := tx.Exec(ctx, `UPDATE tasks SET cost_usd = cost_usd + $3 WHERE id = $1 AND tenant_id = $2`,
+			id, tenantID, costUSD); err != nil {
+			return false, fmt.Errorf("record task cost %s: %w", id, err)
+		}
 	}
-	return false, nil // a repeated result
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("record task result %s: commit: %w", id, err)
+	}
+	return ended > 0, nil
 }
 
 // --- Scanners ---

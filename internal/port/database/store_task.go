@@ -31,7 +31,8 @@ type TaskStore interface {
 	// dispatchID. The result of the task's current dispatch (the task queued
 	// or running) ends it with status, result and cost and reports current;
 	// a result of another dispatch (ended, or replaced by a newer one) only
-	// adds its cost, once per dispatch, and reports not current.
+	// adds its cost and reports not current. Each dispatch's cost counts
+	// once: a repeated result changes nothing.
 	// domain.ErrNotFound for an unknown task or one of another tenant.
 	RecordTaskResult(ctx context.Context, id, dispatchID string, status task.Status, result task.Result, costUSD float64) (current bool, err error)
 

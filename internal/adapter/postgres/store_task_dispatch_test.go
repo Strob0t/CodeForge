@@ -329,3 +329,53 @@ func TestStore_RecordTaskResult(t *testing.T) {
 		t.Fatalf("RecordTaskResult(unknown task) = %v, want ErrNotFound", err)
 	}
 }
+
+// TestStore_RecordTaskResult_CostOncePerDispatch (S2-G fix 2, 4): the task
+// remembered only the dispatch of its last recorded result, so after a late
+// result of another dispatch, a redelivery of the current dispatch's result
+// counted its cost again. Every dispatch's cost counts once.
+func TestStore_RecordTaskResult_CostOncePerDispatch(t *testing.T) {
+	f := newStatusFixture(t)
+	tk, err := f.store.CreateTask(f.ctx, task.CreateRequest{ProjectID: f.project.ID, Title: "cost", Prompt: "p"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	queue := func() string {
+		t.Helper()
+		dispatch := uuid.New().String()
+		if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, dispatch); err != nil {
+			t.Fatalf("QueueTask: %v", err)
+		}
+		return dispatch
+	}
+	record := func(dispatch string, cost float64) bool {
+		t.Helper()
+		current, err := f.store.RecordTaskResult(f.ctx, tk.ID, dispatch, task.StatusCompleted, task.Result{Output: dispatch}, cost)
+		if err != nil {
+			t.Fatalf("RecordTaskResult(%s): %v", dispatch, err)
+		}
+		return current
+	}
+
+	// D0 is failed by the watchdog; D1 is dispatched and completes.
+	d0 := queue()
+	if err := f.store.EndTaskDispatch(f.ctx, tk.ID, d0, task.StatusFailed, task.Result{Error: "lost"}); err != nil {
+		t.Fatalf("EndTaskDispatch: %v", err)
+	}
+	d1 := queue()
+	if !record(d1, 0.3) {
+		t.Fatal("D1's result was not current")
+	}
+	// D0's late result, then D1's result again (a redelivery).
+	if record(d0, 0.2) || record(d1, 0.3) || record(d0, 0.2) {
+		t.Fatal("a late or repeated result was current")
+	}
+
+	got, err := f.store.GetTask(f.ctx, tk.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.CostUSD != 0.5 || got.Status != task.StatusCompleted || got.Result == nil || got.Result.Output != d1 {
+		t.Fatalf("task = %s %+v cost %v, want D1's result and cost 0.5 (0.3 + 0.2, each once)", got.Status, got.Result, got.CostUSD)
+	}
+}
