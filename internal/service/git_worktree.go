@@ -83,15 +83,26 @@ func (i *privateIndex) renormalizeIfFiltered(ctx context.Context, repo *git.Repo
 // then re-reads the tracked files that exist (it adds no untracked ones).
 func (i *privateIndex) addWorktree(ctx context.Context, repo *git.Repo) error {
 	if _, err := repo.Run(ctx, i.env, "add", "-A"); err != nil {
+		i.dropUnnormalized()
 		return err
 	}
 	if i.renormalize {
 		if _, err := repo.Run(ctx, i.env, "add", "--renormalize", "--", "."); err != nil {
+			i.dropUnnormalized()
 			return err
 		}
 		i.renormalize = false
 	}
 	return nil
+}
+
+// dropUnnormalized removes an index still waiting for its renormalization:
+// the decision is made when an index is seeded, so a kept file would skip
+// it on the next call (S3-F review C2). The next call seeds it again.
+func (i *privateIndex) dropUnnormalized() {
+	if i.renormalize {
+		_ = os.Remove(i.path)
+	}
 }
 
 // hasFilterAttributes reports whether an attributes file of the repository
