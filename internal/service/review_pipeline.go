@@ -717,14 +717,17 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 			step = &p.Steps[i]
 		}
 	}
-	if step == nil || step.RunID != runID {
-		return nil, fmt.Errorf("run %s of step %s in plan %s: %w", runID, stepID, planID, domain.ErrNotFound)
-	}
 	rp, err := s.store.GetReviewPipeline(ctx, planID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return nil, err
 	}
-	pending := rp != nil && rp.State == review.PipelineAwaitingDecision && rp.StepID == stepID && rp.RunID == runID
+	// A pending decision is matched on the review record, which keeps the
+	// run: the step's own run reference is cleared when retention purges the
+	// run (S6-F review 7), and the decision must stay decidable.
+	pending := step != nil && rp != nil && rp.State == review.PipelineAwaitingDecision && rp.StepID == stepID && rp.RunID == runID
+	if step == nil || (step.RunID != runID && !pending) {
+		return nil, fmt.Errorf("run %s of step %s in plan %s: %w", runID, stepID, planID, domain.ErrNotFound)
+	}
 	waiting := step.Status == plan.StepStatusWaitingApproval
 	if !waiting && !pending {
 		return nil, fmt.Errorf("%w: step %s is %s, no refactoring of it waits for a decision", domain.ErrValidation, stepID, step.Status)

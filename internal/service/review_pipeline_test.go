@@ -1307,3 +1307,36 @@ func TestReviewPipeline_PickAgentSkipsAgentsOfActivePlans(t *testing.T) {
 		t.Fatalf("picked agent %s, want the one no running plan uses", got)
 	}
 }
+
+// Review finding 7: retention purges old runs and clears the plan step's run
+// reference; the pending decision is matched on the review record and stays
+// decidable, for a waiting and for a failed step.
+func TestReviewPipeline_DecisionSurvivesThePurgedRun(t *testing.T) {
+	t.Run("waiting step", func(t *testing.T) {
+		f, step := waitingStep(t)
+		f.store.plans["plan-1"].Steps[0].RunID = ""
+		if d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil || d.Status != "rejected" {
+			t.Fatalf("Decide(undo) = %+v, %v", d, err)
+		}
+		if len(f.planner.rejected) != 1 || f.store.pipelines["plan-1"].State != review.PipelineDone {
+			t.Fatal("want the step rejected and the decision finished")
+		}
+	})
+	t.Run("failed step", func(t *testing.T) {
+		f, step := endedRefactoring(t, plan.StepStatusFailed, "failed", func(dir string) { writeLines(t, dir, "a.go", 104, "half") })
+		f.store.plans["plan-1"].Steps[0].RunID = ""
+		if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); err != nil {
+			t.Fatalf("Decide(keep): %v", err)
+		}
+		if f.store.pipelines["plan-1"].State != review.PipelineDone {
+			t.Fatal("decision not finished")
+		}
+	})
+	t.Run("another run is still refused", func(t *testing.T) {
+		f, step := waitingStep(t)
+		f.store.plans["plan-1"].Steps[0].RunID = ""
+		if _, err := f.svc.Decide(f.ctx, "run-other", "plan-1", step.ID, true); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("Decide = %v, want not found", err)
+		}
+	})
+}
