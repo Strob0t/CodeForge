@@ -234,6 +234,15 @@ def _build_evaluators(evaluator_names: list[str], model: str, llm: LiteLLMClient
     return evaluators
 
 
+def _verifier_model(model: str) -> str:
+    """The model the LLM verifiers of a run use: the run's model, or for "auto" the resolved default."""
+    if model != "auto":
+        return model
+    from codeforge.model_resolver import resolve_model
+
+    return resolve_model()
+
+
 def _build_hybrid_pipeline(evaluators: list) -> object:
     from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline
 
@@ -466,10 +475,13 @@ class BenchmarkHandlerMixin:
             try:
                 log.info("benchmark run started")
                 start = time.monotonic()
-                evaluators = _build_evaluators(req.evaluators, req.model, llm=self._llm)
+                effective_llm = await self._resolve_effective_llm(req, log)
+                # The verifiers judge the run: a concrete model (never "auto")
+                # on the worker's own client, so their calls are neither routed
+                # by the task prompt nor recorded in the run's routing log.
+                evaluators = _build_evaluators(req.evaluators, _verifier_model(req.model), llm=self._llm)
                 pipeline = EvaluationPipeline(evaluators)
                 hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
-                effective_llm = await self._resolve_effective_llm(req, log)
                 on_start, on_complete = _build_progress_callbacks(self._js, req.run_id, req.tenant_id)
 
                 benchmark_type = req.benchmark_type or "simple"
