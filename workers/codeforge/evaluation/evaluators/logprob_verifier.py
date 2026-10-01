@@ -8,6 +8,7 @@ Cheapest possible verifier: max_tokens=1.
 from __future__ import annotations
 
 import math
+import re
 from typing import TYPE_CHECKING
 
 from codeforge.evaluation.evaluators.base import EvaluatorError
@@ -38,6 +39,8 @@ Did the assistant successfully resolve the task? Answer with a single word: YES 
 # Token variants considered for YES/NO matching.
 _YES_TOKENS = {"YES", "yes", "Yes"}
 _NO_TOKENS = {"NO", "no", "No"}
+# Words of a text answer (letters only, so punctuation and markup split them).
+_WORD = re.compile(r"[A-Za-z]+")
 
 
 class LogprobVerifierEvaluator:
@@ -125,14 +128,26 @@ def _extract_score(response: ChatCompletionResponse) -> tuple[float, dict[str, s
         if no_lp is not None:
             return 1.0 - math.exp(no_lp), {"method": "logprob_partial"}
 
-    # Text fallback
-    text = response.content.strip().upper()
-    if text in ("YES", "Y"):
-        return 1.0, {"method": "text_fallback"}
-    if text in ("NO", "N"):
-        return 0.0, {"method": "text_fallback"}
+    answer = _text_answer(response.content)
+    if answer is not None:
+        return (1.0 if answer else 0.0), {"method": "text_fallback"}
     msg = f"logprob verifier gave no usable answer: {response.content[:80]!r}"
     raise EvaluatorError(msg)
+
+
+def _text_answer(content: str) -> bool | None:
+    """The leading yes/no of an answer (case-insensitive, punctuation ignored), or None.
+
+    "Yes." and "No, because ..." count; the one-letter forms only as the whole
+    answer ("Y", "n."), so "N/A" does not read as NO. Anything else is None.
+    """
+    words = _WORD.findall(content)
+    if not words:
+        return None
+    first = words[0].lower()
+    if first in ("yes", "no") or (first in ("y", "n") and len(words) == 1):
+        return first.startswith("y")
+    return None
 
 
 def _find_token_logprob(top_logprobs: list[TokenLogprob], token_set: set[str]) -> float | None:

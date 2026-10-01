@@ -206,3 +206,35 @@ class TestLogprobVerifierEvaluator:
         # yes=-0.1 should give high confidence
         expected = math.exp(-0.1) / (math.exp(-0.1) + math.exp(-3.0))
         assert dims[0].score == pytest.approx(expected, abs=0.01)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("content", "score"),
+        [
+            ("Yes.", 1.0),
+            ("yes", 1.0),
+            ("**YES**", 1.0),
+            ("  Yes, the task is solved.", 1.0),
+            ("Y", 1.0),
+            ("No, because the tests fail", 0.0),
+            ("no!", 0.0),
+            ("n.", 0.0),
+        ],
+    )
+    async def test_text_fallback_reads_a_leading_yes_or_no(self, content: str, score: float) -> None:
+        """A leading yes/no word counts, whatever punctuation and text surround it (S6-G re-review 4)."""
+        evaluator = LogprobVerifierEvaluator(model="test-model")
+        with patch.object(evaluator, "_call_verifier", return_value=_mock_text_response(content)):
+            dims = await evaluator.evaluate(_task(), _result())
+        assert dims[0].score == score
+        assert dims[0].details["method"] == "text_fallback"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("content", ["Nope", "N/A", "Not sure", "Yesterday", "Maybe yes", "..."])
+    async def test_text_fallback_rejects_other_answers(self, content: str) -> None:
+        evaluator = LogprobVerifierEvaluator(model="test-model")
+        with (
+            patch.object(evaluator, "_call_verifier", return_value=_mock_text_response(content)),
+            pytest.raises(EvaluatorError, match="no usable answer"),
+        ):
+            await evaluator.evaluate(_task(), _result())

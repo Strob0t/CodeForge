@@ -264,6 +264,26 @@ class TestTrajectoryVerifierEvaluator:
         assert by_name["trajectory_error_recovery"] == 0.5
         assert by_name["trajectory_completeness"] == 0.5
 
+    @pytest.mark.asyncio
+    async def test_labels_with_spaces_or_hyphens(self) -> None:
+        """Labels written with spaces or hyphens are the same labels (S6-G re-review 4)."""
+        mock_response = _Answer()
+        mock_response.content = (
+            '{"solution_quality": "Partially Achieved", "approach_efficiency": "not-achieved", '
+            '"code_quality": " Not  Achieved ", "error_recovery": "partially-achieved", '
+            '"completeness": "Fully Achieved"}'
+        )
+        evaluator = TrajectoryVerifierEvaluator(model="test-model")
+        with patch.object(evaluator, "_call_verifier", return_value=mock_response):
+            dims = await evaluator.evaluate(_task(), _result_with_trajectory())
+        by_name = {d.name: d for d in dims}
+        assert by_name["trajectory_solution_quality"].score == 0.5
+        assert by_name["trajectory_approach_efficiency"].score == 0.0
+        assert by_name["trajectory_code_quality"].score == 0.0
+        assert by_name["trajectory_error_recovery"].score == 0.5
+        assert all(by_name[n].error == "" for n in by_name if n != "trajectory_completeness")
+        assert "unknown label" in by_name["trajectory_completeness"].error
+
     def test_prompt_contains_category_definitions(self) -> None:
         """Prompt includes ACHIEVED / PARTIALLY_ACHIEVED / NOT_ACHIEVED."""
         from codeforge.evaluation.evaluators.trajectory_verifier import _VERIFIER_PROMPT

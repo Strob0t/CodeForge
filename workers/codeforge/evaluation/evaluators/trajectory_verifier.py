@@ -15,6 +15,7 @@ Produces 5 quality dimensions:
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -97,6 +98,8 @@ _CATEGORY_SCORES: dict[str, float] = {
     "PARTIALLY_ACHIEVED": 0.5,
     "NOT_ACHIEVED": 0.0,
 }
+# Spaces and hyphens inside a label stand for its underscores.
+_LABEL_SEPARATORS = re.compile(r"[\s-]+")
 
 
 class TrajectoryVerifierEvaluator:
@@ -250,7 +253,8 @@ def _score_of(verdict: dict[str, Any], dim: str) -> tuple[float, str]:
         return 0.0, f"dimension {dim} missing from the verifier answer"
     value = verdict[dim]
     if isinstance(value, str):
-        score = _CATEGORY_SCORES.get(value.strip().upper())
+        # "Partially Achieved" and "partially-achieved" are PARTIALLY_ACHIEVED.
+        score = _CATEGORY_SCORES.get(_LABEL_SEPARATORS.sub("_", value.strip()).upper())
         if score is None:
             return 0.0, f"unknown label {value[:40]!r} for {dim}"
         return score, ""
