@@ -1885,6 +1885,27 @@ export interface ReviewImpactEvent {
   reason?: string;
 }
 
+/**
+ * A refactoring that waits for keep or undo (GET /projects/{id}/review/pending;
+ * Go service.PendingReviewDecision). A failed or cancelled refactoring step
+ * waits too: its plan stays as it ended.
+ */
+export interface PendingReviewDecision extends ReviewImpactEvent {
+  step_status: string;
+  plan_status: string;
+  since: string;
+}
+
+/** Answer to keep (approve) or undo (reject); Go service.ReviewDecision. */
+export interface ReviewDecisionResponse {
+  status: "approved" | "rejected";
+  /** The refactoring had committed and HEAD was moved back. */
+  head_restored: boolean;
+  /** What the undo could not do, e.g. why HEAD was left where it is. */
+  message?: string;
+  restored_paths?: string[];
+}
+
 /** A slash command offered by the backend (GET /commands). */
 export interface CommandInfo {
   id: string;

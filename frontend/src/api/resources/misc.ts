@@ -34,6 +34,7 @@ import type {
   RetrievalIndexStatus,
   RetrievalSearchResult,
   ReviewDecision,
+  ReviewDecisionResponse,
   Run,
   RunOutcome,
   SearchRequest,
@@ -87,12 +88,12 @@ export function createRunsResource(c: CoreClient) {
       c.post<{ status: string; decision: string }>(
         `${url`/feedback/${runId}/${callId}`}?decision=${decision}`,
       ),
-    /** Keep the refactoring of a review step that waits for approval. */
+    /** Keep the refactoring of a review step (a waiting step is approved). */
     approveRefactor: (runId: string, step: { plan_id: string; step_id: string }) =>
-      c.post<{ status: string }>(url`/runs/${runId}/approve`, step),
-    /** Undo the refactoring of a review step that waits for approval; the step fails. */
+      c.post<ReviewDecisionResponse>(url`/runs/${runId}/approve`, step),
+    /** Undo the refactoring of a review step (a waiting step fails). */
     rejectRefactor: (runId: string, step: { plan_id: string; step_id: string }) =>
-      c.post<{ status: string }>(url`/runs/${runId}/reject`, step),
+      c.post<ReviewDecisionResponse>(url`/runs/${runId}/reject`, step),
   };
 }
 

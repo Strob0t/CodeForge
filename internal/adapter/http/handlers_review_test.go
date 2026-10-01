@@ -134,6 +134,15 @@ func (decisionStore) CreateReviewPipeline(context.Context, *review.Pipeline) err
 func (decisionStore) UpdateReviewPipeline(context.Context, *review.Pipeline, review.PipelineState) error {
 	return nil
 }
+func (decisionStore) ListPendingReviewDecisions(_ context.Context, projectID string) ([]review.Pipeline, error) {
+	if projectID != "proj-1" {
+		return nil, nil
+	}
+	return []review.Pipeline{{
+		PlanID: "plan-1", ProjectID: "proj-1", State: review.PipelineAwaitingDecision, StepID: "step-1", RunID: "run-4",
+		Impact: &review.Impact{Level: "high", FilesChanged: 2, Reason: "the refactoring step ended failed"},
+	}}, nil
+}
 func (decisionStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
 	if planID != "plan-1" {
 		return nil, domain.ErrNotFound
@@ -221,4 +230,34 @@ func TestReviewDecisionEndpoints(t *testing.T) {
 			t.Fatalf("approve = %d, want 503", rec.Code)
 		}
 	})
+}
+
+// S6-F 6: GET /projects/{id}/review/pending lists the refactorings waiting
+// for keep or undo, with what the dialog shows.
+func TestPendingReviewDecisionsEndpoint(t *testing.T) {
+	svc := service.NewReviewPipelineService(decisionStore{status: plan.StepStatusFailed}, service.NewPipelineService(service.NewModeService()),
+		&decisionPlanner{}, noTeams{}, git.NewPool(1), noEvents{}, service.DefaultDiffImpactConfig())
+	get := func(h *cfhttp.Handlers, project string) *httptest.ResponseRecorder {
+		r := chi.NewRouter()
+		r.Get("/projects/{id}/review/pending", h.ListPendingReviewDecisions)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/projects/"+project+"/review/pending", http.NoBody))
+		return rec
+	}
+
+	rec := get(&cfhttp.Handlers{ReviewPipeline: svc}, "proj-1")
+	var pending []service.PendingReviewDecision
+	if err := json.Unmarshal(rec.Body.Bytes(), &pending); rec.Code != http.StatusOK || err != nil || len(pending) != 1 {
+		t.Fatalf("GET pending = %d %s, want one decision", rec.Code, rec.Body.String())
+	}
+	if d := pending[0]; d.RunID != "run-4" || d.StepID != "step-1" || d.ProjectID != "proj-1" || d.ImpactLevel != "high" ||
+		d.StepStatus != "failed" || d.Reason == "" {
+		t.Fatalf("pending decision = %+v, want run-4 of the failed step with its impact", d)
+	}
+	if rec := get(&cfhttp.Handlers{ReviewPipeline: svc}, "proj-2"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("GET pending of a project without decisions = %d %s, want []", rec.Code, rec.Body.String())
+	}
+	if rec := get(&cfhttp.Handlers{}, "proj-1"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("GET pending without the pipeline = %d, want 503", rec.Code)
+	}
 }

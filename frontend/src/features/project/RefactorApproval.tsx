@@ -1,7 +1,7 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { ReviewImpactEvent } from "~/api/types";
+import type { PendingReviewDecision, ReviewImpactEvent } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useFocusTrap } from "~/hooks/useFocusTrap";
@@ -18,30 +18,68 @@ function isReviewImpact(p: unknown): p is ReviewImpactEvent {
   );
 }
 
+/** A refactoring waiting for keep or undo; the WS event lacks the step status. */
+type Pending = ReviewImpactEvent & Partial<Pick<PendingReviewDecision, "step_status">>;
+
+const key = (p: Pending): string => `${p.run_id}/${p.step_id}`;
+
 /**
- * Threshold HITL of the review pipeline (KI-17): a high-impact refactoring
- * (review.approval_required) waits here for approval or rejection; a
- * medium-impact one was applied and is announced (review.refactor_applied).
+ * Threshold HITL of the review pipeline (KI-17): refactorings that wait for
+ * keep or undo - high impact (review.approval_required), or a refactoring
+ * step that failed or was cancelled after changing the workspace - are
+ * decided here one after the other. The queue is loaded from the server when
+ * the dialog mounts and when the WebSocket reconnects, so a missed event
+ * loses no decision (S6-F 6); there is no timeout. A medium-impact
+ * refactoring was applied and is announced (review.refactor_applied).
  */
 export default function RefactorApproval(props: { projectId: string }) {
-  const [request, setRequest] = createSignal<ReviewImpactEvent | null>(null);
+  const [queue, setQueue] = createSignal<Pending[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
-  const { onMessage } = useWebSocket();
+  const { onMessage, connected } = useWebSocket();
   const { show: toast } = useToast();
   let dialogRef: HTMLDivElement | undefined;
 
+  const current = (): Pending | undefined => queue()[0];
+
   const { onKeyDown: trapKeyDown } = useFocusTrap(
     () => dialogRef,
-    () => request() !== null,
+    () => current() !== undefined,
+  );
+
+  // Requests announced while a load runs are kept: the server's answer may
+  // predate them.
+  let announced = new Map<string, Pending>();
+
+  const load = async (): Promise<void> => {
+    announced = new Map();
+    try {
+      const pending: Pending[] = await api.projects.pendingReviewDecisions(props.projectId);
+      const loaded = new Set(pending.map(key));
+      setQueue([...pending, ...[...announced.values()].filter((p) => !loaded.has(key(p)))]);
+    } catch {
+      // Keep what is queued; the next reconnect loads again.
+    }
+  };
+
+  onMount(() => void load());
+  createEffect(
+    on(
+      () => connected(),
+      (isConnected, wasConnected) => {
+        if (isConnected && wasConnected === false) void load();
+      },
+      { defer: true },
+    ),
   );
 
   // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
   const cleanup = onMessage((msg) => {
     if (!isReviewImpact(msg.payload) || msg.payload.project_id !== props.projectId) return;
     if (msg.type === "review.approval_required") {
-      setError("");
-      setRequest(msg.payload);
+      const req = msg.payload;
+      announced.set(key(req), req);
+      setQueue((q) => (q.some((p) => key(p) === key(req)) ? q : [...q, req]));
     } else if (msg.type === "review.refactor_applied") {
       const p = msg.payload;
       toast(
@@ -52,19 +90,22 @@ export default function RefactorApproval(props: { projectId: string }) {
   });
   onCleanup(cleanup);
 
+  const ended = (p: Pending): boolean =>
+    p.step_status === "failed" || p.step_status === "cancelled";
+
   const decide = async (approve: boolean) => {
-    const req = request();
+    const req = current();
     if (!req) return;
     setLoading(true);
     setError("");
     const step = { plan_id: req.plan_id, step_id: req.step_id };
     try {
-      if (approve) {
-        await api.runs.approveRefactor(req.run_id, step);
-      } else {
-        await api.runs.rejectRefactor(req.run_id, step);
-      }
-      setRequest(null);
+      const res = approve
+        ? await api.runs.approveRefactor(req.run_id, step)
+        : await api.runs.rejectRefactor(req.run_id, step);
+      announced.delete(key(req));
+      setQueue((q) => q.filter((p) => key(p) !== key(req)));
+      if (res.message) toast("warning", res.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -73,7 +114,7 @@ export default function RefactorApproval(props: { projectId: string }) {
   };
 
   return (
-    <Show when={request()}>
+    <Show when={current()}>
       {(req) => (
         <div
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -88,8 +129,15 @@ export default function RefactorApproval(props: { projectId: string }) {
             class="mx-4 w-full max-w-lg rounded-lg bg-cf-bg-surface p-6 shadow-xl"
           >
             <h3 class="mb-4 text-lg font-semibold text-cf-text-primary">
-              Refactoring Approval Required
+              {ended(req())
+                ? `Refactoring ${req().step_status}: keep or undo its change?`
+                : "Refactoring Approval Required"}
             </h3>
+            <Show when={queue().length > 1}>
+              <p class="mb-2 text-xs text-cf-text-muted">
+                1 of {queue().length} refactorings waiting for a decision
+              </p>
+            </Show>
 
             <div class="mb-4 space-y-2 text-sm text-cf-text-secondary">
               <Show when={req().reason}>
@@ -120,7 +168,8 @@ export default function RefactorApproval(props: { projectId: string }) {
                 </div>
               </Show>
               <p class="text-xs text-cf-text-muted">
-                Rejecting restores the workspace to its state before the review.
+                Undoing reverts only the refactoring's changes; HEAD moves back only if it still
+                points at the refactoring's commit.
               </p>
             </div>
 
@@ -139,7 +188,7 @@ export default function RefactorApproval(props: { projectId: string }) {
                 loading={loading()}
                 class="flex-1 bg-cf-success hover:opacity-90"
               >
-                Approve
+                {ended(req()) ? "Keep" : "Approve"}
               </Button>
               <Button
                 variant="danger"
@@ -149,7 +198,7 @@ export default function RefactorApproval(props: { projectId: string }) {
                 loading={loading()}
                 class="flex-1"
               >
-                Reject
+                {ended(req()) ? "Undo" : "Reject"}
               </Button>
             </div>
           </div>

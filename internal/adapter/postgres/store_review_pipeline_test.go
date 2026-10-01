@@ -68,6 +68,15 @@ func TestStore_ReviewPipeline(t *testing.T) {
 		t.Fatalf("stored = %+v (impact %+v), want the awaited decision", stored, stored.Impact)
 	}
 
+	// The decision is listed as pending for the project, in its tenant only.
+	if pending, err := a.store.ListPendingReviewDecisions(a.ctx, a.project.ID); err != nil || len(pending) != 1 ||
+		pending[0].PlanID != p.ID || pending[0].Impact == nil {
+		t.Fatalf("ListPendingReviewDecisions = %+v, %v, want the plan's decision", pending, err)
+	}
+	if pending, err := b.store.ListPendingReviewDecisions(b.ctx, a.project.ID); err != nil || len(pending) != 0 {
+		t.Fatalf("other tenant lists %+v, %v, want nothing", pending, err)
+	}
+
 	// Tenant isolation.
 	if _, err := b.store.GetReviewPipeline(b.ctx, p.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("other tenant reads the record: %v, want not found", err)

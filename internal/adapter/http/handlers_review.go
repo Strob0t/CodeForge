@@ -119,6 +119,21 @@ func (h *Handlers) decideReview(w http.ResponseWriter, r *http.Request, approve 
 	writeJSON(w, http.StatusOK, decision)
 }
 
+// ListPendingReviewDecisions handles GET /api/v1/projects/{id}/review/pending:
+// the refactorings of the project that wait for a keep or undo decision.
+func (h *Handlers) ListPendingReviewDecisions(w http.ResponseWriter, r *http.Request) {
+	if h.ReviewPipeline == nil {
+		writeError(w, http.StatusServiceUnavailable, "review pipeline not configured")
+		return
+	}
+	pending, err := h.ReviewPipeline.PendingDecisions(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, pending)
+}
+
 // ApproveRun handles POST /api/v1/runs/{id}/approve
 func (h *Handlers) ApproveRun(w http.ResponseWriter, r *http.Request) {
 	h.decideReview(w, r, true)

@@ -68,6 +68,27 @@ func (s *Store) UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, f
 	return s.guardedUpdateResult(ctx, tag, err, reviewPipelineExistsSQL, "update review pipeline of plan", rp.PlanID)
 }
 
+// ListPendingReviewDecisions returns the review pipelines of a project in the
+// current tenant whose refactoring waits for a keep or undo decision, oldest
+// first.
+func (s *Store) ListPendingReviewDecisions(ctx context.Context, projectID string) ([]review.Pipeline, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+reviewPipelineColumns+` FROM review_pipelines
+		 WHERE project_id = $1 AND tenant_id = $2 AND state = $3
+		 ORDER BY updated_at, plan_id`,
+		projectID, tenantFromCtx(ctx), string(review.PipelineAwaitingDecision))
+	if err != nil {
+		return nil, fmt.Errorf("list pending review decisions: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (review.Pipeline, error) {
+		rp, err := scanReviewPipeline(r)
+		if err != nil {
+			return review.Pipeline{}, err
+		}
+		return *rp, nil
+	})
+}
+
 func marshalImpact(impact *review.Impact) ([]byte, error) {
 	if impact == nil {
 		return nil, nil

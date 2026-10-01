@@ -45,6 +45,7 @@ type fakeReviewStore struct {
 	pipelines  map[string]*review.Pipeline // by plan ID
 
 	failTaskAt     int   // CreateTask fails for the n-th task (1-based); 0 never
+	pipelineErr    error // GetReviewPipeline fails with it
 	recordErr      error // CreateReviewPipeline fails with it
 	cancelledTasks []string
 }
@@ -71,6 +72,16 @@ func (f *fakeReviewStore) CreateReviewPipeline(_ context.Context, rp *review.Pip
 	return nil
 }
 
+func (f *fakeReviewStore) ListPendingReviewDecisions(_ context.Context, projectID string) ([]review.Pipeline, error) {
+	var out []review.Pipeline
+	for _, rp := range f.pipelines {
+		if rp.ProjectID == projectID && rp.State == review.PipelineAwaitingDecision {
+			out = append(out, *rp)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeReviewStore) UpdateReviewPipeline(_ context.Context, rp *review.Pipeline, from review.PipelineState) error {
 	stored, ok := f.pipelines[rp.PlanID]
 	if !ok {
@@ -85,6 +96,9 @@ func (f *fakeReviewStore) UpdateReviewPipeline(_ context.Context, rp *review.Pip
 }
 
 func (f *fakeReviewStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
+	if f.pipelineErr != nil {
+		return nil, f.pipelineErr
+	}
 	rp, ok := f.pipelines[planID]
 	if !ok {
 		return nil, fmt.Errorf("review pipeline of plan %s: %w", planID, domain.ErrNotFound)
@@ -1176,5 +1190,50 @@ func TestReviewPipeline_CancelledWhileWaitingKeepsTheDecision(t *testing.T) {
 	}
 	if len(f.planner.rejected) != 0 || f.store.pipelines["plan-1"].State != review.PipelineDone {
 		t.Fatal("want the change undone without touching the cancelled plan")
+	}
+}
+
+// --- S6-F 6: pending decisions survive a missed event ---
+
+func TestReviewPipeline_PendingDecisions(t *testing.T) {
+	f, step := waitingStep(t)
+
+	pending, err := f.svc.PendingDecisions(f.ctx, "proj-1")
+	if err != nil {
+		t.Fatalf("PendingDecisions: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending = %+v, want one", pending)
+	}
+	d := pending[0]
+	if d.RunID != "run-4" || d.PlanID != "plan-1" || d.StepID != step.ID || d.ProjectID != "proj-1" ||
+		d.ImpactLevel != "high" || !d.Structural || d.FilesChanged != 2 || d.StepStatus != string(plan.StepStatusWaitingApproval) {
+		t.Fatalf("pending decision = %+v, want the waiting refactoring with its impact", d)
+	}
+
+	if _, err := f.svc.PendingDecisions(f.ctx, "other"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("PendingDecisions of an unknown project = %v, want not found", err)
+	}
+	if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if pending, err := f.svc.PendingDecisions(f.ctx, "proj-1"); err != nil || len(pending) != 0 {
+		t.Fatalf("PendingDecisions after the decision = %+v, %v, want none", pending, err)
+	}
+}
+
+// When the review record cannot be loaded, the approval request takes its
+// project from the plan: the dialog filters requests by project.
+func TestReviewPipeline_ApprovalRequestTakesTheProjectFromThePlan(t *testing.T) {
+	f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 101, "line") })
+	f.store.pipelines = nil // GetReviewPipeline fails below
+	f.store.pipelineErr = errors.New("connection reset")
+
+	if got := f.svc.GateStep(f.ctx, step); got != plan.StepStatusWaitingApproval {
+		t.Fatalf("GateStep = %s, want waiting for approval", got)
+	}
+	events := f.hub.snapshot()
+	if len(events) != 1 || events[0].Data.ProjectID != "proj-1" || events[0].Data.Reason == "" {
+		t.Fatalf("events = %+v, want one approval request for proj-1 with the reason", events)
 	}
 }

@@ -74,6 +74,7 @@ type reviewPipelineStore interface {
 	CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) error
 	GetReviewPipeline(ctx context.Context, planID string) (*review.Pipeline, error)
 	UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, from review.PipelineState) error
+	ListPendingReviewDecisions(ctx context.Context, projectID string) ([]review.Pipeline, error)
 }
 
 // reviewPlanner creates, starts and decides the review plans.
@@ -443,6 +444,14 @@ func (s *ReviewPipelineService) gateRefactoring(ctx context.Context, step *plan.
 	case errors.Is(err, domain.ErrNotFound):
 		return plan.StepStatusCompleted
 	case err != nil:
+		// The dialog shows the request only with its project: take it from
+		// the plan (S6-F 6). The step waits for approval either way.
+		if p, perr := s.store.GetPlan(ctx, step.PlanID); perr == nil {
+			ev.ProjectID = p.ProjectID
+		} else {
+			slog.Error("review approval request without a project: neither the review record nor the plan loads",
+				"plan_id", step.PlanID, "step_id", step.ID, "error", perr)
+		}
 		return s.requireApproval(ctx, &ev, nil, fmt.Sprintf("the review record could not be loaded: %v", err))
 	}
 	ev.ProjectID = rp.ProjectID
@@ -586,6 +595,55 @@ func (s *ReviewPipelineService) dropRefs(ctx context.Context, dir, planID string
 		return deleteReviewRefs(ctx, repo, planID)
 	})
 	logBestEffort(ctx, err, "delete review refs", slog.String("plan_id", planID))
+}
+
+// PendingReviewDecision is a refactoring that waits for a keep or undo
+// decision, with what the approval dialog shows: the impact (as in
+// review.approval_required) and where its step and plan stand.
+type PendingReviewDecision struct {
+	event.ReviewImpactEvent
+	StepStatus string    `json:"step_status"` // waiting_approval, or failed / cancelled (S6-F 4)
+	PlanStatus string    `json:"plan_status"`
+	Since      time.Time `json:"since"`
+}
+
+// PendingDecisions lists the refactorings of a project that wait for a keep
+// or undo decision, oldest first (S6-F 6): the dialog loads them when it
+// opens and when the WebSocket reconnects, so a decision is not lost with a
+// missed event. They wait until decided; there is no timeout. The project
+// must belong to the tenant in ctx.
+func (s *ReviewPipelineService) PendingDecisions(ctx context.Context, projectID string) ([]PendingReviewDecision, error) {
+	if _, err := s.store.GetProject(ctx, projectID); err != nil {
+		return nil, err
+	}
+	pending, err := s.store.ListPendingReviewDecisions(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PendingReviewDecision, 0, len(pending))
+	for i := range pending {
+		rp := &pending[i]
+		d := PendingReviewDecision{
+			ReviewImpactEvent: event.ReviewImpactEvent{RunID: rp.RunID, PlanID: rp.PlanID, StepID: rp.StepID, ProjectID: rp.ProjectID},
+			Since:             rp.UpdatedAt,
+		}
+		if im := rp.Impact; im != nil {
+			d.ImpactLevel, d.FilesChanged, d.LinesAdded, d.LinesRemoved = im.Level, im.FilesChanged, im.LinesAdded, im.LinesRemoved
+			d.CrossLayer, d.Structural, d.Reason = im.CrossLayer, im.Structural, im.Reason
+		}
+		if p, err := s.store.GetPlan(ctx, rp.PlanID); err == nil {
+			d.PlanStatus = string(p.Status)
+			for j := range p.Steps {
+				if p.Steps[j].ID == rp.StepID {
+					d.StepStatus = string(p.Steps[j].Status)
+				}
+			}
+		} else {
+			logBestEffort(ctx, err, "GetPlan: pending review decision without its step status", slog.String("plan_id", rp.PlanID))
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 // ReviewDecision is the answer to a keep or undo decision.

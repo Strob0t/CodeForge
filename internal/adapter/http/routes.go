@@ -480,6 +480,7 @@ func mountReviewRoutes(r chi.Router, h *Handlers) {
 	// Review/Refactor (Phase 31)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/projects/{id}/review-refactor", h.TriggerReviewRefactor)
+	r.Get("/projects/{id}/review/pending", h.ListPendingReviewDecisions)
 
 	// Review Policies & Reviews (Phase 12I)
 	r.Get("/projects/{id}/review-policies", h.ListReviewPolicies)
