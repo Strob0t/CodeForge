@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 )
 
@@ -27,11 +29,14 @@ type AgentStore interface {
 	IncrementAgentStats(ctx context.Context, id string, costDelta float64, success bool) error
 	UpdateAgentState(ctx context.Context, id string, state map[string]string) error
 	SendAgentMessage(ctx context.Context, msg *agent.InboxMessage) error
-	// ClaimHandoff records that the stage ("request", "approved") of the
-	// handoff handoffID is being carried out in the caller's tenant and
-	// reports whether this call claimed it: false when it was claimed
-	// before (a redelivered message).
-	ClaimHandoff(ctx context.Context, handoffID, stage string) (bool, error)
+	// ClaimHandoff claims the stage ("request", "approved") of the handoff
+	// handoffID in the caller's tenant: Claimed for a new claim, or for a
+	// claim that was never done and is older than lease (its process may
+	// have died); Done when the stage was carried out before; otherwise the
+	// Age of the claim in progress.
+	ClaimHandoff(ctx context.Context, handoffID, stage string, lease time.Duration) (orchestration.HandoffClaim, error)
+	// FinishHandoff marks a claimed stage done: it is never claimed again.
+	FinishHandoff(ctx context.Context, handoffID, stage string) error
 	// ReleaseHandoff removes a claim of ClaimHandoff, so a retry can claim
 	// the stage again.
 	ReleaseHandoff(ctx context.Context, handoffID, stage string) error

@@ -4,9 +4,19 @@ package orchestration
 
 import (
 	"errors"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
+
+// HandoffClaim is the state of the claim of a handoff's stage (its request,
+// its approval): a stage is carried out once, whatever the redeliveries of
+// its message.
+type HandoffClaim struct {
+	Claimed bool          // this call claimed the stage: a new claim, or one whose lease ran out
+	Done    bool          // the stage was carried out (or refused) before
+	Age     time.Duration // neither: how long the claim of another delivery has been in progress
+}
 
 // HandoffMessage represents an explicit agent-to-agent handoff with context.
 type HandoffMessage struct {

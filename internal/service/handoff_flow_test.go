@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
@@ -52,20 +54,42 @@ type handoffStore struct {
 	createdTenant []string
 	inbox         []agent.InboxMessage
 	quarantined   map[string]*quarantine.Message
-	claims        map[string]bool // tenant/handoff/stage
-	failCreate    int             // CreateTask calls that fail (a database error)
-	failGetRun    error           // GetRun error (a database error)
+	claims        map[string]*handoffClaimState // tenant/handoff/stage
+	failCreate    int                           // CreateTask calls that fail (a database error)
+	failGetRun    error                         // GetRun error (a database error)
 }
 
-func (s *handoffStore) ClaimHandoff(ctx context.Context, handoffID, stage string) (bool, error) {
+// handoffClaimState is a claim of the handoff store mock.
+type handoffClaimState struct {
+	claimedAt time.Time
+	done      bool
+}
+
+func (s *handoffStore) ClaimHandoff(ctx context.Context, handoffID, stage string, lease time.Duration) (orchestration.HandoffClaim, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := tenantctx.FromContext(ctx) + "/" + handoffID + "/" + stage
-	if s.claims[key] {
-		return false, nil
+	c, ok := s.claims[key]
+	switch {
+	case !ok:
+		s.claims[key] = &handoffClaimState{claimedAt: time.Now()}
+		return orchestration.HandoffClaim{Claimed: true}, nil
+	case c.done:
+		return orchestration.HandoffClaim{Done: true}, nil
+	case time.Since(c.claimedAt) >= lease:
+		c.claimedAt = time.Now()
+		return orchestration.HandoffClaim{Claimed: true}, nil
 	}
-	s.claims[key] = true
-	return true, nil
+	return orchestration.HandoffClaim{Age: time.Since(c.claimedAt)}, nil
+}
+
+func (s *handoffStore) FinishHandoff(ctx context.Context, handoffID, stage string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.claims[tenantctx.FromContext(ctx)+"/"+handoffID+"/"+stage]; ok {
+		c.done = true
+	}
+	return nil
 }
 
 func (s *handoffStore) ReleaseHandoff(ctx context.Context, handoffID, stage string) error {
@@ -73,6 +97,13 @@ func (s *handoffStore) ReleaseHandoff(ctx context.Context, handoffID, stage stri
 	defer s.mu.Unlock()
 	delete(s.claims, tenantctx.FromContext(ctx)+"/"+handoffID+"/"+stage)
 	return nil
+}
+
+// claim sets the claim of a handoff stage of tenant A as another process left it.
+func (s *handoffStore) claim(handoffID, stage string, age time.Duration, done bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claims[handoffTenantA+"/"+handoffID+"/"+stage] = &handoffClaimState{claimedAt: time.Now().Add(-age), done: done}
 }
 
 func newHandoffStore() *handoffStore {
@@ -86,7 +117,7 @@ func newHandoffStore() *handoffStore {
 		},
 		agentTenants: map[string]string{"agent-tgt": handoffTenantA, "agent-src": handoffTenantA, "agent-other-project": handoffTenantA, "agent-b": handoffTenantB},
 		quarantined:  map[string]*quarantine.Message{},
-		claims:       map[string]bool{},
+		claims:       map[string]*handoffClaimState{},
 	}
 	s.agents = []agent.Agent{
 		{ID: "agent-tgt", ProjectID: "proj-1", Name: "reviewer"},
@@ -595,4 +626,50 @@ func TestHandoffDeadLetter_AnnouncesTheFailure(t *testing.T) {
 			t.Errorf("event in tenant %q, want tenant A", ev.tenant)
 		}
 	}
+}
+
+// TestHandoffRequest_ClaimOfADeadProcess (S2-G fix 2, 3): a process that
+// died between claiming a handoff and starting its run left the claim for
+// ever, and every redelivery was ignored: the handoff was lost. A claim
+// that was never done is taken over once its lease ran out; before that, a
+// redelivery is retried after the rest of the lease.
+func TestHandoffRequest_ClaimOfADeadProcess(t *testing.T) {
+	data := func(t *testing.T) []byte {
+		return handoffRequest(t, handoffTenantA, "conv-1", "agent-tgt", "Review", map[string]any{"handoff_id": "h-dead"})
+	}
+
+	t.Run("lease ran out", func(t *testing.T) {
+		env := newHandoffEnv(t, false)
+		env.store.claim("h-dead", "request", 12*time.Minute, false)
+		if err := env.svc.HandleHandoffRequest(context.Background(), data(t)); err != nil {
+			t.Fatalf("HandleHandoffRequest: %v", err)
+		}
+		if len(env.runs.started) != 1 {
+			t.Fatalf("runs started = %d, want the handoff carried out", len(env.runs.started))
+		}
+	})
+
+	t.Run("within the lease", func(t *testing.T) {
+		env := newHandoffEnv(t, false)
+		env.store.claim("h-dead", "request", 2*time.Minute, false)
+		err := env.svc.HandleHandoffRequest(context.Background(), data(t))
+		var retry *messagequeue.RetryAfterError
+		if !errors.As(err, &retry) || retry.After < 8*time.Minute || retry.After > 10*time.Minute {
+			t.Fatalf("HandleHandoffRequest = %v, want a retry after the rest of the lease (about 9m)", err)
+		}
+		if len(env.runs.started) != 0 {
+			t.Fatalf("runs started = %d, want none while the claim may be alive", len(env.runs.started))
+		}
+	})
+
+	t.Run("done", func(t *testing.T) {
+		env := newHandoffEnv(t, false)
+		env.store.claim("h-dead", "request", time.Hour, true)
+		if err := env.svc.HandleHandoffRequest(context.Background(), data(t)); err != nil {
+			t.Fatalf("HandleHandoffRequest: %v", err)
+		}
+		if len(env.runs.started) != 0 {
+			t.Fatalf("runs started = %d, want none for a handoff carried out before", len(env.runs.started))
+		}
+	})
 }

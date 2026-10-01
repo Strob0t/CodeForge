@@ -9,6 +9,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // fakeMsg is a jetstream.Msg that records how it was settled. Methods the
@@ -22,9 +24,10 @@ type fakeMsg struct {
 	numDelivered uint64
 	metadataErr  error
 
-	mu       sync.Mutex
-	settled  []string
-	progress int
+	mu        sync.Mutex
+	settled   []string
+	progress  int
+	nakDelays []time.Duration
 }
 
 func (m *fakeMsg) Subject() string      { return m.subject }
@@ -45,9 +48,14 @@ func (m *fakeMsg) record(s string) error {
 	return nil
 }
 
-func (m *fakeMsg) Ack() error                         { return m.record("ack") }
-func (m *fakeMsg) Term() error                        { return m.record("term") }
-func (m *fakeMsg) NakWithDelay(_ time.Duration) error { return m.record("nak") }
+func (m *fakeMsg) Ack() error  { return m.record("ack") }
+func (m *fakeMsg) Term() error { return m.record("term") }
+func (m *fakeMsg) NakWithDelay(d time.Duration) error {
+	m.mu.Lock()
+	m.nakDelays = append(m.nakDelays, d)
+	m.mu.Unlock()
+	return m.record("nak")
+}
 
 func (m *fakeMsg) InProgress() error {
 	m.mu.Lock()
@@ -350,5 +358,31 @@ func TestHandleMessage_InProgressLimitFollowsMaxHandlerDuration(t *testing.T) {
 
 			assertSettled(t, msg, "ack")
 		})
+	}
+}
+
+// TestHandleMessage_RetryAfterDelaysTheRedelivery (S2-G fix 2, 3): a handler
+// that cannot handle a message yet (a handoff claimed by a process that may
+// have died) asks for its redelivery after a delay; the last delivery is
+// still dead-lettered.
+func TestHandleMessage_RetryAfterDelaysTheRedelivery(t *testing.T) {
+	later := func(context.Context, string, []byte) error {
+		return messagequeue.RetryAfter(errors.New("in progress elsewhere"), 7*time.Minute)
+	}
+	js := &fakeJS{ack: jetstream.PubAck{Stream: streamName, Sequence: 1}}
+	q := newTestQueue(js)
+	msg := &fakeMsg{subject: "handoff.request", data: []byte(`{"a":1}`), numDelivered: 1}
+
+	q.handleMessage(context.Background(), msg, later)
+
+	assertSettled(t, msg, "nak")
+	if len(msg.nakDelays) != 1 || msg.nakDelays[0] != 7*time.Minute {
+		t.Fatalf("nak delays = %v, want 7m", msg.nakDelays)
+	}
+
+	last := &fakeMsg{subject: "handoff.request", data: []byte(`{"a":1}`), numDelivered: maxDeliver}
+	q.handleMessage(context.Background(), last, later)
+	if len(js.published) != 1 {
+		t.Fatalf("the last delivery was not dead-lettered: %d copies", len(js.published))
 	}
 }

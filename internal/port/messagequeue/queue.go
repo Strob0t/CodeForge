@@ -1,11 +1,29 @@
 // Package messagequeue defines the message queue port (interface).
 package messagequeue
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Handler processes a message received from the queue.
 // The context carries request-scoped values such as the request ID.
 type Handler func(ctx context.Context, subject string, data []byte) error
+
+// RetryAfterError is a handler error that asks for the message's redelivery
+// after After instead of the queue's default retry delay. The redelivery
+// counts as a delivery: the last one is dead-lettered as usual.
+type RetryAfterError struct {
+	Err   error
+	After time.Duration
+}
+
+func (e *RetryAfterError) Error() string { return e.Err.Error() }
+func (e *RetryAfterError) Unwrap() error { return e.Err }
+
+// RetryAfter returns err as a handler error whose message is redelivered
+// after d.
+func RetryAfter(err error, d time.Duration) error { return &RetryAfterError{Err: err, After: d} }
 
 // Queue is the port interface for publishing and subscribing to messages.
 type Queue interface {

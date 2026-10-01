@@ -31,6 +31,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -953,8 +954,11 @@ func (m *mockStore) SendAgentMessage(_ context.Context, msg *agent.InboxMessage)
 	return nil
 }
 
-func (m *mockStore) ClaimHandoff(_ context.Context, _, _ string) (bool, error) { return true, nil }
-func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error       { return nil }
+func (m *mockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
+	return orchestration.HandoffClaim{Claimed: true}, nil
+}
+func (m *mockStore) FinishHandoff(_ context.Context, _, _ string) error  { return nil }
+func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error { return nil }
 func (m *mockStore) ListAgentInbox(_ context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
 	var result []agent.InboxMessage
 	for _, msg := range m.inboxMessages {

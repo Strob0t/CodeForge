@@ -41,6 +41,12 @@ const (
 	handoffStageApproved = "approved"
 
 	handoffDeadLettered = "the handoff could not be carried out: its retries ran out (dead-lettered)"
+
+	// handoffClaimLease is how long a claim of a handoff stage that was never
+	// done belongs to the delivery that made it. Longer than the queue keeps
+	// a running handler in progress by default (10 min): a redelivery within
+	// it means the first handler may still run; after it, its process died.
+	handoffClaimLease = 11 * time.Minute
 )
 
 // retryableError marks a handoff failure that a retry may cure (the store,
@@ -406,26 +412,37 @@ func (s *HandoffService) handleRequest(ctx context.Context, req *messagequeue.Ha
 
 // once carries out a stage of the handoff handoffID at most once (S2-G fix,
 // 3): the stage is claimed before anything starts, so a redelivered message
-// does nothing. A refusal (carryOut announced it) settles the message. A
+// does nothing once the stage is done; a claim left by a process that died
+// is taken over after its lease (S2-G fix 2, 3). A refusal (carryOut announced it) settles the message. A
 // retryable failure releases the claim and is returned, so the message is
 // redelivered; its last delivery is dead-lettered and announced failed
 // (HandleDeadLetteredHandoff). A claim that cannot be released would turn
 // the retry into a no-op: the handoff fails at once then.
 func (s *HandoffService) once(ctx context.Context, handoffID, stage string, announced *orchestration.HandoffMessage, carryOut func() error) error {
-	claimed, err := s.db.ClaimHandoff(ctx, handoffID, stage)
+	claim, err := s.db.ClaimHandoff(ctx, handoffID, stage, handoffClaimLease)
 	if err != nil {
 		return fmt.Errorf("claim handoff %s: %w", handoffID, err)
 	}
-	if !claimed {
+	switch {
+	case claim.Done:
 		slog.InfoContext(ctx, "handoff already carried out, redelivery ignored", "handoff_id", handoffID, "stage", stage)
 		return nil
+	case !claim.Claimed:
+		// Another delivery claimed the stage and has not finished: it may
+		// still run, or its process died. Retried once the claim's lease ran
+		// out, when a dead process's claim is taken over (S2-G fix 2, 3).
+		return messagequeue.RetryAfter(
+			fmt.Errorf("handoff %s %s is being carried out (claimed %s ago)", handoffID, stage, claim.Age.Round(time.Second)),
+			handoffClaimLease-claim.Age+time.Second)
 	}
 	err = carryOut()
-	if err == nil {
-		return nil
-	}
-	if !isRetryable(err) {
-		slog.WarnContext(ctx, "handoff refused", "handoff_id", handoffID, "stage", stage, "error", err)
+	if err == nil || !isRetryable(err) {
+		if err != nil {
+			slog.WarnContext(ctx, "handoff refused", "handoff_id", handoffID, "stage", stage, "error", err)
+		}
+		// Carried out or refused for good: a redelivery does nothing.
+		logBestEffort(ctx, s.db.FinishHandoff(ctx, handoffID, stage), "FinishHandoff",
+			slog.String("handoff_id", handoffID), slog.String("stage", stage))
 		return nil
 	}
 	if rerr := s.db.ReleaseHandoff(ctx, handoffID, stage); rerr != nil {

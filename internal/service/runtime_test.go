@@ -1130,9 +1130,10 @@ func (m *runtimeMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMes
 	return nil
 }
 
-func (m *runtimeMockStore) ClaimHandoff(_ context.Context, _, _ string) (bool, error) {
-	return true, nil
+func (m *runtimeMockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
+	return orchestration.HandoffClaim{Claimed: true}, nil
 }
+func (m *runtimeMockStore) FinishHandoff(_ context.Context, _, _ string) error  { return nil }
 func (m *runtimeMockStore) ReleaseHandoff(_ context.Context, _, _ string) error { return nil }
 func (m *runtimeMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil

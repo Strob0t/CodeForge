@@ -539,7 +539,12 @@ func (q *Queue) handleMessage(ctx context.Context, msg jetstream.Msg, handler me
 			return
 		}
 
-		if nakErr := msg.NakWithDelay(nakDelay); nakErr != nil {
+		delay := nakDelay
+		var later *messagequeue.RetryAfterError
+		if errors.As(err, &later) && later.After > 0 {
+			delay = later.After
+		}
+		if nakErr := msg.NakWithDelay(delay); nakErr != nil {
 			slog.Error("nats nak failed", "error", nakErr)
 		}
 		return
