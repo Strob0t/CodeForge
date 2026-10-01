@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -79,8 +80,9 @@ func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 // keepStoredSecrets replaces the redacted env and header values of srv with
 // the values stored for the server srv.ID in the current tenant
 // (domain.ErrValidation when none is stored). The stored values go only to
-// where they were stored for: with another transport, url or command they
-// must be entered again.
+// where they were stored for: with another transport, url, command or
+// command arguments (another package for npx, another script) they must be
+// entered again. Added env keys that load code are dropped by the worker.
 func (s *MCPService) keepStoredSecrets(ctx context.Context, srv *mcp.ServerDef) error {
 	if !srv.HasRedacted() {
 		return nil
@@ -91,8 +93,9 @@ func (s *MCPService) keepStoredSecrets(ctx context.Context, srv *mcp.ServerDef) 
 		if stored, err = s.db.GetMCPServer(ctx, srv.ID); err != nil {
 			return err
 		}
-		if stored.Transport != srv.Transport || stored.URL != srv.URL || stored.Command != srv.Command {
-			return fmt.Errorf("%w: stored env and header values are kept only for the same transport, url and command; enter them again", domain.ErrValidation)
+		if stored.Transport != srv.Transport || stored.URL != srv.URL || stored.Command != srv.Command ||
+			!slices.Equal(stored.Args, srv.Args) {
+			return fmt.Errorf("%w: stored env and header values are kept only for the same transport, url, command and arguments; enter them again", domain.ErrValidation)
 		}
 	}
 	return srv.KeepRedacted(stored)

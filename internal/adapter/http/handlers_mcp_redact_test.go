@@ -142,6 +142,22 @@ func TestMCPServerUpdate_KeepsRedactedValues(t *testing.T) {
 		}
 	})
 
+	// Security review of the KI-71 round 3: the same command with other
+	// arguments (npx -y another-package) would start another program with
+	// the stored secrets.
+	t.Run("redacted value with changed arguments", func(t *testing.T) {
+		store := &mockStore{mcpServers: []mcp.ServerDef{mcpServerWithSecrets()}}
+		def := base(map[string]string{"GITHUB_TOKEN": mcp.RedactedValue}, nil)
+		def["args"] = []string{"-y", "other-package"}
+		w := update(t, store, def)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status %d, want 400: %s", w.Code, w.Body.String())
+		}
+		if got := store.mcpServers[0]; len(got.Args) != 0 || got.Env["GITHUB_TOKEN"] != mcpTokenValue {
+			t.Errorf("a refused update changed the stored server: %+v", got)
+		}
+	})
+
 	t.Run("create with a redacted value", func(t *testing.T) {
 		store := &mockStore{}
 		body, err := json.Marshal(base(map[string]string{"GITHUB_TOKEN": mcp.RedactedValue}, nil))
