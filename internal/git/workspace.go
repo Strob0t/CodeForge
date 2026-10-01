@@ -34,9 +34,13 @@ import (
 //     refuses the repository (fail closed) for any key outside an allowlist of
 //     data-only keys, for include/includeIf, core.worktree, a .git that is a
 //     file or a symlink, commondir, alternates and symlinked git directories.
-//     Keys that only matter for network operations (ssh command, proxies,
-//     URL rewrites, remote programs, protocol and http settings) are refused
-//     for network operations only (RequireNetworkSafe).
+//     Keys that name a transport program (ssh command, proxy command,
+//     remote programs, remote helpers) or make a remote a promisor (lazy
+//     fetches from local commands) are refused in every repository. Keys
+//     that only configure transports with data (proxies, URL rewrites,
+//     protocol and http settings) are refused for network operations only
+//     (RequireNetworkSafe). Lazy fetches are also disabled in the
+//     environment (GIT_NO_LAZY_FETCH).
 //
 // A process of the agent that keeps running can still rewrite the config
 // between OpenRepo's check and git's own read (a new filter driver name);
@@ -72,6 +76,9 @@ func baseEnv() []string {
 		"GIT_SEQUENCE_EDITOR=true",
 		"GIT_NO_REPLACE_OBJECTS=1",
 		"GIT_OPTIONAL_LOCKS=0",
+		// A promisor remote written into the config after OpenRepo's check
+		// must not make a local command fetch (S3-F security review S1).
+		"GIT_NO_LAZY_FETCH=1",
 	)
 }
 

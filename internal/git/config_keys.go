@@ -50,6 +50,19 @@ var refusedKeys = map[string]bool{
 	"init.templatedir": true,
 }
 
+// refusedAnywhereKeys are refused with or without subsection, for every
+// command (S3-F security review S1): they name a program git runs for a
+// transport (ssh command, proxy command, remote-side programs, a remote
+// helper), or they make a remote a promisor - then a local command that
+// needs a missing object (diff, merge-tree, cat-file) fetches it lazily,
+// with the repository's transport programs, inside the Go Core. Operators
+// configure ssh with GIT_SSH_COMMAND in the Go Core's environment.
+var refusedAnywhereKeys = map[string]bool{
+	"core.sshcommand": true, "core.gitproxy": true,
+	"remote.uploadpack": true, "remote.receivepack": true, "remote.vcs": true,
+	"remote.promisor": true, "remote.partialclonefilter": true, "extensions.partialclone": true,
+}
+
 // allowedKeys are the section.variable keys (no subsection) a workspace
 // repository may set outside the allowed sections. The fsmonitor, hooks
 // path, untracked cache, split index, attributes file and signing keys are
@@ -87,23 +100,23 @@ var allowedKeys = map[string]bool{
 var allowedSubsectionKeys = map[string]bool{
 	"remote.url": true, "remote.pushurl": true, "remote.fetch": true, "remote.push": true, "remote.tagopt": true,
 	"remote.prune": true, "remote.prunetags": true, "remote.skipdefaultupdate": true, "remote.skipfetchall": true,
-	"remote.mirror": true, "remote.partialclonefilter": true, "remote.promisor": true,
-	"filter.clean": true, "filter.smudge": true, "filter.process": true, "filter.required": true,
+	"remote.mirror": true,
+	"filter.clean":  true, "filter.smudge": true, "filter.process": true, "filter.required": true,
 	"diff.xfuncname": true, "diff.funcname": true, "diff.binary": true, "diff.wordregex": true, "diff.cachetextconv": true,
 	"merge.name": true, "merge.recursive": true,
 	"submodule.url": true, "submodule.active": true, "submodule.branch": true, "submodule.ignore": true,
 	"submodule.shallow": true, "submodule.fetchrecursesubmodules": true,
 }
 
-// networkOnly keys configure transports: inert for local operations, refused
-// for fetch, pull and push. Section-level entries cover every key of the
-// section (with or without subsection).
+// networkOnly keys configure transports with data (URLs, rewrites, options),
+// never a program: inert for local operations, refused for fetch, pull and
+// push. Section-level entries cover every key of the section (with or
+// without subsection).
 var networkOnlySections = map[string]bool{"http": true, "protocol": true, "url": true}
 
 var networkOnlyKeys = map[string]bool{
-	"core.sshcommand": true, "core.gitproxy": true, "fetch.bundleuri": true,
-	"remote.receivepack": true, "remote.uploadpack": true, "remote.vcs": true,
-	"remote.proxy": true, "remote.proxyauthmethod": true, "remote.serveroption": true,
+	"fetch.bundleuri": true,
+	"remote.proxy":    true, "remote.proxyauthmethod": true, "remote.serveroption": true,
 }
 
 // splitKey splits a config key as git lists it (section and variable lower
@@ -127,7 +140,7 @@ func classifyKey(key, value string) keyClass {
 	switch {
 	case section == "core" && variable == "bare" && subsection == "" && isTrue(value):
 		return keyRefused // no worktree to work in
-	case subsection == "" && refusedKeys[name]:
+	case subsection == "" && refusedKeys[name], refusedAnywhereKeys[name]:
 		return keyRefused
 	case networkOnlyKeys[name]:
 		return keyNetworkOnly

@@ -260,13 +260,14 @@ func TestOpenRepo_RefusesUnsafeRepositories(t *testing.T) {
 
 func TestOpenRepo_NetworkOnlyKeys(t *testing.T) {
 	ctx := context.Background()
-	program, _ := evilProgram(t)
+	// Program-valued transport keys (core.sshCommand, remote.*.uploadpack, ...)
+	// are refused in every repository (promisor_test.go).
 	for _, kv := range [][2]string{
-		{"core.sshCommand", program},
 		{"url.ext::sh.insteadOf", "https://"},
-		{"remote.origin.uploadpack", program},
 		{"protocol.ext.allow", "always"},
 		{"http.proxy", "http://proxy.invalid"},
+		{"remote.origin.proxy", "http://proxy.invalid"},
+		{"remote.origin.serverOption", "x"},
 	} {
 		t.Run(kv[0], func(t *testing.T) {
 			dir := newRepo(t)
