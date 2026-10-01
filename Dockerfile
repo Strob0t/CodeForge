@@ -33,8 +33,13 @@ RUN apk add --no-cache git ca-certificates tzdata
 # volume. /data is created here so fresh named volumes mounted at /data and
 # /data/workspaces are initialized with this ownership (the rootfs is read-only
 # in production).
+# The workspaces are shared through codeforge-ws (10010) with the worker's
+# tool user (KI-71): setgid, so new entries join the group, and the Go Core
+# creates files group-writable (umask 002).
 RUN addgroup -S -g 10001 codeforge && adduser -S -u 10001 -G codeforge codeforge && \
-    mkdir -p /data/workspaces && chown -R codeforge:codeforge /data
+    addgroup -S -g 10010 codeforge-ws && addgroup codeforge codeforge-ws && \
+    mkdir -p /data/workspaces && chown codeforge:codeforge /data && \
+    chown codeforge:codeforge-ws /data/workspaces && chmod 2775 /data/workspaces
 
 COPY --from=build /codeforge /usr/local/bin/codeforge
 

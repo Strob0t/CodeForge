@@ -82,6 +82,8 @@ func main() {
 }
 
 func run() error {
+	setWorkspaceUmask()
+
 	flags, err := config.ParseFlags(os.Args[1:])
 	if err != nil {
 		return fmt.Errorf("flags: %w", err)

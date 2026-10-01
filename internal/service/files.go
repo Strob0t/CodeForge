@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/filesystem"
 )
@@ -171,11 +172,11 @@ func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content
 
 	// Ensure parent directory exists
 	dir := filepath.Dir(absPath)
-	if err := s.fs.MkdirAll(ctx, dir, 0o750); err != nil {
+	if err := s.fs.MkdirAll(ctx, dir, project.WorkspaceDirPerm); err != nil {
 		return fmt.Errorf("create parent directory: %w", err)
 	}
 
-	if err := s.fs.WriteFile(ctx, absPath, []byte(content), fs.FileMode(0o644)); err != nil {
+	if err := s.fs.WriteFile(ctx, absPath, []byte(content), project.WorkspaceFilePerm); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 
@@ -215,7 +216,7 @@ func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, new
 	}
 
 	// Ensure parent directory of destination exists
-	if mkErr := s.fs.MkdirAll(ctx, filepath.Dir(newAbs), 0o750); mkErr != nil {
+	if mkErr := s.fs.MkdirAll(ctx, filepath.Dir(newAbs), project.WorkspaceDirPerm); mkErr != nil {
 		return fmt.Errorf("create parent directory: %w", mkErr)
 	}
 

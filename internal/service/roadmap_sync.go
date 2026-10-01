@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 )
@@ -133,7 +134,7 @@ func (s *RoadmapService) SyncToSpecFile(ctx context.Context, projectID string) e
 	targetPath := s.findSpecFile(proj.WorkspacePath)
 	content := renderMarkdown(rm)
 
-	if err := os.WriteFile(targetPath, []byte(content), 0o644); err != nil { //nolint:gosec // workspace path is trusted
+	if err := os.WriteFile(targetPath, []byte(content), project.WorkspaceFilePerm); err != nil { //nolint:gosec // workspace path is trusted; shared with the worker's tool user (KI-71)
 		return fmt.Errorf("write spec file: %w", err)
 	}
 

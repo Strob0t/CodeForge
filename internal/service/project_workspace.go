@@ -201,7 +201,7 @@ func (s *ProjectService) InitWorkspace(ctx context.Context, id, tenantID string)
 	}
 
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
-	if err := os.MkdirAll(destPath, 0o750); err != nil {
+	if err := os.MkdirAll(destPath, project.WorkspaceDirPerm); err != nil { //nolint:gosec // G301: shared with the worker's tool user (KI-71)
 		return nil, fmt.Errorf("create workspace directory: %w", err)
 	}
 

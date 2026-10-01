@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 )
 
@@ -75,7 +76,7 @@ func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) 
 // WriteSpec writes structured items back to a spec file as markdown.
 func (p *Provider) WriteSpec(_ context.Context, workspacePath, specPath string, items []SpecItem) error {
 	data := RenderMarkdown(items)
-	return os.WriteFile(filepath.Join(workspacePath, specPath), data, 0o644) //nolint:gosec // Path from workspace + known spec file.
+	return os.WriteFile(filepath.Join(workspacePath, specPath), data, project.WorkspaceFilePerm) //nolint:gosec // Path from workspace + known spec file; shared with the worker's tool user (KI-71).
 }
 
 // ParseItems implements specprovider.ItemParser by converting internal SpecItems

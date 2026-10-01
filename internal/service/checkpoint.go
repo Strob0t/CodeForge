@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/proctemp"
 )
@@ -305,7 +306,10 @@ func (s *CheckpointService) Revert(runID, callID string) error {
 	}
 	s.snapshotMu.RUnlock()
 
-	if err := os.WriteFile(snap.Path, snap.Content, 0o600); err != nil {
+	// A file the run deleted is recreated readable and writable for the
+	// workspace group, like the rest of the workspace (KI-71).
+	if err := os.WriteFile(snap.Path, snap.Content, project.WorkspaceFilePerm); err != nil { //nolint:gosec // G306: shared with the worker's tool user
+
 		return fmt.Errorf("checkpoint revert: %w", err)
 	}
 
