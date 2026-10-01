@@ -26,6 +26,20 @@ logger = structlog.get_logger()
 # The file names the auto-agent extracts from feature descriptions.
 _TEST_FILE = re.compile(r"^test_\w+\.py$")
 
+# The result carries the tail of the test output (the summary and the
+# failures pytest prints last): the whole output can exceed the NATS max
+# payload, and a failed publish re-runs the tests (S3-F review C7).
+MAX_OUTPUT_BYTES = 64 * 1024
+
+
+def _tail(output: str, limit: int = MAX_OUTPUT_BYTES) -> str:
+    """The last limit bytes of output, behind a marker when cut."""
+    data = output.encode()
+    if len(data) <= limit:
+        return output
+    tail = data[-limit:].decode(errors="ignore")  # may cut into a character
+    return f"[... {len(data) - limit} bytes of earlier test output truncated ...]\n{tail}"
+
 
 def _test_file_error(workspace: str, test_file: str) -> str:
     """Why the test file must not run, "" when it may."""
@@ -64,6 +78,7 @@ class WorkspaceTestHandlerMixin:
         timeout = request.timeout_seconds or DEFAULT_QG_TIMEOUT_SECONDS
         command = f"python -m pytest {request.test_file} -v --tb=short"
         passed, output = await self._gate_executor.run_command(command, request.workspace_path, log, timeout)
+        output = _tail(output)
         result.passed, result.output = passed, output
         if passed is None:
             result.error = output

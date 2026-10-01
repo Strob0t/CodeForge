@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -306,7 +307,7 @@ func (s *AutoAgentService) processFeature(
 
 			fixPrompt := fmt.Sprintf(
 				"The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```\n\nPlease fix the implementation to make all tests pass.",
-				passed, total, strings.TrimSpace(output),
+				passed, total, testOutputForPrompt(strings.TrimSpace(output)),
 			)
 			if err := s.runAndWait(ctx, conv.ID, fixPrompt, aa); err != nil {
 				return fmt.Errorf("fix run: %w", err)
@@ -430,6 +431,23 @@ func extractTestFile(description string) string {
 		return matches[1]
 	}
 	return ""
+}
+
+// maxPromptTestOutput bounds the test output a fix prompt hands the agent
+// (S3-F review C7; the worker already sends at most the last 64 KiB).
+const maxPromptTestOutput = 16 * 1024
+
+// testOutputForPrompt returns the tail of the test output - the summary and
+// the failures pytest prints last - behind a marker when it is cut.
+func testOutputForPrompt(output string) string {
+	if len(output) <= maxPromptTestOutput {
+		return output
+	}
+	cut := len(output) - maxPromptTestOutput
+	for cut < len(output) && !utf8.RuneStart(output[cut]) {
+		cut++
+	}
+	return fmt.Sprintf("[... %d bytes of earlier test output truncated ...]\n%s", cut, output[cut:])
 }
 
 // testResult holds parsed pytest output.

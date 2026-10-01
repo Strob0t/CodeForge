@@ -135,3 +135,27 @@ async def test_duplicate_request_runs_once(consumer: TaskConsumer, tmp_path: Pat
 
     assert spawn.call_count == 1
     msg.ack.assert_called_once()
+
+
+async def test_large_output_is_capped_to_its_tail(consumer: TaskConsumer, tmp_path: Path) -> None:
+    """S3-F review C7: output above the NATS max payload made the publish fail
+    (and the tests re-run up to MaxDeliver times). The result keeps the tail,
+    about 64 KiB, behind a truncation marker."""
+    (tmp_path / "test_feature.py").write_text("def test_x(): pass\n")
+    head = "early line é\n" * 50_000  # ~650 KB, multi-byte characters
+    tail = "FAILED test_feature.py::test_x - assert 1 == 2\n=== 1 failed ===\n"
+    with patch(_SPAWN, return_value=_proc(head + tail, 1)):
+        result, msg = await _handle(consumer, _request(tmp_path))
+
+    assert result.passed is False
+    assert len(result.output.encode()) <= 64 * 1024 + 200
+    assert result.output.endswith(tail)
+    assert "truncated" in result.output.splitlines()[0]
+    msg.ack.assert_awaited_once()
+
+
+async def test_small_output_is_kept_whole(consumer: TaskConsumer, tmp_path: Path) -> None:
+    (tmp_path / "test_feature.py").write_text("def test_x(): pass\n")
+    with patch(_SPAWN, return_value=_proc("=== 3 passed ===", 0)):
+        result, _ = await _handle(consumer, _request(tmp_path))
+    assert result.output == "=== 3 passed ==="
