@@ -11,6 +11,7 @@ import (
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Every A2A key of a tenant reached all of the tenant's A2A tasks through
@@ -40,8 +41,10 @@ func (s *listingStore) ListA2ATasks(_ context.Context, filter *database.A2ATaskF
 	return out, len(out), nil
 }
 
+// callerCtx is an inbound request of the A2A key keyID in the tenant the
+// HTTP tenant middleware sets on every request.
 func callerCtx(keyID string) context.Context {
-	return middleware.ContextWithA2ACaller(context.Background(), keyID)
+	return middleware.ContextWithA2ACaller(tenantctx.WithTenant(context.Background(), screenTenant), keyID)
 }
 
 func newCallerStore() *listingStore {

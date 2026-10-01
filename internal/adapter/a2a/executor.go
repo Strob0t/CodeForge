@@ -11,6 +11,7 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
@@ -57,8 +58,24 @@ func NewExecutor(store database.Store, queue messagequeue.Queue, hub broadcast.B
 // before it is published (KI-15).
 func (e *Executor) SetScreener(s Screener) { e.screener = s }
 
+// requestTenant returns the tenant of the inbound request (the HTTP tenant
+// middleware sets it on every request). An A2A task is never created, changed
+// or published without one: there is no fallback to the default tenant.
+func requestTenant(ctx context.Context) (string, error) {
+	tenantID, ok := tenantctx.Explicit(ctx)
+	if !ok {
+		return "", fmt.Errorf("a2a: request without a tenant: %w", domain.ErrValidation)
+	}
+	return tenantID, nil
+}
+
 // Execute handles an inbound A2A task (implements a2asrv.AgentExecutor).
 func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, eq eventqueue.Queue) error {
+	tenantID, err := requestTenant(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Extract text from first message part.
 	prompt := ""
 	if reqCtx.Message != nil {
@@ -85,7 +102,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 	}
 	payload, marshalErr := json.Marshal(messagequeue.A2ATaskCreatedPayload{
 		TaskID:   taskID,
-		TenantID: tenantctx.FromContext(ctx),
+		TenantID: tenantID,
 		SkillID:  "",
 		Prompt:   prompt,
 	})
@@ -181,6 +198,9 @@ func (e *Executor) screen(ctx context.Context, ann *trust.Annotation, taskID str
 
 // Cancel cancels an inbound A2A task (implements a2asrv.AgentExecutor).
 func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq eventqueue.Queue) error {
+	if _, err := requestTenant(ctx); err != nil {
+		return err
+	}
 	taskID := fmt.Sprintf("a2a-%s", reqCtx.TaskID)
 
 	// Update task state.

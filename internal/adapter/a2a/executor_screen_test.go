@@ -154,7 +154,7 @@ func TestExecutor_WithoutScreenerPublishes(t *testing.T) {
 		TaskID:  "remote-2",
 		Message: &sdka2a.Message{Role: sdka2a.MessageRoleUser, Parts: []sdka2a.Part{sdka2a.TextPart{Text: "hello"}}},
 	}
-	if err := exec.Execute(context.Background(), reqCtx, fakeEventQueue{}); err != nil {
+	if err := exec.Execute(tenantctx.WithTenant(context.Background(), screenTenant), reqCtx, fakeEventQueue{}); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	if len(queue.published) != 1 {
