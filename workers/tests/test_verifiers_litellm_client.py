@@ -220,4 +220,4 @@ def test_benchmark_evaluators_share_the_worker_client() -> None:
     llm = FakeLLM(_answer("YES"))
     evaluators = _build_evaluators(["trajectory_verifier", "logprob_verifier"], "judge-model", llm=llm)  # type: ignore[arg-type]
 
-    assert [e._llm for e in evaluators] == [llm, llm]
+    assert [e._client.get() for e in evaluators] == [llm, llm]
