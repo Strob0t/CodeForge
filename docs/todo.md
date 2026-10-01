@@ -18,6 +18,7 @@
 
 ---
 
+- [x] (2026-10-01) CI: `test_performance_10k_chars` failed on a shared runner (10.2ms against a 10ms budget; the regex-bound analyzer needs about 7ms locally). Budget 25ms: it guards against order-of-magnitude regressions, not runner speed.
 - [x] (2026-10-01) CI secret scanning: gitleaks reported the synthetic secrets of `internal/config/secret_files_test.go` once the PR commit window reached them; `.gitleaks.toml` (default rules plus an allowlist of those exact fixture values) keeps the scan strict for everything else.
 - [x] (2026-10-01) Agent instructions follow the AGENTS.md convention: `CLAUDE.md` is replaced by [`AGENTS.md`](../AGENTS.md) (structure after the Scavengarr `AGENTS.md`: workflow, overview, architecture, dependencies, language rules, testing, agent system and cross-language rules, subagents, dev container, navigation). Descriptive catalogues moved to [architecture/project-reference.md](architecture/project-reference.md), the E2E startup procedure to [testing/e2e-setup.md](testing/e2e-setup.md). Claude Code reads `AGENTS.md` when no `CLAUDE.md` exists (v2.1.277 or newer).
 - [x] (2026-09-30) SessionStart hook for Claude Code on the web (`.claude/hooks/session-start.sh`, registered in `.claude/settings.json`): installs the CI toolchains and dependencies and starts PostgreSQL 18 + NATS JetStream for the Go tests, see [dev-setup](dev-setup.md#claude-code-on-the-web-sessionstart-hook)
