@@ -34,6 +34,9 @@ from codeforge.evaluation.providers.base import (
     TaskSpec,
     average_of_scores,
 )
+from codeforge.evaluation.providers.base import (
+    rank_key as score_rank_key,
+)
 
 if TYPE_CHECKING:
     from codeforge.evaluation.evaluators.base import Evaluator
@@ -52,17 +55,12 @@ class VerificationResult:
 
     @property
     def fully_evaluated(self) -> bool:
-        """Ranked, and every rank evaluator scored the result (none failed)."""
-        return self.combined_score is not None and not any(d.error for d in self.rank_scores)
+        """Ranked, and no evaluator of either stage (filter or rank) failed."""
+        return self.combined_score is not None and not any(d.error for d in (*self.filter_scores, *self.rank_scores))
 
     def rank_key(self) -> tuple[bool, float]:
-        """Sort key: fully evaluated results first, then by combined score.
-
-        An errored dimension is left out of the average, so a result whose
-        rank evaluator failed would otherwise be ranked on its filter scores
-        alone and could outrank verified results.
-        """
-        score = self.combined_score.average_score() if self.combined_score else -1.0
+        """Sort key: fully evaluated results first, then by combined score (see providers.base.rank_key)."""
+        _, score = score_rank_key(self.combined_score)
         return self.fully_evaluated, score
 
 

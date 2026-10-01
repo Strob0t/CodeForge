@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
+from codeforge.evaluation.providers.base import rank_key
 from codeforge.evaluation.runners._similarity import normalized_edit_distance
 from codeforge.evaluation.runners.early_stopping import EarlyStopChecker
 
@@ -109,13 +110,15 @@ class MultiRolloutRunner:
             )
             outcomes.append(outcome)
 
-            # Feed the checker with completed rollout data.
-            eval_avg = run_result.eval_score.average_score() if run_result.eval_score else 0.0
+            # Feed the checker with completed rollout data, ranked like the
+            # hybrid selection (a rollout whose evaluator failed ranks lower).
+            fully_evaluated, eval_avg = rank_key(run_result.eval_score)
             checker.add_rollout(
                 i,
                 run_result.execution.actual_output,
                 run_result.execution.exit_code,
                 eval_avg,
+                fully_evaluated=fully_evaluated,
             )
 
             # Check for early stop (only meaningful when rollout_count > 3,
@@ -149,12 +152,7 @@ class MultiRolloutRunner:
 
         # Phase 3: Select best.
         if early_stopped:
-            # Use the checker's cluster-based selection.
-            best_id = checker.best_from_cluster()
-            for o in outcomes:
-                if o.rollout_id == best_id:
-                    o.is_best = True
-                    break
+            self._select_from_cluster(task, checker, outcomes)
         elif self._strategy == "best" and self._hybrid is not None:
             await self._select_best_hybrid(task, outcomes)
         elif self._strategy == "majority":
@@ -180,6 +178,21 @@ class MultiRolloutRunner:
     def last_run_metadata(self) -> MultiRolloutMetadata:
         """Return metadata from the most recent run_task() call."""
         return getattr(self, "_metadata", MultiRolloutMetadata())
+
+    @staticmethod
+    def _select_from_cluster(task: TaskSpec, checker: EarlyStopChecker, outcomes: list[RolloutOutcome]) -> None:
+        """Mark the early-stop cluster's best rollout (ranked by providers.base.rank_key)."""
+        best_id = checker.best_from_cluster()
+        for o in outcomes:
+            if o.rollout_id == best_id:
+                o.is_best = True
+                if o.eval_score is not None and not o.eval_score.fully_evaluated:
+                    logger.warning(
+                        "no fully evaluated rollout in the agreeing cluster, best partial one selected",
+                        task_id=task.id,
+                        best_rollout=best_id,
+                    )
+                return
 
     async def _select_best_hybrid(self, task: TaskSpec, outcomes: list[RolloutOutcome]) -> None:
         """Use hybrid verification to select the best rollout.

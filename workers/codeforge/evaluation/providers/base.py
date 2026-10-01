@@ -103,6 +103,23 @@ class EvalScore(BaseModel):
         """Compute mean score across the dimensions that are results (errors left out)."""
         return average_of_scores(self.dimensions)
 
+    @property
+    def fully_evaluated(self) -> bool:
+        """No evaluator failed: every dimension is a result."""
+        return not any(d.error for d in self.dimensions)
+
+
+def rank_key(score: EvalScore | None) -> tuple[bool, float]:
+    """Sort key for competing results: fully evaluated first, then by average score.
+
+    An errored dimension is left out of the average, so a result whose
+    evaluator failed would otherwise be ranked on its remaining dimensions
+    alone and could outrank fully evaluated results. No score ranks last.
+    """
+    if score is None:
+        return False, -1.0
+    return score.fully_evaluated, score.average_score()
+
 
 class Capabilities(BaseModel):
     """Declares which evaluation methods a provider supports."""
