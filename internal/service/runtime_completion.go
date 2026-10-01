@@ -74,34 +74,17 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 		}
 	}
 
-	// Artifact validation gate (Phase 12E)
+	// Artifact validation gate (Phase 12E). Its result is recorded and
+	// announced only by the path that ends the run or moves it into its
+	// quality gate, never by one that lost the run to a stop (KI-78).
+	end := agentEnd
 	if status == run.StatusCompleted && s.modes != nil {
 		if m, mErr := s.modes.Get(r.ModeID); mErr == nil && m.RequiredArtifact != "" {
-			result := artifact.Validate(m.RequiredArtifact, payload.Output)
-			valid := result.Valid
-			if err := s.store.UpdateRunArtifact(ctx, r.ID, m.RequiredArtifact, &valid, result.Errors); err != nil {
-				slog.Error("failed to persist artifact validation", "run_id", r.ID, "error", err)
-			}
-			s.hub.BroadcastEvent(ctx, event.EventArtifactValidation, event.ArtifactValidationEvent{
-				RunID:        r.ID,
-				TaskID:       r.TaskID,
-				ProjectID:    r.ProjectID,
-				ArtifactType: m.RequiredArtifact,
-				Valid:        valid,
-				Errors:       result.Errors,
-			})
-			if valid {
-				s.appendRunEvent(ctx, event.TypeArtifactValidated, r, map[string]string{
-					"artifact_type": m.RequiredArtifact,
-				})
-			} else {
-				s.appendRunEvent(ctx, event.TypeArtifactFailed, r, map[string]string{
-					"artifact_type": m.RequiredArtifact,
-					"errors":        fmt.Sprintf("%v", result.Errors),
-				})
-				s.appendAudit(ctx, r, "artifact.failed", fmt.Sprintf("Artifact validation failed for %s: %v", m.RequiredArtifact, result.Errors))
+			check := &artifactCheck{artifactType: m.RequiredArtifact, result: artifact.Validate(m.RequiredArtifact, payload.Output)}
+			if !check.result.Valid {
 				status = run.StatusFailed
 			}
+			end.ended = func(ctx context.Context) { s.announceArtifact(ctx, r, check) }
 		}
 	}
 
@@ -113,12 +96,46 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	if status == run.StatusCompleted && !ok {
 		failed := *payload
 		failed.Status, failed.Error = string(run.StatusFailed), unknownGateProfile(r.PolicyProfile)
-		return s.finishRun(ctx, r, run.StatusFailed, &failed, agentEnd)
+		return s.finishRun(ctx, r, run.StatusFailed, &failed, end)
 	}
 	if status == run.StatusCompleted && profile.QualityGate.Enabled() {
-		return s.enterQualityGate(ctx, r, &profile.QualityGate, payload)
+		return s.enterQualityGate(ctx, r, &profile.QualityGate, payload, end.ended)
 	}
-	return s.finishRun(ctx, r, status, payload, agentEnd)
+	return s.finishRun(ctx, r, status, payload, end)
+}
+
+// artifactCheck is the validation of the artifact a run's mode requires.
+type artifactCheck struct {
+	artifactType string
+	result       artifact.ValidationResult
+}
+
+// announceArtifact records a run's artifact validation on the run, in its
+// events and audit trail, and broadcasts it.
+func (s *RuntimeService) announceArtifact(ctx context.Context, r *run.Run, check *artifactCheck) {
+	valid := check.result.Valid
+	if err := s.store.UpdateRunArtifact(ctx, r.ID, check.artifactType, &valid, check.result.Errors); err != nil {
+		slog.Error("failed to persist artifact validation", "run_id", r.ID, "error", err)
+	}
+	s.hub.BroadcastEvent(ctx, event.EventArtifactValidation, event.ArtifactValidationEvent{
+		RunID:        r.ID,
+		TaskID:       r.TaskID,
+		ProjectID:    r.ProjectID,
+		ArtifactType: check.artifactType,
+		Valid:        valid,
+		Errors:       check.result.Errors,
+	})
+	if valid {
+		s.appendRunEvent(ctx, event.TypeArtifactValidated, r, map[string]string{
+			"artifact_type": check.artifactType,
+		})
+		return
+	}
+	s.appendRunEvent(ctx, event.TypeArtifactFailed, r, map[string]string{
+		"artifact_type": check.artifactType,
+		"errors":        fmt.Sprintf("%v", check.result.Errors),
+	})
+	s.appendAudit(ctx, r, "artifact.failed", fmt.Sprintf("Artifact validation failed for %s: %v", check.artifactType, check.result.Errors))
 }
 
 // storedOutcome is a completion that ends a run with the outcome stored on it

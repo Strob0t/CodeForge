@@ -24,8 +24,9 @@ import (
 // rolls the workspace back if the policy says so, and never delivers.
 
 // enterQualityGate moves a completed run to quality_gate with the worker's
-// outcome and requests its gate.
-func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate *policy.QualityGate, payload *messagequeue.RunCompletePayload) error {
+// outcome and requests its gate. entered (optional) runs right after the
+// move, never when another path ended the run first.
+func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate *policy.QualityGate, payload *messagequeue.RunCompletePayload, entered func(ctx context.Context)) error {
 	if err := s.store.EnterQualityGate(ctx, &run.CompletionRequest{
 		ID: r.ID, Status: run.StatusQualityGate, Output: payload.Output, Error: payload.Error,
 		CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model,
@@ -34,6 +35,9 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 			s.keepWorkerTotals(ctx, r.ID, payload)
 		}
 		return skipEndedRun(ctx, fmt.Errorf("enter quality gate: %w", err), "EnterQualityGate", r.ID)
+	}
+	if entered != nil {
+		entered(ctx)
 	}
 	gated := gatedRun(r, payload)
 
