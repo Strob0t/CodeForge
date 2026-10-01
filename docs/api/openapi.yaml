@@ -2812,7 +2812,7 @@ paths:
       summary: List quarantined messages
       description: |
         Admin only. Without `project_id` it lists the messages without a project (inbound A2A prompts).
-        Answers 503 while the quarantine is disabled (`quarantine.enabled`).
+        Messages are only held while `quarantine.enabled` is true.
       operationId: listQuarantinedMessages
       security:
         - bearerAuth: []
@@ -2848,7 +2848,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "503":
-          description: Quarantine not enabled
+          description: Quarantine service not configured
 
   /quarantine/stats:
     get:
@@ -2884,7 +2884,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "503":
-          description: Quarantine not enabled
+          description: Quarantine service not configured
 
   /quarantine/{id}/approve:
     post:
