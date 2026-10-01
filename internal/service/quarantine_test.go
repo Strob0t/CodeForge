@@ -59,6 +59,9 @@ func (m *mockQuarantineStore) UpdateQuarantineStatus(_ context.Context, id strin
 	if !ok {
 		return domain.ErrNotFound
 	}
+	if msg.Status != quarantine.StatusPending {
+		return domain.ErrConflict
+	}
 	msg.Status = status
 	msg.ReviewedBy = reviewedBy
 	msg.ReviewNote = note

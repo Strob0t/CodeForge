@@ -40,18 +40,31 @@ func (q *recordingQueue) Publish(_ context.Context, subject string, data []byte)
 }
 
 type fakeScreener struct {
-	verdict quarantine.Verdict
-	err     error
-	ann     *trust.Annotation
-	subject string
-	payload []byte
-	project string
-	tenant  string
+	verdict   quarantine.Verdict
+	err       error
+	ann       *trust.Annotation
+	subject   string
+	payload   []byte
+	project   string
+	tenant    string
+	withdrawn []string
 }
 
-func (s *fakeScreener) Screen(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (quarantine.Verdict, error) {
+// heldMessageID is the quarantine message of a held prompt.
+const heldMessageID = "q-held-1"
+
+func (s *fakeScreener) ScreenMessage(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (quarantine.Verdict, string, error) {
 	s.ann, s.subject, s.payload, s.project, s.tenant = ann, subject, payload, projectID, tenantctx.FromContext(ctx)
-	return s.verdict, s.err
+	id := ""
+	if s.verdict == quarantine.VerdictHeld {
+		id = heldMessageID
+	}
+	return s.verdict, id, s.err
+}
+
+func (s *fakeScreener) Withdraw(_ context.Context, id, _ string) error {
+	s.withdrawn = append(s.withdrawn, id)
+	return nil
 }
 
 // recordingEventQueue records the task states the executor reports.
@@ -117,6 +130,10 @@ func TestExecutor_ScreensInboundPrompts(t *testing.T) {
 			if dt == nil || dt.State != tt.state || dt.TrustLevel != string(trust.LevelPartial) {
 				t.Fatalf("stored task = %+v, want %s with partial trust", dt, tt.state)
 			}
+			// S2-G fix, 9: a held task names its quarantine message.
+			if held := tt.verdict == quarantine.VerdictHeld && tt.err == nil; (dt.Metadata["quarantine_message_id"] == heldMessageID) != held {
+				t.Errorf("task metadata = %v, want the quarantine message only when held", dt.Metadata)
+			}
 			if got := len(queue.published) == 1 && queue.published[0].subject == messagequeue.SubjectA2ATaskCreated; got != tt.published {
 				t.Errorf("published = %v, want %v", queue.published, tt.published)
 			}
@@ -145,5 +162,56 @@ func TestExecutor_WithoutScreenerPublishes(t *testing.T) {
 	}
 	if dt := store.tasks["a2a-remote-2"]; dt == nil || dt.TrustLevel != string(trust.LevelUntrusted) {
 		t.Fatalf("stored task = %+v, want untrusted (no authenticated caller in the context)", dt)
+	}
+}
+
+// TestExecutor_CreatesTheTaskBeforeScreening (S2-G fix, 9): the prompt was
+// screened (and a held one stored in the quarantine) before the task was
+// created; a failed create left a quarantine entry without task, which an
+// admin could approve. The task is created first now.
+func TestExecutor_CreatesTheTaskBeforeScreening(t *testing.T) {
+	store := newFakeStore()
+	store.createErr = errors.New("database unavailable")
+	screener := &fakeScreener{verdict: quarantine.VerdictHeld}
+	exec := NewExecutor(store, &recordingQueue{}, fakeBroadcaster{}, nil)
+	exec.SetScreener(screener)
+	reqCtx := &a2asrv.RequestContext{
+		TaskID:  "remote-3",
+		Message: &sdka2a.Message{Role: sdka2a.MessageRoleUser, Parts: []sdka2a.Part{sdka2a.TextPart{Text: "hello"}}},
+	}
+
+	if err := exec.Execute(tenantctx.WithTenant(context.Background(), screenTenant), reqCtx, fakeEventQueue{}); err == nil {
+		t.Fatal("Execute succeeded without its task")
+	}
+	if screener.subject != "" {
+		t.Fatal("the prompt was screened (and could be held) although its task was not created")
+	}
+}
+
+// TestExecutor_CancelOfAHeldTaskWithdrawsItsMessage (S2-G fix, 9): a caller
+// that cancels its held task withdraws the held prompt, so a later approval
+// publishes nothing.
+func TestExecutor_CancelOfAHeldTaskWithdrawsItsMessage(t *testing.T) {
+	store := newFakeStore()
+	screener := &fakeScreener{verdict: quarantine.VerdictHeld}
+	exec := NewExecutor(store, &recordingQueue{}, fakeBroadcaster{}, nil)
+	exec.SetScreener(screener)
+	ctx := middleware.ContextWithA2ACaller(tenantctx.WithTenant(context.Background(), screenTenant), "key-1")
+	reqCtx := &a2asrv.RequestContext{
+		TaskID:  "remote-4",
+		Message: &sdka2a.Message{Role: sdka2a.MessageRoleUser, Parts: []sdka2a.Part{sdka2a.TextPart{Text: "hello"}}},
+	}
+	if err := exec.Execute(ctx, reqCtx, fakeEventQueue{}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if err := exec.Cancel(ctx, reqCtx, fakeEventQueue{}); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if len(screener.withdrawn) != 1 || screener.withdrawn[0] != heldMessageID {
+		t.Fatalf("withdrawn = %v, want the held prompt %s", screener.withdrawn, heldMessageID)
+	}
+	if dt := store.tasks["a2a-remote-4"]; dt.State != a2adomain.TaskStateCanceled {
+		t.Fatalf("task state = %s, want canceled", dt.State)
 	}
 }

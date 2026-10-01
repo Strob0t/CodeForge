@@ -95,8 +95,10 @@ func (s *Store) UpdateQuarantineStatus(ctx context.Context, id string, status qu
 	const q = `
 		UPDATE quarantine_messages
 		SET status = $2, reviewed_by = $3, review_note = $4, reviewed_at = $5
-		WHERE id = $1 AND tenant_id = $6`
+		WHERE id = $1 AND tenant_id = $6 AND status = 'pending'`
 
 	tag, err := s.pool.Exec(ctx, q, id, string(status), reviewedBy, note, now, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update quarantine status for message %s", id)
+	return s.guardedUpdateResult(ctx, tag, err, quarantineExistsSQL, "update quarantine status for message", id)
 }
+
+const quarantineExistsSQL = `SELECT EXISTS (SELECT 1 FROM quarantine_messages WHERE id = $1 AND tenant_id = $2)`

@@ -30,10 +30,17 @@ type cancelResult struct {
 	TaskID string `json:"task_id"`
 }
 
+// quarantineMessageKey is the task metadata naming a held task's
+// quarantine message.
+const quarantineMessageKey = "quarantine_message_id"
+
 // Screener checks an inbound message before it is published (the
-// quarantine service's Screen).
+// quarantine service): ScreenMessage returns the verdict and the stored
+// message's ID; Withdraw takes a held message back when its task's caller
+// cancels the task.
 type Screener interface {
-	Screen(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (quarantine.Verdict, error)
+	ScreenMessage(ctx context.Context, ann *trust.Annotation, subject string, payload []byte, projectID string) (quarantine.Verdict, string, error)
+	Withdraw(ctx context.Context, id, reason string) error
 }
 
 // Executor implements a2asrv.AgentExecutor for inbound A2A tasks.
@@ -91,25 +98,36 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 		return fmt.Errorf("marshal a2a task payload: %w", marshalErr)
 	}
 
-	// The prompt is screened before any worker sees it (KI-15). A held
-	// prompt waits for an admin's review, which publishes it when approved.
-	verdict := e.screen(ctx, ann, taskID, payload)
-	state, sdkState, note := a2adomain.TaskStateWorking, sdka2a.TaskStateWorking, ""
-	switch verdict {
-	case quarantine.VerdictHeld:
-		state, sdkState, note = a2adomain.TaskStateSubmitted, sdka2a.TaskStateSubmitted, "held for review"
-	case quarantine.VerdictRejected:
-		state, sdkState, note = a2adomain.TaskStateRejected, sdka2a.TaskStateRejected, "rejected by the quarantine"
-	}
-
+	// The task exists before its prompt is screened (S2-G fix, 9): a held
+	// prompt's quarantine message always has its task, which records the
+	// message so that the caller's cancel can withdraw it.
 	dt := a2adomain.NewA2ATask(taskID)
-	dt.State = state
+	dt.State = a2adomain.TaskStateSubmitted
 	dt.Direction = a2adomain.DirectionInbound
 	dt.TrustOrigin = ann.Origin
 	dt.TrustLevel = string(ann.TrustLevel)
 	dt.CallerKeyID = middleware.A2ACallerFromContext(ctx)
 	if err := e.store.CreateA2ATask(ctx, dt); err != nil {
 		return fmt.Errorf("create a2a task: %w", err)
+	}
+
+	// The prompt is screened before any worker sees it (KI-15). A held
+	// prompt waits for an admin's review, which publishes it when approved.
+	verdict, heldID := e.screen(ctx, ann, taskID, payload)
+	state, sdkState, note := a2adomain.TaskStateWorking, sdka2a.TaskStateWorking, ""
+	switch verdict {
+	case quarantine.VerdictHeld:
+		state, sdkState, note = a2adomain.TaskStateSubmitted, sdka2a.TaskStateSubmitted, "held for review"
+		if dt.Metadata == nil {
+			dt.Metadata = map[string]string{}
+		}
+		dt.Metadata[quarantineMessageKey] = heldID
+	case quarantine.VerdictRejected:
+		state, sdkState, note = a2adomain.TaskStateRejected, sdka2a.TaskStateRejected, "rejected by the quarantine"
+	}
+	dt.State = state
+	if err := e.store.UpdateA2ATask(ctx, dt); err != nil {
+		return fmt.Errorf("record the screened a2a task: %w", err)
 	}
 
 	if verdict == quarantine.VerdictPass {
@@ -131,19 +149,19 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, e
 	return nil
 }
 
-// screen returns the screener's verdict on an inbound task's message; pass
-// without a screener (quarantine disabled). A message that cannot be
-// screened is rejected (fail closed).
-func (e *Executor) screen(ctx context.Context, ann *trust.Annotation, taskID string, payload []byte) quarantine.Verdict {
+// screen returns the screener's verdict on an inbound task's message, and
+// the held message's ID; pass without a screener (quarantine disabled). A
+// message that cannot be screened is rejected (fail closed).
+func (e *Executor) screen(ctx context.Context, ann *trust.Annotation, taskID string, payload []byte) (verdict quarantine.Verdict, heldID string) {
 	if e.screener == nil {
-		return quarantine.VerdictPass
+		return quarantine.VerdictPass, ""
 	}
-	verdict, err := e.screener.Screen(ctx, ann, messagequeue.SubjectA2ATaskCreated, payload, "")
+	verdict, id, err := e.screener.ScreenMessage(ctx, ann, messagequeue.SubjectA2ATaskCreated, payload, "")
 	if err != nil {
 		slog.Error("a2a: screening inbound task failed, rejecting it", "task_id", taskID, "error", err)
-		return quarantine.VerdictRejected
+		return quarantine.VerdictRejected, ""
 	}
-	return verdict
+	return verdict, id
 }
 
 // Cancel cancels an inbound A2A task (implements a2asrv.AgentExecutor).
@@ -158,6 +176,14 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.RequestContext, eq
 	// A caller cancels only the inbound tasks its own key created.
 	if !ownedByCaller(ctx, dt) {
 		return fmt.Errorf("get a2a task for cancel: %w", sdka2a.ErrTaskNotFound)
+	}
+	// A held task's prompt is withdrawn from the quarantine, so an admin's
+	// later approval publishes nothing (S2-G fix, 9; the approval also
+	// checks the task's state).
+	if id := dt.Metadata[quarantineMessageKey]; id != "" && dt.State == a2adomain.TaskStateSubmitted && e.screener != nil {
+		if err := e.screener.Withdraw(ctx, id, "cancelled by the A2A caller"); err != nil {
+			slog.Warn("a2a: held prompt of a cancelled task not withdrawn", "task_id", taskID, "quarantine_id", id, "error", err)
+		}
 	}
 	dt.State = a2adomain.TaskStateCanceled
 	if err := e.store.UpdateA2ATask(ctx, dt); err != nil {
