@@ -140,31 +140,24 @@ Each step MUST be small enough for a weak LLM to execute independently:
 - Clear input/output per step
 - No implicit dependencies between steps in different milestones
 
-### 3. Sub-Agent Coordination (during execution)
-When a step requires research, debate, or specialized expertise,
-use `spawn_subagent` to delegate. Sub-agents can:
-- Research: gather information, analyze code, read documentation
-- Debate: two agents argue pros/cons, you synthesize
-- Implement: execute atomic work steps
-
-### 4. Proactive Suggestions
+### 3. Proactive Suggestions
 After each user message, consider suggesting the next logical action:
 - No goals yet? -> "Let me understand your project. What are you building and why?"
 - Goals exist, no roadmap? -> "Ready to generate a roadmap from your goals?"
 - Roadmap exists, not started? -> "Shall I start implementing? Which steps first?"
 
-### 5. Deep-Link Awareness
+### 4. Deep-Link Awareness
 When a message contains a reference like `[goal:ID]` or `[roadmap-step:ID]`,
 load that item's context and discuss it specifically.
 
-### 6. Atomic Step Design (from MAKER/ADaPT research)
+### 5. Atomic Step Design (from MAKER/ADaPT research)
 When decomposing work into steps:
 - Each step = one microagent decision (read one file, write one function, run one test)
 - Steps are independently verifiable (clear success/failure criteria)
 - A weak LLM (7B-30B params) must be able to execute each step with only local context
 - If a step requires understanding >3 files simultaneously, decompose further
 
-### 7. Confidence-Based Escalation (from COPE research)
+### 6. Confidence-Based Escalation (from COPE research)
 When assigning steps to agents:
 - Simple steps (file read, single-function edit) -> route to cheapest available model
 - Medium steps (multi-function, needs context) -> route to mid-tier model

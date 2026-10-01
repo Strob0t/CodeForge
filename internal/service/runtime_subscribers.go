@@ -290,7 +290,8 @@ func (s *RuntimeService) handleTrajectoryRoadmapProposed(ctx context.Context, ru
 }
 
 // handleTrajectorySubagentRequested broadcasts an AG-UI text message informing
-// about a sub-agent spawn request.
+// about a sub-agent spawn request. Planned (KI-25): no sub-agent is started,
+// and the worker does not offer spawn_subagent until one is.
 func (s *RuntimeService) handleTrajectorySubagentRequested(ctx context.Context, runID, projectID string, data []byte) {
 	var req struct {
 		Data struct {

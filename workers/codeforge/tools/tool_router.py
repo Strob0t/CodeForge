@@ -34,7 +34,6 @@ class ToolRouter:
             "list_directory",
             "propose_goal",
             "propose_roadmap",
-            "spawn_subagent",
             "transition_to_act",
         }
     )

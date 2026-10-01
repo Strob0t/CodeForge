@@ -73,7 +73,6 @@ async def test_history_truncates_tool_results_at_the_configured_limit() -> None:
         patch("codeforge.consumer._conversation.register_handoff_tool"),
         patch("codeforge.consumer._conversation.register_propose_goal_tool"),
         patch("codeforge.consumer._conversation.register_propose_roadmap_tool"),
-        patch("codeforge.consumer._conversation.register_spawn_subagent_tool"),
     ):
         messages = await handler._build_conversation_messages(run_msg, MagicMock(), MagicMock(), MagicMock())
 

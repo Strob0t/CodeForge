@@ -143,7 +143,14 @@ def register_propose_roadmap_tool(registry: object, runtime: object) -> None:
 
 
 def register_spawn_subagent_tool(registry: object, runtime: object) -> None:
-    """Register the spawn_subagent tool for sub-agent delegation."""
+    """Register the spawn_subagent tool for sub-agent delegation.
+
+    Planned, not wired (KI-25): the tool only emits an
+    ``agent.subagent_requested`` trajectory event, and Go starts no sub-agent
+    and returns no result, so conversation runs do not register it. Register
+    it again once Go runs the requested sub-agent and feeds its result back
+    into the calling loop.
+    """
     from codeforge.tools.spawn_subagent import SPAWN_SUBAGENT_DEFINITION, SpawnSubagentExecutor
 
     registry.register(SPAWN_SUBAGENT_DEFINITION, SpawnSubagentExecutor(runtime))

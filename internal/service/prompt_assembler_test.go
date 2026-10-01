@@ -1101,15 +1101,19 @@ func TestBuildSystemPrompt_IncludesChatFirstOrchestration(t *testing.T) {
 		{"propose_goal", "propose_goal tool reference"},
 		{"Roadmap Generation", "section 2 heading"},
 		{"propose_roadmap", "propose_roadmap tool reference"},
-		{"Atomic Step Design", "section 6 heading"},
-		{"spawn_subagent", "spawn_subagent tool reference"},
-		{"Proactive Suggestions", "section 4 heading"},
-		{"Confidence-Based Escalation", "section 7 heading"},
+		{"Atomic Step Design", "section 5 heading"},
+		{"Proactive Suggestions", "section 3 heading"},
+		{"Confidence-Based Escalation", "section 6 heading"},
 	}
 	for _, tc := range requiredStrings {
 		if !strings.Contains(result, tc.needle) {
 			t.Errorf("assembled prompt missing %q (%s)", tc.needle, tc.desc)
 		}
+	}
+
+	// spawn_subagent starts nothing yet and is not offered to the model (KI-25).
+	if strings.Contains(result, "spawn_subagent") {
+		t.Error("assembled prompt tells the model to use spawn_subagent, which is not offered")
 	}
 
 	// Verify it also appears for a zero-condition context (empty conditions = always match).

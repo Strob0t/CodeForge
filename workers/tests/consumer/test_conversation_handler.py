@@ -199,6 +199,27 @@ class TestHandleConversationRun:
         assert runtime_cls.call_args.kwargs["tenant_id"] == "aaaaaaaa-0000-0000-0000-000000000001"
 
     @pytest.mark.asyncio
+    async def test_spawn_subagent_is_not_offered(self) -> None:
+        """spawn_subagent starts nothing yet, so a run does not offer it (KI-25)."""
+        handler = _make_handler()
+        run_msg = _make_valid_run_start(run_id="run-no-subagent")
+        msg = MagicMock()
+        msg.data = run_msg.model_dump_json().encode()
+        msg.headers = {}
+        msg.ack = AsyncMock()
+        msg.nak = AsyncMock()
+        msg.ack_sync = AsyncMock()
+
+        async def fake_execute(*_args, **_kwargs):
+            return AgentLoopResult(final_content="Done", step_count=1, model="openai/gpt-4o")
+
+        with patch("codeforge.tools.spawn_subagent.SpawnSubagentExecutor") as executor_cls:
+            await _run_with_patched_dependencies(handler, msg, fake_execute)
+
+        msg.ack_sync.assert_awaited_once()
+        executor_cls.assert_not_called()
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(("mode", "expected_mode_id"), [(ModeConfig(id="architect"), "architect"), (None, "")])
     async def test_runtime_client_reports_mode(self, mode: ModeConfig | None, expected_mode_id: str) -> None:
         """The RuntimeClient sends the dispatched mode with every tool call (KI-10)."""

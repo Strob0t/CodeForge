@@ -231,3 +231,8 @@ class TestFilterToolsForCapability:
         assert "read_file" in names
         assert "mcp__docs__search_docs" in names
         assert "mcp__docs__scrape_docs" not in names
+
+
+def test_spawn_subagent_is_not_offered_to_tool_models() -> None:
+    """spawn_subagent starts nothing yet and is not offered (KI-25)."""
+    assert "spawn_subagent" not in TOOLS_BY_CAPABILITY[CapabilityLevel.API_WITH_TOOLS]

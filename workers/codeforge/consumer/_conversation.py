@@ -17,7 +17,6 @@ from codeforge.consumer._conversation_skill_integration import (
     register_handoff_tool,
     register_propose_goal_tool,
     register_propose_roadmap_tool,
-    register_spawn_subagent_tool,
     wire_skill_tools,
 )
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
@@ -314,7 +313,8 @@ class ConversationHandlerMixin:
         )
         register_propose_goal_tool(registry, runtime)
         register_propose_roadmap_tool(registry, runtime)
-        register_spawn_subagent_tool(registry, runtime)
+        # spawn_subagent is not registered until Go starts sub-agents and
+        # returns their results (KI-25, see register_spawn_subagent_tool).
 
         if run_msg.summarize_threshold > 0 and len(run_msg.messages) > run_msg.summarize_threshold:
             from codeforge.history import ConversationSummarizer
