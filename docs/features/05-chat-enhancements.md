@@ -112,13 +112,13 @@
 
 - Migration 071: `channels`, `channel_messages`, `channel_members` tables with FTS
 - Domain model: `Channel` (project/bot types), `Message` (user/agent/bot/webhook senders), `Member` with roles
-- Channel service with validation, bot-only deletion, webhook key generation (`crypto/rand`)
-- 9 HTTP endpoints: list/create/get/delete channels, list/send messages, thread replies, member notify settings, webhook ingress
-- `channel.message` is broadcast tenant-scoped for every stored message (user messages, thread replies, webhooks) and `ChannelView` appends it live; messages are attributed to the authenticated user (sender fields in the request are ignored) and stored only in channels of the caller's tenant; a thread parent must be a message of the same channel. `channel.typing` and `channel.read` have no producer yet; the webhook entry point and `ThreadPanel` are not usable yet (KI-73)
+- Channel service with validation, bot-only deletion, webhook key generation (`crypto/rand`, shown once, only its SHA-256 is stored)
+- HTTP endpoints: list/create/get/delete channels, list/send messages, thread replies, member notify settings, `POST /channels/{id}/webhook-key` (admins; a new key replaces the old one), `POST` / `GET /channels/{id}/read` (read position), and the public webhook ingress `POST /api/v1/webhooks/channels/{id}` (header `X-Webhook-Key`, constant-time comparison; 401 without the header, one uniform 403 for a wrong key, an unknown channel or a channel ID that is not a UUID; the message is posted as a webhook sender in the channel's tenant)
+- `channel.message` is broadcast tenant-scoped for every stored message (user messages, thread replies, webhooks) and `ChannelView` appends it live; messages are attributed to the authenticated user (sender fields in the request are ignored) and stored only in channels of the caller's tenant; a thread parent must be a message of the same channel. `channel.read` is broadcast when a user moves their read position (`channel.typing` was removed: nothing produced it). Channels carry `has_webhook_key` and the caller's `unread_count`; callers without a users row (auth disabled, internal service key) have no read position (`POST .../read` answers 204, `unread_count` is 0). After a read the unread counts are refetched from the server; messages that arrive while the list is scrolled up stay unread until the reader reaches the bottom; viewers (read-only role) get no message or reply input; a refused post or reply is shown as an alert. Posting as such a caller probably fails the `sender_id` foreign key (KI-89)
 - `ChannelList` sidebar component with `#` (project) and `>` (bot) prefixes
 - `ChannelView` with message list, auto-scroll, and input bar
 - `ChannelMessage` with sender type badges and thread reply indicators
-- `ThreadPanel` slide-over panel for threaded conversations
+- `ThreadPanel` slide-over panel for threaded conversations (mounted in `ChannelView`)
 - Route: `/channels/:id`
 
 **Files:** `internal/domain/channel/channel.go`, `internal/adapter/postgres/store_channel.go`, `internal/service/channel.go`, `internal/adapter/http/handlers_channel.go`, `frontend/src/features/channels/`
@@ -222,5 +222,4 @@ The `state_delta` event type is defined in `internal/domain/event/agui.go` and t
 Defined in `internal/domain/event/broadcast.go`:
 
 - `channel.message` -- new message in a channel (broadcast tenant-scoped by `ChannelService.SendMessage`)
-- `channel.typing` -- user typing indicator (no producer yet, KI-73)
-- `channel.read` -- read receipt / cursor update (no producer yet, KI-73)
+- `channel.read` -- read position update of a user (broadcast tenant-scoped by `POST /channels/{id}/read`)

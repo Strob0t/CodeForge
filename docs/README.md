@@ -29,7 +29,7 @@ Each of the four core pillars has its own feature spec (01-04); 05-07 cover cros
 | Agent Orchestration | [features/04-agent-orchestration.md](features/04-agent-orchestration.md) | Core implemented |
 | Chat Enhancements | [features/05-chat-enhancements.md](features/05-chat-enhancements.md) | Implemented |
 | Visual Design Canvas | [features/06-visual-design-canvas.md](features/06-visual-design-canvas.md) | Implemented |
-| Chat-First Orchestrator | [features/07-chat-first-orchestrator.md](features/07-chat-first-orchestrator.md) | Implemented (`spawn_subagent` gap: see [Known Issues](todo.md#known-issues) KI-25) |
+| Chat-First Orchestrator | [features/07-chat-first-orchestrator.md](features/07-chat-first-orchestrator.md) | Implemented (`spawn_subagent` is not offered until sub-agents start: [Known Issues](todo.md#known-issues) KI-25) |
 
 ### Architecture Details
 

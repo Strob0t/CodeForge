@@ -297,7 +297,7 @@ sequenceDiagram
 - [x] Circuit breaker for NATS + LiteLLM calls.
 - [x] Graceful 4-phase shutdown, idempotency middleware, dead letter queue.
 - [x] Event sourcing for agent trajectory (`agent_events` table, 22+ event types).
-- [x] Tiered cache (L1 Ristretto + L2 NATS KV), rate limiting, connection pool tuning.
+- [x] Rate limiting, connection pool tuning (a tiered cache existed until 2026-10-01; it was never used and was removed, KI-60).
 
 ### Completed (Phase 4 -- Agent Execution Engine)
 
@@ -312,9 +312,9 @@ sequenceDiagram
 
 ### Completed (Phase 5 -- Multi-Agent Orchestration)
 
-- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (a failed or cancelled step ends sequential/parallel plans as failed and skips blocked dependents; follow-ups: [Known Issues](../todo.md#known-issues) KI-62, KI-76).
+- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (a failed or cancelled step ends sequential/parallel plans as failed and skips blocked dependents; a step whose run stalled gets a new run up to `runtime.stall_max_retries` times, KI-62).
 - [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection.
-- [x] Agent teams: internal team assembly by the orchestrator/task planner (`PoolManagerService`, `internal/service/pool_manager.go`); the team CRUD REST API and Teams page were removed (only `/teams/{teamId}/shared-context` remains). Teams are never cleaned up (KI-33).
+- [x] Agent teams: internal team assembly by the orchestrator/task planner (`PoolManagerService`, `internal/service/pool_manager.go`); the team CRUD REST API and Teams page were removed (only `/teams/{teamId}/shared-context` remains). A team ends with its plan (completed, failed or cancelled; the watchdog check "ended teams" covers plans that ended while the Go Core was down, KI-33).
 - [x] Context optimizer: token budget management, workspace scanning, context packing.
 - [x] Shared context: team-level versioned state with NATS notifications.
 - [x] Modes system: 24 built-in presets, ModeService, REST API.
@@ -388,7 +388,7 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 | `search_skills` | -- | In-loop BM25 skill discovery |
 | `create_skill` | -- | Propose a reusable skill draft |
 
-Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`, `build_default_registry()`); `handoff_to`, `propose_goal`, `propose_roadmap` and `spawn_subagent` are added per run (`spawn_subagent` reports success but starts nothing, KI-25). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
+Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`, `build_default_registry()`); `handoff_to`, `propose_goal` and `propose_roadmap` are added per run (`spawn_subagent` is not registered until Go starts sub-agents, KI-25; `handoff_to` is offered whenever it is registered). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
 
 > **Implementation status (2026-09-30):** The worker sends its own tool name (`read_file`, `bash`, ...) with the real `command` (bash only) and `path` (`workers/codeforge/tool_executor.py`, `policy_request_args`); `claudecode/*` runs send Claude Code's tool names (`workers/codeforge/claude_code_executor.py`). The Go policy domain maps both to the preset names (`internal/domain/policy/toolnames.go`, ADR-015), so preset rules match agent tool calls.
 
@@ -409,7 +409,9 @@ When the policy layer returns `DecisionAsk` for a tool call:
 3. User decision sent via `POST /api/v1/runs/{id}/approve/{callId}` with `{"decision": "allow"|"deny"}`
 4. If approved, tool executes normally; if denied or timeout (default 60s), a "Permission denied" result is returned to the LLM
 
-> **Implementation status (2026-09-29):** The worker stops waiting for a policy decision after 30 s while the Go Core waits up to 60 s, so approvals given after 30 s are lost (KI-21). After a conversation is stopped once, every later tool call in it is denied until the Go Core restarts (KI-24). See [Known Issues](../todo.md#known-issues).
+> **Implementation status (2026-10-01):** The worker waits for a decision as long as the Go Core waits (`runtime.approval_timeout_seconds`, default 60 s, plus 15 s), and a stopped conversation denies only the calls of the stopped turn (KI-21, KI-24).
+>
+> **Approval by email (KI-57).** With `notification.smtp_host`, `smtp_from`, `approval_recipients` and `web_ui_url` set, the email provider mails each pending approval of the default tenant to the recipients: tool, command, path, profile and arguments preview (HTML-escaped) and a link to `<web_ui_url>/approvals/<run>/<call>`. The page asks for a login (the login returns to the page), shows the request (`GET /api/v1/runs/{id}/approvals/{callId}`) and decides it (`POST /api/v1/feedback/{run_id}/{call_id}?decision=allow|deny`); both are for admins and editors, scoped to the caller's tenant, and the audit entry records tool and deciding user. The email itself decides nothing. Raise `runtime.approval_timeout_seconds` so the mail can be read before the approval times out. The Slack provider's buttons have no interaction endpoint ([Known Issues](../todo.md#known-issues) KI-84).
 
 #### Configuration
 
@@ -760,11 +762,11 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 - `AgentExecutor` bridges A2A tasks to CodeForge's NATS-based execution pipeline
 - Python worker: dedicated `AgentExecutor.execute_a2a_task()` with A2A-specific system prompts (skill context, cost tracking)
 - `A2AHandlerMixin` publishes WORKING state before execution, then COMPLETED/FAILED with trust-stamped payloads
-- Trust annotations stamped on all inbound tasks (origin="a2a", level=untrusted)
-- Quarantine evaluation before task execution (Phase 23B integration) -- planned, not applied to inbound tasks yet
-- Bearer token authentication middleware with configurable API keys
+- Trust annotations stamped on all inbound tasks (origin="a2a", level `partial` for an authenticated A2A key)
+- Quarantine evaluation before task execution (Phase 23B): the prompt is screened before any worker sees it; a held prompt waits for an admin's review of its quarantine message (see [Security and Trust](../architecture.md#message-quarantine-system))
+- Bearer token authentication (`middleware.A2AAuth`) with `a2a.api_keys`: `<key>` (default tenant) or `<tenant-uuid>:<key>`; the caller acts in its key's tenant, sees only the inbound tasks its own key created and never outbound ones; without keys every request gets 401
 
-> **Implementation status (2026-09-29):** The A2A trust gates are bypassed: with auth enabled, `/a2a` and the AgentCard sit behind the global JWT middleware, so A2A API keys are rejected and `a2a.allow_open` cannot make discovery public; inbound tasks are only trust-stamped and published straight to the worker (no quarantine); and `HandoffService` (`internal/service/handoff.go`, handoff quarantine and `a2a://` routing) is never constructed in `cmd/codeforge/main.go`. See [Known Issues](../todo.md#known-issues) KI-15.
+> **Implementation status (2026-10-01):** The A2A trust gates are wired (KI-15). For an inbound prompt the task is created first and records the held quarantine message (`quarantine_message_id`): Approve replays the prompt only while the task is still `submitted` (otherwise the message is rejected and the call answers 409), Reject rejects the task, a cancel by the caller withdraws the message, and a prompt whose task cannot record the screening is withdrawn. `a2a://` handoffs run through `HandoffService`: the Go Core handles `handoff.request` (source and target checked in the request's tenant and project, screened by the quarantine, the target agent's configured mode wins, a task and a tracked run, an inbox message, `handoff.status` with `run_id` and one of `initiated`, `quarantined`, `rejected`, `failed`, `a2a_delegated`). Each handoff stage is carried out once (`handoff_claims`).
 
 **Client Role (outbound):**
 - `A2AService` (`internal/service/a2a.go`) manages remote agent discovery and task delegation
@@ -776,7 +778,7 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 **Handoff Integration (Phase 27M):**
 - `a2a://` prefix in handoff target routes to A2A instead of NATS
 - Example: `TargetAgentID: "a2a://remote-coder"` delegates via A2A protocol
-- Existing trust and quarantine checks still applied before delegation (target design; `HandoffService` is not wired yet, see the status note above)
+- Trust and quarantine checks are applied before delegation (`HandoffService`, status `a2a_delegated`)
 
 **API Endpoints:**
 
@@ -901,7 +903,7 @@ Goals are injected into agent interactions through two complementary paths:
 
 Automated code review and refactoring cycle for orchestrated projects.
 
-> **Implementation status (2026-09-29):** The `review-refactor` pipeline template (`internal/domain/pipeline/presets.go`), the four modes, trigger recording, boundary endpoints and the HITL building blocks exist, but nothing starts the pipeline yet: `ReviewTriggerService` is constructed with a nil orchestrator in `cmd/codeforge/main.go`, so trigger endpoints answer `{"triggered": true}` without running anything (see [Known Issues](../todo.md#known-issues) KI-17).
+> **Implementation status (2026-10-01):** The pipeline runs end to end (KI-17). `POST /projects/{id}/review-refactor` starts a plan from the `review-refactor` template (202 `{triggered, plan_id}`; 409 when the project already has an active review pipeline or the agent belongs to another plan; 400 for a project without workspace or agents and for a workspace that is not a git repository). The reports reach later steps through the plan's team (shared context); the artifact validators know `BOUNDARIES.json`, `CONTRACT_REVIEW.md`, `PROPOSAL.md` and `SYNTHESIS.md`, and the boundary analyzer's `BOUNDARIES.json` replaces the project's auto-detected boundaries (manually added ones are kept).
 
 ### Pipeline: `review-refactor`
 
@@ -909,35 +911,28 @@ Automated code review and refactoring cycle for orchestrated projects.
 1. **Boundary Analysis** (`boundary_analyzer` mode) -- LLM identifies API, data, inter-service, and cross-language boundary files
 2. **Contract Review** (`contract_reviewer` mode) -- Cross-layer contract consistency checking
 3. **Intra-Layer Review** (`reviewer` mode) -- Standard code quality review within layers
-4. **Refactoring Proposals** (`refactorer` mode) -- Concrete refactoring suggestions with diffs
+4. **Refactoring** (`refactorer` mode) -- Applies the refactorings in the workspace without committing; the change is measured against the baseline taken when this step starts
 
-### Cascade Trigger System
+### Trigger
 
-`ReviewTriggerService` with 3 trigger sources (target design):
-- **Pipeline-Completion** -- Auto-triggered after pipeline finishes (configurable)
-- **Branch-Merge** -- Webhook or polling for merges to configured branches
-- **Manual** -- `POST /api/v1/projects/{id}/review-refactor` or `/review` chat command
-
-Deduplication: Same commit SHA within 30min window -> skip (manual bypasses dedup).
-
-> **Implementation status (2026-09-29):** `ReviewTriggerService` (`internal/service/review_trigger.go`) records trigger requests in `review_triggers` with the 30-minute dedup. Only the manual endpoints (`POST /projects/{id}/review-refactor`, `POST /projects/{id}/boundaries/analyze`) and auto-index (source `auto-index`) record triggers; pipeline-completion and branch-merge triggers and the `/review` chat command are planned.
+The only trigger is manual: `POST /api/v1/projects/{id}/review-refactor` (optional `commit_sha`, recorded in `review_triggers`; `ReviewTriggerService`, `internal/service/review_trigger.go`) or `POST /projects/{id}/boundaries/analyze` for the boundary analysis alone. Pipeline-completion and branch-merge triggers and a chat command are not implemented; the trigger dedup was removed with them. One review pipeline is active per project; only review pipelines check that the agent is free (409).
 
 ### Threshold-based HITL
 
-`DiffImpactScorer` evaluates refactoring diffs:
-- **Low** (< auto_apply_threshold): Auto-apply
-- **Medium** (>= auto_apply, < approval_threshold): Auto-apply + notification
-- **High** (>= approval_threshold, cross-layer, or structural): HITL pause
+`DiffImpactScorer` evaluates the refactoring against the baseline commit:
+- **Low** (< auto_apply_threshold, default 50 changed lines): Auto-apply
+- **Medium** (>= auto_apply, < approval_threshold, default 200): Auto-apply + notification (`review.refactor_applied`)
+- **High** (>= approval_threshold, a boundary file, or a file added, deleted or renamed): HITL pause
 
-`waiting_approval` step status pauses the pipeline. WebSocket event `refactor.approval_required` triggers frontend overlay. User can Approve/Reject via `POST /api/v1/runs/{id}/approve|reject`.
+The pipeline state lives in the Go record `review_pipelines` (migration 100: `pending`, `refactoring`, `awaiting_decision`, `done`; baseline, result, step, run, impact), not in the workspace: the refs `refs/codeforge/review/<plan>` and `refs/codeforge/review-result/<plan>` only keep the commits alive. The gate fails closed when it cannot measure (tampered ref, missing record, boundary lookup error). A high impact sets the step to `waiting_approval` and broadcasts the WebSocket event `review.approval_required` (`ReviewImpactEvent`: run, plan, step, impact level, files and lines, cross-layer, structural, reason). The decision is `POST /api/v1/runs/{refactorer run id}/approve|reject` with `{plan_id, step_id}` and answers `{status, head_restored, message?, restored_paths?}`: approve keeps the change, reject undoes it - only the paths the refactoring changed are set back (three-way merge) and HEAD moves back only if it still points to the refactoring's commit (compare-and-swap). Keep and undo also work after a failed or cancelled refactoring and are matched on the review record, so they survive run retention; an undo while the measurement is still recorded answers 409 "try again". `GET /projects/{id}/review/pending` lists the waiting decisions; the `RefactorApproval` dialog loads them when it opens and when the WebSocket reconnects and decides through the API client. A stopped refactoring is measured once its worker confirmed the stop, or by the watchdog check "undecided review refactorings" after the lost-worker deadline. `POST /runs/{id}/approve-partial` answers 501.
 
-> **Implementation status (2026-09-29):** Not wired yet. `DiffImpactScorer` (`internal/service/diff_impact.go`) and `ReviewApprovalService.PublishApprovalRequired` (`internal/service/review_approval.go`, WS event `review.approval_required`) exist but have no callers, nothing sets a step to `waiting_approval`, and the frontend overlay (`frontend/src/features/project/RefactorApproval.tsx`) listens for `refactor.approval_required` instead of the backend's `review.approval_required` (KI-17). The approve/reject endpoints exist and act on plan steps in `waiting_approval`.
+Open (KI-94): user edits made while the refactorer runs count as the refactoring; `CancelPlan` of a parent plan does not cancel a running debate sub-plan; git-quoted (non-ASCII) paths are not matched by the boundary check.
 
 ### Boundary Management
 
 - `GET/PUT /api/v1/projects/{id}/boundaries` -- CRUD for boundary configuration
 - `POST /api/v1/projects/{id}/boundaries/analyze` -- Re-trigger boundary analysis
-- Auto-triggered during project indexing (clone/adopt/setup) -- currently only records a trigger (KI-17)
+- Auto-triggered during project indexing (clone/adopt/setup): starts a boundary analysis when the project has an idle agent (KI-17)
 
 ### Phase-aware Context Budget
 

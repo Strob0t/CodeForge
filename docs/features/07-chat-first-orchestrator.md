@@ -9,7 +9,7 @@ Transforms CodeForge from a panel-first project manager into a chat-first orches
 The chat is the single orchestration hub. The Orchestrator behavior prompt (`internal/service/prompts/behavior/chat_first_orchestration.yaml`) makes the LLM proactively:
 1. **Extract goals** from natural conversation using `propose_goal` tool
 2. **Generate roadmaps** with atomic work steps using `propose_roadmap` tool
-3. **Spawn sub-agents** for research/debate/implementation using `spawn_subagent` tool (target design; today the tool only emits an `agent.subagent_requested` event that is shown in chat and starts nothing, see [Known Issues](../todo.md#known-issues) KI-25)
+3. **Spawn sub-agents** for research/debate/implementation using `spawn_subagent` tool (target design; the tool is not registered until the Go Core starts the sub-agent run and returns its result, see [Known Issues](../todo.md#known-issues) KI-25)
 4. **Suggest next actions** proactively after each user message
 
 ## New Components
@@ -20,7 +20,7 @@ The chat is the single orchestration hub. The Orchestrator behavior prompt (`int
 
 ### Python Tools
 - `propose_roadmap` — propose milestones and atomic work steps with complexity/model-tier mapping
-- `spawn_subagent` — delegate tasks to sub-agents (researcher, implementer, reviewer, debater); execution not implemented yet (KI-25)
+- `spawn_subagent` — delegate tasks to sub-agents (researcher, implementer, reviewer, debater); not offered to the model until execution is implemented (KI-25)
 
 ### Frontend
 - `RoadmapProposalCard` — inline approval card for roadmap proposals in chat

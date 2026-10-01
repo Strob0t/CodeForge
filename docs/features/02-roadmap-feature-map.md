@@ -55,7 +55,7 @@ flowchart LR
 - Import: PM tool items become CodeForge features (mapping to tasks is planned).
 - Export: New features created as PM issues.
 - **Conflict resolution** (target): timestamp-based comparison plus user decision. Today it is last-writer-wins per direction: pull overwrites the CodeForge feature, push overwrites the PM item (`internal/service/sync.go`).
-- Sync triggers (target): Webhook (real-time), poll (periodic), manual. Today: manual `POST /projects/{id}/roadmap/sync` (pull/push/bidi) and PM webhooks for GitHub/GitLab/Plane (pull only, currently always failing, see [Known Issues](../todo.md#known-issues) KI-56). Periodic polling is planned.
+- Sync triggers (target): Webhook (real-time), poll (periodic), manual. Today: manual `POST /projects/{id}/roadmap/sync` (pull/push/bidi) and PM webhooks for GitHub/GitLab/Plane (pull only; the project is found by an exact repository match, the answer is 202 when the sync started, 404 without a matching project and 400 when the provider cannot sync, and the outcome arrives as a `pm.sync` event; GitLab syncs without a token, [Known Issues](../todo.md#known-issues) KI-85). Periodic polling is planned.
 
 ### Internal Data Model
 
