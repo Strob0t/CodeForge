@@ -114,12 +114,15 @@ func (s *MCPService) UpdateStatusDB(ctx context.Context, id string, status mcp.S
 	return s.db.UpdateMCPServerStatus(ctx, id, status)
 }
 
-// AssignToProject links an MCP server to a project in the database.
+// AssignToProject links an MCP server to a project in the database. The
+// project and the server must belong to the caller's tenant.
 func (s *MCPService) AssignToProject(ctx context.Context, projectID, serverID string) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")
 	}
-	// Verify the server exists before assigning.
+	if _, err := s.db.GetProject(ctx, projectID); err != nil {
+		return fmt.Errorf("assign mcp server: project: %w", err)
+	}
 	if _, err := s.db.GetMCPServer(ctx, serverID); err != nil {
 		return fmt.Errorf("assign mcp server: %w", err)
 	}

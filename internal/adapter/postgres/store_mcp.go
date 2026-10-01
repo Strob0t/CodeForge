@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 )
 
@@ -113,20 +114,43 @@ func (s *Store) UpdateMCPServerStatus(ctx context.Context, id string, status mcp
 }
 
 // AssignMCPServerToProject links an MCP server to a project.
+// Both must belong to the current tenant (domain.ErrNotFound otherwise); the
+// link belongs to it too. Assigning an assigned server changes nothing.
 func (s *Store) AssignMCPServerToProject(ctx context.Context, projectID, serverID string) error {
-	const q = `INSERT INTO project_mcp_servers (project_id, mcp_server_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
-	_, err := s.pool.Exec(ctx, q, projectID, serverID)
+	tid := tenantFromCtx(ctx)
+	const q = `
+		INSERT INTO project_mcp_servers (project_id, mcp_server_id, tenant_id)
+		SELECT p.id, m.id, p.tenant_id
+		FROM projects p
+		JOIN mcp_servers m ON m.id = $2 AND m.tenant_id = p.tenant_id
+		WHERE p.id = $1 AND p.tenant_id = $3
+		ON CONFLICT DO NOTHING`
+	tag, err := s.pool.Exec(ctx, q, projectID, serverID, tid)
 	if err != nil {
 		return fmt.Errorf("assign mcp server %s to project %s: %w", serverID, projectID, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var assigned bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM project_mcp_servers WHERE project_id = $1 AND mcp_server_id = $2 AND tenant_id = $3)`,
+		projectID, serverID, tid,
+	).Scan(&assigned); err != nil {
+		return fmt.Errorf("assign mcp server %s to project %s: %w", serverID, projectID, err)
+	}
+	if !assigned {
+		return fmt.Errorf("assign mcp server %s to project %s: %w", serverID, projectID, domain.ErrNotFound)
 	}
 	return nil
 }
 
-// UnassignMCPServerFromProject removes the link between an MCP server and a project.
+// UnassignMCPServerFromProject removes the link between an MCP server and a
+// project of the current tenant.
 func (s *Store) UnassignMCPServerFromProject(ctx context.Context, projectID, serverID string) error {
 	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM project_mcp_servers WHERE project_id = $1 AND mcp_server_id = $2`,
-		projectID, serverID,
+		`DELETE FROM project_mcp_servers WHERE project_id = $1 AND mcp_server_id = $2 AND tenant_id = $3`,
+		projectID, serverID, tenantFromCtx(ctx),
 	)
 	return execExpectOne(tag, err, "unassign mcp server %s from project %s", serverID, projectID)
 }
@@ -137,7 +161,7 @@ func (s *Store) ListMCPServersByProject(ctx context.Context, projectID string) (
 	const q = `SELECT s.id, s.name, s.description, s.transport, s.command, s.args, s.url, s.env, s.headers, s.enabled, s.status
 		FROM mcp_servers s
 		JOIN project_mcp_servers ps ON ps.mcp_server_id = s.id
-		WHERE ps.project_id = $1 AND s.tenant_id = $2
+		WHERE ps.project_id = $1 AND s.tenant_id = $2 AND ps.tenant_id = $2
 		ORDER BY s.name
 		LIMIT $3`
 	rows, err := s.pool.Query(ctx, q, projectID, tid, DefaultListLimit)
