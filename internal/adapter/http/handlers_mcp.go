@@ -10,6 +10,18 @@ import (
 
 // --- MCP Server Handlers (Phase 15C) ---
 
+// MCP server env variables and headers carry credentials: every response
+// shows which are set (mcp.RedactedValue), never a value, to admins too
+// (KI-71 review). An update that sends RedactedValue back keeps the value.
+
+func redactedServers(servers []mcp.ServerDef) []mcp.ServerDef {
+	out := make([]mcp.ServerDef, len(servers))
+	for i := range servers {
+		out[i] = servers[i].Redacted()
+	}
+	return out
+}
+
 // ListMCPServers handles GET /api/v1/mcp/servers
 func (h *Handlers) ListMCPServers(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.MCP.ListDB(r.Context())
@@ -17,7 +29,7 @@ func (h *Handlers) ListMCPServers(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	writeJSONList(w, http.StatusOK, servers)
+	writeJSONList(w, http.StatusOK, redactedServers(servers))
 }
 
 // GetMCPServer handles GET /api/v1/mcp/servers/{id}
@@ -28,7 +40,7 @@ func (h *Handlers) GetMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "mcp server not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, srv)
+	writeJSON(w, http.StatusOK, srv.Redacted())
 }
 
 // CreateMCPServer handles POST /api/v1/mcp/servers
@@ -42,7 +54,7 @@ func (h *Handlers) CreateMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "create mcp server")
 		return
 	}
-	writeJSON(w, http.StatusCreated, srv)
+	writeJSON(w, http.StatusCreated, srv.Redacted())
 }
 
 // UpdateMCPServer handles PUT /api/v1/mcp/servers/{id}
@@ -57,7 +69,7 @@ func (h *Handlers) UpdateMCPServer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "mcp server not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, req)
+	writeJSON(w, http.StatusOK, req.Redacted())
 }
 
 // DeleteMCPServer handles DELETE /api/v1/mcp/servers/{id}
@@ -129,7 +141,7 @@ func (h *Handlers) ListProjectMCPServers(w http.ResponseWriter, r *http.Request)
 		writeDomainError(w, err, "list project mcp servers")
 		return
 	}
-	writeJSONList(w, http.StatusOK, servers)
+	writeJSONList(w, http.StatusOK, redactedServers(servers))
 }
 
 // assignMCPRequest is the request body for assigning an MCP server to a project.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -25,6 +26,10 @@ func (s *MCPService) CreateDB(ctx context.Context, srv *mcp.ServerDef) (*mcp.Ser
 		return nil, fmt.Errorf("mcp service: database store not configured")
 	}
 	if err := srv.Validate(); err != nil {
+		return nil, err
+	}
+	// A new server has no stored value a redacted one could stand for.
+	if err := srv.KeepRedacted(nil); err != nil {
 		return nil, err
 	}
 	if srv.ID == "" {
@@ -56,6 +61,8 @@ func (s *MCPService) ListDB(ctx context.Context) ([]mcp.ServerDef, error) {
 }
 
 // UpdateDB validates and updates an existing MCP server in the database.
+// An env or header value sent as mcp.RedactedValue (what reads show) keeps
+// the stored value.
 func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")
@@ -63,7 +70,32 @@ func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 	if err := srv.Validate(); err != nil {
 		return err
 	}
+	if err := s.keepStoredSecrets(ctx, srv); err != nil {
+		return err
+	}
 	return s.db.UpdateMCPServer(ctx, srv)
+}
+
+// keepStoredSecrets replaces the redacted env and header values of srv with
+// the values stored for the server srv.ID in the current tenant
+// (domain.ErrValidation when none is stored). The stored values go only to
+// where they were stored for: with another transport, url or command they
+// must be entered again.
+func (s *MCPService) keepStoredSecrets(ctx context.Context, srv *mcp.ServerDef) error {
+	if !srv.HasRedacted() {
+		return nil
+	}
+	var stored *mcp.ServerDef
+	if srv.ID != "" && s.db != nil {
+		var err error
+		if stored, err = s.db.GetMCPServer(ctx, srv.ID); err != nil {
+			return err
+		}
+		if stored.Transport != srv.Transport || stored.URL != srv.URL || stored.Command != srv.Command {
+			return fmt.Errorf("%w: stored env and header values are kept only for the same transport, url and command; enter them again", domain.ErrValidation)
+		}
+	}
+	return srv.KeepRedacted(stored)
 }
 
 // DeleteDB removes an MCP server by ID from the database.

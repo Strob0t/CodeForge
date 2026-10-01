@@ -43,6 +43,10 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	if def.Transport == mcp.TransportStdio {
 		return nil, ErrStdioTestInCore
 	}
+	// An edited saved server may carry the redacted values it was read with.
+	if err := s.keepStoredSecrets(ctx, def); err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.limits.MCPTestTimeout)
 	defer cancel()
