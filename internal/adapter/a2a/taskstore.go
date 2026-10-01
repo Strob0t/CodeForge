@@ -3,10 +3,12 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 
 	sdka2a "github.com/a2aproject/a2a-go/a2a"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -36,7 +38,9 @@ func (a *TaskStoreAdapter) Save(ctx context.Context, task *sdka2a.Task, _ sdka2a
 		}
 		return sdka2a.TaskVersion(dt.Version), nil
 	}
-	dt.Version = int(prev) + 1
+	// The store updates only the row still at the version the SDK read and
+	// increments it (optimistic locking), so pass that version.
+	dt.Version = int(prev)
 	if err := a.store.UpdateA2ATask(ctx, dt); err != nil {
 		return 0, err
 	}
@@ -46,6 +50,9 @@ func (a *TaskStoreAdapter) Save(ctx context.Context, task *sdka2a.Task, _ sdka2a
 // Get retrieves a task by ID (implements a2asrv.TaskStore).
 func (a *TaskStoreAdapter) Get(ctx context.Context, id sdka2a.TaskID) (*sdka2a.Task, sdka2a.TaskVersion, error) {
 	dt, err := a.store.GetA2ATask(ctx, string(id))
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil, 0, sdka2a.ErrTaskNotFound
+	}
 	if err != nil {
 		return nil, 0, err
 	}
