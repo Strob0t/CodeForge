@@ -160,6 +160,19 @@ func TestSVN_UpdateSwitchAndCheckoutIgnoreExternals(t *testing.T) {
 	}
 }
 
+// S3-F security review S5: svn status descends into externals (and their
+// working copies) unless told not to. info, log and ls do not follow
+// externals by default; update, switch and checkout are covered above.
+func TestSVN_StatusIgnoresExternals(t *testing.T) {
+	p, fake := newFakeProvider("https://svn.example.com/repo")
+	if _, err := p.Status(context.Background(), newWorkingCopy(t)); err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if args := fake.callWith("status"); !slices.Contains(args, "--ignore-externals") {
+		t.Fatalf("svn status args %v miss --ignore-externals", args)
+	}
+}
+
 func TestSVN_RefusesWorkingCopyMetadataTricks(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

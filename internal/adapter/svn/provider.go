@@ -6,9 +6,10 @@
 //     merge or editor commands, tunnels or auth stores of the operator's or
 //     anyone else's ~/.subversion); SVN_* variables, EDITOR and VISUAL are
 //     dropped from its environment;
-//   - svn has no client-side hooks; externals are never fetched
-//     (--ignore-externals on checkout, update and switch), since the agent
-//     can define them in the working copy;
+//   - svn has no client-side hooks; externals are never fetched or walked
+//     (--ignore-externals on checkout, update, switch and status; info, log
+//     and ls do not follow them), since the agent can define them in the
+//     working copy;
 //   - a working copy is used only when .svn is a real directory of the given
 //     path (svn would otherwise look for a working copy in parent
 //     directories) with a regular wc.db and no symlinked pristine store, so
@@ -210,7 +211,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 		}
 
 		// Check for modified/untracked files
-		st, err := p.runSVN(ctx, repoPath, "status")
+		st, err := p.runSVN(ctx, repoPath, "status", "--ignore-externals")
 		if err != nil {
 			return fmt.Errorf("svn: status: %w", err)
 		}
