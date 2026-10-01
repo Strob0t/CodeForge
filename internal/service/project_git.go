@@ -31,12 +31,18 @@ func resolveGitProvider(p *project.Project) (gitprovider.Provider, error) {
 	if name == "" {
 		name = "local"
 	}
+	return gitprovider.New(name, gitProviderConfig(p))
+}
+
+// gitProviderConfig is the project config plus repo_url, the project's
+// repository URL.
+func gitProviderConfig(p *project.Project) map[string]string {
 	cfg := maps.Clone(p.Config)
 	if cfg == nil {
 		cfg = map[string]string{}
 	}
 	cfg["repo_url"] = p.RepoURL
-	return gitprovider.New(name, cfg)
+	return cfg
 }
 
 // repoInfoClient is the shared HTTP client for repo info API calls.
