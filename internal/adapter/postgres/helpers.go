@@ -163,3 +163,15 @@ func execExpectOne(tag pgconn.CommandTag, err error, format string, args ...any)
 	}
 	return nil
 }
+
+// expectOneUpdated is execExpectOne for a statement that returned its count
+// of updated rows.
+func expectOneUpdated(n int64, err error, format string, args ...any) error {
+	if err != nil {
+		return fmt.Errorf(fmt.Sprintf(format, args...)+": %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf(fmt.Sprintf(format, args...)+": %w", domain.ErrNotFound)
+	}
+	return nil
+}

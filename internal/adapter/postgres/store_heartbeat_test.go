@@ -260,8 +260,11 @@ func TestStore_TaskHeartbeat(t *testing.T) {
 	queued, queuedDispatch := dispatched(a) // never accepted
 	done, doneDispatch := dispatched(a)
 	foreign, foreignDispatch := dispatched(b)
-	if err := a.store.UpdateTaskStatus(a.ctx, lostRunning.ID, task.StatusRunning); err != nil {
-		t.Fatalf("UpdateTaskStatus(running): %v", err)
+	// A backend task running in its dispatch. UpdateTaskStatus(running) is
+	// a run taking the task, which ends its dispatch (S2-G fix, 1), so the
+	// status is set directly.
+	if _, err := pool.Exec(context.Background(), `UPDATE tasks SET status = 'running' WHERE id = $1`, lostRunning.ID); err != nil {
+		t.Fatalf("set running: %v", err)
 	}
 
 	beat(a, lost.ID, lostDispatch)

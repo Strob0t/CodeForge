@@ -113,14 +113,16 @@ func (s *Store) ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idl
 // TouchTaskHeartbeat records a worker heartbeat of a queued or running task
 // of the caller's tenant for its dispatch dispatchID. A heartbeat of another
 // dispatch (a late one of an earlier dispatch) is ignored: a re-dispatched
-// task has no heartbeat until the worker of its new dispatch sends one. A
-// task dispatched before dispatches had IDs matches dispatchID "".
+// task has no heartbeat until the worker of its new dispatch sends one, and
+// a task whose dispatch ended, or that a run took, has none. A task
+// dispatched before dispatches had IDs matches dispatchID "" (see
+// isCurrentDispatch).
 func (s *Store) TouchTaskHeartbeat(ctx context.Context, id, dispatchID string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO task_heartbeats (task_id, tenant_id, task_version, dispatch_id, beat_at)
 		 SELECT id, tenant_id, version, dispatch_id, now() FROM tasks
 		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
-		   AND COALESCE(dispatch_id, '') = $3
+		   AND `+isCurrentDispatch("$3")+`
 		 ON CONFLICT (task_id) DO UPDATE
 		 SET task_version = EXCLUDED.task_version, dispatch_id = EXCLUDED.dispatch_id, beat_at = EXCLUDED.beat_at`,
 		id, tenantFromCtx(ctx), dispatchID)

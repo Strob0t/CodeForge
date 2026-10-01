@@ -133,9 +133,45 @@ func (s *Store) CreateTask(ctx context.Context, req task.CreateRequest) (*task.T
 	return &t, nil
 }
 
+// UpdateTaskStatus sets a task's status. Its callers set a status outside a
+// dispatch (a run takes the task, a dispatch could not be published, the
+// task was stopped), so the task's dispatch ends with it (see
+// endingDispatch).
 func (s *Store) UpdateTaskStatus(ctx context.Context, id string, status task.Status) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE tasks SET status = $2 WHERE id = $1 AND tenant_id = $3`, id, string(status), tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update task status %s", id)
+	n, err := s.updateEndingDispatch(ctx,
+		`UPDATE tasks SET status = $2, dispatch_id = NULL WHERE id = $1 AND tenant_id = $3`,
+		id, string(status), tenantFromCtx(ctx))
+	return expectOneUpdated(n, err, "update task status %s", id)
+}
+
+// endingDispatch wraps an UPDATE of tasks that clears dispatch_id, so the
+// updated task's dispatch ends: its heartbeat row is deleted in the same
+// statement, and the statement returns how many tasks it updated. A task
+// whose dispatch ended (a result, a stop, the watchdog) or that a run took
+// must not keep the dispatch and heartbeat of its last dispatch: the
+// lost-task watchdog would count that stale heartbeat for whatever runs the
+// task next and fail it (S2-G fix, 1).
+func endingDispatch(update string) string {
+	return `WITH updated AS (` + update + ` RETURNING id),
+	 ended_beat AS (DELETE FROM task_heartbeats WHERE task_id IN (SELECT id FROM updated))
+	 SELECT count(*) FROM updated`
+}
+
+// updateEndingDispatch runs update through endingDispatch and returns how
+// many tasks it updated.
+func (s *Store) updateEndingDispatch(ctx context.Context, update string, args ...any) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx, endingDispatch(update), args...).Scan(&n)
+	return n, err
+}
+
+// isCurrentDispatch is the predicate on tasks that the dispatch named by
+// the parameter param is the task's current one. A dispatch without ID ("",
+// from before dispatches had IDs) is current only for a task never
+// dispatched with an ID: a task whose dispatch ended, or that a run took,
+// has no current dispatch.
+func isCurrentDispatch(param string) string {
+	return `(dispatch_id = ` + param + ` OR (` + param + ` = '' AND dispatch_id IS NULL AND dispatched_at IS NULL))`
 }
 
 const taskExistsSQL = `SELECT EXISTS (SELECT 1 FROM tasks WHERE id = $1 AND tenant_id = $2)`
@@ -155,34 +191,41 @@ func (s *Store) QueueTask(ctx context.Context, id, agentID, dispatchID string) e
 }
 
 // UpdateTaskResult stores a task's result and cost and sets its status in one
-// statement.
+// statement; the task's dispatch ends with it (see endingDispatch).
 func (s *Store) UpdateTaskResult(ctx context.Context, id string, status task.Status, result task.Result, costUSD float64) error {
 	resultJSON, err := marshalJSON(result, "result")
 	if err != nil {
 		return err
 	}
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4 WHERE id = $1 AND tenant_id = $5`,
+	n, err := s.updateEndingDispatch(ctx,
+		`UPDATE tasks SET result = $2, cost_usd = $3, status = $4, dispatch_id = NULL WHERE id = $1 AND tenant_id = $5`,
 		id, resultJSON, costUSD, string(status), tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update task result %s", id)
+	return expectOneUpdated(n, err, "update task result %s", id)
 }
 
 // EndTaskDispatch ends a task's dispatch for the control plane (a lost
 // worker, a dead-lettered or never accepted dispatch) only while it is the
 // task's current dispatch and the task is queued or running: a result that
 // arrived meanwhile and a later dispatch are never overwritten. A task
-// dispatched before dispatches had IDs matches dispatchID "".
+// dispatched before dispatches had IDs matches dispatchID "" (see
+// isCurrentDispatch). The dispatch ends (see endingDispatch).
 func (s *Store) EndTaskDispatch(ctx context.Context, id, dispatchID string, status task.Status, result task.Result) error {
 	resultJSON, err := marshalJSON(result, "result")
 	if err != nil {
 		return err
 	}
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE tasks SET result = $3, status = $4
+	n, err := s.updateEndingDispatch(ctx,
+		`UPDATE tasks SET result = $3, status = $4, dispatch_id = NULL
 		 WHERE id = $1 AND tenant_id = $2 AND status IN ('queued', 'running')
-		   AND COALESCE(dispatch_id, '') = $5`,
+		   AND `+isCurrentDispatch("$5"),
 		id, tenantFromCtx(ctx), resultJSON, string(status), dispatchID)
-	return s.guardedUpdateResult(ctx, tag, err, taskExistsSQL, "end task dispatch", id)
+	if err != nil {
+		return fmt.Errorf("end task dispatch %s: %w", id, err)
+	}
+	if n > 0 {
+		return nil
+	}
+	return s.refusedUpdate(ctx, taskExistsSQL, "end task dispatch", id)
 }
 
 // --- Scanners ---

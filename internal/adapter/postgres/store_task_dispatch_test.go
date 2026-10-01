@@ -149,3 +149,78 @@ func TestStore_ListTasksNeverAccepted(t *testing.T) {
 		}
 	}
 }
+
+// TestStore_EndedDispatchDoesNotWatchARun (S2-G fix, 1): the lost-task
+// watchdog matches a task's heartbeat by dispatch, and a task kept the
+// dispatch ID and heartbeat row of its ended dispatch: when a run took the
+// task later, the stale heartbeat counted for the run, and the watchdog
+// failed the task and cancelled the healthy run (tasks.cancel). Every end
+// of a dispatch, and a run taking the task, now clear the task's dispatch
+// and delete its heartbeat row; a late heartbeat of the ended dispatch is
+// not recorded.
+func TestStore_EndedDispatchDoesNotWatchARun(t *testing.T) {
+	f := newStatusFixture(t)
+	pool := retentionPool(t)
+	ends := map[string]func(tk *task.Task, dispatch string) error{
+		"worker result": func(tk *task.Task, _ string) error {
+			return f.store.UpdateTaskResult(f.ctx, tk.ID, task.StatusCompleted, task.Result{Output: "done"}, 0.1)
+		},
+		"control plane end": func(tk *task.Task, dispatch string) error {
+			return f.store.EndTaskDispatch(f.ctx, tk.ID, dispatch, task.StatusFailed, task.Result{Error: "lost"})
+		},
+		"stopped": func(tk *task.Task, _ string) error {
+			return f.store.UpdateTaskStatus(f.ctx, tk.ID, task.StatusCancelled)
+		},
+		"none, the run takes the dispatched task": func(*task.Task, string) error { return nil },
+	}
+	for name, end := range ends {
+		t.Run(name, func(t *testing.T) {
+			tk, err := f.store.CreateTask(f.ctx, task.CreateRequest{ProjectID: f.project.ID, Title: "run after dispatch", Prompt: "p"})
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+			dispatch := uuid.New().String()
+			if err := f.store.QueueTask(f.ctx, tk.ID, f.agent.ID, dispatch); err != nil {
+				t.Fatalf("QueueTask: %v", err)
+			}
+			if err := f.store.TouchTaskHeartbeat(f.ctx, tk.ID, dispatch); err != nil {
+				t.Fatalf("TouchTaskHeartbeat: %v", err)
+			}
+			if err := end(tk, dispatch); err != nil {
+				t.Fatalf("end the dispatch: %v", err)
+			}
+			// StartRun takes the task.
+			if err := f.store.UpdateTaskStatus(f.ctx, tk.ID, task.StatusRunning); err != nil {
+				t.Fatalf("UpdateTaskStatus(running): %v", err)
+			}
+			// A late heartbeat of the ended dispatch.
+			if err := f.store.TouchTaskHeartbeat(f.ctx, tk.ID, dispatch); err != nil {
+				t.Fatalf("TouchTaskHeartbeat(late): %v", err)
+			}
+			if _, err := pool.Exec(context.Background(),
+				`UPDATE task_heartbeats SET beat_at = NOW() - interval '`+ancientBeat+`' WHERE task_id = $1`, tk.ID); err != nil {
+				t.Fatalf("age heartbeat: %v", err)
+			}
+
+			stale, err := f.store.ListTasksWithStaleHeartbeat(context.Background(), staleForTest, 1000)
+			if err != nil {
+				t.Fatalf("ListTasksWithStaleHeartbeat: %v", err)
+			}
+			for i := range stale {
+				if stale[i].ID == tk.ID {
+					t.Fatalf("the run's task is listed as lost through dispatch %s", stale[i].DispatchID)
+				}
+			}
+			var beats int
+			var current *string
+			if err := pool.QueryRow(context.Background(),
+				`SELECT (SELECT count(*) FROM task_heartbeats WHERE task_id = $1), dispatch_id FROM tasks WHERE id = $1`,
+				tk.ID).Scan(&beats, &current); err != nil {
+				t.Fatalf("read task: %v", err)
+			}
+			if beats != 0 || current != nil {
+				t.Fatalf("heartbeat rows = %d, dispatch = %v; want none and no dispatch", beats, current)
+			}
+		})
+	}
+}
