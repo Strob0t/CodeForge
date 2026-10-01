@@ -134,7 +134,9 @@ func TestAuth_PublicPath_NoAuthRequired(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	for _, path := range []string{"/health", "/health/ready", "/api/v1/auth/login", "/api/v1/auth/refresh"} {
+	// The A2A routes authenticate with A2A API keys (A2AAuth), not with a
+	// user's JWT (KI-15).
+	for _, path := range []string{"/health", "/health/ready", "/api/v1/auth/login", "/api/v1/auth/refresh", "/a2a", "/.well-known/agent-card.json"} {
 		req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

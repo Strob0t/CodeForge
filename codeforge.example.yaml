@@ -138,7 +138,7 @@ auth:
 # a2a:
 #   enabled: false                # Enable A2A endpoints (default: false)
 #   base_url: ""                  # Public URL for AgentCard (default: auto-detect from server.port)
-#   api_keys: []                  # Allowed API keys for inbound A2A requests (empty = open)
+#   api_keys: []                  # Bearer keys of inbound A2A callers: "<key>" (default tenant) or "<tenant-uuid>:<key>"; none = all A2A requests refused
 #   transport: "jsonrpc"          # Transport protocol: "jsonrpc" (default) or "rest"
 #   max_tasks: 100                # Max concurrent A2A tasks (default: 100)
 #   allow_open: false             # Allow unauthenticated AgentCard discovery (default: false for security)

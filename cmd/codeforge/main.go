@@ -910,6 +910,12 @@ func run() error {
 		slog.Info("a2a client service enabled", "completion_subscriber", true)
 	}
 
+	// A2A API keys with their tenants (validated at config load).
+	a2aKeys, err := cfg.A2A.ParsedAPIKeys()
+	if err != nil {
+		return fmt.Errorf("a2a.api_keys: %w", err)
+	}
+
 	r := chi.NewRouter()
 
 	// Rate limiter
@@ -996,9 +1002,14 @@ func run() error {
 			)
 			a2aHTTPHandler := a2asrv.NewJSONRPCHandler(a2aReqHandler)
 
-			// Mount A2A middleware + routes.
+			// A2A callers authenticate with A2A API keys (not a user's JWT)
+			// and act in their key's tenant (KI-15).
+			if len(a2aKeys) == 0 {
+				slog.Warn("a2a enabled without a2a.api_keys: every A2A request is refused")
+			}
+			a2aAuth := middleware.A2AAuth(a2aKeys)
 			r.Group(func(r chi.Router) {
-				r.Use(middleware.A2AAuth(cfg.A2A.APIKeys))
+				r.Use(a2aAuth)
 				r.Handle("/a2a", a2aHTTPHandler)
 			})
 			// AgentCard discovery — gated by AllowOpen config.
@@ -1006,7 +1017,7 @@ func run() error {
 				r.Get("/.well-known/agent-card.json", a2asrv.NewAgentCardHandler(cardBuilder).ServeHTTP)
 			} else {
 				r.Group(func(r chi.Router) {
-					r.Use(middleware.A2AAuth(cfg.A2A.APIKeys))
+					r.Use(a2aAuth)
 					r.Get("/.well-known/agent-card.json", a2asrv.NewAgentCardHandler(cardBuilder).ServeHTTP)
 				})
 			}

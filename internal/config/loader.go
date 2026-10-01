@@ -489,6 +489,11 @@ func validate(cfg *Config) error {
 	if err := validateHeartbeat(&cfg.Runtime); err != nil {
 		return err
 	}
+	if cfg.A2A.Enabled {
+		if _, err := cfg.A2A.ParsedAPIKeys(); err != nil {
+			return fmt.Errorf("a2a.api_keys: %w", err)
+		}
+	}
 	if cfg.Runtime.TaskAcceptTimeout < 0 {
 		return fmt.Errorf("runtime.task_accept_timeout must be 0 (check off) or positive (got %s)", cfg.Runtime.TaskAcceptTimeout)
 	}

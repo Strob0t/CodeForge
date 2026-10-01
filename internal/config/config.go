@@ -5,7 +5,11 @@ package config
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
+	"strings"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Config holds all runtime configuration for the CodeForge core service.
@@ -412,11 +416,44 @@ type OTEL struct {
 type A2A struct {
 	Enabled   bool     `yaml:"enabled"`           // Enable A2A endpoints (default: false)
 	BaseURL   string   `yaml:"base_url"`          // Public URL for AgentCard (default: auto-detect from Server.Port)
-	APIKeys   []string `yaml:"api_keys" json:"-"` // Allowed API keys for incoming A2A requests (empty = open)
+	APIKeys   []string `yaml:"api_keys" json:"-"` // API keys of incoming A2A requests: "<key>" (default tenant) or "<tenant-uuid>:<key>"; none = every A2A request is refused
 	Transport string   `yaml:"transport"`         // "jsonrpc" (default) | "rest"
 	MaxTasks  int      `yaml:"max_tasks"`         // Max concurrent A2A tasks (default: 100)
 	AllowOpen bool     `yaml:"allow_open"`        // Allow unauthenticated AgentCard discovery (default: true)
 	Streaming bool     `yaml:"streaming"`         // FIX-109: Advertise streaming capability in AgentCard (default: false)
+}
+
+// A2AAPIKey is an A2A API key and the tenant its callers act in.
+type A2AAPIKey struct {
+	Key      string
+	TenantID string
+}
+
+// a2aTenantPattern matches the tenant UUID of a "<tenant-uuid>:<key>" entry.
+var a2aTenantPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// ParsedAPIKeys returns the A2A API keys with their tenants (KI-15). An entry
+// "<tenant-uuid>:<key>" maps its key to that tenant; any other entry is a key
+// of the default tenant. An empty key, and a key listed twice (its tenant
+// would be ambiguous), is an error.
+func (a *A2A) ParsedAPIKeys() ([]A2AAPIKey, error) {
+	keys := make([]A2AAPIKey, 0, len(a.APIKeys))
+	seen := make(map[string]bool, len(a.APIKeys))
+	for i, entry := range a.APIKeys {
+		k := A2AAPIKey{Key: strings.TrimSpace(entry), TenantID: tenantctx.DefaultTenantID}
+		if tenant, key, ok := strings.Cut(k.Key, ":"); ok && a2aTenantPattern.MatchString(tenant) {
+			k = A2AAPIKey{Key: key, TenantID: tenant}
+		}
+		if k.Key == "" {
+			return nil, fmt.Errorf("entry %d has an empty key", i+1)
+		}
+		if seen[k.Key] {
+			return nil, fmt.Errorf("entry %d repeats a key", i+1)
+		}
+		seen[k.Key] = true
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 // AGUI holds AG-UI (Agent-User Interaction) protocol configuration.

@@ -41,6 +41,10 @@ var publicPaths = map[string]bool{
 	// POST /api/v1/ws/ticket, which the WebSocket hub redeems itself.
 	// Credentials never travel in the URL (CWE-598).
 	"/ws": true,
+	// The A2A routes authenticate with A2A API keys (A2AAuth, KI-15); the
+	// AgentCard is public only with a2a.allow_open.
+	"/a2a":                         true,
+	"/.well-known/agent-card.json": true,
 }
 
 // publicPrefixes are path prefixes exempt from authentication.
