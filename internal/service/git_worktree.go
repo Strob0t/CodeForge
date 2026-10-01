@@ -82,7 +82,20 @@ func (i *privateIndex) renormalizeIfFiltered(ctx context.Context, repo *git.Repo
 // which `add --renormalize` cannot stat (S3-F review C1); renormalizing
 // then re-reads the tracked files that exist (it adds no untracked ones).
 func (i *privateIndex) addWorktree(ctx context.Context, repo *git.Repo) error {
+	// `add` runs git's submodule dirty check - a git process in the nested
+	// repository, with its config - for every gitlink of the index. OpenRepo
+	// refused nested repositories; a gitlink that got into the index since
+	// (copied from the user's index, or added by `add -A` for a repository
+	// created meanwhile) is refused before any further add (KI-77).
+	if err := repo.RefuseGitlinks(ctx, i.env); err != nil {
+		i.dropUnnormalized()
+		return err
+	}
 	if _, err := repo.Run(ctx, i.env, "add", "-A"); err != nil {
+		i.dropUnnormalized()
+		return err
+	}
+	if err := repo.RefuseGitlinks(ctx, i.env); err != nil {
 		i.dropUnnormalized()
 		return err
 	}

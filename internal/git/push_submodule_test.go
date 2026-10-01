@@ -35,12 +35,11 @@ func sshToLocal(t *testing.T) (bareDir, log string) {
 	return bareDir, log
 }
 
-// submoduleRepo returns a workspace whose last commit moved the gitlink of
-// a nested repository sub/ to a commit its remote does not have. A push in
-// sub/ would run its pre-push hook, which writes marker.
-func submoduleRepo(t *testing.T) (dir, marker string) {
+// plantSubmodule makes the last commit of the workspace dir move the gitlink
+// of a nested repository sub/ to a commit its remote does not have. A push
+// in sub/ would run its pre-push hook, which writes marker.
+func plantSubmodule(t *testing.T, dir string) (marker string) {
 	t.Helper()
-	dir = newRepo(t)
 	sub := filepath.Join(dir, "sub")
 	plainGit(t, dir, "init", "-q", "-b", "main", "sub")
 	writeFile(t, filepath.Join(sub, "s.txt"), "s\n", 0o644)
@@ -61,7 +60,7 @@ func submoduleRepo(t *testing.T) (dir, marker string) {
 	plainGit(t, dir, "commit", "-q", "-m", "move gitlink")
 
 	plainGit(t, dir, "config", "remote.origin.url", "ssh://example.invalid/outer")
-	return dir, marker
+	return marker
 }
 
 func assertNoConnection(t *testing.T, log, path string) {
@@ -72,17 +71,21 @@ func assertNoConnection(t *testing.T, log, path string) {
 	}
 }
 
+// OpenRepo refuses a workspace with a nested repository; a handle opened
+// before one appeared still never pushes into it.
 func TestPush_NeverRecursesIntoNestedRepositories(t *testing.T) {
 	ctx := context.Background()
 	for _, value := range []string{"on-demand", "only"} {
 		t.Run("push.recurseSubmodules="+value, func(t *testing.T) {
 			bareDir, log := sshToLocal(t)
-			dir, marker := submoduleRepo(t)
-			plainGit(t, dir, "config", "push.recurseSubmodules", value)
+			dir := newRepo(t)
 			repo, err := git.OpenRepo(ctx, dir)
 			if err != nil {
 				t.Fatalf("OpenRepo: %v", err)
 			}
+			marker := plantSubmodule(t, dir)
+			plainGit(t, dir, "config", "push.recurseSubmodules", value)
+			assertNestedRefused(t, dir, "sub")
 			if err := repo.Push(ctx, "--no-verify", "-u", "origin", "main"); err != nil {
 				t.Fatalf("Push: %v", err)
 			}

@@ -210,6 +210,9 @@ func OpenRepo(ctx context.Context, dir string) (*Repo, error) {
 			[2]string{prefix + "clean", ""}, [2]string{prefix + "smudge", ""},
 			[2]string{prefix + "process", ""}, [2]string{prefix + "required", "false"})
 	}
+	if err := r.checkNoNestedRepositories(ctx); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
@@ -340,9 +343,19 @@ func (r *Repo) RequireNetworkSafe() error {
 	return nil
 }
 
+// treeSwitchCommands report local changes after switching trees through a
+// diff of the working tree, which runs git's submodule dirty check (git in a
+// nested repository, with its config) for every gitlink. The new tree may
+// bring a gitlink to a path where an ignored directory - skipped by the
+// nested-repository check - holds a repository. --quiet drops the report.
+var treeSwitchCommands = []string{"checkout", "switch"}
+
 // Run runs git in the repository with the hardened environment plus
 // extraEnv and returns its standard output.
 func (r *Repo) Run(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	if len(args) > 0 && slices.Contains(treeSwitchCommands, args[0]) {
+		args = slices.Concat(args[:1], []string{"--quiet"}, args[1:])
+	}
 	return runGit(ctx, r.Dir, slices.Concat(r.env(nil), extraEnv), args...)
 }
 
