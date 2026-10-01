@@ -20,9 +20,12 @@ const apiMock = vi.hoisted(() => ({
   markRead: vi.fn<(id: string, messageId: string) => Promise<unknown>>(),
   regenerateWebhookKey: vi.fn<(id: string) => Promise<{ webhook_key: string }>>(),
   list: vi.fn<() => Promise<unknown[]>>(),
+  send: vi.fn<(id: string, content: string, name: string) => Promise<ChannelMessageRecord>>(),
+  sendThreadReply:
+    vi.fn<(id: string, parentId: string, data: unknown) => Promise<ChannelMessageRecord>>(),
 }));
 
-const auth = vi.hoisted(() => ({ admin: false, userId: "u-me" }));
+const auth = vi.hoisted(() => ({ admin: false, editor: false, userId: "u-me" }));
 
 // jsdom has no matchMedia; the UI modules read it when they are loaded.
 vi.hoisted(() => {
@@ -56,13 +59,16 @@ vi.mock("~/api/client", () => ({
       markRead: apiMock.markRead,
       regenerateWebhookKey: apiMock.regenerateWebhookKey,
       list: apiMock.list,
+      send: apiMock.send,
+      sendThreadReply: apiMock.sendThreadReply,
     },
   },
 }));
 
 vi.mock("~/components/AuthProvider", () => ({
   useAuth: () => ({
-    hasRole: (...roles: string[]) => auth.admin && roles.includes("admin"),
+    hasRole: (...roles: string[]) =>
+      (auth.admin && roles.includes("admin")) || (auth.editor && roles.includes("editor")),
     user: () => ({ id: auth.userId }),
   }),
 }));
@@ -122,6 +128,7 @@ function scrollMessages(scrollTop: number): void {
 beforeEach(() => {
   ws.handlers.clear();
   auth.admin = false;
+  auth.editor = false;
   setFollowedChannel(undefined);
   Element.prototype.scrollIntoView = () => undefined;
   apiMock.get.mockReset().mockResolvedValue({
@@ -138,6 +145,8 @@ beforeEach(() => {
   apiMock.markRead.mockReset().mockResolvedValue({});
   apiMock.regenerateWebhookKey.mockReset().mockResolvedValue({ webhook_key: "k".repeat(64) });
   apiMock.list.mockReset().mockResolvedValue([]);
+  apiMock.send.mockReset();
+  apiMock.sendThreadReply.mockReset();
 });
 
 // KI-42: messages from other users, agents and webhooks appear without a reload.
@@ -387,5 +396,56 @@ describe("ChannelView following", () => {
     expect(followedChannel()).toBe("ch-1");
     unmount();
     expect(followedChannel()).toBeUndefined();
+  });
+});
+
+// S6-H review 8: a refused post or reply is shown, not an unhandled
+// rejection; viewers get no input.
+describe("posting and replying", () => {
+  const parent = {
+    id: "m-1",
+    sender_type: "user",
+    sender_name: "alice",
+    content: "parent",
+    created_at: "2026-09-30T10:00:00Z",
+  };
+
+  it("shows a refused thread reply and keeps its text", async () => {
+    auth.editor = true;
+    apiMock.sendThreadReply.mockRejectedValue(new Error("insufficient permissions"));
+    render(() => (
+      <ThreadPanel channelId="ch-1" parentMessage={parent} visible onClose={() => undefined} />
+    ));
+    const input = await screen.findByPlaceholderText("Reply...");
+    fireEvent.input(input, { target: { value: "my reply" } });
+    fireEvent.click(screen.getByText("Send"));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("insufficient permissions");
+    expect((input as HTMLInputElement).value).toBe("my reply");
+  });
+
+  it("offers viewers no reply input", async () => {
+    render(() => (
+      <ThreadPanel channelId="ch-1" parentMessage={parent} visible onClose={() => undefined} />
+    ));
+    await screen.findByText("Only editors and admins can reply.");
+    expect(screen.queryByPlaceholderText("Reply...")).toBeNull();
+  });
+
+  it("shows a refused channel message", async () => {
+    auth.editor = true;
+    apiMock.send.mockRejectedValue(new Error("insufficient permissions"));
+    render(() => <ChannelView />);
+    const input = await screen.findByLabelText("Channel message");
+    fireEvent.input(input, { target: { value: "hello" } });
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("insufficient permissions");
+  });
+
+  it("offers viewers no message input", async () => {
+    render(() => <ChannelView />);
+    await screen.findByText("Only editors and admins can post in channels.");
+    expect(screen.queryByLabelText("Channel message")).toBeNull();
   });
 });

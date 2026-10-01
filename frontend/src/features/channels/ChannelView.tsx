@@ -59,6 +59,9 @@ export default function ChannelView() {
   const [threadParent, setThreadParent] = createSignal<ChannelMessageData | null>(null);
   const [webhookKey, setWebhookKey] = createSignal<string | null>(null);
   const [webhookError, setWebhookError] = createSignal<string | null>(null);
+  const [sendError, setSendError] = createSignal<string | null>(null);
+  // Posting needs the editor or admin role; viewers read the channel only.
+  const canPost = () => hasRole("admin", "editor");
 
   // Fetch channel details
   const [channel, { refetch: refetchChannel }] = createResource(
@@ -181,11 +184,14 @@ export default function ChannelView() {
   async function handleSend(content: string): Promise<void> {
     if (sending()) return;
     setSending(true);
+    setSendError(null);
     try {
       const sent = await api.channels.send(params.id, content, "User");
       mutateMessages((prev) => addMessage(prev, sent, "start"));
       // Scroll after new message renders
       setTimeout(scrollToBottom, 50);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : String(err));
     } finally {
       setSending(false);
     }
@@ -313,10 +319,26 @@ export default function ChannelView() {
       </div>
 
       {/* Input */}
-      <ChannelInput
-        onSend={(content) => void handleSend(content)}
-        placeholder={channel() ? `Message #${channel()?.name ?? ""}` : "Type a message..."}
-      />
+      <Show when={sendError()}>
+        {(message) => (
+          <div class="border-t border-cf-border px-4 py-2">
+            <Alert variant="error">The message was not sent: {message()}</Alert>
+          </div>
+        )}
+      </Show>
+      <Show
+        when={canPost()}
+        fallback={
+          <p class="border-t border-cf-border px-4 py-3 text-xs text-cf-text-muted">
+            Only editors and admins can post in channels.
+          </p>
+        }
+      >
+        <ChannelInput
+          onSend={(content) => void handleSend(content)}
+          placeholder={channel() ? `Message #${channel()?.name ?? ""}` : "Type a message..."}
+        />
+      </Show>
 
       <Show when={threadParent()}>
         {(parent) => (

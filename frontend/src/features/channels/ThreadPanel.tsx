@@ -10,6 +10,7 @@ import {
 import { Portal } from "solid-js/web";
 
 import { api } from "~/api/client";
+import { useAuth } from "~/components/AuthProvider";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { Backdrop, Button, Spinner } from "~/ui";
 
@@ -63,6 +64,10 @@ function senderInitial(name: string): string {
 export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
   const [replyText, setReplyText] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  const [sendError, setSendError] = createSignal("");
+  // Replies need the editor or admin role; viewers read the thread only.
+  const { hasRole } = useAuth();
+  const canReply = () => hasRole("admin", "editor");
 
   // Fetch thread replies — re-fetches whenever the parent message id changes.
   // The API lists newest first; a thread reads oldest first.
@@ -109,6 +114,7 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
     if (!content || sending()) return;
 
     setSending(true);
+    setSendError("");
     try {
       const reply = await api.channels.sendThreadReply(props.channelId, props.parentMessage.id, {
         sender_name: "You",
@@ -117,6 +123,9 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
       });
       setReplyText("");
       mutate((prev) => addMessage(prev, reply, "end"));
+    } catch (err) {
+      // The reply text stays in the input, so it can be sent again.
+      setSendError(err instanceof Error ? err.message : String(err));
     } finally {
       setSending(false);
     }
@@ -215,26 +224,40 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
 
           {/* Reply input */}
           <div class="border-t border-cf-border px-4 py-3">
-            <div class="flex gap-2">
-              <input
-                type="text"
-                placeholder="Reply..."
-                value={replyText()}
-                onInput={(e) => setReplyText(e.currentTarget.value)}
-                onKeyDown={handleInputKeyDown}
-                disabled={sending()}
-                class="block flex-1 rounded-cf-md border border-cf-border-input bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder:text-cf-text-muted transition-colors focus:border-cf-accent focus:outline-none focus:ring-2 focus:ring-cf-focus-ring"
-              />
-              <Button
-                variant="primary"
-                size="xs"
-                disabled={replyText().trim() === "" || sending()}
-                loading={sending()}
-                onClick={() => void handleSend()}
-              >
-                Send
-              </Button>
-            </div>
+            <Show when={sendError()}>
+              {(message) => (
+                <p class="mb-2 text-sm text-cf-danger-fg" role="alert">
+                  The reply was not sent: {message()}
+                </p>
+              )}
+            </Show>
+            <Show
+              when={canReply()}
+              fallback={
+                <p class="text-xs text-cf-text-muted">Only editors and admins can reply.</p>
+              }
+            >
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Reply..."
+                  value={replyText()}
+                  onInput={(e) => setReplyText(e.currentTarget.value)}
+                  onKeyDown={handleInputKeyDown}
+                  disabled={sending()}
+                  class="block flex-1 rounded-cf-md border border-cf-border-input bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder:text-cf-text-muted transition-colors focus:border-cf-accent focus:outline-none focus:ring-2 focus:ring-cf-focus-ring"
+                />
+                <Button
+                  variant="primary"
+                  size="xs"
+                  disabled={replyText().trim() === "" || sending()}
+                  loading={sending()}
+                  onClick={() => void handleSend()}
+                >
+                  Send
+                </Button>
+              </div>
+            </Show>
           </div>
         </div>
       </Portal>
