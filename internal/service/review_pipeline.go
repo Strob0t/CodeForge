@@ -672,10 +672,15 @@ func (s *ReviewPipelineService) Decide(ctx context.Context, runID, planID, stepI
 	return decision, nil
 }
 
-// PlanEnded is an orchestrator plan-end callback (AddOnPlanComplete): a
-// review plan that ended without a refactoring waiting for a decision is
-// done and its refs are dropped; a decision that waits stays.
-func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, _ string) {
+// PlanEnded is an orchestrator plan-end callback (AddOnPlanComplete). A
+// review plan whose refactoring started but was not decided - its step
+// failed or was cancelled (S6-F 4) - asks keep or undo when the refactoring
+// changed the workspace: the change is measured and waits for a decision
+// through the same endpoints and dialog as a high-impact refactoring; the
+// plan stays as it ended, and the refs are dropped only after the decision.
+// Any other review plan without a decision waiting is done and its refs are
+// dropped.
+func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, status string) {
 	rp, err := s.store.GetReviewPipeline(ctx, planID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return // not a review plan
@@ -690,7 +695,54 @@ func (s *ReviewPipelineService) PlanEnded(ctx context.Context, planID, _ string)
 	proj, err := s.store.GetProject(ctx, rp.ProjectID)
 	if err != nil {
 		logBestEffort(ctx, err, "GetProject: review refs not dropped", slog.String("plan_id", planID))
-		proj = &project.Project{}
+		return
+	}
+	if rp.State == review.PipelineRefactoring && status != string(plan.StatusCompleted) && s.askAfterEnd(ctx, rp, proj.WorkspacePath, status) {
+		return
 	}
 	s.finish(ctx, rp, proj.WorkspacePath, rp.State)
+}
+
+// askAfterEnd measures the change of a refactoring whose plan ended without
+// deciding it and, when there is one (or it cannot be measured), records a
+// keep/undo decision and announces it (review.approval_required). It
+// reports whether a decision waits.
+func (s *ReviewPipelineService) askAfterEnd(ctx context.Context, rp *review.Pipeline, dir, status string) bool {
+	p, err := s.store.GetPlan(ctx, rp.PlanID)
+	if err != nil {
+		logBestEffort(ctx, err, "GetPlan: ended refactoring not measured", slog.String("plan_id", rp.PlanID))
+		return false
+	}
+	var step *plan.Step
+	for i := range p.Steps {
+		if p.Steps[i].ID == rp.StepID {
+			step = &p.Steps[i]
+		}
+	}
+	if step == nil || step.RunID == "" {
+		return false // the refactoring never ran
+	}
+	ev := event.ReviewImpactEvent{RunID: step.RunID, PlanID: rp.PlanID, StepID: step.ID, ProjectID: rp.ProjectID, ImpactLevel: string(ImpactHigh)}
+	ev.Reason = fmt.Sprintf("the refactoring step ended %s (plan %s) after changing the workspace: keep or undo its change", step.Status, status)
+	change, err := s.measure(ctx, dir, rp)
+	if err != nil {
+		ev.Reason = fmt.Sprintf("the refactoring step ended %s (plan %s) and its change could not be measured: %v", step.Status, status, err)
+	} else {
+		if change.Stats.FilesChanged == 0 {
+			return false
+		}
+		stats := change.Stats
+		stats.CrossLayer, err = s.touchesBoundary(ctx, rp.ProjectID, change.Paths)
+		if err != nil {
+			slog.Warn("ended refactoring: boundaries not loaded, counted as cross-layer", "plan_id", rp.PlanID, "error", err)
+			stats.CrossLayer = true
+		}
+		ev.ImpactLevel = string(s.scorer.Score(stats))
+		ev.FilesChanged, ev.LinesAdded, ev.LinesRemoved = stats.FilesChanged, stats.LinesAdded, stats.LinesRemoved
+		ev.CrossLayer, ev.Structural = stats.CrossLayer, stats.Structural
+	}
+	slog.Warn("ended refactoring waits for keep or undo", "plan_id", rp.PlanID, "step_id", step.ID, "reason", ev.Reason)
+	s.awaitDecision(ctx, rp, &ev)
+	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, ev)
+	return true
 }

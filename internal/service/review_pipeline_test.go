@@ -1069,3 +1069,112 @@ func TestReviewPipeline_FailedStartLeavesNoOrphans(t *testing.T) {
 		})
 	}
 }
+
+// --- S6-F 4: a refactoring that ended failed or cancelled ---
+
+// endedRefactoring is a review plan whose refactoring step's run changed the
+// workspace with change and ended with stepStatus; the plan ended with it.
+func endedRefactoring(t *testing.T, stepStatus plan.StepStatus, planStatus string, change func(dir string)) (*reviewFixture, *plan.Step) {
+	t.Helper()
+	f, step := gateFixture(t, nil, change)
+	f.store.plans["plan-1"].Steps[0].Status = stepStatus
+	f.store.plans["plan-1"].Status = plan.Status(planStatus)
+	f.svc.PlanEnded(f.ctx, "plan-1", planStatus)
+	return f, step
+}
+
+func TestReviewPipeline_FailedRefactoringAsksKeepOrUndo(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		stepStatus plan.StepStatus
+		planStatus string
+	}{
+		{"failed", plan.StepStatusFailed, "failed"},
+		{"cancelled", plan.StepStatusCancelled, "cancelled"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f, step := endedRefactoring(t, tt.stepStatus, tt.planStatus, func(dir string) { writeLines(t, dir, "a.go", 104, "half done") })
+
+			rp := f.store.pipelines["plan-1"]
+			if rp.State != review.PipelineAwaitingDecision || rp.RunID != "run-4" || rp.Impact == nil || rp.Impact.Reason == "" {
+				t.Fatalf("review record = %+v, want a keep/undo decision for run-4 with a reason", rp)
+			}
+			if !hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+				t.Fatal("baseline dropped before the decision")
+			}
+			events := f.hub.snapshot()
+			if len(events) != 1 || events[0].EventType != event.EventReviewApprovalRequired || events[0].Data.RunID != "run-4" ||
+				events[0].Data.ProjectID != "proj-1" || events[0].Data.FilesChanged != 1 {
+				t.Fatalf("events = %+v, want one approval request for the change", events)
+			}
+
+			// Undo: the change is reverted; the plan stays as it ended.
+			d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false)
+			if err != nil || d.Status != "rejected" {
+				t.Fatalf("Decide(undo) = %+v, %v", d, err)
+			}
+			if strings.Contains(readFile(t, f.dir, "a.go"), "half done") {
+				t.Fatal("the failed refactoring was not undone")
+			}
+			if len(f.planner.rejected)+len(f.planner.approved) != 0 {
+				t.Fatalf("plan steps decided (%v / %v), want the ended plan left alone", f.planner.approved, f.planner.rejected)
+			}
+			if f.store.pipelines["plan-1"].State != review.PipelineDone || hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+				t.Fatal("decision not finished: want done and the baseline dropped")
+			}
+		})
+	}
+}
+
+func TestReviewPipeline_FailedRefactoringKept(t *testing.T) {
+	f, step := endedRefactoring(t, plan.StepStatusFailed, "failed", func(dir string) { writeLines(t, dir, "a.go", 104, "half done") })
+
+	if d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); err != nil || d.Status != "approved" {
+		t.Fatalf("Decide(keep) = %+v, %v", d, err)
+	}
+	if !strings.Contains(readFile(t, f.dir, "a.go"), "half done") || len(f.planner.approved) != 0 {
+		t.Fatal("want the change kept and the ended plan left alone")
+	}
+	if f.store.pipelines["plan-1"].State != review.PipelineDone {
+		t.Fatal("decision not finished")
+	}
+}
+
+// Nothing to decide: a failed refactoring that changed nothing, or a step
+// whose run never started, ends the pipeline at once.
+func TestReviewPipeline_FailedRefactoringWithoutChange(t *testing.T) {
+	t.Run("no change", func(t *testing.T) {
+		f, _ := endedRefactoring(t, plan.StepStatusFailed, "failed", func(string) {})
+		if f.store.pipelines["plan-1"].State != review.PipelineDone || hasRef(t, f.dir, reviewBaselineRef("plan-1")) || len(f.hub.snapshot()) != 0 {
+			t.Fatal("want the pipeline done, the baseline dropped and no event")
+		}
+	})
+	t.Run("no run", func(t *testing.T) {
+		f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 300, "user") })
+		step.RunID = ""
+		f.store.plans["plan-1"].Steps[0] = *step
+		f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusFailed
+		f.svc.PlanEnded(f.ctx, "plan-1", "failed")
+		if f.store.pipelines["plan-1"].State != review.PipelineDone || len(f.hub.snapshot()) != 0 {
+			t.Fatal("a refactoring that never ran asked for a decision")
+		}
+	})
+}
+
+// A step that waited for approval when its plan was cancelled keeps its
+// pending decision, which works on the cancelled step (S6-F 4/5).
+func TestReviewPipeline_CancelledWhileWaitingKeepsTheDecision(t *testing.T) {
+	f, step := waitingStep(t)
+	f.store.plans["plan-1"].Steps[0].Status = plan.StepStatusCancelled
+	f.svc.PlanEnded(f.ctx, "plan-1", "cancelled")
+
+	if f.store.pipelines["plan-1"].State != review.PipelineAwaitingDecision || !hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+		t.Fatal("the pending decision of a cancelled plan was dropped")
+	}
+	if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); err != nil {
+		t.Fatalf("Decide(undo) on the cancelled step: %v", err)
+	}
+	if len(f.planner.rejected) != 0 || f.store.pipelines["plan-1"].State != review.PipelineDone {
+		t.Fatal("want the change undone without touching the cancelled plan")
+	}
+}
