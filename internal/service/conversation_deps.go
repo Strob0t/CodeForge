@@ -38,7 +38,7 @@ type convPolicyEvaluator interface {
 
 // convMCPResolver is the subset of MCPService used by ConversationService.
 type convMCPResolver interface {
-	ResolveForRun(projectID, modeID string) []mcp.ServerDef
+	ResolveForRun(ctx context.Context, projectID, modeID string) []mcp.ServerDef
 }
 
 // convMicroagentMatcher is the subset of MicroagentService used by ConversationService.

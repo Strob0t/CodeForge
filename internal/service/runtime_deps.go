@@ -65,7 +65,7 @@ type runtimeSandboxManager interface {
 
 // runtimeMCPResolver is the subset of MCPService used by RuntimeService.
 type runtimeMCPResolver interface {
-	ResolveForRun(projectID, modeID string) []mcp.ServerDef
+	ResolveForRun(ctx context.Context, projectID, modeID string) []mcp.ServerDef
 }
 
 // runtimeMicroagentMatcher is the subset of MicroagentService used by RuntimeService.

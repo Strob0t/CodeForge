@@ -146,12 +146,13 @@ func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMod
 	return model, resolvedMode, autonomy, nil
 }
 
-// buildMCPDefinitions builds the MCP server definition payloads for a project.
-func (s *ConversationService) buildMCPDefinitions(projectID string) []messagequeue.MCPServerDefPayload {
+// buildMCPDefinitions builds the MCP server definition payloads for a
+// project of the conversation's tenant (the tenant in ctx).
+func (s *ConversationService) buildMCPDefinitions(ctx context.Context, projectID string) []messagequeue.MCPServerDefPayload {
 	if s.mcpSvc == nil {
 		return nil
 	}
-	servers := s.mcpSvc.ResolveForRun(projectID, "")
+	servers := s.mcpSvc.ResolveForRun(ctx, projectID, "")
 	defs := make([]messagequeue.MCPServerDefPayload, 0, len(servers))
 	for i := range servers {
 		defs = append(defs, messagequeue.MCPServerDefPayload{
@@ -330,7 +331,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		WorkspacePath:      proj.WorkspacePath,
 		Mode:               resolvedMode,
 		Termination:        termination,
-		MCPServers:         s.buildMCPDefinitions(proj.ID),
+		MCPServers:         s.buildMCPDefinitions(ctx, proj.ID),
 		MicroagentPrompts:  s.matchMicroagents(ctx, proj.ID, userMessage, conversationID),
 		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
 		Context:            contextEntries,

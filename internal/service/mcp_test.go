@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -204,7 +205,7 @@ func TestResolveForRun(t *testing.T) {
 		}
 	}
 
-	resolved := svc.ResolveForRun("proj-1", "coder")
+	resolved := svc.ResolveForRun(context.Background(), "proj-1", "coder")
 	if len(resolved) != 2 {
 		t.Fatalf("expected 2 enabled servers, got %d", len(resolved))
 	}

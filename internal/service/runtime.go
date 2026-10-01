@@ -339,7 +339,7 @@ func (s *RuntimeService) buildRunPayload(
 
 	// Resolve MCP server definitions for this run.
 	if s.mcpSvc != nil {
-		defs := s.mcpSvc.ResolveForRun(r.ProjectID, modeID)
+		defs := s.mcpSvc.ResolveForRun(ctx, r.ProjectID, modeID)
 		for i := range defs {
 			d := &defs[i]
 			payload.MCPServers = append(payload.MCPServers, messagequeue.MCPServerDefPayload{

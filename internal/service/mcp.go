@@ -117,9 +117,10 @@ func (s *MCPService) Remove(id string) error {
 
 // ResolveForRun returns MCP server definitions available for a run.
 // It merges globally-enabled YAML servers with DB-assigned project servers.
-// If projectID is non-empty and the DB is configured, project-specific
-// servers are included. The modeID parameter is reserved for future filtering.
-func (s *MCPService) ResolveForRun(projectID, _ string) []mcp.ServerDef {
+// If projectID is non-empty and the DB is configured, the project's servers
+// of the run's tenant (the tenant in ctx) are included. The modeID
+// parameter is reserved for future filtering.
+func (s *MCPService) ResolveForRun(ctx context.Context, projectID, _ string) []mcp.ServerDef {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -136,9 +137,9 @@ func (s *MCPService) ResolveForRun(projectID, _ string) []mcp.ServerDef {
 
 	// Include DB-assigned project servers (if DB is configured and projectID given).
 	if projectID != "" && s.db != nil {
-		dbDefs, err := s.db.ListMCPServersByProject(context.Background(), projectID)
+		dbDefs, err := s.db.ListMCPServersByProject(ctx, projectID)
 		if err != nil {
-			slog.Warn("resolve mcp servers for project", "project_id", projectID, "error", err)
+			slog.WarnContext(ctx, "resolve mcp servers for project", "project_id", projectID, "error", err)
 		} else {
 			for i := range dbDefs {
 				if dbDefs[i].Enabled && !seen[dbDefs[i].ID] {
