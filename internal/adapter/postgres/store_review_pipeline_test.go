@@ -89,3 +89,59 @@ func TestStore_ReviewPipeline(t *testing.T) {
 		t.Fatalf("plan without a record: %v, want not found", err)
 	}
 }
+
+// S6-F 7: one active review pipeline per project, and no agent shared with
+// another plan that has not ended.
+func TestStore_ReviewPipelineGuard(t *testing.T) {
+	f := newStatusFixture(t)
+	first := f.reviewPlan(t)
+	if err := f.store.CreateReviewPipeline(f.ctx, &review.Pipeline{PlanID: first.ID, ProjectID: f.project.ID}); err != nil {
+		t.Fatalf("CreateReviewPipeline: %v", err)
+	}
+	if active, err := f.store.HasActiveReviewPipeline(f.ctx, f.project.ID); err != nil || !active {
+		t.Fatalf("HasActiveReviewPipeline = %v, %v, want true", active, err)
+	}
+
+	second := f.reviewPlan(t)
+	err := f.store.CreateReviewPipeline(f.ctx, &review.Pipeline{PlanID: second.ID, ProjectID: f.project.ID})
+	if !errors.Is(err, domain.ErrConflict) || !errors.Is(err, review.ErrPipelineActive) {
+		t.Fatalf("second pipeline: %v, want ErrPipelineActive", err)
+	}
+
+	// The first plan ends: its pipeline is no longer active, but the second
+	// plan's agent is also the agent of a third plan that has not ended.
+	if err := f.store.UpdatePlanStatus(f.ctx, first.ID, plan.StatusCompleted); err != nil {
+		t.Fatalf("UpdatePlanStatus: %v", err)
+	}
+	if active, err := f.store.HasActiveReviewPipeline(f.ctx, f.project.ID); err != nil || active {
+		t.Fatalf("HasActiveReviewPipeline after the plan ended = %v, %v, want false", active, err)
+	}
+	third := f.reviewPlan(t) // a plain plan of the same agent, pending
+	err = f.store.CreateReviewPipeline(f.ctx, &review.Pipeline{PlanID: second.ID, ProjectID: f.project.ID})
+	if !errors.Is(err, domain.ErrConflict) || !errors.Is(err, review.ErrAgentInUse) {
+		t.Fatalf("pipeline sharing an agent: %v, want ErrAgentInUse", err)
+	}
+	if err := f.store.UpdatePlanStatus(f.ctx, third.ID, plan.StatusCancelled); err != nil {
+		t.Fatalf("UpdatePlanStatus: %v", err)
+	}
+	if err := f.store.CreateReviewPipeline(f.ctx, &review.Pipeline{PlanID: second.ID, ProjectID: f.project.ID}); err != nil {
+		t.Fatalf("CreateReviewPipeline once the others ended: %v", err)
+	}
+
+	// A refactoring that waits for a decision keeps the pipeline active after
+	// its plan ended.
+	rp, err := f.store.GetReviewPipeline(f.ctx, second.ID)
+	if err != nil {
+		t.Fatalf("GetReviewPipeline: %v", err)
+	}
+	rp.State = review.PipelineAwaitingDecision
+	if err := f.store.UpdateReviewPipeline(f.ctx, rp, review.PipelinePending); err != nil {
+		t.Fatalf("UpdateReviewPipeline: %v", err)
+	}
+	if err := f.store.UpdatePlanStatus(f.ctx, second.ID, plan.StatusFailed); err != nil {
+		t.Fatalf("UpdatePlanStatus: %v", err)
+	}
+	if active, err := f.store.HasActiveReviewPipeline(f.ctx, f.project.ID); err != nil || !active {
+		t.Fatalf("HasActiveReviewPipeline with a pending decision = %v, %v, want true", active, err)
+	}
+}

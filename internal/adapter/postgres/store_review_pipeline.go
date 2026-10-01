@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
@@ -16,8 +18,43 @@ const reviewPipelineColumns = `plan_id, tenant_id, project_id, state, baseline_s
 
 const reviewPipelineExistsSQL = `SELECT EXISTS (SELECT 1 FROM review_pipelines WHERE plan_id = $1 AND tenant_id = $2)`
 
+// activeReviewPipelineSQL ($1 project, $2 tenant, $3 plan to leave out or
+// NULL, $4 statuses of plans that have not ended, $5 awaiting_decision): a
+// review pipeline of the project whose plan has not ended or whose
+// refactoring waits for a decision.
+const activeReviewPipelineSQL = `SELECT EXISTS (
+	SELECT 1 FROM review_pipelines rp JOIN execution_plans p ON p.id = rp.plan_id
+	WHERE rp.project_id = $1 AND rp.tenant_id = $2 AND ($3::uuid IS NULL OR rp.plan_id <> $3::uuid)
+	  AND (p.status = ANY($4) OR rp.state = $5))`
+
+// agentInUseSQL ($1 plan, $2 tenant, $3 statuses of plans that have not
+// ended): an agent of the plan's steps is assigned to a step of another
+// plan that has not ended.
+const agentInUseSQL = `SELECT EXISTS (
+	SELECT 1 FROM plan_steps s JOIN execution_plans p ON p.id = s.plan_id
+	WHERE s.tenant_id = $2 AND p.id <> $1 AND p.status = ANY($3)
+	  AND s.agent_id IN (SELECT agent_id FROM plan_steps WHERE plan_id = $1 AND tenant_id = $2))`
+
+var activePlanStatuses = []string{string(plan.StatusPending), string(plan.StatusRunning)}
+
+// HasActiveReviewPipeline reports whether the project has a review pipeline
+// whose plan has not ended or whose refactoring waits for a decision.
+func (s *Store) HasActiveReviewPipeline(ctx context.Context, projectID string) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx, activeReviewPipelineSQL,
+		projectID, tenantFromCtx(ctx), nil, activePlanStatuses, string(review.PipelineAwaitingDecision)).Scan(&active)
+	if err != nil {
+		return false, fmt.Errorf("check active review pipelines: %w", err)
+	}
+	return active, nil
+}
+
 // CreateReviewPipeline records a review pipeline's plan in the current
-// tenant, in state pending unless rp names another.
+// tenant, in state pending unless rp names another. It is the guard of one
+// review pipeline per project (S6-F 7): under a lock on the project row it
+// refuses, with domain.ErrConflict, a project that already has an active
+// review pipeline (review.ErrPipelineActive) and a plan whose agent is
+// assigned to another plan that has not ended (review.ErrAgentInUse).
 func (s *Store) CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) error {
 	tid := tenantFromCtx(ctx)
 	if rp.State == "" {
@@ -27,7 +64,33 @@ func (s *Store) CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) e
 	if err != nil {
 		return err
 	}
-	err = s.pool.QueryRow(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	var locked bool
+	if err := tx.QueryRow(ctx, `SELECT true FROM projects WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+		rp.ProjectID, tid).Scan(&locked); err != nil {
+		return notFoundWrap(err, "lock project %s for a review pipeline", rp.ProjectID)
+	}
+	var active, agentBusy bool
+	if err := tx.QueryRow(ctx, activeReviewPipelineSQL,
+		rp.ProjectID, tid, rp.PlanID, activePlanStatuses, string(review.PipelineAwaitingDecision)).Scan(&active); err != nil {
+		return fmt.Errorf("check active review pipelines: %w", err)
+	}
+	if active {
+		return fmt.Errorf("create review pipeline: %w: %w", domain.ErrConflict, review.ErrPipelineActive)
+	}
+	if err := tx.QueryRow(ctx, agentInUseSQL, rp.PlanID, tid, activePlanStatuses).Scan(&agentBusy); err != nil {
+		return fmt.Errorf("check the review pipeline's agent: %w", err)
+	}
+	if agentBusy {
+		return fmt.Errorf("create review pipeline: %w: %w", domain.ErrConflict, review.ErrAgentInUse)
+	}
+
+	err = tx.QueryRow(ctx,
 		`INSERT INTO review_pipelines (plan_id, tenant_id, project_id, state, baseline_sha, result_sha, step_id, run_id, impact)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING created_at, updated_at`,
@@ -35,6 +98,9 @@ func (s *Store) CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) e
 	).Scan(&rp.CreatedAt, &rp.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create review pipeline: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit review pipeline: %w", err)
 	}
 	rp.TenantID = tid
 	return nil

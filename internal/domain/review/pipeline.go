@@ -1,6 +1,18 @@
 package review
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrPipelineActive: the project already has a review pipeline that runs or
+// whose refactoring waits for a keep or undo decision (S6-F 7).
+var ErrPipelineActive = errors.New("a review pipeline is already active on this project " +
+	"(running, or its refactoring waits for keep or undo): try again when it has ended")
+
+// ErrAgentInUse: the review pipeline's agent belongs to another plan that has
+// not ended.
+var ErrAgentInUse = errors.New("the review pipeline's agent belongs to another plan that has not ended")
 
 // PipelineState is where a review pipeline's refactoring stands.
 type PipelineState string

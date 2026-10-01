@@ -46,6 +46,7 @@ type fakeReviewStore struct {
 
 	failTaskAt     int   // CreateTask fails for the n-th task (1-based); 0 never
 	pipelineErr    error // GetReviewPipeline fails with it
+	activeReview   bool  // HasActiveReviewPipeline answers it
 	recordErr      error // CreateReviewPipeline fails with it
 	cancelledTasks []string
 }
@@ -70,6 +71,20 @@ func (f *fakeReviewStore) CreateReviewPipeline(_ context.Context, rp *review.Pip
 	stored := *rp
 	f.pipelines[rp.PlanID] = &stored
 	return nil
+}
+
+func (f *fakeReviewStore) HasActiveReviewPipeline(context.Context, string) (bool, error) {
+	return f.activeReview, nil
+}
+
+func (f *fakeReviewStore) ListPlansByProject(_ context.Context, projectID string) ([]plan.ExecutionPlan, error) {
+	var out []plan.ExecutionPlan
+	for _, p := range f.plans {
+		if p.ProjectID == projectID {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeReviewStore) ListPendingReviewDecisions(_ context.Context, projectID string) ([]review.Pipeline, error) {
@@ -1235,5 +1250,60 @@ func TestReviewPipeline_ApprovalRequestTakesTheProjectFromThePlan(t *testing.T) 
 	events := f.hub.snapshot()
 	if len(events) != 1 || events[0].Data.ProjectID != "proj-1" || events[0].Data.Reason == "" {
 		t.Fatalf("events = %+v, want one approval request for proj-1 with the reason", events)
+	}
+}
+
+// --- S6-F 7: one review pipeline per project, agents not shared ---
+
+func TestReviewPipeline_SecondPipelineOnTheProjectConflicts(t *testing.T) {
+	f := newReviewFixture(t)
+	f.store.activeReview = true
+
+	for name, start := range map[string]func() (*plan.ExecutionPlan, error){
+		"review-refactor":   func() (*plan.ExecutionPlan, error) { return f.svc.StartReviewPipeline(f.ctx, "proj-1") },
+		"boundary analysis": func() (*plan.ExecutionPlan, error) { return f.svc.StartBoundaryAnalysis(f.ctx, "proj-1") },
+	} {
+		p, err := start()
+		if !errors.Is(err, domain.ErrConflict) || !errors.Is(err, review.ErrPipelineActive) || p != nil {
+			t.Fatalf("%s: %+v, %v, want a conflict with the active pipeline", name, p, err)
+		}
+	}
+	if len(f.store.tasks) != 0 || f.planner.created != nil {
+		t.Fatal("a refused pipeline created tasks or a plan")
+	}
+}
+
+// The guard in the store refuses a pipeline that raced past the check: the
+// start fails with the conflict and leaves nothing behind.
+func TestReviewPipeline_GuardConflictUndoesTheStart(t *testing.T) {
+	f := newReviewFixture(t)
+	f.store.recordErr = fmt.Errorf("create review pipeline: %w: %w", domain.ErrConflict, review.ErrPipelineActive)
+
+	if p, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); !errors.Is(err, review.ErrPipelineActive) || p != nil {
+		t.Fatalf("StartReviewPipeline = %+v, %v, want the guard's conflict", p, err)
+	}
+	if len(f.planner.cancelled) != 1 || len(f.store.cancelledTasks) != 4 || len(f.teams.ended) != 1 {
+		t.Fatalf("cancelled plans %v, tasks %v, ended teams %v: want everything undone", f.planner.cancelled, f.store.cancelledTasks, f.teams.ended)
+	}
+}
+
+// An agent that is idle between the steps of another plan is not picked.
+func TestReviewPipeline_PickAgentSkipsAgentsOfActivePlans(t *testing.T) {
+	f := newReviewFixture(t)
+	f.store.plans["other"] = &plan.ExecutionPlan{ID: "other", ProjectID: "proj-1", Status: plan.StatusRunning,
+		Steps: []plan.Step{{ID: "s1", AgentID: "idle", Status: plan.StepStatusCompleted}, {ID: "s2", AgentID: "idle", Status: plan.StepStatusPending}}}
+	f.store.plans["ended"] = &plan.ExecutionPlan{ID: "ended", ProjectID: "proj-1", Status: plan.StatusCompleted,
+		Steps: []plan.Step{{ID: "s3", AgentID: "free"}}}
+
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("StartReviewPipeline = %v, want no free agent", err)
+	}
+
+	f.store.agents = append(f.store.agents, agent.Agent{ID: "free", ProjectID: "proj-1", Status: agent.StatusIdle})
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartReviewPipeline: %v", err)
+	}
+	if got := f.planner.created.Steps[0].AgentID; got != "free" {
+		t.Fatalf("picked agent %s, want the one no running plan uses", got)
 	}
 }

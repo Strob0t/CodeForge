@@ -8,8 +8,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -46,11 +48,18 @@ type reviewTriggerResponse struct {
 }
 
 // writeReviewTrigger answers 202 with the started plan, or the reason
-// nothing started.
+// nothing started: 409 when the project already has an active review
+// pipeline or the agent belongs to another plan (S6-F 7).
 func writeReviewTrigger(w http.ResponseWriter, p *plan.ExecutionPlan, err error) {
 	switch {
 	case errors.Is(err, service.ErrReviewPipelineUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "review pipeline not configured")
+	case errors.Is(err, review.ErrPipelineActive):
+		writeError(w, http.StatusConflict, review.ErrPipelineActive.Error())
+	case errors.Is(err, review.ErrAgentInUse):
+		writeError(w, http.StatusConflict, review.ErrAgentInUse.Error())
+	case errors.Is(err, domain.ErrConflict):
+		writeError(w, http.StatusConflict, "the review pipeline conflicts with another plan of the project")
 	case err != nil:
 		writeDomainError(w, err, "project not found")
 	default:

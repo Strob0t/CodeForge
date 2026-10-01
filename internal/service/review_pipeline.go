@@ -75,6 +75,8 @@ type reviewPipelineStore interface {
 	GetReviewPipeline(ctx context.Context, planID string) (*review.Pipeline, error)
 	UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, from review.PipelineState) error
 	ListPendingReviewDecisions(ctx context.Context, projectID string) ([]review.Pipeline, error)
+	HasActiveReviewPipeline(ctx context.Context, projectID string) (bool, error)
+	ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error)
 }
 
 // reviewPlanner creates, starts and decides the review plans.
@@ -154,6 +156,15 @@ func (s *ReviewPipelineService) start(ctx context.Context, projectID, templateID
 	}
 	if proj.WorkspacePath == "" {
 		return nil, fmt.Errorf("%w: project has no workspace", domain.ErrValidation)
+	}
+	// One review pipeline per project (S6-F 7); CreateReviewPipeline guards
+	// it again when the plan is recorded.
+	active, err := s.store.HasActiveReviewPipeline(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if active {
+		return nil, fmt.Errorf("%w: %w", domain.ErrConflict, review.ErrPipelineActive)
 	}
 	tmpl, err := s.pipelines.Get(templateID)
 	if err != nil {
@@ -283,7 +294,10 @@ func (s *ReviewPipelineService) requireGitWorkspace(ctx context.Context, dir str
 	return nil
 }
 
-// pickAgent returns an idle agent of the project.
+// pickAgent returns an idle agent of the project that no plan which has not
+// ended uses (an agent is idle between a plan's steps): two plans never share
+// the agent (S6-F 7). CreateReviewPipeline checks it again when the plan is
+// recorded.
 func (s *ReviewPipelineService) pickAgent(ctx context.Context, projectID string) (*agent.Agent, error) {
 	agents, err := s.store.ListAgents(ctx, projectID)
 	if err != nil {
@@ -292,12 +306,39 @@ func (s *ReviewPipelineService) pickAgent(ctx context.Context, projectID string)
 	if len(agents) == 0 {
 		return nil, ErrReviewNoAgents
 	}
+	reserved, err := s.agentsOfActivePlans(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
 	for i := range agents {
-		if agents[i].Status == agent.StatusIdle {
+		if agents[i].Status == agent.StatusIdle && !reserved[agents[i].ID] {
 			return &agents[i], nil
 		}
 	}
-	return nil, fmt.Errorf("%w: every agent of the project is busy, try again when one is idle", domain.ErrValidation)
+	return nil, fmt.Errorf("%w: every agent of the project is busy or belongs to a plan that has not ended, try again when one is free", domain.ErrValidation)
+}
+
+// agentsOfActivePlans returns the agents assigned to steps of the project's
+// plans that have not ended.
+func (s *ReviewPipelineService) agentsOfActivePlans(ctx context.Context, projectID string) (map[string]bool, error) {
+	plans, err := s.store.ListPlansByProject(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list plans: %w", err)
+	}
+	reserved := map[string]bool{}
+	for i := range plans {
+		if plans[i].Status.IsTerminal() {
+			continue
+		}
+		p, err := s.store.GetPlan(ctx, plans[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("get plan %s: %w", plans[i].ID, err)
+		}
+		for j := range p.Steps {
+			reserved[p.Steps[j].AgentID] = true
+		}
+	}
+	return reserved, nil
 }
 
 func firstStepError(p *plan.ExecutionPlan) string {

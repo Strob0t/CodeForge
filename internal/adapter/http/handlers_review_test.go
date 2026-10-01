@@ -84,6 +84,12 @@ func TestReviewTriggerEndpoints(t *testing.T) {
 			"/projects/proj-1/review-refactor", http.StatusBadRequest, "no agents"},
 		{"no git workspace", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{err: service.ErrReviewNeedsGit}),
 			"/projects/proj-1/review-refactor", http.StatusBadRequest, "the review pipeline needs a git workspace"},
+		{"active pipeline", service.NewReviewTriggerService(reviewTriggerStore{},
+			reviewStarter{err: fmt.Errorf("%w: %w", domain.ErrConflict, review.ErrPipelineActive)}),
+			"/projects/proj-1/review-refactor", http.StatusConflict, "already active"},
+		{"agent in use", service.NewReviewTriggerService(reviewTriggerStore{},
+			reviewStarter{err: fmt.Errorf("%w: %w", domain.ErrConflict, review.ErrAgentInUse)}),
+			"/projects/proj-1/boundaries/analyze", http.StatusConflict, "another plan"},
 		{"unknown project", service.NewReviewTriggerService(reviewTriggerStore{}, reviewStarter{}),
 			"/projects/other/boundaries/analyze", http.StatusNotFound, "project not found"},
 		{"no pipeline wired", service.NewReviewTriggerService(reviewTriggerStore{}, nil),
@@ -133,6 +139,12 @@ func (decisionStore) UpsertProjectBoundaries(context.Context, *boundary.ProjectB
 func (decisionStore) CreateReviewPipeline(context.Context, *review.Pipeline) error { return nil }
 func (decisionStore) UpdateReviewPipeline(context.Context, *review.Pipeline, review.PipelineState) error {
 	return nil
+}
+func (decisionStore) HasActiveReviewPipeline(context.Context, string) (bool, error) {
+	return false, nil
+}
+func (decisionStore) ListPlansByProject(context.Context, string) ([]plan.ExecutionPlan, error) {
+	return nil, nil
 }
 func (decisionStore) ListPendingReviewDecisions(_ context.Context, projectID string) ([]review.Pipeline, error) {
 	if projectID != "proj-1" {
