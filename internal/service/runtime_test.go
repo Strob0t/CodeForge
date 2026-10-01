@@ -2587,7 +2587,20 @@ func (m *runtimeMockStore) CreateChannel(_ context.Context, _ *channel.Channel) 
 func (m *runtimeMockStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+func (m *runtimeMockStore) ListChannels(_ context.Context, _, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+
+func (m *runtimeMockStore) SetChannelWebhookKeyHash(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
+func (m *runtimeMockStore) GetChannelWebhookKeyHash(_ context.Context, _ string) (tenantID string, hash []byte, err error) {
+	return "", nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) MarkChannelRead(_ context.Context, _, _, _ string) (*channel.ReadState, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) ListChannelReadStates(_ context.Context, _ string) ([]channel.ReadState, error) {
 	return nil, nil
 }
 func (m *runtimeMockStore) DeleteChannel(_ context.Context, _ string) error { return nil }

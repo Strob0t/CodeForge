@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { ChannelMessageRecord } from "~/api/types";
 import type { WSMessage } from "~/api/websocket";
 
-import { addMessage, parseChannelMessageEvent } from "./channelEvents";
+import {
+  addMessage,
+  applyUnreadEvent,
+  parseChannelMessageEvent,
+  parseChannelReadEvent,
+  replyCounts,
+} from "./channelEvents";
 
 const stored: ChannelMessageRecord = {
   id: "m-1",
@@ -65,5 +71,76 @@ describe("addMessage", () => {
   it("does not add a message twice (the sender also receives its own event)", () => {
     const list = [a, b];
     expect(addMessage(list, { id: "a" }, "start")).toBe(list);
+  });
+});
+
+// KI-73: read positions and unread counts.
+describe("parseChannelReadEvent", () => {
+  it("returns the read position of a channel.read event", () => {
+    const msg: WSMessage = {
+      type: "channel.read",
+      payload: { channel_id: "ch-1", user_id: "u-1", message_id: "m-9", last_read_at: "t" },
+    };
+    expect(parseChannelReadEvent(msg)).toEqual({
+      channel_id: "ch-1",
+      user_id: "u-1",
+      last_read_message_id: "m-9",
+      last_read_at: "t",
+    });
+  });
+
+  it.each<[string, WSMessage]>([
+    ["another event type", channelEvent(stored)],
+    ["no user", { type: "channel.read", payload: { channel_id: "ch-1", message_id: "m" } }],
+    ["no message", { type: "channel.read", payload: { channel_id: "ch-1", user_id: "u" } }],
+  ])("ignores %s", (_name, msg) => {
+    expect(parseChannelReadEvent(msg)).toBeNull();
+  });
+});
+
+describe("replyCounts", () => {
+  it("counts the replies per parent", () => {
+    const counts = replyCounts([
+      { parent_id: "" },
+      { parent_id: "m-1" },
+      { parent_id: "m-1" },
+      { parent_id: "m-2" },
+    ]);
+    expect(counts.get("m-1")).toBe(2);
+    expect(counts.get("m-2")).toBe(1);
+    expect(counts.has("")).toBe(false);
+  });
+});
+
+describe("applyUnreadEvent", () => {
+  const fromBob = { ...stored, sender_id: "u-bob" };
+  const read = (userId: string): WSMessage => ({
+    type: "channel.read",
+    payload: { channel_id: "ch-1", user_id: userId, message_id: "m-1" },
+  });
+
+  it("counts a top-level message of someone else in a channel that is not open", () => {
+    expect(applyUnreadEvent({ "ch-1": 2 }, channelEvent(fromBob), "u-me", "ch-9")).toEqual({
+      "ch-1": 3,
+    });
+    const webhook = channelEvent({ ...fromBob, sender_id: undefined });
+    expect(applyUnreadEvent({}, webhook, "u-me", undefined)).toEqual({ "ch-1": 1 });
+  });
+
+  it.each<[string, WSMessage, string | undefined]>([
+    ["own message", channelEvent({ ...stored, sender_id: "u-me" }), undefined],
+    ["thread reply", channelEvent({ ...fromBob, parent_id: "m-0" }), undefined],
+    ["message in the open channel", channelEvent(fromBob), "ch-1"],
+  ])("does not count an %s", (_name, msg, open) => {
+    expect(applyUnreadEvent({ "ch-1": 2 }, msg, "u-me", open)).toEqual({ "ch-1": 2 });
+  });
+
+  it("clears the count when the user read the channel, not when someone else did", () => {
+    expect(applyUnreadEvent({ "ch-1": 4 }, read("u-me"), "u-me", undefined)).toEqual({
+      "ch-1": 0,
+    });
+    expect(applyUnreadEvent({ "ch-1": 4 }, read("u-bob"), "u-me", undefined)).toEqual({
+      "ch-1": 4,
+    });
   });
 });

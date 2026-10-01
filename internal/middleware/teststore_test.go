@@ -847,7 +847,18 @@ func (s *testStore) CreateChannel(_ context.Context, _ *channel.Channel) (*chann
 func (s *testStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
 	return nil, nil
 }
-func (s *testStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+func (s *testStore) ListChannels(_ context.Context, _, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+
+func (s *testStore) SetChannelWebhookKeyHash(_ context.Context, _ string, _ []byte) error { return nil }
+func (s *testStore) GetChannelWebhookKeyHash(_ context.Context, _ string) (tenantID string, hash []byte, err error) {
+	return "", nil, domain.ErrNotFound
+}
+func (s *testStore) MarkChannelRead(_ context.Context, _, _, _ string) (*channel.ReadState, error) {
+	return nil, domain.ErrNotFound
+}
+func (s *testStore) ListChannelReadStates(_ context.Context, _ string) ([]channel.ReadState, error) {
 	return nil, nil
 }
 func (s *testStore) DeleteChannel(_ context.Context, _ string) error { return nil }

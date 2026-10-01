@@ -2146,10 +2146,36 @@ export interface RoutingOutcome {
 
 // --- Channels (Phase 9) ---
 
-/** Matches Go domain/channel.Message (Go omits an empty parent_id). */
+/** Matches Go domain/channel.Channel. */
+export interface ChannelRecord {
+  id: string;
+  tenant_id: string;
+  project_id?: string;
+  name: string;
+  type: "project" | "bot";
+  description: string;
+  /** A webhook key was generated (the key itself is shown only once). */
+  has_webhook_key: boolean;
+  created_by?: string;
+  created_at: string;
+  /** Top-level messages of others after the caller's read position. */
+  unread_count: number;
+}
+
+/** Matches Go domain/channel.ReadState. */
+export interface ChannelReadState {
+  channel_id: string;
+  user_id: string;
+  last_read_message_id?: string;
+  last_read_at: string;
+}
+
+/** Matches Go domain/channel.Message (Go omits an empty parent_id and sender_id). */
 export interface ChannelMessageRecord {
   id: string;
   channel_id: string;
+  /** The user who posted it; absent for agents, bots and webhooks. */
+  sender_id?: string;
   sender_type: string;
   sender_name: string;
   content: string;

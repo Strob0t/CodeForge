@@ -29,41 +29,120 @@ func (s *Store) CreateChannel(ctx context.Context, ch *channel.Channel) (*channe
 func (s *Store) GetChannel(ctx context.Context, id string) (*channel.Channel, error) {
 	var ch channel.Channel
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at
+		`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at,
+		        webhook_key_hash IS NOT NULL
 		 FROM channels WHERE id = $1 AND tenant_id = $2`,
 		id, tenantFromCtx(ctx),
 	).Scan(&ch.ID, &ch.TenantID, &ch.ProjectID, &ch.Name,
-		&ch.Type, &ch.Description, &ch.CreatedBy, &ch.CreatedAt)
+		&ch.Type, &ch.Description, &ch.CreatedBy, &ch.CreatedAt, &ch.HasWebhookKey)
 	if err != nil {
 		return nil, notFoundWrap(err, "get channel %s", id)
 	}
 	return &ch, nil
 }
 
-func (s *Store) ListChannels(ctx context.Context, projectID string) ([]channel.Channel, error) {
-	tid := tenantFromCtx(ctx)
-	var rows pgx.Rows
-	var err error
-
-	if projectID == "" {
-		rows, err = s.pool.Query(ctx,
-			`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at
-			 FROM channels WHERE tenant_id = $1 ORDER BY created_at DESC`,
-			tid)
-	} else {
-		rows, err = s.pool.Query(ctx,
-			`SELECT id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at
-			 FROM channels WHERE project_id = $1 AND tenant_id = $2 ORDER BY created_at DESC`,
-			projectID, tid)
-	}
+// ListChannels lists the tenant's channels, of one project when projectID is
+// set. With a user, each channel carries the number of top-level messages of
+// others after the user's read position.
+func (s *Store) ListChannels(ctx context.Context, projectID, userID string) ([]channel.Channel, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT c.id, c.tenant_id, COALESCE(c.project_id::text,''), c.name, c.type, c.description,
+		        COALESCE(c.created_by::text,''), c.created_at, c.webhook_key_hash IS NOT NULL,
+		        CASE WHEN $3::uuid IS NULL THEN 0 ELSE (
+		          SELECT COUNT(*) FROM channel_messages m
+		          WHERE m.channel_id = c.id AND m.parent_id IS NULL
+		            AND m.sender_id IS DISTINCT FROM $3::uuid
+		            AND m.created_at > COALESCE(rs.last_read_at, '-infinity'::timestamptz))
+		        END
+		 FROM channels c
+		 LEFT JOIN channel_read_state rs ON rs.channel_id = c.id AND rs.user_id = $3::uuid
+		 WHERE c.tenant_id = $1 AND ($2::uuid IS NULL OR c.project_id = $2::uuid)
+		 ORDER BY c.created_at DESC`,
+		tenantFromCtx(ctx), nullIfEmpty(projectID), nullIfEmpty(userID))
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
 	return scanRows(rows, func(r pgx.Rows) (channel.Channel, error) {
 		var ch channel.Channel
 		err := r.Scan(&ch.ID, &ch.TenantID, &ch.ProjectID, &ch.Name,
-			&ch.Type, &ch.Description, &ch.CreatedBy, &ch.CreatedAt)
+			&ch.Type, &ch.Description, &ch.CreatedBy, &ch.CreatedAt, &ch.HasWebhookKey, &ch.UnreadCount)
 		return ch, err
+	})
+}
+
+// SetChannelWebhookKeyHash stores the hash of the webhook key of a channel of
+// the caller's tenant.
+func (s *Store) SetChannelWebhookKeyHash(ctx context.Context, channelID string, hash []byte) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE channels SET webhook_key_hash = $3 WHERE id = $1 AND tenant_id = $2`,
+		channelID, tenantFromCtx(ctx), hash)
+	return execExpectOne(tag, err, "set webhook key of channel %s", channelID)
+}
+
+// GetChannelWebhookKeyHash returns the tenant and webhook key hash of a
+// channel.
+//
+// INTENTIONALLY CROSS-TENANT: a webhook call carries no user and no tenant;
+// the key it presents is checked against this hash and the message is then
+// handled in the returned tenant.
+func (s *Store) GetChannelWebhookKeyHash(ctx context.Context, channelID string) (tenantID string, hash []byte, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT tenant_id, webhook_key_hash FROM channels WHERE id = $1`, channelID,
+	).Scan(&tenantID, &hash)
+	if err != nil {
+		return "", nil, notFoundWrap(err, "get webhook key of channel %s", channelID)
+	}
+	return tenantID, hash, nil
+}
+
+// MarkChannelRead moves the user's read position in a channel of the
+// caller's tenant to one of its messages; an older message does not move it
+// back. A channel or message that is not the tenant's, or not the channel's,
+// is not found.
+func (s *Store) MarkChannelRead(ctx context.Context, channelID, userID, messageID string) (*channel.ReadState, error) {
+	tid := tenantFromCtx(ctx)
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO channel_read_state (channel_id, user_id, tenant_id, last_read_message_id, last_read_at)
+		 SELECT m.channel_id, $2, m.tenant_id, m.id, m.created_at
+		 FROM channel_messages m JOIN channels c ON c.id = m.channel_id
+		 WHERE m.id = $3 AND m.channel_id = $1 AND c.tenant_id = $4
+		 ON CONFLICT (channel_id, user_id) DO UPDATE
+		   SET last_read_message_id = EXCLUDED.last_read_message_id,
+		       last_read_at = EXCLUDED.last_read_at, updated_at = now()
+		   WHERE channel_read_state.last_read_at <= EXCLUDED.last_read_at`,
+		channelID, userID, messageID, tid)
+	if err != nil {
+		return nil, fmt.Errorf("mark channel %s read: %w", channelID, err)
+	}
+	var state channel.ReadState
+	err = s.pool.QueryRow(ctx,
+		`SELECT channel_id, user_id, COALESCE(last_read_message_id::text,''), last_read_at
+		 FROM channel_read_state
+		 WHERE channel_id = $1 AND user_id = $2 AND tenant_id = $3
+		   AND ($4 OR EXISTS (SELECT 1 FROM channel_messages m WHERE m.id = $5 AND m.channel_id = $1))`,
+		channelID, userID, tid, tag.RowsAffected() > 0, messageID,
+	).Scan(&state.ChannelID, &state.UserID, &state.LastReadMessageID, &state.LastReadAt)
+	if err != nil {
+		return nil, notFoundWrap(err, "mark channel %s read at message %s", channelID, messageID)
+	}
+	return &state, nil
+}
+
+// ListChannelReadStates returns the read positions in a channel of the
+// caller's tenant.
+func (s *Store) ListChannelReadStates(ctx context.Context, channelID string) ([]channel.ReadState, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT channel_id, user_id, COALESCE(last_read_message_id::text,''), last_read_at
+		 FROM channel_read_state WHERE channel_id = $1 AND tenant_id = $2
+		 ORDER BY last_read_at DESC`,
+		channelID, tenantFromCtx(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("list read states of channel %s: %w", channelID, err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (channel.ReadState, error) {
+		var rs channel.ReadState
+		err := r.Scan(&rs.ChannelID, &rs.UserID, &rs.LastReadMessageID, &rs.LastReadAt)
+		return rs, err
 	})
 }
 

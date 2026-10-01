@@ -8,6 +8,8 @@ import type {
   BenchmarkRequest,
   BenchmarkResult,
   ChannelMessageRecord,
+  ChannelReadState,
+  ChannelRecord,
   CommandInfo,
   CreateGoalRequest,
   CreateMCPServerRequest,
@@ -306,29 +308,19 @@ export function createGoalsResource(c: CoreClient) {
 
 export function createChannelsResource(c: CoreClient) {
   return {
-    list: () =>
-      c.get<
-        {
-          id: string;
-          tenant_id: string;
-          project_id: string;
-          name: string;
-          type: "project" | "bot";
-          description: string;
-          created_by: string;
-          created_at: string;
-        }[]
-      >("/channels"),
+    list: () => c.get<ChannelRecord[]>("/channels"),
 
-    get: (id: string) =>
-      c.get<{
-        id: string;
-        name: string;
-        type: string;
-        description: string;
-        project_id: string;
-        created_at: string;
-      }>(url`/channels/${id}`),
+    get: (id: string) => c.get<ChannelRecord>(url`/channels/${id}`),
+
+    /** Admins: make a new webhook key; it is returned only this once. */
+    regenerateWebhookKey: (id: string) =>
+      c.post<{ webhook_key: string }>(url`/channels/${id}/webhook-key`, {}),
+
+    /** Move the caller's read position to a message. */
+    markRead: (id: string, messageId: string) =>
+      c.post<ChannelReadState>(url`/channels/${id}/read`, { message_id: messageId }),
+
+    readStates: (id: string) => c.get<ChannelReadState[]>(url`/channels/${id}/read`),
 
     messages: (id: string, cursor?: string, limit?: number) => {
       const params = new URLSearchParams();

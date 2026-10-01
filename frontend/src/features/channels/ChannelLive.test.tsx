@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@solidjs/testing-library";
+import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ChannelMessageRecord } from "~/api/types";
@@ -17,7 +17,12 @@ const ws = vi.hoisted(() => {
 const apiMock = vi.hoisted(() => ({
   get: vi.fn<(id: string) => Promise<unknown>>(),
   messages: vi.fn<(id: string) => Promise<ChannelMessageRecord[]>>(),
+  markRead: vi.fn<(id: string, messageId: string) => Promise<unknown>>(),
+  regenerateWebhookKey: vi.fn<(id: string) => Promise<{ webhook_key: string }>>(),
+  list: vi.fn<() => Promise<unknown[]>>(),
 }));
+
+const auth = vi.hoisted(() => ({ admin: false, userId: "u-me" }));
 
 // jsdom has no matchMedia; the UI modules read it when they are loaded.
 vi.hoisted(() => {
@@ -44,7 +49,30 @@ vi.mock("@solidjs/router", () => ({
 }));
 
 vi.mock("~/api/client", () => ({
-  api: { channels: { get: apiMock.get, messages: apiMock.messages } },
+  api: {
+    channels: {
+      get: apiMock.get,
+      messages: apiMock.messages,
+      markRead: apiMock.markRead,
+      regenerateWebhookKey: apiMock.regenerateWebhookKey,
+      list: apiMock.list,
+    },
+  },
+}));
+
+vi.mock("~/components/AuthProvider", () => ({
+  useAuth: () => ({
+    hasRole: (...roles: string[]) => auth.admin && roles.includes("admin"),
+    user: () => ({ id: auth.userId }),
+  }),
+}));
+
+vi.mock("~/components/ConfirmProvider", () => ({
+  useConfirm: () => ({ confirm: () => Promise.resolve(true) }),
+}));
+
+vi.mock("~/components/SidebarProvider", () => ({
+  useSidebar: () => ({ collapsed: () => false }),
 }));
 
 vi.mock("~/components/WebSocketProvider", () => ({
@@ -56,6 +84,7 @@ vi.mock("~/components/WebSocketProvider", () => ({
   }),
 }));
 
+import ChannelList from "./ChannelList";
 import ChannelView from "./ChannelView";
 import ThreadPanel from "./ThreadPanel";
 
@@ -82,6 +111,7 @@ function channelMessage(m: ChannelMessageRecord): WSMessage {
 
 beforeEach(() => {
   ws.handlers.clear();
+  auth.admin = false;
   Element.prototype.scrollIntoView = () => undefined;
   apiMock.get.mockReset().mockResolvedValue({
     id: "ch-1",
@@ -90,8 +120,13 @@ beforeEach(() => {
     description: "",
     project_id: "",
     created_at: "",
+    has_webhook_key: false,
+    unread_count: 0,
   });
   apiMock.messages.mockReset().mockResolvedValue([record("m-1", "first message")]);
+  apiMock.markRead.mockReset().mockResolvedValue({});
+  apiMock.regenerateWebhookKey.mockReset().mockResolvedValue({ webhook_key: "k".repeat(64) });
+  apiMock.list.mockReset().mockResolvedValue([]);
 });
 
 // KI-42: messages from other users, agents and webhooks appear without a reload.
@@ -183,5 +218,78 @@ describe("ThreadPanel live updates", () => {
     expect(
       order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+});
+
+// KI-73: threads open in the thread panel, the newest message is marked read,
+// admins create the webhook key, and the channel list shows unread counts.
+describe("ChannelView threads and read state", () => {
+  it("shows top-level messages with their reply count and opens the thread", async () => {
+    apiMock.messages.mockResolvedValue([
+      record("r-1", "a reply", "m-1"),
+      record("m-1", "first message"),
+    ]);
+    render(() => <ChannelView />);
+    await screen.findByText("first message");
+    expect(screen.queryByText("a reply")).toBeNull();
+
+    fireEvent.click(screen.getByText("1 reply"));
+
+    await screen.findByText("Thread");
+    expect(await screen.findByText("a reply")).toBeTruthy();
+  });
+
+  it("marks the newest message read after loading", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      apiMock.messages.mockResolvedValue([record("m-2", "newest"), record("m-1", "older")]);
+      render(() => <ChannelView />);
+      await screen.findByText("newest");
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(apiMock.markRead).toHaveBeenCalledWith("ch-1", "m-2");
+      expect(apiMock.markRead).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets admins create the webhook key and shows it once", async () => {
+    auth.admin = true;
+    render(() => <ChannelView />);
+    fireEvent.click(await screen.findByText("Create webhook key"));
+    const shown = await screen.findByTestId("webhook-key");
+    expect(shown.textContent).toBe("k".repeat(64));
+    expect(apiMock.regenerateWebhookKey).toHaveBeenCalledWith("ch-1");
+
+    fireEvent.click(screen.getByText("Done"));
+    await waitFor(() => expect(screen.queryByTestId("webhook-key")).toBeNull());
+  });
+
+  it("offers no webhook key to non-admins", async () => {
+    render(() => <ChannelView />);
+    await screen.findByText("# general");
+    expect(screen.queryByText("Create webhook key")).toBeNull();
+  });
+});
+
+describe("ChannelList unread counts", () => {
+  function channel(id: string, name: string, unread: number): Record<string, unknown> {
+    return { id, name, type: "project", unread_count: unread, has_webhook_key: false };
+  }
+
+  it("shows the server counts and follows new messages and own reads", async () => {
+    apiMock.list.mockResolvedValue([channel("ch-1", "general", 2), channel("ch-2", "random", 0)]);
+    render(() => <ChannelList />);
+    expect((await screen.findByLabelText("2 unread")).textContent).toBe("2");
+
+    ws.emit(channelMessage({ ...record("m-5", "hi", "", "ch-2"), sender_id: "u-bob" }));
+    await screen.findByLabelText("1 unread");
+
+    ws.emit({
+      type: "channel.read",
+      payload: { channel_id: "ch-1", user_id: "u-me", message_id: "m-1" },
+    });
+    await waitFor(() => expect(screen.queryByLabelText("2 unread")).toBeNull());
+    expect(screen.getByLabelText("1 unread")).toBeTruthy();
   });
 });

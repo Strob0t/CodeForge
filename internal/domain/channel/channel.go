@@ -46,9 +46,22 @@ type Channel struct {
 	Name        string      `json:"name"`
 	Type        ChannelType `json:"type"`
 	Description string      `json:"description"`
-	WebhookKey  string      `json:"webhook_key,omitempty"`
-	CreatedBy   string      `json:"created_by,omitempty"`
-	CreatedAt   time.Time   `json:"created_at"`
+	// HasWebhookKey reports whether a webhook key was generated; the key
+	// itself is shown once and only its hash is stored.
+	HasWebhookKey bool      `json:"has_webhook_key"`
+	CreatedBy     string    `json:"created_by,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	// UnreadCount is the number of top-level messages of others after the
+	// calling user's read position (only set when channels are listed for a user).
+	UnreadCount int `json:"unread_count"`
+}
+
+// ReadState is a user's read position in a channel.
+type ReadState struct {
+	ChannelID         string    `json:"channel_id"`
+	UserID            string    `json:"user_id"`
+	LastReadMessageID string    `json:"last_read_message_id,omitempty"`
+	LastReadAt        time.Time `json:"last_read_at"`
 }
 
 // ErasedSenderName replaces the sender name of the messages of a user whose

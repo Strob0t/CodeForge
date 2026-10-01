@@ -1,4 +1,4 @@
-import type { ChannelMessageRecord } from "~/api/types";
+import type { ChannelMessageRecord, ChannelReadState } from "~/api/types";
 import type { WSMessage } from "~/api/websocket";
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
@@ -24,12 +24,32 @@ export function parseChannelMessageEvent(msg: WSMessage): ChannelMessageRecord |
   return {
     id,
     channel_id: channelId,
+    // Go omits sender_id for agents, bots and webhooks.
+    sender_id: stringField(m, "sender_id"),
     sender_type: stringField(m, "sender_type") ?? "",
     sender_name: stringField(m, "sender_name") ?? "",
     content,
     // Go omits an empty parent_id: the message is not a thread reply.
     parent_id: stringField(m, "parent_id") ?? "",
     created_at: stringField(m, "created_at") ?? "",
+  };
+}
+
+/**
+ * Returns the read position of a channel.read event (Go event.ChannelReadEvent),
+ * or null for other events and incomplete payloads.
+ */
+export function parseChannelReadEvent(msg: WSMessage): ChannelReadState | null {
+  if (msg.type !== "channel.read") return null;
+  const channelId = stringField(msg.payload, "channel_id");
+  const userId = stringField(msg.payload, "user_id");
+  const messageId = stringField(msg.payload, "message_id");
+  if (!channelId || !userId || !messageId) return null;
+  return {
+    channel_id: channelId,
+    user_id: userId,
+    last_read_message_id: messageId,
+    last_read_at: stringField(msg.payload, "last_read_at") ?? "",
   };
 }
 
@@ -46,4 +66,37 @@ export function addMessage<T extends { id: string }>(
   const current = list ?? [];
   if (current.some((m) => m.id === message.id)) return current;
   return at === "start" ? [message, ...current] : [...current, message];
+}
+
+/** Counts the thread replies per parent message. */
+export function replyCounts(messages: readonly { parent_id: string }[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const m of messages) {
+    if (m.parent_id) counts.set(m.parent_id, (counts.get(m.parent_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Applies a live channel event to the unread counts shown for the channel
+ * list, like the server counts them: top-level messages of others raise the
+ * channel's count unless the channel is open; the user's own read position
+ * (from any of their sessions) clears it.
+ */
+export function applyUnreadEvent(
+  counts: Readonly<Record<string, number>>,
+  msg: WSMessage,
+  me: string | undefined,
+  openChannelId: string | undefined,
+): Record<string, number> {
+  const message = parseChannelMessageEvent(msg);
+  if (message) {
+    const own = me !== undefined && message.sender_id === me;
+    const ownOrOpen = own || message.channel_id === openChannelId;
+    if (message.parent_id || ownOrOpen) return { ...counts };
+    return { ...counts, [message.channel_id]: (counts[message.channel_id] ?? 0) + 1 };
+  }
+  const read = parseChannelReadEvent(msg);
+  if (read && read.user_id === me) return { ...counts, [read.channel_id]: 0 };
+  return { ...counts };
 }

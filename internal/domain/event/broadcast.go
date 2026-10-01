@@ -100,6 +100,5 @@ const (
 
 	// Channel events
 	EventChannelMessage = "channel.message"
-	EventChannelTyping  = "channel.typing"
 	EventChannelRead    = "channel.read"
 )

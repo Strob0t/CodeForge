@@ -1,6 +1,8 @@
 package event
 
 import (
+	"time"
+
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
 )
@@ -401,16 +403,12 @@ type ChannelMessageEvent struct {
 	Message   channel.Message `json:"message"`
 }
 
-// ChannelTypingEvent is broadcast when a user starts or stops typing in a channel.
-type ChannelTypingEvent struct {
-	ChannelID string `json:"channel_id"`
-	User      string `json:"user"`
-	Typing    bool   `json:"typing"`
-}
-
-// ChannelReadEvent is broadcast when a user marks messages as read in a channel.
+// ChannelReadEvent is broadcast when a user's read position in a channel
+// moves (the user's other sessions clear their unread marks, others see the
+// read receipt).
 type ChannelReadEvent struct {
-	ChannelID string `json:"channel_id"`
-	User      string `json:"user"`
-	LastRead  string `json:"last_read"`
+	ChannelID  string    `json:"channel_id"`
+	UserID     string    `json:"user_id"`
+	MessageID  string    `json:"message_id"`
+	LastReadAt time.Time `json:"last_read_at"`
 }

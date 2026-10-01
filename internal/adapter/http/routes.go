@@ -122,6 +122,8 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 // mountWebhookRoutes registers VCS/PM webhook endpoints (outside auth, use HMAC/token verification).
 func mountWebhookRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
 	r.Route("/api/v1/webhooks", func(r chi.Router) {
+		// Channel webhooks authenticate with the channel's webhook key (KI-73).
+		r.Post("/channels/{id}", h.WebhookMessage)
 		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
 			Post("/vcs/github", h.HandleGitHubWebhook)
 		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
@@ -724,7 +726,10 @@ func mountChannelRoutes(r chi.Router, h *Handlers) {
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Post("/{id}/messages/{mid}/thread", h.SendThreadReply)
 		r.Put("/{id}/members/{uid}", h.UpdateMemberNotify)
-		r.Post("/{id}/webhook", h.WebhookMessage)
+		r.With(middleware.RequireRole(user.RoleAdmin)).
+			Post("/{id}/webhook-key", h.RegenerateChannelWebhookKey)
+		r.Post("/{id}/read", h.MarkChannelRead)
+		r.Get("/{id}/read", h.ListChannelReadStates)
 	})
 }
 

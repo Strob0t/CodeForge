@@ -33,7 +33,7 @@ func (m *chMockStore) GetChannel(_ context.Context, id string) (*channel.Channel
 	return nil, errMockNotFound
 }
 
-func (m *chMockStore) ListChannels(_ context.Context, projectID string) ([]channel.Channel, error) {
+func (m *chMockStore) ListChannels(_ context.Context, projectID, _ string) ([]channel.Channel, error) {
 	if projectID == "" {
 		return m.channels, nil
 	}
@@ -228,7 +228,7 @@ func TestChannelService_List(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &chMockStore{channels: tt.seed}
 			svc := service.NewChannelService(store, &runtimeMockBroadcaster{})
-			channels, err := svc.List(context.Background(), tt.projectID)
+			channels, err := svc.List(context.Background(), tt.projectID, "")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

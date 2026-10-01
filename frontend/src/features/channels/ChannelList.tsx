@@ -1,12 +1,41 @@
-import { createResource, For, Show } from "solid-js";
+import { useLocation } from "@solidjs/router";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import { useAuth } from "~/components/AuthProvider";
 import { useSidebar } from "~/components/SidebarProvider";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { NavSection } from "~/ui/layout";
+
+import { applyUnreadEvent } from "./channelEvents";
+
+/** The ID of the channel shown by the current route, if any. */
+function openChannelId(pathname: string): string | undefined {
+  const match = /^\/channels\/([^/]+)/.exec(pathname);
+  return match?.[1];
+}
 
 export default function ChannelList() {
   const [channels] = createResource(() => api.channels.list());
   const { collapsed } = useSidebar();
+  const { user } = useAuth();
+  const location = useLocation();
+
+  // Unread counts start from the server's and follow the live events.
+  const [unread, setUnread] = createSignal<Record<string, number>>({});
+  createEffect(() => {
+    const list = channels();
+    if (!list) return;
+    setUnread(Object.fromEntries(list.map((ch) => [ch.id, ch.unread_count])));
+  });
+
+  const { onMessage } = useWebSocket();
+  const unsubscribe = onMessage((msg) => {
+    setUnread((counts) =>
+      applyUnreadEvent(counts, msg, user()?.id, openChannelId(location.pathname)),
+    );
+  });
+  onCleanup(unsubscribe);
 
   return (
     <NavSection label="Channels">
@@ -30,6 +59,14 @@ export default function ChannelList() {
                       >
                         <span class="text-cf-text-muted">{ch.type === "project" ? "#" : ">"}</span>
                         <span class="truncate">{ch.name}</span>
+                        <Show when={(unread()[ch.id] ?? 0) > 0}>
+                          <span
+                            class="ml-auto rounded-full bg-cf-accent px-1.5 text-xs font-semibold text-cf-accent-fg"
+                            aria-label={`${unread()[ch.id]} unread`}
+                          >
+                            {unread()[ch.id]}
+                          </span>
+                        </Show>
                       </a>
                     </li>
                   )}

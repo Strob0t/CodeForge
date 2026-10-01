@@ -1,19 +1,24 @@
 package http
 
 import (
-	"crypto/hmac"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/service"
 )
 
-// ListChannels handles GET /api/v1/channels
+// ListChannels handles GET /api/v1/channels (with the caller's unread counts).
 func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
-	channels, err := h.Channels.List(r.Context(), projectID)
+	userID := ""
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		userID = u.ID
+	}
+	channels, err := h.Channels.List(r.Context(), projectID, userID)
 	if err != nil {
 		writeDomainError(w, err, "list channels")
 		return
@@ -149,7 +154,54 @@ func (h *Handlers) UpdateMemberNotify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
-// WebhookMessage handles POST /api/v1/channels/{id}/webhook
+// RegenerateChannelWebhookKey handles POST /api/v1/channels/{id}/webhook-key
+// (admins): it makes a new webhook key and returns it once; a previous key
+// stops working.
+func (h *Handlers) RegenerateChannelWebhookKey(w http.ResponseWriter, r *http.Request) {
+	key, err := h.Channels.RegenerateWebhookKey(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "generate webhook key")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"webhook_key": key})
+}
+
+// MarkChannelRead handles POST /api/v1/channels/{id}/read: it moves the
+// caller's read position to a message.
+func (h *Handlers) MarkChannelRead(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	type markReadRequest struct {
+		MessageID string `json:"message_id"`
+	}
+	req, ok := readJSON[markReadRequest](w, r, h.Limits.MaxRequestBodySize)
+	if !ok {
+		return
+	}
+	state, err := h.Channels.MarkRead(r.Context(), chi.URLParam(r, "id"), u.ID, req.MessageID)
+	if err != nil {
+		writeDomainError(w, err, "mark channel read")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
+// ListChannelReadStates handles GET /api/v1/channels/{id}/read.
+func (h *Handlers) ListChannelReadStates(w http.ResponseWriter, r *http.Request) {
+	states, err := h.Channels.ListReadStates(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "list channel read states")
+		return
+	}
+	writeJSONList(w, http.StatusOK, states)
+}
+
+// WebhookMessage handles POST /api/v1/webhooks/channels/{id}: a public
+// endpoint for external systems, authenticated by the channel's webhook key
+// (X-Webhook-Key) and handled in the channel's tenant.
 func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 
@@ -158,15 +210,13 @@ func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "X-Webhook-Key header is required")
 		return
 	}
-
-	// Validate the webhook key against the channel's stored key.
-	ch, err := h.Channels.Get(r.Context(), channelID)
-	if err != nil {
-		writeDomainError(w, err, "channel not found")
+	ctx, err := h.Channels.AuthorizeWebhook(r.Context(), channelID, webhookKey)
+	if errors.Is(err, service.ErrWebhookForbidden) {
+		writeError(w, http.StatusForbidden, "invalid webhook key")
 		return
 	}
-	if !hmac.Equal([]byte(webhookKey), []byte(ch.WebhookKey)) {
-		writeError(w, http.StatusForbidden, "invalid webhook key")
+	if err != nil {
+		writeInternalError(w, err)
 		return
 	}
 
@@ -177,8 +227,9 @@ func (h *Handlers) WebhookMessage(w http.ResponseWriter, r *http.Request) {
 	req.ChannelID = channelID
 	req.SenderType = channel.SenderWebhook
 	req.SenderID = "" // a webhook is not a user; its sender_name is only a display label
+	req.ParentID = ""
 
-	msg, err := h.Channels.SendMessage(r.Context(), &req)
+	msg, err := h.Channels.SendMessage(ctx, &req)
 	if err != nil {
 		writeDomainError(w, err, "webhook message")
 		return

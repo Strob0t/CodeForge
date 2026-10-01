@@ -3,13 +3,16 @@ import { createResource, createSignal, For, onCleanup, onMount, Show } from "sol
 
 import { api } from "~/api/client";
 import type { ChannelMessageRecord } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
+import { useConfirm } from "~/components/ConfirmProvider";
 import { useWebSocket } from "~/components/WebSocketProvider";
-import { Badge } from "~/ui";
+import { Alert, Badge, Button } from "~/ui";
 
-import { addMessage, parseChannelMessageEvent } from "./channelEvents";
+import { addMessage, parseChannelMessageEvent, replyCounts } from "./channelEvents";
 import ChannelInput from "./ChannelInput";
 import type { ChannelMessageData } from "./ChannelMessage";
 import ChannelMessage from "./ChannelMessage";
+import ThreadPanel from "./ThreadPanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,6 +30,9 @@ function channelTypeBadgeVariant(type: string): "primary" | "info" | "default" {
   }
 }
 
+/** Delay before the newest shown message is marked read (bursts mark once). */
+const MARK_READ_DELAY_MS = 1000;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -36,12 +42,17 @@ export default function ChannelView() {
     document.title = "Channel - CodeForge";
   });
   const params = useParams<{ id: string }>();
+  const { hasRole } = useAuth();
+  const { confirm } = useConfirm();
 
   let messagesEndRef: HTMLDivElement | undefined;
   const [sending, setSending] = createSignal(false);
+  const [threadParent, setThreadParent] = createSignal<ChannelMessageData | null>(null);
+  const [webhookKey, setWebhookKey] = createSignal<string | null>(null);
+  const [webhookError, setWebhookError] = createSignal<string | null>(null);
 
   // Fetch channel details
-  const [channel] = createResource(
+  const [channel, { refetch: refetchChannel }] = createResource(
     () => params.id,
     (id) => api.channels.get(id),
   );
@@ -60,9 +71,31 @@ export default function ChannelView() {
         .filter((m) => m.channel_id === id)
         .reduce((acc, m) => addMessage(acc, m, "start"), list);
       arrivedWhileLoading = [];
+      scheduleMarkRead();
       return merged;
     },
   );
+
+  // Mark the newest message read once the reader has seen it: after loading
+  // and after live messages while the reader follows the conversation.
+  let markTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastMarked = "";
+  function scheduleMarkRead(): void {
+    if (markTimer !== undefined) clearTimeout(markTimer);
+    markTimer = setTimeout(() => {
+      markTimer = undefined;
+      const newest = messages()?.[0];
+      if (!newest || newest.id === lastMarked) return;
+      lastMarked = newest.id;
+      // A failed mark only leaves the channel's unread count as it is.
+      api.channels.markRead(params.id, newest.id).catch(() => {
+        lastMarked = "";
+      });
+    }, MARK_READ_DELAY_MS);
+  }
+  onCleanup(() => {
+    if (markTimer !== undefined) clearTimeout(markTimer);
+  });
 
   // Messages posted by other users, agents and webhooks arrive as channel.message.
   const { onMessage } = useWebSocket();
@@ -77,7 +110,10 @@ export default function ChannelView() {
     mutateMessages((prev) => addMessage(prev, incoming, "start"));
     // Keep following the conversation, but do not pull a reader of older
     // history back to the bottom.
-    if (follow) setTimeout(scrollToBottom, 50);
+    if (follow) {
+      setTimeout(scrollToBottom, 50);
+      scheduleMarkRead();
+    }
   });
   onCleanup(unsubscribe);
 
@@ -99,11 +135,18 @@ export default function ChannelView() {
     setTimeout(scrollToBottom, 50);
   });
 
-  /** Chronologically ordered messages (API returns newest-first). */
+  /** Chronologically ordered top-level messages (API returns newest-first); replies open in the thread panel. */
   function orderedMessages(): ChannelMessageData[] {
     const raw = messages();
     if (!raw) return [];
-    return [...raw].reverse();
+    return raw.filter((m) => !m.parent_id).reverse();
+  }
+
+  const threadReplies = () => replyCounts(messages() ?? []);
+
+  function openThread(messageId: string): void {
+    const parent = messages()?.find((m) => m.id === messageId);
+    if (parent) setThreadParent(parent);
   }
 
   async function handleSend(content: string): Promise<void> {
@@ -116,6 +159,26 @@ export default function ChannelView() {
       setTimeout(scrollToBottom, 50);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleWebhookKey(): Promise<void> {
+    if (channel()?.has_webhook_key === true) {
+      const ok = await confirm({
+        title: "Replace webhook key",
+        message: "The current key stops working immediately.",
+        variant: "danger",
+        confirmLabel: "Replace",
+      });
+      if (!ok) return;
+    }
+    setWebhookError(null);
+    try {
+      const { webhook_key: key } = await api.channels.regenerateWebhookKey(params.id);
+      setWebhookKey(key);
+      void refetchChannel();
+    } catch {
+      setWebhookError("The webhook key could not be generated.");
     }
   }
 
@@ -134,10 +197,47 @@ export default function ChannelView() {
               <Show when={ch().description}>
                 <span class="text-sm text-cf-text-muted">&mdash; {ch().description}</span>
               </Show>
+              <Show when={hasRole("admin")}>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  class="ml-auto"
+                  onClick={() => void handleWebhookKey()}
+                >
+                  {ch().has_webhook_key ? "Replace webhook key" : "Create webhook key"}
+                </Button>
+              </Show>
             </>
           )}
         </Show>
       </div>
+
+      <Show when={webhookKey()}>
+        {(key) => (
+          <div class="border-b border-cf-border px-4 py-3">
+            <Alert variant="warning">
+              <p class="text-sm">
+                Webhook key (shown only now; store it in the sending system). Post messages with the
+                header <code>X-Webhook-Key</code> to{" "}
+                <code>/api/v1/webhooks/channels/{params.id}</code>.
+              </p>
+              <p class="mt-2 select-all break-all font-mono text-xs" data-testid="webhook-key">
+                {key()}
+              </p>
+              <Button variant="ghost" size="xs" class="mt-2" onClick={() => setWebhookKey(null)}>
+                Done
+              </Button>
+            </Alert>
+          </div>
+        )}
+      </Show>
+      <Show when={webhookError()}>
+        {(message) => (
+          <div class="border-b border-cf-border px-4 py-3">
+            <Alert variant="error">{message()}</Alert>
+          </div>
+        )}
+      </Show>
 
       {/* Message list */}
       <div ref={listRef} class="flex-1 overflow-y-auto">
@@ -163,7 +263,11 @@ export default function ChannelView() {
               <For each={orderedMessages()}>
                 {(msg) => (
                   <li>
-                    <ChannelMessage message={msg} />
+                    <ChannelMessage
+                      message={msg}
+                      replyCount={threadReplies().get(msg.id) ?? 0}
+                      onThreadClick={openThread}
+                    />
                   </li>
                 )}
               </For>
@@ -179,6 +283,17 @@ export default function ChannelView() {
         onSend={(content) => void handleSend(content)}
         placeholder={channel() ? `Message #${channel()?.name ?? ""}` : "Type a message..."}
       />
+
+      <Show when={threadParent()}>
+        {(parent) => (
+          <ThreadPanel
+            channelId={params.id}
+            parentMessage={parent()}
+            visible={true}
+            onClose={() => setThreadParent(null)}
+          />
+        )}
+      </Show>
     </div>
   );
 }
