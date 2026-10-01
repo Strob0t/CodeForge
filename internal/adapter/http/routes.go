@@ -110,7 +110,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		mountIntelligenceRoutes(r, h)
 		mountBenchmarkRoutes(r, h)
 		mountSecurityRoutes(r, h, &ro, audit)
-		mountDevToolRoutes(r, h)
+		mountDevToolRoutes(r, h, audit)
 		mountChannelRoutes(r, h)
 		mountA2ARoutes(r, h)
 		mountGoalRoutes(r, h)
@@ -686,7 +686,7 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 }
 
 // mountDevToolRoutes registers LSP, MCP, and project MCP server endpoints.
-func mountDevToolRoutes(r chi.Router, h *Handlers) {
+func mountDevToolRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// LSP (Language Server Protocol)
 	r.Post("/projects/{id}/lsp/start", h.StartLSP)
 	r.Post("/projects/{id}/lsp/stop", h.StopLSP)
@@ -697,18 +697,23 @@ func mountDevToolRoutes(r chi.Router, h *Handlers) {
 	r.Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
 	r.Post("/projects/{id}/lsp/hover", h.LSPHover)
 
-	// MCP Servers (Phase 15C + 19H)
+	// MCP Servers (Phase 15C + 19H). Every user reads them. A server
+	// definition names a command the worker runs for agents (stdio) or an
+	// endpoint it connects to, and belongs to no project: only platform
+	// admins create, change or delete one. Admins test servers and assign
+	// them to their projects (KI-71).
+	adminOnly := middleware.RequireRole(user.RoleAdmin)
 	r.Get("/mcp/servers", h.ListMCPServers)
-	r.Post("/mcp/servers", h.CreateMCPServer)
-	r.Post("/mcp/servers/test", h.TestMCPServerConnection) // pre-save test (no ID)
+	r.With(middleware.RequirePlatformAdmin, audit("create", "mcp_server")).Post("/mcp/servers", h.CreateMCPServer)
+	r.With(adminOnly).Post("/mcp/servers/test", h.TestMCPServerConnection) // pre-save test (no ID)
 	r.Get("/mcp/servers/{id}", h.GetMCPServer)
-	r.Put("/mcp/servers/{id}", h.UpdateMCPServer)
-	r.Delete("/mcp/servers/{id}", h.DeleteMCPServer)
-	r.Post("/mcp/servers/{id}/test", h.TestMCPServer)
+	r.With(middleware.RequirePlatformAdmin, audit("update", "mcp_server")).Put("/mcp/servers/{id}", h.UpdateMCPServer)
+	r.With(middleware.RequirePlatformAdmin, audit("delete", "mcp_server")).Delete("/mcp/servers/{id}", h.DeleteMCPServer)
+	r.With(adminOnly).Post("/mcp/servers/{id}/test", h.TestMCPServer)
 	r.Get("/mcp/servers/{id}/tools", h.ListMCPServerTools)
 	r.Get("/projects/{id}/mcp-servers", h.ListProjectMCPServers)
-	r.Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
-	r.Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
+	r.With(adminOnly, audit("assign", "mcp_server")).Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
+	r.With(adminOnly, audit("unassign", "mcp_server")).Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
 }
 
 // mountChannelRoutes registers real-time channel endpoints.
