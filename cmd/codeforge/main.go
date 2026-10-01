@@ -927,9 +927,9 @@ func run() error {
 	}
 
 	// A2A API keys with their tenants (validated at config load).
-	a2aKeys, err := cfg.A2A.ParsedAPIKeys()
+	a2aAPIKeys, err := a2aKeys(&cfg.A2A)
 	if err != nil {
-		return fmt.Errorf("a2a.api_keys: %w", err)
+		return err
 	}
 
 	r := chi.NewRouter()
@@ -1024,10 +1024,10 @@ func run() error {
 
 			// A2A callers authenticate with A2A API keys (not a user's JWT)
 			// and act in their key's tenant (KI-15).
-			if len(a2aKeys) == 0 {
+			if len(a2aAPIKeys) == 0 {
 				slog.Warn("a2a enabled without a2a.api_keys: every A2A request is refused")
 			}
-			a2aAuth := middleware.A2AAuth(a2aKeys)
+			a2aAuth := middleware.A2AAuth(a2aAPIKeys)
 			r.Group(func(r chi.Router) {
 				r.Use(a2aAuth)
 				r.Handle("/a2a", a2aHTTPHandler)
@@ -1280,4 +1280,17 @@ func readinessHandler(pool *pgxpool.Pool, queue *cfnats.Queue, llm *litellm.Clie
 		w.WriteHeader(httpStatus)
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+// a2aKeys returns the A2A API keys of an enabled A2A server (nil for a
+// disabled one, whose keys config load does not validate either).
+func a2aKeys(cfg *config.A2A) ([]config.A2AAPIKey, error) {
+	if !cfg.Enabled {
+		return nil, nil
+	}
+	keys, err := cfg.ParsedAPIKeys()
+	if err != nil {
+		return nil, fmt.Errorf("a2a.api_keys: %w", err)
+	}
+	return keys, nil
 }
