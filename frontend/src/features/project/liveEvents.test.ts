@@ -11,6 +11,7 @@ import {
   createProjectTaskIndex,
   EMPTY_LANE_FEED,
   IDLE_WORK,
+  isLaneEvent,
   isProjectEvent,
   parseTaskOutput,
   parseToolCall,
@@ -452,6 +453,22 @@ describe("collectLaneEvent", () => {
     expect(collectLaneEvent(EMPTY_LANE_FEED, ws("run.status", { run_id: "r-1" }), [coder])).toBe(
       EMPTY_LANE_FEED,
     );
+  });
+
+  it("returns other events untouched without looking at the work (S6-H review 6)", () => {
+    const untouchable = new Proxy([] as AgentWork[], {
+      get() {
+        throw new Error("the work was read for an event that cannot feed a lane");
+      },
+    });
+    for (const type of ["run.status", "agent.status", "channel.message", "task.status"]) {
+      expect(isLaneEvent(ws(type, { task_id: "t-1", run_id: "r-1" }))).toBe(false);
+      expect(collectLaneEvent(EMPTY_LANE_FEED, ws(type, { task_id: "t-1" }), untouchable)).toBe(
+        EMPTY_LANE_FEED,
+      );
+    }
+    expect(isLaneEvent(ws("task.output", {}))).toBe(true);
+    expect(isLaneEvent(ws("run.toolcall", {}))).toBe(true);
   });
 
   it("keeps the newest lines and drops the entries of finished work", () => {

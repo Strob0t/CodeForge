@@ -22,7 +22,7 @@ export default function ChannelList() {
   const location = useLocation();
 
   // Unread counts start from the server's and follow the live events.
-  const [unread, setUnread] = createSignal<Record<string, number>>({});
+  const [unread, setUnread] = createSignal<Readonly<Record<string, number>>>({});
   createEffect(() => {
     const list = channels();
     if (!list) return;

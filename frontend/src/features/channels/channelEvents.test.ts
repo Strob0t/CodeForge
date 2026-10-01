@@ -131,8 +131,11 @@ describe("applyUnreadEvent", () => {
     ["own message", channelEvent({ ...stored, sender_id: "u-me" }), undefined],
     ["thread reply", channelEvent({ ...fromBob, parent_id: "m-0" }), undefined],
     ["message in the open channel", channelEvent(fromBob), "ch-1"],
-  ])("does not count an %s", (_name, msg, open) => {
-    expect(applyUnreadEvent({ "ch-1": 2 }, msg, "u-me", open)).toEqual({ "ch-1": 2 });
+    ["event of another type", { type: "task.output", payload: { line: "x" } }, undefined],
+    ["read position of someone else", read("u-bob"), undefined],
+  ])("does not count an %s and keeps the same counts object", (_name, msg, open) => {
+    const counts = { "ch-1": 2 };
+    expect(applyUnreadEvent(counts, msg, "u-me", open)).toBe(counts);
   });
 
   it("clears the count when the user read the channel, not when someone else did", () => {

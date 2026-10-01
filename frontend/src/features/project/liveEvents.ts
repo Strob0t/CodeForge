@@ -247,11 +247,18 @@ export function collectLaneEvent(
   msg: WSMessage,
   works: readonly AgentWork[],
 ): LaneFeed {
+  if (!isLaneEvent(msg)) return feed;
+  const output = parseTaskOutput(msg);
+  const call = output ? null : parseToolCall(msg);
+  const tracked = output
+    ? works.some((w) => w.taskId === output.taskId)
+    : call !== null && works.some((w) => w.runId === call.run_id);
+  if (!tracked) return feed;
+
   const taskIds = new Set(works.flatMap((w) => (w.taskId ? [w.taskId] : [])));
   const runIds = new Set(works.flatMap((w) => (w.runId ? [w.runId] : [])));
 
-  const output = parseTaskOutput(msg);
-  if (output && taskIds.has(output.taskId)) {
+  if (output) {
     const outputs = keepKeys(feed.outputs, taskIds);
     const lines = outputs[output.taskId] ?? [];
     outputs[output.taskId] = [
@@ -261,17 +268,19 @@ export function collectLaneEvent(
     return { outputs, toolCalls: keepKeys(feed.toolCalls, runIds) };
   }
 
-  const call = parseToolCall(msg);
-  if (call && runIds.has(call.run_id)) {
-    const toolCalls = keepKeys(feed.toolCalls, runIds);
-    const calls = toolCalls[call.run_id] ?? [];
-    toolCalls[call.run_id] = [
-      ...calls.slice(-(MAX_LANE_TOOL_CALLS - 1)),
-      { callId: call.call_id, tool: call.tool, phase: call.phase },
-    ];
-    return { outputs: keepKeys(feed.outputs, taskIds), toolCalls };
-  }
-  return feed;
+  if (!call) return feed;
+  const toolCalls = keepKeys(feed.toolCalls, runIds);
+  const calls = toolCalls[call.run_id] ?? [];
+  toolCalls[call.run_id] = [
+    ...calls.slice(-(MAX_LANE_TOOL_CALLS - 1)),
+    { callId: call.call_id, tool: call.tool, phase: call.phase },
+  ];
+  return { outputs: keepKeys(feed.outputs, taskIds), toolCalls };
+}
+
+/** Whether an event can feed a lane (task.output or run.toolcall). */
+export function isLaneEvent(msg: WSMessage): boolean {
+  return msg.type === "task.output" || msg.type === "run.toolcall";
 }
 
 /** The agent's newest active run (runs newest first), for a lane opened mid-run. */

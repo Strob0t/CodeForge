@@ -1,4 +1,12 @@
-import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 
 import { api } from "~/api/client";
 import type { Agent, Run } from "~/api/types";
@@ -13,6 +21,7 @@ import {
   collectLaneEvent,
   EMPTY_LANE_FEED,
   IDLE_WORK,
+  isLaneEvent,
   isProjectEvent,
   type LaneFeed,
   payloadString,
@@ -68,8 +77,10 @@ export default function WarRoom(props: WarRoomProps) {
   // The output and tool calls of the agents' work, collected here for the
   // same reason: a run's first output arrives before its agent's lane mounts.
   const [feed, setFeed] = createSignal<LaneFeed>(EMPTY_LANE_FEED);
-  const trackedWork = (): AgentWork[] =>
-    [...new Set([...Object.keys(works()), ...agentIds()])].map(workOf);
+  // Recomputed only when the agents or their work change, not per event.
+  const trackedWork = createMemo((): AgentWork[] =>
+    [...new Set([...Object.keys(works()), ...agentIds()])].map(workOf),
+  );
   const laneOutputs = (agentId: string) => feed().outputs[workOf(agentId).taskId ?? ""] ?? [];
   const laneToolCalls = (agentId: string) => feed().toolCalls[workOf(agentId).runId ?? ""] ?? [];
 
@@ -116,7 +127,7 @@ export default function WarRoom(props: WarRoomProps) {
     const unsub = onMessage((msg) => {
       if (isProjectEvent(msg, projectId)) followProjectEvent(msg);
       // task.output and run.toolcall name no project, only their task or run.
-      setFeed((prev) => collectLaneEvent(prev, msg, trackedWork()));
+      if (isLaneEvent(msg)) setFeed((prev) => collectLaneEvent(prev, msg, trackedWork()));
     });
     onCleanup(unsub);
   });
