@@ -105,6 +105,8 @@ def _tool_results(body: dict[str, object]) -> list[dict[str, object]]:
 
 class _FakeAnthropic(BaseHTTPRequestHandler):
     requests: ClassVar[list[dict[str, object]]] = []
+    # The Bash commands the fake model runs, one per agent request, then a text.
+    commands: ClassVar[list[str]] = [TOOL_COMMAND]
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - BaseHTTPRequestHandler signature
         return None
@@ -136,8 +138,14 @@ class _FakeAnthropic(BaseHTTPRequestHandler):
             return
 
         tools = [t.get("name") for t in body.get("tools", []) if isinstance(t, dict)]
-        if "Bash" in tools and not _tool_results(body):
-            tool_use = {"type": "tool_use", "id": "toolu_01", "name": "Bash", "input": {"command": TOOL_COMMAND}}
+        done = len(_tool_results(body))
+        if "Bash" in tools and done < len(self.commands):
+            tool_use = {
+                "type": "tool_use",
+                "id": f"toolu_{done + 1:02d}",
+                "name": "Bash",
+                "input": {"command": self.commands[done]},
+            }
             blocks: list[dict[str, object]] = [tool_use]
             stop = "tool_use"
         else:
@@ -168,8 +176,14 @@ class _FakeAnthropic(BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def fake_api() -> Iterator[tuple[str, list[dict[str, object]]]]:
-    handler = type("Handler", (_FakeAnthropic,), {"requests": []})
+def api_commands() -> list[str]:
+    """The Bash commands the fake model runs; a test may replace them before the run."""
+    return [TOOL_COMMAND]
+
+
+@pytest.fixture
+def fake_api(api_commands: list[str]) -> Iterator[tuple[str, list[dict[str, object]]]]:
+    handler = type("Handler", (_FakeAnthropic,), {"requests": [], "commands": api_commands})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -329,3 +343,26 @@ async def test_policy_socket_failure_blocks_the_tool(
     (tool_result,) = _tool_results(_agent_requests(fake_api[1])[-1])
     assert tool_result["is_error"] is True
     assert "CodeForge policy check failed" in json.dumps(tool_result["content"])
+
+
+async def test_bash_working_directory_does_not_persist_between_calls(
+    workspace: tuple[Path, Path], api_commands: list[str]
+) -> None:
+    """A relative redirection target is placed in the workspace root (S6-G review, item 1).
+
+    The policy resolves a call's relative targets against the workspace; a
+    ``cd`` in an earlier call must not move where a later call writes, or
+    ``cd secrets`` followed by ``echo x > aws.key`` would pass an anchored
+    path_deny. The CLI keeps Bash's working directory between calls unless
+    CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR is set.
+    """
+    ws, _ = workspace
+    api_commands[:] = ["mkdir -p sub && cd sub", "echo x > cwd-marker"]
+    runtime = _FakeRuntime("allow", "matched rule 0")
+
+    result = await _run(ws, runtime)
+
+    assert result.error == ""
+    assert [c["command"] for c in runtime.calls] == api_commands
+    assert (ws / "cwd-marker").is_file()
+    assert not (ws / "sub" / "cwd-marker").exists()

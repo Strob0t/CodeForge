@@ -669,7 +669,7 @@ class TestRunWithFakeCli:
         assert all(system_prompt[:30] not in arg for arg in record["argv"])
         assert not os.path.exists(record["system_prompt_file"])
 
-    async def test_env_adds_only_the_socket_and_token(
+    async def test_env_adds_only_the_socket_token_and_fixed_cwd(
         self, fake_cli: _FakeCli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("DATABASE_URL", "postgres://secret")
@@ -689,8 +689,10 @@ class TestRunWithFakeCli:
 
         (env,) = seen
         base = tool_env(passthrough=cce._CLAUDE_CLI_ENV)
-        assert set(env) - set(base) == {hook.SOCKET_ENV, hook.TOKEN_ENV}
+        assert set(env) - set(base) == {hook.SOCKET_ENV, hook.TOKEN_ENV, "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"}
         assert {k: v for k, v in env.items() if k in base} == base
+        # Bash starts every call in the workspace (S6-G review, item 1).
+        assert env["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"] == "1"
         assert env["ANTHROPIC_API_KEY"] == "sk-test"
         assert "DATABASE_URL" not in env
         assert "CODEFORGE_INTERNAL_KEY" not in env

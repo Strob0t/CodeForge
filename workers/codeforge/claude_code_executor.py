@@ -53,8 +53,14 @@ logger = logging.getLogger(__name__)
 
 _EXECUTOR_NAME = "claude-code-cli"
 
+# Bash starts every call in the workspace: the CLI otherwise keeps the working
+# directory of the previous call, and the policy, which resolves a call's
+# relative redirection targets against the workspace, would place
+# `echo x > aws.key` after an earlier `cd secrets` in the wrong directory.
+_CLI_FIXED_ENV = {"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"}
+
 # The CLI's own credentials and settings; it gets nothing else from the worker
-# except the policy socket and token of its run.
+# except the fixed settings above and the policy socket and token of its run.
 _CLAUDE_CLI_ENV = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -733,7 +739,11 @@ class ClaudeCodeExecutor:
                 )
                 env = tool_env(
                     passthrough=_CLAUDE_CLI_ENV,
-                    extra={policy_hook.SOCKET_ENV: policy.socket_path, policy_hook.TOKEN_ENV: policy.token},
+                    extra={
+                        **_CLI_FIXED_ENV,
+                        policy_hook.SOCKET_ENV: policy.socket_path,
+                        policy_hook.TOKEN_ENV: policy.token,
+                    },
                 )
                 end = await self._execute(cmd, env, prompt, acc, policy)
         except (ClaudeCodeCLIError, OSError) as exc:
