@@ -147,7 +147,7 @@ scheduled as follows:
 |---|---|---|
 | **KI-63** | Tool-call approvals resolved without a tenant check | S6, **done 2026-09-30** |
 | **KI-64** | Tenant propagation over NATS per payload; default-tenant fallback on publish | S6, **done 2026-09-30** |
-| **KI-65** | At-most-once work lacks complete Go-side watchdogs (conversations, backend tasks, SIGTERM) | S3 (with the gate watchdog, KI-28), **done 2026-09-30** (review round in progress) |
+| **KI-65** | At-most-once work lacks complete Go-side watchdogs (conversations, backend tasks, SIGTERM) | S3 (with the gate watchdog, KI-28), **done 2026-09-30** (review rounds done 2026-10-01) |
 | **KI-66** | Worker dedup keys too coarse | S2 follow-up, **done 2026-09-30** |
 | **KI-67** | Worker consumer lifecycle gaps (partly fixed) | S2 follow-up, **done 2026-09-30** (core-NATS notifications left) |
 | **KI-68** | Policy profiles are one global namespace | S6, **done 2026-09-30** |
@@ -158,7 +158,7 @@ scheduled as follows:
 | **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6, **done 2026-10-01** |
 | **KI-74** | Frontend live-update follow-ups | S6, **done 2026-10-01** |
 | **KI-75** | LLM models are global across tenants | S6, **done 2026-09-30** (platform admins only) |
-| **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up, **done 2026-09-30** (review round in progress) |
+| **KI-76** | Runtime follow-ups (plan step ModeID, router under lock, auto-agent race, blocked conversations) | S3 follow-up, **done 2026-09-30** (review rounds done 2026-10-01) |
 | **KI-77** | Go core git calls in agent-writable workspaces are not hardened (fsmonitor, filters, hooks, credential helpers) | S3 review round, **done 2026-09-30** |
 | **KI-78** | Artifact validation events/audit written before the run's end is decided | S6, **done 2026-10-01** |
 | **KI-79** | GDPR residuals (quarantine reviewer free text, privacy page wording) | S6, **done 2026-10-01** |
