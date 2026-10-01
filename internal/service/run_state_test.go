@@ -1,7 +1,10 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -94,5 +97,60 @@ func TestRunStateManager_CancelledConversationsConcurrent(t *testing.T) {
 	m.ClearCancelledConversation("shared")
 	if m.IsConversationCancelled("shared") {
 		t.Error("shared conversation still cancelled after the next start")
+	}
+}
+
+// TestStopDeferral_KeepsEveryKindInArrivalOrder (S2-G fix 2, 5): a stop
+// kept one deferred worker message per run, so a quality gate result and a
+// completion that both arrived during a stop overwrote each other, and a
+// failed stop replayed only the last. Each kind is kept (a repeated message
+// of a kind replaces its earlier copy in place) and replayed in arrival
+// order.
+func TestStopDeferral_KeepsEveryKindInArrivalOrder(t *testing.T) {
+	m := NewRunStateManager()
+	var replayed []string
+	handle := func(name string) func(context.Context) error {
+		return func(context.Context) error {
+			replayed = append(replayed, name)
+			return nil
+		}
+	}
+
+	if m.DeferIfStopping("run-1", deferredCompletion, handle("completion")) {
+		t.Fatal("a message was deferred without a stop")
+	}
+	m.BeginStop("run-1")
+	if !m.DeferIfStopping("run-1", deferredCompletion, handle("completion")) ||
+		!m.DeferIfStopping("run-1", deferredGateResult, handle("gate result")) ||
+		!m.DeferIfStopping("run-1", deferredCompletion, handle("completion again")) {
+		t.Fatal("a message during the stop was not deferred")
+	}
+
+	deferred := m.EndStop("run-1")
+	if deferred == nil {
+		t.Fatal("EndStop returned nothing to replay")
+	}
+	if err := deferred(context.Background()); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if want := []string{"completion again", "gate result"}; !slices.Equal(replayed, want) {
+		t.Fatalf("replayed %v, want %v", replayed, want)
+	}
+	if m.EndStop("run-1") != nil {
+		t.Fatal("the deferred messages were kept after the stop")
+	}
+}
+
+// TestStopDeferral_ReplayJoinsErrors: a failed replay of one message does
+// not skip the next.
+func TestStopDeferral_ReplayJoinsErrors(t *testing.T) {
+	m := NewRunStateManager()
+	m.BeginStop("run-2")
+	ran := false
+	m.DeferIfStopping("run-2", deferredCompletion, func(context.Context) error { return errors.New("store down") })
+	m.DeferIfStopping("run-2", deferredGateResult, func(context.Context) error { ran = true; return nil })
+
+	if err := m.EndStop("run-2")(context.Background()); err == nil || !ran {
+		t.Fatalf("replay = %v, gate result replayed = %v; want the error and the gate result replayed", err, ran)
 	}
 }

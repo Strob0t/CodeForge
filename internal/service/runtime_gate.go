@@ -138,7 +138,7 @@ func (s *RuntimeService) HandleQualityGateResult(ctx context.Context, result *me
 	// The control plane is stopping the run and records its end. The result
 	// is kept for the stop in the same step that sees it: if the stop cannot
 	// record the run's end, the stop ends the run with the gate's outcome.
-	if s.state.DeferIfStopping(r.ID, func(ctx context.Context) error { return s.HandleQualityGateResult(ctx, result) }) {
+	if s.state.DeferIfStopping(r.ID, deferredGateResult, func(ctx context.Context) error { return s.HandleQualityGateResult(ctx, result) }) {
 		slog.Info("quality gate result for a run being stopped, kept for the stop", "run_id", r.ID)
 		return nil
 	}

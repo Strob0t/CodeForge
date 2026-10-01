@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -28,8 +29,8 @@ type RunStateManager struct {
 	runSpans         sync.Map // map[runID]trace.Span
 
 	stopsMu      sync.Mutex
-	stops        map[string]int                             // runID -> control-plane stops of the run under way
-	stopDeferred map[string]func(ctx context.Context) error // runID -> worker message received during its stops
+	stops        map[string]int               // runID -> control-plane stops of the run under way
+	stopDeferred map[string][]deferredMessage // runID -> worker messages received during its stops, in arrival order
 
 	convMu   sync.Mutex
 	convRuns map[string]*convRunState // conversationID -> run state (see Conversation Runs)
@@ -184,27 +185,50 @@ func (m *RunStateManager) BeginStop(runID string) {
 	m.stops[runID]++
 }
 
-// DeferIfStopping keeps handle, the handling of a worker message that ends
-// the run (its completion, its quality gate result), while the run is being
-// stopped, and reports whether it did; the last EndStop of the run returns
-// it. Seeing the stop and keeping the message is one step: a stop that ends
-// in between would otherwise never see the message, and a run whose stop
-// failed would stay running (or waiting for its gate).
-func (m *RunStateManager) DeferIfStopping(runID string, handle func(ctx context.Context) error) bool {
+// Kinds of worker messages a stop defers.
+const (
+	deferredCompletion = "completion"
+	deferredGateResult = "gate_result"
+)
+
+// deferredMessage is the handling of a worker message kept during a stop.
+type deferredMessage struct {
+	kind   string
+	handle func(ctx context.Context) error
+}
+
+// DeferIfStopping keeps handle, the handling of a worker message of kind
+// (its completion, its quality gate result) that ends the run, while the
+// run is being stopped, and reports whether it did; the last EndStop of the
+// run returns the kept messages. Seeing the stop and keeping the message is
+// one step: a stop that ends in between would otherwise never see the
+// message, and a run whose stop failed would stay running (or waiting for
+// its gate). Each kind is kept (S2-G fix 2, 5): a message of another kind
+// does not overwrite it, and a repeated message of a kind (a redelivery)
+// replaces its earlier copy in place.
+func (m *RunStateManager) DeferIfStopping(runID, kind string, handle func(ctx context.Context) error) bool {
 	m.stopsMu.Lock()
 	defer m.stopsMu.Unlock()
 	if m.stops[runID] == 0 {
 		return false
 	}
 	if m.stopDeferred == nil {
-		m.stopDeferred = make(map[string]func(ctx context.Context) error)
+		m.stopDeferred = make(map[string][]deferredMessage)
 	}
-	m.stopDeferred[runID] = handle
+	kept := m.stopDeferred[runID]
+	for i := range kept {
+		if kept[i].kind == kind {
+			kept[i].handle = handle
+			return true
+		}
+	}
+	m.stopDeferred[runID] = append(kept, deferredMessage{kind: kind, handle: handle})
 	return true
 }
 
 // EndStop records that a stop of the run is over. The last one returns the
-// handling of the worker message that arrived during the stops, if any.
+// handling of the worker messages that arrived during the stops, which
+// handles them in arrival order and joins their errors; nil if none.
 func (m *RunStateManager) EndStop(runID string) func(ctx context.Context) error {
 	m.stopsMu.Lock()
 	defer m.stopsMu.Unlock()
@@ -213,9 +237,20 @@ func (m *RunStateManager) EndStop(runID string) func(ctx context.Context) error 
 		return nil
 	}
 	delete(m.stops, runID)
-	deferred := m.stopDeferred[runID]
+	kept := m.stopDeferred[runID]
 	delete(m.stopDeferred, runID)
-	return deferred
+	if len(kept) == 0 {
+		return nil
+	}
+	return func(ctx context.Context) error {
+		var errs []error
+		for _, msg := range kept {
+			if err := msg.handle(ctx); err != nil {
+				errs = append(errs, fmt.Errorf("deferred %s: %w", msg.kind, err))
+			}
+		}
+		return errors.Join(errs...)
+	}
 }
 
 // --- Conversation Runs ---

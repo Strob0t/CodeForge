@@ -57,7 +57,7 @@ func (s *RuntimeService) HandleRunComplete(ctx context.Context, payload *message
 	// stop) contributes its usage totals only. It is kept for the stop before
 	// anything else happens: if the stop cannot record the run's end, the
 	// stop ends the run with it.
-	if s.state.DeferIfStopping(r.ID, func(ctx context.Context) error { return s.HandleRunComplete(ctx, payload) }) {
+	if s.state.DeferIfStopping(r.ID, deferredCompletion, func(ctx context.Context) error { return s.HandleRunComplete(ctx, payload) }) {
 		slog.Info("completion for a run being stopped, usage kept", "run_id", r.ID, "status", payload.Status)
 		s.keepWorkerTotals(ctx, r.ID, payload)
 		return nil
