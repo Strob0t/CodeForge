@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -74,7 +75,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, profileName, call, policyEvalOptions(workspace, m, req.Trust)...)
+	result, err := s.policy.EvaluateWithReason(ctx, profileName, call, s.policyEvalOptions(workspace, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -291,7 +292,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call, policyEvalOptions(proj.WorkspacePath, m, req.Trust)...)
+	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call, s.policyEvalOptions(proj.WorkspacePath, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -394,15 +395,40 @@ func permissionRequest(runID string, req *messagequeue.ToolCallRequestPayload, p
 }
 
 // policyEvalOptions returns the policy evaluation options for a tool call:
-// the workspace that paths are resolved against, the trust annotation of
-// the request (allow rules with a trust minimum need one) and the mode's
-// tool lists.
-func policyEvalOptions(workspace string, m *mode.Mode, ann *trust.Annotation) []policy.EvalOption {
-	opts := []policy.EvalOption{policy.WithWorkspace(workspace), policy.WithTrust(ann)}
+// the workspace that paths are resolved against (and its real path, for the
+// files a command redirects to), the trust annotation of the request (allow
+// rules with a trust minimum need one) and the mode's tool lists.
+func (s *RuntimeService) policyEvalOptions(workspace string, m *mode.Mode, ann *trust.Annotation) []policy.EvalOption {
+	opts := []policy.EvalOption{
+		policy.WithWorkspace(workspace),
+		policy.WithWorkspaceRealPath(s.workspaceRealPath(workspace)),
+		policy.WithTrust(ann),
+	}
 	if m != nil {
 		opts = append(opts, policy.WithModeTools(m.ID, m.Tools, m.DeniedTools))
 	}
 	return opts
+}
+
+// workspaceRealPath returns the workspace path with its symlinks resolved,
+// resolved once per workspace and cached; "" for a workspace that is not an
+// absolute path or cannot be resolved (yet), which is then only checked in
+// its given form.
+func (s *RuntimeService) workspaceRealPath(workspace string) string {
+	if !filepath.IsAbs(workspace) {
+		return ""
+	}
+	if cached, ok := s.workspaceRealPaths.Load(workspace); ok {
+		if path, isString := cached.(string); isString {
+			return path
+		}
+	}
+	resolved, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		return ""
+	}
+	s.workspaceRealPaths.Store(workspace, resolved)
+	return resolved
 }
 
 // HandleToolCallResult processes the outcome of an executed tool call.

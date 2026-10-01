@@ -58,6 +58,10 @@ type RuntimeService struct {
 	// noRollbackBase holds the runs whose workspace has no git repository
 	// and whose audit trail already says so (checkpointToolCall).
 	noRollbackBase sync.Map
+
+	// workspaceRealPaths caches the real path (symlinks resolved) of each
+	// workspace path the policy checks tool calls against.
+	workspaceRealPaths sync.Map
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.

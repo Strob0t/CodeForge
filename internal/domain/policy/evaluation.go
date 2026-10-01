@@ -32,7 +32,10 @@ type EvaluationResult struct {
 type evalContext struct {
 	trust     *trust.Annotation
 	workspace string
-	mode      *modeRestriction
+	// realWorkspace is the workspace with its symlinks resolved, when that
+	// differs from workspace (WithWorkspaceRealPath).
+	realWorkspace string
+	mode          *modeRestriction
 }
 
 // modeRestriction carries the tool lists of the agent mode a call runs in.
@@ -56,6 +59,28 @@ func WithTrust(t *trust.Annotation) EvalOption {
 // WithWorkspace sets the workspace root that call paths are resolved against.
 func WithWorkspace(dir string) EvalOption {
 	return func(c *evalContext) { c.workspace = dir }
+}
+
+// WithWorkspaceRealPath sets the workspace root with its symlinks resolved
+// (filepath.EvalSymlinks of the WithWorkspace path, done once by the caller).
+// The kernel resolves the files a shell command redirects to from the
+// physical directory, so redirection targets are checked against both forms
+// of the workspace. An empty or relative path, or one equal to the
+// workspace, adds nothing.
+func WithWorkspaceRealPath(dir string) EvalOption {
+	return func(c *evalContext) { c.realWorkspace = dir }
+}
+
+// workspaceForms returns the absolute forms of the workspace that redirection
+// targets are resolved against: the workspace path and, when it differs, its
+// real path.
+func (c *evalContext) workspaceForms() []string {
+	forms := []string{c.workspace}
+	if filepath.IsAbs(c.workspace) && filepath.IsAbs(c.realWorkspace) &&
+		filepath.Clean(c.realWorkspace) != filepath.Clean(c.workspace) {
+		forms = append(forms, c.realWorkspace)
+	}
+	return forms
 }
 
 // WithModeTools restricts the call to the tool lists of an agent mode: a
@@ -125,7 +150,7 @@ func (p *PolicyProfile) Evaluate(call ToolCall, opts ...EvalOption) EvaluationRe
 		}
 	}
 	if tool == ToolBash {
-		if i, reason := p.redirectionDenyReason(cmd, ctx.workspace); reason != "" {
+		if i, reason := p.redirectionDenyReason(cmd, ctx.workspaceForms()); reason != "" {
 			return decide(DecisionDeny, i, fmt.Sprintf("denied by rule %d in profile %q: %s", i, p.Name, reason))
 		}
 	}
@@ -218,10 +243,12 @@ func (r *PermissionRule) denyListReason(path string, cmd *shellCommand) string {
 // that is not known statically, or any target when the workspace is not an
 // absolute path, is denied when such a list exists (fail closed); a target
 // that resolves outside the workspace is skipped like every path that no
-// workspace glob can match. It returns the index of the denying rule and the
+// workspace glob can match. workspaces holds the workspace path first and,
+// for a workspace behind a symlink, its real path: a target is checked
+// against each form. It returns the index of the denying rule and the
 // reason, or -1 and "".
-func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspace string) (ruleIndex int, reason string) {
-	placed := filepath.IsAbs(workspace)
+func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspaces []string) (ruleIndex int, reason string) {
+	placed := filepath.IsAbs(workspaces[0])
 	checks := []struct {
 		tools   []string
 		targets []string
@@ -247,12 +274,15 @@ func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspace strin
 				return i, fmt.Sprintf("path_deny is set and without an absolute workspace the file the command %s cannot be placed", c.access)
 			}
 			for _, target := range c.targets {
-				if !filepath.IsAbs(target) {
-					target = filepath.Join(workspace, target)
-				}
-				rel, ok := NormalizePath(workspace, target)
-				if ok && matchesAnyGlob(rule.PathDeny, rel, true) {
-					return i, fmt.Sprintf("redirection to %q matches path_deny", rel)
+				for _, workspace := range workspaces {
+					resolved := target
+					if !filepath.IsAbs(resolved) {
+						resolved = filepath.Join(workspace, resolved)
+					}
+					rel, ok := NormalizePath(workspace, resolved)
+					if ok && matchesAnyGlob(rule.PathDeny, rel, true) {
+						return i, fmt.Sprintf("redirection to %q matches path_deny", rel)
+					}
 				}
 			}
 		}

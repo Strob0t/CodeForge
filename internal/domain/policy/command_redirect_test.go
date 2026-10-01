@@ -163,3 +163,37 @@ func TestEvaluate_RedirectionTargetsResolvedAgainstTheWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// A workspace path can go through a symlink (/srv/ws/p1 -> /data/real). The
+// kernel resolves a redirection target from the physical directory, so
+// ../real/.env from the workspace is its .env, and an absolute target can
+// name the real path. Targets are compared against both forms of the
+// workspace (WithWorkspaceRealPath), so neither form slips past path_deny.
+func TestEvaluate_RedirectionTargetsInASymlinkedWorkspace(t *testing.T) {
+	trusted := PresetTrustedMountAutonomous()
+	const realWS = "/data/real"
+	tests := []struct {
+		name     string
+		realPath string
+		command  string
+		want     Decision
+	}{
+		{"real path, absolute target", realWS, "echo x > /data/real/.env", DecisionDeny},
+		{"real path, physical parent", realWS, "echo x > ../real/.env", DecisionDeny},
+		{"real path, protected directory", realWS, "echo x > /data/real/secrets/key", DecisionDeny},
+		{"real path, logical target still checked", realWS, "echo x > " + testWorkspace + "/.env", DecisionDeny},
+		{"real path, outside both forms", realWS, "echo x > /data/other/.env", DecisionAllow},
+		{"real path, workspace file", realWS, "echo x > out.log", DecisionAllow},
+		{"real path same as workspace", testWorkspace, "echo x > ../p2/.env", DecisionAllow},
+		{"relative real path is ignored", "data/real", "echo x > ../p2/.env", DecisionAllow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := trusted.Evaluate(ToolCall{Tool: "bash", Command: tt.command},
+				WithWorkspace(testWorkspace), WithWorkspaceRealPath(tt.realPath))
+			if res.Decision != tt.want {
+				t.Errorf("%q in %q (real %q) -> %s (%s), want %s", tt.command, testWorkspace, tt.realPath, res.Decision, res.Reason, tt.want)
+			}
+		})
+	}
+}
