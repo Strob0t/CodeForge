@@ -37,73 +37,55 @@ func (s *AgentService) StartHeartbeatSubscriber(ctx context.Context) (cancel fun
 }
 
 // FailTasksWithLostWorker fails the queued or running backend tasks whose
-// worker sent no heartbeat for lostAfter (KI-65; see LostWorkerAfter): the
-// task's dispatch is failed (announced like a worker's result, which resets
-// its agent to idle), in the task's tenant, and its worker is told to stop
-// (it may only have lost its connection). A task whose result arrived or
-// that was dispatched again since it was listed is skipped. Tasks a worker
-// has not accepted yet have no heartbeat and are not failed; lostAfter 0
-// disables the check. It returns how many lost tasks it failed.
+// worker sent no heartbeat for lostAfter (KI-65; see LostWorkerAfter); the
+// worker may only have lost its connection. Tasks a worker has not accepted
+// yet have no heartbeat and are not failed; lostAfter 0 disables the check.
+// It returns how many lost tasks it failed.
 func (s *AgentService) FailTasksWithLostWorker(ctx context.Context, lostAfter time.Duration) (int, error) {
 	if lostAfter <= 0 {
 		return 0, nil
 	}
-	lost, err := s.store.ListTasksWithStaleHeartbeat(ctx, lostAfter, staleRunBatch)
-	if err != nil {
-		return 0, fmt.Errorf("list tasks with lost worker: %w", err)
-	}
-	reason := lostWorkerReason(lostAfter)
-	handled := 0
-	var errs []error
-	for i := range lost {
-		t := &lost[i]
-		taskCtx := withEntityTenant(ctx, t.TenantID)
-		slog.WarnContext(taskCtx, "task worker heartbeat lost, failing the task", "task_id", t.ID, "dispatch_id", t.DispatchID, "after", lostAfter)
-		if err := s.failTaskDispatch(taskCtx, t, reason); err != nil {
-			if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrNotFound) {
-				slog.InfoContext(taskCtx, "lost task ended or was dispatched again meanwhile, skipped", "task_id", t.ID)
-				continue
-			}
-			errs = append(errs, fmt.Errorf("task %s: %w", t.ID, err))
-			continue
-		}
-		s.tellWorkerToStopTask(taskCtx, t)
-		s.hub.BroadcastEvent(taskCtx, event.EventActiveWorkReleased, event.ActiveWorkReleasedEvent{
-			TaskID:    t.ID,
-			ProjectID: t.ProjectID,
-			Reason:    reason,
+	return s.failListedTasks(ctx, "with lost worker", lostWorkerReason(lostAfter),
+		func(ctx context.Context) ([]task.Task, error) {
+			return s.store.ListTasksWithStaleHeartbeat(ctx, lostAfter, staleRunBatch)
 		})
-		handled++
-	}
-	return handled, errors.Join(errs...)
 }
 
 // FailTasksNeverAccepted fails the backend tasks whose dispatch no worker
 // accepted within acceptAfter (runtime.task_accept_timeout; 0 disables the
 // check): the dispatch got no heartbeat because its message still waits in
-// NATS (every worker busy) or was lost. The dispatch is failed (announced
-// like a worker's result, which resets its agent to idle) in the task's
-// tenant, and a tasks.cancel is published so a worker that picks the
-// message up later skips it. A task whose dispatch ended meanwhile is
-// skipped. It returns how many tasks it failed.
+// NATS (every worker busy) or was lost; the tasks.cancel makes a worker that
+// picks the message up later skip it. It returns how many tasks it failed.
 func (s *AgentService) FailTasksNeverAccepted(ctx context.Context, acceptAfter time.Duration) (int, error) {
 	if acceptAfter <= 0 {
 		return 0, nil
 	}
-	waiting, err := s.store.ListTasksNeverAccepted(ctx, acceptAfter, staleRunBatch)
+	return s.failListedTasks(ctx, "never accepted", fmt.Sprintf("no worker accepted the task within %s (task_accept_timeout)", acceptAfter),
+		func(ctx context.Context) ([]task.Task, error) {
+			return s.store.ListTasksNeverAccepted(ctx, acceptAfter, staleRunBatch)
+		})
+}
+
+// failListedTasks fails the dispatches of the tasks list returns (the tasks
+// <kind>), each in its task's tenant, with reason: the dispatch is failed
+// (announced like a worker's result, which resets its agent to idle), its
+// worker is told to stop and the release of the work is announced. A task
+// whose dispatch ended, or that was dispatched again, since it was listed is
+// skipped. It returns how many tasks it failed.
+func (s *AgentService) failListedTasks(ctx context.Context, kind, reason string, list func(context.Context) ([]task.Task, error)) (int, error) {
+	tasks, err := list(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list tasks never accepted: %w", err)
+		return 0, fmt.Errorf("list tasks %s: %w", kind, err)
 	}
-	reason := fmt.Sprintf("no worker accepted the task within %s (task_accept_timeout)", acceptAfter)
 	handled := 0
 	var errs []error
-	for i := range waiting {
-		t := &waiting[i]
+	for i := range tasks {
+		t := &tasks[i]
 		taskCtx := withEntityTenant(ctx, t.TenantID)
-		slog.WarnContext(taskCtx, "no worker accepted the task, failing it", "task_id", t.ID, "dispatch_id", t.DispatchID, "after", acceptAfter)
+		slog.WarnContext(taskCtx, "failing a task "+kind, "task_id", t.ID, "dispatch_id", t.DispatchID, "reason", reason)
 		if err := s.failTaskDispatch(taskCtx, t, reason); err != nil {
 			if errors.Is(err, domain.ErrConflict) || errors.Is(err, domain.ErrNotFound) {
-				slog.InfoContext(taskCtx, "unaccepted task ended or was dispatched again meanwhile, skipped", "task_id", t.ID)
+				slog.InfoContext(taskCtx, "task ended or was dispatched again meanwhile, skipped", "task_id", t.ID, "kind", kind)
 				continue
 			}
 			errs = append(errs, fmt.Errorf("task %s: %w", t.ID, err))
