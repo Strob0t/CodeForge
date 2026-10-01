@@ -109,6 +109,8 @@ general_settings:
 
 > **Implementation status (2026-09-29):** The dev compose `archive_command` is prefixed with `mkdir -p /var/lib/postgresql/data/archive &&`, and the volume mount at `/var/lib/postgresql/data` does not fit the PG 18 image (see [Known Issues](../../todo.md#known-issues) KI-43). Go pgxpool defaults are MaxConns 50 / MinConns 10 (`CODEFORGE_PG_MAX_CONNS`, `internal/config/config.go`). There is no dedicated LISTEN/NOTIFY connection; UI push goes through NATS and the WebSocket hub. Python workers open short-lived psycopg connections per operation (no pool).
 
+> **Update (2026-10-01):** there are 110 goose migrations. Since the note above: delivery and dispatch bookkeeping (`099` task dispatch, `102`/`106`/`107` handoff claims, `104` task result costs, `105` conversation turn completions), the review pipeline record (`100`), the A2A caller key (`103`), channel webhook key and read state (`108`), the quarantine reviewer (`109`) and benchmark evaluation errors (`110`). The retention indexes (`096`) are created `CONCURRENTLY` in a `NO TRANSACTION` migration so the build does not block writes during startup. Delivery records (`handoff_claims`, `task_result_costs`, `conversation_turn_completions`) have no retention yet (KI-90).
+
 ### Consequences
 
 #### Positive
@@ -129,7 +131,7 @@ general_settings:
 
 #### Neutral
 
-- NATS JetStream KV (already in stack) handles ephemeral state: currently HTTP idempotency keys and the L2 cache bucket (heartbeats use the `runs.heartbeat` subject; no KV-based task locks)
+- NATS JetStream KV (already in stack) handles ephemeral state: currently only the HTTP idempotency keys (the L2 cache bucket was removed with the tiered cache, KI-60; heartbeats use the `runs.heartbeat` subject and are stored in PostgreSQL; no KV-based task locks)
 - LISTEN/NOTIFY payload limited to 8000 bytes, so send event IDs not full data
 - `C.UTF-8` collation prevents index corruption on Docker base image upgrades
 

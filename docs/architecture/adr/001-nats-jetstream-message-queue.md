@@ -61,7 +61,9 @@ services:
 | Go Core | `nats.go` + `nats.go/jetstream` | Official, reference implementation |
 | Python Workers | `nats-py` | Official, asyncio-native |
 
-> **Implementation status (2026-09-29):** One JetStream stream `CODEFORGE` (30-day `MaxAge`, `internal/adapter/nats/nats.go`) carries all subjects. Every Go subscription is a shared durable consumer (deliver group `codeforge-go`), including notification subjects such as `tasks.output`; there are no plain core-NATS subscriptions for fan-out yet. JetStream KV holds the HTTP idempotency keys and the L2 cache bucket. Delivery defects (durable consumers replay the stream after Go Core downtime, long Python runs are redelivered, cancel listeners leak): see [Known Issues](../../todo.md#known-issues) KI-18; the Python retry/DLQ path is unreachable: KI-19.
+> **Implementation status (2026-09-29):** One JetStream stream `CODEFORGE` (30-day `MaxAge`, `internal/adapter/nats/nats.go`) carries all subjects. Every Go subscription is a shared durable consumer (deliver group `codeforge-go`), including notification subjects such as `tasks.output`; there are no plain core-NATS subscriptions for fan-out yet. JetStream KV holds the HTTP idempotency keys. Delivery defects (durable consumers replay the stream after Go Core downtime, long Python runs are redelivered, cancel listeners leak): see [Known Issues](../../todo.md#known-issues) KI-18; the Python retry/DLQ path is unreachable: KI-19.
+
+> **Update (2026-10-01):** the L2 cache bucket is gone: the tiered cache (ristretto L1 + NATS KV L2) was never used by a service and was removed with its `cache.*` settings (KI-60). The delivery defects named above were fixed in S2 ([ADR-016](016-nats-delivery-semantics.md)). No `review.*` subject remains, so the stream no longer lists `review.>`.
 
 ### Consequences
 

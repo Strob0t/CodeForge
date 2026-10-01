@@ -110,7 +110,7 @@ CodeForge integrates with standardized protocols for tool integration, agent coo
 
 | Protocol | Purpose | Standard | Integration Point |
 |---|---|---|---|
-| A2A (Agent-to-Agent Protocol v0.3.0) | Peer-to-peer agent coordination | JSON-RPC 2.0 over HTTPS, `a2a-go` SDK (Linux Foundation) | **Server:** AgentExecutor + TaskStore backed by PostgreSQL, dynamic AgentCard from modes. **Client:** A2AService for remote agent discovery, registration, task delegation. Handoff integration via `a2a://` prefix. Auth middleware with Bearer tokens (currently shadowed by the global JWT middleware, and inbound A2A prompts are not quarantined; see [Known Issues](todo.md#known-issues) KI-15). 3 DB tables, 12 REST endpoints under `/api/v1/a2a` (incl. push-notification configs and SSE subscribe) |
+| A2A (Agent-to-Agent Protocol v0.3.0) | Peer-to-peer agent coordination | JSON-RPC 2.0 over HTTPS, `a2a-go` SDK (Linux Foundation) | **Server:** AgentExecutor + TaskStore backed by PostgreSQL, dynamic AgentCard from modes. **Client:** A2AService for remote agent discovery, registration, task delegation. Handoff integration via `a2a://` prefix. Auth middleware (`middleware.A2AAuth`) with Bearer tokens against `a2a.api_keys`: `/a2a` and the AgentCard are outside the JWT middleware, each key maps to a tenant (`<tenant-uuid>:<key>`, plain keys are the default tenant's) and has the stable ID `key-` plus 16 hex characters of its SHA-256; a caller sees only the inbound tasks its own key created, never outbound ones; inbound prompts pass the quarantine (see [Message Quarantine System](#message-quarantine-system)). 3 DB tables, 12 REST endpoints under `/api/v1/a2a` (incl. push-notification configs and SSE subscribe) |
 | AG-UI (Agent-User Interaction Protocol) | Bi-directional agent <-> frontend streaming | JSON events over HTTP (CopilotKit) | Frontend WebSocket protocol follows AG-UI event format. Lifecycle events: TEXT_MESSAGE, TOOL_CALL, STATE_DELTA. Human-in-the-loop built in |
 
 #### Tier 3: Future / Watch
@@ -303,10 +303,10 @@ internal/
     githubpm/            # GitHub Issues/Projects PM adapter
     postgres/
     nats/
-    ...                  # also: a2a, auth, copilot, discord, email, execshell, gitea, http, lsp, markdownspec, mcp, natskv, osfs, otel, ristretto, slack, tiered, ws
+    ...                  # also: a2a, auth, copilot, discord, email, execshell, gitea, http, lsp, markdownspec, mcp, osfs, otel, slack, svn, ws
   telemetry/             # OTEL span helpers (API-only, no SDK dependency)
   service/               # Use cases (connects domain with ports)
-  ...                    # also: config, crypto, git, logger, middleware, netutil, resilience, secrets, tenantctx, version
+  ...                    # also: config, crypto, git, logger, middleware, netutil, proctemp, resilience, secrets, tenantctx, version
 ```
 
 ### Infrastructure Patterns (Implemented)
@@ -335,27 +335,6 @@ Response body is capped at 1 MB with best-effort storage (failures don't error t
 
 #### Performance
 
-**Tiered Cache** (L1 + L2) provides a two-level caching strategy. It is implemented and built at startup, but not yet injected into any service (`cmd/codeforge/main.go` discards the instance).
-
-```mermaid
-flowchart LR
-    subgraph L1["L1: Ristretto (in-process)\n100 MB, ~1ns reads"]
-    end
-    subgraph L2["L2: NATS JetStream KV (distributed)\n10-minute TTL, shared across instances"]
-    end
-
-    GET["Get"] --> L1HIT{"L1 hit?"}
-    L1HIT -- Yes --> RET1["Return"]
-    L1HIT -- No --> L2HIT{"L2 hit?"}
-    L2HIT -- Yes --> BACKFILL["Backfill L1"] --> RET2["Return"]
-    L2HIT -- No --> MISS["Return not-found"]
-
-    SET["Set"] --> WL1["Write L1"] --> WL2["Write L2"]
-    DEL["Delete"] --> RL1["Remove L1"] --> RL2["Remove L2"]
-```
-
-The port lives at `internal/port/cache/cache.go` (Get/Set/Delete interface). Adapters live at `internal/adapter/ristretto/`, `internal/adapter/natskv/`, and `internal/adapter/tiered/`. L1 backfill uses shorter TTL (5 min) to prevent stale data.
-
 **Rate Limiting** (`internal/middleware/ratelimit.go`) implements a token bucket rate limiter per client IP (IPv6 grouped by /64; authenticated requests keyed `userID:IP`). It has configurable `requests_per_second` and `burst` from config. Response headers follow GitHub-style conventions: `X-RateLimit-Remaining`, `X-RateLimit-Reset`. It returns 429 with `Retry-After` header when the limit is exceeded. The client IP comes from `middleware.ClientIP` (`internal/middleware/clientip.go`), which honours `X-Forwarded-For` / `X-Real-IP` only from `server.trusted_proxies` (since 2026-09-29, KI-11; chi's deprecated `RealIP` let any client pick its bucket).
 
 #### Agent Execution
@@ -375,6 +354,12 @@ Termination enforcement checks max steps, max cost, timeout, and stall detection
 **Checkpoint System** (`internal/service/checkpoint.go`, `git_worktree.go`) records checkpoints as commits of the whole working tree built from a private index (`GIT_INDEX_FILE`, one per run, kept across its checkpoints) with `commit-tree`, chained under `refs/codeforge/checkpoints/<run>`; HEAD, branches and the user's index are never touched. A checkpoint is taken before each policy-allowed file-modifying tool call. The first (base) checkpoint also records the user's index (as a tree) and the pre-run HEAD (branch, detached commit or unborn branch); later checkpoints compare-and-swap on the chain tip. The ref chain is the durable record, so rollback and cleanup work after a Go Core restart and on another replica. `RewindToFirst` restores the base tree, the user's index and HEAD (files the run added are removed, the user's pre-run uncommitted and untracked files come back); `RewindToLast` undoes the last change; `CleanupCheckpoints` deletes the ref. Patch delivery diffs the base checkpoint against the working tree and writes `.git/codeforge/patches/<run>.patch` (no symlinks followed).
 
 **Git in workspaces** (`internal/git/workspace.go`, KI-77): every Go git call in an agent-writable workspace (checkpoints, delivery incl. `gh`, gitlocal and GitHub providers, workspace init, ls-remote) goes through one hardened entry point: a sanitised environment (no global/system config or attributes, inherited `GIT_*` dropped, no prompts, pager or editor), `GIT_CONFIG_COUNT` overrides (hooks, fsmonitor, credential helpers, signing, gc/maintenance and submodule recursion off; filter drivers neutralised; only https/http/ssh/git transports), and pre-checks that execute nothing (`.git` must be a real directory without `commondir`/alternates or symlinked config, refs, logs or objects; repository config keys must be on an allowlist, `internal/git/config_keys.go`, fail closed). The worker's file tools refuse `.git` path components and the presets deny Write/Edit on `**/.git/**`. A process of the agent that keeps running could still rewrite `.git/config` between the check and git's read; closing that needs separate UIDs for tools (KI-71).
+
+The pre-checks go further (S3-F, KI-82, KI-88). Refused in every repository: `core.sshCommand`, `core.gitProxy`, `remote.<name>.uploadpack` / `receivepack` / `vcs` / `promisor` / `partialCloneFilter` and `extensions.partialClone` (they name a program git runs for a transport or make a remote lazy-fetching; operators configure ssh with `GIT_SSH_COMMAND`); the environment sets `GIT_NO_LAZY_FETCH=1`, and every push runs with `push.recurseSubmodules=no` and `--no-recurse-submodules`. The `push`, `fetch`, `pull` and `checkout` sections are allowlisted key by key, the network-only sections (`http`, `protocol`, `url`) are refused only for fetch, pull and push, and a refusal names the key. **Nested repositories** (`internal/git/nested.go`): a workspace whose index or HEAD holds a gitlink (the mode is parsed, any mode with the type bits `0160000`), that has a nested `.git` (directory or file) outside ignored directories, or whose index has a path with a `.git` component is refused for every Go git operation (checkpoints, rewind, delivery, review baseline, providers), because `git add` and `git status` would run git inside the nested repository with its own configuration; the private index is checked before and after `add -A` and the walk is bounded (200,000 entries, depth 64; reaching a bound refuses the workspace). Submodules and linked worktrees are therefore not supported (KI-88). Files behind a filter driver (git-lfs, git-crypt) keep their content in checkpoints (renormalised after `add -A`) and commit delivery refuses changes to filtered paths. Commit delivery commits only the run's own change (three-way merge of the base checkpoint, HEAD and the working tree), so the user's uncommitted pre-run work stays uncommitted and pre-run staged changes stay staged. Short-lived files (per-run checkpoint indexes, the SVN client configuration) live in one per-process directory (`internal/proctemp`), stale ones are removed at startup. The SVN provider runs non-interactively without credential cache, with a private empty configuration directory and `--ignore-externals`, and contacts only URLs within the project's repository URL (`file://` only with the provider key `allow_file_urls`). Adopting a directory or cloning from a local path is allowed inside the caller's tenant directory of the workspace root; platform admins may also use directories under `workspace.adopt_roots`. Tests of the auto-agent run in the worker (`conversation.test.request` / `conversation.test.result`), never in the Go Core (KI-81).
+
+**Control plane details** (S6): the stuck-work watchdog (`internal/service/stuck_work_watchdog.go`) runs seven checks every `runtime.stale_check_interval`: lost tasks, tasks never accepted (`runtime.task_accept_timeout`), quality gates, lost runs, lost conversation runs, ended teams and undecided review refactorings (the last two also once at startup). `RuntimeService` remembers the runs the control plane ended whose worker has not confirmed the stop (`WorkerMayStillWrite`, `WorkerStopGrace`; the confirming completion calls the callback set with `SetOnWorkerStopped`), because such a worker may still change the workspace until it stops. `OrchestratorService` runs the plan-end callbacks (team cleanup, review pipeline) after the scheduling lock is released, prepares steps through a `StepPreparer` before their run starts (the review pipeline records the refactorer's baseline there, outside the lock), re-plans a step whose run stalled up to `runtime.stall_max_retries` times, and ends a team with its plan (also on cancel).
+
+**Review pipeline** (Phase 31, KI-17; `internal/service/review_pipeline.go`): `POST /projects/{id}/review-refactor` creates and starts a plan (boundary analysis, contract review, review, refactoring) with one active pipeline per project. The Go record `review_pipelines` (migration 100; state `pending`, `refactoring`, `awaiting_decision`, `done`) holds the baseline commit, the result commit and the measured impact; the refs `refs/codeforge/review/<plan>` and `refs/codeforge/review-result/<plan>` only keep those commits alive and are never trusted. After the refactorer ends, `DiffImpactScorer` measures the change against the baseline (the gate fails closed on a tampered ref, a missing record, a boundary lookup error or an unmeasurable change); a low impact is applied, a medium one is applied with a notification and a high one waits for a decision (`review.approval_required` WebSocket event, `GET /projects/{id}/review/pending` after a reload). Keep and undo are `POST /runs/{id}/approve` and `/reject`; the undo is path-scoped (three-way merge) and moves HEAD back only by compare-and-swap. A stopped refactoring is measured once its worker confirmed the stop or the lost-worker deadline passed.
 
 **Docker Sandbox** (`internal/service/sandbox.go`) manages container lifecycle for isolated agent execution. It supports a Create, Start, Exec, Stop, Remove lifecycle via Docker CLI (`os/exec`). Resource limits include memory, CPU quota, PID limit, and network mode (default: `none`). A three-layer limit hierarchy applies: config defaults, then policy limits, then agent limits, capped at ceiling. The root filesystem is read-only with tmpfs `/tmp`.
 
@@ -415,7 +400,7 @@ sequenceDiagram
 
 It returns immediately (HTTP 202). `HandleConversationRunComplete()` receives the result via NATS, batch-inserts tool messages, stores the final assistant message, and broadcasts `agui.run_finished` via WebSocket.
 
-**Agent Loop Executor** (`workers/codeforge/agent_loop.py`) implements the core loop. It merges built-in tools (`read_file`, `write_file`, `edit_file`, `bash`, `search_files`, `glob_files`, `list_directory`, `search_conversations`, `search_skills`, `create_skill`, plus per-run `handoff_to`, `propose_goal`, `propose_roadmap`, `spawn_subagent`) with MCP-discovered tools (`mcp__{server}__{tool}`) into a single tools array (tool gaps: see [Known Issues](todo.md#known-issues) KI-25, KI-38, KI-58). Each iteration calls `chat_completion_stream()`, streams text chunks to the frontend via AG-UI events, and checks for tool_calls. For each tool call, it requests permission from Go via the Runtime API, executes the tool if allowed, and appends the result to the message history. The loop terminates on `finish_reason="stop"`, max steps, max cost, or cancellation.
+**Agent Loop Executor** (`workers/codeforge/agent_loop.py`) implements the core loop. It merges built-in tools (`read_file`, `write_file`, `edit_file`, `bash`, `search_files`, `glob_files`, `list_directory`, `search_conversations`, `search_skills`, `create_skill`, plus per-run `handoff_to` (offered whenever it is registered), `propose_goal`, `propose_roadmap`) with MCP-discovered tools (`mcp__{server}__{tool}`) into a single tools array (`spawn_subagent` is not offered until Go starts sub-agents: [Known Issues](todo.md#known-issues) KI-25). Each iteration calls `chat_completion_stream()`, streams text chunks to the frontend via AG-UI events, and checks for tool_calls. For each tool call, it requests permission from Go via the Runtime API, executes the tool if allowed, and appends the result to the message history. The loop terminates on `finish_reason="stop"`, max steps, max cost, or cancellation.
 
 **Conversation History Manager** (`workers/codeforge/history.py`) assembles the message array within a token budget. It uses a head-and-tail strategy: always include the system prompt and the last N messages, compress older tool results to stay within `MaxContextTokens`. Long tool outputs are truncated to a configurable maximum (default 10,000 chars) with head+tail preservation.
 
@@ -727,7 +712,7 @@ For the Context Layer, keyword extraction from tasks and code improves retrieval
 
 Every state mutation of an agent is immediately emitted to the frontend via WebSocket. This includes agent status (active, waiting, finished), internal monologue (what the agent is "thinking"), current step in the workflow, token usage and costs in real time, and terminal/browser session data. The frontend can display live updates without polling.
 
-> **Implementation status (2026-09-29):** WebSocket hub in `internal/adapter/ws/`, event types in `internal/domain/event/broadcast.go` and `agui.go`. Delivery is tenant-scoped since 2026-09-30 (KI-12): `BroadcastEvent` sends only to clients of the tenant in ctx and drops events without one; `BroadcastGlobal` is reserved for tenant-free data (model health). Every client has a bounded send queue (1024 messages) with its own writer and a 10 s write timeout, so a stalled client is dropped instead of blocking the hub. Connections authenticate with single-use tickets (`POST /api/v1/ws/ticket`, 30 s TTL, bound to user and tenant; `GET /ws?ticket=`); the JWT is no longer accepted in the URL. NATS requests carry `tenant_id`, the worker echoes it on results and streams, and Go subscribers scope their context with it (a stored run or conversation wins). Run, plan, agent and War Room panels update on their events (KI-39, 2026-09-30; `run.status` carries `agent_id`), channels on `channel.message` (KI-42). Gaps, see [Known Issues](todo.md#known-issues): tenant propagation is per payload (KI-64); task/agent status changes of runs are not broadcast (KI-74).
+> **Implementation status (2026-09-29):** WebSocket hub in `internal/adapter/ws/`, event types in `internal/domain/event/broadcast.go` and `agui.go`. Delivery is tenant-scoped since 2026-09-30 (KI-12): `BroadcastEvent` sends only to clients of the tenant in ctx and drops events without one; `BroadcastGlobal` is reserved for tenant-free data (model health). Every client has a bounded send queue (1024 messages) with its own writer and a 10 s write timeout, so a stalled client is dropped instead of blocking the hub. Connections authenticate with single-use tickets (`POST /api/v1/ws/ticket`, 30 s TTL, bound to user and tenant; `GET /ws?ticket=`); the JWT is no longer accepted in the URL. NATS requests carry `tenant_id`, the worker echoes it on results and streams, and Go subscribers scope their context with it (a stored run or conversation wins). Run, plan, agent and War Room panels update on their events (KI-39, 2026-09-30; `run.status` carries `agent_id`), channels on `channel.message` (KI-42). The runtime broadcasts `task.status` and `agent.status` when a run starts and ends (KI-74), and every Go publish carries the tenant as the `X-Tenant-ID` header (KI-64).
 
 #### Agent Specialization: Modes System
 
@@ -975,7 +960,7 @@ workers/codeforge/tools/
   handoff.py             # Agent-to-agent handoff (handoff_to)
   propose_goal.py        # Propose project goals
   propose_roadmap.py     # Propose roadmap items
-  spawn_subagent.py      # Sub-agent request (starts nothing yet, KI-25)
+  spawn_subagent.py      # Sub-agent request (not registered until Go starts sub-agents, KI-25)
   create_skill.py        # Create reusable skills
   search_skills.py       # Search skill registry
   search_conversations.py # Search conversation history
@@ -1330,7 +1315,7 @@ flowchart TD
 
 Stall detection recognizes when agents are going in circles. Re-planning adjusts the plan based on previous results. Fact gathering collects missing information before a new plan. Progress tracking uses a ledger (progress protocol).
 
-> **Implementation status (2026-09-29):** Stall detection is implemented (`workers/codeforge/stall_detection.py`, policy `stall_detection`). `OrchestratorService.ReplanStep` (`internal/service/orchestrator_consensus.go`) exists but has no caller yet; fact gathering and the progress ledger are planned.
+> **Implementation status (2026-09-29):** Stall detection is implemented (`workers/codeforge/stall_detection.py`, policy `stall_detection`). Since S6 (KI-62) the orchestrator re-plans a plan step whose run stalled (marker `stall detected:` in the run's error, shared with the worker): the step gets a new run up to `runtime.stall_max_retries` times (`replanStalledLocked`, `internal/service/orchestrator_consensus.go`); the stall is not yet added to the new run's prompt. Fact gathering and the progress ledger are planned.
 
 #### HandoffMessage Pattern (from AutoGen)
 
@@ -1350,7 +1335,7 @@ flowchart TD
 
 Handoff is explicit with context (not blind forwarding). The agent decides itself who to hand off to. This fits CodeForge's agent specialization (Planner, Coder, Reviewer, etc.) and works with different agent backends (Aider->OpenHands->SWE-agent).
 
-> **Implementation status (2026-09-29):** Implemented as the `handoff_to` tool (`workers/codeforge/tools/handoff.py`, `consumer/_handoff.py`). Handoffs bypass the Go `HandoffService` (quarantine, inbox, `handoff.status` events) and are filtered out for `api_with_tools` models; see [Known Issues](todo.md#known-issues) KI-15, KI-38.
+> **Implementation status (2026-10-01):** Implemented as the `handoff_to` tool (`workers/codeforge/tools/handoff.py`, `consumer/_handoff.py`) that publishes `handoff.request` (with a `handoff_id` and string metadata) to the Go Core. `HandoffService` (`internal/service/handoff.go`) carries the handoff out (KI-15): the source and target agent are checked in the request's tenant and project, the handoff is screened by the quarantine (a held one continues on `handoff.approved`, which only the Go Core publishes and consumes), the target agent's configured mode wins (an unknown requested mode is refused), the target gets a task and a run that the Go Core tracks like any other, an inbox message and a `handoff.status` event with `run_id`; its status is `initiated`, `quarantined`, `rejected`, `failed` or `a2a_delegated` (an `a2a://<id>` target). Each stage is claimed once in `handoff_claims` (a claim that was never done is taken over after an 11-minute lease, a retry reuses the stage's task, a permanent start error refuses at once); a transient failure is redelivered with a delay and dead-lettered after the last attempt (`handoff.request.dlq` / `handoff.approved.dlq` end the handoff as failed).
 
 #### Human Feedback Provider Protocol (from CrewAI)
 
@@ -1366,7 +1351,7 @@ class HumanFeedbackProvider(Protocol):
 
 **Implementations** include WebGuiProvider (feedback via the SolidJS web GUI, default), SlackProvider (approval requests as Slack messages), EmailProvider (approval via email link), and CliProvider (terminal input for development/debugging).
 
-> **Implementation status (2026-09-29):** Implemented as the Go port `internal/port/feedback` (`Provider.RequestFeedback`) with Slack and Email adapters (`internal/adapter/slack/feedback.go`, `internal/adapter/email/feedback.go`); web GUI approvals use the run approval endpoints. The Email provider sends no usable approval emails yet (see [Known Issues](todo.md#known-issues) KI-57). A CLI provider is planned.
+> **Implementation status (2026-09-29):** Implemented as the Go port `internal/port/feedback` (`Provider.RequestFeedback`) with Slack and Email adapters (`internal/adapter/slack/feedback.go`, `internal/adapter/email/feedback.go`); web GUI approvals use the run approval endpoints. The Email provider (KI-57) mails a link to the web approval page `<notification.web_ui_url>/approvals/<run>/<call>` (the page reads `GET /api/v1/runs/{id}/approvals/{callId}` and decides with `POST /api/v1/feedback/{run_id}/{call_id}`, tenant-scoped, audit with tool and user); it is registered only when SMTP, recipients and the web UI URL are configured and mails only default-tenant requests. The Slack provider's buttons have no interaction endpoint and it receives every tenant's requests ([Known Issues](todo.md#known-issues) KI-84). A CLI provider is planned.
 
 ### Coding Agent Insights: Adopted Patterns
 
@@ -1496,7 +1481,7 @@ Inter-agent messages carry trust annotations for provenance tracking. Four trust
 - Auto-stamping: NATS middleware applies trust level before dispatch (planned; see status)
 - Python models: `workers/codeforge/trust/` -- mirror types for worker-side consumption; `trust/middleware.py` (`stamp_outgoing`) stamps the worker's outgoing payloads
 
-> **Implementation status (2026-09-29):** The Go Core stamps only the payloads it builds itself, always with `full` (`trust.Internal()` in `RuntimeService` for `runs.start`, and in `HandoffService`, which is not wired). Inbound A2A tasks are recorded as `untrusted` on the database row only. Identity-based levels and a NATS-level stamping middleware are planned.
+> **Implementation status (2026-10-01):** The Go Core stamps the payloads it builds itself with `full` (`trust.Internal()` in `RuntimeService` for `runs.start` and in `HandoffService` for internal agents); an inbound A2A prompt carries the partial trust of an authenticated A2A key. Identity-based levels and a NATS-level stamping middleware are planned.
 
 #### Message Quarantine System
 
@@ -1505,9 +1490,9 @@ Low-trust messages are intercepted before NATS dispatch, risk-scored, and held f
 - Risk scorer: 13 scoring tests covering shell/SQL injection, path traversal, env-var access, base64 blobs, prompt override, role hijack and exfiltration patterns
 - PostgreSQL storage: migration 049, `quarantine_messages` table
 - `QuarantineService`: Evaluate/Approve/Reject/List/Get with 9 service tests
-- Integration: Runtime gate (`runs.start`), HTTP handlers, WebSocket `quarantine.*` events; a Handoff gate exists in `HandoffService`, but that service is not wired
+- Integration: Runtime gate (`runs.start`), the handoff gate in `HandoffService`, the inbound A2A executor, HTTP handlers (`/api/v1/quarantine`, admin only), WebSocket `quarantine.*` events
 
-> **Implementation status (2026-09-29):** Quarantine is disabled by default (`quarantine.enabled`). The only wired gate (`runs.start`) always carries `full` trust, which meets the default `min_trust_bypass: verified`, so nothing is held in practice; agent handoffs (published directly by the Python `handoff_to` tool) and inbound A2A prompts are not evaluated. See [Known Issues](todo.md#known-issues) KI-15.
+> **Implementation status (2026-10-01):** Quarantine is disabled by default (`quarantine.enabled`). Gates: `runs.start` (always `full` trust, which meets the default `min_trust_bypass: verified`, so it holds nothing in practice), handoffs (`HandoffService`) and inbound A2A prompts (KI-15). For an A2A prompt the task is created first and records the held message (`quarantine_message_id`): Approve replays the prompt only while the task is still `submitted` (otherwise the message is rejected and the call answers 409), Reject rejects the task, a cancel by the A2A caller withdraws the message, and a prompt whose task cannot record the screening is withdrawn. The reviewer is the logged-in user (`reviewed_by_user_id`, KI-79; erasure replaces the name with "Deleted user"). Messages carry `expires_at` but nothing sets the status `expired` yet (KI-91).
 
 #### Persistent Agent Identity
 
@@ -1515,7 +1500,7 @@ Agents maintain persistent identity records with accumulated stats, a key-value 
 
 - Stats accumulation: total runs, total cost, success rate and last activity per agent across sessions (`IncrementAgentStats`)
 - Active work visibility: list (`GET /projects/{id}/active-work`) and claim (`POST /tasks/{id}/claim`) endpoints; stale claims are released automatically by a background job; WebSocket events `activework.claimed` / `activework.released`
-- War Room (`frontend/src/features/project/WarRoom.tsx`): live multi-agent collaboration view with swim lanes, handoff arrows, shared context panel (handoff arrows never render because no wired code emits `handoff.status`, see [Known Issues](todo.md#known-issues) KI-15)
+- War Room (`frontend/src/features/project/WarRoom.tsx`): live multi-agent collaboration view with swim lanes, handoff arrows, shared context panel (the arrows follow `handoff.status`; an `initiated` arrow is never removed, [Known Issues](todo.md#known-issues) KI-92)
 - Planned: agent fingerprints and agent scan/discovery; tool-call and token stats per agent
 
 ### Benchmark and Evaluation System (Phase 26 + 28)
@@ -1686,7 +1671,7 @@ flowchart TD
     CF <-- "Bidirectional Sync" --> SPECS
 ```
 
-Import brings PM tool data into the CodeForge roadmap model (issues/epics become features/tasks). Export sends CodeForge data to the PM tool (new features are created as issues). **Bidirectional** sync means changes are synchronized in both directions. Conflict resolution is timestamp-based + user decision on conflicts. Sync triggers include webhook (real-time), poll (periodic), and manual. Known gap: webhook-triggered sync currently always fails; see [Known Issues](todo.md#known-issues) KI-56.
+Import brings PM tool data into the CodeForge roadmap model (issues/epics become features/tasks). Export sends CodeForge data to the PM tool (new features are created as issues). **Bidirectional** sync means changes are synchronized in both directions. Conflict resolution is timestamp-based + user decision on conflicts. Sync triggers include webhook (real-time), poll (periodic), and manual. Webhook-triggered sync (KI-56) maps the webhook source to the registered provider (`github` -> `github-issues`), finds the project by an exact repository match (host and path, tenant-scoped; Plane by `plane_workspace` / `plane_project_id`), answers 202 when the sync started, 404 when no project matches and 400 when the provider cannot sync, and reports the outcome as a `pm.sync` event (`status`, `error`); the operator's Plane token goes only to `plane.base_url`. GitLab syncs without a token and the VCS webhooks still use the substring lookup ([Known Issues](todo.md#known-issues) KI-85).
 
 #### Roadmap Data Model
 

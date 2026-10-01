@@ -76,6 +76,8 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   profile: later changes of the base do not reach them.
 - Git metadata (KI-77): the presets deny Write/Edit on `**/.git/**`, and the worker's file tools refuse `.git`
   path components; the Go Core runs workspace git only through the hardened `internal/git` entry point.
+- Workspace real path (S6-E follow-up): Bash redirection targets are checked against the workspace path and against its real path with symlinks resolved (`policy.WithWorkspaceRealPath`), so a symlink retargeted after the run started does not move the check. The policy tester (`POST /policies/{name}/evaluate`) evaluates in a synthetic workspace `/workspace`, so relative paths and redirection targets are placed like in a run.
+- Claude Code Bash calls start in the workspace (`CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`; CLIs that do not know the variable are not covered).
 
 ## Consequences
 

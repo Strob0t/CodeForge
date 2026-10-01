@@ -99,9 +99,8 @@
 - PostgreSQL Driver (`pgx` v5.9.2 + `pgxpool`) — primary database
 - Database Migrations (`goose`) — SQL-based schema migrations
 - NATS Client (`nats.go` + `nats.go/jetstream`) — message queue to Python Workers
-- Tiered Cache (`dgraph-io/ristretto` v2) — in-process L1 cache (L1 + NATS KV L2 are constructed at startup but not yet injected into any service)
 - Worker Pool (`golang.org/x/sync/semaphore`) — bounded concurrency for git operations
-- Git Operations (`os/exec` wrapper around `git` CLI) — zero deps, 100% feature coverage, native performance
+- Git Operations (`os/exec` wrapper around `git` CLI) — zero deps, 100% feature coverage, native performance; every call in an agent-writable workspace goes through the hardened `internal/git` package (sanitised environment, config allowlist, nested repositories refused)
 - YAML (`gopkg.in/yaml.v3`) — config and policy loaders
 - UUIDs (`github.com/google/uuid`)
 - Password hashing (`golang.org/x/crypto/bcrypt`) and admin CLI TTY input (`golang.org/x/term`)
@@ -142,7 +141,7 @@
 - MCP (Model Context Protocol) — Agent-to-Tool communication, JSON-RPC 2.0, Anthropic (Go Core: MCP server + client registry; Python Workers: MCP client for agent tool access)
 - LSP (Language Server Protocol) — code intelligence for agents, Microsoft (Go Core: LSP server lifecycle management per project language)
 - OpenTelemetry GenAI — LLM/agent observability, traces + metrics, CNCF (LiteLLM: native OTEL export; Go: `go.opentelemetry.io/otel` v1.44.0 + SDK + OTLP gRPC exporters + `otelhttp` middleware; Python: `opentelemetry-api` + `opentelemetry-sdk` + OTLP gRPC exporter; export gaps: KI-36)
-- A2A (Agent-to-Agent Protocol v0.3.0) — full implementation with AgentCard, JSON-RPC task lifecycle, inbound/outbound federation, trust annotations, push notifications (Phase 27); inbound auth and quarantine gaps: KI-15
+- A2A (Agent-to-Agent Protocol v0.3.0) — full implementation with AgentCard, JSON-RPC task lifecycle, inbound/outbound federation, trust annotations, push notifications (Phase 27); inbound calls authenticate with per-tenant A2A API keys and their prompts pass the quarantine (KI-15)
 - AG-UI (Agent-User Interaction Protocol) — 12 event types (8 core + 4 CodeForge extensions: `permission_request`, `goal_proposal`, `action_suggestion`, `roadmap_proposal`) emitted via WebSocket, Go + Python + Frontend integration (Phase 17+)
 
 #### Agent Backend Integration (Phase 9+)
@@ -156,6 +155,7 @@
 - NATS JetStream (Port 4222/8222) — message queue between Go Core and Python Workers (Image: `nats:2-alpine`, subject-based routing, JetStream persistence, built-in KV store; ADR: [001-nats-jetstream-message-queue.md](architecture/adr/001-nats-jetstream-message-queue.md))
 - PostgreSQL 18 (Port 5432) — primary database for App + LiteLLM (Image: `postgres:18-alpine`, shared instance, both CodeForge and LiteLLM use `public` schema (LiteLLM tables prefixed with `LiteLLM_`); Go Driver: pgx v5, Migrations: goose, Python Driver: psycopg3; ADR: [002-postgresql-database.md](architecture/adr/002-postgresql-database.md))
 - LiteLLM Proxy (Docker Sidecar, Port 4000) — central LLM gateway (Dev image: `docker.litellm.ai/berriai/litellm:main-stable`; Prod image: `ghcr.io/berriai/litellm:v1.103.1` (pinned; v1.63.2 no longer exists); 127+ providers, 6 routing strategies, budget management; Config: hand-maintained `litellm/config.yaml` with provider-level wildcard entries, mounted into the container; Go Core adds/removes models at runtime via the LiteLLM admin API; Dependencies: PostgreSQL shared instance, Redis optional for multi-instance only)
+- Traefik v3.6 (ports 80/443, only with the blue-green overlay `docker-compose.blue-green.yml`) — TLS with Let's Encrypt (HTTP challenge) and routing to the running color of core and frontend; configured by command flags, v3.6 or later because older Docker providers are refused by Docker Engine 29
 
 #### TypeScript Frontend
 
