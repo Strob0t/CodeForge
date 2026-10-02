@@ -179,7 +179,7 @@ describe("MCP server arguments", () => {
     vi.clearAllMocks();
     mcp.servers = [
       { ...local, args: ["-y", "mcp-github", "--token=***", "--api-key", "***"] },
-      { ...remote, url: "https://user:***@mcp.example/sse" },
+      { ...remote, url: "https://***@mcp.example/sse" },
     ];
     mcp.listServers.mockImplementation(() => Promise.resolve(mcp.servers));
     mcp.updateServer.mockResolvedValue(remote);
@@ -217,7 +217,7 @@ describe("MCP server arguments", () => {
     await waitFor(() => expect(mcp.updateServer).toHaveBeenCalled());
     expect(mcp.updateServer).toHaveBeenCalledWith(
       "s-remote",
-      expect.objectContaining({ url: "https://user:***@mcp.example/sse" }),
+      expect.objectContaining({ url: "https://***@mcp.example/sse" }),
     );
   });
 });

@@ -105,13 +105,17 @@ func TestServerDef_RedactedURLAndArgs(t *testing.T) {
 		wantURL  string
 		wantArgs []string
 	}{
-		{name: "password", url: "https://user:s3cret@mcp.example/sse?x=1", wantURL: "https://user:***@mcp.example/sse?x=1"},
-		{name: "encoded password with @ and :", url: "https://user:p%40ss:w@mcp.example:8443/", wantURL: "https://user:***@mcp.example:8443/"},
-		{name: "user without password stays", url: "https://user@mcp.example/", wantURL: "https://user@mcp.example/"},
-		{name: "empty password stays", url: "https://user:@mcp.example/", wantURL: "https://user:@mcp.example/"},
-		{name: "no userinfo", url: "http://mcp.example/a@b", wantURL: "http://mcp.example/a@b"},
-		{name: "@ in the query is no userinfo", url: "http://mcp.example/?u=a:b@c", wantURL: "http://mcp.example/?u=a:b@c"},
-		{name: "unparsable url", url: "https://user:p%zz@mcp.example/", wantURL: "https://user:***@mcp.example/"},
+		// The url is redacted by secrets.RedactURLWith (KI-97 review): the whole
+		// userinfo (a token-only user too) and credential query values.
+		{name: "password", url: "https://user:s3cret@mcp.example/sse?x=1", wantURL: "https://***@mcp.example/sse?x=1"},
+		{name: "encoded password with @ and :", url: "https://user:p%40ss:w@mcp.example:8443/", wantURL: "https://***@mcp.example:8443/"},
+		{name: "token as the user", url: "https://ghp_tok@mcp.example/", wantURL: "https://***@mcp.example/"},
+		{name: "credential query parameters", url: "https://mcp.example/sse?api_key=sk-1&x=1&accessToken=a", wantURL: "https://mcp.example/sse?api_key=***&x=1&accessToken=***"},
+		{name: "other query parameters stay", url: "https://mcp.example/sse?max_tokens=5&key=", wantURL: "https://mcp.example/sse?max_tokens=5&key="},
+		{name: "no userinfo", url: "http://mcp.example/sse", wantURL: "http://mcp.example/sse"},
+		// RedactURL errs on the side of redacting: an @ in the path ends the "userinfo".
+		{name: "@ in the path", url: "http://mcp.example/a@b", wantURL: "http://***@b"},
+		{name: "unparsable url", url: "https://user:p%zz@mcp.example/", wantURL: "https://***@mcp.example/"},
 		{
 			name:     "flag=value forms",
 			args:     []string{"--token=ghp_1", "-api-key=k2", "PASSWORD=p3", "--githubToken=t4", "--port=8080", "--max-tokens=5", "--token="},
@@ -160,6 +164,7 @@ func TestServerDef_KeepRedactedURLAndArgs(t *testing.T) {
 		Transport: TransportStreamableHTTP, URL: "https://user:s3cret@mcp.example/mcp",
 		Headers: map[string]string{"Authorization": "Bearer h"},
 	}
+	query := &ServerDef{Transport: TransportSSE, URL: "https://mcp.example/sse?api_key=sk-q&region=eu"}
 	cascade := &ServerDef{Transport: TransportStdio, Command: "npx", Args: []string{"--token", "--api-key", "ghp_1"}}
 	duplicates := &ServerDef{Transport: TransportStdio, Command: "npx", Args: []string{"--token", "ghp_1", "--token", "k2", "--token=ghp_1"}}
 	// base is what the client read; stored is what the store holds (nil on create).
@@ -256,6 +261,15 @@ func TestServerDef_KeepRedactedURLAndArgs(t *testing.T) {
 			edit:    func(d *ServerDef) { d.URL = "https://user:***@mcp.example/mcp" },
 			wantErr: true,
 		},
+		{
+			name: "url with a query credential sent back as read", base: query, stored: query, edit: func(*ServerDef) {},
+			wantURL: query.URL,
+		},
+		{
+			name: "url with a query credential and another parameter", base: query, stored: query,
+			edit:    func(d *ServerDef) { d.URL = "https://mcp.example/sse?api_key=***&region=us" },
+			wantErr: true,
+		},
 		// Round 2: the args are kept as a whole when they come back as read.
 		{
 			name: "a flag value that looks like a flag", base: cascade, stored: cascade, edit: func(*ServerDef) {},
@@ -298,7 +312,7 @@ func TestServerDef_KeepRedactedURLAndArgs(t *testing.T) {
 				if !errors.Is(err, domain.ErrValidation) {
 					t.Fatalf("KeepRedacted = %v, want domain.ErrValidation", err)
 				}
-				if strings.Contains(err.Error(), "s3cret") || strings.Contains(err.Error(), "ghp_1") {
+				if strings.Contains(err.Error(), "s3cret") || strings.Contains(err.Error(), "ghp_1") || strings.Contains(err.Error(), "sk-q") {
 					t.Fatalf("the error quotes a secret: %v", err)
 				}
 				if def.URL != sent || slices.Contains(def.Args, "ghp_1") || slices.Contains(def.Args, "--token=ghp_1") ||

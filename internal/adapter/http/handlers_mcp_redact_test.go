@@ -311,9 +311,10 @@ func TestMCPServerConnectionTest_KeepsRedactedValues(t *testing.T) {
 
 // KI-97: the url's password and credential arguments are secrets too.
 const (
-	mcpURLSecret = "url_secret_value"
-	mcpArgToken  = "ghp_arg_token_value"
-	mcpArgKey    = "arg_api_key_value"
+	mcpURLSecret   = "url_secret_value"
+	mcpQuerySecret = "sk-query_secret_value"
+	mcpArgToken    = "ghp_arg_token_value"
+	mcpArgKey      = "arg_api_key_value"
 )
 
 func mcpServersWithURLAndArgSecrets() []mcp.ServerDef {
@@ -324,7 +325,7 @@ func mcpServersWithURLAndArgSecrets() []mcp.ServerDef {
 			Status: mcp.ServerStatusRegistered,
 		},
 		{
-			ID: "s2", Name: "remote", Transport: mcp.TransportSSE, URL: "https://user:" + mcpURLSecret + "@mcp.example/sse",
+			ID: "s2", Name: "remote", Transport: mcp.TransportSSE, URL: "https://user:" + mcpURLSecret + "@mcp.example/sse?api_key=" + mcpQuerySecret,
 			Enabled: true, Status: mcp.ServerStatusRegistered,
 		},
 	}
@@ -346,7 +347,7 @@ func TestMCPServerReads_RedactURLPasswordAndCredentialArgs(t *testing.T) {
 					t.Fatalf("status %d: %s", w.Code, w.Body.String())
 				}
 				body := w.Body.String()
-				for _, secret := range []string{mcpURLSecret, mcpArgToken, mcpArgKey} {
+				for _, secret := range []string{mcpURLSecret, mcpQuerySecret, mcpArgToken, mcpArgKey} {
 					if strings.Contains(body, secret) {
 						t.Fatalf("response carries a secret: %s", body)
 					}
@@ -354,7 +355,7 @@ func TestMCPServerReads_RedactURLPasswordAndCredentialArgs(t *testing.T) {
 				if path != "/api/v1/mcp/servers/s2" && !strings.Contains(body, `["-y","mcp-github","--token=***","--api-key","***","--root","/w"]`) {
 					t.Fatalf("response does not show the arguments with redacted values: %s", body)
 				}
-				if path != "/api/v1/mcp/servers/s1" && !strings.Contains(body, `"url":"https://user:***@mcp.example/sse"`) {
+				if path != "/api/v1/mcp/servers/s1" && !strings.Contains(body, `"url":"https://***@mcp.example/sse?api_key=***"`) {
 					t.Fatalf("response does not show the url with a redacted password: %s", body)
 				}
 			})
@@ -383,7 +384,7 @@ func TestMCPServerUpdate_KeepsRedactedURLAndArgs(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatalf("update %s: status %d: %s", id, w.Code, w.Body.String())
 			}
-			for _, secret := range []string{mcpURLSecret, mcpArgToken, mcpArgKey} {
+			for _, secret := range []string{mcpURLSecret, mcpQuerySecret, mcpArgToken, mcpArgKey} {
 				if strings.Contains(w.Body.String(), secret) {
 					t.Fatalf("update response carries a secret: %s", w.Body.String())
 				}

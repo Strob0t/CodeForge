@@ -12,19 +12,21 @@ import (
 )
 
 // RedactedValue stands for a stored secret of an MCP server: a set env
-// variable or header value (KI-71 review), the password of the url and the
-// value of an argument that carries a credential (KI-97). The API shows
+// variable or header value (KI-71 review), the userinfo and credential query
+// values of the url and the value of an argument that carries a credential
+// (KI-97). The API shows
 // where one is set, never its value, and a client that sends it back keeps
 // the stored value.
 const RedactedValue = "***"
 
 // Redacted returns a copy of s whose secrets are RedactedValue: set env and
-// header values, the url's password (a user without a password stays) and
-// credential argument values (see credentialArg). Empty values stay empty;
+// header values, the url's userinfo and credential query values
+// (secrets.RedactURLWith) and credential argument values (see
+// credentialArg). Empty values stay empty;
 // keys, flags and the other fields stay.
 func (s *ServerDef) Redacted() ServerDef {
 	out := *s
-	out.URL = redactURLPassword(s.URL)
+	out.URL = secrets.RedactURLWith(s.URL, RedactedValue)
 	out.Args = slices.Clone(s.Args)
 	for i := range out.Args {
 		if prefix, value, ok := credentialArg(s.Args, i); ok && value != "" {
@@ -130,39 +132,6 @@ func keepValues(kind string, values, stored map[string]string) (map[string]strin
 		out[k] = old
 	}
 	return out, nil
-}
-
-// urlPassword splits rawURL around the password of its userinfo, as written
-// (percent-encoded): rawURL == before + password + after. ok is false when
-// the url has no password or an empty one. The authority ends at the first
-// "/", "?" or "#", the userinfo at its last "@" and the user at the first
-// ":", as url.Parse reads them; a url without "://" is read from its start.
-func urlPassword(rawURL string) (before, password, after string, ok bool) {
-	start := 0
-	if i := strings.Index(rawURL, "://"); i >= 0 {
-		start = i + len("://")
-	}
-	end := len(rawURL)
-	if i := strings.IndexAny(rawURL[start:], "/?#"); i >= 0 {
-		end = start + i
-	}
-	at := strings.LastIndexByte(rawURL[start:end], '@')
-	if at < 0 {
-		return "", "", "", false
-	}
-	colon := strings.IndexByte(rawURL[start:start+at], ':')
-	if colon < 0 || colon == at-1 {
-		return "", "", "", false
-	}
-	return rawURL[:start+colon+1], rawURL[start+colon+1 : start+at], rawURL[start+at:], true
-}
-
-func redactURLPassword(rawURL string) string {
-	before, _, after, ok := urlPassword(rawURL)
-	if !ok {
-		return rawURL
-	}
-	return before + RedactedValue + after
 }
 
 // credentialArg reports whether args[i] holds the value of a credential

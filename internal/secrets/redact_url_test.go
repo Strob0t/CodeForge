@@ -50,6 +50,45 @@ func TestRedactURL(t *testing.T) {
 	}
 }
 
+// TestRedactURLWith: the MCP API shows redacted urls with "***" (KI-97
+// review), which a url parser accepts in userinfo and query values.
+func TestRedactURLWith(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"https://user:pw@mcp.example/sse", "https://***@mcp.example/sse"},
+		{"https://tok@mcp.example/sse", "https://***@mcp.example/sse"},
+		{"https://mcp.example/sse?api_key=sk-1&x=1", "https://mcp.example/sse?api_key=***&x=1"},
+		{"https://u:p@mcp.example/sse?token=t&accessToken=a#frag", "https://***@mcp.example/sse?token=***&accessToken=***#frag"},
+		{"https://mcp.example/sse?max_tokens=5", "https://mcp.example/sse?max_tokens=5"},
+		{"https://mcp.example/sse?api_key=", "https://mcp.example/sse?api_key="},
+		{"http://mcp.example/sse", "http://mcp.example/sse"},
+	}
+	for _, tt := range tests {
+		if got := secrets.RedactURLWith(tt.in, "***"); got != tt.want {
+			t.Errorf("RedactURLWith(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestRedactURL_Stable: redacting a redacted string changes nothing, so a
+// value read back can be compared with a fresh redaction.
+func TestRedactURL_Stable(t *testing.T) {
+	inputs := []string{
+		"nats://user:s3cret@nats:4222", "https://ghp_abc@github.com/org/repo.git", "postgres://u:p@ss:w@rd@db:5432/x",
+		"https://host/path@v1", "https://host/x?mail=a@b.c", "https://u:p@h/x?api_key=k&token=t&x=1#f",
+		"nats://u:p@a:4222,nats://u:p@b:4222", "dsn='postgres://u:p@db/x'", "https://h/?token=", "just text", "",
+	}
+	for _, in := range inputs {
+		once := secrets.RedactURL(in)
+		if twice := secrets.RedactURL(once); twice != once {
+			t.Errorf("RedactURL not stable for %q: %q, then %q", in, once, twice)
+		}
+		onceStars := secrets.RedactURLWith(in, "***")
+		if twice := secrets.RedactURLWith(onceStars, "***"); twice != onceStars {
+			t.Errorf("RedactURLWith not stable for %q: %q, then %q", in, onceStars, twice)
+		}
+	}
+}
+
 // TestRedactURL_LinearTime guards against pathological inputs: every log line
 // passes through RedactURL.
 func TestRedactURL_LinearTime(t *testing.T) {

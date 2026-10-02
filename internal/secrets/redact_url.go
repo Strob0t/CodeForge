@@ -18,13 +18,20 @@ const redactedUserinfo = "[REDACTED]"
 // (IsCredentialName: key, api_key, token, X-Amz-Signature, ...) are replaced
 // with [REDACTED] as well. It runs in linear time.
 func RedactURL(s string) string {
+	return RedactURLWith(s, redactedUserinfo)
+}
+
+// RedactURLWith is RedactURL with marker in place of [REDACTED] (the MCP API
+// shows "***", which a URL parser accepts in userinfo and query values). A
+// value that already is marker stays, so redacting twice changes nothing.
+func RedactURLWith(s, marker string) string {
 	// Query values first: a redacted userinfo ("[REDACTED]@") would end the
 	// URL for the query scan at its bracket.
-	return redactUserinfo(redactQueryCredentials(s))
+	return redactUserinfo(redactQueryCredentials(s, marker), marker)
 }
 
 // redactUserinfo replaces the userinfo of every URL in s (see RedactURL).
-func redactUserinfo(s string) string {
+func redactUserinfo(s, marker string) string {
 	var b strings.Builder
 	copied := 0 // s[:copied] is already in b
 	pos := 0
@@ -46,7 +53,7 @@ func redactUserinfo(s string) string {
 			continue
 		}
 		b.WriteString(s[copied:start])
-		b.WriteString(redactedUserinfo)
+		b.WriteString(marker)
 		copied = start + at
 	}
 	if copied == 0 {
@@ -77,9 +84,9 @@ func authorityEnd(s string) int {
 }
 
 // redactQueryCredentials replaces the values of the credential query
-// parameters of every URL in s with [REDACTED]; an empty or already redacted
+// parameters of every URL in s with marker; an empty or already redacted
 // value stays.
-func redactQueryCredentials(s string) string {
+func redactQueryCredentials(s, marker string) string {
 	var b strings.Builder
 	copied := 0 // s[:copied] is already in b
 	pos := 0
@@ -112,9 +119,9 @@ func redactQueryCredentials(s string) string {
 			if eq := strings.IndexByte(s[i:paramEnd], '='); eq >= 0 {
 				valueStart := i + eq + 1
 				value := s[valueStart:paramEnd]
-				if value != "" && value != redactedUserinfo && IsCredentialName(s[i:i+eq]) {
+				if value != "" && value != marker && IsCredentialName(s[i:i+eq]) {
 					b.WriteString(s[copied:valueStart])
-					b.WriteString(redactedUserinfo)
+					b.WriteString(marker)
 					copied = paramEnd
 				}
 			}
