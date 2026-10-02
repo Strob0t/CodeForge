@@ -15,7 +15,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // pmSyncer runs a roadmap sync (SyncService).
@@ -207,7 +206,7 @@ func repoURLParts(repoURL string) (base, path string, ok bool) {
 // security review S3): a project whose plane_base_url names another host is
 // refused. GitLab's base URL is the project's repository host.
 func (s *PMWebhookService) providerConfig(ctx context.Context, provider string, proj *project.Project, apiToken string) (map[string]string, error) {
-	operator := tenantctx.FromContext(ctx) == tenantctx.DefaultTenantID
+	operator := operatorCredentialsServe(ctx)
 	switch provider {
 	case "gitlab":
 		base, _, ok := repoURLParts(proj.RepoURL)
@@ -227,8 +226,12 @@ func (s *PMWebhookService) providerConfig(ctx context.Context, provider string, 
 			cfg = map[string]string{}
 		}
 		if own := proj.Config["plane_base_url"]; own != "" && !sameBaseURL(own, cfg["base_url"]) {
-			return nil, fmt.Errorf("plane webhook: project %s sets plane_base_url %q, not the operator's Plane %q "+
-				"(plane.base_url) - the token is not sent there: %w", proj.ID, own, cfg["base_url"], domain.ErrValidation)
+			// The operator's Plane may be an internal host: it is logged,
+			// never named to the tenant (the answer, the pm.sync event).
+			slog.WarnContext(ctx, "plane webhook: the project's plane_base_url is not the operator's Plane - not synced",
+				"project_id", proj.ID, "plane_base_url", own, "operator_plane_base_url", cfg["base_url"])
+			return nil, fmt.Errorf("plane webhook: project %s sets plane_base_url %q, which is not the operator's Plane "+
+				"(plane.base_url) - the sync is not sent there: %w", proj.ID, own, domain.ErrValidation)
 		}
 		switch {
 		case apiToken != "":

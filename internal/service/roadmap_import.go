@@ -354,6 +354,11 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 	if prov == nil {
 		return nil, fmt.Errorf("unknown PM provider: %s", providerName)
 	}
+	// The providers built at startup carry the operator's credentials.
+	if credential, ok := operatorPMCredentials[providerName]; ok && !operatorCredentialsServe(ctx) {
+		return nil, fmt.Errorf("a %s import uses %s, which serves only the default tenant - sync with your own token instead (POST /projects/{id}/roadmap/sync): %w",
+			providerName, credential, domain.ErrValidation)
+	}
 
 	result := &roadmap.ImportResult{Source: providerName}
 

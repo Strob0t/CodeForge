@@ -6,10 +6,27 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
+
+// operatorPMCredentials names the operator's credential a PM provider uses
+// when it is given no token of its own: github-issues runs gh with the Go
+// Core's login, the Plane provider built at startup carries plane.api_token.
+var operatorPMCredentials = map[string]string{
+	"github-issues": "the Go Core's GitHub login",
+	"plane":         "plane.api_token",
+}
+
+// operatorCredentialsServe reports whether the PM syncs and imports of ctx's
+// tenant may use the operator's PM credentials: only the default tenant's
+// (KI-85). Another tenant brings its own token.
+func operatorCredentialsServe(ctx context.Context) bool {
+	return tenantctx.FromContext(ctx) == tenantctx.DefaultTenantID
+}
 
 // SyncService handles bidirectional synchronization between CodeForge roadmap features
 // and external PM providers.
@@ -27,6 +44,10 @@ func (s *SyncService) Sync(ctx context.Context, cfg *roadmap.SyncConfig) (*roadm
 	provCfg := cfg.ProviderConfig
 	if provCfg == nil {
 		provCfg = map[string]string{}
+	}
+	if cfg.Provider == "github-issues" && provCfg["token"] == "" && !operatorCredentialsServe(ctx) {
+		return nil, fmt.Errorf("a github-issues sync without provider_config.token would use %s, which serves only the default tenant: %w",
+			operatorPMCredentials[cfg.Provider], domain.ErrValidation)
 	}
 	provider, err := pmprovider.New(cfg.Provider, provCfg)
 	if err != nil {
