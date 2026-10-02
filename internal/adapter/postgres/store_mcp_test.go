@@ -22,11 +22,7 @@ func TestMCPStore_TenantIsolation(t *testing.T) {
 	})
 
 	t.Run("AllQueriesHaveTenantID", func(t *testing.T) {
-		// UpsertMCPServerTools operates on the server_id FK rather than
-		// tenant_id directly, scoped indirectly via the parent mcp_servers row.
-		assertSQLQueriesHaveTenantID(t, content, filename, []string{
-			"UpsertMCPServerTools",
-		})
+		assertSQLQueriesHaveTenantID(t, content, filename, nil)
 	})
 
 	t.Run("TenantScopedMethods", func(t *testing.T) {
@@ -39,6 +35,7 @@ func TestMCPStore_TenantIsolation(t *testing.T) {
 			"UpdateMCPServerStatus",
 			"ListMCPServersByProject",
 			"ListMCPServerTools",
+			"UpsertMCPServerTools",
 			"AssignMCPServerToProject",
 			"UnassignMCPServerFromProject",
 		}

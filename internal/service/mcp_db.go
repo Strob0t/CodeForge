@@ -156,7 +156,8 @@ func (s *MCPService) ListTools(ctx context.Context, serverID string) ([]mcp.Serv
 	return s.db.ListMCPServerTools(ctx, serverID)
 }
 
-// UpsertTools replaces all cached tools for an MCP server.
+// UpsertTools replaces all cached tools for an MCP server of the caller's
+// tenant (domain.ErrNotFound for any other server).
 func (s *MCPService) UpsertTools(ctx context.Context, serverID string, tools []mcp.ServerTool) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")

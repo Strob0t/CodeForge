@@ -79,3 +79,65 @@ func createMCPProject(ctx context.Context, t *testing.T, store *postgres.Store) 
 	}
 	return proj
 }
+
+// TestStore_UpsertMCPServerToolsStaysInTheTenant (KI-101): the tool cache of
+// a server is replaced only for a server of the caller's tenant; another
+// tenant's server is domain.ErrNotFound and keeps its tools.
+func TestStore_UpsertMCPServerToolsStaysInTheTenant(t *testing.T) {
+	store := setupStore(t)
+	pool := retentionPool(t)
+	tenantA := createTestTenant(t, store)
+	ctxA := ctxWithTenant(t, tenantA)
+	ctxB := ctxWithTenant(t, createTestTenant(t, store))
+	srvA := &mcp.ServerDef{ID: uuid.NewString(), Name: "a", Transport: mcp.TransportSSE, URL: "http://mcp.example/sse", Enabled: true, Status: mcp.ServerStatusRegistered}
+	if err := store.CreateMCPServer(ctxA, srvA); err != nil {
+		t.Fatalf("CreateMCPServer: %v", err)
+	}
+	toolsA := []mcp.ServerTool{{Name: "search", Description: "a's tool"}, {Name: "fetch"}}
+	if err := store.UpsertMCPServerTools(ctxA, srvA.ID, toolsA); err != nil {
+		t.Fatalf("UpsertMCPServerTools: %v", err)
+	}
+
+	for name, tools := range map[string][]mcp.ServerTool{
+		"replace":   {{Name: "planted", Description: "by another tenant"}},
+		"clear all": nil,
+	} {
+		if err := store.UpsertMCPServerTools(ctxB, srvA.ID, tools); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("%s in another tenant's name = %v, want domain.ErrNotFound", name, err)
+		}
+	}
+	if err := store.UpsertMCPServerTools(ctxA, uuid.NewString(), toolsA); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("upsert for an unknown server = %v, want domain.ErrNotFound", err)
+	}
+
+	got, err := store.ListMCPServerTools(ctxA, srvA.ID)
+	if err != nil {
+		t.Fatalf("ListMCPServerTools: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "fetch" || got[1].Name != "search" {
+		t.Fatalf("tools after another tenant's upsert = %+v, want a's two tools", got)
+	}
+	var rowTenant string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT DISTINCT tenant_id::text FROM mcp_server_tools WHERE server_id = $1`, srvA.ID,
+	).Scan(&rowTenant); err != nil {
+		t.Fatalf("read tool tenant: %v", err)
+	}
+	if rowTenant != tenantA {
+		t.Errorf("tool rows carry tenant %s, want the server's tenant %s", rowTenant, tenantA)
+	}
+
+	// The owner replaces and clears its own tools.
+	if err := store.UpsertMCPServerTools(ctxA, srvA.ID, toolsA[:1]); err != nil {
+		t.Fatalf("UpsertMCPServerTools (replace): %v", err)
+	}
+	if got, _ := store.ListMCPServerTools(ctxA, srvA.ID); len(got) != 1 || got[0].Name != "search" {
+		t.Fatalf("tools after replace = %+v, want only search", got)
+	}
+	if err := store.UpsertMCPServerTools(ctxA, srvA.ID, nil); err != nil {
+		t.Fatalf("UpsertMCPServerTools (clear): %v", err)
+	}
+	if got, _ := store.ListMCPServerTools(ctxA, srvA.ID); len(got) != 0 {
+		t.Fatalf("tools after clear = %+v, want none", got)
+	}
+}

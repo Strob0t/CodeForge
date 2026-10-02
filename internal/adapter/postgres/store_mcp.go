@@ -173,15 +173,32 @@ func (s *Store) ListMCPServersByProject(ctx context.Context, projectID string) (
 	})
 }
 
-// UpsertMCPServerTools replaces all cached tools for an MCP server.
+// UpsertMCPServerTools replaces all cached tools for an MCP server of the
+// current tenant; a server of another tenant is domain.ErrNotFound and keeps
+// its tools (KI-101). The tool rows carry the server's tenant.
 func (s *Store) UpsertMCPServerTools(ctx context.Context, serverID string, tools []mcp.ServerTool) error {
+	tid := tenantFromCtx(ctx)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `DELETE FROM mcp_server_tools WHERE server_id = $1`, serverID); err != nil {
+	// The row lock serialises replacements of the same server's tools (the
+	// (server_id, name) pair is unique) and keeps the server until commit.
+	var locked string
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM mcp_servers WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, serverID, tid,
+	).Scan(&locked); err != nil {
+		return notFoundWrap(err, "upsert tools of mcp server %s", serverID)
+	}
+
+	// Rows written before KI-101 carry the default tenant, so they are
+	// matched through their server's tenant.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM mcp_server_tools t USING mcp_servers s
+		WHERE t.server_id = $1 AND s.id = t.server_id AND s.tenant_id = $2`, serverID, tid,
+	); err != nil {
 		return fmt.Errorf("delete old tools: %w", err)
 	}
 
@@ -191,8 +208,8 @@ func (s *Store) UpsertMCPServerTools(ctx context.Context, serverID string, tools
 			return err
 		}
 		_, err = tx.Exec(ctx,
-			`INSERT INTO mcp_server_tools (server_id, name, description, input_schema) VALUES ($1, $2, $3, $4)`,
-			serverID, t.Name, t.Description, schemaJSON,
+			`INSERT INTO mcp_server_tools (server_id, tenant_id, name, description, input_schema) VALUES ($1, $2, $3, $4, $5)`,
+			serverID, tid, t.Name, t.Description, schemaJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("insert tool %s: %w", t.Name, err)
