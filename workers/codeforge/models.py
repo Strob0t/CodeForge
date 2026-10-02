@@ -236,6 +236,25 @@ class WorkspaceTestResult(BaseModel):
     error: str = ""
 
 
+class WorkspaceDeleteRequest(BaseModel):
+    """Request from Go to remove a deleted project's workspace as the tenant's tool UID (KI-96 D11)."""
+
+    deletion_id: str
+    tenant_id: str
+    tool_uid: int = Field(default=0, ge=0)
+    project_id: str = ""
+    workspace_path: str
+
+
+class WorkspaceDeleteResult(BaseModel):
+    """Outcome of a workspace deletion; ok False with the reason in error."""
+
+    deletion_id: str
+    tenant_id: str = ""
+    ok: bool = False
+    error: str = ""
+
+
 class QualityGateResult(BaseModel):
     """Result of quality gate execution sent back to Go control plane."""
 

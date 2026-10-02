@@ -111,6 +111,11 @@ const (
 	SubjectConversationTestRequest     = "conversation.test.request"     // Go → Python: run a workspace test file (auto-agent, KI-81)
 	SubjectConversationTestResult      = "conversation.test.result"      // Python → Go: workspace test outcome
 
+	// Workspace deletion (KI-96 D11): the worker removes a deleted project's
+	// workspace as the tenant's tool UID.
+	SubjectWorkspaceDeleteRequest = "workspace.delete.request" // Go → Python: remove a project workspace
+	SubjectWorkspaceDeleteResult  = "workspace.delete.result"  // Python → Go: removal outcome
+
 	// Evaluation subjects (Phase 20G — GEMMAS)
 	SubjectEvalGemmasRequest = "evaluation.gemmas.request" // Go → Python: compute GEMMAS metrics
 	SubjectEvalGemmasResult  = "evaluation.gemmas.result"  // Python → Go: GEMMAS metric results

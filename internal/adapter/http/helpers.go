@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 )
 
@@ -145,6 +146,8 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		writeError(w, http.StatusNotFound, fallbackMsg)
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, "resource was modified by another request")
+	case errors.Is(err, project.ErrProjectBusy):
+		writeError(w, http.StatusConflict, project.ErrProjectBusy.Error())
 	case errors.Is(err, domain.ErrValidation):
 		msg := strings.TrimPrefix(err.Error(), domain.ErrValidation.Error()+": ")
 		writeError(w, http.StatusBadRequest, msg)

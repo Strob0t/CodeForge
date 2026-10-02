@@ -201,6 +201,10 @@ func run() error {
 	if err := toolUIDSvc.PrepareAtStartup(ctx, projectSvc.WorkspaceRoot(), store); err != nil {
 		return fmt.Errorf("per-tenant tool identities: %w", err)
 	}
+	// With tool ACLs required a deleted project's workspace is removed by the
+	// worker as the tenant's tool UID (KI-96 D11).
+	workspaceDeletionSvc := service.NewWorkspaceDeletionService(store, queue, toolUIDSvc)
+	projectSvc.SetWorkspaceDeletions(workspaceDeletionSvc)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
 	agentSvc.SetToolUIDs(toolUIDSvc)
@@ -743,6 +747,17 @@ func run() error {
 	}
 	slog.Info("auto-agent service initialized")
 
+	// --- Workspace deletions through the worker (KI-96 D11) ---
+	cancelWorkspaceDeletions, stopWorkspaceDeletionRetry := func() {}, func() {}
+	if toolUIDSvc.Required() {
+		cancelWorkspaceDeletions, err = workspaceDeletionSvc.StartSubscribers(ctx)
+		if err != nil {
+			return fmt.Errorf("workspace deletion subscribers: %w", err)
+		}
+		stopWorkspaceDeletionRetry = workspaceDeletionSvc.StartRetryJob(ctx)
+		slog.Info("workspace deletions run in the worker as the tenants' tool UIDs")
+	}
+
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)
 	if cfg.Auth.Enabled {
@@ -1196,6 +1211,8 @@ func run() error {
 	slog.Info("shutdown phase 2: cancelling NATS subscribers")
 	stopStuckWorkWatchdog()
 	stopRetention()
+	stopWorkspaceDeletionRetry()
+	cancelWorkspaceDeletions()
 	for _, cancel := range runtimeCancels {
 		cancel()
 	}

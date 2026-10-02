@@ -86,6 +86,11 @@ SUBJECT_CONVERSATION_COMPACT_COMPLETE = "conversation.compact.complete"
 SUBJECT_CONVERSATION_TEST_REQUEST = "conversation.test.request"
 SUBJECT_CONVERSATION_TEST_RESULT = "conversation.test.result"
 
+# Workspace deletion (KI-96 D11): the worker removes a deleted project's
+# workspace as the tenant's tool UID
+SUBJECT_WORKSPACE_DELETE_REQUEST = "workspace.delete.request"
+SUBJECT_WORKSPACE_DELETE_RESULT = "workspace.delete.result"
+
 # Benchmark
 SUBJECT_BENCHMARK_RUN_REQUEST = "benchmark.run.request"
 SUBJECT_BENCHMARK_RUN_RESULT = "benchmark.run.result"

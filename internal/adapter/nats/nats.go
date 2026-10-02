@@ -136,7 +136,7 @@ func Connect(ctx context.Context, url string, streamMaxBytes int64) (*Queue, err
 func streamConfig(maxBytes int64) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:         streamName,
-		Subjects:     []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "prompt.>"},
+		Subjects:     []string{"tasks.>", "agents.>", "runs.>", "context.>", "repomap.>", "retrieval.>", "graph.>", "conversation.>", "evaluation.>", "benchmark.>", "mcp.>", "a2a.>", "memory.>", "handoff.>", "backends.>", "prompt.>", "workspace.>"},
 		Duplicates:   2 * time.Minute,
 		Retention:    jetstream.LimitsPolicy,
 		Storage:      jetstream.FileStorage,

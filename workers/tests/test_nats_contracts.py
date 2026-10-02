@@ -40,6 +40,8 @@ from codeforge.models import (
     SubAgentSearchResult,
     TaskMessage,
     TaskResult,
+    WorkspaceDeleteRequest,
+    WorkspaceDeleteResult,
     WorkspaceTestRequest,
     WorkspaceTestResult,
 )
@@ -76,6 +78,8 @@ SUBJECT_MODEL_MAP: dict[str, type[BaseModel]] = {
     "runs.qualitygate.result": QualityGateResult,
     "conversation.test.request": WorkspaceTestRequest,
     "conversation.test.result": WorkspaceTestResult,
+    "workspace.delete.request": WorkspaceDeleteRequest,
+    "workspace.delete.result": WorkspaceDeleteResult,
 }
 
 

@@ -60,8 +60,8 @@ func TestToolUIDBackfill(t *testing.T) {
 	if err := postgres.RunMigrations(ctx, dsn); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if err := postgres.RollbackMigrations(ctx, dsn, 1); err != nil {
-		t.Fatalf("roll back 120: %v", err)
+	if err := postgres.RollbackMigrations(ctx, dsn, migrationsAfter(t, 119)); err != nil {
+		t.Fatalf("roll back to 119: %v", err)
 	}
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

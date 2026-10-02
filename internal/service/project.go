@@ -63,6 +63,19 @@ type ProjectService struct {
 	reviewTriggerer ReviewTriggerer
 	// resolveProvider replaces resolveGitProvider in tests (nil: the registry).
 	resolveProvider func(*project.Project) (gitprovider.Provider, error)
+	// deletions removes deleted projects' workspaces through the worker (KI-96 D11).
+	deletions workspaceDeleter
+}
+
+// workspaceDeleter deletes a project whose workspace the worker removes as
+// the tenant's tool UID (WorkspaceDeletionService).
+type workspaceDeleter interface {
+	Delete(ctx context.Context, p *project.Project) error
+}
+
+// SetWorkspaceDeletions sets who deletes projects with tool ACLs required (KI-96 D11).
+func (s *ProjectService) SetWorkspaceDeletions(d workspaceDeleter) {
+	s.deletions = d
 }
 
 // NewProjectService creates a new ProjectService.
@@ -218,6 +231,13 @@ func (s *ProjectService) SetPolicyProfile(ctx context.Context, projectID, profil
 }
 
 // Delete removes a project and cleans up its workspace directory.
+//
+// With tool ACLs required (KI-96 D11) a workspace under the root is removed
+// by the worker as the tenant's tool UID: tools can create entries nobody
+// else can remove. The project row goes in one transaction with the
+// deletion record, and not while the project has active work
+// (project.ErrProjectBusy). With tool ACLs off (development) the Go Core
+// removes the workspace itself.
 func (s *ProjectService) Delete(ctx context.Context, id string) error {
 	p, err := s.store.GetProject(ctx, id)
 	if err != nil {
@@ -225,6 +245,9 @@ func (s *ProjectService) Delete(ctx context.Context, id string) error {
 	}
 
 	wsPath := p.WorkspacePath
+	if s.deletions != nil && s.toolUIDs.Required() && wsPath != "" && s.isUnderWorkspaceRoot(wsPath) {
+		return s.deletions.Delete(ctx, p)
+	}
 
 	if err := s.store.DeleteProject(ctx, id); err != nil {
 		return err
@@ -232,7 +255,7 @@ func (s *ProjectService) Delete(ctx context.Context, id string) error {
 
 	if wsPath != "" && s.isUnderWorkspaceRoot(wsPath) {
 		if rmErr := os.RemoveAll(wsPath); rmErr != nil {
-			slog.Warn("failed to remove workspace directory",
+			slog.Error("failed to remove workspace directory",
 				"project_id", id,
 				"path", wsPath,
 				"error", rmErr,

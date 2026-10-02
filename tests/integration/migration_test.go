@@ -94,6 +94,31 @@ func latestMigrationVersion(t *testing.T) (latest int64, count int) {
 	return latest, count
 }
 
+// migrationsAfter counts the migration files whose version is above version:
+// the steps RollbackMigrations takes to return to it.
+func migrationsAfter(t *testing.T, version int64) int {
+	t.Helper()
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	n := 0
+	for _, e := range entries {
+		prefix, _, ok := strings.Cut(e.Name(), "_")
+		if !ok || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		v, err := strconv.ParseInt(prefix, 10, 64)
+		if err != nil {
+			t.Fatalf("migration %s: version prefix: %v", e.Name(), err)
+		}
+		if v > version {
+			n++
+		}
+	}
+	return n
+}
+
 // scratchDatabase creates an empty database next to the test database and
 // returns its DSN; it is dropped when the test ends. Rolling back every
 // migration drops all tables, which must never happen in the shared database.

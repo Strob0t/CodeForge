@@ -66,9 +66,11 @@ from codeforge.consumer._subjects import (
     SUBJECT_RUN_START,
     SUBJECT_SHARED_UPDATED,
     SUBJECT_SUBAGENT_SEARCH_REQUEST,
+    SUBJECT_WORKSPACE_DELETE_REQUEST,
     consumer_name,
 )
 from codeforge.consumer._tasks import TaskHandlerMixin
+from codeforge.consumer._workspace_delete import WorkspaceDeleteHandlerMixin
 from codeforge.consumer._workspace_test import WorkspaceTestHandlerMixin
 from codeforge.executor import AgentExecutor
 from codeforge.graphrag import CodeGraphBuilder, GraphSearcher
@@ -132,6 +134,7 @@ class TaskConsumer(
     RunHandlerMixin,
     QualityGateHandlerMixin,
     WorkspaceTestHandlerMixin,
+    WorkspaceDeleteHandlerMixin,
     RepoMapHandlerMixin,
     RetrievalHandlerMixin,
     GraphHandlerMixin,
@@ -287,6 +290,7 @@ class TaskConsumer(
             (SUBJECT_RUN_START, self._handle_run_start),
             (SUBJECT_QG_REQUEST, self._handle_quality_gate),
             (SUBJECT_CONVERSATION_TEST_REQUEST, self._handle_workspace_test),
+            (SUBJECT_WORKSPACE_DELETE_REQUEST, self._handle_workspace_delete),
             (SUBJECT_REPOMAP_REQUEST, self._handle_repomap),
             (SUBJECT_RETRIEVAL_INDEX_REQUEST, self._handle_retrieval_index),
             (SUBJECT_RETRIEVAL_SEARCH_REQUEST, self._handle_retrieval_search),

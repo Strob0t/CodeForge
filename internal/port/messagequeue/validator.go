@@ -122,6 +122,12 @@ func Validate(subject string, data []byte) error {
 	case subject == SubjectConversationTestResult:
 		target = &WorkspaceTestResultPayload{}
 
+	// --- Workspace deletion (KI-96 D11) ---
+	case subject == SubjectWorkspaceDeleteRequest:
+		target = &WorkspaceDeleteRequestPayload{}
+	case subject == SubjectWorkspaceDeleteResult:
+		target = &WorkspaceDeleteResultPayload{}
+
 	// --- GEMMAS Evaluation subjects (Phase 20G) ---
 	case subject == SubjectEvalGemmasRequest:
 		target = &GemmasEvalRequestPayload{}

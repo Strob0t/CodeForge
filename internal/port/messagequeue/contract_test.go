@@ -264,6 +264,25 @@ func sampleWorkspaceTestRequestPayload() mq.WorkspaceTestRequestPayload {
 	}
 }
 
+func sampleWorkspaceDeleteRequestPayload() mq.WorkspaceDeleteRequestPayload {
+	return mq.WorkspaceDeleteRequestPayload{
+		DeletionID:    "550e8400-e29b-41d4-a716-446655440060",
+		TenantID:      "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:       20000,
+		ProjectID:     "550e8400-e29b-41d4-a716-446655440001",
+		WorkspacePath: "/data/workspaces/550e8400-e29b-41d4-a716-446655440006/550e8400-e29b-41d4-a716-446655440001",
+	}
+}
+
+func sampleWorkspaceDeleteResultPayload() mq.WorkspaceDeleteResultPayload {
+	return mq.WorkspaceDeleteResultPayload{
+		DeletionID: "550e8400-e29b-41d4-a716-446655440060",
+		TenantID:   "550e8400-e29b-41d4-a716-446655440006",
+		OK:         false,
+		Error:      "rm: cannot remove 'x': Permission denied",
+	}
+}
+
 func sampleWorkspaceTestResultPayload() mq.WorkspaceTestResultPayload {
 	failed := false
 	return mq.WorkspaceTestResultPayload{
@@ -674,6 +693,9 @@ func allFixtures() []fixtureEntry {
 		// Auto-agent workspace tests (KI-81)
 		{mq.SubjectConversationTestRequest, sampleWorkspaceTestRequestPayload()},
 		{mq.SubjectConversationTestResult, sampleWorkspaceTestResultPayload()},
+		// Workspace deletion through the worker (KI-96 D11)
+		{mq.SubjectWorkspaceDeleteRequest, sampleWorkspaceDeleteRequestPayload()},
+		{mq.SubjectWorkspaceDeleteResult, sampleWorkspaceDeleteResultPayload()},
 		{mq.SubjectBenchmarkRunRequest, sampleBenchmarkRunRequestPayload()},
 		{mq.SubjectBenchmarkRunResult, sampleBenchmarkRunResultPayload()},
 		{mq.SubjectBenchmarkTaskStarted, sampleBenchmarkTaskStartedPayload()},
@@ -774,6 +796,8 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
 		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds", "tool_uid"},
 		mq.SubjectConversationTestResult:      {"request_id", "tenant_id", "conversation_id", "passed", "output"},
+		mq.SubjectWorkspaceDeleteRequest:      {"deletion_id", "tenant_id", "tool_uid", "project_id", "workspace_path"},
+		mq.SubjectWorkspaceDeleteResult:       {"deletion_id", "tenant_id", "ok", "error"},
 		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model", "tool_uid"},
 		mq.SubjectBenchmarkRunResult:          {"run_id", "status", "results", "summary"},
 		mq.SubjectBenchmarkTaskStarted:        {"run_id", "task_id", "task_name", "index", "total"},
