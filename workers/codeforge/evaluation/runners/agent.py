@@ -16,10 +16,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_process import share_tool_files, share_with_tools, start_tool_shell
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
@@ -29,15 +31,26 @@ logger = structlog.get_logger(__name__)
 
 
 def _snapshot_files(workspace: Path) -> dict[str, str]:
-    """Capture file contents in workspace for diff comparison."""
+    """Capture file contents in workspace for diff comparison.
+
+    The agent wrote the workspace: files are read through the workspace helper
+    (KI-95), so symlinks that leave it, FIFOs and files over the size cap are
+    left out, and hidden entries and symlinked directories are not walked.
+    """
     snapshot: dict[str, str] = {}
-    if not workspace.exists():
+    try:
+        root = WorkspaceRoot(str(workspace))
+    except OSError:
         return snapshot
-    for fpath in workspace.rglob("*"):
-        if fpath.is_file() and not any(p.startswith(".") for p in fpath.relative_to(workspace).parts):
-            rel = str(fpath.relative_to(workspace))
-            with contextlib.suppress(OSError):
-                snapshot[rel] = fpath.read_text(encoding="utf-8", errors="replace")
+    with root:
+        for dirpath, dirnames, filenames, _dir_fd in root.walk():
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for name in filenames:
+                if name.startswith("."):
+                    continue
+                rel = name if dirpath == "." else f"{dirpath}/{name}"
+                with contextlib.suppress(OSError):
+                    snapshot[rel] = root.read_text(rel, max_bytes=MAX_WORKSPACE_FILE_BYTES, errors="replace")
     return snapshot
 
 
@@ -60,10 +73,11 @@ def _setup_workspace(task: TaskSpec, base_dir: str | None = None) -> Path:
     workspace = Path(tempfile.mkdtemp(prefix="bench_agent_", dir=base_dir))
     # The agent's tools and the test command run as the tool user.
     share_with_tools(str(workspace), writable=True)
-    for rel_path, content in task.initial_files.items():
-        fpath = workspace / rel_path
-        fpath.parent.mkdir(parents=True, exist_ok=True)
-        fpath.write_text(content, encoding="utf-8")
+    # Task files stay inside the workspace (a dataset path with ".." or an
+    # absolute path is refused).
+    with WorkspaceRoot(str(workspace)) as root:
+        for rel_path, content in task.initial_files.items():
+            root.write_text(rel_path, content, make_parents=True)
     return workspace
 
 
@@ -91,15 +105,20 @@ def _prepare_test_files(task: TaskSpec, workspace: Path, solution: str) -> None:
 
     - HumanEval/MBPP: metadata["test_harness"] with {SOLUTION} placeholder → solution.py
     - SWE-bench: metadata["test_patch"] → test_patch.diff
-    """
-    test_harness = task.metadata.get("test_harness", "")
-    if test_harness and "{SOLUTION}" in test_harness:
-        harness_content = test_harness.replace("{SOLUTION}", solution)
-        (workspace / "solution.py").write_text(harness_content, encoding="utf-8")
 
-    test_patch = task.metadata.get("test_patch", "")
-    if test_patch:
-        (workspace / "test_patch.diff").write_text(test_patch, encoding="utf-8")
+    The agent ran in the workspace first: the files are put in place as new
+    files (replace_bytes), whatever the agent left at those names (a symlink
+    out of the workspace, a FIFO), so nothing is written through them (KI-95).
+    """
+    with WorkspaceRoot(str(workspace)) as root:
+        test_harness = task.metadata.get("test_harness", "")
+        if test_harness and "{SOLUTION}" in test_harness:
+            harness_content = test_harness.replace("{SOLUTION}", solution)
+            root.replace_bytes("solution.py", harness_content.encode())
+
+        test_patch = task.metadata.get("test_patch", "")
+        if test_patch:
+            root.replace_bytes("test_patch.diff", test_patch.encode())
 
 
 class AgentBenchmarkRunner(BaseBenchmarkRunner):

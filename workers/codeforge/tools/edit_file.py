@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
+from codeforge.tools._base import (
+    ToolDefinition,
+    ToolExample,
+    ToolExecutor,
+    ToolResult,
+    failed,
+    open_tool_workspace,
+    tool_path,
+)
 from codeforge.tools._error_handler import catch_os_error
 from codeforge.tools._lint import post_write_check
+
+if TYPE_CHECKING:
+    from codeforge.workspace_fs import WorkspaceRoot
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +72,17 @@ class EditFileTool(ToolExecutor):
     @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
-        target, err = resolve_safe_path(workspace_path, rel, must_be_file=True)
-        if err is not None:
-            return err
+        with open_tool_workspace(workspace_path) as root:
+            return self._edit(root, tool_path(workspace_path, rel), rel, arguments)
 
+    def _edit(self, root: WorkspaceRoot, path: str, rel: str, arguments: dict[str, Any]) -> ToolResult:
         old_text = arguments.get("old_text", "")
         new_text = arguments.get("new_text", "")
 
-        content = target.read_text(encoding="utf-8")
+        try:
+            content = root.read_text(path, max_bytes=MAX_WORKSPACE_FILE_BYTES)
+        except FileNotFoundError:
+            return failed(f"file not found: {rel}")
 
         count = content.count(old_text)
         if count == 0:
@@ -97,7 +112,7 @@ class EditFileTool(ToolExecutor):
                 if actual_start is not None and actual_end is not None:
                     actual_old = content[actual_start:actual_end]
                     updated = content[:actual_start] + new_text + content[actual_end:]
-                    target.write_text(updated, encoding="utf-8")
+                    root.write_text(path, updated)
                     old_lines = actual_old.count("\n") + 1
                     new_lines = new_text.count("\n") + 1
                     start_line = content[:actual_start].count("\n") + 1
@@ -118,7 +133,7 @@ class EditFileTool(ToolExecutor):
             return ToolResult(output="", error=f"old_text found {count} times (must be unique)", success=False)
 
         updated = content.replace(old_text, new_text, 1)
-        target.write_text(updated, encoding="utf-8")
+        root.write_text(path, updated)
 
         old_lines = old_text.count("\n") + 1
         new_lines = new_text.count("\n") + 1

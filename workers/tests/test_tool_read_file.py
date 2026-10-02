@@ -231,22 +231,22 @@ class TestReadFileErrors:
         tool = ReadFileTool()
         result = await tool.execute({"file_path": "../../etc/passwd"}, str(ws))
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_path_traversal_absolute(self, tmp_path: Path) -> None:
         ws = _make_workspace(tmp_path)
         tool = ReadFileTool()
         result = await tool.execute({"file_path": "/etc/passwd"}, str(ws))
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_reading_directory_fails(self, tmp_path: Path) -> None:
         ws = _make_workspace(tmp_path)
         tool = ReadFileTool()
         result = await tool.execute({"file_path": "sub"}, str(ws))
         assert result.success is False
-        # must_be_file check fails on directories
-        assert "not found" in result.error or "file not found" in result.error
+        # Only regular files are read (KI-95).
+        assert "not a regular file" in result.error
 
     async def test_empty_file_path(self, tmp_path: Path) -> None:
         ws = _make_workspace(tmp_path)

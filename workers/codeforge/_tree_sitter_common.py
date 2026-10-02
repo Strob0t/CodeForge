@@ -1,8 +1,21 @@
-"""Shared constants for tree-sitter based code analysis modules."""
+"""Shared constants and file collection for tree-sitter based code analysis modules."""
 
 from __future__ import annotations
 
+import os
+import stat
+from typing import TYPE_CHECKING
+
+import structlog
+
 from codeforge.constants import CHARS_PER_TOKEN
+
+if TYPE_CHECKING:
+    from collections.abc import Container
+
+    from codeforge.workspace_fs import WorkspaceRoot
+
+logger = structlog.get_logger()
 
 # Directories to skip during file collection
 _SKIP_DIRS: frozenset[str] = frozenset(
@@ -178,3 +191,58 @@ _DEF_NODE_TYPES: dict[str, frozenset[str]] = {
         }
     ),
 }
+
+
+def collect_source_files(root: WorkspaceRoot, extensions: Container[str]) -> tuple[list[str], int]:
+    """Workspace-relative paths of the indexable source files, and how many entries were skipped.
+
+    Walks the workspace without entering _SKIP_DIRS or any symlinked
+    directory, up to _MAX_FILES files with one of *extensions* and at most
+    _MAX_FILE_SIZE bytes. A file must be a regular file, or a symlink that
+    resolves to one inside the workspace (KI-95); symlinks that leave the
+    workspace, dangle or loop, and FIFOs, sockets and devices are skipped and
+    counted. Read the files through *root* (they may change meanwhile).
+    """
+    collected: list[str] = []
+    skipped = 0
+    for dirpath, dirnames, filenames, dir_fd in root.walk():
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for name in filenames:
+            if len(collected) >= _MAX_FILES:
+                return collected, skipped
+            if os.path.splitext(name)[1] not in extensions:
+                continue
+            rel = name if dirpath == "." else f"{dirpath}/{name}"
+            try:
+                info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode):
+                    info = root.stat(rel)
+            except OSError:
+                skipped += 1
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                skipped += 1
+                continue
+            if info.st_size <= _MAX_FILE_SIZE:
+                collected.append(rel)
+    return collected, skipped
+
+
+def log_skipped(indexer: str, skipped: int) -> None:
+    """Log once per run how many workspace entries an indexer skipped as unsafe (KI-95)."""
+    if skipped:
+        logger.info(
+            "skipped workspace entries",
+            indexer=indexer,
+            skipped=skipped,
+            reason="symlink leaving the workspace, dangling or looping, or not a regular file",
+        )
+
+
+def read_source(root: WorkspaceRoot, rel_path: str) -> bytes | None:
+    """The bytes of a collected source file, None when it cannot be read any more (swapped, grown, removed)."""
+    try:
+        return root.read_bytes(rel_path, max_bytes=_MAX_FILE_SIZE)
+    except OSError as exc:
+        logger.warning("cannot read file", path=rel_path, error=str(exc))
+        return None

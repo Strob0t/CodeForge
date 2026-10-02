@@ -21,11 +21,12 @@ from tree_sitter_language_pack import get_parser
 from codeforge._tree_sitter_common import (
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    _MAX_FILE_SIZE,
-    _MAX_FILES,
-    _SKIP_DIRS,
+    collect_source_files,
+    log_skipped,
+    read_source,
 )
 from codeforge.models import RetrievalSearchHit
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     from tree_sitter import Parser
@@ -126,57 +127,36 @@ class CodeChunker:
 
         The content hash is the SHA-256 hex digest of the raw file bytes.
         """
-        ext_filter: set[str] | None = None
+        extensions: set[str] = set(_EXTENSION_MAP)
         if file_extensions:
-            ext_filter = {e if e.startswith(".") else f".{e}" for e in file_extensions}
+            extensions &= {e if e.startswith(".") else f".{e}" for e in file_extensions}
 
         result: dict[str, tuple[str, list[CodeChunk]]] = {}
-        file_count = 0
+        try:
+            root = WorkspaceRoot(workspace_path)
+        except OSError as exc:
+            logger.warning("cannot open workspace", path=workspace_path, error=str(exc))
+            return result
 
-        for dirpath, dirnames, filenames in os.walk(workspace_path):
-            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-
-            for fname in filenames:
-                if file_count >= _MAX_FILES:
-                    return result
-
-                abs_path = os.path.join(dirpath, fname)
-                _, ext = os.path.splitext(fname)
-
-                if ext not in _EXTENSION_MAP:
+        with root:
+            files, skipped = collect_source_files(root, extensions)
+            log_skipped("retrieval", skipped)
+            for rel_path in files:
+                source = read_source(root, rel_path)
+                if source is None:
                     continue
-                if ext_filter is not None and ext not in ext_filter:
-                    continue
-
-                try:
-                    if os.path.getsize(abs_path) > _MAX_FILE_SIZE:
-                        continue
-                except OSError:
-                    continue
-
-                rel_path = os.path.relpath(abs_path, workspace_path)
-                language = _EXTENSION_MAP[ext]
-                content_hash = _file_sha256(abs_path)
-                file_chunks = self.chunk_file(abs_path, rel_path, language)
-                result[rel_path] = (content_hash, file_chunks)
-                file_count += 1
+                language = _EXTENSION_MAP[os.path.splitext(rel_path)[1]]
+                result[rel_path] = (hashlib.sha256(source).hexdigest(), self.chunk_source(source, rel_path, language))
 
         return result
 
-    def chunk_file(self, abs_path: str, rel_path: str, language: str) -> list[CodeChunk]:  # noqa: C901
-        """Parse a single file and split at definition boundaries."""
-        try:
-            with open(abs_path, "rb") as f:
-                source = f.read()
-        except OSError:
-            logger.warning("cannot read file", path=abs_path)
-            return []
-
+    def chunk_source(self, source: bytes, rel_path: str, language: str) -> list[CodeChunk]:  # noqa: C901
+        """Parse the source of a single file and split it at definition boundaries."""
         try:
             parser = self._get_parser(language)
             tree = parser.parse(source)
         except Exception as exc:
-            logger.warning("parse failed", path=abs_path, language=language, error=str(exc))
+            logger.warning("parse failed", path=rel_path, language=language, error=str(exc))
             return []
 
         lines = source.decode(errors="replace").splitlines(keepends=True)
@@ -335,20 +315,6 @@ class CodeChunker:
                 return left.text.decode()
 
         return ""
-
-
-# ---------------------------------------------------------------------------
-# File hashing helpers
-# ---------------------------------------------------------------------------
-
-
-def _file_sha256(path: str) -> str:
-    """Compute the SHA-256 hex digest of a file's contents."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(8192), b""):
-            h.update(block)
-    return h.hexdigest()
 
 
 # ---------------------------------------------------------------------------

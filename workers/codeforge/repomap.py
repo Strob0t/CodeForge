@@ -19,10 +19,11 @@ from codeforge._tree_sitter_common import (
     _CHARS_PER_TOKEN,
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    _MAX_FILE_SIZE,
-    _MAX_FILES,
-    _SKIP_DIRS,
+    collect_source_files,
+    log_skipped,
+    read_source,
 )
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     from tree_sitter import Node, Parser
@@ -169,30 +170,36 @@ class RepoMapGenerator:
         from codeforge.models import RepoMapResult
 
         active = active_files or []
-        files = self._collect_files(workspace_path)
-
-        if not files:
-            return RepoMapResult(
-                project_id="",
-                map_text="",
-                token_count=0,
-                file_count=0,
-                symbol_count=0,
-                languages=[],
-            )
+        empty = RepoMapResult(
+            project_id="",
+            map_text="",
+            token_count=0,
+            file_count=0,
+            symbol_count=0,
+            languages=[],
+        )
+        try:
+            root = WorkspaceRoot(workspace_path)
+        except OSError as exc:
+            logger.warning("cannot open workspace", path=workspace_path, error=str(exc))
+            return empty
 
         # Extract tags from all files
         all_tags: list[SymbolTag] = []
         languages_seen: set[str] = set()
 
-        for abs_path in files:
-            rel_path = os.path.relpath(abs_path, workspace_path)
-            language = self._detect_language(abs_path)
-            if language is None:
-                continue
-            languages_seen.add(language)
-            tags = self._extract_tags(rel_path, abs_path, language)
-            all_tags.extend(tags)
+        with root:
+            files = self._collect_files(root)
+            if not files:
+                return empty
+            for rel_path in files:
+                language = self._detect_language(rel_path)
+                if language is None:
+                    continue
+                languages_seen.add(language)
+                source = read_source(root, rel_path)
+                if source is not None:
+                    all_tags.extend(self._extract_tags(rel_path, source, language))
 
         if not all_tags:
             return RepoMapResult(
@@ -225,33 +232,11 @@ class RepoMapGenerator:
             languages=sorted(languages_seen),
         )
 
-    def _collect_files(self, workspace_path: str) -> list[str]:
-        """Recursively collect source files, skipping ignored directories and large files."""
-        collected: list[str] = []
-
-        for dirpath, dirnames, filenames in os.walk(workspace_path):
-            # Filter out ignored directories in-place to prevent descending
-            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-
-            for fname in filenames:
-                if len(collected) >= _MAX_FILES:
-                    return collected
-
-                abs_path = os.path.join(dirpath, fname)
-                _, ext = os.path.splitext(fname)
-
-                if ext not in _EXTENSION_MAP:
-                    continue
-
-                try:
-                    if os.path.getsize(abs_path) > _MAX_FILE_SIZE:
-                        continue
-                except OSError:
-                    continue
-
-                collected.append(abs_path)
-
-        return collected
+    def _collect_files(self, root: WorkspaceRoot) -> list[str]:
+        """Workspace-relative source files to map (symlink-safe, KI-95); logs the skipped entries once."""
+        files, skipped = collect_source_files(root, _EXTENSION_MAP)
+        log_skipped("repomap", skipped)
+        return files
 
     def _detect_language(self, file_path: str) -> str | None:
         """Detect the tree-sitter language name from file extension."""
@@ -264,20 +249,13 @@ class RepoMapGenerator:
             self._parsers[language] = get_parser(language)
         return self._parsers[language]
 
-    def _extract_tags(self, rel_path: str, abs_path: str, language: str) -> list[SymbolTag]:
-        """Extract definition and reference tags from a single source file."""
-        try:
-            with open(abs_path, "rb") as f:
-                source = f.read()
-        except OSError:
-            logger.warning("cannot read file", path=abs_path)
-            return []
-
+    def _extract_tags(self, rel_path: str, source: bytes, language: str) -> list[SymbolTag]:
+        """Extract definition and reference tags from the source of a single file."""
         try:
             parser = self._get_parser(language)
             tree = parser.parse(source)
         except Exception as exc:
-            logger.warning("parse failed", path=abs_path, language=language, error=str(exc))
+            logger.warning("parse failed", path=rel_path, language=language, error=str(exc))
             return []
 
         def_types = _DEF_NODE_TYPES.get(language, frozenset())

@@ -27,6 +27,7 @@ from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, Co
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
 from codeforge.tool_process import share_tool_files
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -90,19 +91,25 @@ _GO_MODULE_MAP: dict[str, str] = {
 }
 
 
+# Dependency manifests are small; a larger one is not read.
+_MAX_MANIFEST_BYTES = 1024 * 1024
+
+
 def _scan_file_for_keys(
-    filepath: str,
+    root: WorkspaceRoot,
+    name: str,
     mapping: dict[str, str],
     existing: set[str],
     *,
     parse_json: bool = False,
 ) -> list[str]:
-    """Scan a file for known dependency keys and return matched framework names."""
-    if not os.path.isfile(filepath):
-        return []
+    """Scan a workspace file for known dependency keys and return matched framework names.
+
+    The file is read through the workspace helper (KI-95): a symlink that
+    leaves the workspace, a FIFO or an oversized file is not read.
+    """
     try:
-        with open(filepath) as f:
-            raw = f.read()
+        raw = root.read_text(name, max_bytes=_MAX_MANIFEST_BYTES, errors="replace")
     except OSError:
         return []
 
@@ -112,37 +119,46 @@ def _scan_file_for_keys(
             data = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             return []
-        all_deps: dict[str, str] = {}
-        all_deps.update(data.get("dependencies", {}))
-        all_deps.update(data.get("devDependencies", {}))
-        for pkg, name in mapping.items():
-            if pkg in all_deps and name not in existing:
-                hits.append(name)
+        if not isinstance(data, dict):
+            return []
+        all_deps: dict[str, object] = {}
+        for key in ("dependencies", "devDependencies"):
+            deps = data.get(key)
+            if isinstance(deps, dict):
+                all_deps.update(deps)
+        for pkg, framework in mapping.items():
+            if pkg in all_deps and framework not in existing:
+                hits.append(framework)
     else:
         content = raw.lower()
-        for pkg, name in mapping.items():
-            if pkg in content and name not in existing:
-                hits.append(name)
+        for pkg, framework in mapping.items():
+            if pkg in content and framework not in existing:
+                hits.append(framework)
     return hits
 
 
 def _detect_frameworks(workspace_path: str) -> list[str]:
     """Detect frameworks from workspace dependency files."""
-    if not workspace_path or not os.path.isdir(workspace_path):
+    if not workspace_path:
+        return []
+    try:
+        root = WorkspaceRoot(workspace_path)
+    except OSError:
         return []
 
     frameworks: list[str] = []
     seen: set[str] = set()
 
-    for filepath, mapping, use_json in [
-        (os.path.join(workspace_path, "package.json"), _JS_FRAMEWORK_MAP, True),
-        (os.path.join(workspace_path, "requirements.txt"), _PY_FRAMEWORK_MAP, False),
-        (os.path.join(workspace_path, "pyproject.toml"), _PY_FRAMEWORK_MAP, False),
-        (os.path.join(workspace_path, "go.mod"), _GO_MODULE_MAP, False),
-    ]:
-        hits = _scan_file_for_keys(filepath, mapping, seen, parse_json=use_json)
-        frameworks.extend(hits)
-        seen.update(hits)
+    with root:
+        for name, mapping, use_json in [
+            ("package.json", _JS_FRAMEWORK_MAP, True),
+            ("requirements.txt", _PY_FRAMEWORK_MAP, False),
+            ("pyproject.toml", _PY_FRAMEWORK_MAP, False),
+            ("go.mod", _GO_MODULE_MAP, False),
+        ]:
+            hits = _scan_file_for_keys(root, name, mapping, seen, parse_json=use_json)
+            frameworks.extend(hits)
+            seen.update(hits)
 
     return frameworks[:5]
 

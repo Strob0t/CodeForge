@@ -5,7 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
+from codeforge.tools._base import (
+    ToolDefinition,
+    ToolExample,
+    ToolExecutor,
+    ToolResult,
+    failed,
+    open_tool_workspace,
+    tool_path,
+)
 from codeforge.tools._error_handler import catch_os_error
 
 logger = logging.getLogger(__name__)
@@ -58,11 +67,13 @@ class ReadFileTool(ToolExecutor):
     @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
-        target, err = resolve_safe_path(workspace_path, rel, must_be_file=True)
-        if err is not None:
-            return err
-
-        text = target.read_text(encoding="utf-8", errors="replace")
+        with open_tool_workspace(workspace_path) as root:
+            try:
+                text = root.read_text(
+                    tool_path(workspace_path, rel), max_bytes=MAX_WORKSPACE_FILE_BYTES, errors="replace"
+                )
+            except FileNotFoundError:
+                return failed(f"file not found: {rel}")
 
         lines = text.splitlines(keepends=True)
         offset = max(arguments.get("offset", 1), 1)

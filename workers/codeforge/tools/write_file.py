@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
-from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, open_tool_workspace, tool_path
 from codeforge.tools._error_handler import catch_os_error
 from codeforge.tools._lint import post_write_check
+from codeforge.workspace_fs import FileTooLargeError, NotRegularFileError
 
 logger = logging.getLogger(__name__)
 
@@ -51,19 +54,16 @@ class WriteFileTool(ToolExecutor):
     @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
-        target, err = resolve_safe_path(workspace_path, rel)
-        if err is not None:
-            return err
-
         content = arguments.get("content", "")
 
-        # Snapshot before write for diff
-        old_content = ""
-        if target.is_file():
-            old_content = target.read_text(encoding="utf-8")
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        with open_tool_workspace(workspace_path) as root:
+            path = tool_path(workspace_path, rel)
+            # Snapshot before write for diff (none for a new, special or very large file;
+            # the write reports a special file).
+            old_content = ""
+            with contextlib.suppress(FileNotFoundError, NotRegularFileError, FileTooLargeError):
+                old_content = root.read_text(path, max_bytes=MAX_WORKSPACE_FILE_BYTES, errors="replace")
+            root.write_text(path, content, make_parents=True)
 
         diff_data = {
             "path": rel,

@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import fnmatch
+import itertools
 import logging
-from pathlib import Path
+import os
+import stat
 from typing import Any
 
 from codeforge.constants import MAX_TOOL_RESULTS
-from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
+from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, failed, tool_path
+from codeforge.tools._error_handler import catch_os_error
+from codeforge.workspace_fs import WorkspaceRoot
 
 logger = logging.getLogger(__name__)
 
@@ -47,31 +52,86 @@ DEFINITION = ToolDefinition(
 )
 
 
+def _has_magic(part: str) -> bool:
+    return any(char in part for char in "*?[")
+
+
+def _matches(pattern: list[str], parts: list[str]) -> bool:
+    """Whether the path components match the pattern components (pathlib semantics).
+
+    "**" stands for any number of directories (never the file itself); other
+    components match one name with fnmatch rules, case-sensitive, dot files
+    included.
+    """
+    if not pattern:
+        return not parts
+    head = pattern[0]
+    if head == "**":
+        return any(_matches(pattern[1:], parts[skip:]) for skip in range(len(parts)))
+    return bool(parts) and fnmatch.fnmatchcase(parts[0], head) and _matches(pattern[1:], parts[1:])
+
+
+def _below(base: str, dirpath: str) -> list[str]:
+    """The components of *dirpath* below *base* (both workspace-relative)."""
+    if dirpath == base:
+        return []
+    return (dirpath if base == "." else dirpath[len(base) + 1 :]).split("/")
+
+
+def _glob(root: WorkspaceRoot, pattern: list[str]) -> list[str]:
+    """Workspace-relative paths of the regular files that match *pattern*.
+
+    The walk starts at the pattern's literal directory prefix (resolved
+    through the workspace, so a symlinked prefix inside it works) and never
+    descends into a symlink; a symlinked file matches when it resolves to a
+    regular file inside the workspace.
+    """
+    literal = list(itertools.takewhile(lambda part: not _has_magic(part), pattern[:-1]))
+    rest = pattern[len(literal) :]
+    try:
+        base = root.resolve("/".join(literal) or ".")
+    except OSError:
+        return []
+    if not root.is_dir(base):
+        return []
+    # Without "**" a match is at most len(rest) - 1 directories below the base.
+    max_depth = None if "**" in rest else len(rest) - 1
+    found: list[str] = []
+    for dirpath, dirnames, filenames, dir_fd in root.walk(base):
+        sub = _below(base, dirpath)
+        if max_depth is not None and len(sub) >= max_depth:
+            dirnames[:] = []
+        for name in filenames:
+            if not _matches(rest, [*sub, name]):
+                continue
+            rel = name if dirpath == "." else f"{dirpath}/{name}"
+            try:
+                mode = os.stat(name, dir_fd=dir_fd, follow_symlinks=False).st_mode
+            except OSError:
+                continue
+            if stat.S_ISREG(mode) or (stat.S_ISLNK(mode) and root.is_file(rel)):
+                found.append(rel)
+    return sorted(found, key=lambda rel: rel.split("/"))
+
+
 class GlobFilesTool(ToolExecutor):
     """Find files matching a glob pattern."""
 
+    @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
-        pattern = arguments.get("pattern", "")
-        workspace = Path(workspace_path).resolve()
+        pattern = tool_path(workspace_path, arguments.get("pattern", ""))
 
         # Block patterns with '..' components to prevent path traversal.
         if ".." in pattern.split("/"):
-            return ToolResult(output="", error="path traversal blocked: '..' not allowed in glob pattern", success=False)
+            return failed("path leaves the workspace: '..' is not allowed in a glob pattern")
+        if pattern.startswith("/"):
+            return failed(f"path leaves the workspace: {pattern}")
+        parts = [part for part in pattern.split("/") if part not in ("", ".")]
+        if not parts:
+            return failed(f"Unacceptable pattern: {pattern!r}")
 
-        try:
-            matches = sorted(workspace.glob(pattern))
-        except ValueError as exc:
-            return ToolResult(output="", error=str(exc), success=False)
-
-        # Filter to only files within the workspace and compute relative paths.
-        rel_paths: list[str] = []
-        for m in matches:
-            resolved = m.resolve()
-            if not resolved.is_file():
-                continue
-            if not resolved.is_relative_to(workspace):
-                continue
-            rel_paths.append(str(resolved.relative_to(workspace)))
+        with WorkspaceRoot(workspace_path) as root:
+            rel_paths = _glob(root, parts)
 
         if not rel_paths:
             return ToolResult(output="no matches found")

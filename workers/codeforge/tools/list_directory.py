@@ -3,11 +3,22 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codeforge.constants import MAX_DIR_ENTRIES, MAX_LIST_DEPTH
-from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._base import (
+    ToolDefinition,
+    ToolExample,
+    ToolExecutor,
+    ToolResult,
+    failed,
+    open_tool_workspace,
+    tool_path,
+)
+from codeforge.tools._error_handler import catch_os_error
+
+if TYPE_CHECKING:
+    from codeforge.workspace_fs import WorkspaceRoot
 
 logger = logging.getLogger(__name__)
 
@@ -51,23 +62,27 @@ DEFINITION = ToolDefinition(
 )
 
 
-def _list_entries(base: Path, workspace: Path, recursive: bool, depth: int = 0) -> list[str]:
-    """Collect directory entries with prefix markers."""
+def _list_entries(root: WorkspaceRoot, rel_dir: str, recursive: bool, depth: int = 0) -> list[str]:
+    """Collect directory entries with prefix markers.
+
+    A symlink is listed as [DIR] when it resolves to a directory inside the
+    workspace, else as [FILE]; the listing never descends into a symlink.
+    """
     entries: list[str] = []
 
     try:
-        children = sorted(base.iterdir(), key=lambda p: (not p.is_dir(), p.name))
+        children = sorted(root.list_dir(rel_dir), key=lambda e: (not e.is_dir, e.name))
     except OSError:
         return entries
 
     for child in children:
         if len(entries) >= MAX_ENTRIES:
             break
-        rel = str(child.relative_to(workspace))
-        if child.is_dir():
+        rel = child.name if rel_dir == "." else f"{rel_dir}/{child.name}"
+        if child.is_dir:
             entries.append(f"[DIR]  {rel}")
-            if recursive and depth < MAX_DEPTH and len(entries) < MAX_ENTRIES:
-                entries.extend(_list_entries(child, workspace, recursive, depth + 1))
+            if recursive and not child.is_symlink and depth < MAX_DEPTH and len(entries) < MAX_ENTRIES:
+                entries.extend(_list_entries(root, rel, recursive, depth + 1))
         else:
             entries.append(f"[FILE] {rel}")
 
@@ -77,16 +92,19 @@ def _list_entries(base: Path, workspace: Path, recursive: bool, depth: int = 0) 
 class ListDirectoryTool(ToolExecutor):
     """List directory contents."""
 
+    @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("path", ".")
         recursive = arguments.get("recursive", False)
 
-        target, err = resolve_safe_path(workspace_path, rel, must_be_dir=True)
-        if err is not None:
-            return err
-        workspace = Path(workspace_path).resolve()
-
-        entries = _list_entries(target, workspace, recursive)
+        with open_tool_workspace(workspace_path) as root:
+            try:
+                start = root.resolve(tool_path(workspace_path, rel))
+            except FileNotFoundError:
+                return failed(f"not a directory: {rel}")
+            if not root.is_dir(start):
+                return failed(f"not a directory: {rel}")
+            entries = _list_entries(root, start, recursive)
 
         if not entries:
             return ToolResult(output="(empty directory)")

@@ -20,11 +20,12 @@ from tree_sitter_language_pack import get_parser
 from codeforge._tree_sitter_common import (
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    _MAX_FILE_SIZE,
-    _MAX_FILES,
-    _SKIP_DIRS,
+    collect_source_files,
+    log_skipped,
+    read_source,
 )
 from codeforge.models import GraphBuildResult, GraphSearchHit
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     from tree_sitter import Node, Parser
@@ -273,19 +274,26 @@ class CodeGraphBuilder:
 
     def _extract_graph(self, project_id: str, workspace_path: str) -> _BuildContext | None:
         """Parse the workspace into graph nodes and edges; None if it has no source files."""
-        files = self._collect_files(workspace_path)
-        if not files:
+        try:
+            root = WorkspaceRoot(workspace_path)
+        except OSError as exc:
+            logger.warning("cannot open workspace", path=workspace_path, error=str(exc))
             return None
 
         ctx = _BuildContext(project_id=project_id)
-        for abs_path in files:
-            rel_path = os.path.relpath(abs_path, workspace_path)
-            _, ext = os.path.splitext(abs_path)
-            language = _EXTENSION_MAP.get(ext)
-            if language is None:
-                continue
-            ctx.languages.add(language)
-            self._extract_from_file(ctx, rel_path, abs_path, language)
+        with root:
+            files = self._collect_files(root)
+            if not files:
+                return None
+            for rel_path in files:
+                _, ext = os.path.splitext(rel_path)
+                language = _EXTENSION_MAP.get(ext)
+                if language is None:
+                    continue
+                ctx.languages.add(language)
+                source = read_source(root, rel_path)
+                if source is not None:
+                    self._extract_from_file(ctx, rel_path, source, language)
 
         self._resolve_call_edges(ctx)
         return ctx
@@ -294,32 +302,11 @@ class CodeGraphBuilder:
     # File collection
     # ------------------------------------------------------------------
 
-    def _collect_files(self, workspace_path: str) -> list[str]:
-        """Recursively collect source files, respecting skip dirs and limits."""
-        collected: list[str] = []
-
-        for dirpath, dirnames, filenames in os.walk(workspace_path):
-            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-
-            for fname in filenames:
-                if len(collected) >= _MAX_FILES:
-                    return collected
-
-                abs_path = os.path.join(dirpath, fname)
-                _, ext = os.path.splitext(fname)
-
-                if ext not in _EXTENSION_MAP:
-                    continue
-
-                try:
-                    if os.path.getsize(abs_path) > _MAX_FILE_SIZE:
-                        continue
-                except OSError:
-                    continue
-
-                collected.append(abs_path)
-
-        return collected
+    def _collect_files(self, root: WorkspaceRoot) -> list[str]:
+        """Workspace-relative source files to parse (symlink-safe, KI-95); logs the skipped entries once."""
+        files, skipped = collect_source_files(root, _EXTENSION_MAP)
+        log_skipped("graphrag", skipped)
+        return files
 
     # ------------------------------------------------------------------
     # Extraction
@@ -334,22 +321,15 @@ class CodeGraphBuilder:
         self,
         ctx: _BuildContext,
         rel_path: str,
-        abs_path: str,
+        source: bytes,
         language: str,
     ) -> None:
-        """Extract definition nodes and import edges from a single file."""
-        try:
-            with open(abs_path, "rb") as f:
-                source = f.read()
-        except OSError:
-            logger.warning("cannot read file", path=abs_path)
-            return
-
+        """Extract definition nodes and import edges from the source of a single file."""
         try:
             parser = self._get_parser(language)
             tree = parser.parse(source)
         except Exception as exc:
-            logger.warning("parse failed", path=abs_path, language=language, error=str(exc))
+            logger.warning("parse failed", path=rel_path, language=language, error=str(exc))
             return
 
         def_types = _DEF_NODE_TYPES.get(language, frozenset())

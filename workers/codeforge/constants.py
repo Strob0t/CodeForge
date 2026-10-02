@@ -15,6 +15,9 @@ MAX_TOOL_RESULTS = 500  # Glob tool: max file paths returned.
 MAX_DIR_ENTRIES = 500  # ListDirectory tool: max entries.
 MAX_LIST_DEPTH = 3  # ListDirectory tool: max recursive depth.
 MAX_SEARCH_MATCHES = 100  # SearchFiles tool: max grep matches.
+# Largest workspace file the worker reads into memory (read_file, edit_file,
+# benchmark snapshots); the Go Core's file API uses the same cap (KI-95).
+MAX_WORKSPACE_FILE_BYTES = 10 * 1024 * 1024
 
 # -- Backend execution -------------------------------------------------------
 DEFAULT_BACKEND_TIMEOUT_SECONDS = 600  # 10 minutes per backend task.

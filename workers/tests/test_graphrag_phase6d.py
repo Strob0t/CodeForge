@@ -9,6 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from codeforge.graphrag import CodeGraphBuilder, GraphSearcher, _BuildContext
+from codeforge.workspace_fs import WorkspaceRoot
+
+
+def _source(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
 
 
 def _build_mock_conn(
@@ -59,7 +65,7 @@ class TestCodeGraphBuilder:
             f.write("def skip(): pass\n")
 
         builder = CodeGraphBuilder()
-        files = builder._collect_files(workspace)
+        files = builder._collect_files(WorkspaceRoot(workspace))
 
         assert len(files) == 1
         assert files[0].endswith("main.py")
@@ -75,7 +81,7 @@ class TestCodeGraphBuilder:
             f.write("{}\n")
 
         builder = CodeGraphBuilder()
-        files = builder._collect_files(workspace)
+        files = builder._collect_files(WorkspaceRoot(workspace))
 
         assert len(files) == 1
         assert files[0].endswith("main.py")
@@ -100,7 +106,7 @@ class TestCodeGraphBuilder:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="test-proj")
-        builder._extract_from_file(ctx, "example.py", src, "python")
+        builder._extract_from_file(ctx, "example.py", _source(src), "python")
 
         symbol_names = [n.symbol_name for n in ctx.nodes]
         assert "greet" in symbol_names
@@ -130,7 +136,7 @@ class TestCodeGraphBuilder:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="test-proj")
-        builder._extract_from_file(ctx, "main.go", src, "go")
+        builder._extract_from_file(ctx, "main.go", _source(src), "go")
 
         symbol_names = [n.symbol_name for n in ctx.nodes]
         assert "Hello" in symbol_names
@@ -153,7 +159,7 @@ class TestCodeGraphBuilder:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="proj")
-        builder._extract_from_file(ctx, "app.py", src, "python")
+        builder._extract_from_file(ctx, "app.py", _source(src), "python")
 
         import_edges = [e for e in ctx.edges if e.kind == "imports"]
         assert len(import_edges) >= 1
@@ -177,7 +183,7 @@ class TestCodeGraphBuilder:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="proj")
-        builder._extract_from_file(ctx, "app.ts", src, "typescript")
+        builder._extract_from_file(ctx, "app.ts", _source(src), "typescript")
 
         import_edges = [e for e in ctx.edges if e.kind == "imports"]
         assert len(import_edges) >= 1
@@ -193,7 +199,7 @@ class TestCodeGraphBuilder:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="myproj")
-        builder._extract_from_file(ctx, "lib.py", src, "python")
+        builder._extract_from_file(ctx, "lib.py", _source(src), "python")
 
         definition_nodes = [n for n in ctx.nodes if n.symbol_name != "__module__"]
         assert len(definition_nodes) >= 1
@@ -217,7 +223,7 @@ class TestCodeGraphBuilder:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="proj")
-        builder._extract_from_file(ctx, "kinds.py", src, "python")
+        builder._extract_from_file(ctx, "kinds.py", _source(src), "python")
 
         kinds_by_name = {n.symbol_name: n.kind for n in ctx.nodes}
         assert kinds_by_name.get("my_func") == "function"
@@ -447,7 +453,7 @@ class TestEdgeExtraction:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="proj")
-        builder._extract_from_file(ctx, "mod.py", src, "python")
+        builder._extract_from_file(ctx, "mod.py", _source(src), "python")
 
         import_edges = [e for e in ctx.edges if e.kind == "imports"]
         assert len(import_edges) >= 1
@@ -473,7 +479,7 @@ class TestEdgeExtraction:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="proj")
-        builder._extract_from_file(ctx, "main.go", src, "go")
+        builder._extract_from_file(ctx, "main.go", _source(src), "go")
 
         import_edges = [e for e in ctx.edges if e.kind == "imports"]
         target_ids = [e.target_id for e in import_edges]
@@ -493,8 +499,8 @@ class TestEdgeExtraction:
 
         builder = CodeGraphBuilder()
         ctx = _BuildContext(project_id="proj")
-        builder._extract_from_file(ctx, "a.py", src_a, "python")
-        builder._extract_from_file(ctx, "b.py", src_b, "python")
+        builder._extract_from_file(ctx, "a.py", _source(src_a), "python")
+        builder._extract_from_file(ctx, "b.py", _source(src_b), "python")
 
         builder._resolve_call_edges(ctx)
 

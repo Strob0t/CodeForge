@@ -193,7 +193,7 @@ class TestEditFileErrors:
             str(tmp_path),
         )
         assert result.success is False
-        assert "traversal" in result.error
+        assert "leaves the workspace" in result.error
 
     async def test_edit_directory_fails(self, tmp_path: Path) -> None:
         (tmp_path / "mydir").mkdir()

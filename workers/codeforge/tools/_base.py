@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Protocol
+
+from codeforge.workspace_fs import WorkspaceRoot, workspace_relative
 
 
 @dataclass(frozen=True)
@@ -49,39 +50,28 @@ class ToolExecutor(Protocol):
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult: ...
 
 
-def resolve_safe_path(
-    workspace_path: str,
-    relative_path: str,
-    *,
-    must_exist: bool = False,
-    must_be_file: bool = False,
-    must_be_dir: bool = False,
-) -> tuple[Path, ToolResult | None]:
-    """Resolve *relative_path* under *workspace_path* and validate constraints.
+# Git metadata is off limits for file tools (KI-77): the Go Core runs git in
+# the workspace, and .git/config, hooks and info/attributes can make git run
+# programs. The workspace helper refuses a .git component wherever it comes
+# from (the path or a symlink target), in any case.
+_BLOCKED_NAMES = frozenset({".git"})
 
-    Returns ``(resolved_path, None)`` on success or ``(Path(), error_result)``
-    when a constraint is violated.
+
+def open_tool_workspace(workspace_path: str) -> WorkspaceRoot:
+    """The workspace of a file tool: every path resolves inside it (KI-95) and .git is blocked.
+
+    The tools read and write workspace files only through it
+    (codeforge.workspace_fs): symlinks are followed only while they stay
+    inside the workspace, and only regular files are read or written.
     """
-    workspace = Path(workspace_path).resolve()
-    target = (workspace / relative_path).resolve()
+    return WorkspaceRoot(workspace_path, blocked_names=_BLOCKED_NAMES)
 
-    if not target.is_relative_to(workspace):
-        return Path(), ToolResult(output="", error="path traversal blocked", success=False)
 
-    # Git metadata is off limits for file tools (KI-77): the Go Core runs git in
-    # this workspace, and .git/config, hooks and info/attributes can make git
-    # run programs. Checked on the resolved path, so a symlink into .git is
-    # refused as well; any case, for case-insensitive filesystems.
-    if any(part.lower() == ".git" for part in target.relative_to(workspace).parts):
-        return Path(), ToolResult(output="", error="access to .git is blocked", success=False)
+def tool_path(workspace_path: str, path: str) -> str:
+    """The workspace-relative form of a path a model passed; absolute paths into the workspace are accepted."""
+    return workspace_relative(workspace_path, path)
 
-    if must_exist and not target.exists():
-        return Path(), ToolResult(output="", error=f"not found: {relative_path}", success=False)
 
-    if must_be_file and not target.is_file():
-        return Path(), ToolResult(output="", error=f"file not found: {relative_path}", success=False)
-
-    if must_be_dir and not target.is_dir():
-        return Path(), ToolResult(output="", error=f"not a directory: {relative_path}", success=False)
-
-    return target, None
+def failed(error: str) -> ToolResult:
+    """A failed tool result with *error*."""
+    return ToolResult(output="", error=error, success=False)

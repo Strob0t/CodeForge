@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from typing import Any
 
 from codeforge.constants import MAX_SEARCH_MATCHES
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_process import start_tool_process
-from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult, resolve_safe_path
+from codeforge.tools._base import (
+    ToolDefinition,
+    ToolExample,
+    ToolExecutor,
+    ToolResult,
+    failed,
+    open_tool_workspace,
+    tool_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +72,20 @@ DEFINITION = ToolDefinition(
 )
 
 
+def _search_dir(workspace_path: str, sub_path: str) -> tuple[str, ToolResult | None]:
+    """The directory to search: it must resolve inside the workspace (KI-95); grep then runs on it as the tool user."""
+    try:
+        with open_tool_workspace(workspace_path) as root:
+            resolved = root.resolve(tool_path(workspace_path, sub_path))
+            if not root.is_dir(resolved):
+                return "", failed(f"not a directory: {sub_path}")
+    except FileNotFoundError:
+        return "", failed(f"not found: {sub_path}")
+    except OSError as exc:
+        return "", failed(str(exc))
+    return os.path.normpath(os.path.join(workspace_path, resolved)), None
+
+
 class SearchFilesTool(ToolExecutor):
     """Search file contents with grep."""
 
@@ -72,13 +95,7 @@ class SearchFilesTool(ToolExecutor):
         include = arguments.get("include", "")
         use_regex = arguments.get("regex", False)
 
-        # Validate path to prevent traversal outside workspace.
-        safe_path, path_err = resolve_safe_path(
-            workspace_path,
-            sub_path,
-            must_exist=True,
-            must_be_dir=True,
-        )
+        safe_path, path_err = _search_dir(workspace_path, sub_path)
         if path_err is not None:
             return path_err
 
@@ -96,7 +113,7 @@ class SearchFilesTool(ToolExecutor):
             cmd.append("-F")
         if include:
             cmd.append(f"--include={include}")
-        cmd.extend(["-m", str(MAX_MATCHES), "--", pattern, str(safe_path)])
+        cmd.extend(["-m", str(MAX_MATCHES), "--", pattern, safe_path])
 
         try:
             proc = await start_tool_process(

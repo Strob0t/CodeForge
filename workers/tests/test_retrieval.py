@@ -17,6 +17,12 @@ from codeforge.models import (
 )
 from codeforge.retrieval import CodeChunker, HybridRetriever
 
+
+def _source(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -84,14 +90,14 @@ def _make_embedding_response(texts: list[str], dim: int = 8) -> dict[str, object
 # ---------------------------------------------------------------------------
 
 
-def test_chunk_file_python(chunker: CodeChunker, tmp_path: object) -> None:
+def test_chunk_source_python(chunker: CodeChunker, tmp_path: object) -> None:
     """Should split a Python file at definition boundaries."""
     ws = str(tmp_path)
     py_file = os.path.join(ws, "example.py")
     with open(py_file, "w") as f:
         f.write("import os\n\nclass MyService:\n    def start(self):\n        pass\n\ndef helper():\n    return 42\n")
 
-    chunks = chunker.chunk_file(py_file, "example.py", "python")
+    chunks = chunker.chunk_source(_source(py_file), "example.py", "python")
 
     assert len(chunks) >= 2
     symbol_names = [c.symbol_name for c in chunks if c.symbol_name]
@@ -104,14 +110,14 @@ def test_chunk_file_python(chunker: CodeChunker, tmp_path: object) -> None:
         assert chunk.language == "python"
 
 
-def test_chunk_file_go(chunker: CodeChunker, tmp_path: object) -> None:
+def test_chunk_source_go(chunker: CodeChunker, tmp_path: object) -> None:
     """Should split a Go file at definition boundaries."""
     ws = str(tmp_path)
     go_file = os.path.join(ws, "main.go")
     with open(go_file, "w") as f:
         f.write('package main\n\nfunc Hello() string { return "hello" }\n\ntype Service struct { Name string }\n')
 
-    chunks = chunker.chunk_file(go_file, "main.go", "go")
+    chunks = chunker.chunk_source(_source(go_file), "main.go", "go")
 
     assert len(chunks) >= 2
     symbol_names = [c.symbol_name for c in chunks if c.symbol_name]
@@ -173,7 +179,7 @@ def test_chunk_large_function_split(tmp_path: object) -> None:
     with open(py_file, "w") as f:
         f.writelines(lines)
 
-    chunks = chunker.chunk_file(py_file, "big.py", "python")
+    chunks = chunker.chunk_source(_source(py_file), "big.py", "python")
 
     # 25 lines with max_chunk_lines=10 should produce 3 sub-chunks
     named_chunks = [c for c in chunks if c.symbol_name and "big_function" in c.symbol_name]
