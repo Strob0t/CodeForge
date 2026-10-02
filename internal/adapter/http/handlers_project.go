@@ -290,7 +290,7 @@ func (ph *ProjectHandlers) DetectStackByPath(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "path must be absolute")
 		return
 	}
-	result, err := ph.Projects.DetectStackByPath(r.Context(), cleanPath)
+	result, err := ph.Projects.DetectStackByPath(r.Context(), cleanPath, isPlatformAdmin(r))
 	if err != nil {
 		writeDomainError(w, err, "stack detection failed")
 		return

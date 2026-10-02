@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -282,33 +283,66 @@ func (s *ProjectService) DetectStack(ctx context.Context, id string) (*project.S
 	return project.ScanWorkspace(p.WorkspacePath)
 }
 
-// DetectStackByPath scans an arbitrary directory path for language detection.
-func (s *ProjectService) DetectStackByPath(_ context.Context, path string) (*project.StackDetectionResult, error) {
+// DetectStackByPath scans a directory for language detection. The path
+// follows Adopt's rule (KI-106): under the workspace root only inside the
+// caller's tenant area, elsewhere only inside an adopt root and only for
+// platform admins. It is resolved inside that area through workspacefs, so
+// no symlink on the way leads out of it.
+func (s *ProjectService) DetectStackByPath(ctx context.Context, path string, platformAdmin bool) (*project.StackDetectionResult, error) {
 	if path == "" {
-		return nil, fmt.Errorf("detect stack: path is required")
+		return nil, fmt.Errorf("detect stack: path is required: %w", domain.ErrValidation)
 	}
-
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("detect stack: resolve path: %w", err)
 	}
-
-	// Restrict to workspace root to prevent filesystem probing.
-	if s.workspaceRoot == "" {
-		return project.ScanWorkspace(absPath)
+	base := s.detectStackBase(ctx, absPath, platformAdmin)
+	if base == "" {
+		return nil, fmt.Errorf("detect stack: the path must be inside this tenant's workspace directory (platform "+
+			"admins: or inside a workspace.adopt_roots directory outside the workspace root): %w", domain.ErrValidation)
 	}
-	wsRoot, _ := filepath.Abs(s.workspaceRoot)
-	if !strings.HasPrefix(absPath, wsRoot+string(filepath.Separator)) && absPath != wsRoot {
-		return nil, fmt.Errorf("detect stack: path must be within workspace root %s", wsRoot)
-	}
-
-	// Resolved inside the workspace root (KI-95): no symlink on the way leads out of it.
-	ws, err := workspacefs.OpenBelow(wsRoot, absPath)
+	ws, err := workspacefs.OpenBelow(base, absPath)
 	if err != nil {
+		if errors.Is(err, workspacefs.ErrLeavesWorkspace) {
+			return nil, fmt.Errorf("detect stack: %w: %w", domain.ErrValidation, err)
+		}
 		return nil, fmt.Errorf("detect stack: directory does not exist: %w", err)
 	}
 	defer func() { _ = ws.Close() }()
 	return project.ScanWorkspaceFS(ws.FS(), absPath)
+}
+
+// detectStackBase is the directory DetectStackByPath resolves absPath in:
+// the caller's tenant area when absPath is under the workspace root (as
+// given or resolved), an adopt root for platform admins outside it, else "".
+func (s *ProjectService) detectStackBase(ctx context.Context, absPath string, platformAdmin bool) string {
+	if s.workspaceRoot != "" {
+		roots := []string{s.workspaceRoot}
+		if resolved, err := filepath.EvalSymlinks(s.workspaceRoot); err == nil {
+			roots = append(roots, resolved)
+		}
+		for _, root := range roots {
+			absRoot, err := filepath.Abs(root)
+			if err != nil {
+				continue
+			}
+			if absPath == absRoot || strictlyInside(absPath, absRoot) {
+				area := filepath.Join(absRoot, tenantctx.FromContext(ctx))
+				if strictlyInside(absPath, area) {
+					return area
+				}
+				return ""
+			}
+		}
+	}
+	if platformAdmin {
+		for _, r := range s.adoptRoots {
+			if strictlyInside(absPath, r) {
+				return r
+			}
+		}
+	}
+	return ""
 }
 
 // isUnderWorkspaceRoot validates that the path is under the workspace root

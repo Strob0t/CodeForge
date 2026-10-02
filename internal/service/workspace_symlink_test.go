@@ -22,6 +22,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
@@ -243,12 +244,13 @@ func TestStackDetection_StaysInsideTheWorkspace(t *testing.T) {
 	})
 	_ = cmds // reaching here means the FIFO did not block the gate detection
 
-	// detect-stack by path: no symlink on the way leads out of the workspace root.
-	svc := NewProjectService(&mockStore{}, ws)
-	if _, err := svc.DetectStackByPath(context.Background(), filepath.Join(ws, "outdir")); !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
+	// detect-stack by path: no symlink on the way leads out of the tenant area.
+	svc := NewProjectService(&mockStore{}, filepath.Dir(ws))
+	ctx := tenantctx.WithTenant(context.Background(), "ws")
+	if _, err := svc.DetectStackByPath(ctx, filepath.Join(ws, "outdir"), false); !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
 		t.Fatalf("DetectStackByPath through a symlink out = %v", err)
 	}
-	if _, err := svc.DetectStackByPath(context.Background(), filepath.Join(ws, "srclink")); err != nil {
+	if _, err := svc.DetectStackByPath(ctx, filepath.Join(ws, "srclink"), false); err != nil {
 		t.Fatalf("DetectStackByPath through a symlink inside = %v", err)
 	}
 }
