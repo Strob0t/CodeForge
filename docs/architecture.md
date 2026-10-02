@@ -283,7 +283,7 @@ internal/
       recorder.go        # Metrics recorder interface (OTEL abstraction)
     database/
     messagequeue/
-    ...                  # also: benchprovider, broadcast, cache, eventstore, feedback, filesystem, llm, lsp, notifier, shell, subscription, wsticket
+    ...                  # also: benchprovider, broadcast, cache, eventstore, feedback, llm, lsp, notifier, shell, subscription, wsticket
   adapter/               # Concrete implementations
     github/
     gitlab/
@@ -303,10 +303,10 @@ internal/
     githubpm/            # GitHub Issues/Projects PM adapter
     postgres/
     nats/
-    ...                  # also: a2a, auth, copilot, discord, email, execshell, gitea, http, lsp, markdownspec, mcp, osfs, otel, slack, svn, ws
+    ...                  # also: a2a, auth, copilot, discord, email, execshell, gitea, http, lsp, markdownspec, mcp, otel, slack, svn, ws
   telemetry/             # OTEL span helpers (API-only, no SDK dependency)
   service/               # Use cases (connects domain with ports)
-  ...                    # also: config, crypto, git, logger, middleware, netutil, proctemp, resilience, secrets, tenantctx, version
+  ...                    # also: config, crypto, git, logger, middleware, netutil, proctemp, resilience, secrets, tenantctx, version, workspacefs
 ```
 
 ### Infrastructure Patterns (Implemented)
@@ -393,6 +393,7 @@ flowchart LR
 - **Users.** The Go Core and the worker run as uid 10001 (`codeforge`), both with supplementary group `codeforge-ws` (10010). The worker container starts as root with `cap_drop: ALL` and only `SETUID`, `SETGID` and `KILL`; `scripts/worker-entrypoint.sh` runs the worker as uid 10001 with those three as ambient capabilities, so it never runs as root. Tool processes (Bash, grep, `git` in the workspace, quality gates and workspace tests, benchmark test commands, backend CLIs, the Claude Code CLI and its hook, MCP stdio servers) run as uid and gid 10002 (`codeforge-tool`) with group 10010 only, no capabilities and `no_new_privs`. They start only through `workers/codeforge/tool_process.py` (`setpriv`, then `env -i`; `CODEFORGE_TOOL_ISOLATION=required` fails every tool call closed when the startup probe fails). The Go Core never starts a stdio MCP server and runs no workspace code (KI-77, KI-81).
 - **Secrets.** The worker reads `*_FILE` paths from `/run/secrets`, a tmpfs only uid 10001 can enter (Compose ignores secret `uid`/`gid`/`mode`); it locks the directory after startup. Tool processes cannot read the worker's environment or secrets and never get NATS credentials.
 - **Workspace group and umask.** `/data/workspaces` is `10001:10010` with mode 2775 (setgid, so new entries join the group). The Go Core (umask 002, files 0664, directories 0770), the worker and the tools (umask 002) create group-writable entries. Agents also create owner-only files (`mkdtemp`, `mkdir -m 0700`): `share_tool_files` is a `find -P` pass as the tool user that runs when a tool process with a working directory is waited for and at the end of every run, conversation run, task and benchmark task, and moves what the tool user owns into the group (never following a symlink). The worker walks workspaces that existed before the upgrade once at startup (versioned stamp file, descriptor-based and no-follow; `/health/ready` reports `starting` meanwhile).
+- **Workspace file access.** In-process readers and writers resolve every path below a descriptor of the workspace (Go `internal/workspacefs` on os.Root, Python `codeforge.workspace_fs` with `O_NOFOLLOW` component walks): relative symlinks inside are followed (8 max), anything leaving the workspace is refused, opens use `O_NONBLOCK` and take regular files only, walks never leave the workspace; only the glob and listing tools enter relative directory symlinks inside it (KI-95). Knowledge-base content (`<knowledge.content_root>/<tenant_id>/`) and benchmark datasets (`benchmark.datasets_dir`) use the same helpers below their operator directories (KI-105, KI-107).
 - **NATS authentication.** Production NATS (`configs/nats/nats-server.conf`, `nats:2.15-alpine`) knows two users: `core` publishes every stream subject and owns the stream and KV; `worker` publishes only its results, progress and `.dlq` copies and may use only consumers named in its permissions. Each service has its own inbox prefix (`_INBOX_core`, `_INBOX_worker`). A subject or worker consumer that is not in the config fails the permission tests. `handoff.approved` is carried out only for an approved, unconsumed quarantine release (migration 111).
 - **NotificationHub.** Cancels and tool-call decisions (`runs.cancel`, `tasks.cancel`, `conversation.run.cancel`, `runs.toolcall.response`) reach runs and tasks through `workers/codeforge/notifications.py`: one shared named push consumer per subject delivering to `_INBOX_worker.notify.<name>` (fan-out to every worker instance, never deleted by the hub); a listener that starts at a stream sequence reads the subject back with batched direct gets (the stream has `AllowDirect`), and a gap in the consumer sequences or a reconnect triggers a read-back from the last handed-out sequence. `/health/ready` is `503` until the consumers exist and no read-back is pending.
 - **MCP.** Stdio servers run in the worker as the tool user; env and header values are redacted to `***` in every API response; servers and their project links are tenant-scoped (migration 112) and a tenant's admins manage them.

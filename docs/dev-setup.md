@@ -89,7 +89,7 @@ CodeForge/
 │   └── workflows/
 │       ├── ci.yml            # Go + Python + Frontend CI
 │       └── docker-build.yml  # Docker image builds (ghcr.io)
-├── data/                     # Runtime data of the Go core (gitignored): workspaces/ (cloned repos), initial_admin_password
+├── data/                     # Runtime data of the Go core (gitignored): workspaces/ (cloned repos), knowledge/<tenant_id>/ (knowledge-base content, KI-105), initial_admin_password
 ├── cmd/
 │   └── codeforge/
 │       ├── admin.go          # Admin command entrypoints
@@ -156,7 +156,6 @@ CodeForge/
 │   │   ├── database/         # Store interface (80+ methods)
 │   │   ├── eventstore/       # Event store interface + trajectory types
 │   │   ├── feedback/         # Feedback provider interface
-│   │   ├── filesystem/       # Filesystem port
 │   │   ├── gitprovider/      # Git provider interface + registry
 │   │   ├── lsp/              # LSP client port
 │   │   ├── messagequeue/     # Message queue interface + schemas
@@ -193,7 +192,6 @@ CodeForge/
 │   │   ├── opencode/         # OpenCode agent backend
 │   │   ├── openhands/        # OpenHands agent backend
 │   │   ├── openspec/         # OpenSpec spec provider (openspec/ dir)
-│   │   ├── osfs/             # OS filesystem provider
 │   │   ├── otel/             # OpenTelemetry tracing + metrics
 │   │   ├── plandex/          # Plandex agent backend
 │   │   ├── plane/            # Plane.so PM provider
@@ -208,6 +206,7 @@ CodeForge/
 │   ├── telemetry/            # OTEL span helpers (API-only, no SDK dependency)
 │   ├── tenantctx/            # Tenant ID context helpers
 │   ├── version/              # Build version
+│   ├── workspacefs/          # Symlink-safe file access below a directory (os.Root): workspaces, knowledge areas, benchmark datasets (KI-95)
 │   └── service/              # Use Cases (Runtime, Orchestrator, Policy, etc.)
 ├── workers/                  # Python AI Workers
 │   └── codeforge/
@@ -221,6 +220,7 @@ CodeForge/
 │       ├── models.py         # Pydantic data models
 │       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
 │       ├── runtime.py        # Runtime client (Go <-> Python protocol)
+│       ├── workspace_fs.py   # Symlink-safe workspace file access (O_NOFOLLOW descriptor walks, KI-95)
 │       ├── backends/         # Agent backend executors (Aider, Goose, OpenHands, etc.)
 │       ├── evaluation/       # Benchmark evaluation (datasets, runners, metrics)
 │       ├── memory/           # Composite memory scoring (semantic + recency)
@@ -624,8 +624,9 @@ Example:
 | `auth.auto_generate_initial_password` | `CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD` | `false` | Auto-generate admin password to `initial_password_file` |
 | `auth.initial_password_file` | `CODEFORGE_AUTH_INITIAL_PASSWORD_FILE` | `data/initial_admin_password` | File path for generated password |
 | `auth.setup_timeout_minutes` | `CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES` | `5` | Setup wizard timeout |
-| `benchmark.datasets_dir` | (YAML only; `CODEFORGE_BENCHMARK_DATASETS_DIR` is read by the Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files |
+| `benchmark.datasets_dir` | (YAML only; `CODEFORGE_BENCHMARK_DATASETS_DIR` is read by the Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files. Datasets must be names or paths inside it (KI-107); the worker resolves a relative value against its working directory, the parent, then `CODEFORGE_WORKSPACE` |
 | `benchmark.watchdog_timeout` | `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck benchmark runs |
+| `knowledge.content_root` | `CODEFORGE_KNOWLEDGE_CONTENT_ROOT` (Core and worker) | `data/knowledge` | Directory knowledge-base content lives in, one area per tenant: `<content_root>/<tenant_id>/`. A knowledge base's `content_path` is relative to its tenant's area (`.` is the whole area; an absolute path is accepted only inside it) and no symlink leads out of the area; every other path is one and the same 400. Core and worker must see the same files: production mounts the read-only `knowledge` volume at `/data/knowledge` in both and the operator fills it (KI-105) |
 | `github.client_id` | `GITHUB_CLIENT_ID` | `` | OAuth client ID: alone it enables the GitHub device-flow subscription provider; with `client_secret` and `callback_url` it also enables the web flow |
 | `github.client_secret` | `GITHUB_CLIENT_SECRET` (or `GITHUB_CLIENT_SECRET_FILE`) | `` | OAuth client secret of the GitHub OAuth web flow (`POST /api/v1/auth/github` answers 501 until `client_id`, `client_secret` and `callback_url` are all set; `client_secret` or `callback_url` without the other two stops startup) |
 | `github.callback_url` | `GITHUB_CALLBACK_URL` | `` | Redirect URI of the web flow, the only one sent to GitHub: `https` (`http` only on localhost or loopback), path `/api/v1/auth/github/callback`, no user info, query or fragment. Register the same URL in the GitHub OAuth app; it must be on the origin the web UI uses for the API |
@@ -723,6 +724,7 @@ Example:
 | `CODEFORGE_WORKSPACE_GID` | `10010` | Workspace group (`codeforge-ws`): the tool user's only supplementary group, shared with the worker and the Go Core |
 | `CODEFORGE_TOOL_HOME` | `/home/codeforge-tool` | `HOME` of tool processes (a tmpfs in production) |
 | `CODEFORGE_WORKSPACE_ROOT` | unset | The Go Core's workspace root (same variable, `/data/workspaces` in production). With isolation required the worker opens workspaces created before it to the workspace group once per upgrade (stamp file `.codeforge-workspace-sharing`) |
+| `CODEFORGE_KNOWLEDGE_CONTENT_ROOT` | `data/knowledge` | Knowledge content root (same setting as the Core's `knowledge.content_root`): the worker indexes knowledge bases only below `<root>/<tenant_id>/` and refuses anything else (KI-105) |
 | `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level (falls back to `logging.level` in codeforge.yaml) |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
 | `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker HTTP health server: `GET /health` (liveness) and `GET /health/ready` (NATS connected, every consumer loop alive, notification consumers restored, not stopping; `503 {"status":"starting"}` while the workspaces are shared at startup, `503 {"status":"not ready"}` otherwise); `0` picks a free port; a port that cannot be bound makes the worker exit 1 before connecting to NATS. Two workers on one host need different ports |
@@ -771,7 +773,7 @@ Example:
 | `CODEFORGE_EARLY_STOP_QUORUM` | `3` | Early stopping quorum size |
 | `CODEFORGE_JUDGE_MODEL` | `openai/gpt-4o` | Model for evaluation judge |
 | `CODEFORGE_BENCHMARK_MAX_PARALLEL` | `3` | Max parallel benchmarks |
-| `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Benchmark datasets directory |
+| `CODEFORGE_BENCHMARK_DATASETS_DIR` | `configs/benchmarks` | Benchmark datasets directory; every dataset is read below it (an absolute path only inside it). A relative value is looked up below the worker's working directory, then its parent (in dev the worker runs from `workers/`), then `CODEFORGE_WORKSPACE`; set an absolute path when none of them has `configs/benchmarks` (KI-107) |
 | `CODEFORGE_SWEAGENT_PATH` | `sweagent` | Path to SWE-Agent CLI binary |
 | `CODEFORGE_OPENHANDS_POLL_INTERVAL` | `2.0` | OpenHands poll interval (seconds) |
 | `CODEFORGE_OPENHANDS_HTTP_TIMEOUT` | `30.0` | OpenHands HTTP timeout (seconds) |
@@ -944,7 +946,7 @@ docker compose -f docker-compose.prod.yml down
 
 Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
-Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path), tmpfs `/tmp` for core and worker, the core running as UID/GID 10001 and the worker starting as root with only `SETUID`, `SETGID` and `KILL` and running as UID 10001 while agent tool processes run as UID 10002 (see [Tool Isolation and NATS Authentication](#tool-isolation-and-nats-authentication)), NATS pinned to `nats:2.15-alpine` with authenticated users, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
+Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path) plus the read-only `knowledge` volume (`/data/knowledge`, mounted in core and worker: knowledge-base content in `<tenant_id>/` subdirectories that the operator fills, KI-105), tmpfs `/tmp` for core and worker, the core running as UID/GID 10001 and the worker starting as root with only `SETUID`, `SETGID` and `KILL` and running as UID 10001 while agent tool processes run as UID 10002 (see [Tool Isolation and NATS Authentication](#tool-isolation-and-nats-authentication)), NATS pinned to `nats:2.15-alpine` with authenticated users, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
 
 #### Blue-green deployment
 
@@ -1347,7 +1349,7 @@ The frontend Benchmarks page (`/benchmarks`) has 5 tabs:
 
 #### Dataset Directory
 
-Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `benchmark.datasets_dir` in `codeforge.yaml`). See `configs/benchmarks/README.md` for the YAML schema.
+Benchmark datasets are YAML files in `configs/benchmarks/` (configurable via `benchmark.datasets_dir` in `codeforge.yaml`). A run's `dataset` is a name (`.yaml` is added; `.yml` names resolve too) or a path inside that directory, stored relative; the Core and the worker read datasets only below it, through symlink-safe helpers (KI-107). See `configs/benchmarks/README.md` for the YAML schema.
 
 Available metrics/evaluators: `llm_judge`, `functional_test`, `sparc`, `trajectory_verifier`, `correctness`, `faithfulness`, `relevance`, `coherence`, `fluency`, `tool_correctness`, `answer_relevancy`, `contextual_precision` (other names are rejected with 400). `trajectory_verifier` currently always scores 0.0 because the worker lacks `litellm` ([KI-37](todo.md#known-issues)).
 
@@ -1355,7 +1357,7 @@ Available metrics/evaluators: `llm_judge`, `functional_test`, `sparc`, `trajecto
 
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
-| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` (Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files. The Go Core (dataset listing and path resolution) reads only the YAML key |
+| `benchmark.datasets_dir` | `CODEFORGE_BENCHMARK_DATASETS_DIR` (Python worker only) | `configs/benchmarks` | Directory with benchmark dataset YAML files. The Go Core (dataset listing and path resolution) reads only the YAML key. Datasets must be names or paths inside it (KI-107): an absolute path outside it is 400, a symlink out of it is neither listed nor read; the worker resolves a relative value against its working directory, the parent, then `CODEFORGE_WORKSPACE` |
 | `benchmark.watchdog_timeout` | `CODEFORGE_BENCHMARK_WATCHDOG_TIMEOUT` | `2h` | Watchdog timeout for stuck runs (Go duration: `30m`, `4h`). Agent runs with local models can take 60+ min. |
 | — | `HF_TOKEN` | — | HuggingFace API token for gated datasets. Required for CRUXEval (`cruxeval/cruxeval`). Optional for other external suites. Get a token at https://huggingface.co/settings/tokens |
 

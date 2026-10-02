@@ -1,7 +1,7 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-10-02). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-104 are open except **S7-A (KI-97, KI-100, KI-101), done 2026-10-02**.
-> **Scope:** the verified defects KI-1 to KI-104 in [todo.md - Known Issues](todo.md#known-issues), found by the
+> **Status:** In progress (2026-10-02). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-107 are open except **S7-A (KI-97, KI-100, KI-101) and S7-B (KI-95, KI-105, KI-106, KI-107), done 2026-10-02**.
+> **Scope:** the verified defects KI-1 to KI-107 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
 > promise, and a run pipeline that completes end to end - without changing the vision or the architecture.
@@ -29,7 +29,7 @@
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, ~~KI-47~~, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | ~~KI-15~~, ~~KI-16~~, ~~KI-17~~, KI-25 (part), ~~KI-33~~, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, ~~KI-55~~, ~~KI-56~~, ~~KI-57~~, ~~KI-58~~, ~~KI-60~~, ~~KI-62~~ | L |
-| **S7** | Review follow-ups (KI-83 to KI-104) | KI-83, KI-84, KI-85, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, KI-95, ~~KI-97~~, KI-98, ~~KI-100~~, ~~KI-101~~ (S7-A done; KI-25, KI-88, KI-96, KI-99, KI-102, KI-103, KI-104: see below) | L |
+| **S7** | Review follow-ups (KI-83 to KI-107) | KI-83, KI-84, KI-85, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, ~~KI-95~~, ~~KI-97~~, KI-98, ~~KI-100~~, ~~KI-101~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~ (S7-A and S7-B done; KI-25, KI-88, KI-96, KI-99, KI-102, KI-103, KI-104: see below) | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -147,7 +147,7 @@ verification, security review, code review, fix round, docs). Security and tenan
 | Group | Known Issues | Theme |
 |---|---|---|
 | **S7-A** | ~~KI-100~~, ~~KI-101~~, ~~KI-97~~ | **Done (2026-10-02).** MCP: outbound policy (SSRF protection) for the connection test and the worker, tenant filter on tool upserts, redaction of the URL and secret-looking arguments |
-| **S7-B** | KI-95 | Worker readers (repo map, retrieval, GraphRAG collectors, file tools) never follow a symlink out of the workspace |
+| **S7-B** | ~~KI-95~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~ | **Done (2026-10-02).** In-process workspace access (worker and Go Core) only through `codeforge.workspace_fs` and `internal/workspacefs`, never a symlink out of the workspace and never a blocking FIFO; knowledge-base content in per-tenant areas below `knowledge.content_root`, KB writes admin-only, scope attach tenant-checked; `detect-stack` inside the caller's tenant area; benchmark datasets inside `benchmark.datasets_dir` |
 | **S7-C** | KI-85, KI-84 | Inbound webhooks and Slack interactions resolve the tenant of the target instead of the default tenant; GitLab PM token |
 | **S7-D** | KI-83 | LSP language servers no longer run with the Go Core's environment and rights (design in a plan first) |
 | **S7-E** | KI-89, KI-90, KI-91 | Data lifecycle: channel rows without a users row, retention for claim and completion records, quarantine expiry |
@@ -201,7 +201,7 @@ scheduled as follows:
 | **KI-92** | War Room arrows of `initiated` handoffs are never removed | S6 follow-up, open |
 | **KI-93** | Privacy page links to a Settings > Privacy export/delete screen that does not exist | S6 follow-up, open |
 | **KI-94** | Review pipeline and stall re-plan leftovers (edits during the refactorer, agent reservation, debate sub-plan cancel, partial approval, quoted paths, stall prompt, shared stall budget) | S6 follow-up, open |
-| **KI-95** | In-process worker readers (repo map, retrieval, GraphRAG collectors, file tools) follow symlinks out of the workspace | KI-71 follow-up, open |
+| **KI-95** | In-process worker readers (repo map, retrieval, GraphRAG collectors, file tools) follow symlinks out of the workspace | KI-71 follow-up, **done 2026-10-02** (S7-B: `internal/workspacefs` and `codeforge.workspace_fs` for the Core and the worker; the Core had no check at all) |
 | **KI-96** | All tenants share the tool uid 10002 | KI-71 follow-up, open (per-tenant UIDs or the sandbox, KI-13) |
 | **KI-97** | MCP args and URL userinfo are not redacted | KI-71 follow-up, **done 2026-10-02** (S7-A: URL and credential arguments redacted, keep rule by whole-value comparison, no URL secrets in errors and logs) |
 | **KI-98** | MCP UI: header editor, "stored, unchanged" hint, admin actions shown to non-admins | KI-71 follow-up, open |
@@ -211,6 +211,9 @@ scheduled as follows:
 | **KI-102** | Re-run the NATS permission tests before a NATS image upgrade (nats-server 2.11 or newer) | KI-71 follow-up, open |
 | **KI-103** | Cost of the tool-file sharing pass on very large workspaces; files of processes that outlive the pass | KI-71 follow-up, open |
 | **KI-104** | Outbound-policy gaps outside the MCP path: `SafeTransport` / `IsPrivateIP` (A2A, VCS, project-git) lack CGNAT, multicast and NAT64; 6to4 and Teredo count as public; query tokens in other URLs | S7-A follow-up, open |
+| **KI-105** | Knowledge-base `content_path` reads any file (any absolute path; KB routes without a role check) | S7-B review, **done 2026-10-02** (S7-B: per-tenant areas below `knowledge.content_root`, one uniform 400, admin-only writes, tenant-checked scope attach) |
+| **KI-106** | `POST /detect-stack` scans other tenants' workspaces | S7-B review, **done 2026-10-02** (S7-B: the caller's tenant area, Adopt's rule) |
+| **KI-107** | Benchmark dataset paths read any file (dev mode) | S7-B review, **done 2026-10-02** (S7-B: names or paths inside `benchmark.datasets_dir`) |
 
 ## Decisions
 

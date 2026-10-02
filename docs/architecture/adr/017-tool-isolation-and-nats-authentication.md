@@ -1,7 +1,8 @@
 # ADR-017: Tool Process Isolation and NATS Authentication
 
 > **Status:** accepted (implemented as KI-71 of the [fix plan](../../known-issues-fix-plan.md), four review rounds and a
-> security-review round); decision 9 amended 2026-10-02 (S7-A: outbound policy, redaction, tenant-scoped tool upserts)
+> security-review round); decision 9 amended 2026-10-02 (S7-A: outbound policy, redaction, tenant-scoped tool upserts); note of
+> 2026-10-02 (S7-B: symlink-safe in-process workspace access, KI-95)
 > **Date:** 2026-10-01
 > **Deciders:** Project owner (lead decisions of the KI-71 milestone: a separate tool user, a shared workspace group,
 > a fail-closed isolation mode, one authenticated NATS user per service)
@@ -225,6 +226,29 @@ workspaces (the walk runs after the health server is up and before the consumer 
 {"status":"not ready"}` while the NotificationHub has consumers to restore or a read-back pending; `200` once the
 worker, its loops and the hub are ready.
 
+**Note of 2026-10-02 (S7-B: KI-95, KI-105, KI-106, KI-107).** Workspaces are untrusted, but the Go Core and the worker
+read and write them in their own processes with rights the tool user lacks. Both now open workspace files only through
+one helper per language, never a plain path: `internal/workspacefs` (Go, on `os.Root`) and `codeforge.workspace_fs`
+(Python, component-wise walks with `O_NOFOLLOW`).
+
+- *Rules both share.* Absolute paths, `..` above the workspace and symlinks that leave it are refused; a relative symlink
+  that stays inside is followed (8 at most); an absolute symlink is never followed in-process, even one that points
+  inside (`os.Root` cannot be told not to follow, so this is the only rule both languages can share); opens never block
+  and take regular files only; the workspace directory itself may not be a symlink or FIFO. A worker test scans for
+  direct file access outside the helper; the Go side has no such scan.
+- *The Go Core was the larger hole.* Most of its readers (goal and spec discovery, roadmap sync, context scoring, the
+  file API, index seeding) had no check at all and read with the Core's own rights (`/run/secrets`, `/data`); the worker's
+  file tools already refused a static symlink out, their gaps were the swap race, FIFOs and listings.
+- *Operator directories, same helpers.* Knowledge-base content lives in per-tenant areas
+  `<knowledge.content_root>/<tenant_id>/` (every refusal one and the same 400; create, update, delete and index need
+  admin; scope attach is tenant-checked), benchmark datasets only inside `benchmark.datasets_dir`, and `detect-stack`
+  only inside the caller's tenant area (KI-105, KI-106, KI-107).
+- *Residual.* Hard links cannot be told apart from regular files (`fs.protected_hardlinks=1`, a host sysctl whose kernel
+  default is 0; links never cross a mount, so only the workspaces volume is reachable); absolute symlinks are not
+  followed in-process; subprocess readers stay outside the helpers (the Core's git calls KI-77, LSP servers KI-83, svn,
+  and the agents' own tools); tenant directories are group-writable, so a tool user can rename or replace other
+  workspaces (KI-96); Go escape detection relies on `os.Root`'s unexported error text (a test pins it).
+
 ### Consequences
 
 #### Positive
@@ -256,8 +280,9 @@ worker, its loops and the hub are ready.
   when everything does; KI-103).
 - Shared tool UID: all runs and tenants share uid 10002, so their tool processes can read, signal or
   trace each other and reach other workspaces (as before; KI-96). Workspaces are group-writable, so an agent can still
-  rewrite `.git/config` and the KI-77 check-to-use window stays open. In-process worker readers (repo map, retrieval,
-  GraphRAG collectors, file tools racing a symlink swap) still follow symlinks (KI-95).
+  rewrite `.git/config` and the KI-77 check-to-use window stays open. In-process readers that followed symlinks out of
+  a workspace (KI-95) are fixed by S7-B (note above); hard links, subprocess readers (KI-77, KI-83) and the
+  group-writable tenant directories (KI-96) remain.
 - The server does not check deliver and reply subjects: a consumer can deliver stream messages to any plain
   subscription whose name its creator knows. The per-service inbox prefixes keep the Go Core's names unknowable to the
   worker (KI-99).
@@ -303,7 +328,7 @@ worker, its loops and the hub are ready.
 
 - [ADR-006: Approach C](006-agent-execution-approach-c.md), [ADR-011: Trust and quarantine](011-trust-quarantine-system.md),
   [ADR-015: Policy deny lists](015-policy-deny-lists-and-tool-names.md), [ADR-016: NATS delivery semantics](016-nats-delivery-semantics.md)
-- [Known Issues KI-71 and the follow-ups KI-95 to KI-104](../../todo.md#known-issues), [fix plan](../../known-issues-fix-plan.md)
+- [Known Issues KI-71 and the follow-ups KI-95 to KI-107](../../todo.md#known-issues), [fix plan](../../known-issues-fix-plan.md)
 - [SECURITY.md](../../SECURITY.md), [architecture.md, process and UID model](../../architecture.md#process-and-uid-model), [dev-setup.md](../../dev-setup.md#tool-isolation-and-nats-authentication)
 - `workers/codeforge/tool_process.py`, `workers/codeforge/notifications.py`, `scripts/worker-entrypoint.sh`,
   `scripts/check-tool-isolation.sh`, `configs/nats/nats-server.conf`

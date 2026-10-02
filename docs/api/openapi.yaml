@@ -580,6 +580,248 @@ paths:
           $ref: "#/components/responses/NotFound"
 
   # -----------------------------------------------
+  # Project files (workspace file API) and stack detection
+  # -----------------------------------------------
+  /projects/{id}/files:
+    get:
+      tags: [Projects]
+      summary: List a workspace directory
+      description: |
+        Lists the entries of one directory of the project's workspace. Paths are workspace-relative (a leading `/` is
+        ignored). Every path is resolved inside the workspace (KI-95): a relative symlink that stays inside is followed,
+        any other symlink, `..` above the workspace and an absolute path are refused, and a special file (FIFO, socket,
+        device) is never opened.
+      operationId: listProjectFiles
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: path
+          in: query
+          description: Directory, relative to the workspace (default `.`)
+          schema:
+            type: string
+            default: "."
+      responses:
+        "200":
+          description: Directory entries (symlinks are listed, never followed into)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Projects]
+      summary: Delete a workspace file or directory
+      description: |
+        Requires admin or editor role. Deletes the file or directory at `path` (a symlink is deleted itself, never its
+        target). The workspace root cannot be deleted: `.` and any name that cleans to it, such as `x/..`, answer 400.
+      operationId: deleteProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: path
+          in: query
+          required: true
+          description: File or directory, relative to the workspace
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/files/tree:
+    get:
+      tags: [Projects]
+      summary: List the whole workspace tree
+      description: |
+        Lists all files and directories of the workspace recursively, without `.git`. Symlinks are listed, never
+        descended into. The walk is bounded.
+      operationId: listProjectFileTree
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: max_entries
+          in: query
+          description: Maximum number of entries (default 10000, at most 50000)
+          schema:
+            type: integer
+            default: 10000
+            maximum: 50000
+      responses:
+        "200":
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileEntry"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/files/content:
+    get:
+      tags: [Projects]
+      summary: Read a workspace file
+      description: |
+        Reads a regular file of the workspace. A directory, FIFO, socket, device, a symlink that leaves the workspace
+        and a file larger than 10 MiB answer 400.
+      operationId: readProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: path
+          in: query
+          required: true
+          description: File, relative to the workspace
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileContent"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Projects]
+      summary: Write a workspace file
+      description: |
+        Requires admin or editor role. Creates or overwrites a regular file (parent directories are created). A path
+        that leaves the workspace, or an existing special file, answers 400.
+      operationId: writeProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+      responses:
+        "200":
+          description: Written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/files/rename:
+    patch:
+      tags: [Projects]
+      summary: Rename or move a workspace file or directory
+      description: |
+        Requires admin or editor role. A symlink is renamed itself, never its target. The workspace root can be neither
+        the source nor the target: `.` and any name that cleans to it answer 400.
+      operationId: renameProjectFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_path, new_path]
+              properties:
+                old_path:
+                  type: string
+                new_path:
+                  type: string
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusOK"
+        "400":
+          $ref: "#/components/responses/WorkspacePathRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /detect-stack:
+    post:
+      tags: [Projects]
+      summary: Detect the language stack of a directory
+      description: |
+        Scans a directory for languages, frameworks and tool recommendations. The path must be absolute and lie strictly
+        inside the caller's own tenant area of the workspace root (`<workspace.root>/<tenant_id>/...`, KI-106); it is
+        resolved inside that area, so no symlink leads out of it. Platform admins may also name a directory strictly
+        inside a `workspace.adopt_roots` directory outside the workspace root. Any other path answers 400: another
+        tenant's directory, the tenant directory itself, the workspace root, or a symlink that leaves the area.
+      operationId: detectStackByPath
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                  description: Absolute directory path
+      responses:
+        "200":
+          description: Detected stack
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StackDetectionResult"
+        "400":
+          description: Path missing, not absolute, or outside the caller's tenant area (outside the workspace root, outside the adopt roots or the caller is no platform admin)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # -----------------------------------------------
   # Conversations
   # -----------------------------------------------
   /projects/{id}/conversations:
@@ -2748,7 +2990,11 @@ paths:
     post:
       tags: [Benchmarks]
       summary: Start a benchmark run
-      description: Creates and starts a benchmark run for the given suite. Requires APP_ENV=development.
+      description: |
+        Creates and starts a benchmark run for the given dataset or suite. Requires APP_ENV=development. A dataset is a
+        name or a path inside the benchmark datasets directory (`benchmark.datasets_dir`, KI-107) and is stored
+        relative to it; an absolute path outside the directory answers 400 before the run is stored, and a dataset
+        that leads out of the directory through a symlink, or is not found, fails the run with 400.
       operationId: createBenchmarkRun
       security:
         - bearerAuth: []
@@ -2758,8 +3004,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [suite_id]
+              required: [model]
+              description: One of `dataset` or `suite_id` is required.
               properties:
+                dataset:
+                  type: string
+                  description: Dataset name (`.yaml` is added; `.yml` names resolve too) or a path inside the benchmark datasets directory
                 suite_id:
                   type: string
                   format: uuid
@@ -3220,7 +3470,12 @@ paths:
                   $ref: "#/components/schemas/KnowledgeBase"
     post:
       tags: [Knowledge Bases]
-      summary: Create a knowledge base
+      summary: Create a knowledge base (admin only)
+      description: |
+        Requires the admin role (403 otherwise). Knowledge-base content lives in per-tenant areas
+        `<knowledge.content_root>/<tenant_id>/` (KI-105). `content_path` is relative to the caller's tenant area (`.` is the
+        whole area); an absolute path is accepted only inside it and is stored relative. A path outside the area answers
+        one and the same 400, whatever the reason, so no tenant can probe other paths.
       operationId: createKnowledgeBase
       security:
         - bearerAuth: []
@@ -3230,17 +3485,22 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
+              required: [name, category, content_path]
               properties:
                 name:
                   type: string
                 description:
                   type: string
-                source_type:
+                category:
                   type: string
-                  description: Source type (url, directory, document)
-                source_uri:
+                  enum: [framework, paradigm, language, security, custom]
+                tags:
+                  type: array
+                  items:
+                    type: string
+                content_path:
                   type: string
+                  description: Directory or file below the caller's tenant area of the knowledge content root
       responses:
         "201":
           description: Knowledge base created
@@ -3249,7 +3509,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/KnowledgeBase"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/KnowledgeContentRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /knowledge-bases/{id}:
     get:
@@ -3274,9 +3536,53 @@ paths:
                 $ref: "#/components/schemas/KnowledgeBase"
         "404":
           $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Knowledge Bases]
+      summary: Update a knowledge base (admin only)
+      description: Requires the admin role (403 otherwise). `content_path` cannot be changed; create a new knowledge base instead.
+      operationId: updateKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                tags:
+                  type: array
+                  description: Replaces the tags when present
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Knowledge base updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Knowledge Bases]
-      summary: Delete a knowledge base
+      summary: Delete a knowledge base (admin only)
+      description: Requires the admin role (403 otherwise).
       operationId: deleteKnowledgeBase
       security:
         - bearerAuth: []
@@ -3290,14 +3596,20 @@ paths:
       responses:
         "204":
           description: Knowledge base deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
   /knowledge-bases/{id}/index:
     post:
       tags: [Knowledge Bases]
-      summary: Trigger indexing of a knowledge base
-      description: Starts or refreshes the retrieval index for this knowledge base.
+      summary: Trigger indexing of a knowledge base (admin only)
+      description: |
+        Requires the admin role (403 otherwise). Starts or refreshes the retrieval index for this knowledge base. The
+        worker indexes the stored `content_path` below the caller's tenant area of its own knowledge content root. A
+        stored path that is outside the area, missing, leads out of it or is neither a directory nor a regular file
+        answers the same 400 as on create.
       operationId: indexKnowledgeBase
       security:
         - bearerAuth: []
@@ -3319,8 +3631,111 @@ paths:
                   status:
                     type: string
                     example: "indexing"
+        "400":
+          $ref: "#/components/responses/KnowledgeContentRefused"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /scopes/{id}/knowledge-bases:
+    get:
+      tags: [Knowledge Bases]
+      summary: List the knowledge bases attached to a scope
+      description: Lists only knowledge bases of the caller's tenant.
+      operationId: listScopeKnowledgeBases
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Retrieval scope ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge bases of the scope
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeBase"
+    post:
+      tags: [Knowledge Bases]
+      summary: Attach a knowledge base to a scope
+      description: |
+        The scope and the knowledge base must both belong to the caller's tenant; otherwise 404 (KI-105). The link
+        carries the tenant. Attaching an attached knowledge base changes nothing. Any authenticated user of the tenant
+        may attach (no role check).
+      operationId: attachScopeKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Retrieval scope ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [knowledge_base_id]
+              properties:
+                knowledge_base_id:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Attached
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The scope or the knowledge base does not exist or belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /scopes/{id}/knowledge-bases/{kbid}:
+    delete:
+      tags: [Knowledge Bases]
+      summary: Detach a knowledge base from a scope
+      description: The scope must belong to the caller's tenant; otherwise 404. Any authenticated user of the tenant may detach (no role check).
+      operationId: detachScopeKnowledgeBase
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Retrieval scope ID
+          schema:
+            type: string
+            format: uuid
+        - name: kbid
+          in: path
+          required: true
+          description: Knowledge base ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Detached
+        "404":
+          description: The knowledge base is not attached to the scope, or the scope belongs to another tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # -----------------------------------------------
   # Search
@@ -3451,6 +3866,28 @@ components:
   responses:
     BadRequest:
       description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    WorkspacePathRefused:
+      description: |
+        The path is refused (KI-95): it leaves the workspace (`..` above it, an absolute symlink or a symlink that
+        leaves it), names a special file (FIFO, socket, device) or a directory where a regular file is needed, or the
+        file is larger than 10 MiB. Deleting or renaming the workspace root (`.`, or a name that cleans to it such as
+        `x/..`) is refused too. The message names only the workspace-relative path.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    KnowledgeContentRefused:
+      description: |
+        Invalid request, or `content_path` is not available in the caller's tenant area of the knowledge content root
+        (KI-105): "content_path is not available in this tenant's knowledge area (knowledge.content_root/<tenant>)".
+        It is the one answer for every such refusal (outside the area, missing, leads out, not a file or directory), so
+        no tenant can probe paths.
       content:
         application/json:
           schema:
@@ -4255,6 +4692,83 @@ components:
           type: string
           format: date-time
 
+    StatusOK:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+          description: Path relative to the workspace, with forward slashes
+        is_dir:
+          type: boolean
+        size:
+          type: integer
+          format: int64
+        mod_time:
+          type: string
+          format: date-time
+
+    FileContent:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        size:
+          type: integer
+          format: int64
+        mod_time:
+          type: string
+          format: date-time
+        language:
+          type: string
+          description: Language identifier derived from the file name (`plaintext` when unknown)
+
+    StackDetectionResult:
+      type: object
+      properties:
+        languages:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              confidence:
+                type: number
+              manifests:
+                type: array
+                items:
+                  type: string
+              frameworks:
+                type: array
+                items:
+                  type: string
+        recommendations:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+              id:
+                type: string
+              name:
+                type: string
+              reason:
+                type: string
+        scanned_path:
+          type: string
+
     KnowledgeBase:
       type: object
       properties:
@@ -4265,13 +4779,21 @@ components:
           type: string
         description:
           type: string
-        source_type:
+        category:
           type: string
-        source_uri:
+          enum: [framework, paradigm, language, security, custom]
+        tags:
+          type: array
+          items:
+            type: string
+        content_path:
           type: string
-        index_status:
+          description: Path relative to the tenant's area of the knowledge content root (`.` is the whole area)
+        status:
           type: string
-          enum: [none, indexing, indexed, error]
+          enum: [pending, indexed, error]
+        chunk_count:
+          type: integer
         created_at:
           type: string
           format: date-time
