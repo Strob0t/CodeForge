@@ -149,6 +149,21 @@ func (r *recorder) snapshot() map[string]int {
 	return out
 }
 
+// waitForNoPullRequests blocks until the server has dropped every pull request
+// on the durable for subject, i.e. it has seen the subscriber go away. Until
+// then a message can still be delivered to the stopped subscriber; JetStream
+// redelivers it only after AckWait (90 s), as after any process exit.
+func waitForNoPullRequests(t *testing.T, q *Queue, subject string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for durableInfo(t, q, subject).NumWaiting > 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("durable for %s still has pull requests after its subscriber stopped", subject)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func publishRaw(t *testing.T, q *Queue, subject string, bodies ...string) {
 	t.Helper()
 	for _, b := range bodies {
@@ -228,6 +243,7 @@ func TestQueue_RestartDoesNotReplayOrLose(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatalf("Close first: %v", err)
 	}
+	waitForNoPullRequests(t, publisher, subject)
 
 	publishRaw(t, publisher, subject, `{"m":"while-down"}`)
 
