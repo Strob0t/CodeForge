@@ -65,6 +65,7 @@ HANDLERS = [
     ("_handle_conversation_run", "conversation.run.start"),
     ("_handle_conversation_compact", "conversation.compact.request"),
     ("_handle_workspace_test", "conversation.test.request"),
+    ("_handle_workspace_delete", "workspace.delete.request"),
     ("_handle_benchmark_run", "benchmark.run.request"),
     ("_handle_gemmas_eval", "evaluation.gemmas.request"),
     ("_handle_memory_store", "memory.store"),

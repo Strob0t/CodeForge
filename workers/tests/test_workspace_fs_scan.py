@@ -218,6 +218,18 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_state.py", "acl_support_problem", "os.open"): (1, "the workspace root or the HOME base"),
     ("tool_state.py", "acl_support_problem", "os.mkdir"): (1, _TOOL_STATE),
     ("tool_state.py", "acl_support_problem", "os.rmdir"): (1, _TOOL_STATE),
+    ("host_check.py", "read_mounts", "open"): (1, "the host preflight reads /proc/self/mountinfo"),
+    ("host_check.py", "_lsm", "open"): (1, "the host preflight reads /sys/kernel/security/lsm"),
+    ("workspace_deletion.py", "delete_workspace", "os.unlink"): (
+        1,
+        "a non-directory in place of a deleted project's workspace, by name relative to the tenant "
+        "directory's descriptor, which only the worker and the Go Core can write (KI-96 D11)",
+    ),
+    ("workspace_deletion.py", "delete_workspace", "os.rmdir"): (
+        1,
+        "the deleted project's workspace, emptied as the tenant's tool UID, by name relative to the tenant "
+        "directory's descriptor (KI-96 D11)",
+    ),
 }
 
 
