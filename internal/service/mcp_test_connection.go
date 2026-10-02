@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -55,7 +56,13 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	ctx, cancel := context.WithTimeout(ctx, s.limits.MCPTestTimeout)
 	defer cancel()
 
-	client, err := s.createClient(def)
+	// One transport per test, closed with it: tests are rare admin actions,
+	// so pooling connections across tests (and tenants) gains nothing, and
+	// idle keep-alive connections would otherwise hold a descriptor for 90 s.
+	httpClient := s.mcpHTTPClient()
+	defer httpClient.CloseIdleConnections()
+
+	client, err := s.createClient(def, httpClient)
 	if err != nil {
 		return &MCPTestResult{
 			Success: false,
@@ -103,23 +110,23 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	return result, nil
 }
 
-// createClient builds an mcp-go Client for a remote server definition. It
-// never starts a process: stdio servers run only in the worker. Its HTTP
-// client checks every address it connects to (mcpHTTPClient).
-func (s *MCPService) createClient(def *mcp.ServerDef) (mcpclient.MCPClient, error) {
+// createClient builds an mcp-go Client for a remote server definition on
+// httpClient (mcpHTTPClient: it checks every address it connects to). It
+// never starts a process: stdio servers run only in the worker.
+func (s *MCPService) createClient(def *mcp.ServerDef, httpClient *http.Client) (mcpclient.MCPClient, error) {
 	switch def.Transport {
 	case mcp.TransportStdio:
 		return nil, ErrStdioTestInCore
 
 	case mcp.TransportSSE:
-		opts := []transport.ClientOption{transport.WithHTTPClient(s.mcpHTTPClient())}
+		opts := []transport.ClientOption{transport.WithHTTPClient(httpClient)}
 		if len(def.Headers) > 0 {
 			opts = append(opts, transport.WithHeaders(def.Headers))
 		}
 		return mcpclient.NewSSEMCPClient(def.URL, opts...)
 
 	case mcp.TransportStreamableHTTP:
-		opts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(s.mcpHTTPClient())}
+		opts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(httpClient)}
 		if len(def.Headers) > 0 {
 			opts = append(opts, transport.WithHTTPHeaders(def.Headers))
 		}

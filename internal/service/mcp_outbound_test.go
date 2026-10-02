@@ -336,6 +336,51 @@ func TestMCPConnectionTest_RedirectsStayInTheOrigin(t *testing.T) {
 	}
 }
 
+// TestMCPConnectionTest_ClosesItsConnections (KI-100 review): every test
+// builds its own transport; its keep-alive connections are closed when the
+// test ends instead of idling for 90 s (and holding a file descriptor) per test.
+func TestMCPConnectionTest_ClosesItsConnections(t *testing.T) {
+	var mu sync.Mutex
+	open := map[net.Conn]bool{}
+	public := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not an MCP server", http.StatusInternalServerError)
+	}))
+	public.Config.ConnState = func(c net.Conn, state http.ConnState) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch state {
+		case http.StateNew:
+			open[c] = true
+		case http.StateClosed, http.StateHijacked:
+			delete(open, c)
+		}
+	}
+	public.Start()
+	t.Cleanup(public.Close)
+	svc := newMCPTestService(t, nil, newRecordingMCPStore())
+	svc.SetOutboundPolicy(routedPolicy(t, map[string]string{"mcp.example": "203.0.113.10"}, map[string]*httptest.Server{"203.0.113.10": public}))
+
+	for _, transport := range []mcp.TransportType{mcp.TransportSSE, mcp.TransportStreamableHTTP} {
+		if _, err := svc.TestConnection(context.Background(), &mcp.ServerDef{Name: "s", Transport: transport, URL: "http://mcp.example/mcp"}); err != nil {
+			t.Fatalf("TestConnection(%s): %v", transport, err)
+		}
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		left := len(open)
+		mu.Unlock()
+		if left == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d connections still open after the tests ended", left)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestMCPConnectionTest_FollowsASameOriginRedirect (KI-100 review): a
 // redirect within the origin (the worker's SDK follows it too) is followed,
 // and its connection is dialled through the policy.
