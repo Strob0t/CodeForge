@@ -253,9 +253,19 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         if not _is_ip_literal(url.host):
             # TLS verifies the certificate for the host, not for the address.
             extensions["sni_hostname"] = url.host
+        # Every address is checked; like Go's DialContext, the next one is tried
+        # when one cannot be connected to (nothing of the request was sent yet).
+        for address in addresses[:-1]:
+            try:
+                return await self._send_to(request, address, extensions)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                continue
+        return await self._send_to(request, addresses[-1], extensions)
+
+    async def _send_to(self, request: httpx.Request, address: str, extensions: dict[str, object]) -> httpx.Response:
         pinned = httpx.Request(
             request.method,
-            url.copy_with(host=addresses[0]),
+            request.url.copy_with(host=address),
             headers=request.headers,  # carries the Host header of the url
             stream=request.stream,
             extensions=extensions,

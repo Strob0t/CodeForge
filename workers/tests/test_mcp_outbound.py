@@ -193,6 +193,60 @@ async def test_transport_checks_every_request_dns_rebinding() -> None:
     assert [str(r.url) for r in recorder.requests] == ["http://93.184.216.34/a"]
 
 
+async def test_transport_tries_the_next_checked_address() -> None:
+    """Like Go's DialContext: every address is checked first, then they are tried in order (KI-100 review)."""
+
+    def first_refuses(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "203.0.113.1":
+            raise httpx.ConnectError("connection refused", request=request)
+        return httpx.Response(204)
+
+    recorder = _Recorder(first_refuses)
+    policy = OutboundPolicy([], resolver=_resolver({"multi.example": ["203.0.113.1", "203.0.113.2"]}))
+    async with _client(policy, recorder) as client:
+        assert (await client.get("http://multi.example/a")).status_code == 204
+    assert [r.url.host for r in recorder.requests] == ["203.0.113.1", "203.0.113.2"]
+
+    # One refused address refuses the name before anything connects.
+    recorder = _Recorder(first_refuses)
+    policy = OutboundPolicy([], resolver=_resolver({"multi.example": ["203.0.113.1", "10.0.0.1"]}))
+    async with _client(policy, recorder) as client:
+        with pytest.raises(AddressRefusedError):
+            await client.get("http://multi.example/a")
+    assert recorder.requests == []
+
+    # When every address fails, the last error is raised.
+    recorder = _Recorder(lambda request: (_ for _ in ()).throw(httpx.ConnectError("down", request=request)))
+    policy = OutboundPolicy([], resolver=_resolver({"multi.example": ["203.0.113.1", "203.0.113.2"]}))
+    async with _client(policy, recorder) as client:
+        with pytest.raises(httpx.ConnectError, match="down"):
+            await client.get("http://multi.example/a")
+    assert len(recorder.requests) == 2
+
+
+async def test_transport_falls_back_over_real_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """127.0.0.2 refuses the connection (nothing listens there); 127.0.0.1 answers."""
+    heads: list[bytes] = []
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        heads.append(await reader.readuntil(b"\r\n\r\n"))
+        writer.write(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        policy = OutboundPolicy(["127.0.0.0/8"], resolver=_resolver({"dev.example": ["127.0.0.2", "127.0.0.1"]}))
+        async with guarded_client_factory(policy)() as client:
+            response = await client.get(f"http://dev.example:{port}/mcp")
+        assert response.status_code == 204
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert len(heads) == 1
+
+
 async def test_transport_refuses_a_redirect_to_a_private_address() -> None:
     def redirect(request: httpx.Request) -> httpx.Response:
         return httpx.Response(302, headers={"Location": "http://10.0.0.1/secret"})
