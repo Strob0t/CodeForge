@@ -24,6 +24,7 @@ import re
 import socket
 import time
 from typing import TYPE_CHECKING
+from urllib.parse import unquote, unquote_plus
 
 import httpx
 from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
@@ -339,3 +340,47 @@ def guarded_client_factory(policy: OutboundPolicy, *, use_proxy: bool = False) -
         )
 
     return create
+
+
+# The shortest secret scrub_url_secrets replaces anywhere in a text: shorter
+# ones would mangle ordinary words (the url itself is replaced as a whole).
+_MIN_SCRUB_LENGTH = 4
+
+
+def scrub_url_secrets(text: str, url: str) -> str:
+    """text without the secrets of url (KI-97 security review).
+
+    httpx errors and tracebacks quote the request url with its userinfo and
+    query. The url itself, its userinfo (and password or token user) and every
+    query and fragment value, as written and decoded, become ``***``; this is
+    for logs, so all parameter values go, credential-named or not.
+    """
+    try:
+        parsed = httpx.URL(url) if url else None
+    except httpx.InvalidURL:
+        parsed = None
+    secrets: list[str] = []
+    if parsed is not None:
+        userinfo = parsed.userinfo.decode("ascii", "replace")
+        if userinfo:
+            secrets.append(userinfo)
+            user, _, password = userinfo.partition(":")
+            secrets.append(password or user)
+        for raw in (parsed.query.decode("ascii", "replace"), parsed.fragment):
+            for pair in raw.split("&"):
+                _, _, value = pair.partition("=")
+                if value:
+                    secrets.append(value)
+    scrubbed = text.replace(url, _host_only(parsed)) if url else text
+    expanded = {variant for secret in secrets for variant in (secret, unquote(secret), unquote_plus(secret))}
+    for secret in sorted(expanded, key=len, reverse=True):
+        if len(secret) >= _MIN_SCRUB_LENGTH:
+            scrubbed = scrubbed.replace(secret, "***")
+    return scrubbed
+
+
+def _host_only(parsed: httpx.URL | None) -> str:
+    if parsed is None:
+        return "***"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{parsed.host}{port}/***"

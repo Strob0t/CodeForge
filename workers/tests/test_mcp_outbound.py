@@ -24,6 +24,7 @@ from codeforge.mcp_outbound import (
     GuardedTransport,
     OutboundPolicy,
     guarded_client_factory,
+    scrub_url_secrets,
 )
 from codeforge.mcp_workbench import McpServerConnection, McpWorkbench
 
@@ -636,6 +637,69 @@ async def test_an_operator_server_still_never_reaches_metadata() -> None:
     )
     with pytest.raises(AddressRefusedError, match="link-local address; MCP servers may never use it"):
         await conn.connect()
+
+
+@pytest.mark.parametrize("transport", ["sse", "streamable_http"])
+async def test_a_failed_connect_logs_no_url_secrets(
+    transport: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """KI-97 security review: httpx errors quote the request url with its userinfo and query."""
+    token, key = "ghp_tokenvalue123", "sk-SECRETVALUE456"
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await reader.readuntil(b"\r\n\r\n")
+        writer.write(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        await writer.drain()
+        writer.close()
+
+    server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+
+    async def lookup(_self: OutboundPolicy, _host: str, _port: int) -> list[str]:
+        return ["127.0.0.1"]
+
+    monkeypatch.setattr(OutboundPolicy, "_lookup", lookup)
+    try:
+        with caplog.at_level(logging.DEBUG):
+            wb = McpWorkbench()
+            await wb.connect_servers(
+                [
+                    MCPServerDef(
+                        id="s1",
+                        name="S1",
+                        transport=transport,
+                        url=f"http://{token}@mcp.test:{port}/mcp?api_key={key}&x=1",
+                        allowed_private_hosts=["127.0.0.1"],
+                    )
+                ]
+            )
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert wb._connections == {}
+    logged = "\n".join(
+        record.getMessage() + (logging.Formatter().formatException(record.exc_info) if record.exc_info else "")
+        for record in caplog.records
+        if record.name.startswith("codeforge")
+    )
+    assert "failed to connect to MCP server s1" in logged
+    assert "mcp.test" in logged
+    assert token not in logged
+    assert key not in logged
+
+
+def test_scrub_url_secrets() -> None:
+    url = "http://svc:p%40ssw0rd@mcp.example/mcp?api_key=sk-a%2Bb123&region=europe#token=fragvalue"
+    text = (
+        f"Client error '401' for url '{url}'; retried http://svc:p%40ssw0rd@mcp.example/other "
+        "with p@ssw0rd and sk-a+b123 (europe, fragvalue)"
+    )
+    scrubbed = scrub_url_secrets(text, url)
+    for secret in ["p%40ssw0rd", "p@ssw0rd", "sk-a%2Bb123", "sk-a+b123", "europe", "fragvalue"]:
+        assert secret not in scrubbed
+    assert "mcp.example" in scrubbed
+    assert scrub_url_secrets("ghp_tokenvalue123 failed", "https://ghp_tokenvalue123@h/") == "*** failed"
+    assert "http://[bad" not in scrub_url_secrets("x http://[bad", "http://[bad")  # never raises
 
 
 def test_server_def_reads_the_allowlist() -> None:

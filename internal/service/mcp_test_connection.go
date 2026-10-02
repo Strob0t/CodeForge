@@ -2,8 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
+	"strings"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -11,6 +15,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // ErrStdioTestInCore: the Go Core never starts a stdio MCP server. Its
@@ -66,7 +71,7 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	if err != nil {
 		return &MCPTestResult{
 			Success: false,
-			Error:   fmt.Sprintf("failed to create client: %v", err),
+			Error:   "failed to create client: " + scrubURLSecrets(err, def),
 		}, nil
 	}
 	defer client.Close() //nolint:errcheck // best-effort cleanup
@@ -82,7 +87,7 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	if err != nil {
 		return &MCPTestResult{
 			Success: false,
-			Error:   fmt.Sprintf("initialize failed: %v", err),
+			Error:   "initialize failed: " + scrubURLSecrets(err, def),
 		}, nil
 	}
 
@@ -96,7 +101,7 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	toolsResult, err := client.ListTools(ctx, mcpprotocol.ListToolsRequest{})
 	if err != nil {
 		// Initialize succeeded but tools/list failed — still partially successful.
-		result.Error = fmt.Sprintf("tools/list failed: %v", err)
+		result.Error = "tools/list failed: " + scrubURLSecrets(err, def)
 		return result, nil
 	}
 
@@ -135,4 +140,36 @@ func (s *MCPService) createClient(def *mcp.ServerDef, httpClient *http.Client) (
 	default:
 		return nil, fmt.Errorf("unsupported transport: %s", def.Transport)
 	}
+}
+
+// minScrubLength is the shortest secret scrubURLSecrets replaces anywhere in
+// a text: shorter ones would mangle ordinary words, and the url itself is
+// already gone by then.
+const minScrubLength = 4
+
+// scrubURLSecrets returns the text of err without the secrets of def's url
+// (KI-97 security review). The test connects with the stored url, and a
+// *url.Error quotes the whole url (net/http strips only a userinfo
+// password), so it is reported by its operation and cause only. Any other
+// quote of the url, and every secret part of it (userinfo, credential query
+// and fragment values, as written and decoded) or a header value, is then
+// replaced as well.
+func scrubURLSecrets(err error, def *mcp.ServerDef) string {
+	text := err.Error()
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		text = strings.ReplaceAll(text, urlErr.Error(), urlErr.Op+": "+urlErr.Err.Error())
+	}
+	parts := secrets.URLFieldSecrets(def.URL)
+	for _, value := range def.Headers {
+		parts = append(parts, value)
+	}
+	sort.Slice(parts, func(i, j int) bool { return len(parts[i]) > len(parts[j]) })
+	pairs := []string{def.URL, secrets.RedactURLField(def.URL, mcp.RedactedValue)}
+	for _, part := range parts {
+		if len(part) >= minScrubLength {
+			pairs = append(pairs, part, mcp.RedactedValue)
+		}
+	}
+	return strings.NewReplacer(pairs...).Replace(text)
 }

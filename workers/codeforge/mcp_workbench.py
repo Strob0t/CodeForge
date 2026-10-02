@@ -7,12 +7,13 @@ import os
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
-from codeforge.mcp_outbound import OutboundPolicy, guarded_client_factory
+from codeforge.mcp_outbound import OutboundPolicy, guarded_client_factory, scrub_url_secrets
 from codeforge.tool_process import tool_stdio_client
 from codeforge.tracing import tracing_manager
 
@@ -178,7 +179,13 @@ class McpWorkbench:
                 await conn.connect()
                 self._connections[server_def.id] = conn
             except Exception as exc:
-                logger.exception("failed to connect to MCP server %s: %s", server_def.id, exc)
+                # No traceback: httpx errors quote the url with its secrets (KI-97 security review).
+                logger.error(
+                    "failed to connect to MCP server %s (%s): %s",
+                    server_def.id,
+                    _host_of(server_def.url),
+                    scrub_url_secrets(_describe(exc), server_def.url),
+                )
 
     async def discover_tools(self) -> list[MCPTool]:
         """Discover tools from all connected servers."""
@@ -222,6 +229,20 @@ class McpWorkbench:
             }
             for tool in self._tools
         ]
+
+
+def _describe(exc: BaseException) -> str:
+    """The class and message of exc, or of the leaves of an exception group (anyio task groups)."""
+    if isinstance(exc, BaseExceptionGroup):
+        return "; ".join(_describe(inner) for inner in exc.exceptions)
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _host_of(url: str) -> str:
+    try:
+        return httpx.URL(url).host or "-"
+    except httpx.InvalidURL:
+        return "-"
 
 
 class McpToolRecommender:

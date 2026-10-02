@@ -72,6 +72,33 @@ func TestMCPServerURLs_RefusedWith400(t *testing.T) {
 	}
 }
 
+// TestMCPServerTest_ErrorCarriesNoURLSecrets (KI-97 security review): testing
+// a saved server connects with its stored url; a failed connection's error
+// names neither its token user nor its query credential.
+func TestMCPServerTest_ErrorCarriesNoURLSecrets(t *testing.T) {
+	const token, key = "ghp_tokenvalue123", "sk-SECRETVALUE456"
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close() // every connection to it is refused
+	routed := routedMCPPolicy(t, map[string]*httptest.Server{"down.example": down})
+	saved := mcp.ServerDef{
+		ID: "s1", Name: "remote", Transport: mcp.TransportStreamableHTTP,
+		URL: "http://" + token + "@down.example/mcp?api_key=" + key, Status: mcp.ServerStatusRegistered,
+	}
+	tenantAdmin := &user.User{ID: "ta", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
+
+	w := serveMCPWith(t, &mockStore{mcpServers: []mcp.ServerDef{saved}}, tenantAdmin, http.MethodPost, "/api/v1/mcp/servers/s1/test", "", routed)
+
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"success":false`) {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), token) || strings.Contains(w.Body.String(), key) {
+		t.Fatalf("the response carries a url secret: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "connection refused") {
+		t.Fatalf("the response lost the reason: %s", w.Body.String())
+	}
+}
+
 // TestMCPServerOnARefusedAddress_CanStillBeDisabled (KI-100 review): a server
 // saved before KI-100 on an address that is refused now is checked only when
 // its url or transport changes.
