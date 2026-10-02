@@ -1,8 +1,9 @@
-"""Agent tool processes run as the tool user (KI-71).
+"""Agent tool processes run as the tool user (KI-71, KI-96).
 
 Every process the worker starts for an agent goes through codeforge.tool_process.
 With tool isolation required it runs as the unprivileged tool user (setpriv:
-tool UID/GID, the workspace group, no capabilities, no_new_privs, umask 002);
+tool UID/GID, the workspace group, no capabilities, no_new_privs, umask 002,
+then the launch helper with the environment from a memfd, never on argv);
 when that is not possible the tool call fails and no process starts. With
 isolation off (development, tests) tool processes start as before.
 """
@@ -12,8 +13,11 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import json
 import os
+import random
 import stat
+import string
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -23,6 +27,7 @@ import pytest
 from codeforge import tool_process
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_process import (
+    TOOL_EXEC,
     TOOL_UMASK,
     IsolationConfig,
     IsolationStatus,
@@ -40,17 +45,17 @@ from codeforge.tool_process import (
 from tests.test_subprocess_env import SPAWN_SITES, _FakeProc
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
 WORKERS_DIR = Path(__file__).resolve().parents[1]
 SOURCE_DIR = WORKERS_DIR / "codeforge"
 
 LAUNCHER = "/usr/bin/setpriv"
-ENV_PROGRAM = "/usr/bin/env"
+INTERPRETER = "/usr/bin/python3"
 LAUNCHER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
 CONFIG = IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=10010, home="/home/codeforge-tool")
 OFF = IsolationConfig(mode="off", uid=10002, gid=10002, workspace_gid=10010, home="/home/codeforge-tool")
-READY = IsolationStatus(config=CONFIG, ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM)
+READY = IsolationStatus(config=CONFIG, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER)
 BROKEN = IsolationStatus(config=CONFIG, ready=False, reason="the worker lacks CAP_SETUID")
 
 
@@ -70,9 +75,31 @@ def _prefix(config: IsolationConfig) -> list[str]:
 LAUNCH_PREFIX = _prefix(CONFIG)
 
 
-def _launched(config: IsolationConfig, argv: list[str], env: dict[str, str]) -> list[str]:
-    """setpriv, then env(1) with exactly *env*, then the command."""
-    return [*_prefix(config), ENV_PROGRAM, "-i", "--", *(f"{k}={v}" for k, v in env.items()), *argv]
+def _helper_prefix(config: IsolationConfig) -> list[str]:
+    """setpriv, then the launch helper with the base interpreter."""
+    return [*_prefix(config), INTERPRETER, "-I", "-S", TOOL_EXEC]
+
+
+def _command(config: IsolationConfig, args: tuple[object, ...]) -> list[object]:
+    """The command a launch runs: what follows the helper and its spec descriptor."""
+    prefix = _helper_prefix(config)
+    assert list(args[: len(prefix)]) == prefix, args
+    assert str(args[len(prefix)]).isdigit(), args
+    return list(args[len(prefix) + 1 :])
+
+
+def read_spec(kwargs: Mapping[str, object]) -> dict[str, object] | None:
+    """The launch spec on the memfd a spawn passes (read before the launcher closes it)."""
+    fds = kwargs.get("pass_fds") or ()
+    if not fds:
+        return None
+    fd = fds[0]  # type: ignore[index]
+    os.lseek(fd, 0, os.SEEK_SET)
+    data = b""
+    while chunk := os.read(fd, 65536):
+        data += chunk
+    os.lseek(fd, 0, os.SEEK_SET)
+    return json.loads(data)
 
 
 @pytest.fixture
@@ -90,15 +117,16 @@ Spawn = tuple[tuple[object, ...], dict[str, object]]
 
 @pytest.fixture
 def spawns(monkeypatch: pytest.MonkeyPatch) -> list[Spawn]:
-    """Record every asyncio and subprocess.run spawn (argv and keyword arguments)."""
+    """Record every asyncio and subprocess.run spawn (argv and keyword arguments, plus the
+    launch spec it passes as ``spec``)."""
     calls: list[Spawn] = []
 
     async def fake_exec(*args: object, **kwargs: object) -> _FakeProc:
-        calls.append((args, kwargs))
+        calls.append((args, {**kwargs, "spec": read_spec(kwargs)}))
         return _FakeProc()
 
     def fake_run(args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append((tuple(args) if isinstance(args, list) else (args,), kwargs))
+        calls.append((tuple(args) if isinstance(args, list) else (args,), {**kwargs, "spec": read_spec(kwargs)}))
         return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -180,12 +208,24 @@ async def test_required_starts_the_command_as_the_tool_user(
     isolation(READY)
     await start_tool_process("git", "status", env={"PATH": "/bin"}, cwd="/ws", stdout=asyncio.subprocess.PIPE)
     args, kwargs = spawns[0]
-    assert list(args) == _launched(CONFIG, ["git", "status"], {"PATH": "/bin"})
+    assert _command(CONFIG, args) == ["git", "status"]
     assert kwargs["umask"] == TOOL_UMASK == 0o002
-    # setpriv holds the worker's capabilities: it gets a fixed environment, the
-    # command gets its own through env(1) after the switch.
+    # setpriv holds the worker's capabilities: it gets a fixed environment; the
+    # helper gives the command its own after the switch, from the spec.
     assert kwargs["env"] == LAUNCHER_ENV
-    assert kwargs["cwd"] == "/ws"
+    # The worker never changes into a directory a tool can write: the helper does.
+    assert kwargs["cwd"] == "/"
+    assert kwargs["spec"] == {
+        "uid": 10002,
+        "gid": 10002,
+        "groups": [10010],
+        "umask": TOOL_UMASK,
+        "env": {"PATH": "/bin"},
+        "landlock": "off",
+        "prepare": [],
+        "home": None,
+        "cwd": "/ws",
+    }
 
 
 async def test_the_launcher_never_gets_the_tools_environment(
@@ -197,33 +237,78 @@ async def test_the_launcher_never_gets_the_tools_environment(
     run_tool_process(["true"], env=env)
     for args, kwargs in spawns:
         assert kwargs["env"] == LAUNCHER_ENV
-        assignments = list(args[len(LAUNCH_PREFIX) + 3 : -1])
+        assert _command(CONFIG, args) == ["true"]
+        assert not [a for a in args if "evil.so" in str(a) or "PATH=" in str(a)]
         # The command still gets its environment; invalid names are dropped.
-        assert assignments == ["LD_PRELOAD=/data/workspaces/t/p/evil.so", "GCONV_PATH=/x", "PATH=/bin"]
+        assert kwargs["spec"]["env"] == {  # type: ignore[index]
+            "LD_PRELOAD": "/data/workspaces/t/p/evil.so",
+            "GCONV_PATH": "/x",
+            "PATH": "/bin",
+        }
+
+
+def _random_text(rng: random.Random) -> str:
+    alphabet = string.ascii_letters + string.digits + string.punctuation + " \té中"
+    return "".join(rng.choice(alphabet) for _ in range(rng.randint(8, 40)))
+
+
+async def test_no_environment_value_is_ever_an_argument(
+    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+) -> None:
+    """Property: whatever the environment, none of its values (secrets) is in argv (KI-96, E8)."""
+    isolation(READY)
+    rng = random.Random(96)  # noqa: S311 - test data, not cryptography
+    for _ in range(50):
+        env = {f"V{index}_{rng.randint(0, 99)}": _random_text(rng) for index in range(rng.randint(1, 12))}
+        spawns.clear()
+        await start_tool_process("cmd", env=env, cwd="/ws")
+        run_tool_process(["cmd"], env=env, cwd="/ws")
+        commands = 0
+        for args, kwargs in spawns:
+            joined = "\0".join(str(a) for a in args)
+            assert not [value for value in env.values() if value in joined], args
+            if _command(CONFIG, args) == ["cmd"]:  # not the sharing pass after it
+                commands += 1
+                assert kwargs["spec"]["env"] == env  # type: ignore[index]
+        assert commands == 2
+
+
+async def test_the_launch_spec_is_closed_after_the_spawn(
+    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+) -> None:
+    isolation(READY)
+    await start_tool_process("true", env={})
+    run_tool_process(["true"], env={})
+    for _args, kwargs in spawns:
+        (fd,) = kwargs["pass_fds"]  # type: ignore[misc]
+        with pytest.raises(OSError):
+            os.fstat(fd)
 
 
 async def test_shell_commands_run_through_sh(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
     isolation(READY)
     await start_tool_shell("pytest -q && echo ok", env={}, cwd="/ws")
     args, _ = spawns[0]
-    assert list(args) == _launched(CONFIG, ["/bin/sh", "-c", "pytest -q && echo ok"], {})
+    assert _command(CONFIG, args) == ["/bin/sh", "-c", "pytest -q && echo ok"]
 
 
 def test_sync_run_as_the_tool_user(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
     isolation(READY)
     run_tool_process(["git", "log"], env={"PATH": "/bin"}, cwd="/ws", timeout=5)
     args, kwargs = spawns[0]
-    assert list(args) == _launched(CONFIG, ["git", "log"], {"PATH": "/bin"})
+    assert _command(CONFIG, args) == ["git", "log"]
     assert kwargs["env"] == LAUNCHER_ENV
     assert kwargs["umask"] == 0o002
     assert kwargs["timeout"] == 5
+    assert kwargs["cwd"] == "/"
+    assert kwargs["spec"]["cwd"] == "/ws"  # type: ignore[index]
 
 
 def test_groups_cleared_without_a_workspace_group(
     isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
 ) -> None:
     config = IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=-1, home="/home/tool")
-    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM))
+    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
     run_tool_process(["true"], env={})
     args, _ = spawns[0]
     assert "--clear-groups" in args
@@ -410,8 +495,9 @@ def test_check_required_runs_the_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="00000000000000e0"))
     probes: list[list[str]] = []
 
-    def fake_probe(argv: list[str], _timeout: float) -> str:
-        probes.append(argv)
+    def fake_probe(launch: tool_process.Launch, _timeout: float) -> str:
+        probes.append(launch.argv)
+        launch.close()
         return _STATUS_OK
 
     monkeypatch.setattr(tool_process, "_run_probe", fake_probe)
@@ -466,7 +552,7 @@ def test_share_with_tools_is_a_no_op_when_off(isolation: Callable[[IsolationStat
 def test_share_with_tools(
     is_dir: bool, writable: bool, mode: int, isolation: Callable[[IsolationStatus], None], tmp_path: Path
 ) -> None:
-    isolation(IsolationStatus(config=_own_group_config(), ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM))
+    isolation(IsolationStatus(config=_own_group_config(), ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
     path = tmp_path / "x"
     if is_dir:
         path.mkdir(mode=0o700)
@@ -746,14 +832,26 @@ def _spawn_calls(path: Path, base: Path = WORKERS_DIR) -> list[str]:
     return found
 
 
+# The launcher (tool_process) and its second half, the launch helper that
+# executes the command as the tool user (KI-96).
+_LAUNCHER_MODULES = {SOURCE_DIR / "tool_process.py", SOURCE_DIR / "tool_exec.py"}
+
+
 def test_only_tool_process_starts_processes() -> None:
     """A new subprocess call outside codeforge.tool_process would run as the worker user."""
     offenders: list[str] = []
     for path in sorted(SOURCE_DIR.rglob("*.py")):
-        if path == SOURCE_DIR / "tool_process.py":
+        if path in _LAUNCHER_MODULES:
             continue
         offenders.extend(_spawn_calls(path))
     assert offenders == [], "start processes through codeforge.tool_process:\n" + "\n".join(offenders)
+
+
+def test_the_helper_only_executes_the_spec_command() -> None:
+    """tool_exec.py executes (never forks or spawns), once."""
+    calls = _spawn_calls(SOURCE_DIR / "tool_exec.py")
+    assert len(calls) == 1, calls
+    assert calls[0].endswith("os.execvpe"), calls
 
 
 def test_the_spawn_scan_finds_spawns(tmp_path: Path) -> None:
@@ -815,14 +913,14 @@ async def test_every_spawn_site_runs_as_the_tool_user(
     # The workspace group is the test's own: sharing a file with the tool user
     # changes its group, which a non-root test may do only to its own groups.
     config = _own_group_config()
-    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, env_program=ENV_PROGRAM))
+    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
     await _site(site)(tmp_path)
     assert spawns, f"{site} started no process"
     for args, kwargs in spawns:
-        assert list(args[: len(_prefix(config))]) == _prefix(config), f"{site}: {args}"
-        assert list(args[len(_prefix(config)) : len(_prefix(config)) + 3]) == [ENV_PROGRAM, "-i", "--"], site
+        assert _command(config, args), f"{site}: {args}"
         assert kwargs.get("umask") == 0o002, site
         assert kwargs["env"] == LAUNCHER_ENV, site
+        assert kwargs["spec"] is not None, site
 
 
 @pytest.mark.parametrize("site", ["bash", *_SITES])
@@ -896,7 +994,7 @@ def test_setup_tool_isolation(
             ready=ready,
             reason="" if ready else "no CAP_SETUID",
             launcher=LAUNCHER,
-            env_program=ENV_PROGRAM,
+            interpreter=INTERPRETER,
         )
 
     monkeypatch.setattr(consumer_module, "configure_tool_isolation", fake_configure)
@@ -923,77 +1021,104 @@ def test_setup_tool_isolation(
 # ---------------------------------------------------------------------------
 
 
-def _stdio_params(monkeypatch: pytest.MonkeyPatch) -> list[object]:
-    """Record the server parameters the MCP SDK's stdio_client gets."""
-    import mcp
-
-    seen: list[object] = []
-
-    def fake_stdio_client(server: object, errlog: object = None) -> object:
-        seen.append(server)
-        return contextlib.nullcontext()
-
-    monkeypatch.setattr(mcp, "stdio_client", fake_stdio_client)
-    return seen
-
-
-def test_mcp_stdio_server_runs_as_the_tool_user(
-    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+async def test_mcp_stdio_server_runs_as_the_tool_user(
+    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import io
-
     from codeforge.tool_process import tool_stdio_client
 
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.setenv("CODEFORGE_INTERNAL_KEY", "internal-admin-key")
     isolation(READY)
-    seen = _stdio_params(monkeypatch)
-    tool_stdio_client(
-        "npx",
-        ["-y", "@modelcontextprotocol/server-github"],
-        declared_env={"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_x", "LD_PRELOAD": "/w/evil.so", "PYTHONPATH": "/w"},
-        errlog=io.StringIO(),
-    )
-    (params,) = seen
-    argv = [params.command, *params.args]  # type: ignore[attr-defined]
-    assert argv[: len(LAUNCH_PREFIX)] == LAUNCH_PREFIX
-    assert argv[-3:] == ["npx", "-y", "@modelcontextprotocol/server-github"]
-    assignments = argv[len(LAUNCH_PREFIX) + 3 : -3]
-    assert "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_x" in assignments
-    assert "HOME=/home/codeforge-tool" in assignments
-    assert not [a for a in assignments if a.startswith(("LD_PRELOAD=", "PYTHONPATH=", "CODEFORGE_"))]
-    assert params.env == LAUNCHER_ENV  # type: ignore[attr-defined]
+    with open(os.devnull, "w") as errlog:
+        async with tool_stdio_client(
+            "npx",
+            ["-y", "@modelcontextprotocol/server-github"],
+            declared_env={"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_x", "LD_PRELOAD": "/w/evil.so", "PYTHONPATH": "/w"},
+            errlog=errlog,
+        ):
+            pass
+    ((args, kwargs),) = spawns
+    assert _command(CONFIG, args) == ["npx", "-y", "@modelcontextprotocol/server-github"]
+    # The server's token is in the spec on the memfd, never an argument (KI-96).
+    assert not [a for a in args if "ghp_x" in str(a)]
+    env = kwargs["spec"]["env"]  # type: ignore[index]
+    assert env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_x"  # noqa: S105 - a test value
+    assert env["HOME"] == "/home/codeforge-tool"
+    assert not [name for name in env if name.startswith(("LD_PRELOAD", "PYTHONPATH", "CODEFORGE_"))]
+    assert kwargs["env"] == LAUNCHER_ENV
+    assert kwargs["start_new_session"] is True
 
 
-def test_mcp_stdio_server_off_keeps_the_command(
-    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+async def test_mcp_stdio_server_off_keeps_the_command(
+    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import io
-
     from codeforge.tool_process import tool_stdio_client
 
     monkeypatch.setenv("CODEFORGE_INTERNAL_KEY", "internal-admin-key")
     isolation(IsolationStatus(config=OFF, ready=True))
-    seen = _stdio_params(monkeypatch)
-    tool_stdio_client("node", ["server.js"], declared_env={"API_TOKEN": "t"}, errlog=io.StringIO())
-    (params,) = seen
-    assert (params.command, params.args) == ("node", ["server.js"])  # type: ignore[attr-defined]
-    assert params.env["API_TOKEN"] == "t"  # type: ignore[attr-defined]  # noqa: S105 - a test value
-    assert "CODEFORGE_INTERNAL_KEY" not in params.env  # type: ignore[attr-defined]
+    with open(os.devnull, "w") as errlog:
+        async with tool_stdio_client("node", ["server.js"], declared_env={"API_TOKEN": "t"}, errlog=errlog):
+            pass
+    ((args, kwargs),) = spawns
+    assert args == ("node", "server.js")
+    assert kwargs["env"]["API_TOKEN"] == "t"  # type: ignore[index]  # noqa: S105 - a test value
+    assert "CODEFORGE_INTERNAL_KEY" not in kwargs["env"]  # type: ignore[operator]
 
 
-async def test_mcp_stdio_server_fails_closed(
-    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_mcp_stdio_server_fails_closed(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
     from codeforge.mcp_models import MCPServerDef
     from codeforge.mcp_workbench import McpServerConnection
 
     isolation(BROKEN)
-    seen = _stdio_params(monkeypatch)
     connection = McpServerConnection(MCPServerDef(id="s1", name="s1", transport="stdio", command="node"))
     with pytest.raises(ToolIsolationError):
         await connection.connect()
-    assert seen == []
+    assert spawns == []
+
+
+# A minimal MCP stdio server: newline-delimited JSON-RPC, standard library only.
+ECHO_MCP_SERVER = """
+import json, sys
+for line in sys.stdin:
+    msg = json.loads(line)
+    method, mid = msg.get("method"), msg.get("id")
+    if mid is None:
+        continue
+    if method == "initialize":
+        result = {"protocolVersion": msg["params"]["protocolVersion"], "capabilities": {"tools": {}},
+                  "serverInfo": {"name": "echo", "version": "1"}}
+    elif method == "tools/list":
+        result = {"tools": [{"name": "echo", "description": "echo", "inputSchema": {"type": "object"}}]}
+    elif method == "tools/call":
+        result = {"content": [{"type": "text", "text": json.dumps(msg["params"]["arguments"])}], "isError": False}
+    else:
+        result = {}
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": mid, "result": result}) + "\\n")
+    sys.stdout.flush()
+"""
+
+
+async def test_mcp_stdio_transport_talks_to_a_real_server(
+    isolation: Callable[[IsolationStatus], None], tmp_path: Path
+) -> None:
+    import sys
+
+    from codeforge.mcp_models import MCPServerDef
+    from codeforge.mcp_workbench import McpServerConnection
+
+    isolation(IsolationStatus(config=OFF, ready=True))
+    script = tmp_path / "echo_server.py"
+    script.write_text(ECHO_MCP_SERVER)
+    connection = McpServerConnection(
+        MCPServerDef(id="echo", name="echo", transport="stdio", command=sys.executable, args=[str(script)])
+    )
+    await connection.connect()
+    try:
+        assert [tool.name for tool in await connection.list_tools()] == ["echo"]
+        result = await connection.call_tool("echo", {"text": "hi"})
+    finally:
+        await connection.disconnect()
+    assert json.loads(result.output) == {"text": "hi"}
 
 
 @pytest.mark.parametrize(

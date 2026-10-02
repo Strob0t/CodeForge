@@ -56,6 +56,65 @@ async def test_tool_process_runs_isolated(shared_tmp: Path) -> None:
     assert "Permission denied" in str(report[f"read /proc/{os.getpid()}/environ"])
 
 
+# Run as another user: polls every process's command line and environment for
+# the launch tokens while the go file exists; prints how many it saw, and how
+# many launch helpers it saw at all (the poll works).
+_POLLER = """
+import os, sys
+go, needle, helpers, seen = sys.argv[1], b"LEAKME", 0, set()
+me = str(os.getpid())
+while os.path.exists(go):
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit() or pid == me:
+            continue
+        for what in ("cmdline", "environ"):
+            try:
+                with open(f"/proc/{pid}/{what}", "rb") as f:
+                    data = f.read()
+            except OSError:
+                continue
+            if what == "cmdline" and b"tool_exec.py" in data:
+                helpers += 1
+            index = data.find(needle)
+            if index >= 0:
+                seen.add(data[index:index + 10])
+print(len(seen), helpers)
+"""
+
+
+async def test_no_secret_is_ever_on_a_tool_command_line(shared_tmp: Path) -> None:
+    """KI-96 (E8): the KI-71 launcher passed the environment as env(1) arguments, which every
+    process could read in /proc/<pid>/cmdline; the launch spec on a memfd is not readable."""
+    import sys
+
+    from codeforge.tool_process import configure_tool_isolation, start_tool_process
+    from tests.tool_isolation_check import CONFIG
+
+    assert configure_tool_isolation(CONFIG).ready
+    go = shared_tmp / "polling"
+    go.write_text("")
+    go.chmod(0o644)
+    setpriv = shutil.which("setpriv") or "setpriv"
+    poller = subprocess.Popen(  # noqa: S603 - the test's own poller, as another user
+        [setpriv, "--reuid=10003", "--regid=10003", "--clear-groups", "--",
+         getattr(sys, "_base_executable", sys.executable), "-I", "-S", "-c", _POLLER, str(go)],
+        stdout=subprocess.PIPE,
+        text=True,
+    )  # fmt: skip
+    try:
+        for index in range(200):
+            proc = await start_tool_process(
+                "sh", "-c", "sleep 0.01", env={"PATH": "/usr/bin:/bin", "TOKEN": f"LEAKME{index:04d}"}
+            )
+            assert await proc.wait() == 0
+    finally:
+        go.unlink()
+        out, _ = poller.communicate(timeout=60)
+    seen, helpers = (int(n) for n in out.split())
+    assert helpers > 0, "the poller saw no launch at all"
+    assert seen == 0, f"{seen} secrets read from other processes' command lines or environments"
+
+
 # A minimal MCP stdio server (newline-delimited JSON-RPC, standard library
 # only, so the tool user can run it with the system Python): its one tool
 # returns the server process's status.

@@ -1,4 +1,4 @@
-"""Start every process that runs for an agent, as the tool user (KI-71).
+"""Start every process that runs for an agent, as the tool user (KI-71, KI-96).
 
 Agent tools run commands an LLM chose or code it wrote: Bash, grep, git in the
 workspace, quality gates and workspace tests, benchmark test commands, the
@@ -13,25 +13,32 @@ Mechanism: the worker container starts as root with only CAP_SETUID,
 CAP_SETGID and CAP_KILL; its entrypoint (``scripts/worker-entrypoint.sh``) runs
 the worker as the worker user (uid 10001) and keeps those three as ambient
 capabilities. Every tool process starts through setpriv (util-linux), which
-sets the tool user's UID and GID, the workspace group (gid 10010) as its only
-supplementary group, clears the inheritable and ambient capability sets and
-sets no_new_privs before it executes the command; the command therefore runs
-without capabilities and cannot gain any. setpriv itself still holds the
-worker's capabilities and the dynamic loader honours LD_PRELOAD and friends
-for it (ambient capabilities do not set AT_SECURE), so it runs with a fixed
-environment of its own; env(1), already as the tool user, gives the command
-its environment. Popen closes every other file descriptor and sets the umask
-(002: files stay writable for the workspace group, which the Go Core is in
-too). CAP_KILL lets the worker stop tool processes of another user
-(timeouts, cancels). MCP stdio servers start the same way
-(tool_stdio_client).
+sets the tool user's UID, GID and supplementary groups, clears the
+inheritable and ambient capability sets and sets no_new_privs; it then
+executes the launch helper (``codeforge/tool_exec.py``, with the base Python
+interpreter and ``-I -S``), already as the tool user, and the helper executes
+the command, which therefore runs without capabilities and cannot gain any.
+setpriv itself still holds the worker's capabilities and the dynamic loader
+honours LD_PRELOAD and friends for it (ambient capabilities do not set
+AT_SECURE), so it runs with a fixed environment of its own.
+
+The command's environment, its working directory and the directories to
+create for it travel in a launch spec on a memfd the helper reads (KI-96):
+never as arguments, which every process in the container can read in
+``/proc/<pid>/cmdline``. The helper checks its own credentials against the
+spec, enters the working directory without following a symlink, and exits
+with 125, running nothing, when anything is wrong. Popen closes every other
+file descriptor and sets the umask. CAP_KILL lets the worker stop tool
+processes of another user (timeouts, cancels). MCP stdio servers start the
+same way (tool_stdio_client).
 
 ``CODEFORGE_TOOL_ISOLATION`` selects the mode: ``required`` (the worker image,
 docker-compose.prod.yml) starts tool processes only as the tool user and
 fails the tool call with ToolIsolationError, starting nothing, when that is
 not possible; ``off`` (the default elsewhere: development, tests, the
 devcontainer) starts them as the worker user, as before. No other module
-starts processes (tests/test_tool_process.py checks the sources).
+starts processes (tests/test_tool_process.py checks the sources; the helper
+is the second half of the launcher).
 """
 
 from __future__ import annotations
@@ -39,20 +46,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import errno
+import json
 import logging
 import os
 import secrets
 import shutil
 import stat
 import subprocess
+import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-    from contextlib import AbstractAsyncContextManager
+    from collections.abc import AsyncIterator, Mapping, Sequence
     from typing import TextIO
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -69,7 +77,8 @@ TOOL_UMASK = 0o002
 TOOL_USER = "codeforge-tool"
 
 _LAUNCHER = "setpriv"
-_ENV_PROGRAM = "env"
+# The launcher's second half; runs as the tool user with the base interpreter.
+TOOL_EXEC = str(Path(__file__).resolve().with_name("tool_exec.py"))
 _SHELL = "/bin/sh"
 _PROBE_TIMEOUT_SECONDS = 10.0
 _PROBE_PATH = "/usr/local/bin:/usr/bin:/bin"
@@ -149,25 +158,62 @@ class IsolationConfig:
         )
 
 
+def base_interpreter() -> str:
+    """The interpreter the worker's venv is built on: the helper runs without the venv (-I -S)."""
+    return getattr(sys, "_base_executable", "") or sys.executable
+
+
+@dataclass(frozen=True)
+class Launch:
+    """How to start one tool process: the arguments, environment and working directory for
+    Popen, the descriptors it passes on (the launch spec) and closes afterwards, and the umask.
+    """
+
+    argv: list[str]
+    env: dict[str, str]
+    cwd: str | None
+    umask: int | None = None
+    pass_fds: tuple[int, ...] = ()
+    close_after_spawn: tuple[int, ...] = field(default=())
+
+    def close(self) -> None:
+        """Close the worker's copy of the launch spec (after the spawn, or when it failed)."""
+        for fd in self.close_after_spawn:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+
+def write_spec(spec: Mapping[str, object]) -> int:
+    """Write *spec* to a new memfd (close-on-exec) and return it, positioned at its start."""
+    data = json.dumps(spec, separators=(",", ":")).encode()
+    fd = os.memfd_create("cf-tool-launch", os.MFD_CLOEXEC)
+    try:
+        view = memoryview(data)
+        while view:
+            written = os.write(fd, view)
+            view = view[written:]
+        os.lseek(fd, 0, os.SEEK_SET)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
 @dataclass(frozen=True)
 class IsolationStatus:
     """Whether tool processes can start, and how.
 
     With isolation off they always can (as the worker user). With isolation
     required they can once the check passed (``ready``); ``reason`` says why
-    it did not, ``launcher`` is the setpriv that starts them.
+    it did not, ``launcher`` is the setpriv that starts them, ``interpreter``
+    the Python that runs the launch helper.
     """
 
     config: IsolationConfig
     ready: bool
     reason: str = ""
     launcher: str = ""
-    env_program: str = ""
-
-    def command(self, argv: Sequence[str], env: Mapping[str, str]) -> list[str]:
-        """The command line that runs *argv* as the tool user with exactly the environment *env*."""
-        assignments = [f"{name}={value}" for name, value in env.items() if name and "=" not in name]
-        return [*self.launch_prefix(), self.env_program, "-i", "--", *assignments, *argv]
+    interpreter: str = ""
 
     def launch_prefix(self) -> list[str]:
         """The setpriv command line that runs the command after it as the tool user."""
@@ -182,6 +228,36 @@ class IsolationStatus:
             "--no-new-privs",
             "--",
         ]
+
+    def spec(self, env: Mapping[str, str], cwd: str | None) -> dict[str, object]:
+        """The launch spec the helper reads: who it must run as, the environment, where."""
+        return {
+            "uid": self.config.uid,
+            "gid": self.config.gid,
+            "groups": list(self.config.groups),
+            "umask": TOOL_UMASK,
+            "env": {name: value for name, value in env.items() if name and "=" not in name},
+            "landlock": "off",
+            "prepare": [],
+            "home": None,
+            "cwd": os.path.abspath(cwd) if cwd is not None else None,
+        }
+
+    def launch(self, argv: Sequence[str], env: Mapping[str, str], cwd: str | None = None) -> Launch:
+        """Run *argv* as the tool user with exactly the environment *env* in *cwd*.
+
+        Nothing of *env* is an argument: it is in the spec on the memfd.
+        """
+        fd = write_spec(self.spec(env, cwd))
+        argv = [*self.launch_prefix(), self.interpreter, "-I", "-S", TOOL_EXEC, str(fd), *argv]
+        return Launch(
+            argv=argv,
+            env=dict(_LAUNCHER_ENV),
+            cwd="/",
+            umask=TOOL_UMASK,
+            pass_fds=(fd,),
+            close_after_spawn=(fd,),
+        )
 
 
 _status: IsolationStatus | None = None
@@ -235,9 +311,11 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     if not config.required:
         return IsolationStatus(config=config, ready=True)
     launcher = shutil.which(_LAUNCHER, path=_PROBE_PATH)
-    env_program = shutil.which(_ENV_PROGRAM, path=_PROBE_PATH)
-    if launcher is None or env_program is None:
-        return _not_ready(config, "setpriv (util-linux) or env (coreutils) is not installed")
+    if launcher is None:
+        return _not_ready(config, "setpriv (util-linux) is not installed")
+    interpreter = base_interpreter()
+    if not os.path.isabs(interpreter) or not os.access(interpreter, os.X_OK) or not os.path.isfile(TOOL_EXEC):
+        return _not_ready(config, f"the launch helper cannot run ({interpreter} {TOOL_EXEC})")
     if config.uid <= 0 or config.gid <= 0 or config.uid == os.getuid() or config.gid == os.getgid():
         return _not_ready(
             config,
@@ -247,10 +325,12 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     problems = worker_capability_problems(_own_status(), root=_is_root())
     if problems:
         return _not_ready(config, "; ".join(problems))
-    status = IsolationStatus(config=config, ready=True, launcher=launcher, env_program=env_program)
-    argv = status.command([_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()], _LAUNCHER_ENV)
+    status = IsolationStatus(config=config, ready=True, launcher=launcher, interpreter=interpreter)
     try:
-        output = _run_probe(argv, _PROBE_TIMEOUT_SECONDS)
+        launch = status.launch(
+            [_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()], _LAUNCHER_ENV, cwd="/"
+        )
+        output = _run_probe(launch, _PROBE_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as exc:
         return _not_ready(config, f"the isolation check could not start a tool process: {exc}")
     problems = probe_problems(output, config)
@@ -327,18 +407,22 @@ def _probe_paths() -> list[str]:
     return paths
 
 
-def _run_probe(argv: list[str], timeout: float) -> str:
-    completed = subprocess.run(  # noqa: S603 - fixed launcher, shell and script
-        argv,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        cwd="/",
-        env=_LAUNCHER_ENV,
-        timeout=timeout,
-        umask=TOOL_UMASK,
-        check=False,
-    )
+def _run_probe(launch: Launch, timeout: float) -> str:
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed launcher, shell and script
+            launch.argv,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            cwd=launch.cwd,
+            env=launch.env,
+            timeout=timeout,
+            umask=TOOL_UMASK,
+            pass_fds=launch.pass_fds,
+            check=False,
+        )
+    finally:
+        launch.close()
     if completed.returncode != 0:
         raise OSError(f"exit code {completed.returncode}: {completed.stderr.strip()[:500]}")
     return completed.stdout
@@ -374,20 +458,17 @@ def probe_problems(output: str, config: IsolationConfig) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _launch(argv: Sequence[str], env: Mapping[str, str]) -> tuple[list[str], dict[str, str], int | None]:
-    """The command line, process environment and umask of a tool process.
-
-    Raises ToolIsolationError when the process must not start.
-    """
+def _launch(argv: Sequence[str], env: Mapping[str, str], cwd: str | None) -> Launch:
+    """How to start a tool process. Raises ToolIsolationError when it must not start."""
     status = tool_isolation()
     if not status.config.required:
-        return list(argv), dict(env), None
+        return Launch(argv=list(argv), env=dict(env), cwd=cwd)
     if not status.ready:
         raise ToolIsolationError(
             "tool isolation is required (CODEFORGE_TOOL_ISOLATION=required) but tool processes "
             f"cannot run as the tool user: {status.reason}"
         )
-    return status.command(argv, env), dict(_LAUNCHER_ENV), TOOL_UMASK
+    return status.launch(argv, env, cwd)
 
 
 async def start_tool_process(
@@ -407,16 +488,21 @@ async def start_tool_process(
     ToolIsolationError, starting nothing, when isolation is required and not
     available.
     """
-    argv, process_env, umask = _launch([program, *args], env)
-    optional = {"stdin": stdin, "stdout": stdout, "stderr": stderr, "limit": limit, "umask": umask}
+    launch = _launch([program, *args], env, cwd)
+    optional = {"stdin": stdin, "stdout": stdout, "stderr": stderr, "limit": limit, "umask": launch.umask}
     options: dict[str, object] = {
-        "env": process_env,
-        "cwd": cwd,
+        "env": launch.env,
+        "cwd": launch.cwd,
         "start_new_session": start_new_session,
         **{name: value for name, value in optional.items() if value is not None},
     }
-    proc = await asyncio.create_subprocess_exec(*argv, **options)  # type: ignore[arg-type]
-    if umask is not None and cwd is not None:
+    if launch.pass_fds:
+        options["pass_fds"] = launch.pass_fds
+    try:
+        proc = await asyncio.create_subprocess_exec(*launch.argv, **options)  # type: ignore[arg-type]
+    finally:
+        launch.close()
+    if launch.umask is not None and cwd is not None:
         _share_after_exit(proc, cwd)
     return proc
 
@@ -473,14 +559,17 @@ def run_tool_process(
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run *args* for an agent and wait for it (subprocess.run, text output captured)."""
-    argv, process_env, umask = _launch(args, env)
-    options: dict[str, object] = {"cwd": cwd, "env": process_env, "timeout": timeout}
-    if umask is not None:
-        options["umask"] = umask
+    launch = _launch(args, env, cwd)
+    options: dict[str, object] = {"cwd": launch.cwd, "env": launch.env, "timeout": timeout}
+    if launch.umask is not None:
+        options["umask"] = launch.umask
+    if launch.pass_fds:
+        options["pass_fds"] = launch.pass_fds
     try:
-        return subprocess.run(argv, capture_output=True, text=True, check=False, **options)  # type: ignore[call-overload]  # noqa: S603 - the program is the caller's (no shell)
+        return subprocess.run(launch.argv, capture_output=True, text=True, check=False, **options)  # type: ignore[call-overload]  # noqa: S603 - the program is the caller's (no shell)
     finally:
-        if umask is not None and cwd is not None:
+        launch.close()
+        if launch.umask is not None and cwd is not None:
             share_tool_files_sync(cwd)
 
 
@@ -501,11 +590,11 @@ def _share_command(root: str, config: IsolationConfig) -> list[str]:
     ]  # fmt: skip
 
 
-def _share_launch(root: str) -> tuple[list[str], dict[str, str], int | None] | None:
+def _share_launch(root: str) -> Launch | None:
     status = tool_isolation()
     if not status.config.required or not status.ready:
         return None
-    return _launch(_share_command(root, status.config), {"PATH": _PROBE_PATH})
+    return _launch(_share_command(root, status.config), {"PATH": _PROBE_PATH}, None)
 
 
 async def share_tool_files(root: str) -> None:
@@ -521,15 +610,22 @@ async def share_tool_files(root: str) -> None:
     launch = _share_launch(root)
     if launch is None:
         return
-    argv, env, umask = launch
     try:
         proc = await asyncio.create_subprocess_exec(
-            *argv, env=env, umask=umask, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+            *launch.argv,
+            env=launch.env,
+            cwd=launch.cwd,
+            umask=launch.umask,
+            pass_fds=launch.pass_fds,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
         _, err = await proc.communicate()
     except OSError as exc:
         logger.warning("could not share the tool files under %s: %s", root, exc)
         return
+    finally:
+        launch.close()
     if proc.returncode:
         logger.warning("could not share every tool file under %s: %s", root, err.decode(errors="replace")[-500:])
 
@@ -539,39 +635,131 @@ def share_tool_files_sync(root: str) -> None:
     launch = _share_launch(root)
     if launch is None:
         return
-    argv, env, umask = launch
     try:
-        done = subprocess.run(argv, env=env, umask=umask, capture_output=True, text=True, check=False)  # noqa: S603 - fixed program
+        done = subprocess.run(  # noqa: S603 - fixed program
+            launch.argv,
+            env=launch.env,
+            cwd=launch.cwd,
+            umask=launch.umask,
+            pass_fds=launch.pass_fds,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     except OSError as exc:
         logger.warning("could not share the tool files under %s: %s", root, exc)
         return
+    finally:
+        launch.close()
     if done.returncode:
         logger.warning("could not share every tool file under %s: %s", root, done.stderr[-500:])
 
 
-def tool_stdio_client(
+# How long an MCP stdio server may take to exit after its stdin closed (the SDK's value).
+_STDIO_EXIT_SECONDS = 2.0
+
+
+@contextlib.asynccontextmanager
+async def tool_stdio_client(
     command: str,
     args: Sequence[str],
     *,
     declared_env: Mapping[str, str] | None,
     errlog: TextIO,
-) -> AbstractAsyncContextManager[
+    cwd: str | None = None,
+) -> AsyncIterator[
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
 ]:
-    """Start an MCP stdio server for an agent (the MCP SDK's stdio_client), as the tool user.
+    """Start an MCP stdio server for an agent, as the tool user; yield the MCP SDK's streams.
 
-    Its environment is ``tool_env`` plus the server's declared variables
-    (``declared_tool_env``). The SDK starts the process in a session of its
-    own; it inherits the worker's umask (002 with isolation). Raises
+    The MCP SDK's stdio_client cannot pass the launch spec's descriptor, so
+    the server starts through start_tool_process like every tool process (in
+    a session of its own) and this speaks the stdio transport (one JSON-RPC
+    message per line) as the SDK does. Its environment is ``tool_env`` plus
+    the server's declared variables (``declared_tool_env``). Raises
     ToolIsolationError, starting nothing, when isolation is required and not
     available.
     """
-    from mcp import StdioServerParameters, stdio_client
+    import anyio
+    from mcp.shared.message import SessionMessage
 
     from codeforge.subprocess_env import declared_tool_env, tool_env
+    from codeforge.subprocess_utils import terminate_process_group
 
-    argv, env, _ = _launch([command, *args], tool_env(extra=declared_tool_env(declared_env)))
-    return stdio_client(StdioServerParameters(command=argv[0], args=argv[1:], env=env), errlog=errlog)
+    proc = await start_tool_process(
+        command,
+        *args,
+        env=tool_env(extra=declared_tool_env(declared_env)),
+        cwd=cwd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=errlog.fileno(),
+        start_new_session=True,
+    )
+    read_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+    write_stream, write_reader = anyio.create_memory_object_stream[SessionMessage](0)
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_stdio_read, proc.stdout, read_writer)
+            tg.start_soon(_stdio_write, proc.stdin, write_reader)
+            try:
+                yield read_stream, write_stream
+            finally:
+                # The MCP stdio shutdown: close the server's input, give it time to exit, then stop it.
+                if proc.stdin is not None:
+                    proc.stdin.close()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=_STDIO_EXIT_SECONDS)
+                except TimeoutError:
+                    await terminate_process_group(proc)
+                tg.cancel_scope.cancel()
+    finally:
+        for stream in (read_stream, write_stream, read_writer, write_reader):
+            await stream.aclose()
+        if proc.returncode is None:
+            await terminate_process_group(proc)
+
+
+async def _stdio_read(
+    stdout: asyncio.StreamReader | None, messages: MemoryObjectSendStream[SessionMessage | Exception]
+) -> None:
+    """Hand every line the MCP server writes to the session as a message (or the parse error)."""
+    import anyio
+    from mcp import types
+    from mcp.shared.message import SessionMessage
+
+    if stdout is None:
+        return
+    async with messages:
+        try:
+            while line := await stdout.readline():
+                text = line.decode(errors="replace").strip()
+                if not text:
+                    continue
+                try:
+                    message = types.JSONRPCMessage.model_validate_json(text)
+                except ValueError as exc:
+                    await messages.send(exc)
+                    continue
+                await messages.send(SessionMessage(message))
+        except anyio.ClosedResourceError:
+            await anyio.lowlevel.checkpoint()
+
+
+async def _stdio_write(stdin: asyncio.StreamWriter | None, messages: MemoryObjectReceiveStream[SessionMessage]) -> None:
+    """Write every message of the session to the MCP server, one JSON line each."""
+    import anyio
+
+    if stdin is None:
+        return
+    async with messages:
+        try:
+            async for session_message in messages:
+                data = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                stdin.write((data + "\n").encode())
+                await stdin.drain()
+        except (anyio.ClosedResourceError, BrokenPipeError, ConnectionResetError):
+            await anyio.lowlevel.checkpoint()
 
 
 # ---------------------------------------------------------------------------
