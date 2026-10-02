@@ -152,21 +152,7 @@ func (s *ConversationService) buildMCPDefinitions(ctx context.Context, projectID
 	if s.mcpSvc == nil {
 		return nil
 	}
-	servers := s.mcpSvc.ResolveForRun(ctx, projectID, "")
-	defs := make([]messagequeue.MCPServerDefPayload, 0, len(servers))
-	for i := range servers {
-		defs = append(defs, messagequeue.MCPServerDefPayload{
-			ID:        servers[i].ID,
-			Name:      servers[i].Name,
-			Transport: string(servers[i].Transport),
-			Command:   servers[i].Command,
-			Args:      servers[i].Args,
-			URL:       servers[i].URL,
-			Env:       servers[i].Env,
-			Enabled:   servers[i].Enabled,
-		})
-	}
-	return defs
+	return s.mcpSvc.RunServerPayloads(ctx, projectID, "")
 }
 
 // matchMicroagents matches microagent trigger patterns against a user message

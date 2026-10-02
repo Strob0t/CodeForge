@@ -82,6 +82,8 @@ func sampleMCPServerDefPayload() mq.MCPServerDefPayload {
 		Env:         map[string]string{"MCP_LOG_LEVEL": "debug"},
 		Headers:     map[string]string{"Authorization": "Bearer tok_sample"},
 		Enabled:     true,
+		// KI-100: sent with sse and streamable_http servers.
+		AllowedPrivateHosts: []string{"docs-mcp", "10.20.0.0/16"},
 	}
 }
 

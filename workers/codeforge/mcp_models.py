@@ -18,6 +18,9 @@ class MCPServerDef(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
+    # Host names, IPs and CIDR prefixes whose private addresses an sse or
+    # streamable_http server may use (mcp.allowed_private_hosts, KI-100).
+    allowed_private_hosts: list[str] = Field(default_factory=list)
 
 
 class MCPTool(BaseModel):

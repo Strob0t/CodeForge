@@ -9,14 +9,20 @@ from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
+from codeforge.mcp_outbound import OutboundPolicy, guarded_client_factory
 from codeforge.tool_process import tool_stdio_client
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.shared.message import SessionMessage
+
+    _Streams = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
 
 logger = logging.getLogger(__name__)
 
@@ -64,26 +70,38 @@ class McpServerConnection:
             read_stream, write_stream = await stack.enter_async_context(
                 tool_stdio_client(self._def.command, self._def.args, declared_env=self._def.env, errlog=errlog)
             )
-        elif self._def.transport == "sse":
-            read_stream, write_stream = await stack.enter_async_context(
-                sse_client(
-                    url=self._def.url,
-                    headers=self._def.headers or None,
-                )
-            )
-        elif self._def.transport == "streamable_http":
-            read_stream, write_stream = await stack.enter_async_context(
-                streamablehttp_client(
-                    url=self._def.url,
-                    headers=self._def.headers or None,
-                )
-            )
+        elif self._def.transport in ("sse", "streamable_http"):
+            read_stream, write_stream = await self._open_remote(stack)
         else:
             msg = f"unsupported transport: {self._def.transport}"
             raise ValueError(msg)
 
         self._session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await self._session.initialize()
+
+    async def _open_remote(self, stack: AsyncExitStack) -> _Streams:
+        """Open an sse or streamable_http connection (KI-100).
+
+        A url whose host is, or resolves to, a refused address fails here with
+        the reason, before anything connects; the client's transport checks
+        the address of every request again (DNS rebinding, redirects).
+        """
+        policy = OutboundPolicy(self._def.allowed_private_hosts)
+        await policy.check_url(self._def.url)
+        client_factory = guarded_client_factory(policy)
+        if self._def.transport == "sse":
+            return await stack.enter_async_context(
+                sse_client(
+                    url=self._def.url,
+                    headers=self._def.headers or None,
+                    httpx_client_factory=client_factory,
+                )
+            )
+        client = await stack.enter_async_context(client_factory(headers=self._def.headers or None))
+        read_stream, write_stream, _session_id = await stack.enter_async_context(
+            streamable_http_client(self._def.url, http_client=client)
+        )
+        return read_stream, write_stream
 
     async def disconnect(self) -> None:
         """Close the connection to the MCP server."""

@@ -1,0 +1,258 @@
+"""SSRF protection for the worker's sse and streamable_http MCP connections (KI-100).
+
+A tenant admin chooses the url of such a server, and the worker connects to it
+in runs. Loopback, link-local (cloud metadata), unspecified, multicast and
+reserved addresses are never used; private ones (RFC 1918, ULA, CGNAT, ...)
+only for the host names, addresses and CIDR prefixes the platform operator
+allowlisted (``mcp.allowed_private_hosts``; Go sends the list with each server
+as ``allowed_private_hosts``). The rules match ``internal/netutil/outbound.go``.
+
+``GuardedTransport`` resolves the host of every request, checks every address
+and sends the request to a checked address (the Host header and TLS server name
+stay the host's), so DNS rebinding and redirects cannot reach a refused address.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import ipaddress
+import logging
+import re
+import socket
+from typing import TYPE_CHECKING
+
+import httpx
+from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Sequence
+
+    from mcp.shared._httpx_utils import McpHttpClientFactory
+
+    Resolver = Callable[[str, int], Awaitable[list[str]]]
+
+logger = logging.getLogger(__name__)
+
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
+
+_PRIVATE = "private"
+
+# Refused for every host, allowlisted or not.
+_NEVER_ALLOWED: tuple[tuple[IPNetwork, str], ...] = tuple(
+    (ipaddress.ip_network(net), kind)
+    for net, kind in (
+        ("0.0.0.0/8", "unspecified"),
+        ("127.0.0.0/8", "loopback"),
+        ("169.254.0.0/16", "link-local"),
+        ("100.100.100.200/32", "cloud metadata"),
+        ("224.0.0.0/4", "multicast"),
+        ("240.0.0.0/4", "reserved"),
+        ("::/128", "unspecified"),
+        ("::1/128", "loopback"),
+        ("fe80::/10", "link-local"),
+        ("fd00:ec2::254/128", "cloud metadata"),
+        ("ff00::/8", "multicast"),
+    )
+)
+
+# Refused unless the host or the address is allowlisted.
+_PRIVATE_NETWORKS: tuple[IPNetwork, ...] = tuple(
+    ipaddress.ip_network(net)
+    for net in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "198.18.0.0/15",
+        "192.0.0.0/24",
+        "fc00::/7",
+        "fec0::/10",
+    )
+)
+
+# IPv6 ranges that carry an IPv4 address in their last 32 bits: deprecated
+# IPv4-compatible addresses and the NAT64 well-known prefix.
+_EMBEDS_IPV4: tuple[IPNetwork, ...] = (ipaddress.ip_network("::/96"), ipaddress.ip_network("64:ff9b::/96"))
+
+_HOST_LABEL = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+class AddressRefusedError(httpx.ConnectError):
+    """A url or address the outbound policy refuses."""
+
+    def __init__(self, message: str, *, allowable: bool = False) -> None:
+        super().__init__(message)
+        self.allowable = allowable
+        """True when the address is refused only because it is private."""
+
+
+def _address(value: str | IPAddress) -> IPAddress:
+    if isinstance(value, str):
+        return ipaddress.ip_address(value.split("%", 1)[0])
+    return value
+
+
+def _classify(address: IPAddress) -> tuple[IPAddress, str]:
+    """The address the kind was decided on (IPv4 inside IPv6 as IPv4) and its kind ("" when public)."""
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    kind = _kind_of(address)
+    if kind or isinstance(address, ipaddress.IPv4Address):
+        return address, kind
+    if any(address in net for net in _EMBEDS_IPV4):
+        v4 = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+        return v4, _kind_of(v4)
+    return address, ""
+
+
+def _kind_of(address: IPAddress) -> str:
+    for net, kind in _NEVER_ALLOWED:
+        if address in net:
+            return kind
+    if any(address in net for net in _PRIVATE_NETWORKS):
+        return _PRIVATE
+    return ""
+
+
+def _normalise_host(host: str) -> str:
+    return host.lower().removesuffix(".")
+
+
+def _is_host_name(entry: str) -> bool:
+    if not entry or len(entry) > 253:
+        return False
+    return all(_HOST_LABEL.match(label) for label in entry.removesuffix(".").split("."))
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        _address(host)
+    except ValueError:
+        return False
+    return True
+
+
+class OutboundPolicy:
+    """Decides which addresses an MCP connection may reach."""
+
+    def __init__(self, allowed_private_hosts: Sequence[str], *, resolver: Resolver | None = None) -> None:
+        self._hosts: set[str] = set()
+        self._networks: list[IPNetwork] = []
+        self._resolver = resolver
+        for raw in allowed_private_hosts:
+            entry = raw.strip()
+            try:
+                self._networks.append(ipaddress.ip_network(entry, strict=False))
+                continue
+            except ValueError:
+                pass
+            if _is_host_name(entry):
+                self._hosts.add(_normalise_host(entry))
+            else:
+                # Go validates the list; an entry that is none of these allows nothing.
+                logger.warning("ignoring invalid allowed private host %r", raw)
+
+    def check_address(self, host: str, address: str | IPAddress) -> None:
+        """Raise AddressRefusedError when a connection to host may not reach address."""
+        original = _address(address)
+        effective, kind = _classify(original)
+        if not kind:
+            return
+        if kind == _PRIVATE and (
+            _normalise_host(host) in self._hosts or any(effective in net for net in self._networks)
+        ):
+            return
+        shown = (
+            original.ipv4_mapped if isinstance(original, ipaddress.IPv6Address) and original.ipv4_mapped else original
+        )
+        article = "an" if kind[0] in "aeiou" else "a"
+        if host == str(shown) or (_is_ip_literal(host) and _address(host) == original):
+            message = f"{shown} is {article} {kind} address"
+        else:
+            message = f"{host} resolves to {shown}, {article} {kind} address"
+        if kind == _PRIVATE:
+            message += "; only the platform operator can allow a private host (mcp.allowed_private_hosts)"
+        else:
+            message += "; MCP servers may never use it"
+        raise AddressRefusedError(message, allowable=kind == _PRIVATE)
+
+    async def resolve(self, host: str, port: int) -> list[str]:
+        """The addresses of host; AddressRefusedError when one of them is refused."""
+        if _is_ip_literal(host):
+            addresses = [host]
+        else:
+            addresses = await self._lookup(host, port)
+            if not addresses:
+                raise OSError(f"{host} has no addresses")
+        for address in addresses:
+            self.check_address(host, address)
+        return addresses
+
+    async def _lookup(self, host: str, port: int) -> list[str]:
+        if self._resolver is not None:
+            return await self._resolver(host, port)
+        infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+    async def check_url(self, url: str) -> None:
+        """Refuse url before anything connects to it (AddressRefusedError, with the reason)."""
+        parsed = httpx.URL(url)
+        if parsed.scheme not in _DEFAULT_PORTS or not parsed.host:
+            raise AddressRefusedError("the url must be an http or https URL with a host")
+        await self.resolve(parsed.host, parsed.port or _DEFAULT_PORTS[parsed.scheme])
+
+
+class GuardedTransport(httpx.AsyncBaseTransport):
+    """Sends each request to a checked address of its host."""
+
+    def __init__(self, policy: OutboundPolicy, inner: httpx.AsyncBaseTransport | None = None) -> None:
+        self._policy = policy
+        self._inner = inner or httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        url = request.url
+        if url.scheme not in _DEFAULT_PORTS or not url.host:
+            raise AddressRefusedError(f"refused a {url.scheme} request: only http and https are used")
+        addresses = await self._policy.resolve(url.host, url.port or _DEFAULT_PORTS[url.scheme])
+        extensions = dict(request.extensions)
+        if not _is_ip_literal(url.host):
+            # TLS verifies the certificate for the host, not for the address.
+            extensions["sni_hostname"] = url.host
+        pinned = httpx.Request(
+            request.method,
+            url.copy_with(host=addresses[0]),
+            headers=request.headers,  # carries the Host header of the url
+            stream=request.stream,
+            extensions=extensions,
+        )
+        return await self._inner.handle_async_request(pinned)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+
+def guarded_client_factory(policy: OutboundPolicy) -> McpHttpClientFactory:
+    """An MCP SDK client factory whose clients connect only through GuardedTransport.
+
+    The clients ignore proxy settings of the environment (a proxy would choose the
+    address the policy checks); otherwise they match the SDK's default client.
+    """
+
+    def create(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout
+            if timeout is not None
+            else httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
+            auth=auth,
+            transport=GuardedTransport(policy),
+            trust_env=False,
+        )
+
+    return create

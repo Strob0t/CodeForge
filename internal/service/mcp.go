@@ -20,6 +20,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // MCPService manages MCP server definitions with thread-safe access.
@@ -171,6 +172,35 @@ func (s *MCPService) ResolveForRun(ctx context.Context, projectID, _ string) []m
 		return defs[i].ID < defs[j].ID
 	})
 	return defs
+}
+
+// RunServerPayloads returns the NATS payloads of the servers ResolveForRun
+// returns, for runs and conversations alike. sse and streamable_http
+// servers carry mcp.allowed_private_hosts: the worker applies the outbound
+// rules of the Go Core to every connection it opens (KI-100).
+func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, modeID string) []messagequeue.MCPServerDefPayload {
+	defs := s.ResolveForRun(ctx, projectID, modeID)
+	payloads := make([]messagequeue.MCPServerDefPayload, 0, len(defs))
+	for i := range defs {
+		d := &defs[i]
+		p := messagequeue.MCPServerDefPayload{
+			ID:          d.ID,
+			Name:        d.Name,
+			Description: d.Description,
+			Transport:   string(d.Transport),
+			Command:     d.Command,
+			Args:        d.Args,
+			URL:         d.URL,
+			Env:         d.Env,
+			Headers:     d.Headers,
+			Enabled:     d.Enabled,
+		}
+		if d.Transport == mcp.TransportSSE || d.Transport == mcp.TransportStreamableHTTP {
+			p.AllowedPrivateHosts = s.allowedPrivateHosts
+		}
+		payloads = append(payloads, p)
+	}
+	return payloads
 }
 
 // LoadFromDirectory reads all .yaml/.yml files from a directory and registers

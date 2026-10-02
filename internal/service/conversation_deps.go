@@ -12,11 +12,11 @@ import (
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
-	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // convModelResolver is the subset of ModelRegistry used by ConversationService.
@@ -38,7 +38,7 @@ type convPolicyEvaluator interface {
 
 // convMCPResolver is the subset of MCPService used by ConversationService.
 type convMCPResolver interface {
-	ResolveForRun(ctx context.Context, projectID, modeID string) []mcp.ServerDef
+	RunServerPayloads(ctx context.Context, projectID, modeID string) []messagequeue.MCPServerDefPayload
 }
 
 // convMicroagentMatcher is the subset of MicroagentService used by ConversationService.

@@ -16,6 +16,9 @@ type MCPServerDefPayload struct {
 	Env         map[string]string `json:"env,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Enabled     bool              `json:"enabled"`
+	// AllowedPrivateHosts is mcp.allowed_private_hosts for sse and
+	// streamable_http servers: the worker refuses other private addresses (KI-100).
+	AllowedPrivateHosts []string `json:"allowed_private_hosts,omitempty"`
 }
 
 // --- Conversation run payloads (Phase 17C) ---

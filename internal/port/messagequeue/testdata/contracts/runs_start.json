@@ -61,7 +61,11 @@
       "headers": {
         "Authorization": "Bearer tok_sample"
       },
-      "enabled": true
+      "enabled": true,
+      "allowed_private_hosts": [
+        "docs-mcp",
+        "10.20.0.0/16"
+      ]
     }
   ],
   "microagent_prompts": [

@@ -9,13 +9,13 @@ import (
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
-	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // runtimePolicyEvaluator is the subset of PolicyService used by RuntimeService.
@@ -65,7 +65,7 @@ type runtimeSandboxManager interface {
 
 // runtimeMCPResolver is the subset of MCPService used by RuntimeService.
 type runtimeMCPResolver interface {
-	ResolveForRun(ctx context.Context, projectID, modeID string) []mcp.ServerDef
+	RunServerPayloads(ctx context.Context, projectID, modeID string) []messagequeue.MCPServerDefPayload
 }
 
 // runtimeMicroagentMatcher is the subset of MicroagentService used by RuntimeService.

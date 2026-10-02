@@ -184,6 +184,43 @@ func TestMCPCreateUpdate_RefuseURLs(t *testing.T) {
 	})
 }
 
+// TestMCPRunServerPayloads_CarryTheAllowlist (KI-100): the worker connects
+// to sse and streamable_http servers in runs and applies the same rules, so
+// each such server carries the operator's allowlist. Runs and conversations
+// build their payloads the same way (conversations dropped the headers).
+func TestMCPRunServerPayloads_CarryTheAllowlist(t *testing.T) {
+	svc := service.NewMCPService(&config.MCP{AllowedPrivateHosts: []string{"docs-mcp", "10.20.0.0/16"}}, nil)
+	for _, def := range []mcp.ServerDef{
+		{ID: "a-remote", Name: "remote", Description: "docs", Transport: mcp.TransportStreamableHTTP, URL: "http://docs-mcp:6280/mcp",
+			Headers: map[string]string{"Authorization": "Bearer t"}, Enabled: true},
+		{ID: "b-local", Name: "local", Transport: mcp.TransportStdio, Command: "mcp-files", Args: []string{"--root", "/w"},
+			Env: map[string]string{"TOKEN": "x"}, Enabled: true},
+		{ID: "c-off", Name: "off", Transport: mcp.TransportSSE, URL: "http://203.0.113.1/sse"},
+	} {
+		if err := svc.Register(def); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := svc.RunServerPayloads(context.Background(), "", "")
+
+	if len(got) != 2 {
+		t.Fatalf("payloads = %+v, want the two enabled servers", got)
+	}
+	remote, local := got[0], got[1]
+	if remote.ID != "a-remote" || remote.Description != "docs" || remote.Transport != "streamable_http" ||
+		remote.URL != "http://docs-mcp:6280/mcp" || remote.Headers["Authorization"] != "Bearer t" || !remote.Enabled {
+		t.Errorf("remote payload = %+v", remote)
+	}
+	if strings.Join(remote.AllowedPrivateHosts, ",") != "docs-mcp,10.20.0.0/16" {
+		t.Errorf("remote allowed_private_hosts = %v, want the configured list", remote.AllowedPrivateHosts)
+	}
+	if local.Command != "mcp-files" || strings.Join(local.Args, " ") != "--root /w" || local.Env["TOKEN"] != "x" ||
+		local.AllowedPrivateHosts != nil {
+		t.Errorf("stdio payload = %+v, want command, args, env and no allowlist", local)
+	}
+}
+
 // routedPolicy resolves names to fixed addresses and connects every checked
 // address to the local server that stands for it.
 func routedPolicy(t *testing.T, names map[string]string, servers map[string]*httptest.Server) *netutil.OutboundPolicy {
