@@ -131,6 +131,52 @@ func TestMCPConnectionTest_PrivateAddressNamesTheAllowlist(t *testing.T) {
 	}
 }
 
+// TestMCPUpdate_ChecksTheURLOnlyWhenItChanges (KI-100 review): a server
+// saved before KI-100 on an address that is refused now can still be
+// disabled, renamed or edited otherwise (the worker refuses it when it
+// connects); a changed url or transport is checked.
+func TestMCPUpdate_ChecksTheURLOnlyWhenItChanges(t *testing.T) {
+	saved := mcp.ServerDef{
+		ID: "s1", Name: "old", Transport: mcp.TransportSSE, URL: "http://user:pw@10.0.0.5/sse?api_key=k",
+		Headers: map[string]string{"Authorization": "Bearer h"}, Enabled: true, Status: mcp.ServerStatusRegistered,
+	}
+	tests := []struct {
+		name    string
+		edit    func(d *mcp.ServerDef)
+		wantErr bool
+	}{
+		{name: "disable", edit: func(d *mcp.ServerDef) { d.Enabled = false }},
+		{name: "rename", edit: func(d *mcp.ServerDef) { d.Name = "renamed"; d.Description = "kept for history" }},
+		{name: "another refused url", edit: func(d *mcp.ServerDef) { d.URL = "http://127.0.0.1:6280/sse"; d.Headers = nil }, wantErr: true},
+		{name: "another private url", edit: func(d *mcp.ServerDef) { d.URL = "http://10.0.0.6/sse"; d.Headers = nil }, wantErr: true},
+		{name: "another transport", edit: func(d *mcp.ServerDef) { d.Transport = mcp.TransportStreamableHTTP; d.Headers = nil; d.URL = saved.URL }, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newRecordingMCPStore(saved)
+			svc := newMCPTestService(t, nil, store)
+			update := saved.Redacted() // what the client read
+			tt.edit(&update)
+
+			err := svc.UpdateDB(context.Background(), &update)
+
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrValidation) || store.writes != 0 {
+					t.Fatalf("UpdateDB = %v with %d writes, want a validation error and nothing stored", err, store.writes)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("UpdateDB: %v", err)
+			}
+			got := store.servers["s1"]
+			if got.URL != saved.URL || got.Headers["Authorization"] != "Bearer h" {
+				t.Errorf("stored = %+v, want the url and headers kept", got)
+			}
+		})
+	}
+}
+
 func TestMCPCreateUpdate_RefuseURLs(t *testing.T) {
 	saved := mcp.ServerDef{ID: "s1", Name: "remote", Transport: mcp.TransportSSE, URL: "http://203.0.113.10/sse", Status: mcp.ServerStatusRegistered}
 	refused := []string{

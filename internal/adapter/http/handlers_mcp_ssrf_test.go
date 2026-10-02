@@ -70,3 +70,28 @@ func TestMCPServerURLs_RefusedWith400(t *testing.T) {
 		t.Fatalf("the local server saw %d requests, want none", hits.Load())
 	}
 }
+
+// TestMCPServerOnARefusedAddress_CanStillBeDisabled (KI-100 review): a server
+// saved before KI-100 on an address that is refused now is checked only when
+// its url or transport changes.
+func TestMCPServerOnARefusedAddress_CanStillBeDisabled(t *testing.T) {
+	tenantAdmin := &user.User{ID: "ta", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
+	saved := mcp.ServerDef{ID: "s1", Name: "old", Transport: mcp.TransportSSE, URL: "http://10.0.0.5:6280/sse", Enabled: true, Status: mcp.ServerStatusRegistered}
+
+	store := &mockStore{mcpServers: []mcp.ServerDef{saved}}
+	w := serveMCP(t, store, tenantAdmin, http.MethodPut, "/api/v1/mcp/servers/s1",
+		`{"name":"old","transport":"sse","url":"http://10.0.0.5:6280/sse","enabled":false}`)
+	if w.Code != http.StatusOK || store.mcpServers[0].Enabled {
+		t.Fatalf("disable: status %d, stored %+v; want 200 and disabled: %s", w.Code, store.mcpServers[0], w.Body.String())
+	}
+
+	w = serveMCP(t, store, tenantAdmin, http.MethodPut, "/api/v1/mcp/servers/s1",
+		`{"name":"old","transport":"sse","url":"http://10.0.0.6:6280/sse","enabled":false}`)
+	if w.Code != http.StatusBadRequest || store.mcpServers[0].URL != saved.URL {
+		t.Fatalf("another refused url: status %d, stored %+v; want 400 and unchanged: %s", w.Code, store.mcpServers[0], w.Body.String())
+	}
+
+	if w = serveMCP(t, store, tenantAdmin, http.MethodDelete, "/api/v1/mcp/servers/s1", ""); w.Code != http.StatusNoContent {
+		t.Fatalf("delete: status %d: %s", w.Code, w.Body.String())
+	}
+}

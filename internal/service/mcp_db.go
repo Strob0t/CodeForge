@@ -63,8 +63,11 @@ func (s *MCPService) ListDB(ctx context.Context) ([]mcp.ServerDef, error) {
 }
 
 // UpdateDB validates and updates an existing MCP server in the database.
-// An env or header value sent as mcp.RedactedValue (what reads show) keeps
-// the stored value.
+// Values sent as mcp.RedactedValue (what reads show) keep the stored ones
+// (mcp.ServerDef.KeepRedacted). The url is checked only when the transport or
+// the url changed: a server saved on an address that is refused now can
+// still be disabled, renamed or deleted (the worker refuses it when it
+// connects).
 func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 	if s.db == nil {
 		return fmt.Errorf("mcp service: database store not configured")
@@ -72,11 +75,17 @@ func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 	if err := srv.Validate(); err != nil {
 		return err
 	}
-	if err := s.checkServerURL(ctx, srv); err != nil {
+	stored, err := s.db.GetMCPServer(ctx, srv.ID)
+	if err != nil {
 		return err
 	}
-	if err := s.keepStoredSecrets(ctx, srv); err != nil {
+	if err := srv.KeepRedacted(stored); err != nil {
 		return err
+	}
+	if srv.Transport != stored.Transport || srv.URL != stored.URL {
+		if err := s.checkServerURL(ctx, srv); err != nil {
+			return err
+		}
 	}
 	return s.db.UpdateMCPServer(ctx, srv)
 }
