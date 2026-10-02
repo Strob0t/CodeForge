@@ -76,6 +76,15 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 	}
 	defer client.Close() //nolint:errcheck // best-effort cleanup
 
+	// The transport must run before the handshake (the sse transport opens
+	// its event stream here; without it Initialize fails unconnected).
+	if err := client.Start(ctx); err != nil {
+		return &MCPTestResult{
+			Success: false,
+			Error:   "connect failed: " + scrubURLSecrets(err, def),
+		}, nil
+	}
+
 	// Initialize handshake.
 	initReq := mcpprotocol.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcpprotocol.LATEST_PROTOCOL_VERSION
@@ -118,7 +127,7 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 // createClient builds an mcp-go Client for a remote server definition on
 // httpClient (mcpHTTPClient: it checks every address it connects to). It
 // never starts a process: stdio servers run only in the worker.
-func (s *MCPService) createClient(def *mcp.ServerDef, httpClient *http.Client) (mcpclient.MCPClient, error) {
+func (s *MCPService) createClient(def *mcp.ServerDef, httpClient *http.Client) (*mcpclient.Client, error) {
 	switch def.Transport {
 	case mcp.TransportStdio:
 		return nil, ErrStdioTestInCore
