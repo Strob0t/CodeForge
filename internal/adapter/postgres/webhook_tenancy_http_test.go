@@ -177,4 +177,20 @@ func TestWebhooks_PerTenantOnPostgres(t *testing.T) {
 	if w := deliver(regA.URL, rotated.Secret, "d-10", ""); w.Code != http.StatusAccepted {
 		t.Fatalf("new secret: status %d: %s", w.Code, w.Body.String())
 	}
+
+	// Plane generates its webhooks' secret: it is given at registration and
+	// at rotation.
+	w = call(ctxA, adminA, http.MethodPost, "/api/v1/projects/"+projA.ID+"/webhooks",
+		`{"kind":"pm","provider":"plane","api_token":"plane_x","secret":"plane_wh_0123456789abcdef"}`)
+	var plane webhook.Registered
+	if w.Code != http.StatusCreated || json.Unmarshal(w.Body.Bytes(), &plane) != nil || plane.Secret != "plane_wh_0123456789abcdef" {
+		t.Fatalf("register plane: status %d: %s", w.Code, w.Body.String())
+	}
+	if w = call(ctxA, adminA, http.MethodPost, "/api/v1/projects/"+projA.ID+"/webhooks/"+plane.ID+"/rotate", ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("plane rotation without the new secret: status %d: %s", w.Code, w.Body.String())
+	}
+	w = call(ctxA, adminA, http.MethodPost, "/api/v1/projects/"+projA.ID+"/webhooks/"+plane.ID+"/rotate", `{"secret":"plane_wh_new_0123456789"}`)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "plane_wh_new_0123456789") {
+		t.Fatalf("plane rotation: status %d: %s", w.Code, w.Body.String())
+	}
 }

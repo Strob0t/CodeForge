@@ -400,9 +400,15 @@ func TestWebhooks_GitLabTokenAndPlaneSignature(t *testing.T) {
 		}
 	}
 
-	pl := env.register(t, tenantA, "proj-pl", webhook.CreateRequest{Kind: webhook.KindPM, Provider: "plane", APIToken: "plane_a"})
+	// Plane generates the signing secret of its webhooks; the admin gives
+	// it to CodeForge.
+	const planeSecret = "plane_wh_secret_0123456789abcdef"
+	pl := env.register(t, tenantA, "proj-pl", webhook.CreateRequest{Kind: webhook.KindPM, Provider: "plane", APIToken: "plane_a", Secret: planeSecret})
+	if pl.Secret != planeSecret {
+		t.Fatalf("registered plane secret %q, want Plane's", pl.Secret)
+	}
 	body := []byte(planeIssueEvent)
-	res, err := env.svc.Receive(context.Background(), webhook.KindPM, "plane", pl.ID, &webhook.Delivery{Signature: planeSignature(pl.Secret, body), Body: body})
+	res, err := env.svc.Receive(context.Background(), webhook.KindPM, "plane", pl.ID, &webhook.Delivery{Signature: planeSignature(planeSecret, body), Body: body})
 	if err != nil || res.Status != webhook.InboundAccepted {
 		t.Fatalf("plane event = %+v, %v", res, err)
 	}
@@ -454,13 +460,13 @@ func TestWebhooks_EventsAWebhookDoesNotHandleAreIgnored(t *testing.T) {
 func TestWebhooks_RotateSecret(t *testing.T) {
 	env := newWebhookEnv(t)
 	reg := env.register(t, tenantA, "proj-a", webhook.CreateRequest{Kind: webhook.KindVCS, Provider: "github"})
-	if _, err := env.svc.RotateSecret(inTenant(tenantB), "proj-a", reg.ID); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := env.svc.RotateSecret(inTenant(tenantB), "proj-a", reg.ID, ""); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("rotation by another tenant = %v, want ErrNotFound", err)
 	}
-	if _, err := env.svc.RotateSecret(inTenant(tenantA), "proj-gl", reg.ID); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := env.svc.RotateSecret(inTenant(tenantA), "proj-gl", reg.ID, ""); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("rotation under another project = %v, want ErrNotFound", err)
 	}
-	rotated, err := env.svc.RotateSecret(inTenant(tenantA), "proj-a", reg.ID)
+	rotated, err := env.svc.RotateSecret(inTenant(tenantA), "proj-a", reg.ID, "")
 	if err != nil || rotated.Secret == reg.Secret || rotated.ID != reg.ID || len(rotated.Secret) != 64 {
 		t.Fatalf("RotateSecret = %+v, %v", rotated, err)
 	}
@@ -470,6 +476,34 @@ func TestWebhooks_RotateSecret(t *testing.T) {
 	if _, err := env.svc.Receive(context.Background(), webhook.KindVCS, "github", reg.ID, signedGitHub(rotated.Secret, "push", "r2", githubPush)); err != nil {
 		t.Fatalf("new secret: %v", err)
 	}
+	// CodeForge generates GitHub's and GitLab's secrets: none is taken.
+	if _, err := env.svc.RotateSecret(inTenant(tenantA), "proj-a", reg.ID, "chosen-by-the-caller-0123"); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("rotation to a given secret = %v, want ErrValidation", err)
+	}
+}
+
+// Plane regenerates its webhook's secret itself: the rotation takes the new
+// one and needs it.
+func TestWebhooks_RotatePlaneSecret(t *testing.T) {
+	env := newWebhookEnv(t)
+	pl := env.register(t, tenantA, "proj-pl", webhook.CreateRequest{Kind: webhook.KindPM, Provider: "plane", APIToken: "t", Secret: "plane_wh_old_0123456789"})
+	for _, bad := range []string{"", "short", "plane secret with spaces"} {
+		if _, err := env.svc.RotateSecret(inTenant(tenantA), "proj-pl", pl.ID, bad); !errors.Is(err, domain.ErrValidation) {
+			t.Fatalf("plane rotation to %q = %v, want ErrValidation", bad, err)
+		}
+	}
+	rotated, err := env.svc.RotateSecret(inTenant(tenantA), "proj-pl", pl.ID, "plane_wh_new_0123456789")
+	if err != nil || rotated.Secret != "plane_wh_new_0123456789" {
+		t.Fatalf("RotateSecret = %+v, %v", rotated, err)
+	}
+	body := []byte(planeIssueEvent)
+	if _, err := env.svc.Receive(context.Background(), webhook.KindPM, "plane", pl.ID, &webhook.Delivery{Signature: planeSignature("plane_wh_old_0123456789", body), Body: body}); !errors.Is(err, ErrWebhookUnauthorized) {
+		t.Fatalf("old plane secret = %v, want ErrWebhookUnauthorized", err)
+	}
+	if res, err := env.svc.Receive(context.Background(), webhook.KindPM, "plane", pl.ID, &webhook.Delivery{Signature: planeSignature("plane_wh_new_0123456789", body), Body: body}); err != nil || res.Status != webhook.InboundAccepted {
+		t.Fatalf("new plane secret = %+v, %v", res, err)
+	}
+	env.syncer.waitCall(t)
 }
 
 // A redelivered or replayed event (same delivery ID) is handled once; a

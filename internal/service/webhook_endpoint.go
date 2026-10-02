@@ -116,7 +116,7 @@ func (s *WebhookService) Register(ctx context.Context, projectID string, req *we
 			return nil, fmt.Errorf("project %s has no %s repository URL to match events against: %w", projectID, req.Provider, domain.ErrValidation)
 		}
 	}
-	secret, err := newWebhookSecret()
+	secret, err := webhookSecret(req.Provider, req.Secret)
 	if err != nil {
 		return nil, err
 	}
@@ -158,11 +158,28 @@ func (s *WebhookService) List(ctx context.Context, projectID string) ([]webhook.
 	return endpoints, nil
 }
 
+// webhookSecret is a new webhook's secret: the one given for a provider
+// that generates its secret (Plane), a random one for the others.
+func webhookSecret(provider, given string) (string, error) {
+	if err := webhook.ValidateGivenSecret(provider, given); err != nil {
+		return "", err
+	}
+	if webhook.ProviderGeneratesSecret(provider) {
+		return given, nil
+	}
+	return newWebhookSecret()
+}
+
 // RotateSecret gives a webhook of the caller's tenant a new secret; the old
-// one stops working at once. It returns the new secret, the only time it is
-// shown.
-func (s *WebhookService) RotateSecret(ctx context.Context, projectID, id string) (*webhook.Registered, error) {
-	secret, err := newWebhookSecret()
+// one stops working at once. given is the secret Plane regenerated (required
+// for Plane, refused for the others, whose secret is random). It returns the
+// new secret, the only time it is shown.
+func (s *WebhookService) RotateSecret(ctx context.Context, projectID, id, given string) (*webhook.Registered, error) {
+	e, err := s.store.GetWebhookEndpoint(ctx, projectID, id)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := webhookSecret(e.Provider, given)
 	if err != nil {
 		return nil, err
 	}

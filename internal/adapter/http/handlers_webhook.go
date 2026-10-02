@@ -1,7 +1,10 @@
 package http
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -46,16 +49,34 @@ func (h *Handlers) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 	writeJSONList(w, http.StatusOK, list)
 }
 
+// rotateWebhookSecretRequest is the optional body of POST .../rotate: the
+// secret Plane regenerated for its webhook (GitHub and GitLab webhooks get a
+// random one, the body stays empty).
+type rotateWebhookSecretRequest struct {
+	Secret string `json:"secret"` //nolint:gosec // G117: request field, stored encrypted
+}
+
 // RotateWebhookSecret handles POST /api/v1/projects/{id}/webhooks/{webhookId}/rotate
 // (admins): a new secret, shown once; the old one stops working.
 func (h *Handlers) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 	projectID, id := chi.URLParam(r, "id"), chi.URLParam(r, "webhookId")
 	middleware.AuditContext(r.Context(), map[string]string{"project_id": projectID})
+	r.Body = http.MaxBytesReader(w, r.Body, h.Limits.MaxRequestBodySize)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return
+	}
+	var req rotateWebhookSecretRequest
+	if len(bytes.TrimSpace(data)) > 0 && json.Unmarshal(data, &req) != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
 	if err := middleware.RecordAudit(r.Context(), id, nil); err != nil {
 		webhookAuditUnavailable(w)
 		return
 	}
-	reg, err := h.Webhooks.RotateSecret(r.Context(), projectID, id)
+	reg, err := h.Webhooks.RotateSecret(r.Context(), projectID, id, req.Secret)
 	if err != nil {
 		writeDomainError(w, err, "webhook not found")
 		return
