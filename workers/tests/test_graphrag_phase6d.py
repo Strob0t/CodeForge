@@ -65,7 +65,8 @@ class TestCodeGraphBuilder:
             f.write("def skip(): pass\n")
 
         builder = CodeGraphBuilder()
-        files = builder._collect_files(WorkspaceRoot(workspace))
+        with WorkspaceRoot(workspace) as root:
+            files = [rel for rel, _ in builder._collect_files(root)]
 
         assert len(files) == 1
         assert files[0].endswith("main.py")
@@ -81,7 +82,8 @@ class TestCodeGraphBuilder:
             f.write("{}\n")
 
         builder = CodeGraphBuilder()
-        files = builder._collect_files(WorkspaceRoot(workspace))
+        with WorkspaceRoot(workspace) as root:
+            files = [rel for rel, _ in builder._collect_files(root)]
 
         assert len(files) == 1
         assert files[0].endswith("main.py")

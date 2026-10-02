@@ -20,14 +20,15 @@ from tree_sitter_language_pack import get_parser
 from codeforge._tree_sitter_common import (
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    collect_source_files,
-    log_skipped,
-    read_source,
+    SourceScan,
+    iter_source_files,
 )
 from codeforge.models import GraphBuildResult, GraphSearchHit
 from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from tree_sitter import Node, Parser
 
 logger = structlog.get_logger()
@@ -281,19 +282,18 @@ class CodeGraphBuilder:
             return None
 
         ctx = _BuildContext(project_id=project_id)
+        file_count = 0
         with root:
-            files = self._collect_files(root)
-            if not files:
-                return None
-            for rel_path in files:
+            for rel_path, source in self._collect_files(root):
+                file_count += 1
                 _, ext = os.path.splitext(rel_path)
                 language = _EXTENSION_MAP.get(ext)
                 if language is None:
                     continue
                 ctx.languages.add(language)
-                source = read_source(root, rel_path)
-                if source is not None:
-                    self._extract_from_file(ctx, rel_path, source, language)
+                self._extract_from_file(ctx, rel_path, source, language)
+        if not file_count:
+            return None
 
         self._resolve_call_edges(ctx)
         return ctx
@@ -302,11 +302,11 @@ class CodeGraphBuilder:
     # File collection
     # ------------------------------------------------------------------
 
-    def _collect_files(self, root: WorkspaceRoot) -> list[str]:
-        """Workspace-relative source files to parse (symlink-safe, KI-95); logs the skipped entries once."""
-        files, skipped = collect_source_files(root, _EXTENSION_MAP)
-        log_skipped("graphrag", skipped)
-        return files
+    def _collect_files(self, root: WorkspaceRoot) -> Iterator[tuple[str, bytes]]:
+        """The source files to parse with their bytes (symlink-safe, KI-95); logs the skipped entries once."""
+        scan = SourceScan("graphrag")
+        yield from iter_source_files(root, _EXTENSION_MAP, scan)
+        scan.log()
 
     # ------------------------------------------------------------------
     # Extraction

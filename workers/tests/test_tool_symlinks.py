@@ -83,13 +83,14 @@ class TestReadFile:
         assert not result.success
         assert "not a regular file" in result.error
 
-    async def test_size_cap(self, ws: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_output_cap(self, ws: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import codeforge.tools.read_file as read_file
 
-        monkeypatch.setattr(read_file, "MAX_WORKSPACE_FILE_BYTES", 4)
-        result = await ReadFileTool().execute({"file_path": "src/a.py"}, str(ws))
-        assert not result.success
-        assert "file too large" in result.error
+        (ws / "src" / "many.py").write_text("x = 1\n" * 10)
+        monkeypatch.setattr(read_file, "MAX_OUTPUT_BYTES", 30)
+        result = await ReadFileTool().execute({"file_path": "src/many.py"}, str(ws))
+        assert result.success, result.error
+        assert result.output.splitlines()[-1] == "... truncated at 30 bytes; read on with offset=3"
 
 
 class TestWriteFile:
@@ -147,11 +148,12 @@ class TestListDirectory:
         result = await ListDirectoryTool().execute({"path": ".", "recursive": True}, str(ws))
         assert result.success, result.error
         lines = result.output.splitlines()
-        assert "[DIR]  srclink" in lines  # resolves to a directory inside
+        assert "[DIR]  srclink -> src" in lines  # resolves to a directory inside: entered (C6)
+        assert "[FILE] srclink/a.py" in lines
         assert "[FILE] outdir" in lines  # leaves the workspace: not a directory of it
         assert "[FILE] pipe" in lines
         assert "[FILE] src/sub/b.py" in lines
-        assert not [line for line in lines if line.startswith(("[DIR]  srclink/", "[FILE] srclink/", "[FILE] outdir/"))]
+        assert not [line for line in lines if line.startswith("[FILE] outdir/")]
         assert "secret" not in result.output
 
     async def test_listing_outside_refused(self, ws: Path) -> None:
@@ -162,7 +164,7 @@ class TestListDirectory:
     async def test_listing_inside_symlink(self, ws: Path) -> None:
         result = await ListDirectoryTool().execute({"path": "srclink"}, str(ws))
         assert result.success, result.error
-        assert result.output.splitlines() == ["[DIR]  src/sub", "[FILE] src/a.py"]
+        assert result.output.splitlines() == ["[DIR]  srclink/sub", "[FILE] srclink/a.py"]
 
 
 class TestGlobFiles:
@@ -179,13 +181,19 @@ class TestGlobFiles:
         result = await GlobFilesTool().execute({"pattern": "*.py"}, str(ws))
         assert result.output.splitlines() == ["alias.py"]
 
-    async def test_symlinked_directories_not_descended(self, ws: Path) -> None:
+    async def test_symlinked_directories_inside_descended(self, ws: Path) -> None:
         result = await GlobFilesTool().execute({"pattern": "**/*.py"}, str(ws))
-        assert result.output.splitlines() == ["alias.py", "src/a.py", "src/sub/b.py"]
+        assert result.output.splitlines() == [
+            "alias.py",
+            "src/a.py",
+            "src/sub/b.py",
+            "srclink/a.py",
+            "srclink/sub/b.py",
+        ]
 
     async def test_literal_prefix_through_inside_symlink(self, ws: Path) -> None:
         result = await GlobFilesTool().execute({"pattern": "srclink/*.py"}, str(ws))
-        assert result.output.splitlines() == ["src/a.py"]
+        assert result.output.splitlines() == ["srclink/a.py"]
 
     async def test_absolute_pattern_outside_refused(self, ws: Path) -> None:
         result = await GlobFilesTool().execute({"pattern": f"{_outside(ws)}/*.py"}, str(ws))

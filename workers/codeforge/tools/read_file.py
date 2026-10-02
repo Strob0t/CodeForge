@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
 from codeforge.tools._base import (
@@ -17,7 +18,13 @@ from codeforge.tools._base import (
 )
 from codeforge.tools._error_handler import catch_os_error
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
 logger = logging.getLogger(__name__)
+
+# The most read_file returns at once; the file itself may be larger (offset/limit reach any line).
+MAX_OUTPUT_BYTES = MAX_WORKSPACE_FILE_BYTES
 
 DEFINITION = ToolDefinition(
     name="read_file",
@@ -67,24 +74,34 @@ class ReadFileTool(ToolExecutor):
     @catch_os_error
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         rel = arguments.get("file_path", "")
-        with open_tool_workspace(workspace_path) as root:
-            try:
-                text = root.read_text(
-                    tool_path(workspace_path, rel), max_bytes=MAX_WORKSPACE_FILE_BYTES, errors="replace"
-                )
-            except FileNotFoundError:
-                return failed(f"file not found: {rel}")
-
-        lines = text.splitlines(keepends=True)
         offset = max(arguments.get("offset", 1), 1)
         limit = arguments.get("limit")
+        with open_tool_workspace(workspace_path) as root:
+            try:
+                raw = root.open_binary(tool_path(workspace_path, rel))
+            except FileNotFoundError:
+                return failed(f"file not found: {rel}")
+        # The file is streamed: only the returned lines count against the cap,
+        # so offset/limit reach any line of a large file.
+        with io.TextIOWrapper(raw, encoding="utf-8", errors="replace", newline=None) as text:
+            return ToolResult(output=_numbered_lines(text, offset, limit))
 
-        start = offset - 1
-        end = start + limit if limit is not None else len(lines)
-        selected = lines[start:end]
 
-        numbered = "".join(f"{start + i + 1:>6}\t{line}" for i, line in enumerate(selected))
-        if numbered and not numbered.endswith("\n"):
-            numbered += "\n"
-
-        return ToolResult(output=numbered)
+def _numbered_lines(text: Iterable[str], offset: int, limit: int | None) -> str:
+    """Lines offset .. offset + limit - 1 (1-based) of *text*, numbered, at most MAX_OUTPUT_BYTES."""
+    out: list[str] = []
+    size = 0
+    for number, line in enumerate(text, start=1):
+        if number < offset:
+            continue
+        if limit is not None and number >= offset + limit:
+            break
+        entry = f"{number:>6}\t{line}"
+        if not entry.endswith("\n"):
+            entry += "\n"
+        size += len(entry.encode())
+        if size > MAX_OUTPUT_BYTES:
+            out.append(f"... truncated at {MAX_OUTPUT_BYTES} bytes; read on with offset={number}\n")
+            break
+        out.append(entry)
+    return "".join(out)

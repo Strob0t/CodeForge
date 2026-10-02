@@ -342,7 +342,8 @@ def test_collect_files_skips_ignored(generator: RepoMapGenerator) -> None:
         with open(os.path.join(ws, "main.py"), "w") as f:
             f.write("def main(): pass\n")
 
-        files = generator._collect_files(WorkspaceRoot(ws))
+        with WorkspaceRoot(ws) as root:
+            files = [rel for rel, _ in generator._collect_files(root)]
 
     # Only main.py should be collected
     assert len(files) == 1

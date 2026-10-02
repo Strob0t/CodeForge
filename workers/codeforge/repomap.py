@@ -19,13 +19,14 @@ from codeforge._tree_sitter_common import (
     _CHARS_PER_TOKEN,
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    collect_source_files,
-    log_skipped,
-    read_source,
+    SourceScan,
+    iter_source_files,
 )
 from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from tree_sitter import Node, Parser
 
     from codeforge.models import RepoMapResult
@@ -188,25 +189,24 @@ class RepoMapGenerator:
         all_tags: list[SymbolTag] = []
         languages_seen: set[str] = set()
 
+        file_count = 0
         with root:
-            files = self._collect_files(root)
-            if not files:
-                return empty
-            for rel_path in files:
+            for rel_path, source in self._collect_files(root):
+                file_count += 1
                 language = self._detect_language(rel_path)
                 if language is None:
                     continue
                 languages_seen.add(language)
-                source = read_source(root, rel_path)
-                if source is not None:
-                    all_tags.extend(self._extract_tags(rel_path, source, language))
+                all_tags.extend(self._extract_tags(rel_path, source, language))
+        if not file_count:
+            return empty
 
         if not all_tags:
             return RepoMapResult(
                 project_id="",
                 map_text="",
                 token_count=0,
-                file_count=len(files),
+                file_count=file_count,
                 symbol_count=0,
                 languages=sorted(languages_seen),
             )
@@ -227,16 +227,16 @@ class RepoMapGenerator:
             project_id="",
             map_text=map_text,
             token_count=token_count,
-            file_count=len(files),
+            file_count=file_count,
             symbol_count=len(def_tags),
             languages=sorted(languages_seen),
         )
 
-    def _collect_files(self, root: WorkspaceRoot) -> list[str]:
-        """Workspace-relative source files to map (symlink-safe, KI-95); logs the skipped entries once."""
-        files, skipped = collect_source_files(root, _EXTENSION_MAP)
-        log_skipped("repomap", skipped)
-        return files
+    def _collect_files(self, root: WorkspaceRoot) -> Iterator[tuple[str, bytes]]:
+        """The source files to map with their bytes (symlink-safe, KI-95); logs the skipped entries once."""
+        scan = SourceScan("repomap")
+        yield from iter_source_files(root, _EXTENSION_MAP, scan)
+        scan.log()
 
     def _detect_language(self, file_path: str) -> str | None:
         """Detect the tree-sitter language name from file extension."""

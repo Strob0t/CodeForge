@@ -21,9 +21,8 @@ from tree_sitter_language_pack import get_parser
 from codeforge._tree_sitter_common import (
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    collect_source_files,
-    log_skipped,
-    read_source,
+    SourceScan,
+    iter_source_files,
 )
 from codeforge.models import RetrievalSearchHit
 from codeforge.workspace_fs import WorkspaceRoot
@@ -143,15 +142,12 @@ class CodeChunker:
             logger.warning("cannot open workspace", path=workspace_path, below=below, error=str(exc))
             return result
 
+        scan = SourceScan("retrieval")
         with root:
-            files, skipped = collect_source_files(root, extensions)
-            log_skipped("retrieval", skipped)
-            for rel_path in files:
-                source = read_source(root, rel_path)
-                if source is None:
-                    continue
+            for rel_path, source in iter_source_files(root, extensions, scan):
                 language = _EXTENSION_MAP[os.path.splitext(rel_path)[1]]
                 result[rel_path] = (hashlib.sha256(source).hexdigest(), self.chunk_source(source, rel_path, language))
+        scan.log()
 
         return result
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import posixpath
 from typing import TYPE_CHECKING, Any
 
 from codeforge.constants import MAX_DIR_ENTRIES, MAX_LIST_DEPTH
@@ -16,6 +17,7 @@ from codeforge.tools._base import (
     tool_path,
 )
 from codeforge.tools._error_handler import catch_os_error
+from codeforge.workspace_fs import MAX_SYMLINKS
 
 if TYPE_CHECKING:
     from codeforge.workspace_fs import WorkspaceRoot
@@ -62,16 +64,27 @@ DEFINITION = ToolDefinition(
 )
 
 
-def _list_entries(root: WorkspaceRoot, rel_dir: str, recursive: bool, depth: int = 0) -> list[str]:
+def _list_entries(
+    root: WorkspaceRoot,
+    rel_dir: str,
+    recursive: bool,
+    depth: int = 0,
+    ancestors: frozenset[tuple[int, int]] = frozenset(),
+    hops: int = 0,
+) -> list[str]:
     """Collect directory entries with prefix markers.
 
-    A symlink is listed as [DIR] when it resolves to a directory inside the
-    workspace, else as [FILE]; the listing never descends into a symlink.
+    A symlink is listed as [DIR] with the directory it resolves to
+    ("[DIR]  apps/web -> packages/pkg") when that is a directory inside the
+    workspace, else as [FILE]. A recursive listing enters such a symlink
+    (under its own path) unless it leads back to a directory being listed,
+    and follows at most MAX_SYMLINKS of them on one path.
     """
     entries: list[str] = []
 
     try:
         children = sorted(root.list_dir(rel_dir), key=lambda e: (not e.is_dir, e.name))
+        ancestors = ancestors | {_ident(root, rel_dir)}
     except OSError:
         return entries
 
@@ -79,14 +92,26 @@ def _list_entries(root: WorkspaceRoot, rel_dir: str, recursive: bool, depth: int
         if len(entries) >= MAX_ENTRIES:
             break
         rel = child.name if rel_dir == "." else f"{rel_dir}/{child.name}"
-        if child.is_dir:
-            entries.append(f"[DIR]  {rel}")
-            if recursive and not child.is_symlink and depth < MAX_DEPTH and len(entries) < MAX_ENTRIES:
-                entries.extend(_list_entries(root, rel, recursive, depth + 1))
-        else:
+        if not child.is_dir:
             entries.append(f"[FILE] {rel}")
+            continue
+        entries.append(f"[DIR]  {rel} -> {child.target}" if child.is_symlink else f"[DIR]  {rel}")
+        child_hops = hops + child.is_symlink
+        if not recursive or depth >= MAX_DEPTH or len(entries) >= MAX_ENTRIES or child_hops > MAX_SYMLINKS:
+            continue
+        try:
+            if _ident(root, rel) in ancestors:
+                continue
+        except OSError:
+            continue
+        entries.extend(_list_entries(root, rel, recursive, depth + 1, ancestors, child_hops))
 
     return entries
+
+
+def _ident(root: WorkspaceRoot, rel: str) -> tuple[int, int]:
+    info = root.stat(rel)
+    return info.st_dev, info.st_ino
 
 
 class ListDirectoryTool(ToolExecutor):
@@ -98,12 +123,15 @@ class ListDirectoryTool(ToolExecutor):
         recursive = arguments.get("recursive", False)
 
         with open_tool_workspace(workspace_path) as root:
+            path = tool_path(workspace_path, rel)
             try:
-                start = root.resolve(tool_path(workspace_path, rel))
+                resolved = root.resolve(path)
             except FileNotFoundError:
                 return failed(f"not a directory: {rel}")
-            if not root.is_dir(start):
+            if not root.is_dir(resolved):
                 return failed(f"not a directory: {rel}")
+            # Listed under the path asked for (a symlinked directory keeps its name).
+            start = resolved if ".." in path.split("/") else posixpath.normpath(path or ".")
             entries = _list_entries(root, start, recursive)
 
         if not entries:

@@ -501,15 +501,15 @@ class TestSwapRace:
             assert "/" not in path, path
             assert flags & os.O_NOFOLLOW, path
 
-        # os.fwalk opens each directory relative to its parent's descriptor
-        # after an lstat and descends only when the opened directory is the
-        # one it saw (samestat), so a swapped-in symlink is never walked.
+        # The walk opens each directory relative to its parent's descriptor
+        # with O_NOFOLLOW, so a swapped-in symlink is never walked.
         calls.clear()
         list(root.walk("src"))
         assert calls
-        for path, _flags, dir_fd in calls:
+        for path, flags, dir_fd in calls:
             assert dir_fd is not None, path
             assert "/" not in path, path
+            assert flags & os.O_NOFOLLOW, path
 
 
 # ---------------------------------------------------------------------------

@@ -81,23 +81,21 @@ def _below(base: str, dirpath: str) -> list[str]:
 def _glob(root: WorkspaceRoot, pattern: list[str]) -> list[str]:
     """Workspace-relative paths of the regular files that match *pattern*.
 
-    The walk starts at the pattern's literal directory prefix (resolved
-    through the workspace, so a symlinked prefix inside it works) and never
-    descends into a symlink; a symlinked file matches when it resolves to a
+    The walk starts at the pattern's literal directory prefix and follows
+    relative directory symlinks inside the workspace (reported under the
+    symlink's path; never back into a directory on the walk's path, at most
+    MAX_SYMLINKS per path); a symlinked file matches when it resolves to a
     regular file inside the workspace.
     """
     literal = list(itertools.takewhile(lambda part: not _has_magic(part), pattern[:-1]))
     rest = pattern[len(literal) :]
-    try:
-        base = root.resolve("/".join(literal) or ".")
-    except OSError:
-        return []
+    base = "/".join(literal) or "."
     if not root.is_dir(base):
         return []
     # Without "**" a match is at most len(rest) - 1 directories below the base.
     max_depth = None if "**" in rest else len(rest) - 1
     found: list[str] = []
-    for dirpath, dirnames, filenames, dir_fd in root.walk(base):
+    for dirpath, dirnames, filenames, dir_fd in root.walk(base, follow_dir_symlinks=True):
         sub = _below(base, dirpath)
         if max_depth is not None and len(sub) >= max_depth:
             dirnames[:] = []

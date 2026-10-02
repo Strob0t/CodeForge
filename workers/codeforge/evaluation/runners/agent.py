@@ -43,14 +43,15 @@ def _snapshot_files(workspace: Path) -> dict[str, str]:
     except OSError:
         return snapshot
     with root:
-        for dirpath, dirnames, filenames, _dir_fd in root.walk():
+        for dirpath, dirnames, filenames, dir_fd in root.walk():
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
             for name in filenames:
                 if name.startswith("."):
                     continue
                 rel = name if dirpath == "." else f"{dirpath}/{name}"
                 with contextlib.suppress(OSError):
-                    snapshot[rel] = root.read_text(rel, max_bytes=MAX_WORKSPACE_FILE_BYTES, errors="replace")
+                    data = root.read_entry(dir_fd, name, rel, max_bytes=MAX_WORKSPACE_FILE_BYTES)
+                    snapshot[rel] = data.decode("utf-8", errors="replace")
     return snapshot
 
 

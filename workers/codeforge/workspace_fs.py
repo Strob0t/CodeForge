@@ -24,8 +24,11 @@ one component at a time, the way Go's os.Root does in the Go Core:
 - The last component is opened with O_NOFOLLOW | O_NONBLOCK and checked with
   fstat: reads and writes take regular files only, so a FIFO never blocks and
   a socket or device is never used ("not a regular file").
-- Walks (os.fwalk) and listings (os.scandir) work on directory descriptors and
-  never descend into a symlink.
+- Walks and listings (os.scandir) work on directory descriptors. A walk is
+  iterative, holds at most _MAX_HELD_DIRS descriptors and stops at
+  MAX_WALK_DEPTH; it enters a symlinked directory only when asked to (the
+  glob and listing tools), through the workspace, never into a directory on
+  its own path and at most MAX_SYMLINKS times per path.
 
 Hard links cannot be told apart from regular files; with
 fs.protected_hardlinks=1 (the default of systemd-based hosts, and what the
@@ -45,12 +48,13 @@ import os
 import posixpath
 import secrets
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from types import TracebackType
+    from typing import BinaryIO
 
 # Symlinks followed per path, as in Go's os.Root.
 MAX_SYMLINKS = 8
@@ -62,6 +66,10 @@ _MAX_ATTEMPTS = 8
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 _FILE_FLAGS = os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 _READ_CHUNK = 1 << 20
+# Directories below a walk's start it enters at most (deeper ones are counted in WalkStats.too_deep).
+MAX_WALK_DEPTH = 128
+# Descriptors a walk holds at once; below that depth directories are reopened from the root.
+_MAX_HELD_DIRS = 32
 
 
 class WorkspacePathError(OSError):
@@ -108,17 +116,20 @@ def _split(rel: str, original: str) -> list[str]:
 def workspace_relative(workspace: str, path: str) -> str:
     """*path* relative to *workspace* when it is an absolute path that (lexically) names a place inside it.
 
-    Models often pass absolute paths. Anything else is returned unchanged, and
-    the helper refuses absolute paths.
+    Models often pass absolute paths, as the workspace path reads or in its
+    resolved form (pwd -P in a shell); both forms are accepted. Anything else
+    is returned unchanged, and the helper refuses absolute paths.
     """
     if not path.startswith("/"):
         return path
-    base = posixpath.normpath(os.path.abspath(workspace))
     target = posixpath.normpath(path)
-    if target == base:
-        return "."
-    if target.startswith(base.rstrip("/") + "/"):
-        return target[len(base.rstrip("/")) + 1 :]
+    absolute = posixpath.normpath(os.path.abspath(workspace))
+    for base in dict.fromkeys((absolute, os.path.realpath(absolute))):
+        if target == base:
+            return "."
+        prefix = base.rstrip("/") + "/"
+        if target.startswith(prefix):
+            return target[len(prefix) :]
     return path
 
 
@@ -127,12 +138,23 @@ class ListedEntry:
     """One entry of a directory listing.
 
     is_dir is true for a directory, and for a symlink that resolves to a
-    directory inside the workspace (listings never descend into symlinks).
+    directory inside the workspace; target is then the workspace-relative
+    directory it resolves to.
     """
 
     name: str
     is_dir: bool
     is_symlink: bool
+    target: str = ""
+
+
+@dataclass
+class WalkStats:
+    """What a walk left out; the caller logs it once."""
+
+    too_deep: int = 0  # directories deeper than max_depth, not entered
+    loops: int = 0  # symlinked directories not entered: back to the walk's own path, or too many on it
+    errors: int = 0  # directories that could not be opened or listed (removed or swapped meanwhile)
 
 
 class WorkspaceRoot:
@@ -321,23 +343,37 @@ class WorkspaceRoot:
 
     def read_bytes(self, rel: str, *, max_bytes: int | None = None) -> bytes:
         """The content of the regular file *rel*; FileTooLargeError above max_bytes."""
+        return _read_regular(self._open_final(rel, os.O_RDONLY), rel, max_bytes)
+
+    def read_entry(self, dir_fd: int, name: str, rel: str, *, max_bytes: int | None = None) -> bytes:
+        """The content of the regular file *name* of a walked directory (*rel* is its workspace path).
+
+        Opened relative to the walk's descriptor without following a symlink;
+        a symlink is resolved through the root like any other path.
+        """
+        self._check_blocked(name)
+        try:
+            fd = os.open(name, os.O_RDONLY | _FILE_FLAGS, dir_fd=dir_fd)
+        except FileNotFoundError:
+            raise _not_found(rel) from None
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                return self.read_bytes(rel, max_bytes=max_bytes)
+            if exc.errno in (errno.ENXIO, errno.EISDIR):
+                raise NotRegularFileError(rel) from None
+            raise
+        return _read_regular(fd, rel, max_bytes)
+
+    def open_binary(self, rel: str) -> BinaryIO:
+        """The regular file *rel*, opened for buffered binary reading; close it."""
         fd = self._open_final(rel, os.O_RDONLY)
         try:
-            info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode):
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise NotRegularFileError(rel)
-            if max_bytes is not None and info.st_size > max_bytes:
-                raise FileTooLargeError(rel, info.st_size, max_bytes)
-            chunks: list[bytes] = []
-            size = 0
-            while chunk := os.read(fd, _READ_CHUNK):
-                size += len(chunk)
-                if max_bytes is not None and size > max_bytes:
-                    raise FileTooLargeError(rel, size, max_bytes)  # grew after the fstat
-                chunks.append(chunk)
-            return b"".join(chunks)
-        finally:
+            return os.fdopen(fd, "rb")
+        except BaseException:
             os.close(fd)
+            raise
 
     def read_text(
         self, rel: str, *, max_bytes: int | None = None, encoding: str = "utf-8", errors: str = "strict"
@@ -455,26 +491,181 @@ class WorkspaceRoot:
             os.close(fd)
         entries: list[ListedEntry] = []
         for name, is_symlink, is_dir in found:
+            target = ""
             if is_symlink:
-                is_dir = self.is_dir(name if base == "." else f"{base}/{name}")
-            entries.append(ListedEntry(name=name, is_dir=is_dir, is_symlink=is_symlink))
+                target = self._symlinked_dir(name if base == "." else f"{base}/{name}")
+                is_dir = bool(target)
+            entries.append(ListedEntry(name=name, is_dir=is_dir, is_symlink=is_symlink, target=target))
         return entries
 
-    def walk(self, rel: str = ".") -> Iterator[tuple[str, list[str], list[str], int]]:
-        """os.fwalk below the directory *rel*, top-down, never following a symlink.
-
-        Yields (workspace-relative directory, dirnames, filenames, directory
-        descriptor); prune dirnames in place to skip directories. As with
-        os.fwalk, dirnames includes symlinks to directories (not descended) and
-        filenames everything else: open files through this root, or relative
-        to the descriptor with O_NOFOLLOW.
-        """
-        fd, base = self._open_dir(rel)
+    def _symlinked_dir(self, rel: str) -> str:
+        """The workspace-relative directory the symlink *rel* resolves to, "" when it is no directory inside."""
         try:
-            for dirpath, dirnames, filenames, dir_fd in os.fwalk(".", follow_symlinks=False, dir_fd=fd):
-                yield posixpath.normpath(posixpath.join(base, dirpath)), dirnames, filenames, dir_fd
+            resolved = self.resolve(rel)
+            return resolved if self.is_dir(resolved) else ""
+        except OSError:
+            return ""
+
+    def walk(
+        self,
+        rel: str = ".",
+        *,
+        follow_dir_symlinks: bool = False,
+        max_depth: int = MAX_WALK_DEPTH,
+        stats: WalkStats | None = None,
+    ) -> Iterator[tuple[str, list[str], list[str], int]]:
+        """Walk the directory *rel* top-down, iteratively: (directory, dirnames, filenames, descriptor).
+
+        dirnames are the subdirectories and the symlinks that resolve to a
+        directory inside the workspace; filenames everything else. Prune
+        dirnames in place to skip directories. A symlinked directory is
+        entered only with follow_dir_symlinks: resolved through the workspace,
+        not when it leads to a directory on the walk's own path, and at most
+        MAX_SYMLINKS on one path; the walk reports it under the symlink's path.
+        Directories deeper than max_depth below *rel* are not entered. What the
+        walk left out is counted in *stats*. Open files relative to the
+        descriptor (read_entry); it is valid until the next step of the walk.
+        """
+        stats = stats if stats is not None else WalkStats()
+        fd, resolved = self._open_dir(rel)
+        # Reported under the path asked for (a symlinked start keeps its name).
+        start = resolved if ".." in rel.split("/") else posixpath.normpath(rel or ".")
+        opened: tuple[str, int, int, int] | None = (start, fd, 0, 0)  # path, descriptor, depth, hops
+        stack: list[_WalkDir] = []
+        try:
+            while opened is not None:
+                current = self._walk_list(*opened, stats)
+                if current is not None:
+                    try:
+                        yield current.path, current.dirnames, current.filenames, current.fd
+                    except BaseException:
+                        os.close(current.fd)
+                        raise
+                    self._walk_keep(current, stack, follow_dir_symlinks, max_depth, stats)
+                opened = self._walk_next(stack, stats)
         finally:
+            for walked in stack:
+                if walked.fd >= 0:
+                    os.close(walked.fd)
+
+    def _walk_list(self, path: str, fd: int, depth: int, hops: int, stats: WalkStats) -> _WalkDir | None:
+        """List the walked directory *path* (its descriptor is closed when that fails)."""
+        try:
+            ident = _ident(fd)
+            with os.scandir(fd) as it:
+                found = [(entry.name, entry.is_symlink(), entry.is_dir(follow_symlinks=False)) for entry in it]
+        except OSError:
             os.close(fd)
+            stats.errors += 1
+            return None
+        walked = _WalkDir(path=path, fd=fd, depth=depth, hops=hops, ident=ident)
+        for name, is_symlink, is_dir in found:
+            if is_symlink and self._symlinked_dir(name if path == "." else f"{path}/{name}"):
+                walked.dirnames.append(name)
+                walked.links.add(name)
+            elif is_dir and not is_symlink:
+                walked.dirnames.append(name)
+            else:
+                walked.filenames.append(name)
+        return walked
+
+    @staticmethod
+    def _walk_keep(
+        walked: _WalkDir, stack: list[_WalkDir], follow_dir_symlinks: bool, max_depth: int, stats: WalkStats
+    ) -> None:
+        """Queue the subdirectories the caller kept in dirnames (closing the directory when there are none)."""
+        names = [name for name in walked.dirnames if follow_dir_symlinks or name not in walked.links]
+        if names and walked.depth >= max_depth:
+            stats.too_deep += len(names)
+            names = []
+        if not names:
+            os.close(walked.fd)
+            return
+        walked.pending = names[::-1]
+        if len(stack) >= _MAX_HELD_DIRS:
+            os.close(walked.fd)  # its subdirectories are reopened from the root
+            walked.fd = -1
+        stack.append(walked)
+
+    def _walk_next(self, stack: list[_WalkDir], stats: WalkStats) -> tuple[str, int, int, int] | None:
+        """Open the next directory of the walk: (path, descriptor, depth, hops), None when it is done."""
+        while stack:
+            top = stack[-1]
+            if not top.pending:
+                if top.fd >= 0:
+                    os.close(top.fd)
+                stack.pop()
+                continue
+            name = top.pending.pop()
+            path = name if top.path == "." else f"{top.path}/{name}"
+            hops = top.hops + (name in top.links)
+            if hops > MAX_SYMLINKS:
+                stats.loops += 1
+                continue
+            fd = self._walk_open(top, name, path)
+            if fd < 0:
+                stats.errors += 1
+            elif _ident(fd) in {walked.ident for walked in stack}:
+                os.close(fd)
+                stats.loops += 1
+            else:
+                return path, fd, top.depth + 1, hops
+        return None
+
+    def _walk_open(self, parent: _WalkDir, name: str, path: str) -> int:
+        """A descriptor of the subdirectory *name* of *parent*, -1 when it cannot be opened.
+
+        A real directory is opened relative to its parent's descriptor without
+        following a symlink; a symlinked one, or one whose parent was closed,
+        is resolved through the workspace.
+        """
+        try:
+            if parent.fd >= 0 and name not in parent.links:
+                return os.open(name, _DIR_FLAGS, dir_fd=parent.fd)
+            return self._open_dir(path)[0]
+        except OSError:
+            return -1
+
+
+@dataclass
+class _WalkDir:
+    """A directory of a walk; while pending holds subdirectories to enter, its descriptor stays open
+    (fd is -1 when the walk closed it to bound its descriptors: they are reopened from the root)."""
+
+    path: str
+    fd: int
+    depth: int
+    hops: int  # symlinked directories followed on the way here
+    ident: tuple[int, int]
+    dirnames: list[str] = field(default_factory=list)
+    filenames: list[str] = field(default_factory=list)
+    links: set[str] = field(default_factory=set)  # the dirnames that are symlinks
+    pending: list[str] = field(default_factory=list)  # reversed: the next one is last
+
+
+def _ident(fd: int) -> tuple[int, int]:
+    info = os.fstat(fd)
+    return info.st_dev, info.st_ino
+
+
+def _read_regular(fd: int, rel: str, max_bytes: int | None) -> bytes:
+    """Read the open file *fd* (closed afterwards): a regular file of at most max_bytes."""
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise NotRegularFileError(rel)
+        if max_bytes is not None and info.st_size > max_bytes:
+            raise FileTooLargeError(rel, info.st_size, max_bytes)
+        chunks: list[bytes] = []
+        size = 0
+        while chunk := os.read(fd, _READ_CHUNK):
+            size += len(chunk)
+            if max_bytes is not None and size > max_bytes:
+                raise FileTooLargeError(rel, size, max_bytes)  # grew after the fstat
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def _symlink_target(name: str, dir_fd: int) -> str | None:

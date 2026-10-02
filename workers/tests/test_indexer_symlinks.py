@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 from structlog.testing import capture_logs
 
-from codeforge._tree_sitter_common import _EXTENSION_MAP, collect_source_files
+from codeforge._tree_sitter_common import _EXTENSION_MAP, SourceScan, iter_source_files
 from codeforge.graphrag import CodeGraphBuilder
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import CodeChunker
@@ -54,19 +54,25 @@ def _without_blocking[T](fn: Callable[[], T], seconds: float = 20.0) -> T:
     return result[0]
 
 
-def test_collect_source_files(ws: Path) -> None:
+def _sources(ws: Path) -> tuple[dict[str, bytes], SourceScan]:
+    scan = SourceScan("test")
     with WorkspaceRoot(str(ws)) as root:
-        files, skipped = collect_source_files(root, _EXTENSION_MAP)
-    assert sorted(files) == ["alias.py", "pkg/mod.py"]
-    assert skipped == 4  # leak.py, leak_abs.py, dangling.py, pipe.py
+        sources = dict(iter_source_files(root, _EXTENSION_MAP, scan))
+    return sources, scan
 
 
-def test_collect_source_files_size_cap_is_not_a_skip(ws: Path) -> None:
+def test_iter_source_files(ws: Path) -> None:
+    sources, scan = _without_blocking(lambda: _sources(ws))
+    assert sorted(sources) == ["alias.py", "pkg/mod.py"]
+    assert sources["alias.py"] == sources["pkg/mod.py"]
+    assert scan.skipped == 4  # leak.py, leak_abs.py, dangling.py, pipe.py
+
+
+def test_iter_source_files_size_cap_is_not_a_skip(ws: Path) -> None:
     (ws / "big.py").write_bytes(b"x = 1\n" * 30_000)
-    with WorkspaceRoot(str(ws)) as root:
-        files, skipped = collect_source_files(root, _EXTENSION_MAP)
-    assert "big.py" not in files
-    assert skipped == 4
+    sources, scan = _without_blocking(lambda: _sources(ws))
+    assert "big.py" not in sources
+    assert scan.skipped == 4
 
 
 def _skip_logs(logs: list[dict[str, object]], indexer: str) -> list[dict[str, object]]:

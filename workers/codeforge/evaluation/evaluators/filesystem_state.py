@@ -116,7 +116,8 @@ def _check_files(
         except Exception as exc:
             failures.append(f"read error {rel_path}: {exc}")
             continue
-        if actual_content == expected_content:
+        # Universal newlines, as the file was read before KI-95.
+        if actual_content.replace("\r\n", "\n").replace("\r", "\n") == expected_content:
             passed += 1
         else:
             failures.append(f"content mismatch: {rel_path}")
