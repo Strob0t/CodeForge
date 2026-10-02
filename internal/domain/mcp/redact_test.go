@@ -160,6 +160,8 @@ func TestServerDef_KeepRedactedURLAndArgs(t *testing.T) {
 		Transport: TransportStreamableHTTP, URL: "https://user:s3cret@mcp.example/mcp",
 		Headers: map[string]string{"Authorization": "Bearer h"},
 	}
+	cascade := &ServerDef{Transport: TransportStdio, Command: "npx", Args: []string{"--token", "--api-key", "ghp_1"}}
+	duplicates := &ServerDef{Transport: TransportStdio, Command: "npx", Args: []string{"--token", "ghp_1", "--token", "k2", "--token=ghp_1"}}
 	// base is what the client read; stored is what the store holds (nil on create).
 	tests := []struct {
 		name     string
@@ -254,6 +256,35 @@ func TestServerDef_KeepRedactedURLAndArgs(t *testing.T) {
 			edit:    func(d *ServerDef) { d.URL = "https://user:***@mcp.example/mcp" },
 			wantErr: true,
 		},
+		// Round 2: the args are kept as a whole when they come back as read.
+		{
+			name: "a flag value that looks like a flag", base: cascade, stored: cascade, edit: func(*ServerDef) {},
+			wantArgs: cascade.Args,
+		},
+		{
+			name: "duplicate flags", base: duplicates, stored: duplicates, edit: func(*ServerDef) {},
+			wantArgs: duplicates.Args,
+		},
+		{
+			name: "an argument added", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Args = append(d.Args, "--verbose") },
+			wantErr: true,
+		},
+		{
+			name: "an argument removed", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Args = d.Args[:len(d.Args)-1] },
+			wantErr: true,
+		},
+		{
+			name: "description edited", base: stored, stored: stored,
+			edit:     func(d *ServerDef) { d.Description = "edited" },
+			wantArgs: stored.Args,
+		},
+		{
+			name: "another command with the args as read", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Command = "/bin/other"; d.Env = nil },
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -298,8 +329,11 @@ func TestServerDef_HasRedactedURLAndArgs(t *testing.T) {
 		{ServerDef{URL: "https://u:pw@h/"}, false},
 		{ServerDef{Args: []string{"--token=***"}}, true},
 		{ServerDef{Args: []string{"--token", "***"}}, true},
-		{ServerDef{Args: []string{"--name", "***"}}, false},
-		{ServerDef{Args: []string{"***"}}, false},
+		// Round 2: any *** in the args or url stands for a value as read.
+		{ServerDef{Args: []string{"--name", "***"}}, true},
+		{ServerDef{Args: []string{"***"}}, true},
+		{ServerDef{Args: []string{"--name", "**"}}, false},
+		{ServerDef{URL: "https://h/?api_key=***"}, true},
 	} {
 		if got := tt.def.HasRedacted(); got != tt.want {
 			t.Errorf("HasRedacted(%+v) = %v, want %v", tt.def, got, tt.want)

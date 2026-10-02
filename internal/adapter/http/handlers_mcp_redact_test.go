@@ -394,6 +394,28 @@ func TestMCPServerUpdate_KeepsRedactedURLAndArgs(t *testing.T) {
 		}
 	})
 
+	// Round 2: a value that looks like a flag ("--api-key" after "--token")
+	// is read as ***, and so is the value after it; sent back as read, the
+	// arguments are kept as a whole.
+	t.Run("a flag value that looks like a flag", func(t *testing.T) {
+		saved := mcp.ServerDef{
+			ID: "s3", Name: "cascade", Transport: mcp.TransportStdio, Command: "npx",
+			Args: []string{"--token", "--api-key", mcpArgKey}, Status: mcp.ServerStatusRegistered,
+		}
+		store := &mockStore{mcpServers: []mcp.ServerDef{saved}}
+		read := saved.Redacted()
+		if !slices.Equal(read.Args, []string{"--token", "***", "***"}) {
+			t.Fatalf("read args = %q", read.Args)
+		}
+		read.Enabled = false
+		if w := update(t, store, "s3", &read); w.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", w.Code, w.Body.String())
+		}
+		if got := store.mcpServers[0]; !slices.Equal(got.Args, saved.Args) || got.Enabled {
+			t.Errorf("stored = %+v, want the arguments kept and the server disabled", got)
+		}
+	})
+
 	for name, edit := range map[string]func(d *mcp.ServerDef){
 		"another host keeps no password":       func(d *mcp.ServerDef) { d.URL = "https://user:***@evil.example/sse" },
 		"another flag name keeps no value":     func(d *mcp.ServerDef) { d.Args[2] = "--password=***" },

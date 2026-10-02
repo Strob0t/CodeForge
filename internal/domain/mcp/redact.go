@@ -36,14 +36,17 @@ func (s *ServerDef) Redacted() ServerDef {
 	return out
 }
 
-// KeepRedacted replaces every RedactedValue of s (as Redacted writes them)
-// with the stored value: env and header values of the same key, the url's
-// password, and an argument value at the same position with the same flag.
-// The stored values go only where they were stored for: with anything
-// redacted, transport, url, command and arguments must equal stored once the
-// values are restored. stored is nil for a new server. A RedactedValue that
-// stands for nothing stored, or another destination, is a
-// domain.ErrValidation error, and s is then left as it was.
+// KeepRedacted replaces the RedactedValues of s with what they stand for in
+// stored (nil for a new server). The url and the argument list are taken
+// from stored as a whole when they come back exactly as Redacted shows them;
+// a url or argument list that still carries RedactedValue otherwise is
+// refused (no value is guessed from positions or flags). Env and header
+// values sent as RedactedValue keep the stored value of the same key. Every
+// restored value goes only where it was stored for: transport, url, command
+// and arguments must then equal stored (another command with the stored
+// arguments, or another endpoint with the stored headers, would receive the
+// secrets). A violation is a domain.ErrValidation error, and s is then left
+// as it was.
 func (s *ServerDef) KeepRedacted(stored *ServerDef) error {
 	if !s.HasRedacted() {
 		return nil
@@ -51,13 +54,20 @@ func (s *ServerDef) KeepRedacted(stored *ServerDef) error {
 	if stored == nil {
 		return fmt.Errorf("%w: %q stands for a stored secret, but nothing is stored for this server; enter the values", domain.ErrValidation, RedactedValue)
 	}
-	url, err := keepURLPassword(s.URL, stored.URL)
-	if err != nil {
-		return err
+	read := stored.Redacted()
+	url := s.URL
+	if strings.Contains(url, RedactedValue) {
+		if url != read.URL {
+			return fmt.Errorf("%w: the url carries %q but is not the url as read; enter it with its secrets again", domain.ErrValidation, RedactedValue)
+		}
+		url = stored.URL
 	}
-	args, err := keepArgs(s.Args, stored.Args)
-	if err != nil {
-		return err
+	args := s.Args
+	if slices.ContainsFunc(args, isRedactedArg) {
+		if !slices.Equal(args, read.Args) {
+			return fmt.Errorf("%w: the arguments carry %q but are not the arguments as read; enter them with their secrets again", domain.ErrValidation, RedactedValue)
+		}
+		args = slices.Clone(stored.Args)
 	}
 	if s.Transport != stored.Transport || url != stored.URL || s.Command != stored.Command || !slices.Equal(args, stored.Args) {
 		return fmt.Errorf("%w: stored secrets (env, headers, the url's password, credential arguments) are kept only for the same transport, url, command and arguments; enter them again", domain.ErrValidation)
@@ -74,8 +84,8 @@ func (s *ServerDef) KeepRedacted(stored *ServerDef) error {
 	return nil
 }
 
-// HasRedacted reports whether s carries a RedactedValue where Redacted
-// writes one.
+// HasRedacted reports whether s carries a RedactedValue: as an env or header
+// value, or anywhere in its url or arguments.
 func (s *ServerDef) HasRedacted() bool {
 	for _, values := range []map[string]string{s.Env, s.Headers} {
 		for _, v := range values {
@@ -84,16 +94,10 @@ func (s *ServerDef) HasRedacted() bool {
 			}
 		}
 	}
-	if _, password, _, ok := urlPassword(s.URL); ok && password == RedactedValue {
-		return true
-	}
-	for i := range s.Args {
-		if _, value, ok := credentialArg(s.Args, i); ok && value == RedactedValue {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s.URL, RedactedValue) || slices.ContainsFunc(s.Args, isRedactedArg)
 }
+
+func isRedactedArg(arg string) bool { return strings.Contains(arg, RedactedValue) }
 
 func redactValues(values map[string]string) map[string]string {
 	if values == nil {
@@ -161,20 +165,6 @@ func redactURLPassword(rawURL string) string {
 	return before + RedactedValue + after
 }
 
-// keepURLPassword returns rawURL with a RedactedValue password replaced by
-// the password of storedURL (whatever else differs is refused afterwards).
-func keepURLPassword(rawURL, storedURL string) (string, error) {
-	before, password, after, ok := urlPassword(rawURL)
-	if !ok || password != RedactedValue {
-		return rawURL, nil
-	}
-	_, storedPassword, _, stored := urlPassword(storedURL)
-	if !stored {
-		return "", fmt.Errorf("%w: the url's password is %q, but no password is stored for it", domain.ErrValidation, RedactedValue)
-	}
-	return before + storedPassword + after, nil
-}
-
 // credentialArg reports whether args[i] holds the value of a credential
 // argument: "--name=value", "-name=value" or "name=value" (prefix is the part
 // up to "="), or args[i] follows "--name" or "-name" (prefix is "") - where
@@ -195,27 +185,4 @@ func credentialArg(args []string, i int) (prefix, value string, ok bool) {
 		}
 	}
 	return "", "", false
-}
-
-// keepArgs returns args with every RedactedValue credential value replaced by
-// the stored argument at the same position, when its flag is the same.
-func keepArgs(args, stored []string) ([]string, error) {
-	out := slices.Clone(args)
-	for i := range args {
-		prefix, value, ok := credentialArg(args, i)
-		if !ok || value != RedactedValue {
-			continue
-		}
-		sameFlag := i < len(stored)
-		if sameFlag && prefix == "" {
-			sameFlag = stored[i-1] == args[i-1]
-		} else if sameFlag {
-			sameFlag = strings.HasPrefix(stored[i], prefix)
-		}
-		if !sameFlag || stored[i] == prefix {
-			return nil, fmt.Errorf("%w: argument %d is %q, but no value is stored for it with the same flag", domain.ErrValidation, i+1, RedactedValue)
-		}
-		out[i] = stored[i]
-	}
-	return out, nil
 }
