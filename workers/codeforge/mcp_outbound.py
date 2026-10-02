@@ -315,11 +315,14 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         await self._inner.aclose()
 
 
-def guarded_client_factory(policy: OutboundPolicy) -> McpHttpClientFactory:
+def guarded_client_factory(policy: OutboundPolicy, *, use_proxy: bool = False) -> McpHttpClientFactory:
     """An MCP SDK client factory whose clients connect only through GuardedTransport.
 
     The clients ignore proxy settings of the environment (a proxy would choose the
-    address the policy checks); otherwise they match the SDK's default client.
+    address the policy checks); otherwise they match the SDK's default client. With
+    use_proxy (mcp.use_proxy) they go through the proxy of the environment
+    (HTTPS_PROXY, HTTP_PROXY, NO_PROXY) instead and are not pinned: the proxy dials,
+    so only the url's host is checked, before connecting (OutboundPolicy.check_url).
     """
 
     def create(
@@ -327,14 +330,12 @@ def guarded_client_factory(policy: OutboundPolicy) -> McpHttpClientFactory:
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
     ) -> httpx.AsyncClient:
+        if timeout is None:
+            timeout = httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT)
+        if use_proxy:
+            return httpx.AsyncClient(headers=headers, timeout=timeout, auth=auth, trust_env=True)
         return httpx.AsyncClient(
-            headers=headers,
-            timeout=timeout
-            if timeout is not None
-            else httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
-            auth=auth,
-            transport=GuardedTransport(policy),
-            trust_env=False,
+            headers=headers, timeout=timeout, auth=auth, transport=GuardedTransport(policy), trust_env=False
         )
 
     return create

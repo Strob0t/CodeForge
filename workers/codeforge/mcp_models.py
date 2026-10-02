@@ -24,6 +24,8 @@ class MCPServerDef(BaseModel):
     # An operator server (servers_dir): it may use private and loopback addresses.
     # Only the Go Core sets it, never for a server a tenant stored.
     trusted: bool = False
+    # mcp.use_proxy: connect through the proxy of the environment, unpinned.
+    use_proxy: bool = False
 
 
 class MCPTool(BaseModel):

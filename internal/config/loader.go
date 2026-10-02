@@ -307,6 +307,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.MCP.ServersDir, "CODEFORGE_MCP_SERVERS_DIR")
 	setTyped(&cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT", strconv.Atoi)
 	setStringSlice(&cfg.MCP.AllowedPrivateHosts, "CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS")
+	setTyped(&cfg.MCP.UseProxy, "CODEFORGE_MCP_USE_PROXY", strconv.ParseBool)
 
 	// Agent
 	setString(&cfg.Agent.DefaultModel, "CODEFORGE_AGENT_DEFAULT_MODEL")

@@ -509,6 +509,12 @@ type MCP struct {
 	// unspecified, multicast and reserved addresses stay refused. Only the
 	// platform operator sets it.
 	AllowedPrivateHosts []string `yaml:"allowed_private_hosts"`
+	// UseProxy sends sse and streamable_http MCP connections (the core's
+	// connection test, the worker's runs) through the proxy of the
+	// environment (HTTPS_PROXY, HTTP_PROXY, NO_PROXY; default false). The
+	// url's host is still checked before connecting, but the address cannot
+	// be pinned, so DNS rebinding is left to the proxy's egress policy.
+	UseProxy bool `yaml:"use_proxy"`
 }
 
 // LSP holds Language Server Protocol integration configuration.

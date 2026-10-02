@@ -22,6 +22,9 @@ type MCPServerDefPayload struct {
 	// Trusted marks an operator server (servers_dir): the worker lets it use
 	// private and loopback addresses. Servers stored by tenants never are.
 	Trusted bool `json:"trusted,omitempty"`
+	// UseProxy is mcp.use_proxy for sse and streamable_http servers: the
+	// worker connects through the proxy of its environment, unpinned.
+	UseProxy bool `json:"use_proxy,omitempty"`
 }
 
 // --- Conversation run payloads (Phase 17C) ---

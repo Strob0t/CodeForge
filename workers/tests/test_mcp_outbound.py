@@ -321,6 +321,81 @@ async def test_transport_refuses_a_redirect_to_a_private_address() -> None:
     assert len(recorder.requests) == 1
 
 
+async def test_use_proxy_sends_requests_through_the_proxy_of_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mcp.use_proxy (KI-100 review): the proxy dials, so the address is not pinned."""
+    request_lines: list[bytes] = []
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        head = await reader.readuntil(b"\r\n\r\n")
+        request_lines.append(head.split(b"\r\n", 1)[0])
+        writer.write(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain()
+        writer.close()
+
+    proxy = await asyncio.start_server(handle, "127.0.0.1", 0)
+    proxy_url = f"http://127.0.0.1:{proxy.sockets[0].getsockname()[1]}"
+    for name in ["HTTP_PROXY", "http_proxy"]:
+        monkeypatch.setenv(name, proxy_url)
+    for name in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"]:
+        monkeypatch.delenv(name, raising=False)
+
+    def unexpected(_host: str, _port: int) -> list[str]:
+        raise AssertionError("the transport resolved the host although the proxy connects")
+
+    try:
+        factory = guarded_client_factory(OutboundPolicy([], resolver=unexpected), use_proxy=True)  # type: ignore[arg-type]
+        async with factory(headers={"X-Api-Key": "k"}) as client:
+            assert client.trust_env
+            assert not isinstance(client._transport, GuardedTransport)
+            response = await client.get("http://mcp.example.com/sse")
+        assert response.status_code == 204
+    finally:
+        proxy.close()
+        await proxy.wait_closed()
+    assert request_lines == [b"GET http://mcp.example.com/sse HTTP/1.1"]
+
+
+async def test_use_proxy_still_checks_the_url_before_connecting(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("the SDK client was opened for a refused url")
+
+    monkeypatch.setattr("codeforge.mcp_workbench.sse_client", unexpected)
+    conn = McpServerConnection(
+        MCPServerDef(id="s1", name="S1", transport="sse", url="http://10.0.0.5:6280/sse", use_proxy=True)
+    )
+    with pytest.raises(AddressRefusedError, match=r"10\.0\.0\.5 is a private address"):
+        await conn.connect()
+
+
+async def test_connection_passes_use_proxy_to_the_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import asynccontextmanager
+
+    used: dict[str, httpx.AsyncClient] = {}
+
+    @asynccontextmanager
+    async def sse_client(url: str, headers: object = None, httpx_client_factory: object = None, **_: object):  # type: ignore[no-untyped-def]
+        used["client"] = httpx_client_factory()  # type: ignore[operator]
+        yield (object(), object())
+
+    monkeypatch.setattr("codeforge.mcp_workbench.sse_client", sse_client)
+    monkeypatch.setattr("codeforge.mcp_workbench.ClientSession", _Session)
+    monkeypatch.setattr(OutboundPolicy, "_lookup", _public_lookup)
+    for use_proxy in [True, False]:
+        conn = McpServerConnection(
+            MCPServerDef(id="s1", name="S1", transport="sse", url="https://mcp.example.com/sse", use_proxy=use_proxy)
+        )
+        await conn.connect()
+        client = used["client"]
+        assert client.trust_env is use_proxy
+        assert isinstance(client._transport, GuardedTransport) is not use_proxy
+        await client.aclose()
+        await conn.disconnect()
+
+
+async def _public_lookup(_self: OutboundPolicy, _host: str, _port: int) -> list[str]:
+    return ["93.184.216.34"]
+
+
 async def test_guarded_client_factory_uses_the_policy_and_no_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
     # With a proxy, the proxy would choose the address the policy checks.
     monkeypatch.setenv("HTTP_PROXY", "http://proxy.example:3128")
@@ -587,3 +662,4 @@ def test_go_payloads_carry_the_allowlist(fixture: str) -> None:
     server = MCPServerDef.model_validate(raw["mcp_servers"][0])
     assert server.allowed_private_hosts == ["docs-mcp", "10.20.0.0/16"]
     assert server.trusted is True
+    assert server.use_proxy is True

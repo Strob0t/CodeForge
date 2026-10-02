@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,6 +39,9 @@ type MCPService struct {
 	// use (KI-100); allowedPrivateHosts is its allowlist, as configured.
 	outbound            *netutil.OutboundPolicy
 	allowedPrivateHosts []string
+	// useProxy (mcp.use_proxy) sends their connections through proxy.
+	useProxy bool
+	proxy    func(*http.Request) (*url.URL, error)
 }
 
 // NewMCPService creates an MCPService. If cfg.ServersDir is set, definitions
@@ -56,6 +61,12 @@ func NewMCPService(cfg *config.MCP, limits *config.Limits) *MCPService {
 		limits:              limits,
 		outbound:            outbound,
 		allowedPrivateHosts: allowed,
+		useProxy:            cfg.UseProxy,
+		proxy:               http.ProxyFromEnvironment,
+	}
+	if cfg.UseProxy {
+		slog.Warn("mcp.use_proxy is on: sse and streamable_http MCP connections go through the proxy of the environment; " +
+			"their host is checked before connecting, but the address cannot be pinned, so DNS rebinding is left to the proxy's egress policy")
 	}
 
 	if cfg.ServersDir != "" {
@@ -218,6 +229,7 @@ func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, _ string)
 		if d.Transport == mcp.TransportSSE || d.Transport == mcp.TransportStreamableHTTP {
 			p.AllowedPrivateHosts = s.allowedPrivateHosts
 			p.Trusted = servers[i].operator
+			p.UseProxy = s.useProxy
 		}
 		payloads = append(payloads, p)
 	}

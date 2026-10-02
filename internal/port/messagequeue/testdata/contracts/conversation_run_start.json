@@ -80,7 +80,8 @@
         "docs-mcp",
         "10.20.0.0/16"
       ],
-      "trusted": true
+      "trusted": true,
+      "use_proxy": true
     }
   ],
   "tools": [

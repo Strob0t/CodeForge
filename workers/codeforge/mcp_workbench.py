@@ -88,7 +88,7 @@ class McpServerConnection:
         """
         policy = OutboundPolicy(self._def.allowed_private_hosts, trusted=self._def.trusted)
         await policy.check_url(self._def.url)
-        client_factory = guarded_client_factory(policy)
+        client_factory = guarded_client_factory(policy, use_proxy=self._def.use_proxy)
         if self._def.transport == "sse":
             return await stack.enter_async_context(
                 sse_client(

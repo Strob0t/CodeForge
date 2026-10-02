@@ -107,6 +107,12 @@ orchestrator:
 #     - docs-mcp             # e.g. the docs-mcp service on the compose network
 #     - 10.20.0.0/16
 #     # - 127.0.0.1          # dev: a core on the host, docs-mcp on 127.0.0.1:6280
+#   # Send sse and streamable_http MCP connections through the proxy of the
+#   # environment (HTTPS_PROXY, HTTP_PROXY, NO_PROXY). The url's host is still
+#   # checked before connecting, but the proxy dials, so the address cannot be
+#   # pinned: DNS rebinding is then the job of the proxy's egress policy.
+#   # Env: CODEFORGE_MCP_USE_PROXY.
+#   use_proxy: false
 
 # Language Server Protocol integration (Phase 15D)
 # Provides code intelligence (go-to-def, references, diagnostics) for agent conversations.

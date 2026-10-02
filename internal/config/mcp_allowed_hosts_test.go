@@ -39,6 +39,30 @@ func TestMCPAllowedPrivateHosts_Layering(t *testing.T) {
 	}
 }
 
+// TestMCPUseProxy_Layering (KI-100 review): MCP connections may go through
+// the proxy of the environment, opt-in by the operator.
+func TestMCPUseProxy_Layering(t *testing.T) {
+	if Defaults().MCP.UseProxy {
+		t.Fatal("mcp.use_proxy is on by default")
+	}
+	path := filepath.Join(t.TempDir(), "codeforge.yaml")
+	if err := os.WriteFile(path, []byte("mcp:\n  use_proxy: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	if err := loadYAML(&cfg, path); err != nil {
+		t.Fatalf("loadYAML: %v", err)
+	}
+	if !cfg.MCP.UseProxy {
+		t.Fatal("YAML use_proxy: true was not read")
+	}
+	t.Setenv("CODEFORGE_MCP_USE_PROXY", "false")
+	loadEnv(&cfg)
+	if cfg.MCP.UseProxy {
+		t.Fatal("CODEFORGE_MCP_USE_PROXY=false did not override YAML")
+	}
+}
+
 func TestValidate_MCPAllowedPrivateHosts(t *testing.T) {
 	for name, tt := range map[string]struct {
 		hosts   []string

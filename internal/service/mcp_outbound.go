@@ -74,12 +74,17 @@ func (s *MCPService) checkServerURL(ctx context.Context, def *mcp.ServerDef) err
 // mcpHTTPClient connects only to addresses the policy allows, checked at the
 // address it dials (DNS rebinding, redirects), never through a proxy, and
 // follows a redirect only within the server's origin: the headers it sends
-// belong to that server. The worker's MCP SDK follows the same rule.
+// belong to that server. The worker's MCP SDK follows the same rule. With
+// mcp.use_proxy it connects through the proxy of the environment instead:
+// the proxy dials, so only the url's host is checked (checkServerURL, before
+// connecting; a followed redirect stays on that host).
 func (s *MCPService) mcpHTTPClient() *http.Client {
-	return &http.Client{
-		Transport:     s.outboundPolicy().Transport(),
-		CheckRedirect: sameOriginRedirect,
+	transport := s.outboundPolicy().Transport()
+	if s.useProxy {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = s.proxy
 	}
+	return &http.Client{Transport: transport, CheckRedirect: sameOriginRedirect}
 }
 
 // sameOriginRedirect follows a redirect exactly when the worker's MCP SDK
