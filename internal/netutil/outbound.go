@@ -52,12 +52,16 @@ var neverAllowed = []addrRange{
 }
 
 // morePrivate are private ranges IsPrivateIP does not list: shared address
-// space (CGNAT), benchmarking, IETF protocol assignments, IPv6 site-local.
+// space (CGNAT), benchmarking, IETF protocol assignments, IPv6 site-local
+// and the NAT64 local-use prefix (RFC 8215; a local translator decides what
+// it reaches, and its IPv4 embedding is not the /96 one, so it is not read
+// as IPv4).
 var morePrivate = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("192.0.0.0/24"),
 	netip.MustParsePrefix("fec0::/10"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
 }
 
 // IPv6 ranges that carry an IPv4 address in their last 32 bits: deprecated
@@ -96,8 +100,8 @@ func (e *RefusedAddressError) Allowable() bool { return e.Kind == kindPrivate }
 // OutboundPolicy decides which addresses an outbound connection to a URL that
 // a tenant supplied may reach (KI-100). Loopback, link-local (cloud
 // metadata), unspecified, multicast and reserved addresses are always
-// refused; private ones (RFC 1918, ULA, CGNAT, ...) only when neither the
-// host name nor the address is on the operator's allowlist. IPv4 addresses
+// refused; private ones (RFC 1918, ULA, CGNAT, NAT64 local-use, ...) only
+// when neither the host name nor the address is on the operator's allowlist. IPv4 addresses
 // inside IPv6 (mapped, compatible, NAT64) are judged as IPv4.
 type OutboundPolicy struct {
 	hosts    map[string]bool

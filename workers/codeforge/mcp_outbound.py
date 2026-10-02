@@ -68,6 +68,8 @@ _PRIVATE_NETWORKS: tuple[IPNetwork, ...] = tuple(
         "192.0.0.0/24",
         "fc00::/7",
         "fec0::/10",
+        # NAT64 local-use prefix (RFC 8215): its IPv4 embedding is not the /96 one, so not read as IPv4.
+        "64:ff9b:1::/48",
     )
 )
 

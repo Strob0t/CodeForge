@@ -162,6 +162,24 @@
           "allowed": true
         },
         {
+          "name": "nat64 local-use prefix (RFC 8215) is private",
+          "host": "evil.example",
+          "ip": "64:ff9b:1::5db8:d822",
+          "allowable": true
+        },
+        {
+          "name": "nat64 local-use prefix, last address",
+          "host": "evil.example",
+          "ip": "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+          "allowable": true
+        },
+        {
+          "name": "just outside the nat64 local-use prefix",
+          "host": "example.com",
+          "ip": "64:ff9b:2::1",
+          "allowed": true
+        },
+        {
           "name": "allowlisted host",
           "host": "docs-mcp",
           "ip": "172.18.0.5",
@@ -305,6 +323,24 @@
           "name": "public",
           "host": "example.com",
           "ip": "93.184.216.34",
+          "allowed": true
+        }
+      ]
+    },
+    {
+      "name": "nat64 local-use is not read as IPv4",
+      "allowed_private_hosts": ["10.0.0.0/8", "64:ff9b:1:abcd::/64"],
+      "cases": [
+        {
+          "name": "an IPv4 allowlist does not open it",
+          "host": "evil.example",
+          "ip": "64:ff9b:1::a00:1",
+          "allowable": true
+        },
+        {
+          "name": "an allowlisted local-use prefix opens it",
+          "host": "evil.example",
+          "ip": "64:ff9b:1:abcd::1",
           "allowed": true
         }
       ]
