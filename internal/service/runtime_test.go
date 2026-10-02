@@ -720,6 +720,12 @@ func (m *runtimeMockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenan
 }
 func (m *runtimeMockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
 func (m *runtimeMockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+func (m *runtimeMockStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (m *runtimeMockStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection Rule stubs
 func (m *runtimeMockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {

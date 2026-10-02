@@ -79,6 +79,12 @@ func run(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "migrations failed: %v\n", err)
 		return 1
 	}
+	// Tests create and delete tenants on every run: keep the long-lived test
+	// database from running out of tool UIDs (KI-96).
+	if err := resetToolUIDSequence(ctx, pool); err != nil {
+		fmt.Fprintf(os.Stderr, "reset the tool uid sequence: %v\n", err)
+		return 1
+	}
 
 	// Real router with real store, stub queue/broadcaster.
 	store := postgres.NewStore(pool)

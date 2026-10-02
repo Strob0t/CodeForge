@@ -699,11 +699,12 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(audit("delete", "user_data")).Delete("/{id}/data", h.DeleteUserData)
 	})
 
-	// Tenants (admin only)
+	// Tenants (admin only). Creating one is for platform admins: every tenant
+	// that runs tools takes a tool UID of the deployment's range (KI-96).
 	r.Route("/tenants", func(r chi.Router) {
 		r.Use(middleware.RequireRole(user.RoleAdmin))
 		r.Get("/", h.ListTenants)
-		r.Post("/", h.CreateTenant)
+		r.With(middleware.RequirePlatformAdmin).Post("/", h.CreateTenant)
 		r.Get("/{id}", h.GetTenant)
 		r.Put("/{id}", h.UpdateTenant)
 	})

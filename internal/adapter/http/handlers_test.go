@@ -69,6 +69,7 @@ import (
 // mockStore implements database.Store for testing.
 type mockStore struct {
 	mu                  sync.Mutex
+	tenants             []tenant.Tenant
 	projects            []project.Project
 	agents              []agent.Agent
 	tasks               []task.Task
@@ -717,14 +718,36 @@ func (m *mockStore) DeleteFeature(_ context.Context, id string) error {
 }
 
 // Tenant stubs
-func (m *mockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
-	return nil, nil
+func (m *mockStore) CreateTenant(_ context.Context, req tenant.CreateRequest) (*tenant.Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t := tenant.Tenant{ID: fmt.Sprintf("tenant-%d", len(m.tenants)+1), Name: req.Name, Slug: req.Slug, Enabled: true}
+	m.tenants = append(m.tenants, t)
+	return &t, nil
 }
-func (m *mockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) {
-	return nil, nil
+func (m *mockStore) GetTenant(_ context.Context, id string) (*tenant.Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tenants {
+		if m.tenants[i].ID == id {
+			t := m.tenants[i]
+			return &t, nil
+		}
+	}
+	return nil, errNotFound
 }
-func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
+func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]tenant.Tenant(nil), m.tenants...), nil
+}
 func (m *mockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+func (m *mockStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (m *mockStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection Rule stubs
 func (m *mockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
@@ -1750,6 +1773,7 @@ func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, ll
 	mcpSvc := newTestMCPService(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
+		Tenants:          service.NewTenantService(store),
 		Tasks:            service.NewTaskService(store, queue),
 		Agents:           service.NewAgentService(store, queue, bc),
 		LLM:              litellm.NewClient(llmURL, ""),

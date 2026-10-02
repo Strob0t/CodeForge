@@ -24,7 +24,7 @@ const migrationsDir = "../../internal/adapter/postgres/migrations"
 func TestMigrationUpDown(t *testing.T) {
 	dsn := scratchDatabase(t)
 	ctx := context.Background()
-	totalMigrations := latestMigrationVersion(t)
+	totalMigrations, migrationCount := latestMigrationVersion(t)
 
 	// Step 1: Apply all migrations (up to latest)
 	if err := postgres.RunMigrations(ctx, dsn); err != nil {
@@ -40,7 +40,7 @@ func TestMigrationUpDown(t *testing.T) {
 	}
 
 	// Step 2: Roll back all migrations
-	if err := postgres.RollbackMigrations(ctx, dsn, int(totalMigrations)); err != nil {
+	if err := postgres.RollbackMigrations(ctx, dsn, migrationCount); err != nil {
 		t.Fatalf("RollbackMigrations (down all): %v", err)
 	}
 
@@ -67,14 +67,15 @@ func TestMigrationUpDown(t *testing.T) {
 }
 
 // latestMigrationVersion returns the highest version prefix (NNN_name.sql) of
-// the migration files, so the test follows new migrations automatically.
-func latestMigrationVersion(t *testing.T) int64 {
+// the migration files and how many there are (versions may leave gaps:
+// numbers reserved for work in progress), so the test follows new
+// migrations automatically.
+func latestMigrationVersion(t *testing.T) (latest int64, count int) {
 	t.Helper()
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		t.Fatalf("read migrations dir: %v", err)
 	}
-	var latest int64
 	for _, e := range entries {
 		prefix, _, ok := strings.Cut(e.Name(), "_")
 		if !ok || !strings.HasSuffix(e.Name(), ".sql") {
@@ -85,11 +86,12 @@ func latestMigrationVersion(t *testing.T) int64 {
 			t.Fatalf("migration %s: version prefix: %v", e.Name(), err)
 		}
 		latest = max(latest, v)
+		count++
 	}
 	if latest == 0 {
 		t.Fatalf("no migrations found in %s", migrationsDir)
 	}
-	return latest
+	return latest, count
 }
 
 // scratchDatabase creates an empty database next to the test database and

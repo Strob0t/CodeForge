@@ -412,6 +412,12 @@ func (s *testStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*te
 func (s *testStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) { return nil, nil }
 func (s *testStore) ListTenants(_ context.Context) ([]tenant.Tenant, error)        { return nil, nil }
 func (s *testStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error        { return nil }
+func (s *testStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (s *testStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection stubs
 func (s *testStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
