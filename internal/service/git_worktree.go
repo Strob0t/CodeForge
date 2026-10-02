@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,7 +131,10 @@ func hasFilterAttributes(ctx context.Context, repo *git.Repo) bool {
 	out, err := repo.Run(ctx, nil, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
 		"--", ":(glob)**/.gitattributes")
 	if err != nil {
-		return false
+		// Attributes that cannot be listed count as filters, like a
+		// repository that cannot be opened: renormalizing is the safe side.
+		slog.Warn("cannot list .gitattributes files, renormalizing", "error", err)
+		return true
 	}
 	// A repository that cannot be opened counts as having filters:
 	// renormalizing is the safe side (S7-B review).

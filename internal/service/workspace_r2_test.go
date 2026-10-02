@@ -90,3 +90,33 @@ func TestHasFilterAttributes_FailsClosed(t *testing.T) {
 		t.Fatal("a working tree that cannot be opened must count as filtered (renormalize)")
 	}
 }
+
+// S7-B round 3: when git cannot list the attributes files, the repository
+// counts as having filter attributes too.
+func TestHasFilterAttributes_FailsClosedWhenListingFails(t *testing.T) {
+	dir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "T"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	repo, err := git.OpenRepo(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasFilterAttributes(context.Background(), repo) {
+		t.Fatal("a repository without attributes has no filters")
+	}
+	// A corrupt index makes ls-files fail.
+	if err := os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("not an index"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Run(context.Background(), nil, "ls-files"); err == nil {
+		t.Fatal("ls-files must fail on a corrupt index")
+	}
+	if !hasFilterAttributes(context.Background(), repo) {
+		t.Fatal("a repository whose attributes cannot be listed must count as filtered (renormalize)")
+	}
+}
