@@ -8,6 +8,7 @@ with ambient capabilities, a tmpfs secrets directory).
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -113,6 +114,39 @@ async def test_no_secret_is_ever_on_a_tool_command_line(shared_tmp: Path) -> Non
     seen, helpers = (int(n) for n in out.split())
     assert helpers > 0, "the poller saw no launch at all"
     assert seen == 0, f"{seen} secrets read from other processes' command lines or environments"
+
+
+async def test_a_tool_process_can_reopen_its_stdio_pipes() -> None:
+    """Tools write to /dev/stdout and /dev/stderr (echo x > /dev/stderr, tee /dev/stderr, logging
+    configs): reopening a pipe needs the pipe inode's permission, and the worker's pipes were 0600
+    (KI-96, E11)."""
+    from codeforge.tool_process import configure_tool_isolation, start_tool_process
+    from tests.tool_isolation_check import CONFIG
+
+    assert configure_tool_isolation(CONFIG).ready
+    proc = await start_tool_process(
+        "sh",
+        "-c",
+        "echo out > /dev/stdout && echo err > /dev/stderr && cat /dev/stdin > /dev/fd/1",
+        env={"PATH": "/usr/bin:/bin"},
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate(b"in\n")
+    assert (proc.returncode, out, err) == (0, b"out\nin\n", b"err\n")
+
+    proc = await start_tool_process(
+        "sh",
+        "-c",
+        "echo merged > /dev/stderr",
+        env={"PATH": "/usr/bin:/bin"},
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    assert proc.stdout is not None
+    assert await proc.stdout.readline() == b"merged\n"
+    assert await proc.wait() == 0
 
 
 # A minimal MCP stdio server (newline-delimited JSON-RPC, standard library

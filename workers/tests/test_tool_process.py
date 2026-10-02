@@ -285,6 +285,44 @@ async def test_the_launch_spec_is_closed_after_the_spawn(
             os.fstat(fd)
 
 
+async def test_isolated_stdio_pipes_are_open_to_the_tool_user(
+    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool user can reopen its pipes (/dev/stdout, /dev/stderr): they are 0666 (KI-96, E11)."""
+    isolation(READY)
+    seen: dict[str, object] = {}
+
+    async def fake_exec(*_args: object, **kwargs: object) -> _FakeProc:
+        for name in ("stdin", "stdout", "stderr"):
+            fd = kwargs[name]
+            assert isinstance(fd, int)
+            seen[name] = (fd, stat.S_IMODE(os.fstat(fd).st_mode), stat.S_ISFIFO(os.fstat(fd).st_mode))
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    proc = await start_tool_process(
+        "cat", env={}, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, limit=1024
+    )
+    assert {mode for _fd, mode, _fifo in seen.values()} == {0o666}  # type: ignore[misc]
+    assert all(fifo for _fd, _mode, fifo in seen.values())  # type: ignore[misc]
+    assert seen["stdout"][0] == seen["stderr"][0]  # type: ignore[index]  # stderr=STDOUT: the same pipe
+    for _fd, _mode, _fifo in seen.values():  # type: ignore[misc]
+        with pytest.raises(OSError):
+            os.fstat(_fd)  # the worker closed the child's ends after the spawn
+    # The worker's ends are the process's streams; the child's ends are closed, so they read EOF.
+    assert isinstance(proc.stdout, asyncio.StreamReader)
+    assert isinstance(proc.stdin, asyncio.StreamWriter)
+    out, _ = await proc.communicate(b"ignored")
+    assert out == b""
+
+
+async def test_off_keeps_asyncio_pipes(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
+    isolation(IsolationStatus(config=OFF, ready=True))
+    await start_tool_process("cat", env={}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    _args, kwargs = spawns[0]
+    assert (kwargs["stdout"], kwargs["stderr"]) == (subprocess.PIPE, subprocess.STDOUT)
+
+
 async def test_shell_commands_run_through_sh(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
     isolation(READY)
     await start_tool_shell("pytest -q && echo ok", env={}, cwd="/ws")

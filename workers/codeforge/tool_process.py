@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping, Sequence
+    from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
     from typing import TextIO
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -489,7 +489,11 @@ async def start_tool_process(
     available.
     """
     launch = _launch([program, *args], env, cwd)
+    isolated = launch.umask is not None
+    pipes = _OpenPipes(stdin, stdout, stderr) if isolated else None
     optional = {"stdin": stdin, "stdout": stdout, "stderr": stderr, "limit": limit, "umask": launch.umask}
+    if pipes is not None:
+        optional.update(pipes.child_streams())
     options: dict[str, object] = {
         "env": launch.env,
         "cwd": launch.cwd,
@@ -500,11 +504,131 @@ async def start_tool_process(
         options["pass_fds"] = launch.pass_fds
     try:
         proc = await asyncio.create_subprocess_exec(*launch.argv, **options)  # type: ignore[arg-type]
+    except BaseException:
+        if pipes is not None:
+            pipes.close_parent_ends()
+        raise
     finally:
         launch.close()
-    if launch.umask is not None and cwd is not None:
+        if pipes is not None:
+            pipes.close_child_ends()
+    if pipes is not None:
+        await pipes.attach(proc, limit)
+    if isolated and cwd is not None:
         _share_after_exit(proc, cwd)
     return proc
+
+
+# asyncio's default StreamReader limit.
+_STREAM_LIMIT = 2**16
+
+
+class _OpenPipes:
+    """The stdio pipes of a tool process, made by the worker and opened to every user.
+
+    A pipe's inode belongs to its creator with mode 0600. A tool process
+    writes through the descriptors it inherits either way, but reopening
+    them (/dev/stdout, /dev/stderr, /dev/fd/N, which logging configs, tee
+    and shell redirections do) checks the inode's permission, and the tool
+    user is not the worker (KI-96, E11). The pipes are made here and opened
+    (0666) before the spawn; reopening still needs access to the holder's
+    /proc/<pid>/fd, so no other user gains anything. asyncio gets the
+    worker's ends as its streams, as with ``PIPE``.
+    """
+
+    def __init__(self, stdin: int | None, stdout: int | None, stderr: int | None) -> None:
+        self._child: dict[str, int] = {}
+        self._parent: dict[str, int] = {}
+        try:
+            if stdin == subprocess.PIPE:
+                self._child["stdin"], self._parent["stdin"] = self._pipe()
+            if stdout == subprocess.PIPE:
+                self._parent["stdout"], self._child["stdout"] = self._pipe()
+            if stderr == subprocess.PIPE:
+                self._parent["stderr"], self._child["stderr"] = self._pipe()
+            elif stderr == subprocess.STDOUT and "stdout" in self._child:
+                self._child["stderr"] = self._child["stdout"]
+        except BaseException:
+            self.close_child_ends()
+            self.close_parent_ends()
+            raise
+
+    @staticmethod
+    def _pipe() -> tuple[int, int]:
+        read_end, write_end = os.pipe2(os.O_CLOEXEC)
+        try:
+            for fd in (read_end, write_end):
+                os.fchmod(fd, 0o666)
+        except BaseException:
+            os.close(read_end)
+            os.close(write_end)
+            raise
+        return read_end, write_end
+
+    def child_streams(self) -> dict[str, int]:
+        return dict(self._child)
+
+    def close_child_ends(self) -> None:
+        for fd in set(self._child.values()):
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        self._child.clear()
+
+    def close_parent_ends(self) -> None:
+        for fd in self._parent.values():
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        self._parent.clear()
+
+    async def attach(self, proc: asyncio.subprocess.Process, limit: int | None) -> None:
+        """Give *proc* stream objects on the worker's ends, and a communicate() that uses them."""
+        loop = asyncio.get_running_loop()
+        try:
+            if "stdin" in self._parent:
+                fd = self._parent.pop("stdin")
+                transport, protocol = await loop.connect_write_pipe(
+                    lambda: asyncio.StreamReaderProtocol(asyncio.StreamReader()), os.fdopen(fd, "wb", buffering=0)
+                )
+                proc.stdin = asyncio.StreamWriter(transport, protocol, None, loop)
+            for name in ("stdout", "stderr"):
+                if name in self._parent:
+                    fd = self._parent.pop(name)
+                    reader = asyncio.StreamReader(limit=limit or _STREAM_LIMIT)
+                    await loop.connect_read_pipe(
+                        lambda reader=reader: asyncio.StreamReaderProtocol(reader), os.fdopen(fd, "rb", buffering=0)
+                    )
+                    setattr(proc, name, reader)
+        finally:
+            self.close_parent_ends()
+        proc.communicate = _communicate_on(proc)  # type: ignore[method-assign]
+
+
+def _communicate_on(
+    proc: asyncio.subprocess.Process,
+) -> Callable[[bytes | None], Coroutine[object, object, tuple[bytes | None, bytes | None]]]:
+    """Process.communicate() for streams asyncio's transport does not own (_OpenPipes)."""
+
+    async def feed(data: bytes | None) -> None:
+        if proc.stdin is None:
+            return
+        try:
+            if data:
+                proc.stdin.write(data)
+                await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the process exited early; its exit code tells why
+        finally:
+            proc.stdin.close()
+
+    async def read(stream: asyncio.StreamReader | None) -> bytes | None:
+        return None if stream is None else await stream.read()
+
+    async def communicate(input: bytes | None = None) -> tuple[bytes | None, bytes | None]:  # noqa: A002 - the asyncio signature
+        _, out, err = await asyncio.gather(feed(input), read(proc.stdout), read(proc.stderr))
+        await proc.wait()
+        return out, err
+
+    return communicate
 
 
 def _share_after_exit(proc: asyncio.subprocess.Process, root: str) -> None:
