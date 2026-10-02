@@ -195,7 +195,7 @@ CodeForge/
 │   │   ├── otel/             # OpenTelemetry tracing + metrics
 │   │   ├── plandex/          # Plandex agent backend
 │   │   ├── plane/            # Plane.so PM provider
-│   │   ├── postgres/         # PostgreSQL store + 110 migrations
+│   │   ├── postgres/         # PostgreSQL store + 113 migrations
 │   │   ├── slack/            # Slack notification + feedback adapter
 │   │   ├── speckit/          # Spec Kit provider
 │   │   ├── svn/              # SVN provider
@@ -383,6 +383,8 @@ docker exec codeforge-docs-mcp npx docs-mcp-server scrape fastapi https://fastap
 - Core and worker on the host, docs-mcp published on `127.0.0.1:6280`: allowlist `127.0.0.1` and register `http://127.0.0.1:6280/sse` (`localhost` may also resolve to `::1`, which that entry does not open; the entry `localhost` opens both).
 - Core and worker in the compose network: register `http://docs-mcp:6280/sse` and allowlist `docs-mcp`, or the container address or the network's CIDR (for example `172.18.0.0/16`).
 - A `servers_dir` YAML definition needs no entry in the worker (operator config).
+
+PM syncs: a self-hosted GitLab on a private network or on the host needs an entry in `pm.allowed_private_hosts` (for example `gitlab.corp.internal`, `10.20.0.0/16`, or `127.0.0.1` in dev); the list is separate from `mcp.allowed_private_hosts`.
 
 
 
@@ -670,17 +672,17 @@ Example:
 | `orchestrator.subagent_timeout` | `CODEFORGE_ORCH_SUBAGENT_TIMEOUT` | `60s` | Sub-agent request timeout |
 | `orchestrator.context_rerank_enabled` | `CODEFORGE_CONTEXT_RERANK_ENABLED` | `false` | Enable LLM context reranking |
 | `orchestrator.context_rerank_model` | `CODEFORGE_CONTEXT_RERANK_MODEL` | `` | Model for reranking |
-| `webhook.github_secret` | `CODEFORGE_WEBHOOK_GITHUB_SECRET` | `` | GitHub webhook HMAC secret |
-| `webhook.gitlab_token` | `CODEFORGE_WEBHOOK_GITLAB_TOKEN` | `` | GitLab webhook token |
-| `webhook.plane_secret` | `CODEFORGE_WEBHOOK_PLANE_SECRET` | `` | Plane webhook secret |
-| `notification.slack_webhook_url` | `CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL` | `` | Slack webhook URL |
+| `webhook.delivery_retention` | `CODEFORGE_WEBHOOK_DELIVERY_RETENTION` | `168h` | How long a webhook remembers a delivery (its body hash and delivery ID). Within it, a redelivery, or a replay of a signed delivery under any delivery ID, is handled once; must be positive. Webhooks are registered per project (`POST /api/v1/projects/{id}/webhooks`, KI-85, see [Inbound Webhooks](#inbound-webhooks-ki-85)) |
+| `webhook.github_secret`, `webhook.gitlab_token`, `webhook.plane_secret` | `CODEFORGE_WEBHOOK_GITHUB_SECRET` etc. | `` | Removed (KI-85): ignored; the startup log names them |
+| `notification.slack_webhook_url` | `CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL` | `` | Slack webhook URL; approval requests of `approval_tenants` are posted there, with a link to the approval page, when `web_ui_url` is set too (no buttons, KI-84) |
 | `notification.discord_webhook_url` | `CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL` | `` | Discord webhook URL |
 | `notification.smtp_host` | `CODEFORGE_SMTP_HOST` | `` | SMTP server hostname |
 | `notification.smtp_port` | `CODEFORGE_SMTP_PORT` | `587` | SMTP server port; startup rejects ports outside 1-65535 when `smtp_host` is set |
 | `notification.smtp_from` | `CODEFORGE_SMTP_FROM` | `` | SMTP sender email |
 | `notification.smtp_password` | `CODEFORGE_SMTP_PASSWORD` | `` | SMTP password |
-| `notification.approval_recipients` | `CODEFORGE_NOTIFICATION_APPROVAL_RECIPIENTS` | `` | Comma-separated bare email addresses that get an email for each tool call awaiting approval of the default tenant (other tenants' requests are not mailed). Needs `smtp_host`, `smtp_from` and `web_ui_url` as well; the provider is registered only when all four are set and the startup log names what is missing |
-| `notification.web_ui_url` | `CODEFORGE_NOTIFICATION_WEB_UI_URL` | `` | Base URL of the web UI (absolute http(s), no user info, query or fragment); approval emails link to `<web_ui_url>/approvals/<run>/<call>`, which asks for a login |
+| `notification.approval_recipients` | `CODEFORGE_NOTIFICATION_APPROVAL_RECIPIENTS` | `` | Comma-separated bare email addresses that get an email for each tool call awaiting approval of the tenants in `approval_tenants` (other tenants' requests are not mailed). Needs `smtp_host`, `smtp_from` and `web_ui_url` as well; the provider is registered only when all four are set and the startup log names what is missing |
+| `notification.web_ui_url` | `CODEFORGE_NOTIFICATION_WEB_UI_URL` | `` | Base URL of the web UI (absolute http(s), no user info, query or fragment); approval emails and Slack messages link to `<web_ui_url>/approvals/<run>/<call>`, which asks for a login |
+| `notification.approval_tenants` | `CODEFORGE_NOTIFICATION_APPROVAL_TENANTS` | default tenant | Comma-separated tenant IDs (UUIDs) whose approval requests reach the Slack channel and the approval emails; empty: none |
 | `retention.interval` | `CODEFORGE_RETENTION_INTERVAL` | `24h` | How often the GDPR retention job runs (also once at startup); `0` disables it ([data-retention.md](data-retention.md)) |
 | `retention.sessions` | `CODEFORGE_RETENTION_SESSIONS` | `720h` | Delete agent sessions idle longer than this (`0` keeps them) |
 | `retention.conversations` | `CODEFORGE_RETENTION_CONVERSATIONS` | `8760h` | Delete conversations (with messages) idle longer than this |
@@ -701,8 +703,9 @@ Example:
 | `agent.conversation_rollout_count` | `CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT` | `1` | Conversation rollout count (1-8) |
 | `agent.summarize_threshold` | `CODEFORGE_SUMMARIZE_THRESHOLD` | `0` | Message count to trigger summarization (0 = disabled) |
 | `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |
-| `plane.api_token` | `CODEFORGE_PLANE_API_TOKEN` (or `_FILE`) | `` | Plane.so API token for PM sync and Plane webhooks |
+| `plane.api_token` | `CODEFORGE_PLANE_API_TOKEN` (or `_FILE`) | `` | Plane.so API token for PM sync and Plane webhooks; serves only the default tenant (webhook syncs, imports), other tenants need their own `api_token` |
 | `plane.base_url` | `CODEFORGE_PLANE_BASE_URL` | `https://api.plane.so` | Plane API the token belongs to (absolute http(s) URL); the token is sent only there, a project whose `plane_base_url` names another host is not synced by webhooks |
+| `pm.allowed_private_hosts` | `CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS` | `` (none) | Host names, IPs and CIDRs (comma-separated in the env) whose private addresses the GitLab PM provider may reach. Its base URL is a project's `repo_url` host or a manual sync's `base_url`, chosen by tenants. Loopback opens only by an explicit entry; link-local and cloud metadata addresses never. Invalid entries stop startup. Separate from `mcp.allowed_private_hosts`. A self-hosted GitLab on a private network must be listed. GitLab PM requests use no proxy |
 | `copilot.hosts_file_path` | `CODEFORGE_COPILOT_HOSTS_FILE` | `` (falls back to `~/.config/github-copilot/hosts.json`) | Copilot hosts file path |
 | `experience.enabled` | `CODEFORGE_EXPERIENCE_ENABLED` | `false` | Experience pool (Go and worker): tenant-scoped cache used only for the first turn of a simple (non-agentic) chat |
 | `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum similarity to use a cached answer (0 < value <= 1) |
@@ -1021,6 +1024,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_MCP_SERVER_PORT | 3001                                     | Built-in MCP server port        |
 | CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS |                                | Comma-separated hosts, IPs, CIDRs whose private addresses sse/streamable_http MCP servers may use; loopback only by an explicit entry; metadata never |
 | CODEFORGE_MCP_USE_PROXY   | false                                    | Connect sse/streamable_http MCP servers through the environment proxy (address not pinned) |
+| CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS |                                 | Comma-separated hosts, IPs, CIDRs whose private addresses the GitLab PM provider may reach (a self-hosted GitLab); loopback only by an explicit entry; metadata never |
 | CODEFORGE_AUTH_ENABLED    | true                                     | Enable JWT authentication       |
 | CODEFORGE_AUTH_JWT_SECRET | (empty: random secret per start)         | HMAC-SHA256 JWT signing key; if unset, a random secret is generated at startup and lost on restart. Must be >= 32 chars; well-known values such as `codeforge-dev-jwt-secret-change-in-production` are rejected unless `APP_ENV=development` |
 | CODEFORGE_AUTH_ACCESS_EXPIRY | 15m                                   | Access token lifetime           |
@@ -1086,7 +1090,7 @@ In development, secrets are loaded from environment variables (`.env` file).
 
 In production, every secret comes from a Docker secret file. The Go Core reads `<KEY>_FILE` for its secret settings
 (`CODEFORGE_INTERNAL_KEY`, `DATABASE_URL`, `NATS_URL`, `LITELLM_MASTER_KEY`, `CODEFORGE_AUTH_JWT_SECRET`,
-`CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET`, the admin password, webhook secrets, GitHub client secret, SMTP password,
+`CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET`, the admin password, GitHub client secret, SMTP password,
 Plane token, A2A keys; `internal/secrets.LookupFileEnv`). Setting both `KEY` and `KEY_FILE` stops the core at startup;
 a missing or empty file is an error; a trailing newline is trimmed; list settings (A2A keys) split on commas and
 newlines. The worker reads `DATABASE_URL_FILE`, `NATS_URL_FILE`, `LITELLM_MASTER_KEY_FILE` and `CODEFORGE_INTERNAL_KEY_FILE`
@@ -1164,6 +1168,35 @@ Umask 0002) and that it cannot read `/proc/1/environ` or `/run/secrets`.
 | `nats-core-url`, `nats-worker-url`, `nats-passwords.conf` (derived) | URLs with credentials for the core and the worker; the password file the NATS config includes |
 | `scripts/worker-entrypoint.sh` | Image entrypoint of the worker |
 | `scripts/check-tool-isolation.sh` | Container check of the isolation |
+
+### Inbound Webhooks (KI-85)
+
+VCS and PM webhooks are registered per project (admins; editors can list them without secrets). Each has a random ID, its own URL and its own secret,
+which name the tenant and the project; `X-Tenant-ID` is never read on `/api/v1/webhooks/`. Security model: [SECURITY.md](SECURITY.md#security-measures).
+
+```bash
+# kind: vcs (github, gitlab) or pm (github, gitlab, plane); api_token: PM only (GitLab PRIVATE-TOKEN, GitHub GH_TOKEN, Plane api_token)
+curl -X POST "$API/api/v1/projects/$PROJECT_ID/webhooks" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"kind":"pm","provider":"gitlab","api_token":"<gitlab token>"}'
+# -> {"id": "...", "url": "/api/v1/webhooks/pm/gitlab/<id>", "secret": "<shown once>", ...}
+```
+
+Enter `$API_ORIGIN` + `url` and the `secret` at the provider (GitHub: payload URL and secret, content type JSON; GitLab: URL and secret token). Plane
+generates its own secret: create the webhook in Plane first, then register it with `"secret": "<Plane's secret>"` (16 to 1024 printable characters).
+`POST .../webhooks/{webhookId}/rotate` issues a new secret (for Plane: send Plane's new secret as `{"secret": ...}`), `PUT .../webhooks/{webhookId}/api-token`
+sets or removes (`""`) the PM token, `DELETE` removes the webhook. An event is acted on only when it names the project's repository exactly
+(host and owner/name of `repo_url`, case-insensitive; Plane: `plane_project_id`); a PM webhook syncs with its own `api_token`.
+
+#### Upgrading to per-project webhooks (KI-85)
+
+1. The old global webhook URLs (`/api/v1/webhooks/{vcs,pm}/{github,gitlab,plane}`) answer 410. Remove the `webhook.*` secret settings (they are ignored; the startup log names them).
+2. Register each integration per project and enter the returned `url` (prefixed with the API origin) and the `secret` at the provider. For Plane, create the webhook in Plane first, then register it with Plane's secret.
+3. Check that each project's `repo_url` names the exact host and owner/name; other events are ignored.
+4. Rotating `auth.jwt_secret` makes stored webhook secrets unreadable (deliveries get 401): rotate them afterwards.
+5. Slack approvals need `notification.web_ui_url` and cover only `notification.approval_tenants` (default: the default tenant).
+6. List a private self-hosted GitLab in `pm.allowed_private_hosts`. GitLab PM requests no longer use `HTTP(S)_PROXY`.
+
+The Core applies migration 113 (`webhook_endpoints`, `webhook_deliveries`) at startup.
 
 ### Distributed Tracing (OpenTelemetry)
 

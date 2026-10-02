@@ -20,7 +20,7 @@ Management of multiple repositories across different SCM platforms. Users can ad
 | Gitea/Forgejo | `adapter/gitea/` | Issue CRUD via Gitea REST API. Planned: PRs |
 | Codeberg | `adapter/gitea/` (variant) | Forgejo instance, same adapter as Gitea/Forgejo |
 
-Repository operations go through `gitprovider.Provider` adapters: `gitlocal` (registered as `local`, `github`, `gitlab`, `gitea`), `github-api` and `svn`. The GitHub Issues, GitLab and Gitea/Forgejo/Codeberg adapters implement `pmprovider.Provider` (issue CRUD). Both kinds declare capabilities. Webhook ingress for GitHub/GitLab/Plane is served by the Core (`POST /api/v1/webhooks/{vcs,pm}/...`), not by these adapters. See [architecture.md -- Provider Registry Pattern](../architecture.md#provider-registry-pattern).
+Repository operations go through `gitprovider.Provider` adapters: `gitlocal` (registered as `local`, `github`, `gitlab`, `gitea`), `github-api` and `svn`. The GitHub Issues, GitLab and Gitea/Forgejo/Codeberg adapters implement `pmprovider.Provider` (issue CRUD). Both kinds declare capabilities. Webhook ingress for GitHub/GitLab/Plane is served by the Core, not by these adapters: webhooks are registered per project (admins; secret shown once) and delivered to `/api/v1/webhooks/{vcs,pm}/{provider}/{webhookId}`; the webhook names the tenant and the project, and VCS events (GitHub push and pull request, GitLab push) act only when they name the project's repository exactly ([KI-85](../todo.md#known-issues)). See [architecture.md -- Provider Registry Pattern](../architecture.md#provider-registry-pattern).
 
 ### Core Functionality
 

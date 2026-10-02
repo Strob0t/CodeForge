@@ -36,7 +36,7 @@ Each detector implements `specprovider.Provider` or `pmprovider.Provider` and se
 |---|---|---|
 | Plane.so | `adapter/plane/` | REST API v1, Webhooks, HMAC-SHA256 |
 | GitHub Issues (Projects planned) | `adapter/githubpm/` | `gh` CLI, issue CRUD |
-| GitLab Issues | `adapter/gitlab/` | REST API v4, issue CRUD |
+| GitLab Issues | `adapter/gitlab/` | REST API v4, issue CRUD; reaches public hosts and `pm.allowed_private_hosts` only; redirects only within the origin |
 | Gitea/Forgejo/Codeberg Issues | `adapter/gitea/` (variants) | Gitea REST API, issue CRUD |
 
 ### Bidirectional Sync
@@ -55,7 +55,12 @@ flowchart LR
 - Import: PM tool items become CodeForge features (mapping to tasks is planned).
 - Export: New features created as PM issues.
 - **Conflict resolution** (target): timestamp-based comparison plus user decision. Today it is last-writer-wins per direction: pull overwrites the CodeForge feature, push overwrites the PM item (`internal/service/sync.go`).
-- Sync triggers (target): Webhook (real-time), poll (periodic), manual. Today: manual `POST /projects/{id}/roadmap/sync` (pull/push/bidi) and PM webhooks for GitHub/GitLab/Plane (pull only; the project is found by an exact repository match, the answer is 202 when the sync started, 404 without a matching project and 400 when the provider cannot sync, and the outcome arrives as a `pm.sync` event; GitLab syncs without a token, [Known Issues](../todo.md#known-issues) KI-85). Periodic polling is planned.
+- Sync triggers (target): Webhook (real-time), poll (periodic), manual. Today: manual `POST /projects/{id}/roadmap/sync` (pull/push/bidi) and PM webhooks for GitHub/GitLab/Plane (pull only). Periodic polling is planned.
+  - PM webhooks are registered per project (`POST /projects/{id}/webhooks`, kind `pm`, admins; [KI-85](../todo.md#known-issues)). They are delivered to `/api/v1/webhooks/pm/{provider}/{id}` and signed with their own secret (Plane: Plane's secret). The webhook names the tenant and the project.
+  - The event must be about the project's repository (exact host and path) or `plane_project_id`; otherwise it is ignored.
+  - The sync uses the integration's `api_token` (GitLab `PRIVATE-TOKEN`, GitHub `GH_TOKEN`, Plane), set at registration or with `PUT .../api-token`. Without a token: default-tenant projects use the operator's Plane token or gh login; GitLab syncs anonymously; other tenants' GitHub and Plane integrations need a token.
+  - Answers: 202 when the sync started (the outcome arrives as a `pm.sync` event with `status` `completed` or `failed`), 400 when the provider cannot sync, 200 for an ignored or duplicate event, and one uniform 401 for an unknown webhook or a wrong signature. A delivery (its body and delivery ID) is handled once within `webhook.delivery_retention`.
+  - `POST /projects/{id}/roadmap/import/pm` answers 400 for github-issues and plane outside the default tenant (they would use the operator's credentials); `POST /projects/{id}/roadmap/sync` answers 400 for github-issues without `provider_config.token` outside the default tenant.
 
 ### Internal Data Model
 

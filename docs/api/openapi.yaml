@@ -2626,6 +2626,195 @@ paths:
           $ref: "#/components/responses/NotFound"
 
   # -----------------------------------------------
+  # Project webhooks (registration; authenticated, KI-85)
+  # -----------------------------------------------
+  /projects/{id}/webhooks:
+    get:
+      tags: [Projects]
+      summary: List a project's inbound webhooks
+      description: Admins and editors. IDs, URLs, kinds and providers; never secrets or API tokens.
+      operationId: listProjectWebhooks
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: The project's webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WebhookEndpoint"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Projects]
+      summary: Register an inbound webhook for a project
+      description: |
+        Admins. One webhook per project, kind and provider. The answer carries the webhook's secret, the only
+        time it is shown: GitHub and GitLab webhooks get a random one from CodeForge; for Plane, send the secret
+        Plane generated for its webhook. Enter the `url` (on the API's origin) and the secret at the provider.
+      operationId: registerProjectWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, provider]
+              properties:
+                kind:
+                  type: string
+                  enum: [vcs, pm]
+                provider:
+                  type: string
+                  enum: [github, gitlab, plane]
+                  description: For kind `vcs`, github or gitlab
+                api_token:
+                  type: string
+                  maxLength: 1024
+                  description: The PM integration's own API token (GitLab `PRIVATE-TOKEN`, GitHub `GH_TOKEN`, Plane); kind `pm` only
+                secret:
+                  type: string
+                  minLength: 16
+                  maxLength: 1024
+                  description: The signing secret Plane generated; Plane only, and required for Plane
+      responses:
+        "201":
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookRegistered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The project already has a webhook of this kind and provider
+
+  /projects/{id}/webhooks/{webhookId}/rotate:
+    post:
+      tags: [Projects]
+      summary: Rotate a webhook's secret
+      description: |
+        Admins. The old secret stops working; the new one is shown once. The body is optional: `{secret}` is
+        required for Plane (the secret Plane regenerated) and refused for GitHub and GitLab. Audited before the
+        change: 503 when no audit entry can be written.
+      operationId: rotateProjectWebhookSecret
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                secret:
+                  type: string
+                  minLength: 16
+                  maxLength: 1024
+      responses:
+        "200":
+          description: Secret rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookRegistered"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  /projects/{id}/webhooks/{webhookId}/api-token:
+    put:
+      tags: [Projects]
+      summary: Set or remove a PM webhook's API token
+      description: Admins. An empty `api_token` removes the token. Audited before the change (503 when it cannot be written).
+      operationId: setProjectWebhookAPIToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_token]
+              properties:
+                api_token:
+                  type: string
+                  maxLength: 1024
+      responses:
+        "204":
+          description: Token set or removed
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  /projects/{id}/webhooks/{webhookId}:
+    delete:
+      tags: [Projects]
+      summary: Delete an inbound webhook
+      description: Admins. Audited before the change (503 when it cannot be written). Deliveries to its URL get 401 afterwards.
+      operationId: deleteProjectWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Webhook deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  # -----------------------------------------------
   # Webhooks (public, outside the JWT middleware)
   # -----------------------------------------------
   /webhooks/channels/{id}:
@@ -2671,83 +2860,91 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  /webhooks/pm/github:
+  /webhooks/vcs/{provider}/{webhookId}:
     post:
       tags: [Webhooks]
-      summary: GitHub issue webhook (roadmap sync)
+      summary: Deliver a VCS webhook event (GitHub, GitLab)
       description: |
-        Verified with the HMAC header `X-Hub-Signature-256` (`webhook.github_secret`). The project is found by an
-        exact match of repository host and full path, case-insensitive, in the webhook's tenant. Answers 202 when
-        the pull sync started (its outcome is announced as a `pm.sync` WebSocket event with `status` `completed`
-        or `failed` and an `error`), 404 when no project matches, 400 when the provider cannot sync (not
-        registered or configured, project on another host), 200 `{status: ignored}` for other event types.
-        The body of a 202 is the parsed event.
-      operationId: githubPMWebhook
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "202":
-          description: Sync started
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PMWebhookEvent"
-        "200":
-          description: Event type ignored
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        Verified with the secret of the registered webhook (`POST /projects/{id}/webhooks`): GitHub
+        `X-Hub-Signature-256: sha256=<hex>`, GitLab `X-Gitlab-Token`. The webhook's ID names the tenant and the
+        project; `X-Tenant-ID` is not read.
 
-  /webhooks/pm/gitlab:
-    post:
-      tags: [Webhooks]
-      summary: GitLab issue webhook (roadmap sync)
-      description: |
-        Verified with the token header `X-Gitlab-Token` (`webhook.gitlab_token`). Same answers as
-        `POST /webhooks/pm/github`; the sync is anonymous (no GitLab API token is configurable) and uses the
-        project's repository host.
-      operationId: gitlabPMWebhook
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "202":
-          description: Sync started
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PMWebhookEvent"
-        "200":
-          description: Event type ignored
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        Handles GitHub push and pull_request and GitLab Push Hook (the `vcs.push` and `vcs.pull_request` events
+        carry the project's `project_id`). The event must name the project's repository exactly (host and path,
+        case-insensitive); otherwise it is ignored. A delivery (its body and delivery ID) is handled once within
+        `webhook.delivery_retention`.
 
-  /webhooks/pm/plane:
+        Unknown webhooks, the wrong kind or provider, and missing or wrong signatures all get the same 401.
+      operationId: receiveVCSWebhook
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [github, gitlab]
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Event handled, ignored or already handled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookInboundResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Request body too large
+
+  /webhooks/pm/{provider}/{webhookId}:
     post:
       tags: [Webhooks]
-      summary: Plane webhook (roadmap sync)
+      summary: Deliver a PM webhook event (roadmap sync)
       description: |
-        Verified with the HMAC header `X-Plane-Signature` (`webhook.plane_secret`). The project is the one whose
-        config has the webhook's `plane_project_id` and a `plane_workspace`. The operator's Plane token
-        (`plane.api_token`) is sent only to `plane.base_url`: a project whose `plane_base_url` names another host
-        gets 400 and a `pm.sync` event with `status` `failed`. Other answers as for `POST /webhooks/pm/github`.
-      operationId: planePMWebhook
+        Verified with the secret of the registered webhook: GitHub `X-Hub-Signature-256`, GitLab
+        `X-Gitlab-Token`, Plane `X-Plane-Signature` (HMAC hex). The webhook's ID names the tenant and the project;
+        `X-Tenant-ID` is not read.
+
+        Handles GitHub issues, GitLab Issue Hook and every Plane event. The event must match the project's
+        repository or `plane_project_id`; otherwise it is ignored. A delivery (its body and delivery ID) is handled
+        once within `webhook.delivery_retention`.
+
+        The sync uses the webhook's `api_token`. Without one, only the default tenant uses the operator's
+        credentials (Plane token, the Core's gh login), and GitLab syncs anonymously. A GitLab sync reaches only
+        public hosts and those in `pm.allowed_private_hosts`; a refused host ends in a failed `pm.sync` event that
+        names the refusal.
+
+        Answers 202 when the pull sync started (its outcome is announced as a `pm.sync` WebSocket event with
+        `status` `completed` or `failed` and an `error`). Unknown webhooks, the wrong kind or provider, and
+        missing or wrong signatures all get the same 401.
+      operationId: receivePMWebhook
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [github, gitlab, plane]
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -2761,13 +2958,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PMWebhookEvent"
+                $ref: "#/components/schemas/WebhookInboundResult"
+        "200":
+          description: Event ignored or already handled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookInboundResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "413":
+          description: Request body too large
 
   # -----------------------------------------------
   # Policies
@@ -4469,17 +4672,53 @@ components:
           type: string
           description: Display-only preview of the call's arguments
 
-    PMWebhookEvent:
+    WebhookEndpoint:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [vcs, pm]
         provider:
           type: string
           enum: [github, gitlab, plane]
-        action:
+        url:
           type: string
-        item_id:
+          description: Delivery path on the API origin, `/api/v1/webhooks/{kind}/{provider}/{id}`
+        has_api_token:
+          type: boolean
+          description: A PM webhook's sync has its own API token (the token itself is never returned)
+        created_at:
           type: string
-        project_ref:
+          format: date-time
+        secret_rotated_at:
+          type: string
+          format: date-time
+
+    WebhookRegistered:
+      description: A webhook with its secret, which appears only in this answer.
+      allOf:
+        - $ref: "#/components/schemas/WebhookEndpoint"
+        - type: object
+          properties:
+            secret:
+              type: string
+
+    WebhookInboundResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [processed, accepted, ignored, duplicate]
+          description: processed = VCS event handled; accepted = PM sync started; ignored = event type or repository not handled; duplicate = delivery handled before
+        event:
+          type: string
+        reason:
           type: string
 
     ReviewTriggerResponse:

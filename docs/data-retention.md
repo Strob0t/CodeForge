@@ -48,6 +48,8 @@ of that year, so data is kept a day longer, never shorter than configured. Only 
 (the sweep runs on a PostgreSQL advisory-lock connection). Besides the categories above, every sweep deletes
 expired OAuth states of abandoned GitHub connect flows. Delivery bookkeeping rows (`handoff_claims`,
 `task_result_costs`, `conversation_turn_completions`) are not purged by the job yet (KI-90).
+The webhook delivery claims (`webhook_deliveries`, body hash and delivery ID only, KI-85) are not purged by the job either: a webhook prunes claims older than
+`webhook.delivery_retention` (default 168h) when it receives its next delivery, and they are removed with the webhook.
 
 ## User Rights
 

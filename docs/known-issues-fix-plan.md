@@ -1,7 +1,7 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-10-02). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-107 are open except **S7-A (KI-97, KI-100, KI-101) and S7-B (KI-95, KI-105, KI-106, KI-107), done 2026-10-02**.
-> **Scope:** the verified defects KI-1 to KI-107 in [todo.md - Known Issues](todo.md#known-issues), found by the
+> **Status:** In progress (2026-10-02). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-109 are open except **S7-A (KI-97, KI-100, KI-101), S7-B (KI-95, KI-105, KI-106, KI-107) and S7-C (KI-84, KI-85), done 2026-10-02**.
+> **Scope:** the verified defects KI-1 to KI-109 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
 > promise, and a run pipeline that completes end to end - without changing the vision or the architecture.
@@ -29,7 +29,7 @@
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, ~~KI-47~~, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | ~~KI-15~~, ~~KI-16~~, ~~KI-17~~, KI-25 (part), ~~KI-33~~, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, ~~KI-55~~, ~~KI-56~~, ~~KI-57~~, ~~KI-58~~, ~~KI-60~~, ~~KI-62~~ | L |
-| **S7** | Review follow-ups (KI-83 to KI-107) | KI-83, KI-84, KI-85, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, ~~KI-95~~, ~~KI-97~~, KI-98, ~~KI-100~~, ~~KI-101~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~ (S7-A and S7-B done; KI-25, KI-88, KI-96, KI-99, KI-102, KI-103, KI-104: see below) | L |
+| **S7** | Review follow-ups (KI-83 to KI-109) | KI-83, ~~KI-84~~, ~~KI-85~~, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, ~~KI-95~~, ~~KI-97~~, KI-98, ~~KI-100~~, ~~KI-101~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~, KI-108, KI-109 (S7-A, S7-B and S7-C done; KI-25, KI-88, KI-96, KI-99, KI-102, KI-103, KI-104: see below) | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -133,7 +133,7 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-53** | **Done (2026-09-30).** Scan `admin_email` as nullable |
 | **KI-54** | **Done (2026-09-30).** Disable deepeval telemetry via env in the worker |
 | **KI-55** | **Done (2026-10-01).** Web flow wired when `github.client_id`, `client_secret` and `callback_url` are set; 501 otherwise |
-| **KI-56** | **Done (2026-10-01).** Provider names, exact project match, Plane token only to `plane.base_url`, honest status codes |
+| **KI-56** | **Done (2026-10-01).** Provider names, exact project match, Plane token only to `plane.base_url`, honest status codes (the GitLab token and the VCS lookup: KI-85, S7-C) |
 | **KI-57** | **Done (2026-10-01).** Email HITL with configured recipients and web UI URL; the mail links to a web approval page; disabled until configured |
 | **KI-58** | **Done (2026-09-30).** `create_skill` uses the run's tenant ID |
 | **KI-60** | **Done (2026-10-01).** The tiered cache is removed (ports, adapters, `cache.*` config, ristretto dependency) |
@@ -148,7 +148,7 @@ verification, security review, code review, fix round, docs). Security and tenan
 |---|---|---|
 | **S7-A** | ~~KI-100~~, ~~KI-101~~, ~~KI-97~~ | **Done (2026-10-02).** MCP: outbound policy (SSRF protection) for the connection test and the worker, tenant filter on tool upserts, redaction of the URL and secret-looking arguments |
 | **S7-B** | ~~KI-95~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~ | **Done (2026-10-02).** In-process workspace access (worker and Go Core) only through `codeforge.workspace_fs` and `internal/workspacefs`, never a symlink out of the workspace and never a blocking FIFO; knowledge-base content in per-tenant areas below `knowledge.content_root`, KB writes admin-only, scope attach tenant-checked; `detect-stack` inside the caller's tenant area; benchmark datasets inside `benchmark.datasets_dir` |
-| **S7-C** | KI-85, KI-84 | Inbound webhooks and Slack interactions resolve the tenant of the target instead of the default tenant; GitLab PM token |
+| **S7-C** | ~~KI-85~~, ~~KI-84~~ | **Done (2026-10-02, one review round: findings 1 to 3 and 5 to 8 fixed, 4 not reproduced).** Inbound webhooks are registered per project (own ID, URL and secret naming tenant and project, exact repository match, each delivery handled once, migration 113); PM integrations carry their own API token and the operator's PM credentials serve only the default tenant; the GitLab PM provider goes through `netutil.OutboundPolicy` (`pm.allowed_private_hosts`); Slack approval messages link to the approval page and Slack and email send only the requests of `notification.approval_tenants` |
 | **S7-D** | KI-83 | LSP language servers no longer run with the Go Core's environment and rights (design in a plan first) |
 | **S7-E** | KI-89, KI-90, KI-91 | Data lifecycle: channel rows without a users row, retention for claim and completion records, quarantine expiry |
 | **S7-F** | KI-86, KI-87, KI-94 | Runtime leftovers: single-replica assumption guarded or documented, SVN password off the command line, review pipeline and stall re-plan leftovers |
@@ -158,7 +158,8 @@ Not scheduled in S7, because each needs a design decision by the project owner f
 KI-88 (submodule support), KI-96 (per-tenant tool UIDs or the sandbox, KI-13). KI-99 is a residual risk
 (documented), KI-102 is a release checklist item and KI-103 is measured; they stay open as notes. KI-104 (the
 S7-A leftovers: other callers of the old SSRF filter, 6to4/Teredo, query tokens in other URLs) is open and not yet
-scheduled.
+scheduled. KI-108 (PM providers outside GitLab have no outbound policy) and KI-109 (no UI for webhook management) are the
+S7-C follow-ups, also not yet scheduled.
 
 ---
 
@@ -190,8 +191,8 @@ scheduled as follows:
 | **KI-81** | Auto-agent runs workspace tests inside the Go Core with the core's environment | S3 follow-ups, **done 2026-10-01** |
 | **KI-82** | Git config allowlist refuses common repositories | S3 follow-ups, **done 2026-10-01** |
 | **KI-83** | LSP language servers run in the Go Core with the core's environment | S6 follow-up |
-| **KI-84** | Slack approval buttons have no interaction endpoint; the Slack provider receives every tenant's requests | S6 follow-up |
-| **KI-85** | Inbound webhooks act only in the default tenant; no GitLab PM token | S6 follow-up |
+| **KI-84** | Slack approval buttons have no interaction endpoint; the Slack provider receives every tenant's requests | S6 follow-up, **done 2026-10-02** (S7-C: the message links to the approval page, no buttons; Slack and email send only `notification.approval_tenants`; agent text escaped) |
+| **KI-85** | Inbound webhooks act only in the default tenant; no GitLab PM token | S6 follow-up, **done 2026-10-02** (S7-C: per-project webhooks `/api/v1/webhooks/{vcs,pm}/{provider}/{id}` with their own secret, tenant from the ID, `X-Tenant-ID` never read; own API tokens per PM integration; GitLab PM through `OutboundPolicy`; each delivery handled once; migration 113) |
 | **KI-86** | Go Core assumes a single replica (in-memory approval and test waiters) | S6 follow-up |
 | **KI-87** | SVN password passed on the command line | S6 follow-up |
 | **KI-88** | Submodules and nested repositories are refused in workspaces; very large trees are refused | S3 follow-up (S3-F security review), open |
@@ -210,10 +211,12 @@ scheduled as follows:
 | **KI-101** | `UpsertMCPServerTools` has no tenant filter | KI-71 follow-up, **done 2026-10-02** (S7-A) |
 | **KI-102** | Re-run the NATS permission tests before a NATS image upgrade (nats-server 2.11 or newer) | KI-71 follow-up, open |
 | **KI-103** | Cost of the tool-file sharing pass on very large workspaces; files of processes that outlive the pass | KI-71 follow-up, open |
-| **KI-104** | Outbound-policy gaps outside the MCP path: `SafeTransport` / `IsPrivateIP` (A2A, VCS, project-git) lack CGNAT, multicast and NAT64; 6to4 and Teredo count as public; query tokens in other URLs | S7-A follow-up, open |
+| **KI-104** | Outbound-policy gaps outside the MCP path: `SafeTransport` / `IsPrivateIP` (A2A, VCS, project-git) lack CGNAT, multicast and NAT64; 6to4 and Teredo count as public; query tokens in other URLs (the GitLab PM provider uses `OutboundPolicy` since KI-85) | S7-A follow-up, open |
 | **KI-105** | Knowledge-base `content_path` reads any file (any absolute path; KB routes without a role check) | S7-B review, **done 2026-10-02** (S7-B: per-tenant areas below `knowledge.content_root`, one uniform 400, admin-only writes, tenant-checked scope attach) |
 | **KI-106** | `POST /detect-stack` scans other tenants' workspaces | S7-B review, **done 2026-10-02** (S7-B: the caller's tenant area, Adopt's rule) |
 | **KI-107** | Benchmark dataset paths read any file (dev mode) | S7-B review, **done 2026-10-02** (S7-B: names or paths inside `benchmark.datasets_dir`) |
+| **KI-108** | PM providers outside GitLab (Plane, Gitea/Forgejo/Codeberg) use plain HTTP clients: blind SSRF through a manual sync's `base_url`, response bodies in errors, no size limit | S7-C review, open |
+| **KI-109** | No UI for webhook management (per-project webhooks are API only) | S7-C follow-up, open |
 
 ## Decisions
 
