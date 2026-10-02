@@ -1257,7 +1257,7 @@ const de: Translations = {
   "mcp.form.argsHint":
     "Verwenden Sie Umgebungsvariablen f\u00fcr Geheimnisse; Argumente sind f\u00fcr alle Benutzer des Mandanten sichtbar.",
   "mcp.form.url": "Server-URL",
-  "mcp.form.urlPlaceholder": "http://localhost:3001/sse",
+  "mcp.form.urlPlaceholder": "https://mcp.example.com/sse",
   "mcp.form.env": "Umgebungsvariablen",
   "mcp.form.envKey": "Schluessel",
   "mcp.form.envValue": "Wert",

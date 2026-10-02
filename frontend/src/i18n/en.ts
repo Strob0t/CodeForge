@@ -1250,7 +1250,7 @@ const en = {
   "mcp.form.argsHint":
     "Use env variables for secrets; arguments are visible to all users of the tenant.",
   "mcp.form.url": "Server URL",
-  "mcp.form.urlPlaceholder": "http://localhost:3001/sse",
+  "mcp.form.urlPlaceholder": "https://mcp.example.com/sse",
   "mcp.form.env": "Environment Variables",
   "mcp.form.envKey": "Key",
   "mcp.form.envValue": "Value",

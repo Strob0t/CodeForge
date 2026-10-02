@@ -186,6 +186,15 @@ describe("MCP server arguments", () => {
     mcp.testConnection.mockResolvedValue({ success: true, tools: [] });
   });
 
+  it("suggests a public https url, not a loopback one the server refuses", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Add Server"));
+    fireEvent.change(screen.getByLabelText("Transport"), { target: { value: "sse" } });
+
+    expect(await screen.findByPlaceholderText("https://mcp.example.com/sse")).toBeDefined();
+    expect(screen.queryByPlaceholderText(/localhost/)).toBeNull();
+  });
+
   it("tells admins to keep secrets out of the arguments", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("Add Server"));
