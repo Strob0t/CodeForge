@@ -79,10 +79,45 @@ func countingServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *
 	return srv, &hits
 }
 
+// testNames is the DNS of the unit tests: they never ask the real resolver.
+// Any other name does not resolve; "dns-error.example.com" fails with a
+// server error.
+var testNames = map[string][]string{
+	"localhost":            {"127.0.0.1", "::1"},
+	"mcp.example.com":      {"203.0.113.10"},
+	"internal.example.com": {"10.1.2.3"},
+}
+
+func fakeLookup(_ context.Context, host string) ([]netip.Addr, error) {
+	if host == "dns-error.example.com" {
+		return nil, &net.DNSError{Err: "server misbehaving", Name: host, IsTemporary: true}
+	}
+	ips, ok := testNames[host]
+	if !ok {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	addrs := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		addrs = append(addrs, netip.MustParseAddr(ip))
+	}
+	return addrs, nil
+}
+
+// newMCPTestService builds the service with the operator allowlist allowed,
+// the test DNS and a dialer that refuses (tests that connect route their
+// addresses to local servers with routedPolicy).
 func newMCPTestService(t *testing.T, allowed []string, store *recordingMCPStore) *service.MCPService {
 	t.Helper()
 	svc := service.NewMCPService(&config.MCP{AllowedPrivateHosts: allowed}, &config.Limits{MCPTestTimeout: 5 * time.Second})
 	svc.SetStore(store)
+	policy, err := netutil.NewOutboundPolicy(allowed, netutil.WithLookup(fakeLookup),
+		netutil.WithDial(func(_ context.Context, _, address string) (net.Conn, error) {
+			return nil, errors.New("unit tests do not dial " + address)
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetOutboundPolicy(policy)
 	return svc
 }
 
@@ -188,6 +223,7 @@ func TestMCPCreateUpdate_RefuseURLs(t *testing.T) {
 		"http://[fd00:1::5]/sse",
 		"http://100.64.0.1/sse",
 		"http://224.0.0.1/sse",
+		"http://internal.example.com/sse", // a name that resolves to a private address
 	}
 	for _, rawURL := range refused {
 		t.Run(rawURL, func(t *testing.T) {
@@ -210,7 +246,7 @@ func TestMCPCreateUpdate_RefuseURLs(t *testing.T) {
 	t.Run("public and allowlisted urls", func(t *testing.T) {
 		store := newRecordingMCPStore(saved)
 		svc := newMCPTestService(t, []string{"10.0.0.0/8", "fd00:1::/32"}, store)
-		for _, rawURL := range []string{"https://203.0.113.10/mcp", "http://10.1.2.3/sse", "http://[fd00:1::5]:8080/sse", "http://mcp.example.invalid/sse"} {
+		for _, rawURL := range []string{"https://203.0.113.10/mcp", "https://mcp.example.com/mcp", "http://10.1.2.3/sse", "http://internal.example.com/sse", "http://[fd00:1::5]:8080/sse"} {
 			if _, err := svc.CreateDB(context.Background(), &mcp.ServerDef{Name: "n", Transport: mcp.TransportSSE, URL: rawURL}); err != nil {
 				t.Errorf("CreateDB(%s) = %v, want stored", rawURL, err)
 			}
@@ -219,6 +255,24 @@ func TestMCPCreateUpdate_RefuseURLs(t *testing.T) {
 		update.URL = "http://10.9.9.9/sse"
 		if err := svc.UpdateDB(context.Background(), &update); err != nil {
 			t.Errorf("UpdateDB to an allowlisted address = %v", err)
+		}
+	})
+
+	// A name that does not resolve now cannot be connected to now either;
+	// it is allowed and checked again at the address it dials (explicitly,
+	// with a lookup error from the test DNS).
+	t.Run("a lookup error is no refusal", func(t *testing.T) {
+		store := newRecordingMCPStore(saved)
+		svc := newMCPTestService(t, nil, store)
+		for _, rawURL := range []string{"http://nowhere.example.com/sse", "http://dns-error.example.com/sse"} {
+			if _, err := svc.CreateDB(context.Background(), &mcp.ServerDef{Name: "n", Transport: mcp.TransportSSE, URL: rawURL}); err != nil {
+				t.Errorf("CreateDB(%s) = %v, want stored", rawURL, err)
+			}
+			update := saved
+			update.URL = rawURL
+			if err := svc.UpdateDB(context.Background(), &update); err != nil {
+				t.Errorf("UpdateDB(%s) = %v, want stored", rawURL, err)
+			}
 		}
 	})
 

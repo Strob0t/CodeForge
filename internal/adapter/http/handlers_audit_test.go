@@ -100,8 +100,7 @@ func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User,
 	experiencePoolSvc := service.NewExperiencePoolService(store)
 	kbSvc := service.NewKnowledgeBaseService(store)
 	sessionSvc := service.NewSessionService(store, es)
-	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
-	mcpSvc.SetStore(store)
+	mcpSvc := newTestMCPService(store)
 	handlers := &cfhttp.Handlers{
 		Projects:         service.NewProjectService(store, os.TempDir()),
 		Tasks:            service.NewTaskService(store, queue),

@@ -65,8 +65,7 @@ func newTestRouterWithPromptEvolution(store *mockStore) chi.Router {
 	experiencePoolSvc := service.NewExperiencePoolService(store)
 	kbSvc := service.NewKnowledgeBaseService(store)
 	sessionSvc := service.NewSessionService(store, es)
-	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
-	mcpSvc.SetStore(store)
+	mcpSvc := newTestMCPService(store)
 
 	// Build prompt evolution service.
 	evoCfg := prompt.DefaultEvolutionConfig()

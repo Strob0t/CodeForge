@@ -16,10 +16,12 @@ import (
 	"time"
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/netutil"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/service"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
@@ -53,6 +55,35 @@ func serveMCPWith(t *testing.T, store *mockStore, u *user.User, method, path, bo
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+// testMCPNames is the DNS of the HTTP unit tests: they never ask the real
+// resolver. Any other name does not resolve.
+var testMCPNames = map[string]netip.Addr{
+	"mcp.example.com":      netip.MustParseAddr("203.0.113.10"),
+	"internal.example.com": netip.MustParseAddr("10.1.2.3"),
+}
+
+// newTestMCPService is the MCP service of the test routers: the test DNS,
+// and a dialer that refuses (tests that connect use routedMCPPolicy).
+func newTestMCPService(store database.Store) *service.MCPService {
+	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: 10 * time.Second})
+	mcpSvc.SetStore(store)
+	policy, err := netutil.NewOutboundPolicy(nil,
+		netutil.WithLookup(func(_ context.Context, host string) ([]netip.Addr, error) {
+			if addr, ok := testMCPNames[host]; ok {
+				return []netip.Addr{addr}, nil
+			}
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}),
+		netutil.WithDial(func(_ context.Context, _, address string) (net.Conn, error) {
+			return nil, errors.New("unit tests do not dial " + address)
+		}))
+	if err != nil {
+		panic(err)
+	}
+	mcpSvc.SetOutboundPolicy(policy)
+	return mcpSvc
 }
 
 // routedMCPPolicy makes the MCP service resolve each name to a public

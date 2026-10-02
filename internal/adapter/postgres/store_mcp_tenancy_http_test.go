@@ -51,7 +51,7 @@ func TestMCPServers_TenantAdminsManageTheirOwn(t *testing.T) {
 	}
 
 	// A tenant-B admin creates a server of tenant B and assigns it to a tenant-B project.
-	w := call(http.MethodPost, "/api/v1/mcp/servers", `{"name":"b","transport":"sse","url":"http://b.example/sse","enabled":true}`)
+	w := call(http.MethodPost, "/api/v1/mcp/servers", `{"name":"b","transport":"sse","url":"http://203.0.113.20/sse","enabled":true}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create as tenant admin: status %d: %s", w.Code, w.Body.String())
 	}
@@ -62,7 +62,7 @@ func TestMCPServers_TenantAdminsManageTheirOwn(t *testing.T) {
 	if w = call(http.MethodPost, "/api/v1/projects/"+projB.ID+"/mcp-servers", `{"server_id":"`+created.ID+`"}`); w.Code >= 300 {
 		t.Fatalf("assign in tenant B: status %d: %s", w.Code, w.Body.String())
 	}
-	if w = call(http.MethodPut, "/api/v1/mcp/servers/"+created.ID, `{"name":"b2","transport":"sse","url":"http://b.example/sse","enabled":true}`); w.Code != http.StatusOK {
+	if w = call(http.MethodPut, "/api/v1/mcp/servers/"+created.ID, `{"name":"b2","transport":"sse","url":"http://203.0.113.20/sse","enabled":true}`); w.Code != http.StatusOK {
 		t.Fatalf("update as tenant admin: status %d: %s", w.Code, w.Body.String())
 	}
 	runServers := mcpSvc.ResolveForRun(ctxB, projB.ID, "")
@@ -76,7 +76,7 @@ func TestMCPServers_TenantAdminsManageTheirOwn(t *testing.T) {
 	}
 	for _, c := range []struct{ method, path, body string }{
 		{http.MethodGet, "/api/v1/mcp/servers/" + serverA.ID, ""},
-		{http.MethodPut, "/api/v1/mcp/servers/" + serverA.ID, `{"name":"x","transport":"sse","url":"http://x.example/sse"}`},
+		{http.MethodPut, "/api/v1/mcp/servers/" + serverA.ID, `{"name":"x","transport":"sse","url":"http://203.0.113.21/sse"}`},
 		{http.MethodDelete, "/api/v1/mcp/servers/" + serverA.ID, ""},
 		{http.MethodPost, "/api/v1/projects/" + projB.ID + "/mcp-servers", `{"server_id":"` + serverA.ID + `"}`},
 		{http.MethodPost, "/api/v1/projects/" + projA.ID + "/mcp-servers", `{"server_id":"` + created.ID + `"}`},
