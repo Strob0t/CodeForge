@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from codeforge import posix_acl, tool_identity, tool_process, tool_state
+from codeforge import posix_acl, tool_identity, tool_migration, tool_process, tool_state
 from codeforge.tool_identity import (
     LEGACY_TOOL_UID,
     SYSTEM_TOOL_UID,
@@ -168,11 +168,24 @@ def test_a_workspace_outside_the_tenants_directory_is_refused(workspace: str, vo
         accept_identity("tenant-a", UID, workspace.format(root=root))
 
 
-def test_a_tenant_directory_without_its_acls_is_refused(volumes: tuple[Path, Path]) -> None:
+def test_a_tenant_directory_without_its_acls_is_migrated_not_refused(volumes: tuple[Path, Path]) -> None:
     root, _ = volumes
-    workspace = _tenant(root, "tenant-a", uid=UID + 1)  # another UID's ACLs
+    workspace = _tenant(root, "tenant-a", uid=UID + 1)  # another UID's ACLs: the worker's own directory
+    identity = accept_identity("tenant-a", UID, str(workspace))
+    assert tool_migration.needs_migration(str(root), identity)
+    # Every launch still refuses it until it is migrated.
     with pytest.raises(ToolIsolationError, match="lacks the ACLs"):
-        accept_identity("tenant-a", UID, str(workspace))
+        tool_identity.verify_tenant_dir(str(root), "tenant-a", UID)
+
+
+def test_a_migrated_tenant_directory_needs_its_stamp(volumes: tuple[Path, Path]) -> None:
+    root, _ = volumes
+    workspace = _tenant(root, "tenant-a")
+    identity = accept_identity("tenant-a", UID, str(workspace))
+    assert tool_migration.needs_migration(str(root), identity)
+    tool_migration.write_stamp(str(root), "tenants", "tenant-a", UID, (root / "tenant-a").stat())
+    assert not tool_migration.needs_migration(str(root), identity)
+    assert not tool_migration.needs_migration(str(root), identity.with_workspace(""))
 
 
 def test_a_symlinked_tenant_directory_is_refused(volumes: tuple[Path, Path], tmp_path: Path) -> None:
@@ -229,11 +242,38 @@ async def test_tool_tenant_when_not_ready_refuses(monkeypatch: pytest.MonkeyPatc
             pytest.fail("entered")
 
 
+async def test_tool_tenant_migrates_a_tree_first(volumes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    root, _ = volumes
+    workspace = _tenant(root, "tenant-a", uid=UID + 1)
+    migrated: list[tuple[str, str, ToolIdentity | None]] = []
+
+    def migrate(root_path: str, identity: ToolIdentity) -> None:
+        migrated.append((root_path, identity.tenant_id, current_identity.get()))
+        tenant = root / "tenant-a"
+        posix_acl.set_acl(str(tenant), posix_acl.ACCESS, posix_acl.tenant_access(UID))
+        posix_acl.set_acl(str(tenant), posix_acl.DEFAULT, posix_acl.tenant_default(UID))
+        tool_migration.write_stamp(root_path, "tenants", "tenant-a", UID, tenant.stat())
+
+    async def no_share(_path: str, _identity: ToolIdentity | None = None) -> None:
+        return None
+
+    monkeypatch.setattr(tool_migration, "migrate", migrate)
+    monkeypatch.setattr(tool_process, "share_tool_files", no_share)
+    async with tool_tenant("tenant-a", UID, str(workspace)) as identity:
+        assert identity is not None
+    # Before any tool process of the tenant: no identity was set yet.
+    assert migrated == [(str(root), "tenant-a", None)]
+    async with tool_tenant("tenant-a", UID, str(workspace)):
+        pass
+    assert len(migrated) == 1, "migrated once"
+
+
 async def test_tool_tenant_sets_the_identity_and_shares_on_exit(
     volumes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root, _ = volumes
     workspace = _tenant(root, "tenant-a")
+    tool_migration.write_stamp(str(root), "tenants", "tenant-a", UID, (root / "tenant-a").stat())
     shared: list[tuple[str, ToolIdentity | None]] = []
 
     async def share(path: str, identity: ToolIdentity | None = None) -> None:

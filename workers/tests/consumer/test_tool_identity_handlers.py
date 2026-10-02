@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from codeforge import tool_identity, tool_process
+from codeforge import tool_identity, tool_migration, tool_process
 from codeforge.consumer import TaskConsumer
 from codeforge.models import (
     ConversationRunStartMessage,
@@ -57,8 +57,21 @@ def accepted(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, str | None
     async def no_share(_root: str, _identity: ToolIdentity | None = None) -> None:
         return None
 
+    class NoLock:
+        def __init__(self, _root: str, _tenant_id: str) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    async def acquired(_lock: object, **_kwargs: object) -> None:
+        return None
+
     monkeypatch.setattr(tool_identity, "accept_identity", accept)
+    monkeypatch.setattr(tool_identity, "verify_tenant_dir", lambda *_args: None)
     monkeypatch.setattr(tool_process, "share_tool_files", no_share)
+    monkeypatch.setattr(tool_migration, "TenantLock", NoLock)
+    monkeypatch.setattr(tool_migration, "acquire", acquired)
     return calls
 
 

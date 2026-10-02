@@ -303,3 +303,103 @@ async def test_the_sharing_pass_undoes_an_acl_lockout(workspace_a: str) -> None:
 
     removed = _as_worker(["rm", "-rf", "locked", "stripped", "nodefault"], workspace_a)
     assert removed.returncode == 0, removed.stderr
+
+
+def _legacy_tree(root: str, tenant_id: str) -> Path:
+    """A tenant tree as the KI-71 worker left it: 2775 in the workspace group, files of the shared tool user."""
+    tenant = Path(root) / tenant_id
+    project = tenant / "p1"
+    project.mkdir(parents=True)
+    for path in (tenant, project):
+        os.chown(path, os.getuid(), WORKSPACE_GID)
+        path.chmod(0o2775)
+    (project / ".git").mkdir()
+    (project / ".git" / "config").write_text(f"[core] # {tenant_id}\n")
+    (project / ".git" / "config").chmod(0o664)
+    for path in (project / ".git", project / ".git" / "config"):
+        os.chown(path, LEGACY_UID, WORKSPACE_GID)
+    private = project / "private"
+    private.mkdir(mode=0o700)
+    (private / "notes").write_text("legacy\n")
+    for path in (private, private / "notes"):
+        os.chown(path, LEGACY_UID, LEGACY_UID)
+    (private / "notes").chmod(0o600)
+    return project
+
+
+LEGACY_UID = 10002
+
+
+async def test_a_tree_from_before_the_upgrade_is_migrated_once(volumes: tuple[str, str]) -> None:
+    """KI-96 D9 with real processes: 10002 opens and then fixes its entries, the worker copies a
+    file hard-linked from another tenant's tree, planted ACL entries go, the tenant UID gets in."""
+    root, home_base = volumes
+    assert configure_tool_isolation(isolation_config(root, home_base)).ready
+    project_a = _legacy_tree(root, TENANT_A)
+    project_b = _legacy_tree(root, TENANTS["B"][0])
+    # A legacy tool of tenant A linked B's git config into A's tree and planted an entry for B's future UID.
+    os.link(project_b / ".git" / "config", project_a / "theirs")
+    planted = project_a / "private" / "notes"
+    from codeforge import posix_acl
+
+    posix_acl.set_acl(
+        str(planted),
+        posix_acl.ACCESS,
+        [posix_acl.Entry(posix_acl.USER_OBJ, 6), posix_acl.Entry(posix_acl.USER, 6, TENANTS["B"][1]),
+         posix_acl.Entry(posix_acl.GROUP_OBJ, 0), posix_acl.Entry(posix_acl.MASK, 6),
+         posix_acl.Entry(posix_acl.OTHER, 0)],
+    )  # fmt: skip
+    b_config = (project_b / ".git" / "config").stat()
+
+    async with tool_tenant(TENANT_A, UID_A, str(project_a)):
+        proc = await start_tool_shell(
+            "cat private/notes .git/config theirs >/dev/null && echo a >> private/notes && echo a >> theirs "
+            "&& echo a >> .git/config && touch private/new && ls / >/dev/null",
+            env={"PATH": "/usr/bin:/bin"},
+            cwd=str(project_a),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        out, _ = await proc.communicate()
+        assert proc.returncode == 0, out
+
+    # B's file is untouched: A wrote its own copy.
+    after = (project_b / ".git" / "config").stat()
+    assert (after.st_ino, after.st_mtime_ns, after.st_nlink) == (b_config.st_ino, b_config.st_mtime_ns, 1)
+    assert (project_b / ".git" / "config").read_text() == f"[core] # {TENANTS['B'][0]}\n"
+    assert TENANTS["B"][1] not in [e.id for e in posix_acl.get_acl(str(planted), posix_acl.ACCESS) or []]
+    tenant = Path(root) / TENANT_A
+    assert posix_acl.equal(posix_acl.get_acl(str(tenant), posix_acl.ACCESS), posix_acl.tenant_access(UID_A))
+    # B's tree was not touched at all: still the legacy layout.
+    assert posix_acl.get_acl(str(Path(root) / TENANTS["B"][0]), posix_acl.ACCESS) is None
+    stamp = Path(root) / ".codeforge" / "tenants" / TENANT_A
+    first = stamp.stat().st_mtime_ns
+    async with tool_tenant(TENANT_A, UID_A, str(project_a)):
+        pass
+    assert stamp.stat().st_mtime_ns == first, "migrated once"
+
+
+async def test_a_running_legacy_process_blocks_the_migration(volumes: tuple[str, str]) -> None:
+    from codeforge.tool_identity import ToolIsolationError
+
+    root, home_base = volumes
+    assert configure_tool_isolation(isolation_config(root, home_base)).ready
+    project_a = _legacy_tree(root, TENANT_A)
+    setpriv = shutil.which("setpriv") or "setpriv"
+    sleeper = subprocess.Popen(  # noqa: S603 - the test's own process of the retired tool user
+        [setpriv, f"--reuid={LEGACY_UID}", f"--regid={LEGACY_UID}", "--clear-groups", "--", "/bin/sleep", "30"]
+    )
+    try:
+        with pytest.raises(ToolIsolationError, match="processes of uid"):
+            async with tool_tenant(TENANT_A, UID_A, str(project_a)):
+                pytest.fail("entered")
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+    assert posix_acl_of(Path(root) / TENANT_A) is None, "nothing migrated"
+
+
+def posix_acl_of(path: Path) -> object:
+    from codeforge import posix_acl
+
+    return posix_acl.get_acl(str(path), posix_acl.ACCESS)

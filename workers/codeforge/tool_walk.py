@@ -1,4 +1,4 @@
-"""The sharing pass: a tenant's tool files stay reachable for the workspace group (KI-71 review, KI-96 D8).
+"""Owner-run ACL walks over workspace trees (KI-71 review, KI-96 D8, D9).
 
 The Go Core and the worker (group 10010) read, checkpoint, deliver and delete
 what a tenant's tools create. Under the tenant directories' default ACLs a
@@ -6,26 +6,33 @@ new entry gets ``g:10010``, but a tool can still lock them out: an
 owner-only mode (``mkdtemp``, ``mkdir -m 0700``, ``chmod 600``) masks the
 entry, ``setfacl`` strips it, a directory loses its default ACL.
 
-The worker starts this walker as the entries' owner, the tenant's tool UID,
-through the launcher (``<python> -I -S tool_walk.py share <root>``). For
-every regular file and directory of its own below *root* it makes sure that
+Every walk changes only entries of the UID that runs it (the owner may set
+ACLs on its own entries, nobody else may), so the worker starts it as that
+owner through the launcher (``<python> -I -S tool_walk.py <mode> ...``):
 
-- the access ACL has ``g:10010`` with ``rw`` (``rwx`` for directories and
-  for files the owner may execute) and the mask lets that through;
-- a directory has the tenant's default ACL
-  (``u::rwx,u:T:rwx,g::rwx,g:10010:rwx,m::rwx,o::---``) and its owner can
-  search it (so the walk reaches what is inside);
+- ``share <root> [--since <epoch>]``, as the tenant's tool UID after its tool
+  calls and work items: its files and directories get ``g:10010`` with
+  ``rw`` (``rwx`` for directories and for files the owner may execute) in
+  the access ACL and the mask, directories the tenant's default ACL
+  (``u::rwx,u:T:rwx,g::rwx,g:10010:rwx,m::rwx,o::---``) and their owner
+  search access (so the walk reaches what is inside). With ``--since`` only
+  entries changed since then, minus one second, are checked; creating,
+  ``chmod``, ``chgrp`` and ``setfacl`` all set the change time.
+- ``legacy-open <root>``, as the retired shared tool user 10002 in the
+  migration of a tree from before the upgrade (D9): the same access grant
+  for the workspace group, no default ACL, so the worker can walk the tree.
+- ``legacy-exact <root> <tool uid>``, as 10002 later in that migration: its
+  entries get exactly ``u::<owner>,u:T:rwX,g::rwX,g:10010:rwX,m::rwX,o::---``
+  (planted entries go) and directories the tenant's default ACL. A regular
+  file with links outside the tree is skipped: its inode also lives in
+  another tree. The worker runs the same walk in-process on its own entries.
 
-and writes an ACL only where it differs. It never follows a symlink and never
-leaves the file system: every entry is listed relative to its directory's
-descriptor, opened with ``O_PATH | O_NOFOLLOW`` and changed only when the
-descriptor is the listed inode (``/proc/self/fd/<n>`` names exactly that
-inode, so an entry of mode 0000 is reached too). Entries of other owners are
-counted and left alone.
-
-With ``--since <epoch>`` (after one tool call) only entries changed since
-then, minus one second, are checked; creating, ``chmod``, ``chgrp`` and
-``setfacl`` all set the change time.
+A walk writes an ACL only where it differs. It never follows a symlink and
+never leaves the file system: every entry is listed relative to its
+directory's descriptor, opened with ``O_PATH | O_NOFOLLOW`` and changed only
+when the descriptor is the listed inode (``/proc/self/fd/<n>`` names exactly
+that inode, so an entry of mode 0000 is reached too). Entries of other
+owners are counted and left alone.
 
 Standard library only (plus the sibling posix_acl.py, loaded by path): the
 launcher runs it with ``-I -S``. Prints a JSON report; exits 1 when an entry
@@ -43,6 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import ModuleType
 
 
@@ -70,6 +78,12 @@ _PATH_FLAGS = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 # Entries changed this long before --since are still checked (time stamps of
 # file systems and clocks are not exact).
 _SINCE_SLACK_SECONDS = 1.0
+_USER_OBJ = (posix_acl.USER_OBJ, posix_acl.UNDEFINED_ID)
+_GROUP_OBJ = (posix_acl.GROUP_OBJ, posix_acl.UNDEFINED_ID)
+_MASK = (posix_acl.MASK, posix_acl.UNDEFINED_ID)
+_WORKSPACE_GROUP = (posix_acl.GROUP, posix_acl.WORKSPACE_GID)
+
+Inode = tuple[int, int]
 
 
 @dataclass
@@ -78,6 +92,7 @@ class Report:
     changed: int = 0
     foreign: int = 0
     skipped: int = 0
+    linked_outside: int = 0
     errors: list[str] = field(default_factory=list)
 
     def error(self, message: str) -> None:
@@ -131,71 +146,6 @@ def open_checked(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
     return fd
 
 
-def _minimal(mode: int) -> list[posix_acl.Entry]:
-    """The ACL the mode bits stand for when an entry has none."""
-    return [
-        posix_acl.Entry(posix_acl.USER_OBJ, mode >> 6 & 7),
-        posix_acl.Entry(posix_acl.GROUP_OBJ, mode >> 3 & 7),
-        posix_acl.Entry(posix_acl.OTHER, mode & 7),
-    ]
-
-
-def wanted_access(current: list[posix_acl.Entry], *, directory: bool) -> list[posix_acl.Entry]:
-    """*current* with ``g:10010`` (and the mask) granting what the workspace group needs."""
-    perms = {(e.tag, e.id): e.perm for e in current}
-    user_key = (posix_acl.USER_OBJ, posix_acl.UNDEFINED_ID)
-    if directory:
-        perms[user_key] |= 5  # the owner (and so the walk) can list and enter it
-        need = 7
-    else:
-        need = 6 | (perms[user_key] & 1)
-    group_key = (posix_acl.GROUP, posix_acl.WORKSPACE_GID)
-    perms[group_key] = perms.get(group_key, 0) | need
-    mask_key = (posix_acl.MASK, posix_acl.UNDEFINED_ID)
-    # A minimal ACL has no mask: the group class so far was the owning group alone.
-    mask = perms.get(mask_key, perms[(posix_acl.GROUP_OBJ, posix_acl.UNDEFINED_ID)])
-    perms[mask_key] = mask | need
-    return [posix_acl.Entry(tag, perm, ident) for (tag, ident), perm in perms.items()]
-
-
-def share_entry(fd: int, info: os.stat_result, uid: int) -> bool:
-    """Give the workspace group access to the entry behind the ``O_PATH`` descriptor *fd*; True if changed."""
-    target = f"/proc/self/fd/{fd}"
-    directory = stat.S_ISDIR(info.st_mode)
-    current = posix_acl.get_acl(target, posix_acl.ACCESS)
-    wanted = wanted_access(current or _minimal(stat.S_IMODE(info.st_mode)), directory=directory)
-    changed = False
-    if not posix_acl.equal(current, wanted):
-        posix_acl.set_acl(target, posix_acl.ACCESS, wanted)
-        changed = True
-    if directory:
-        default = posix_acl.tenant_default(uid)
-        if not posix_acl.equal(posix_acl.get_acl(target, posix_acl.DEFAULT), default):
-            posix_acl.set_acl(target, posix_acl.DEFAULT, default)
-            changed = True
-    return changed
-
-
-def _check(dir_fd: int, name: str, info: os.stat_result, uid: int, since: float | None, report: Report) -> None:
-    if info.st_uid != uid:
-        report.foreign += 1
-        return
-    if since is not None and info.st_ctime < since - _SINCE_SLACK_SECONDS:
-        return
-    fd = open_checked(dir_fd, name, info)
-    if fd is None:
-        report.skipped += 1
-        return
-    try:
-        report.checked += 1
-        if share_entry(fd, info, uid):
-            report.changed += 1
-    except OSError as exc:
-        report.error(f"{name}: {exc.strerror or exc}")
-    finally:
-        os.close(fd)
-
-
 def _open_subdir(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
     try:
         fd = os.open(name, _DIR_FLAGS, dir_fd=dir_fd)
@@ -208,17 +158,27 @@ def _open_subdir(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
     return fd
 
 
-def share(root: str, *, since: float | None = None, uid: int | None = None) -> Report:
-    """Share the entries of *uid* (default: this process's UID) below and including *root*."""
-    uid = os.getuid() if uid is None else uid
-    report = Report()
+def walk(
+    root: str,
+    visit: Callable[[int, str, os.stat_result, Report], None],
+    report: Report,
+    *,
+    include_root: bool = True,
+) -> Report:
+    """Call *visit* for *root* (unless excluded) and every directory and regular file below it on its file system.
+
+    A directory is visited before it is entered (the visit may give its
+    owner search access). Symlinks, special files and other file systems
+    are counted as skipped.
+    """
     root_fd = open_root(root)
     root_info = os.fstat(root_fd)
-    parent_fd = os.open("..", _PATH_FLAGS, dir_fd=root_fd)
-    try:
-        _check(parent_fd, os.path.basename(os.path.normpath(root)) or ".", root_info, uid, since, report)
-    finally:
-        os.close(parent_fd)
+    if include_root:
+        parent_fd = os.open("..", _PATH_FLAGS, dir_fd=root_fd)
+        try:
+            visit(parent_fd, os.path.basename(os.path.normpath(root)) or ".", root_info, report)
+        finally:
+            os.close(parent_fd)
     stack: list[tuple[int, str]] = [(root_fd, root)]
     while stack:
         dir_fd, path = stack.pop()
@@ -235,7 +195,7 @@ def share(root: str, *, since: float | None = None, uid: int | None = None) -> R
             if info.st_dev != root_info.st_dev or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
                 report.skipped += 1
                 continue
-            _check(dir_fd, name, info, uid, since, report)
+            visit(dir_fd, name, info, report)
             if stat.S_ISDIR(info.st_mode):
                 sub = _open_subdir(dir_fd, name, info)
                 if sub is None:
@@ -246,15 +206,182 @@ def share(root: str, *, since: float | None = None, uid: int | None = None) -> R
     return report
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) not in (2, 4) or argv[0] != "share" or (len(argv) == 4 and argv[2] != "--since"):
-        sys.stderr.write("usage: tool_walk.py share <root> [--since <epoch seconds>]\n")
-        return 2
-    since = float(argv[3]) if len(argv) == 4 else None
+def _minimal(mode: int) -> list[posix_acl.Entry]:
+    """The ACL the mode bits stand for when an entry has none."""
+    return [
+        posix_acl.Entry(posix_acl.USER_OBJ, mode >> 6 & 7),
+        posix_acl.Entry(posix_acl.GROUP_OBJ, mode >> 3 & 7),
+        posix_acl.Entry(posix_acl.OTHER, mode & 7),
+    ]
+
+
+def wanted_access(current: list[posix_acl.Entry], *, directory: bool) -> list[posix_acl.Entry]:
+    """*current* with ``g:10010`` (and the mask) granting what the workspace group needs."""
+    perms = {(e.tag, e.id): e.perm for e in current}
+    if directory:
+        perms[_USER_OBJ] |= 5  # the owner (and so the walk) can list and enter it
+        need = 7
+    else:
+        need = 6 | (perms[_USER_OBJ] & 1)
+    perms[_WORKSPACE_GROUP] = perms.get(_WORKSPACE_GROUP, 0) | need
+    # A minimal ACL has no mask: the group class so far was the owning group alone.
+    perms[_MASK] = perms.get(_MASK, perms[_GROUP_OBJ]) | need
+    return [posix_acl.Entry(tag, perm, ident) for (tag, ident), perm in perms.items()]
+
+
+def exact_access(mode: int, tool_uid: int, *, directory: bool) -> list[posix_acl.Entry]:
+    """The exact access ACL of an entry in a tenant's tree (``X``: directories and files their owner may execute)."""
+    rw_x = 7 if directory or mode & 0o100 else 6  # the owner's own execute bit: planted entries do not count
+    owner = mode >> 6 & 7 | (5 if directory else 0)
+    return [
+        posix_acl.Entry(posix_acl.USER_OBJ, owner),
+        posix_acl.Entry(posix_acl.USER, rw_x, tool_uid),
+        posix_acl.Entry(posix_acl.GROUP_OBJ, rw_x),
+        posix_acl.Entry(posix_acl.GROUP, rw_x, posix_acl.WORKSPACE_GID),
+        posix_acl.Entry(posix_acl.MASK, rw_x),
+        posix_acl.Entry(posix_acl.OTHER, 0),
+    ]
+
+
+def _set_if_different(target: str, name: str, wanted: list[posix_acl.Entry]) -> bool:
+    if posix_acl.equal(posix_acl.get_acl(target, name), wanted):
+        return False
+    posix_acl.set_acl(target, name, wanted)
+    return True
+
+
+def _owned(
+    dir_fd: int,
+    name: str,
+    info: os.stat_result,
+    uid: int,
+    report: Report,
+    change: Callable[[str, os.stat_result], bool],
+) -> None:
+    """Run *change* on ``/proc/self/fd/<n>`` of *name* when it is *uid*'s and still the listed inode."""
+    if info.st_uid != uid:
+        report.foreign += 1
+        return
+    fd = open_checked(dir_fd, name, info)
+    if fd is None:
+        report.skipped += 1
+        return
     try:
-        report = share(argv[1], since=since)
+        report.checked += 1
+        if change(f"/proc/self/fd/{fd}", info):
+            report.changed += 1
     except OSError as exc:
+        report.error(f"{name}: {exc.strerror or exc}")
+    finally:
+        os.close(fd)
+
+
+def share(root: str, *, since: float | None = None, uid: int | None = None) -> Report:
+    """Share the entries of *uid* (default: this process's UID) below and including *root*."""
+    owner = os.getuid() if uid is None else uid
+
+    def change(target: str, info: os.stat_result) -> bool:
+        directory = stat.S_ISDIR(info.st_mode)
+        current = posix_acl.get_acl(target, posix_acl.ACCESS)
+        changed = _set_if_different(
+            target, posix_acl.ACCESS, wanted_access(current or _minimal(info.st_mode), directory=directory)
+        )
+        if directory:
+            changed |= _set_if_different(target, posix_acl.DEFAULT, posix_acl.tenant_default(owner))
+        return changed
+
+    def visit(dir_fd: int, name: str, info: os.stat_result, report: Report) -> None:
+        if since is not None and info.st_uid == owner and info.st_ctime < since - _SINCE_SLACK_SECONDS:
+            return
+        _owned(dir_fd, name, info, owner, report, change)
+
+    return walk(root, visit, Report())
+
+
+def legacy_open(root: str, *, uid: int | None = None) -> Report:
+    """Give the workspace group access to every entry of *uid* below *root*; no default ACL (D9 step 1)."""
+    owner = os.getuid() if uid is None else uid
+
+    def change(target: str, info: os.stat_result) -> bool:
+        current = posix_acl.get_acl(target, posix_acl.ACCESS)
+        wanted = wanted_access(current or _minimal(info.st_mode), directory=stat.S_ISDIR(info.st_mode))
+        return _set_if_different(target, posix_acl.ACCESS, wanted)
+
+    return walk(root, lambda d, n, i, r: _owned(d, n, i, owner, r, change), Report())
+
+
+def census(root: str) -> dict[Inode, int]:
+    """How many names inside *root* each regular file with more than one link has."""
+    counts: dict[Inode, int] = {}
+
+    def visit(_dir_fd: int, _name: str, info: os.stat_result, _report: Report) -> None:
+        if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+            key = (info.st_dev, info.st_ino)
+            counts[key] = counts.get(key, 0) + 1
+
+    walk(root, visit, Report())
+    return counts
+
+
+def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: bool = True) -> Report:
+    """Exact ACLs for tool UID *tool_uid* on every entry of *uid* below *root* (D9 steps 4 and 5).
+
+    A regular file with links outside the tree keeps its ACL: rewriting it
+    would change the inode another tree shares (it is counted). Without
+    *include_root* the top directory is left to the caller (a tenant
+    directory gets the tenant's ACLs, not a project's).
+    """
+    owner = os.getuid() if uid is None else uid
+    inside = census(root)
+
+    def change(target: str, info: os.stat_result) -> bool:
+        directory = stat.S_ISDIR(info.st_mode)
+        changed = _set_if_different(
+            target, posix_acl.ACCESS, exact_access(stat.S_IMODE(info.st_mode), tool_uid, directory=directory)
+        )
+        if directory:
+            changed |= _set_if_different(target, posix_acl.DEFAULT, posix_acl.tenant_default(tool_uid))
+        return changed
+
+    def visit(dir_fd: int, name: str, info: os.stat_result, report: Report) -> None:
+        if stat.S_ISREG(info.st_mode) and info.st_nlink > inside.get((info.st_dev, info.st_ino), 1):
+            if info.st_uid == owner:
+                report.linked_outside += 1
+            return
+        _owned(dir_fd, name, info, owner, report, change)
+
+    return walk(root, visit, Report(), include_root=include_root)
+
+
+_USAGE = (
+    "usage: tool_walk.py share <root> [--since <epoch seconds>]\n"
+    "       tool_walk.py legacy-open <root>\n"
+    "       tool_walk.py legacy-exact <root> <tool uid>\n"
+)
+
+
+def _run(argv: list[str]) -> Report | None:
+    match argv:
+        case ["share", root]:
+            return share(root)
+        case ["share", root, "--since", since]:
+            return share(root, since=float(since))
+        case ["legacy-open", root]:
+            return legacy_open(root)
+        case ["legacy-exact", root, tool_uid] if tool_uid.isdigit():
+            return exact(root, int(tool_uid))
+        case _:
+            return None
+
+
+def main(argv: list[str]) -> int:
+    try:
+        report = _run(argv)
+    except (OSError, ValueError) as exc:
         sys.stderr.write(f"tool_walk: {exc}\n")
+        return 2
+    if report is None:
+        sys.stderr.write(_USAGE)
         return 2
     sys.stdout.write(json.dumps(asdict(report)) + "\n")
     return 1 if report.errors else 0

@@ -81,6 +81,9 @@ class ToolIdentity:
     read_paths: tuple[str, ...] = field(default=())
     write_paths: tuple[str, ...] = field(default=())
     claude_config: bool = False
+    # Supplementary groups: none for tenant UIDs; the workspace group only for
+    # the retired shared tool user in the migration (codeforge.tool_migration).
+    groups: tuple[int, ...] = field(default=())
 
     @property
     def gid(self) -> int:
@@ -100,6 +103,8 @@ class ToolIdentity:
 
     def prepare(self) -> list[str]:
         """The per-work directories the launch helper creates below the HOME, as this identity."""
+        if not self.home:
+            return []
         entries = [f"tmp/{self.work_id}"]
         if self.claude_config:
             entries.append(f"claude/{self.work_id}")
@@ -319,7 +324,14 @@ def accept_identity(
         tool_state.bind_tool_uid(root, tool_uid, tenant_id)
         path = check_workspace(root, tenant_id, tool_uid, workspace)
         if in_tenant_area(root, path):
-            verify_tenant_dir(root, tenant_id, tool_uid)
+            # A directory that is the worker's but lacks the tenant's ACLs is
+            # migrated in tool_tenant (codeforge.tool_migration); never one of
+            # another owner or a symlink.
+            check = tool_state.check_tenant_dir(root, tenant_id, tool_uid)
+            if check.state is tool_state.TenantDir.REFUSED:
+                raise ToolIsolationError(
+                    f"tool work of tenant {tenant_id} (tool uid {tool_uid}) refused: {check.reason}"
+                )
     except ToolIsolationError:
         raise
     except OSError as exc:
@@ -347,9 +359,12 @@ async def tool_tenant(
 
     Enter it once the work item's heartbeat runs. A refused payload raises
     ToolIsolationError: the handler ends the work as failed (it was acked on
-    accept). On exit the end-of-work steps run as the tenant (the sharing
-    pass of its workspace) before the identity is left.
+    accept). The work item holds the tenant's shared lock while it runs; a
+    tree from before the upgrade is migrated first, under the exclusive lock
+    (codeforge.tool_migration). On exit the end-of-work steps run as the
+    tenant (the sharing pass of its workspace) before the identity is left.
     """
+    from codeforge import tool_migration
     from codeforge.tool_process import share_tool_files, tool_isolation
 
     status = tool_isolation()
@@ -359,15 +374,32 @@ async def tool_tenant(
     if not status.ready:
         raise ToolIsolationError(f"tool isolation is required but not ready: {status.reason}")
     identity = accept_identity(tenant_id, tool_uid, workspace, claude_config=claude_config)
-    reset = current_identity.set(identity)
+    root = status.config.workspace_root
+    lock = tool_migration.TenantLock(root, tenant_id)
     try:
-        yield identity
-    finally:
         try:
-            if identity.workspace:
-                await share_tool_files(identity.workspace)
+            await tool_migration.acquire(
+                lock,
+                needs_migration=lambda: tool_migration.needs_migration(root, identity),
+                migrate=lambda: tool_migration.migrate(root, identity),
+            )
+            if in_tenant_area(root, identity.workspace):
+                verify_tenant_dir(root, tenant_id, tool_uid)
+        except ToolIsolationError:
+            raise
+        except OSError as exc:
+            raise ToolIsolationError(f"tool work of tenant {tenant_id} (tool uid {tool_uid}): {exc}") from exc
+        reset = current_identity.set(identity)
+        try:
+            yield identity
         finally:
-            current_identity.reset(reset)
+            try:
+                if identity.workspace:
+                    await share_tool_files(identity.workspace)
+            finally:
+                current_identity.reset(reset)
+    finally:
+        lock.close()
 
 
 @contextlib.contextmanager

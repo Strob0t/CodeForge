@@ -226,12 +226,13 @@ class IsolationStatus:
     interpreter: str = ""
 
     def launch_prefix(self, identity: ToolIdentity) -> list[str]:
-        """The setpriv command line that runs the command after it as *identity*, in no group."""
+        """The setpriv command line that runs the command after it as *identity* (tenant UIDs: in no group)."""
+        groups = f"--groups={','.join(map(str, identity.groups))}" if identity.groups else "--clear-groups"
         return [
             self.launcher,
             f"--reuid={identity.uid}",
             f"--regid={identity.gid}",
-            "--clear-groups",
+            groups,
             "--inh-caps=-all",
             "--ambient-caps=-all",
             "--no-new-privs",
@@ -243,12 +244,12 @@ class IsolationStatus:
         return {
             "uid": identity.uid,
             "gid": identity.gid,
-            "groups": [],
+            "groups": list(identity.groups),
             "umask": TOOL_UMASK,
             "env": {name: value for name, value in env.items() if name and "=" not in name},
             "landlock": "off",
             "prepare": identity.prepare(),
-            "home": identity.home,
+            "home": identity.home or None,
             "cwd": os.path.normpath(cwd) if cwd is not None else None,
         }
 
@@ -349,7 +350,7 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
 
 def volume_problems(config: IsolationConfig) -> list[str]:
     """What keeps the volumes from isolating tenants: the root, the state directory, the HOMEs, ACLs."""
-    from codeforge import tool_state
+    from codeforge import tool_migration, tool_state
 
     if not config.workspace_root or not os.path.isabs(config.workspace_root):
         return ["tool isolation needs CODEFORGE_WORKSPACE_ROOT (an absolute path, the Go Core's workspace root)"]
@@ -359,7 +360,10 @@ def volume_problems(config: IsolationConfig) -> list[str]:
         problems = tool_state.root_problems(config.workspace_root, fix=True)
         if problems:
             return problems
+        tool_migration.detect_rollback(config.workspace_root)
         tool_state.ensure_state_dirs(config.workspace_root)
+        for problem in tool_migration.refused_tenant_dirs(config.workspace_root):
+            logger.error(problem)
         problems = tool_state.home_base_problems(config.home_base)
         for directory in (config.workspace_root, config.home_base):
             if problem := tool_state.acl_support_problem(directory):
@@ -823,6 +827,27 @@ async def share_tool_files(root: str, identity: ToolIdentity | None = None, *, s
     finally:
         launch.close()
     _log_share(root, proc.returncode, (out or b"").decode(errors="replace"), (err or b"").decode(errors="replace"))
+
+
+def run_walker(identity: ToolIdentity, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    """Run codeforge.tool_walk with *args* as *identity* and wait for it (the migration's owner steps)."""
+    status = tool_isolation()
+    if not status.config.required or not status.ready:
+        raise ToolIsolationError(f"tool isolation is not ready: {status.reason}")
+    launch = status.launch([status.interpreter, "-I", "-S", TOOL_WALK, *args], {"PATH": _PROBE_PATH}, None, identity)
+    try:
+        return subprocess.run(  # noqa: S603 - fixed program
+            launch.argv,
+            env=launch.env,
+            cwd=launch.cwd,
+            umask=launch.umask,
+            pass_fds=launch.pass_fds,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        launch.close()
 
 
 def share_tool_files_sync(root: str, identity: ToolIdentity | None = None, *, since: float | None = None) -> None:

@@ -100,6 +100,10 @@ _WALK = (
     "the sharing pass, run as the tenant's tool UID through the launcher: relative to directory "
     "descriptors, O_PATH | O_NOFOLLOW with an inode recheck, never across file systems (KI-96 D8)"
 )
+_MIGRATION = (
+    "the migration of a tree from before the upgrade (KI-96 D9), while no tool process of the tenant runs: "
+    "relative to directory descriptors, O_NOFOLLOW, inode rechecks; copies are new O_EXCL files"
+)
 _HELPER = (
     "the launch helper, already the tool user: the per-work directories below the tool's own HOME, "
     "relative to its descriptor, never through a symlink"
@@ -169,12 +173,34 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_walk.py", "open_root", "os.open"): (2, _WALK),
     ("tool_walk.py", "open_checked", "os.open"): (1, _WALK),
     ("tool_walk.py", "_open_subdir", "os.open"): (1, _WALK),
-    ("tool_walk.py", "share", "os.open"): (1, _WALK),
-    ("tool_walk.py", "share", "os.listdir"): (1, _WALK),
+    ("tool_walk.py", "walk", "os.open"): (1, _WALK),
+    ("tool_walk.py", "walk", "os.listdir"): (1, _WALK),
+    ("tool_migration.py", "TenantLock.__init__", "os.open"): (1, _TOOL_STATE),
+    ("tool_migration.py", "_replace_file", "os.rename"): (1, _TOOL_STATE),
+    ("tool_migration.py", "_replace_file", "os.unlink"): (1, _TOOL_STATE),
+    ("tool_migration.py", "detect_rollback", "os.rename"): (1, _TOOL_STATE),
+    ("tool_migration.py", "processes_of", "os.listdir"): (1, "lists /proc"),
+    ("tool_migration.py", "processes_of", "open"): (1, "reads /proc/<pid>/status"),
+    ("tool_migration.py", "refused_tenant_dirs", "os.listdir"): (
+        1,
+        "lists the workspace root (the worker's) by its descriptor",
+    ),
+    ("tool_migration.py", "_copy_over", "os.open"): (2, _MIGRATION),
+    ("tool_migration.py", "_copy_over", "os.rename"): (1, _MIGRATION),
+    ("tool_migration.py", "_copy_over", "os.unlink"): (1, _MIGRATION),
+    ("tool_migration.py", "unshare_links", "tool_walk.walk"): (1, _MIGRATION),
+    ("tool_migration.py", "needs_migration", "os.open"): (
+        1,
+        "an adopted workspace's top directory, opened with O_NOFOLLOW to read its owner and inode",
+    ),
+    ("tool_migration.py", "migrate", "os.open"): (
+        1,
+        "an adopted workspace's top directory, opened with O_NOFOLLOW to stamp its inode",
+    ),
     ("tool_state.py", "open_root", "os.open"): (1, "the workspace root itself (the worker's), as a descriptor"),
     ("tool_state.py", "open_dir_at", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "_ensure_private_dir", "os.mkdir"): (1, _TOOL_STATE),
-    ("tool_state.py", "_read_small", "os.open"): (1, _TOOL_STATE),
+    ("tool_state.py", "read_small", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "write_new", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "check_tenant_dir", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "adopted_workspace_ready", "os.open"): (

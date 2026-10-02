@@ -94,7 +94,7 @@ def root_problems(root: str, *, fix: bool) -> list[str]:
         os.close(fd)
 
 
-def _private_dir_problem(fd: int, path: str) -> str:
+def private_dir_problem(fd: int, path: str) -> str:
     info = os.fstat(fd)
     if info.st_uid != worker_uid():
         return f"{path} belongs to uid {info.st_uid}, not the worker"
@@ -112,7 +112,7 @@ def _ensure_private_dir(parent_fd: int, name: str, path: str) -> int:
         fd = open_dir_at(parent_fd, name)
     except OSError as exc:
         raise ToolIsolationError(f"cannot open {path} (a symlink?): {exc.strerror}") from exc
-    if problem := _private_dir_problem(fd, path):
+    if problem := private_dir_problem(fd, path):
         os.close(fd)
         raise ToolIsolationError(problem)
     return fd
@@ -144,7 +144,7 @@ def ensure_state_dirs(root: str) -> None:
             pass
 
 
-def _read_small(dir_fd: int, name: str, limit: int) -> bytes | None:
+def read_small(dir_fd: int, name: str, limit: int) -> bytes | None:
     """A small regular file of the worker's in *dir_fd*; None when absent; never through a symlink or FIFO."""
     try:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dir_fd)
@@ -180,7 +180,7 @@ def bind_tool_uid(root: str, uid: int, tenant_id: str) -> None:
     """
     with state_dir(root, "uids") as fd:
         for _ in range(2):
-            current = _read_small(fd, str(uid), _BINDING_MAX_BYTES)
+            current = read_small(fd, str(uid), _BINDING_MAX_BYTES)
             if current is None:
                 if write_new(fd, str(uid), tenant_id.encode()):
                     return
@@ -198,7 +198,7 @@ def bind_tool_uid(root: str, uid: int, tenant_id: str) -> None:
 
 def bound_tenant(root: str, uid: int) -> str | None:
     with state_dir(root, "uids") as fd:
-        data = _read_small(fd, str(uid), _BINDING_MAX_BYTES)
+        data = read_small(fd, str(uid), _BINDING_MAX_BYTES)
     return None if data is None else data.decode(errors="replace").strip()
 
 
@@ -231,7 +231,7 @@ def check_tenant_dir(root: str, tenant_id: str, uid: int) -> TenantDirCheck:
     root_fd = open_root(root)
     try:
         try:
-            fd = os.open(tenant_id, _DIR_FLAGS, dir_fd=root_fd) if _is_name(tenant_id) else -1
+            fd = os.open(tenant_id, _DIR_FLAGS, dir_fd=root_fd) if is_name(tenant_id) else -1
         except OSError as exc:
             if exc.errno == errno.ENOENT:
                 return TenantDirCheck(TenantDir.REFUSED, f"the tenant directory of tenant {tenant_id} does not exist")
@@ -273,7 +273,7 @@ def tenant_dir_state(fd: int, tenant_id: str, uid: int) -> TenantDirCheck:
     return TenantDirCheck(TenantDir.OK, "", info.st_dev, info.st_ino)
 
 
-def _is_name(name: str) -> bool:
+def is_name(name: str) -> bool:
     return bool(name) and "/" not in name and "\0" not in name and name not in (".", "..")
 
 
