@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -276,5 +277,68 @@ func TestProcessKnowledgeBase_FallbackReadsOnlyTheTenantArea(t *testing.T) {
 		for _, e := range svc.processKnowledgeBase(ctxTenantA, kb(contentPath), "q") {
 			t.Errorf("tenant A, content_path %q gave entry %q, want none", contentPath, e.Content)
 		}
+	}
+}
+
+// answeringQueue answers every retrieval search with one indexed chunk, as a
+// worker with a built index would.
+type answeringQueue struct {
+	fakeQueue
+	retrieval *RetrievalService
+	searches  int
+}
+
+func (q *answeringQueue) Publish(ctx context.Context, subject string, data []byte) error {
+	if subject == messagequeue.SubjectRetrievalSearchRequest {
+		q.searches++
+		var req messagequeue.RetrievalSearchRequestPayload
+		if err := json.Unmarshal(data, &req); err != nil {
+			return err
+		}
+		go q.retrieval.HandleSearchResult(ctx, &messagequeue.RetrievalSearchResultPayload{
+			ProjectID: req.ProjectID, RequestID: req.RequestID,
+			Results: []messagequeue.RetrievalSearchHitPayload{{Content: "indexed chunk of " + req.ProjectID}},
+		})
+	}
+	return q.fakeQueue.Publish(ctx, subject, data)
+}
+
+// A knowledge base indexed while its content_path was usable keeps an index
+// in memory; once the path lies outside the tenant's area, its chunks are no
+// longer served (KI-105 round 3).
+func TestProcessKnowledgeBase_StaleIndexIsNotServed(t *testing.T) {
+	root, outside := knowledgeLayout(t)
+	queue := &answeringQueue{}
+	retrieval := NewRetrievalService(&mockStore{}, queue, &noopBroadcaster{}, &config.Orchestrator{},
+		&config.Limits{SearchTimeout: 5 * time.Second})
+	queue.retrieval = retrieval
+	svc := NewContextOptimizerService(&mockStore{}, &config.Orchestrator{}, &config.Limits{})
+	svc.SetRetrieval(retrieval)
+	svc.SetKnowledgeBases(NewKnowledgeBaseService(&mockStore{}, root))
+
+	kb := func(id, contentPath string) *knowledgebase.KnowledgeBase {
+		payload := &messagequeue.RetrievalIndexResultPayload{ProjectID: "kb:" + id, Status: "ready"}
+		if err := retrieval.HandleIndexResult(ctxTenantA, payload); err != nil {
+			t.Fatal(err)
+		}
+		return &knowledgebase.KnowledgeBase{ID: id, Name: id, ContentPath: contentPath, Status: "indexed"}
+	}
+
+	got := svc.processKnowledgeBase(ctxTenantA, kb("usable", "notes.md"), "q")
+	if len(got) != 1 || got[0].Content != "indexed chunk of kb:usable" {
+		t.Fatalf("usable knowledge base: entries = %v, want the indexed chunk", got)
+	}
+	queue.searches = 0
+	for id, contentPath := range map[string]string{
+		"legacy": outside,
+		"cross":  filepath.Join(root, kbTenantB, "secret.md"),
+		"climb":  "../" + kbTenantB,
+	} {
+		if got := svc.processKnowledgeBase(ctxTenantA, kb(id, contentPath), "q"); len(got) != 0 {
+			t.Errorf("%s (%s): entries = %v, want none", id, contentPath, got)
+		}
+	}
+	if queue.searches != 0 {
+		t.Errorf("stale knowledge bases were searched %d times", queue.searches)
 	}
 }

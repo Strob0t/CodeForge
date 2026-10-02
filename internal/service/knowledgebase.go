@@ -138,6 +138,13 @@ func (s *KnowledgeBaseService) checkContent(tenant, rel string) error {
 	return nil
 }
 
+// Usable reports whether kb's stored content_path lies in the caller's
+// knowledge area; a refused row is logged once.
+func (s *KnowledgeBaseService) Usable(ctx context.Context, kb *knowledgebase.KnowledgeBase) bool {
+	_, err := s.content.stored(tenantctx.FromContext(ctx), kb)
+	return err == nil
+}
+
 // ReadContent returns up to maxBytes of a knowledge base of the caller's
 // tenant whose content_path names a regular file in the tenant's knowledge
 // area, and whether it was cut.
