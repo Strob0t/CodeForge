@@ -2,14 +2,13 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
@@ -35,7 +34,7 @@ func (s *KnowledgeBaseService) Create(ctx context.Context, req *knowledgebase.Cr
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validate knowledge base: %w", err)
 	}
-	rel, err := s.content.relative(req.ContentPath)
+	rel, err := s.content.relative(tenantctx.FromContext(ctx), req.ContentPath)
 	if err != nil {
 		return nil, err
 	}
@@ -94,16 +93,18 @@ func (s *KnowledgeBaseService) RequestIndex(ctx context.Context, id string) erro
 	if kb.ContentPath == "" {
 		return fmt.Errorf("knowledge base %q has no content path: %w", kb.Name, domain.ErrValidation)
 	}
-	rel, err := s.content.stored(kb)
+	tenant := tenantctx.FromContext(ctx)
+	rel, err := s.content.stored(tenant, kb)
 	if err != nil {
 		return err
 	}
-	if err := s.checkContent(rel); err != nil {
+	if err := s.checkContent(tenant, rel); err != nil {
 		return err
 	}
 
 	// Use "kb:<id>" as the project identifier to namespace KB indexes; the
-	// worker indexes rel below its own content root.
+	// worker indexes rel below the tenant's area of its own content root
+	// (the payload carries the tenant).
 	kbProjectID := "kb:" + kb.ID
 	if err := s.retrieval.RequestKnowledgeIndex(ctx, kbProjectID, rel); err != nil {
 		return fmt.Errorf("request index for knowledge base: %w", err)
@@ -117,39 +118,36 @@ func (s *KnowledgeBaseService) RequestIndex(ctx context.Context, id string) erro
 }
 
 // checkContent verifies that rel names a directory or a regular file inside
-// the content root.
-func (s *KnowledgeBaseService) checkContent(rel string) error {
-	root, err := s.content.open()
+// the tenant's knowledge area. Every refusal is the same 400, so a tenant
+// cannot probe which paths exist (KI-105); the reason is logged.
+func (s *KnowledgeBaseService) checkContent(tenant, rel string) error {
+	root, err := s.content.open(tenant)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNoOperatorDir) {
-			return fmt.Errorf("the knowledge content root (knowledge.content_root) does not exist: %w", domain.ErrValidation)
-		}
-		return fmt.Errorf("open the knowledge content root: %w", err)
+		slog.Info("knowledge content refused", "tenant_id", tenant, "content_path", rel, "reason", err)
+		return knowledgeUnavailable()
 	}
 	defer func() { _ = root.Close() }()
 	info, err := root.Stat(rel)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("content_path %q does not exist inside the knowledge content root: %w", rel, domain.ErrValidation)
-	case errors.Is(err, workspacefs.ErrLeavesWorkspace):
-		return fmt.Errorf("content_path %q leads out of the knowledge content root: %w", rel, domain.ErrValidation)
-	case err != nil:
-		return fmt.Errorf("content_path %q: %w", rel, err)
+	if err == nil && !info.IsDir() && !info.Mode().IsRegular() {
+		err = workspacefs.ErrNotRegular
 	}
-	if !info.IsDir() && !info.Mode().IsRegular() {
-		return fmt.Errorf("content_path %q is not a directory or regular file: %w", rel, domain.ErrValidation)
+	if err != nil {
+		slog.Info("knowledge content refused", "tenant_id", tenant, "content_path", rel, "reason", err)
+		return knowledgeUnavailable()
 	}
 	return nil
 }
 
-// ReadContent returns up to maxBytes of a knowledge base whose content_path
-// names a regular file below the content root, and whether it was cut.
-func (s *KnowledgeBaseService) ReadContent(kb *knowledgebase.KnowledgeBase, maxBytes int64) (data []byte, truncated bool, err error) {
-	rel, err := s.content.stored(kb)
+// ReadContent returns up to maxBytes of a knowledge base of the caller's
+// tenant whose content_path names a regular file in the tenant's knowledge
+// area, and whether it was cut.
+func (s *KnowledgeBaseService) ReadContent(ctx context.Context, kb *knowledgebase.KnowledgeBase, maxBytes int64) (data []byte, truncated bool, err error) {
+	tenant := tenantctx.FromContext(ctx)
+	rel, err := s.content.stored(tenant, kb)
 	if err != nil {
 		return nil, false, err
 	}
-	root, err := s.content.open()
+	root, err := s.content.open(tenant)
 	if err != nil {
 		return nil, false, err
 	}

@@ -13,31 +13,50 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
-// knowledgeLayout builds a content root with docs/guide.md and notes.md, an
-// outside directory with a secret, and symlinks in the root leading out.
+const (
+	kbTenantA = "11111111-1111-4111-8111-111111111111"
+	kbTenantB = "22222222-2222-4222-8222-222222222222"
+)
+
+var (
+	ctxTenantA = tenantctx.WithTenant(context.Background(), kbTenantA)
+	ctxTenantB = tenantctx.WithTenant(context.Background(), kbTenantB)
+)
+
+// knowledgeLayout builds a content root with one area per tenant: tenant A
+// has docs/guide.md and notes.md plus symlinks that lead out of its area
+// (into tenant B's area, out of the root); tenant B has secret.md; the root
+// itself holds top.md; an outside directory holds a secret.
 func knowledgeLayout(t *testing.T) (root, outside string) {
 	t.Helper()
 	base := t.TempDir()
 	root = filepath.Join(base, "knowledge")
 	outside = filepath.Join(base, "outside")
-	for _, dir := range []string{filepath.Join(root, "docs"), outside} {
+	areaA := filepath.Join(root, kbTenantA)
+	areaB := filepath.Join(root, kbTenantB)
+	for _, dir := range []string{filepath.Join(areaA, "docs"), areaB, outside} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
-	writeTestFile(t, filepath.Join(root, "docs", "guide.md"), "inside guide")
-	writeTestFile(t, filepath.Join(root, "notes.md"), "inside notes")
+	writeTestFile(t, filepath.Join(areaA, "docs", "guide.md"), "inside guide")
+	writeTestFile(t, filepath.Join(areaA, "notes.md"), "inside notes")
+	writeTestFile(t, filepath.Join(areaB, "secret.md"), "tenant B secret")
+	writeTestFile(t, filepath.Join(root, "top.md"), "root level")
 	writeTestFile(t, filepath.Join(outside, "secret.md"), "outside secret")
 	for name, target := range map[string]string{
 		"abs-dir":  outside,
 		"abs-file": filepath.Join(outside, "secret.md"),
-		"rel-dir":  "../outside",
-		"rel-file": "../outside/secret.md",
+		"rel-dir":  "../../outside",
+		"rel-file": "../../outside/secret.md",
+		"cross":    "../" + kbTenantB + "/secret.md", // into tenant B's area
+		"up":       "..",                             // the content root
 		"in-link":  "docs/guide.md",
 	} {
-		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+		if err := os.Symlink(target, filepath.Join(areaA, name)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -47,31 +66,30 @@ func knowledgeLayout(t *testing.T) (root, outside string) {
 func TestKnowledgeContent_Relative(t *testing.T) {
 	root, outside := knowledgeLayout(t)
 	k := newKnowledgeContent(root)
+	areaA := filepath.Join(root, kbTenantA)
 
-	tests := []struct {
-		in, want string
-		wantErr  bool
-	}{
-		{in: "docs", want: "docs"},
-		{in: "./docs/../docs/guide.md", want: "docs/guide.md"},
-		{in: filepath.Join(root, "docs"), want: "docs"},
-		{in: root + "/docs/../notes.md", want: "notes.md"},
-		{in: "../outside", wantErr: true},
-		{in: "docs/../../outside", wantErr: true},
-		{in: outside, wantErr: true},
-		{in: "/etc", wantErr: true},
-		{in: root + "-other/x", wantErr: true},
-	}
-	for _, tt := range tests {
-		got, err := k.relative(tt.in)
-		if tt.wantErr {
-			if !errors.Is(err, domain.ErrValidation) {
-				t.Errorf("relative(%q) = %q, %v; want a validation error", tt.in, got, err)
-			}
-			continue
+	for in, want := range map[string]string{
+		"docs":                       "docs",
+		"./docs/../docs/guide.md":    "docs/guide.md",
+		".":                          ".",
+		filepath.Join(areaA, "docs"): "docs",
+		areaA:                        ".",
+	} {
+		if got, err := k.relative(kbTenantA, in); err != nil || got != want {
+			t.Errorf("relative(A, %q) = %q, %v; want %q", in, got, err, want)
 		}
-		if err != nil || got != tt.want {
-			t.Errorf("relative(%q) = %q, %v; want %q", tt.in, got, err, tt.want)
+	}
+	for _, in := range []string{
+		"..", "../" + kbTenantB + "/secret.md", filepath.Join(root, kbTenantB, "secret.md"),
+		root, filepath.Join(root, "top.md"), outside, "/etc", root + "-other/x",
+	} {
+		if got, err := k.relative(kbTenantA, in); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("relative(A, %q) = %q, %v; want a validation error", in, got, err)
+		}
+	}
+	for _, tenant := range []string{"", ".", "..", "a/b", "not-a-uuid", "urn:uuid:" + kbTenantA, "AAAAAAAA-1111-4111-8111-111111111111"} {
+		if got, err := k.relative(tenant, "docs"); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("relative(%q, docs) = %q, %v; want a validation error", tenant, got, err)
 		}
 	}
 }
@@ -83,8 +101,8 @@ func TestKnowledgeContent_AcceptsTheResolvedRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := newKnowledgeContent(link)
-	for _, in := range []string{filepath.Join(link, "docs"), filepath.Join(root, "docs")} {
-		if got, err := k.relative(in); err != nil || got != "docs" {
+	for _, in := range []string{filepath.Join(link, kbTenantA, "docs"), filepath.Join(root, kbTenantA, "docs")} {
+		if got, err := k.relative(kbTenantA, in); err != nil || got != "docs" {
 			t.Errorf("relative(%q) = %q, %v; want docs", in, got, err)
 		}
 	}
@@ -122,65 +140,89 @@ func newKBTestService(t *testing.T, root string, kbs ...*knowledgebase.Knowledge
 	return svc, queue
 }
 
-func TestKnowledgeBaseService_CreateStoresTheRelativePath(t *testing.T) {
-	root, outside := knowledgeLayout(t)
-	svc, _ := newKBTestService(t, root)
-	ctx := context.Background()
-
-	for in, want := range map[string]string{"docs": "docs", filepath.Join(root, "notes.md"): "notes.md"} {
-		kb, err := svc.Create(ctx, &knowledgebase.CreateRequest{Name: "kb", Category: "custom", ContentPath: in})
-		if err != nil || kb.ContentPath != want {
-			t.Fatalf("Create(%q) = %+v, %v; want content_path %q", in, kb, err, want)
+// refusals runs fn for each input and checks that every answer is the same
+// validation error: no answer tells an existing path of another tenant (or
+// of the root) apart from a missing one.
+func refusals(t *testing.T, inputs []string, fn func(string) error) {
+	t.Helper()
+	var first string
+	for _, in := range inputs {
+		err := fn(in)
+		if !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("%q: error = %v, want a validation error", in, err)
+			continue
 		}
-	}
-	for _, in := range []string{outside, "/etc", "../outside"} {
-		if _, err := svc.Create(ctx, &knowledgebase.CreateRequest{Name: "kb", Category: "custom", ContentPath: in}); !errors.Is(err, domain.ErrValidation) {
-			t.Errorf("Create(%q) error = %v, want a validation error", in, err)
+		if first == "" {
+			first = err.Error()
+		} else if err.Error() != first {
+			t.Errorf("%q: error %q differs from %q (tells paths apart)", in, err, first)
 		}
 	}
 }
 
-func TestKnowledgeBaseService_RequestIndexStaysInsideTheContentRoot(t *testing.T) {
+func TestKnowledgeBaseService_CreateStoresTheTenantRelativePath(t *testing.T) {
+	root, outside := knowledgeLayout(t)
+	svc, _ := newKBTestService(t, root)
+	areaA := filepath.Join(root, kbTenantA)
+
+	for in, want := range map[string]string{"docs": "docs", filepath.Join(areaA, "notes.md"): "notes.md", ".": "."} {
+		kb, err := svc.Create(ctxTenantA, &knowledgebase.CreateRequest{Name: "kb", Category: "custom", ContentPath: in})
+		if err != nil || kb.ContentPath != want {
+			t.Fatalf("Create(%q) = %+v, %v; want content_path %q", in, kb, err, want)
+		}
+	}
+	refusals(t, []string{
+		filepath.Join(root, kbTenantB, "secret.md"), filepath.Join(root, kbTenantB, "missing.md"),
+		"../" + kbTenantB, "../" + kbTenantB + "/missing", root, outside, "/etc",
+	}, func(in string) error {
+		_, err := svc.Create(ctxTenantA, &knowledgebase.CreateRequest{Name: "kb", Category: "custom", ContentPath: in})
+		return err
+	})
+}
+
+func TestKnowledgeBaseService_RequestIndexStaysInsideTheTenantArea(t *testing.T) {
 	root, outside := knowledgeLayout(t)
 	kb := func(id, contentPath string) *knowledgebase.KnowledgeBase {
 		return &knowledgebase.KnowledgeBase{ID: id, Name: id, ContentPath: contentPath}
 	}
 	svc, queue := newKBTestService(t, root,
-		kb("dir", "docs"), kb("file", "notes.md"), kb("in-link", "in-link"),
+		kb("dir", "docs"), kb("file", "notes.md"), kb("in-link", "in-link"), kb("area", "."), kb("b-secret", "secret.md"),
 		kb("abs-dir", "abs-dir"), kb("abs-file", "abs-file"), kb("rel-dir", "rel-dir"), kb("rel-file", "rel-file"),
-		kb("legacy", outside), kb("legacy-etc", "/etc"), kb("missing", "nope"), kb("dotdot", "../outside"),
+		kb("cross", "cross"), kb("up", "up"), kb("up-top", "up/top.md"), kb("legacy", outside),
+		kb("legacy-b", filepath.Join(root, kbTenantB, "secret.md")), kb("legacy-etc", "/etc"),
+		kb("missing", "nope"), kb("climb", "../"+kbTenantB+"/secret.md"), kb("climb-missing", "../"+kbTenantB+"/nope"),
+		kb("root-relative-b", kbTenantB+"/secret.md"), // a round-2 row: relative to the content root
 	)
-	ctx := context.Background()
 
-	for id, want := range map[string]string{"dir": "docs", "file": "notes.md", "in-link": "in-link"} {
+	published := func(ctx context.Context, id string) messagequeue.RetrievalIndexRequestPayload {
+		t.Helper()
 		queue.published = nil
 		if err := svc.RequestIndex(ctx, id); err != nil {
 			t.Fatalf("RequestIndex(%s): %v", id, err)
 		}
-		if len(queue.published) != 1 || queue.published[0].subject != messagequeue.SubjectRetrievalIndexRequest {
+		var payload messagequeue.RetrievalIndexRequestPayload
+		if len(queue.published) != 1 || json.Unmarshal(queue.published[0].data, &payload) != nil {
 			t.Fatalf("RequestIndex(%s) published %v", id, queue.published)
 		}
-		var payload messagequeue.RetrievalIndexRequestPayload
-		if err := json.Unmarshal(queue.published[0].data, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload.KnowledgePath != want || payload.WorkspacePath != "" || payload.ProjectID != "kb:"+id {
-			t.Errorf("RequestIndex(%s) payload = %+v, want knowledge_path %q and no workspace_path", id, payload, want)
+		return payload
+	}
+	for id, want := range map[string]string{"dir": "docs", "file": "notes.md", "in-link": "in-link", "area": "."} {
+		payload := published(ctxTenantA, id)
+		if payload.KnowledgePath != want || payload.WorkspacePath != "" || payload.TenantID != kbTenantA {
+			t.Errorf("RequestIndex(%s) payload = %+v, want knowledge_path %q for tenant A", id, payload, want)
 		}
 	}
+	if payload := published(ctxTenantB, "b-secret"); payload.TenantID != kbTenantB || payload.KnowledgePath != "secret.md" {
+		t.Errorf("tenant B's own file: payload = %+v", payload)
+	}
 
-	for _, id := range []string{"abs-dir", "abs-file", "rel-dir", "rel-file", "legacy", "legacy-etc", "missing", "dotdot"} {
-		queue.published = nil
-		err := svc.RequestIndex(ctx, id)
-		if !errors.Is(err, domain.ErrValidation) {
-			t.Errorf("RequestIndex(%s) error = %v, want a validation error", id, err)
-		}
-		if len(queue.published) != 0 {
-			t.Errorf("RequestIndex(%s) published %d messages, want none", id, len(queue.published))
-		}
-		if err != nil && strings.Contains(err.Error(), outside) {
-			t.Errorf("RequestIndex(%s) error names the outside path: %v", id, err)
-		}
+	queue.published = nil
+	refusals(t, []string{
+		"b-secret", "abs-dir", "abs-file", "rel-dir", "rel-file", "cross", "up", "up-top",
+		"legacy", "legacy-b", "legacy-etc", "missing", "climb", "climb-missing", "root-relative-b",
+	}, func(id string) error { return svc.RequestIndex(ctxTenantA, id) })
+	if len(queue.published) != 0 {
+		t.Errorf("refused requests published %d messages", len(queue.published))
 	}
 }
 
@@ -188,7 +230,7 @@ func TestKnowledgeBaseService_RefusedRowsAreLoggedOnce(t *testing.T) {
 	root, outside := knowledgeLayout(t)
 	svc, _ := newKBTestService(t, root, &knowledgebase.KnowledgeBase{ID: "legacy", ContentPath: outside})
 	for range 3 {
-		_ = svc.RequestIndex(context.Background(), "legacy")
+		_ = svc.RequestIndex(ctxTenantA, "legacy")
 	}
 	n := 0
 	svc.content.logged.Range(func(_, _ any) bool { n++; return true })
@@ -197,38 +239,42 @@ func TestKnowledgeBaseService_RefusedRowsAreLoggedOnce(t *testing.T) {
 	}
 }
 
-func TestProcessKnowledgeBase_FallbackReadsOnlyBelowTheContentRoot(t *testing.T) {
+func TestProcessKnowledgeBase_FallbackReadsOnlyTheTenantArea(t *testing.T) {
 	root, outside := knowledgeLayout(t)
-	writeTestFile(t, filepath.Join(root, "big.md"), strings.Repeat("ä", 10000))
+	writeTestFile(t, filepath.Join(root, kbTenantA, "big.md"), strings.Repeat("ä", 10000))
 	kbSvc, _ := newKBTestService(t, root)
 	svc := NewContextOptimizerService(&mockStore{}, &config.Orchestrator{}, &config.Limits{})
 
 	kb := func(contentPath string) *knowledgebase.KnowledgeBase {
 		return &knowledgebase.KnowledgeBase{ID: contentPath, Name: "kb", ContentPath: contentPath, Status: "indexed"}
 	}
-	if got := svc.processKnowledgeBase(context.Background(), kb("notes.md"), "q"); got != nil {
+	if got := svc.processKnowledgeBase(ctxTenantA, kb("notes.md"), "q"); got != nil {
 		t.Fatalf("without the knowledge service: %v, want no entries", got)
 	}
 	svc.SetKnowledgeBases(kbSvc)
 
-	got := svc.processKnowledgeBase(context.Background(), kb("notes.md"), "q")
-	if len(got) != 1 || got[0].Content != "inside notes" {
-		t.Fatalf("notes.md entries = %v, want the inside notes", got)
+	for ctx, want := range map[context.Context]map[string]string{
+		ctxTenantA: {"notes.md": "inside notes", "in-link": "inside guide"},
+		ctxTenantB: {"secret.md": "tenant B secret"},
+	} {
+		for contentPath, content := range want {
+			got := svc.processKnowledgeBase(ctx, kb(contentPath), "q")
+			if len(got) != 1 || got[0].Content != content {
+				t.Errorf("%s entries = %v, want %q", contentPath, got, content)
+			}
+		}
 	}
-	got = svc.processKnowledgeBase(context.Background(), kb("in-link"), "q")
-	if len(got) != 1 || got[0].Content != "inside guide" {
-		t.Fatalf("in-root symlink entries = %v, want the inside guide", got)
-	}
-	big := svc.processKnowledgeBase(context.Background(), kb("big.md"), "q")
+	big := svc.processKnowledgeBase(ctxTenantA, kb("big.md"), "q")
 	if len(big) != 1 || len(big[0].Content) > 8192 || !strings.HasPrefix(strings.Repeat("ä", 10000), big[0].Content) {
 		t.Fatalf("big.md: %d entries, want one entry cut at 8192 bytes on a rune boundary", len(big))
 	}
 
 	for _, contentPath := range []string{
-		filepath.Join(outside, "secret.md"), "/etc/passwd", "abs-file", "rel-file", "../outside/secret.md", "docs",
+		kbTenantB + "/secret.md", "secret.md", "cross", "up/top.md", "../" + kbTenantB + "/secret.md", filepath.Join(root, kbTenantB, "secret.md"),
+		filepath.Join(outside, "secret.md"), "/etc/passwd", "abs-file", "rel-file", "docs",
 	} {
-		for _, e := range svc.processKnowledgeBase(context.Background(), kb(contentPath), "q") {
-			t.Errorf("content_path %q gave entry %q, want none", contentPath, e.Content)
+		for _, e := range svc.processKnowledgeBase(ctxTenantA, kb(contentPath), "q") {
+			t.Errorf("tenant A, content_path %q gave entry %q, want none", contentPath, e.Content)
 		}
 	}
 }

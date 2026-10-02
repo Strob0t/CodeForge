@@ -253,7 +253,8 @@ services:
     # The root filesystem stays read-only: /data (initial admin password, the
     # OAuth .env next to the workspace root) and the workspaces shared with the
     # worker are volumes, /tmp is a tmpfs. Knowledge-base content (KI-105) is
-    # read only below /data/knowledge, a read-only volume the operator fills.
+    # read only below /data/knowledge/<tenant_id>/, a read-only volume the
+    # operator fills.
     volumes:
       - core_data:/data
       - workspaces:/data/workspaces

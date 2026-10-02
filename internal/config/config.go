@@ -313,10 +313,11 @@ type Policy struct {
 
 // Knowledge holds the knowledge-base content configuration (KI-105).
 type Knowledge struct {
-	// ContentRoot is the operator directory knowledge-base content lives in;
-	// content_path values are stored relative to it and resolved inside it
-	// (no symlink out of it). The worker indexes below its own root with the
-	// same setting (default: data/knowledge).
+	// ContentRoot is the operator directory knowledge-base content lives in,
+	// one area per tenant (<content_root>/<tenant_id>/); content_path values
+	// are stored relative to the tenant's area and resolved inside it (no
+	// symlink out of it). The worker indexes below its own root with the same
+	// setting (default: data/knowledge).
 	ContentRoot string `yaml:"content_root"`
 }
 

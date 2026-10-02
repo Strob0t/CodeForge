@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 import structlog
@@ -19,12 +20,25 @@ from codeforge.models import (
     SubAgentSearchRequest,
     SubAgentSearchResult,
 )
-from codeforge.workspace_fs import WorkspaceRoot
+from codeforge.workspace_fs import PathLeavesWorkspaceError, WorkspaceRoot
 
 if TYPE_CHECKING:
     import nats.aio.msg
 
 logger = structlog.get_logger()
+
+# The one answer for a knowledge_path outside the tenant's area or missing (KI-105).
+_KNOWLEDGE_UNAVAILABLE = (
+    "knowledge_path is not available in this tenant's knowledge area (knowledge.content_root/<tenant>)"
+)
+
+
+def _is_tenant_id(value: str) -> bool:
+    """Whether *value* is a tenant ID in canonical UUID form (one path component)."""
+    try:
+        return str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
 
 
 class RetrievalHandlerMixin:
@@ -60,12 +74,15 @@ class RetrievalHandlerMixin:
             if refusal:
                 log.warning("knowledge index refused", reason=refusal)
                 return RetrievalIndexResult(project_id=request.project_id, status="error", error=refusal)
-            workspace_path, below = self._knowledge_content_root, request.knowledge_path
+            workspace_path, tenant, below = self._knowledge_content_root, request.tenant_id, request.knowledge_path
+        else:
+            tenant = ""
         status = await self._retriever.build_index(
             project_id=request.project_id,
             workspace_path=workspace_path,
             embedding_model=request.embedding_model,
             file_extensions=request.file_extensions or None,
+            tenant=tenant,
             below=below,
         )
         return RetrievalIndexResult(
@@ -83,9 +100,11 @@ class RetrievalHandlerMixin:
     def _knowledge_refusal(self, request: RetrievalIndexRequest) -> str:
         """Why a knowledge-base index request is refused, or "" (KI-105).
 
-        A knowledge base is indexed from knowledge_path below the worker's own
-        knowledge content root, never from a workspace_path or a path (or a
-        symlink) leading out of that root.
+        A knowledge base is indexed from knowledge_path inside its tenant's
+        area <content root>/<tenant_id>/ of the worker's own knowledge content
+        root, never from a workspace_path or a path (or a symlink) leading out
+        of that area. A path outside the area and a missing one get the same
+        answer, so nothing can be probed.
         """
         if not request.project_id.startswith("kb:"):
             return "knowledge_path is only accepted for knowledge bases"
@@ -93,17 +112,26 @@ class RetrievalHandlerMixin:
             return "knowledge bases are indexed below the knowledge content root, not from workspace_path"
         if not request.knowledge_path:
             return "knowledge_path is required"
-        if request.knowledge_path.startswith("/"):
-            return "knowledge_path must be relative to the knowledge content root"
+        if not _is_tenant_id(request.tenant_id):
+            return "a knowledge index request needs the tenant_id of its knowledge base"
         if not self._knowledge_content_root:
             return "no knowledge content root is configured (knowledge.content_root)"
         try:
-            with WorkspaceRoot.operator_dir(self._knowledge_content_root) as root:
-                root.resolve(request.knowledge_path)
-        except FileNotFoundError:
-            return f"knowledge_path {request.knowledge_path!r} does not exist below the knowledge content root"
+            if request.knowledge_path.startswith("/"):
+                raise PathLeavesWorkspaceError(request.knowledge_path)
+            with (
+                WorkspaceRoot.operator_dir(self._knowledge_content_root) as content,
+                content.subroot(request.tenant_id) as area,
+            ):
+                area.resolve(request.knowledge_path)
         except OSError as exc:
-            return f"knowledge_path {request.knowledge_path!r} refused: {exc.strerror or exc}"
+            logger.info(
+                "knowledge path refused",
+                tenant_id=request.tenant_id,
+                knowledge_path=request.knowledge_path,
+                reason=str(exc),
+            )
+            return _KNOWLEDGE_UNAVAILABLE
         return ""
 
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:

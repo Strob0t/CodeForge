@@ -25,7 +25,7 @@ from codeforge._tree_sitter_common import (
     iter_source_files,
 )
 from codeforge.models import RetrievalSearchHit
-from codeforge.workspace_fs import WorkspaceRoot
+from codeforge.workspace_fs import PathLeavesWorkspaceError, WorkspaceRoot
 
 if TYPE_CHECKING:
     from tree_sitter import Parser
@@ -98,6 +98,21 @@ class IndexStatus:
 # ---------------------------------------------------------------------------
 
 
+def _open_index_root(path: str, tenant: str, below: str) -> WorkspaceRoot:
+    """The directory an index is built from.
+
+    A workspace (no tenant), or the directory *below* inside the tenant's area
+    <path>/<tenant>/ of the knowledge content root *path*: the area is opened
+    first, so ".." or a symlink in *below* cannot leave it (KI-105).
+    """
+    if not tenant:
+        return WorkspaceRoot(path)
+    if tenant in (".", "..") or "/" in tenant:
+        raise PathLeavesWorkspaceError(tenant)
+    with WorkspaceRoot(path) as content, content.subroot(tenant) as area:
+        return area.subroot(below)
+
+
 class CodeChunker:
     """Splits source files into chunks at definition boundaries using tree-sitter."""
 
@@ -122,13 +137,15 @@ class CodeChunker:
         workspace_path: str,
         file_extensions: list[str] | None = None,
         *,
+        tenant: str = "",
         below: str = ".",
     ) -> dict[str, tuple[str, list[CodeChunk]]]:
         """Walk workspace and return {rel_path: (content_hash, chunks)} per file.
 
         The content hash is the SHA-256 hex digest of the raw file bytes. With
-        *below* only that directory inside the workspace is walked (a knowledge
-        base below the knowledge content root), and paths are relative to it.
+        *tenant*, *workspace_path* is the knowledge content root and only the
+        directory *below* in the tenant's area <root>/<tenant>/ is walked (a
+        knowledge base, KI-105); paths are relative to it.
         """
         extensions: set[str] = set(_EXTENSION_MAP)
         if file_extensions:
@@ -136,10 +153,9 @@ class CodeChunker:
 
         result: dict[str, tuple[str, list[CodeChunk]]] = {}
         try:
-            with WorkspaceRoot(workspace_path) as base:
-                root = base.subroot(below)
+            root = _open_index_root(workspace_path, tenant, below)
         except OSError as exc:
-            logger.warning("cannot open workspace", path=workspace_path, below=below, error=str(exc))
+            logger.warning("cannot open workspace", path=workspace_path, tenant=tenant, below=below, error=str(exc))
             return result
 
         scan = SourceScan("retrieval")
@@ -370,6 +386,7 @@ class HybridRetriever:
         workspace_path: str,
         embedding_model: str = "text-embedding-3-small",
         file_extensions: list[str] | None = None,
+        tenant: str = "",
         below: str = ".",
     ) -> IndexStatus:
         """Chunk workspace (only its directory *below*), build BM25 index and compute embeddings.
@@ -386,7 +403,7 @@ class HybridRetriever:
             # workspace is CPU-bound: run it off the event loop, which also keeps
             # the in-progress acks of this request flowing.
             per_file = await asyncio.to_thread(
-                self._chunker.chunk_workspace_by_file, workspace_path, file_extensions, below=below
+                self._chunker.chunk_workspace_by_file, workspace_path, file_extensions, tenant=tenant, below=below
             )
             if not per_file:
                 log.info("index empty, no files found")

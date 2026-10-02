@@ -230,7 +230,7 @@ func (s *ContextOptimizerService) processKnowledgeBase(
 		return nil
 	}
 	const maxKBTokens = 2048
-	content, truncated, readErr := s.knowledge.ReadContent(kb, maxKBTokens*4)
+	content, truncated, readErr := s.knowledge.ReadContent(ctx, kb, maxKBTokens*4)
 	if readErr != nil || len(content) == 0 {
 		if readErr != nil {
 			slog.Debug("knowledge base fallback read skipped", "kb_id", kb.ID, "error", readErr)

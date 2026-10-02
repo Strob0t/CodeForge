@@ -137,12 +137,14 @@ auth:
   default_admin_email: "admin@localhost"  # Seed admin email on first start
   default_admin_pass: ""                  # Leave empty: setup wizard or auto_generate_initial_password will handle this.
 
-# Knowledge bases (KI-105): their content lives below one operator directory.
-# content_path values are stored relative to it (an absolute path is accepted
-# only inside it) and resolved inside it: no symlink leads out of it. Creating,
-# changing, deleting and indexing a knowledge base need the admin role. The
-# worker indexes below its own root with the same setting, so both must see the
-# same files (docker-compose.prod.yml mounts the knowledge volume in both).
+# Knowledge bases (KI-105): their content lives below one operator directory,
+# one area per tenant: <content_root>/<tenant_id>/. content_path values are
+# stored relative to the tenant's area ("." is the whole area; an absolute path
+# is accepted only inside it) and resolved inside it: no symlink leads out of
+# it. Creating, changing, deleting and indexing a knowledge base need the admin
+# role. The worker indexes below its own root with the same setting, so both
+# must see the same files (docker-compose.prod.yml mounts the knowledge volume
+# in both).
 # knowledge:
 #   content_root: "data/knowledge"   # env CODEFORGE_KNOWLEDGE_CONTENT_ROOT
 
