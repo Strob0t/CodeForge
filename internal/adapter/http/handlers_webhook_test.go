@@ -122,10 +122,12 @@ func TestWebhookRoutes_Roles(t *testing.T) {
 }
 
 // KI-85: an unknown webhook, an ID that is no UUID and a bad signature get
-// the same 401, so the answer reveals no webhook ID; the removed global
-// routes answer 410 and name the migration.
+// the same 401, so the answer reveals no webhook ID - also with an invalid
+// X-Tenant-ID header, which the production chain's TenantID middleware
+// (in front, as in main.go) must not read on webhook routes; the removed
+// global routes answer 410 and name the migration.
 func TestWebhookInbound_Answers(t *testing.T) {
-	r := webhookRouter()
+	r := middleware.TenantID(webhookRouter())
 	post := func(path string, body []byte, headers map[string]string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 		for k, v := range headers {
