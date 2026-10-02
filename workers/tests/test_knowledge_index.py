@@ -207,3 +207,14 @@ def test_knowledge_content_root_setting(monkeypatch: pytest.MonkeyPatch) -> None
     assert WorkerSettings().knowledge_content_root == "/srv/kb"
     monkeypatch.setenv("CODEFORGE_KNOWLEDGE_CONTENT_ROOT", "/data/knowledge")
     assert WorkerSettings().knowledge_content_root == "/data/knowledge"
+
+
+def test_chunker_accepts_a_symlinked_content_root(layout: tuple[Path, Path], tmp_path: Path) -> None:
+    """The content root is the operator's: its own path may be a symlink, as in the Go Core (KI-105)."""
+    root, _ = layout
+    link = tmp_path / "knowledge-link"
+    link.symlink_to(root)
+    per_file = CodeChunker().chunk_workspace_by_file(str(link), tenant=TENANT_A, below="docs")
+    assert sorted(per_file) == ["guide.py", "sub/more.py"]
+    for below in ("cross", f"../{TENANT_B}", "abs-dir", ".."):
+        assert CodeChunker().chunk_workspace_by_file(str(link), tenant=TENANT_A, below=below) == {}, below

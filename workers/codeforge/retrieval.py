@@ -101,15 +101,18 @@ class IndexStatus:
 def _open_index_root(path: str, tenant: str, below: str) -> WorkspaceRoot:
     """The directory an index is built from.
 
-    A workspace (no tenant), or the directory *below* inside the tenant's area
-    <path>/<tenant>/ of the knowledge content root *path*: the area is opened
-    first, so ".." or a symlink in *below* cannot leave it (KI-105).
+    A workspace (no tenant; its directory may not be a symlink), or the
+    directory *below* inside the tenant's area <path>/<tenant>/ of the
+    knowledge content root *path*. The content root is the operator's, opened
+    like the Go Core does (its own path may be a symlink); the area is opened
+    inside it first, so ".." or a symlink in *below* cannot leave the area
+    (KI-105).
     """
     if not tenant:
         return WorkspaceRoot(path)
     if tenant in (".", "..") or "/" in tenant:
         raise PathLeavesWorkspaceError(tenant)
-    with WorkspaceRoot(path) as content, content.subroot(tenant) as area:
+    with WorkspaceRoot.operator_dir(path) as content, content.subroot(tenant) as area:
         return area.subroot(below)
 
 
