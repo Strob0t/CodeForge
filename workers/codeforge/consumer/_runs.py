@@ -12,7 +12,7 @@ from codeforge.consumer._subjects import SUBJECT_RUN_COMPLETE, SUBJECT_TASK_CANC
 from codeforge.models import RunCompleteMessage, RunStartMessage, TaskMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
-from codeforge.tool_process import share_tool_files
+from codeforge.tool_identity import tool_tenant
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -109,14 +109,17 @@ class RunHandlerMixin:
                 await runtime.start_cancel_listener(extra_subjects=[SUBJECT_TASK_CANCEL], after=start)
                 # Agent-loop runs take long; runtime.close() stops the heartbeat.
                 await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
-                task = self._build_run_task(run_msg, log)
-                await self._executor.execute_with_runtime(
-                    task,
-                    runtime,
-                    mode=run_msg.mode,
-                    mcp_servers=run_msg.mcp_servers,
-                    tool_output_max_chars=run_msg.tool_output_max_chars,
-                )
+                # The run's tool processes run as its tenant's tool UID (KI-96);
+                # leaving it shares what they created (KI-71 review).
+                async with tool_tenant(run_msg.tenant_id, run_msg.tool_uid, run_msg.workspace_path):
+                    task = self._build_run_task(run_msg, log)
+                    await self._executor.execute_with_runtime(
+                        task,
+                        runtime,
+                        mode=run_msg.mode,
+                        mcp_servers=run_msg.mcp_servers,
+                        tool_output_max_chars=run_msg.tool_output_max_chars,
+                    )
             except Exception as exc:
                 # The run was acked on accept and is never redelivered: end it as
                 # failed instead of leaving it running until the Go run timeout.
@@ -124,9 +127,6 @@ class RunHandlerMixin:
                 await self._report_run_failure(runtime, str(exc), log)
             finally:
                 await runtime.close()
-                # What tool processes still running at the end created (KI-71 review).
-                if run_msg.workspace_path:
-                    await share_tool_files(run_msg.workspace_path)
         log.info(
             "run processing complete",
             mode_id=run_msg.mode.id if run_msg.mode else None,

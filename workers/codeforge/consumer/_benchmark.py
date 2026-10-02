@@ -34,6 +34,7 @@ from codeforge.consumer._subjects import (
     SUBJECT_EVAL_GEMMAS_RESULT,
 )
 from codeforge.models import GemmasEvalRequest, GemmasEvalResult
+from codeforge.tool_identity import tool_tenant
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -486,18 +487,21 @@ class BenchmarkHandlerMixin:
                 on_start, on_complete = _build_progress_callbacks(self._js, req.run_id, req.tenant_id)
 
                 benchmark_type = req.benchmark_type or "simple"
-                if benchmark_type == "tool_use":
-                    results = await run_tool_use_benchmark(
-                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                    )
-                elif benchmark_type == "agent":
-                    results = await run_agent_benchmark(
-                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                    )
-                else:
-                    results = await run_simple_benchmark(
-                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                    )
+                # Its tool processes run as the run's tenant's tool UID (KI-96),
+                # each task in its own workspace.
+                async with tool_tenant(req.tenant_id, req.tool_uid, None):
+                    if benchmark_type == "tool_use":
+                        results = await run_tool_use_benchmark(
+                            req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                        )
+                    elif benchmark_type == "agent":
+                        results = await run_agent_benchmark(
+                            req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                        )
+                    else:
+                        results = await run_simple_benchmark(
+                            req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                        )
 
                 if req.model == "auto" and hasattr(effective_llm, "routing_log"):
                     _annotate_routing(results, effective_llm.routing_log)

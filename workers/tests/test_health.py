@@ -12,7 +12,6 @@ import os
 import socket
 import subprocess
 import sys
-import threading
 import urllib.error
 import urllib.request
 from http import HTTPStatus
@@ -252,41 +251,6 @@ async def test_main_serves_health_while_the_consumer_runs(fake_main: int) -> Non
 
     with pytest.raises(urllib.error.URLError):
         await asyncio.to_thread(_get, fake_main, "/health")
-
-
-async def test_main_answers_health_while_the_workspaces_are_shared(
-    fake_main: int, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Finding 10: the one-time walk over the workspaces may take long; the health endpoint
-    answers meanwhile (starting, not ready) and the consumer starts after it."""
-    import codeforge.consumer as consumer_module
-
-    walking, release = threading.Event(), threading.Event()
-
-    def slow_share(_settings: object, _status: object) -> None:
-        walking.set()
-        release.wait(timeout=10)
-
-    monkeypatch.setattr(consumer_module, "share_workspaces", slow_share)
-    main_task = asyncio.create_task(consumer_module.main())
-    await asyncio.to_thread(walking.wait, 5)
-
-    assert await asyncio.to_thread(_get, fake_main, "/health") == (HTTPStatus.OK, {"status": "ok"})
-    assert await asyncio.to_thread(_get, fake_main, "/health/ready") == (
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        {"status": "starting"},
-    )
-    assert not any(c.started.is_set() for c in _FakeConsumer.instances), "no work before the workspaces are shared"
-
-    release.set()
-    while not _FakeConsumer.instances or not _FakeConsumer.instances[0].started.is_set():
-        await asyncio.sleep(0.01)
-    assert await asyncio.to_thread(_get, fake_main, "/health/ready") == (
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        {"status": "not ready"},
-    )
-    _FakeConsumer.instances[0].release.set()
-    await asyncio.wait_for(main_task, timeout=5)
 
 
 async def test_main_exits_non_zero_when_the_consumer_crashes(fake_main: int, monkeypatch: pytest.MonkeyPatch) -> None:

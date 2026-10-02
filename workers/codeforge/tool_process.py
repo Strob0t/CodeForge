@@ -1,19 +1,21 @@
-"""Start every process that runs for an agent, as the tool user (KI-71, KI-96).
+"""Start every process that runs for an agent, as the tenant's tool user (KI-71, KI-96, ADR-018).
 
 Agent tools run commands an LLM chose or code it wrote: Bash, grep, git in the
 workspace, quality gates and workspace tests, benchmark test commands, the
-agent CLIs of ``tasks.agent.*``, the Claude Code CLI and its policy hook. They
-get a scrubbed environment (``codeforge.subprocess_env.tool_env``), and with
-tool isolation they also run as a separate, unprivileged user
-(``codeforge-tool``, uid 10002): they cannot read the worker's secret files
-or ``/proc/<worker pid>/environ``, cannot signal or trace the worker, and have
-no capabilities.
+agent CLIs of ``tasks.agent.*``, the Claude Code CLI and its policy hook, MCP
+stdio servers. They get a scrubbed environment
+(``codeforge.subprocess_env.tool_env``), and with tool isolation they run as
+the tool UID of their tenant (codeforge.tool_identity: 20000-29999, no
+supplementary group): they cannot read the worker's secret files or
+``/proc/<worker pid>/environ``, cannot signal or trace the worker or another
+tenant's tools, reach no other tenant's files (POSIX ACLs,
+codeforge.tool_state) and have no capabilities.
 
 Mechanism: the worker container starts as root with only CAP_SETUID,
 CAP_SETGID and CAP_KILL; its entrypoint (``scripts/worker-entrypoint.sh``) runs
 the worker as the worker user (uid 10001) and keeps those three as ambient
 capabilities. Every tool process starts through setpriv (util-linux), which
-sets the tool user's UID, GID and supplementary groups, clears the
+sets the tool UID and GID, clears the supplementary groups and the
 inheritable and ambient capability sets and sets no_new_privs; it then
 executes the launch helper (``codeforge/tool_exec.py``, with the base Python
 interpreter and ``-I -S``), already as the tool user, and the helper executes
@@ -22,18 +24,19 @@ setpriv itself still holds the worker's capabilities and the dynamic loader
 honours LD_PRELOAD and friends for it (ambient capabilities do not set
 AT_SECURE), so it runs with a fixed environment of its own.
 
-The command's environment, its working directory and the directories to
-create for it travel in a launch spec on a memfd the helper reads (KI-96):
-never as arguments, which every process in the container can read in
-``/proc/<pid>/cmdline``. The helper checks its own credentials against the
-spec, enters the working directory without following a symlink, and exits
-with 125, running nothing, when anything is wrong. Popen closes every other
-file descriptor and sets the umask. CAP_KILL lets the worker stop tool
-processes of another user (timeouts, cancels). MCP stdio servers start the
-same way (tool_stdio_client).
+The command's environment, its working directory and the per-work
+directories to create below its HOME travel in a launch spec on a memfd the
+helper reads: never as arguments, which every process in the container can
+read in ``/proc/<pid>/cmdline``. The helper checks its own credentials
+against the spec, creates the directories and enters the working directory
+without following a symlink, and exits with 125, running nothing, when
+anything is wrong. The worker never changes into a directory a tool can
+write. Popen closes every other file descriptor and sets the umask (007).
+CAP_KILL lets the worker stop tool processes of another user (timeouts,
+cancels).
 
 ``CODEFORGE_TOOL_ISOLATION`` selects the mode: ``required`` (the worker image,
-docker-compose.prod.yml) starts tool processes only as the tool user and
+docker-compose.prod.yml) starts tool processes only as a tool identity and
 fails the tool call with ToolIsolationError, starting nothing, when that is
 not possible; ``off`` (the default elsewhere: development, tests, the
 devcontainer) starts them as the worker user, as before. No other module
@@ -45,19 +48,33 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import errno
 import json
 import logging
 import os
-import secrets
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from codeforge import posix_acl
+from codeforge.tool_identity import (
+    DEFAULT_HOME_BASE,
+    DEFAULT_TOOL_PATH,
+    SYSTEM_TOOL_UID,
+    TENANT_TOOL_UMASK,
+    WORKSPACE_GID,
+    ToolIdentity,
+    ToolIsolationError,
+    current_identity,
+    in_tenant_area,
+    new_work_id,
+    verify_tenant_dir,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Mapping, Sequence
@@ -70,11 +87,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["ToolIsolationError"]
+
 ISOLATION_REQUIRED = "required"
 ISOLATION_OFF = "off"
-# Files tool processes create stay writable for the workspace group.
-TOOL_UMASK = 0o002
-TOOL_USER = "codeforge-tool"
+# Files tool processes create outside default ACLs stay their tenant's own.
+TOOL_UMASK = TENANT_TOOL_UMASK
 
 _LAUNCHER = "setpriv"
 # The launcher's second half; runs as the tool user with the base interpreter.
@@ -83,8 +101,8 @@ _SHELL = "/bin/sh"
 _PROBE_TIMEOUT_SECONDS = 10.0
 _PROBE_PATH = "/usr/local/bin:/usr/bin:/bin"
 _READABLE_MARKER = "cf-readable "
-# Run as the tool user by the isolation check: the process status of the tool
-# process (cat inherits its credentials), then every path it can read.
+# Run as the system tool user by the isolation check: the process status of
+# the tool process (cat inherits its credentials), then every path it can read.
 _PROBE_SCRIPT = f"""cat /proc/self/status
 for path in "$@"; do
   if [ -d "$path" ]; then
@@ -107,14 +125,6 @@ _CAP_NAMES = {_CAP_KILL: "CAP_KILL", _CAP_SETGID: "CAP_SETGID", _CAP_SETUID: "CA
 _TOOL_CAP_SETS = ("CapInh", "CapPrm", "CapEff", "CapAmb")
 
 
-class ToolIsolationError(PermissionError):
-    """Tool isolation is required, but tool processes cannot run as the tool user.
-
-    An OSError, so callers that report a process that could not start as a
-    failed tool call report this one too.
-    """
-
-
 def parse_isolation_mode(raw: str) -> str:
     """Return the isolation mode a CODEFORGE_TOOL_ISOLATION value selects; unknown values fail closed."""
     value = raw.strip().lower()
@@ -127,34 +137,31 @@ def parse_isolation_mode(raw: str) -> str:
 
 @dataclass(frozen=True)
 class IsolationConfig:
-    """Who tool processes run as.
+    """How tool processes are isolated.
 
-    ``workspace_gid`` is their only supplementary group (-1: none); the worker
-    and the Go Core are in it too, so all three can write the workspaces.
+    ``workspace_root`` holds the tenant directories (``<root>/<tenant>``) and
+    the worker's state; ``home_base`` the tool HOMEs (a volume);
+    ``tool_path`` is the PATH tool processes get (never the worker's).
     """
 
     mode: str
-    uid: int
-    gid: int
-    workspace_gid: int
-    home: str
+    workspace_root: str = ""
+    home_base: str = DEFAULT_HOME_BASE
+    tool_path: str = DEFAULT_TOOL_PATH
+    workspace_gid: int = WORKSPACE_GID
 
     @property
     def required(self) -> bool:
         return self.mode == ISOLATION_REQUIRED
 
-    @property
-    def groups(self) -> tuple[int, ...]:
-        return (self.workspace_gid,) if self.workspace_gid >= 0 else ()
-
     @classmethod
     def from_settings(cls, settings: WorkerSettings) -> IsolationConfig:
         return cls(
             mode=parse_isolation_mode(settings.tool_isolation),
-            uid=settings.tool_uid,
-            gid=settings.tool_gid,
+            workspace_root=os.path.normpath(settings.workspace_root) if settings.workspace_root else "",
+            home_base=settings.tool_home_base,
+            tool_path=settings.tool_path,
             workspace_gid=settings.workspace_gid,
-            home=settings.tool_home,
         )
 
 
@@ -215,41 +222,40 @@ class IsolationStatus:
     launcher: str = ""
     interpreter: str = ""
 
-    def launch_prefix(self) -> list[str]:
-        """The setpriv command line that runs the command after it as the tool user."""
-        groups = ",".join(str(gid) for gid in self.config.groups)
+    def launch_prefix(self, identity: ToolIdentity) -> list[str]:
+        """The setpriv command line that runs the command after it as *identity*, in no group."""
         return [
             self.launcher,
-            f"--reuid={self.config.uid}",
-            f"--regid={self.config.gid}",
-            f"--groups={groups}" if groups else "--clear-groups",
+            f"--reuid={identity.uid}",
+            f"--regid={identity.gid}",
+            "--clear-groups",
             "--inh-caps=-all",
             "--ambient-caps=-all",
             "--no-new-privs",
             "--",
         ]
 
-    def spec(self, env: Mapping[str, str], cwd: str | None) -> dict[str, object]:
-        """The launch spec the helper reads: who it must run as, the environment, where."""
+    def spec(self, env: Mapping[str, str], cwd: str | None, identity: ToolIdentity) -> dict[str, object]:
+        """The launch spec the helper reads: who it must run as, the environment, where, what to prepare."""
         return {
-            "uid": self.config.uid,
-            "gid": self.config.gid,
-            "groups": list(self.config.groups),
+            "uid": identity.uid,
+            "gid": identity.gid,
+            "groups": [],
             "umask": TOOL_UMASK,
             "env": {name: value for name, value in env.items() if name and "=" not in name},
             "landlock": "off",
-            "prepare": [],
-            "home": None,
-            "cwd": os.path.abspath(cwd) if cwd is not None else None,
+            "prepare": identity.prepare(),
+            "home": identity.home,
+            "cwd": os.path.normpath(cwd) if cwd is not None else None,
         }
 
-    def launch(self, argv: Sequence[str], env: Mapping[str, str], cwd: str | None = None) -> Launch:
-        """Run *argv* as the tool user with exactly the environment *env* in *cwd*.
+    def launch(self, argv: Sequence[str], env: Mapping[str, str], cwd: str | None, identity: ToolIdentity) -> Launch:
+        """Run *argv* as *identity* with exactly the environment *env* in *cwd*.
 
         Nothing of *env* is an argument: it is in the spec on the memfd.
         """
-        fd = write_spec(self.spec(env, cwd))
-        argv = [*self.launch_prefix(), self.interpreter, "-I", "-S", TOOL_EXEC, str(fd), *argv]
+        fd = write_spec(self.spec(env, cwd, identity))
+        argv = [*self.launch_prefix(identity), self.interpreter, "-I", "-S", TOOL_EXEC, str(fd), *argv]
         return Launch(
             argv=argv,
             env=dict(_LAUNCHER_ENV),
@@ -287,14 +293,6 @@ def tool_isolation() -> IsolationStatus:
         return _status
 
 
-def tool_identity_env() -> dict[str, str]:
-    """HOME, USER and LOGNAME of the tool user when tool processes run as it; else nothing."""
-    config = tool_isolation().config
-    if not config.required:
-        return {}
-    return {"HOME": config.home, "USER": TOOL_USER, "LOGNAME": TOOL_USER}
-
-
 # ---------------------------------------------------------------------------
 # The isolation check
 # ---------------------------------------------------------------------------
@@ -303,10 +301,12 @@ def tool_identity_env() -> dict[str, str]:
 def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     """Return whether tool processes can start as *config* says.
 
-    Required isolation is checked by starting a tool process: it must run as
-    the tool user and group with the workspace group only, without any
-    capability, with no_new_privs and umask 002, and must not be able to read
-    the worker's environment or secret files.
+    Required isolation checks the volumes (the workspace root is the
+    worker's with mode 2771, its state directory, the HOME base volume, POSIX
+    ACL support on both) and starts a tool process as the system tool user:
+    it must run as uid and gid 19999 without any group or capability, with
+    no_new_privs and umask 007, and must not be able to read the worker's
+    environment or secret files.
     """
     if not config.required:
         return IsolationStatus(config=config, ready=True)
@@ -316,27 +316,54 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     interpreter = base_interpreter()
     if not os.path.isabs(interpreter) or not os.access(interpreter, os.X_OK) or not os.path.isfile(TOOL_EXEC):
         return _not_ready(config, f"the launch helper cannot run ({interpreter} {TOOL_EXEC})")
-    if config.uid <= 0 or config.gid <= 0 or config.uid == os.getuid() or config.gid == os.getgid():
-        return _not_ready(
-            config,
-            f"the tool user (uid {config.uid}, gid {config.gid}) must be an unprivileged user "
-            f"that differs from the worker user (uid {os.getuid()}, gid {os.getgid()})",
-        )
     problems = worker_capability_problems(_own_status(), root=_is_root())
+    if problems:
+        return _not_ready(config, "; ".join(problems))
+    problems = volume_problems(config)
     if problems:
         return _not_ready(config, "; ".join(problems))
     status = IsolationStatus(config=config, ready=True, launcher=launcher, interpreter=interpreter)
     try:
+        from codeforge.tool_identity import tenant_home
+
+        identity = ToolIdentity(
+            tenant_id="",
+            uid=SYSTEM_TOOL_UID,
+            home=tenant_home(config.home_base, SYSTEM_TOOL_UID),
+            work_id=new_work_id(),
+        )
         launch = status.launch(
-            [_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()], _LAUNCHER_ENV, cwd="/"
+            [_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()], _LAUNCHER_ENV, "/", identity
         )
         output = _run_probe(launch, _PROBE_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as exc:
         return _not_ready(config, f"the isolation check could not start a tool process: {exc}")
-    problems = probe_problems(output, config)
+    problems = probe_problems(output, SYSTEM_TOOL_UID)
     if problems:
         return _not_ready(config, "a tool process " + "; ".join(problems))
     return status
+
+
+def volume_problems(config: IsolationConfig) -> list[str]:
+    """What keeps the volumes from isolating tenants: the root, the state directory, the HOMEs, ACLs."""
+    from codeforge import tool_state
+
+    if not config.workspace_root or not os.path.isabs(config.workspace_root):
+        return ["tool isolation needs CODEFORGE_WORKSPACE_ROOT (an absolute path, the Go Core's workspace root)"]
+    if not os.path.isabs(config.home_base):
+        return [f"the tool HOME base {config.home_base!r} must be an absolute path"]
+    try:
+        problems = tool_state.root_problems(config.workspace_root, fix=True)
+        if problems:
+            return problems
+        tool_state.ensure_state_dirs(config.workspace_root)
+        problems = tool_state.home_base_problems(config.home_base)
+        for directory in (config.workspace_root, config.home_base):
+            if problem := tool_state.acl_support_problem(directory):
+                problems.append(problem)
+        return problems
+    except (OSError, ToolIsolationError) as exc:
+        return [str(exc)]
 
 
 def _not_ready(config: IsolationConfig, reason: str) -> IsolationStatus:
@@ -428,20 +455,20 @@ def _run_probe(launch: Launch, timeout: float) -> str:
     return completed.stdout
 
 
-def probe_problems(output: str, config: IsolationConfig) -> list[str]:
-    """What is wrong with a tool process, from the output of the isolation check's probe."""
+def probe_problems(output: str, uid: int) -> list[str]:
+    """What is wrong with a tool process of *uid*, from the output of the isolation check's probe."""
     readable = [line[len(_READABLE_MARKER) :] for line in output.splitlines() if line.startswith(_READABLE_MARKER)]
     fields = _status_fields(output)
     if "Uid" not in fields or "Gid" not in fields:
         return ["reported no process status"]
     problems: list[str] = []
-    if any(uid != str(config.uid) for uid in fields["Uid"].split()):
-        problems.append(f"runs with uid {fields['Uid']}, expected {config.uid}")
-    if any(gid != str(config.gid) for gid in fields["Gid"].split()):
-        problems.append(f"runs with gid {fields['Gid']}, expected {config.gid}")
+    if any(value != str(uid) for value in fields["Uid"].split()):
+        problems.append(f"runs with uid {fields['Uid']}, expected {uid}")
+    if any(value != str(uid) for value in fields["Gid"].split()):
+        problems.append(f"runs with gid {fields['Gid']}, expected {uid}")
     groups = sorted(int(gid) for gid in fields.get("Groups", "").split())
-    if groups != sorted(config.groups):
-        problems.append(f"has the supplementary groups {groups}, expected {sorted(config.groups)}")
+    if groups:
+        problems.append(f"has the supplementary groups {groups}, expected none")
     held = [name for name in _TOOL_CAP_SETS if _capabilities(fields, name) != 0]
     if held:
         problems.append("holds capabilities (" + ", ".join(f"{n}={fields.get(n, '?')}" for n in held) + ")")
@@ -458,17 +485,45 @@ def probe_problems(output: str, config: IsolationConfig) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _launch(argv: Sequence[str], env: Mapping[str, str], cwd: str | None) -> Launch:
-    """How to start a tool process. Raises ToolIsolationError when it must not start."""
+def _inside(path: str, directory: str) -> bool:
+    return path == directory or path.startswith(directory.rstrip("/") + "/")
+
+
+def _launch(
+    argv: Sequence[str], env: Mapping[str, str], cwd: str | None, identity: ToolIdentity | None = None
+) -> Launch:
+    """How to start a tool process. Raises ToolIsolationError when it must not start.
+
+    With isolation required the process runs as *identity*, else as the
+    current tool identity (codeforge.tool_identity.tool_tenant); a process
+    without one does not start. Its tenant directory is verified again, and
+    its working directory must lie in its workspace or HOME.
+    """
     status = tool_isolation()
     if not status.config.required:
         return Launch(argv=list(argv), env=dict(env), cwd=cwd)
     if not status.ready:
         raise ToolIsolationError(
             "tool isolation is required (CODEFORGE_TOOL_ISOLATION=required) but tool processes "
-            f"cannot run as the tool user: {status.reason}"
+            f"cannot run as a tool user: {status.reason}"
         )
-    return status.launch(argv, env, cwd)
+    identity = identity or current_identity.get()
+    if identity is None:
+        raise ToolIsolationError("a tool process without a tenant's tool identity: refused (isolation is required)")
+    if not identity.is_system and in_tenant_area(status.config.workspace_root, identity.workspace):
+        try:
+            verify_tenant_dir(status.config.workspace_root, identity.tenant_id, identity.uid)
+        except OSError as exc:
+            raise ToolIsolationError(f"tool process of tenant {identity.tenant_id} refused: {exc}") from exc
+    if cwd is not None:
+        cwd = os.path.normpath(os.path.join("/", cwd))
+        allowed = [d for d in (identity.workspace, identity.home, *identity.write_paths) if d]
+        if not identity.is_system and not any(_inside(cwd, d) for d in allowed):
+            raise ToolIsolationError(
+                f"tool process of tenant {identity.tenant_id} (tool uid {identity.uid}): working directory "
+                f"{cwd} is outside its workspace"
+            )
+    return status.launch(argv, env, cwd, identity)
 
 
 async def start_tool_process(
@@ -481,14 +536,17 @@ async def start_tool_process(
     stderr: int | None = None,
     start_new_session: bool = False,
     limit: int | None = None,
+    identity: ToolIdentity | None = None,
 ) -> asyncio.subprocess.Process:
     """Start *program* with *args* for an agent (asyncio.create_subprocess_exec).
 
-    *env* is the whole environment of the process (``tool_env``). Raises
-    ToolIsolationError, starting nothing, when isolation is required and not
-    available.
+    *env* is the whole environment of the process (``tool_env``). It runs as
+    the current tool identity; *identity* overrides it (only the isolation
+    probe and the system's own calls). Raises ToolIsolationError, starting
+    nothing, when isolation is required and not available.
     """
-    launch = _launch([program, *args], env, cwd)
+    identity = identity or current_identity.get()
+    launch = _launch([program, *args], env, cwd, identity)
     isolated = launch.umask is not None
     pipes = _OpenPipes(stdin, stdout, stderr) if isolated else None
     optional = {"stdin": stdin, "stdout": stdout, "stderr": stderr, "limit": limit, "umask": launch.umask}
@@ -514,8 +572,8 @@ async def start_tool_process(
             pipes.close_child_ends()
     if pipes is not None:
         await pipes.attach(proc, limit)
-    if isolated and cwd is not None:
-        _share_after_exit(proc, cwd)
+    if isolated and cwd is not None and identity is not None:
+        _share_after_exit(proc, cwd, identity)
     return proc
 
 
@@ -631,7 +689,7 @@ def _communicate_on(
     return communicate
 
 
-def _share_after_exit(proc: asyncio.subprocess.Process, root: str) -> None:
+def _share_after_exit(proc: asyncio.subprocess.Process, root: str, identity: ToolIdentity) -> None:
     """Make waiting for *proc* (wait(), communicate()) also share what it created under *root*.
 
     The callers continue only once the files are shared, before the Go
@@ -645,7 +703,7 @@ def _share_after_exit(proc: asyncio.subprocess.Process, root: str) -> None:
         code = await wait()
         if not shared:
             shared = True
-            await share_tool_files(root)
+            await share_tool_files(root, identity)
         return code
 
     proc.wait = wait_then_share  # type: ignore[method-assign]
@@ -681,9 +739,11 @@ def run_tool_process(
     env: Mapping[str, str],
     cwd: str | None = None,
     timeout: float | None = None,
+    identity: ToolIdentity | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run *args* for an agent and wait for it (subprocess.run, text output captured)."""
-    launch = _launch(args, env, cwd)
+    identity = identity or current_identity.get()
+    launch = _launch(args, env, cwd, identity)
     options: dict[str, object] = {"cwd": launch.cwd, "env": launch.env, "timeout": timeout}
     if launch.umask is not None:
         options["umask"] = launch.umask
@@ -694,44 +754,52 @@ def run_tool_process(
     finally:
         launch.close()
         if launch.umask is not None and cwd is not None:
-            share_tool_files_sync(cwd)
+            share_tool_files_sync(cwd, identity)
 
 
-def _share_command(root: str, config: IsolationConfig) -> list[str]:
-    """One walk of *root* (never across file systems, never following a symlink): the files and
-    directories the tool user owns move into the workspace group and become group-readable and
-    -writable, directories also searchable and setgid. Only what needs a change is changed.
+# ---------------------------------------------------------------------------
+# Sharing what tool processes create with the Go Core and the worker
+# ---------------------------------------------------------------------------
+
+
+def _share_command(root: str, uid: int) -> list[str]:
+    """One walk of *root* as tool UID *uid* (never across file systems, never following a symlink).
+
+    Its own files and directories become group-readable and -writable,
+    directories also searchable. Below a tenant directory's default ACL the
+    group bits are the ACL mask, so the inherited ``g:10010`` entry grants
+    the Go Core and the worker access again.
     """
-    uid, gid = str(config.uid), str(config.workspace_gid)
+    owner = str(uid)
     return [
         "find", "-P", root, "-xdev",
-        "(", "-user", uid, "(", "-type", "d", "-o", "-type", "f", ")", "!", "-group", gid,
-        "-exec", "chgrp", gid, "{}", "+", ")",
+        "(", "-user", owner, "-type", "d", "!", "-perm", "-0070", "-exec", "chmod", "g+rwx", "{}", "+", ")",
         ",",
-        "(", "-user", uid, "-type", "d", "!", "-perm", "-2070", "-exec", "chmod", "g+rwxs", "{}", "+", ")",
-        ",",
-        "(", "-user", uid, "-type", "f", "!", "-perm", "-0060", "-exec", "chmod", "g+rw", "{}", "+", ")",
+        "(", "-user", owner, "-type", "f", "!", "-perm", "-0060", "-exec", "chmod", "g+rw", "{}", "+", ")",
     ]  # fmt: skip
 
 
-def _share_launch(root: str) -> Launch | None:
+def _share_launch(root: str, identity: ToolIdentity | None) -> Launch | None:
     status = tool_isolation()
     if not status.config.required or not status.ready:
         return None
-    return _launch(_share_command(root, status.config), {"PATH": _PROBE_PATH}, None)
+    identity = identity or current_identity.get()
+    if identity is None or identity.is_system:
+        return None
+    return status.launch(_share_command(root, identity.uid), {"PATH": _PROBE_PATH}, None, identity)
 
 
-async def share_tool_files(root: str) -> None:
-    """Share what the tool user created under *root* with the workspace group (KI-71 review).
+async def share_tool_files(root: str, identity: ToolIdentity | None = None) -> None:
+    """Share what the tool identity created under *root* with the workspace group (KI-71 review, KI-96).
 
     Agents create files with owner-only modes (mkdtemp, mkdir -m 0700,
-    umask 077) that the worker and the Go Core (uid 10001, workspace group)
-    could neither read nor delete: project deletion (GDPR erasure), git add
-    of checkpoints and delivery, and benchmark cleanups failed. The pass
-    runs as the tool user, which owns them; it changes nothing of anybody
-    else's. A pass that could not share everything is logged.
+    umask 077) that the worker and the Go Core could neither read nor
+    delete: project deletion (GDPR erasure), git add of checkpoints and
+    delivery, and benchmark cleanups failed. The pass runs as the tenant's
+    tool UID, which owns them; it changes nothing of anybody else's. A pass
+    that could not share everything is logged.
     """
-    launch = _share_launch(root)
+    launch = _share_launch(root, identity)
     if launch is None:
         return
     try:
@@ -754,9 +822,9 @@ async def share_tool_files(root: str) -> None:
         logger.warning("could not share every tool file under %s: %s", root, err.decode(errors="replace")[-500:])
 
 
-def share_tool_files_sync(root: str) -> None:
+def share_tool_files_sync(root: str, identity: ToolIdentity | None = None) -> None:
     """share_tool_files for synchronous callers."""
-    launch = _share_launch(root)
+    launch = _share_launch(root, identity)
     if launch is None:
         return
     try:
@@ -777,6 +845,95 @@ def share_tool_files_sync(root: str) -> None:
         launch.close()
     if done.returncode:
         logger.warning("could not share every tool file under %s: %s", root, done.stderr[-500:])
+
+
+def workspace_acl(uid: int) -> list[posix_acl.Entry]:
+    """The ACL of a worker-made tool workspace: the tool UID and the workspace group, nobody else."""
+    return [
+        posix_acl.Entry(posix_acl.USER_OBJ, 7),
+        posix_acl.Entry(posix_acl.USER, 7, uid),
+        posix_acl.Entry(posix_acl.GROUP_OBJ, 0),
+        posix_acl.Entry(posix_acl.GROUP, 7, WORKSPACE_GID),
+        posix_acl.Entry(posix_acl.MASK, 7),
+        posix_acl.Entry(posix_acl.OTHER, 0),
+    ]
+
+
+@contextlib.asynccontextmanager
+async def tool_workspace(prefix: str, base: str | None = None) -> AsyncIterator[str]:
+    """A temporary workspace the current tool identity works in (a benchmark task's), removed afterwards.
+
+    The worker makes it (``mkdtemp`` in /tmp, which only the worker can
+    write) and gives it, through its descriptor, an access and default ACL
+    for the identity's UID and the workspace group; while the block runs it
+    is the identity's workspace. Leaving shares what the tools created and
+    removes it. Without isolation it is a plain temporary directory.
+    """
+    path = tempfile.mkdtemp(prefix=prefix, dir=base)
+    status = tool_isolation()
+    identity = current_identity.get()
+    isolated = status.config.required and status.ready and identity is not None
+    reset = None
+    try:
+        if isolated:
+            fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                acl = workspace_acl(identity.uid)  # type: ignore[union-attr]
+                posix_acl.set_acl(fd, posix_acl.ACCESS, acl)
+                posix_acl.set_acl(fd, posix_acl.DEFAULT, acl)
+            finally:
+                os.close(fd)
+            reset = current_identity.set(identity.with_workspace(path))  # type: ignore[union-attr]
+        yield path
+    finally:
+        try:
+            if reset is not None:
+                await share_tool_files(path)
+        finally:
+            if reset is not None:
+                current_identity.reset(reset)
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def grant_tool_access(target: str | int, *, writable: bool, identity: ToolIdentity | None = None) -> None:
+    """Let the tool identity use a file, directory or socket the worker made for it (W1).
+
+    *target* is a descriptor, or a path inside a directory only the worker
+    can write (``/tmp`` is 1771; the Claude Code run directory is 0700); it
+    is opened without following a symlink and must be the worker's own. It
+    gets an exact access ACL: the worker keeps everything, the tool UID gets
+    read (and write with *writable*; search for directories), nobody else
+    anything. Without isolation (or while no tool process can start) it does
+    nothing.
+    """
+    status = tool_isolation()
+    if not status.config.required or not status.ready:
+        return
+    identity = identity or current_identity.get()
+    if identity is None:
+        raise ToolIsolationError("no tool identity to grant access to")
+    fd = target if isinstance(target, int) else os.open(target, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != os.getuid() or not (
+            stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode) or stat.S_ISSOCK(info.st_mode)
+        ):
+            raise ToolIsolationError(f"{target!r} is not one of the worker's files: access not granted")
+        directory = stat.S_ISDIR(info.st_mode)
+        owner = 7 if directory else 6
+        tool = (7 if writable else 5) if directory else (6 if writable else 4)
+        entries = [
+            posix_acl.Entry(posix_acl.USER_OBJ, owner),
+            posix_acl.Entry(posix_acl.USER, tool, identity.uid),
+            posix_acl.Entry(posix_acl.GROUP_OBJ, 0),
+            posix_acl.Entry(posix_acl.MASK, tool),
+            posix_acl.Entry(posix_acl.OTHER, 0),
+        ]
+        # An O_PATH descriptor takes no xattr calls: its /proc/self/fd link names exactly this inode.
+        posix_acl.set_acl(f"/proc/self/fd/{fd}", posix_acl.ACCESS, entries)
+    finally:
+        if not isinstance(target, int):
+            os.close(fd)
 
 
 # How long an MCP stdio server may take to exit after its stdin closed (the SDK's value).
@@ -810,6 +967,10 @@ async def tool_stdio_client(
     from codeforge.subprocess_env import declared_tool_env, tool_env
     from codeforge.subprocess_utils import terminate_process_group
 
+    if cwd is None:
+        # The server runs in the run's workspace (KI-96), where its tool identity may work.
+        identity = current_identity.get()
+        cwd = identity.workspace if identity is not None else None
     proc = await start_tool_process(
         command,
         *args,
@@ -884,185 +1045,3 @@ async def _stdio_write(stdin: asyncio.StreamWriter | None, messages: MemoryObjec
                 await stdin.drain()
         except (anyio.ClosedResourceError, BrokenPipeError, ConnectionResetError):
             await anyio.lowlevel.checkpoint()
-
-
-# ---------------------------------------------------------------------------
-# Files and directories shared with tool processes
-# ---------------------------------------------------------------------------
-
-
-def share_with_tools(path: str, *, writable: bool) -> None:
-    """Let tool processes use a file or directory the worker created for them.
-
-    With isolation it moves *path* into the workspace group and opens it to
-    the group (directories setgid, so what is created inside stays in the
-    group); without isolation (or while no tool process can start) it does
-    nothing.
-    """
-    status = tool_isolation()
-    if not status.config.required or not status.ready or not status.config.groups:
-        return
-    os.chown(path, -1, status.config.workspace_gid)
-    if stat.S_ISDIR(os.stat(path).st_mode):
-        os.chmod(path, 0o2770 if writable else 0o2750)
-    else:
-        os.chmod(path, 0o660 if writable else 0o640)
-
-
-def _shared_mode(mode: int) -> int:
-    """*mode* opened to the group: read and write, search and setgid for directories, execute if the owner may."""
-    shared = stat.S_IMODE(mode) | stat.S_IRGRP | stat.S_IWGRP
-    if stat.S_ISDIR(mode):
-        return shared | stat.S_IXGRP | stat.S_ISGID
-    if mode & stat.S_IXUSR:
-        shared |= stat.S_IXGRP
-    return shared
-
-
-def _share_entry(name: str, gid: int, uid: int, dir_fd: int | None = None) -> bool:
-    """Move one entry of the worker's into group *gid* and open it to the group; True if it changed.
-
-    The entry (*name*, relative to *dir_fd*) is changed only through a
-    descriptor opened without following a symlink, after checking it is the
-    regular file or directory the walk saw: a tool process may swap an entry
-    for a symlink while the walk runs, and a change by path would follow it
-    onto the worker's files outside the workspaces. Anything else (symlinks,
-    FIFOs, devices, other users' entries) is left alone.
-    """
-    try:
-        seen = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-    except OSError as exc:
-        logger.warning("cannot share %s with the tool user: %s", name, exc)
-        return False
-    if not (stat.S_ISREG(seen.st_mode) or stat.S_ISDIR(seen.st_mode)) or seen.st_uid != uid:
-        return False
-    try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dir_fd)
-    except OSError as exc:
-        if exc.errno != errno.ELOOP:  # ELOOP: swapped for a symlink meanwhile, left alone
-            logger.warning("cannot share %s with the tool user: %s", name, exc)
-        return False
-    try:
-        info = os.fstat(fd)
-        if (info.st_dev, info.st_ino) != (seen.st_dev, seen.st_ino) or info.st_uid != uid:
-            return False  # swapped for another entry meanwhile
-        mode = _shared_mode(info.st_mode)
-        if info.st_gid == gid and stat.S_IMODE(info.st_mode) == mode:
-            return False
-        os.fchown(fd, -1, gid)
-        os.fchmod(fd, mode)
-    except OSError as exc:
-        logger.warning("cannot share %s with the tool user: %s", name, exc)
-        return False
-    finally:
-        os.close(fd)
-    return True
-
-
-# Bumped when the walk over the workspaces must run again after an upgrade:
-# 1 opened the worker's files to the workspace group (KI-71), 2 also shares
-# the files the tool user kept private (share_tool_files).
-WORKSPACE_SHARING_VERSION = "2"
-_SHARING_STAMP = ".codeforge-workspace-sharing"
-
-
-def share_workspace_root(root: str, gid: int) -> int:
-    """Open the workspaces under *root* to the workspace group *gid*; return how many entries changed.
-
-    Workspaces created before tool isolation belong to the worker user and
-    its own group with mode 0644/0755, which the tool user cannot write. The
-    worker owns them, so it moves them into the workspace group, makes them
-    group-writable and directories setgid; files the tool user kept private
-    are shared as the tool user. Symlinks and entries of other users are
-    left alone. The walk runs once per WORKSPACE_SHARING_VERSION: a stamp in
-    the root records it. A root of another user is not walked (the worker
-    could not finish it and would walk it on every start): that is logged
-    once, with the fix.
-    """
-    try:
-        info = os.stat(root)
-    except FileNotFoundError:
-        return 0
-    uid = os.getuid()
-    if info.st_uid != uid:
-        logger.error(
-            "workspace root %s belongs to uid %d, not the worker (uid %d): workspaces created before "
-            "tool isolation stay closed to agent tools. Fix: chown %d:%d %s && chmod 2775 %s; "
-            "the worker shares the workspaces on its next start",
-            root, info.st_uid, uid, uid, gid, root, root,
-        )  # fmt: skip
-        return 0
-    if _read_stamp(root) == WORKSPACE_SHARING_VERSION:
-        return 0
-    changed = 0
-    # Relative to directory descriptors, never following a symlink: a tool
-    # process may change the tree while it is walked (_share_entry).
-    for dirpath, dirnames, filenames, dir_fd in os.fwalk(root, follow_symlinks=False):
-        for name in (*dirnames, *filenames):
-            if dirpath == root and name.startswith(_SHARING_STAMP):
-                continue
-            changed += _share_entry(name, gid, uid, dir_fd=dir_fd)
-    changed += _share_entry(root, gid, uid)
-    share_tool_files_sync(root)
-    _write_stamp(root)
-    return changed
-
-
-# A stamp holds a short version; anything longer is not one.
-_STAMP_MAX_BYTES = 64
-
-
-def _read_stamp(root: str) -> str:
-    """The version the stamp records; "" when there is no valid stamp, and the walk runs.
-
-    The tool user may write the root and plant anything at the stamp's
-    place: it is opened without following a symlink and without blocking (a
-    FIFO), must be a regular file of at most _STAMP_MAX_BYTES bytes, and is
-    read as bytes. Anything else is logged and ignored, never raised: a
-    worker that failed here would crash-loop at its start.
-    """
-    path = os.path.join(root, _SHARING_STAMP)
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        return ""
-    except OSError as exc:
-        logger.warning("ignoring the workspace sharing stamp %s: %s", path, exc)
-        return ""
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            logger.warning("ignoring the workspace sharing stamp %s: not a regular file", path)
-            return ""
-        data = os.read(fd, _STAMP_MAX_BYTES + 1)
-    except OSError as exc:
-        logger.warning("ignoring the workspace sharing stamp %s: %s", path, exc)
-        return ""
-    finally:
-        os.close(fd)
-    if len(data) > _STAMP_MAX_BYTES:
-        logger.warning("ignoring the workspace sharing stamp %s: longer than %d bytes", path, _STAMP_MAX_BYTES)
-        return ""
-    try:
-        return data.decode("ascii").strip()
-    except UnicodeDecodeError:
-        logger.warning("ignoring the workspace sharing stamp %s: not a version", path)
-        return ""
-
-
-def _write_stamp(root: str) -> None:
-    """Record the walk: a new file renamed over the stamp's place, so whatever the tool user
-    planted there (a symlink, a FIFO) is replaced, never written through or waited on.
-    """
-    path = os.path.join(root, _SHARING_STAMP)
-    temporary = f"{path}.{secrets.token_hex(8)}"
-    try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664)
-        try:
-            os.write(fd, (WORKSPACE_SHARING_VERSION + "\n").encode())
-        finally:
-            os.close(fd)
-        os.replace(temporary, path)
-    except OSError as exc:
-        logger.warning("cannot record the workspace sharing in %s (walked again on the next start): %s", root, exc)
-        with contextlib.suppress(OSError):
-            os.unlink(temporary)

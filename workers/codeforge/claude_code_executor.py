@@ -45,7 +45,8 @@ from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
 from codeforge.subprocess_env import tool_env
 from codeforge.subprocess_utils import terminate_process_group
-from codeforge.tool_process import share_with_tools, start_tool_process
+from codeforge.tool_identity import ToolIdentity, current_identity, system_identity, use_identity
+from codeforge.tool_process import base_interpreter, grant_tool_access, start_tool_process, tool_isolation
 
 if TYPE_CHECKING:
     from codeforge.runtime import RuntimeClient
@@ -69,6 +70,10 @@ _CLAUDE_CLI_ENV = (
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
 )
+# With tool isolation the CLI gets a config directory per run below its
+# tenant's HOME (KI-96): an operator's CLAUDE_CONFIG_DIR would be shared by
+# every tenant, so only the credentials pass.
+_CLAUDE_CLI_CREDENTIALS = tuple(name for name in _CLAUDE_CLI_ENV if name != "CLAUDE_CONFIG_DIR")
 
 
 def _count(value: object) -> int:
@@ -330,10 +335,11 @@ class PolicySocketServer:
                 self._handle, path=self.socket_path, limit=MAX_POLICY_REQUEST_BYTES
             )
             os.chmod(self.socket_path, 0o600)
-            # The CLI and its hook run as the tool user (KI-71): the directory and
-            # the socket open to its group only; the token still authenticates.
-            share_with_tools(self._dir, writable=False)
-            share_with_tools(self.socket_path, writable=True)
+            # The CLI and its hook run as the run tenant's tool UID (KI-71, KI-96):
+            # the directory and the socket open to that UID only (an ACL, set
+            # through a descriptor); the token still authenticates.
+            grant_tool_access(self._dir, writable=False)
+            grant_tool_access(self.socket_path, writable=True)
         except BaseException:
             shutil.rmtree(self._dir, ignore_errors=True)
             raise
@@ -434,11 +440,19 @@ class PolicySocketServer:
 # ----------------------------------------------------------------------
 
 
+def _isolated() -> bool:
+    """Whether tool processes run as tool identities (the Claude Code changes of KI-96 apply only then)."""
+    return tool_isolation().config.required
+
+
 def _hook_command(timeout: float) -> str:
     # The CLI blocks a call only on exit code 2: "|| exit 2" also blocks when
-    # the interpreter itself fails (exit 1, 127, a signal).
+    # the interpreter itself fails (exit 1, 127, a signal). With isolation the
+    # hook (standard library only) runs on the base interpreter without site:
+    # the tool user cannot (and need not) use the worker's venv (KI-96).
+    interpreter, flags = (base_interpreter(), "-I -S") if _isolated() else (sys.executable, "-I")
     return (
-        f"{shlex.quote(sys.executable)} -I {shlex.quote(policy_hook.__file__)} "
+        f"{shlex.quote(interpreter)} {flags} {shlex.quote(policy_hook.__file__)} "
         f"{policy_hook.TIMEOUT_ARG} {timeout:g} || exit 2"
     )
 
@@ -492,7 +506,7 @@ def _write_private_file(directory: str, name: str, content: str) -> str:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(content)
-    share_with_tools(path, writable=False)
+    grant_tool_access(path, writable=False)
     return path
 
 
@@ -509,10 +523,11 @@ async def resolve_cli(cli_path: str) -> str:
     """Return the path of the configured CLI once it is known to support every option the executor uses.
 
     Raises ClaudeCodeCLIError when the CLI is missing or lacks an option: the
-    run fails instead of starting the CLI without the policy hook.
+    run fails instead of starting the CLI without the policy hook. With tool
+    isolation the CLI is looked up on the tool PATH, which the tool user gets.
     """
     global _cli_check_lock
-    resolved = shutil.which(cli_path)
+    resolved = shutil.which(cli_path, path=tool_isolation().config.tool_path if _isolated() else None)
     if resolved is None:
         raise ClaudeCodeCLIError(f"Claude Code CLI {cli_path!r} not found")
     resolved = os.path.abspath(resolved)
@@ -532,8 +547,15 @@ async def resolve_cli(cli_path: str) -> str:
 
 
 async def _check_cli(cli: str) -> None:
-    """Raise ClaudeCodeCLIError unless the CLI supports every option the executor uses."""
-    returncode, output = await _run_check(cli, ["--help"], tool_env(passthrough=_CLAUDE_CLI_ENV))
+    """Raise ClaudeCodeCLIError unless the CLI supports every option the executor uses.
+
+    The checks belong to no tenant: with tool isolation they run as the
+    system tool user (no workspace access, KI-96).
+    """
+    identity = _check_identity()
+    with use_identity(identity):
+        env = tool_env(passthrough=_CLAUDE_CLI_ENV if identity is None else _CLAUDE_CLI_CREDENTIALS)
+    returncode, output = await _run_check(cli, ["--help"], env, identity)
     if returncode != 0:
         raise ClaudeCodeCLIError(f"Claude Code CLI {cli!r} --help failed (exit {returncode}): {output[:500]}")
     missing = _missing_cli_options(output)
@@ -542,23 +564,46 @@ async def _check_cli(cli: str) -> None:
     await _check_hidden_options(cli)
 
 
+def _check_identity() -> ToolIdentity | None:
+    """The system tool identity for the CLI checks with isolation; None without."""
+    if not _isolated():
+        return None
+    try:
+        return system_identity()
+    except OSError as exc:
+        raise ClaudeCodeCLIError(f"cannot check the Claude Code CLI: {exc}") from exc
+
+
 async def _check_hidden_options(cli: str) -> None:
     """Raise ClaudeCodeCLIError when the CLI rejects an option --help does not list.
 
     Runs the CLI in print mode with those options and a system prompt file
     that does not exist, without credentials, settings or stdin: a CLI that
     knows the options fails on the missing file, one that does not fails
-    with "unknown option" before anything else.
+    with "unknown option" before anything else. Its HOME and config
+    directory are a fresh directory: with isolation the per-work directory
+    the launch helper creates for the system tool user (the worker makes
+    nothing a tool can write, W1); without, a temporary directory.
     """
-    with tempfile.TemporaryDirectory(prefix="cf-cc-check-") as home:
-        share_with_tools(home, writable=True)
-        env = {"PATH": os.environ.get("PATH", ""), "HOME": home, "CLAUDE_CONFIG_DIR": home}
-        missing_file = os.path.join(home, "no-system-prompt")
-        args = ["-p", "--max-turns", "1", "--system-prompt-file", missing_file]
-        _, output = await _run_check(cli, args, env)
+    identity = _check_identity()
+    if identity is None:
+        with tempfile.TemporaryDirectory(prefix="cf-cc-check-") as home:
+            output = await _check_hidden_options_in(cli, home, None)
+    else:
+        output = await _check_hidden_options_in(cli, identity.tmpdir, identity)
     for line in output.splitlines():
         if "unknown option" in line.lower():
             raise ClaudeCodeCLIError(_unsupported(cli, line.strip()))
+
+
+async def _check_hidden_options_in(cli: str, home: str, identity: ToolIdentity | None) -> str:
+    path = tool_isolation().config.tool_path if identity is not None else os.environ.get("PATH", "")
+    env = {"PATH": path, "HOME": home, "CLAUDE_CONFIG_DIR": home}
+    if identity is not None:
+        env["TMPDIR"] = identity.tmpdir
+    args = ["-p", "--max-turns", "1", "--system-prompt-file", os.path.join(home, "no-system-prompt")]
+    _, output = await _run_check(cli, args, env, identity)
+    return output
 
 
 def _unsupported(cli: str, what: str) -> str:
@@ -569,7 +614,9 @@ def _unsupported(cli: str, what: str) -> str:
     )
 
 
-async def _run_check(cli: str, args: list[str], env: dict[str, str]) -> tuple[int, str]:
+async def _run_check(
+    cli: str, args: list[str], env: dict[str, str], identity: ToolIdentity | None = None
+) -> tuple[int, str]:
     """Run the CLI for a capability check; return its exit code and output (stdout, then stderr)."""
     try:
         proc = await start_tool_process(
@@ -580,6 +627,7 @@ async def _run_check(cli: str, args: list[str], env: dict[str, str]) -> tuple[in
             stderr=asyncio.subprocess.PIPE,
             env=env,
             start_new_session=True,
+            identity=identity,
         )
     except OSError as exc:
         raise ClaudeCodeCLIError(f"cannot run Claude Code CLI {cli!r}: {exc}") from exc
@@ -745,15 +793,21 @@ class ClaudeCodeExecutor:
                 cmd = build_cli_command(
                     cli, max_turns=max_turns, system_prompt_file=system_prompt_file, timeouts=timeouts
                 )
-                env = tool_env(
-                    passthrough=_CLAUDE_CLI_ENV,
-                    extra={
-                        **_CLI_FIXED_ENV,
-                        policy_hook.SOCKET_ENV: policy.socket_path,
-                        policy_hook.TOKEN_ENV: policy.token,
-                    },
-                )
-                end = await self._execute(cmd, env, prompt, acc, policy)
+                extra = {
+                    **_CLI_FIXED_ENV,
+                    policy_hook.SOCKET_ENV: policy.socket_path,
+                    policy_hook.TOKEN_ENV: policy.token,
+                }
+                identity = current_identity.get()
+                if _isolated() and identity is not None:
+                    # A config directory of its own (made by the launch helper as
+                    # the tenant), no auto memory; the run directory readable.
+                    identity = identity.with_paths(read=(policy.directory,), claude_config=True)
+                    extra["CLAUDE_CONFIG_DIR"] = identity.claude_config_dir
+                    extra["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+                with use_identity(identity):
+                    env = tool_env(passthrough=_CLAUDE_CLI_CREDENTIALS if _isolated() else _CLAUDE_CLI_ENV, extra=extra)
+                    end = await self._execute(cmd, env, prompt, acc, policy)
         except (ClaudeCodeCLIError, OSError) as exc:
             error = f"Failed to start Claude Code CLI: {exc}"
             logger.error(error)

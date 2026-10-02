@@ -92,18 +92,18 @@ _PATH_ATTRIBUTES = frozenset({"parent", "resolve", "absolute", "expanduser", "wi
 
 _CONFIG = "operator or packaged configuration, never a workspace"
 _DATASETS = "benchmark dataset download cache (operator directory), never a workspace"
-_SHARING = (
-    "KI-71 permission sharing: worker-created paths, and the workspace walk through directory "
-    "descriptors with O_NOFOLLOW opens and inode re-checks (ADR-017 decision 4)"
+_TOOL_STATE = (
+    "the worker's own directories (state directory, tenant directories, tool HOMEs): relative to a "
+    "directory descriptor, O_NOFOLLOW, owner checked (KI-96 rule W1)"
+)
+_HELPER = (
+    "the launch helper, already the tool user: the per-work directories below the tool's own HOME, "
+    "relative to its descriptor, never through a symlink"
 )
 _PRIVATE_DIR = "the run's private socket directory (mkdtemp, 0750), not a workspace"
 _RESULTS = "benchmark result files (operator path)"
 
 # (module, function, call) -> (exact number of calls, why it never touches a workspace path or why it is safe).
-_STAMP = (
-    "the workspace sharing stamp at the workspace root: read with O_NOFOLLOW | O_NONBLOCK as a regular "
-    "file only, written as a new O_EXCL | O_NOFOLLOW file renamed over its place (KI-71)"
-)
 ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("__init__.py", "_read_version", "candidate.read_text"): (1, "the VERSION file of the installation"),
     ("config.py", "load_yaml_config", "open"): (1, _CONFIG),
@@ -139,24 +139,46 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("evaluation/cache.py", "download_hf_dataset_parquet", "tmp_path.unlink"): (1, _DATASETS),
     ("evaluation/datasets.py", "save_results", "p.parent.mkdir"): (1, _RESULTS),
     ("evaluation/datasets.py", "save_results", "p.write_text"): (1, _RESULTS),
-    ("evaluation/runners/agent.py", "AgentBenchmarkRunner.run_task", "shutil.rmtree"): (
-        1,
-        "removes the benchmark workspace; shutil.rmtree works on directory descriptors and "
-        "never follows a symlink (a symlinked top is refused)",
-    ),
     ("tool_process.py", "_own_status", "Path('/proc/self/status').read_text"): (
         1,
         "the isolation probe reads its own status",
     ),
     ("tool_process.py", "_probe_paths", "SECRETS_DIR.iterdir"): (1, "the isolation probe lists /run/secrets"),
-    ("tool_process.py", "share_with_tools", "os.chown"): (1, _SHARING),
-    ("tool_process.py", "share_with_tools", "os.chmod"): (2, _SHARING),
-    ("tool_process.py", "_share_entry", "os.open"): (1, _SHARING),
-    ("tool_process.py", "share_workspace_root", "os.fwalk"): (1, _SHARING),
-    ("tool_process.py", "_read_stamp", "os.open"): (1, _STAMP),
-    ("tool_process.py", "_write_stamp", "os.open"): (1, _STAMP),
-    ("tool_process.py", "_write_stamp", "os.replace"): (1, _STAMP),
-    ("tool_process.py", "_write_stamp", "os.unlink"): (1, _STAMP),
+    ("tool_process.py", "tool_workspace", "os.open"): (
+        1,
+        "the benchmark workspace the worker just made (mkdtemp), opened with O_NOFOLLOW to set its ACLs",
+    ),
+    ("tool_process.py", "tool_workspace", "shutil.rmtree"): (
+        1,
+        "removes the benchmark workspace; shutil.rmtree works on directory descriptors and "
+        "never follows a symlink (a symlinked top is refused)",
+    ),
+    ("tool_process.py", "grant_tool_access", "os.open"): (
+        1,
+        "a file the worker made for a tool in a directory only the worker can write, opened with "
+        "O_PATH | O_NOFOLLOW and checked to be the worker's own (W1)",
+    ),
+    ("tool_exec.py", "_status_fields", "open"): (1, "the launch helper reads its own /proc/self/status"),
+    ("tool_exec.py", "open_nofollow", "os.open"): (2, _HELPER),
+    ("tool_exec.py", "prepare", "os.mkdir"): (1, _HELPER),
+    ("tool_exec.py", "prepare", "os.open"): (1, _HELPER),
+    ("tool_state.py", "open_root", "os.open"): (1, "the workspace root itself (the worker's), as a descriptor"),
+    ("tool_state.py", "open_dir_at", "os.open"): (1, _TOOL_STATE),
+    ("tool_state.py", "_ensure_private_dir", "os.mkdir"): (1, _TOOL_STATE),
+    ("tool_state.py", "_read_small", "os.open"): (1, _TOOL_STATE),
+    ("tool_state.py", "write_new", "os.open"): (1, _TOOL_STATE),
+    ("tool_state.py", "check_tenant_dir", "os.open"): (1, _TOOL_STATE),
+    ("tool_state.py", "adopted_workspace_ready", "os.open"): (
+        1,
+        "an adopted workspace's top directory, opened with O_NOFOLLOW to read its ACL",
+    ),
+    ("tool_state.py", "home_base_problems", "os.open"): (1, "the tool HOME base (the worker's volume)"),
+    ("tool_state.py", "ensure_home", "os.open"): (1, "the tool HOME base (the worker's volume)"),
+    ("tool_state.py", "ensure_home", "os.mkdir"): (1, _TOOL_STATE),
+    ("tool_state.py", "verify_home", "os.open"): (1, "the tool HOME base (the worker's volume)"),
+    ("tool_state.py", "acl_support_problem", "os.open"): (1, "the workspace root or the HOME base"),
+    ("tool_state.py", "acl_support_problem", "os.mkdir"): (1, _TOOL_STATE),
+    ("tool_state.py", "acl_support_problem", "os.rmdir"): (1, _TOOL_STATE),
 }
 
 

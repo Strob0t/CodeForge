@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import tempfile
-
 import structlog
 
 logger = structlog.get_logger()
@@ -141,13 +139,12 @@ async def run_agent_benchmark(
     )
     registry = build_default_registry()
     runtime = BenchmarkRuntime(run_id=req.run_id)
-    executor = AgentLoopExecutor(
-        llm=llm,
-        tool_registry=registry,
-        runtime=runtime,
-        workspace_path=tempfile.gettempdir(),
-    )
-    runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline, loop_config=config)
+
+    def executor_for(workspace: str) -> AgentLoopExecutor:
+        # One per task: its tools work in the task's own workspace (KI-96 S7).
+        return AgentLoopExecutor(llm=llm, tool_registry=registry, runtime=runtime, workspace_path=workspace)
+
+    runner = AgentBenchmarkRunner(executor_factory=executor_for, pipeline=pipeline, loop_config=config)
     return await run_with_optional_rollout(runner, tasks, req, pipeline, on_start, on_complete, hybrid_pipeline)
 
 

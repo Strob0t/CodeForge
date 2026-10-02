@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import uuid
@@ -26,7 +27,7 @@ from codeforge.loop_config import build_loop_config
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
-from codeforge.tool_process import share_tool_files
+from codeforge.tool_identity import ToolIsolationError, tool_tenant
 from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
@@ -434,7 +435,9 @@ class ConversationHandlerMixin:
                     # whose completion was already published is not failed again.
                     logger.exception("failed to process conversation run", error=str(exc))
                     if not work.completed:
-                        await self._publish_failed_completion(run_msg, "internal worker error")
+                        # A refused tool identity names its reason (tenant, tool UID, remedy).
+                        reason = str(exc) if isinstance(exc, ToolIsolationError) else "internal worker error"
+                        await self._publish_failed_completion(run_msg, reason)
         finally:
             self._active_runs.discard(run_id)
 
@@ -467,9 +470,14 @@ class ConversationHandlerMixin:
             notifications=self._notifications,
         )
         workbench: McpWorkbench | None = None
+        identity = contextlib.AsyncExitStack()
         try:
             await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"], after=start)
             await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
+            # The turn's tool processes and MCP stdio servers run as its tenant's tool UID (KI-96).
+            await identity.enter_async_context(
+                tool_tenant(run_msg.tenant_id, run_msg.tool_uid, run_msg.workspace_path or None)
+            )
 
             registry: ToolRegistry = build_default_registry()
             if run_msg.mode:
@@ -528,9 +536,8 @@ class ConversationHandlerMixin:
             await runtime.close()
             if workbench is not None:
                 await workbench.disconnect_all()
-            # What MCP servers and tool processes still running at the end created (KI-71 review).
-            if run_msg.workspace_path:
-                await share_tool_files(run_msg.workspace_path)
+            # Leaving the identity shares what MCP servers and tool processes created (KI-71 review).
+            await identity.aclose()
 
     async def _publish_completion(
         self,

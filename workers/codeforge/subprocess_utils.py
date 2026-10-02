@@ -11,7 +11,8 @@ import signal
 
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
-from codeforge.tool_process import start_tool_process
+from codeforge.tool_identity import system_identity, use_identity
+from codeforge.tool_process import start_tool_process, tool_isolation
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +51,28 @@ async def check_cli_available(
     cli_path: str,
     timeout: int = CLI_CHECK_TIMEOUT_SECONDS,
 ) -> bool:
-    """Return True if *cli_path* is reachable (via ``shutil.which`` or ``--version``)."""
-    if shutil.which(cli_path) is not None:
+    """Return True if *cli_path* is reachable (via ``shutil.which`` or ``--version``).
+
+    With tool isolation the CLI is looked up on the tool PATH (the PATH tool
+    processes get; a CLI only in the worker's venv is reported missing
+    instead of failing at run time) and ``--version`` runs as the system tool
+    user: the check belongs to no tenant (KI-96).
+    """
+    isolation = tool_isolation()
+    tool_path = isolation.config.tool_path if isolation.config.required else None
+    if shutil.which(cli_path, path=tool_path) is not None:
         return True
     try:
+        identity = system_identity() if isolation.config.required else None
+        with use_identity(identity):
+            env = tool_env()
         proc = await start_tool_process(
             cli_path,
             "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=tool_env(),
+            env=env,
+            identity=identity,
         )
         await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return proc.returncode == 0

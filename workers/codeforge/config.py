@@ -11,6 +11,8 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from codeforge.tool_identity import DEFAULT_HOME_BASE, DEFAULT_TOOL_PATH
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_FILE = "codeforge.yaml"
@@ -169,12 +171,11 @@ class WorkerSettings:
     workspace_root: str
     config_file: str
 
-    # Tool isolation (KI-71, codeforge.tool_process)
+    # Tool isolation (KI-71, KI-96: codeforge.tool_process, codeforge.tool_identity)
     tool_isolation: str
-    tool_uid: int
-    tool_gid: int
     workspace_gid: int
-    tool_home: str
+    tool_home_base: str
+    tool_path: str
 
     # LLM
     default_model: str
@@ -269,13 +270,14 @@ class WorkerSettings:
         self.workspace_root = _resolve_str("CODEFORGE_WORKSPACE_ROOT", None, "")
         self.config_file = os.environ.get("CODEFORGE_CONFIG_FILE", "")
 
-        # --- Tool isolation (KI-71): who agent tool processes run as ---
+        # --- Tool isolation (KI-71, KI-96): who agent tool processes run as ---
         # "required" in the worker image and docker-compose.prod.yml, "off" elsewhere.
+        # With it every tenant's tool processes run as the tenant's tool UID (the
+        # Go Core sends it), with a HOME below the base and the tool PATH.
         self.tool_isolation = _resolve_str("CODEFORGE_TOOL_ISOLATION", None, "off")
-        self.tool_uid = _resolve_int("CODEFORGE_TOOL_UID", None, 10002)
-        self.tool_gid = _resolve_int("CODEFORGE_TOOL_GID", None, 10002)
         self.workspace_gid = _resolve_int("CODEFORGE_WORKSPACE_GID", None, 10010)
-        self.tool_home = _resolve_str("CODEFORGE_TOOL_HOME", None, "/home/codeforge-tool")
+        self.tool_home_base = _resolve_str("CODEFORGE_TOOL_HOME_BASE", None, DEFAULT_HOME_BASE)
+        self.tool_path = _resolve_str("CODEFORGE_TOOL_PATH", None, DEFAULT_TOOL_PATH)
 
         # --- LLM ---
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")

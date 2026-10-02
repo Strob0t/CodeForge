@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import ClassVar, TypedDict
 
@@ -27,6 +28,27 @@ from codeforge.tool_process import start_tool_process
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
+
+
+def working_dir(workspace_path: str, override: str) -> str:
+    """The CLI's working directory: the workspace, or *override* when it lies inside it (KI-96, O13).
+
+    A relative override is taken relative to the workspace. An override
+    outside the workspace raises ValueError: the agent would work where its
+    tenant's tool identity has no business.
+    """
+    if not override:
+        return workspace_path
+    if not workspace_path:
+        msg = f"working_dir_override {override!r} needs a workspace"
+        raise ValueError(msg)
+    workspace = os.path.normpath(workspace_path)
+    candidate = os.path.normpath(os.path.join(workspace, override))
+    if candidate != workspace and not candidate.startswith(workspace + os.sep):
+        msg = f"working_dir_override {override!r} is outside the workspace {workspace_path}: refused"
+        raise ValueError(msg)
+    return candidate
+
 
 # LLM provider credentials and endpoints the agent CLIs read directly. They
 # are the backend's own credentials: the agent inside can read them, but not
@@ -111,7 +133,10 @@ class CLIBackendExecutor(ABC):
         """Run the CLI tool with the given prompt in the workspace directory."""
         effective_config: ExecutorConfig = config or {}  # type: ignore[assignment]
         timeout = effective_config.get("timeout", _DEFAULT_TIMEOUT)
-        cwd = effective_config.get("working_dir_override") or workspace_path
+        try:
+            cwd = working_dir(workspace_path, effective_config.get("working_dir_override") or "")
+        except ValueError as exc:
+            return TaskResult(status="failed", error=str(exc))
         extra_env: dict[str, str] = effective_config.get("extra_env") or {}
 
         cmd = self._build_command(prompt, effective_config)

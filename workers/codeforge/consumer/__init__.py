@@ -81,11 +81,9 @@ from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
 from codeforge.secrets import SECRETS_DIR, lock_secrets_dir
 from codeforge.tool_process import (
-    TOOL_UMASK,
     IsolationConfig,
     IsolationStatus,
     configure_tool_isolation,
-    share_workspace_root,
 )
 from codeforge.tracing import tracing_manager
 from codeforge.tracing.propagation import TracingJetStreamContext
@@ -513,47 +511,40 @@ class TaskConsumer(
         logger.info("consumer stopped")
 
 
-def setup_tool_isolation(settings: WorkerSettings) -> IsolationStatus:
-    """Check how agent tool processes run (KI-71) and log it; call once every secret was read.
+# The worker's own umask with isolation: what it creates stays writable for
+# the workspace group (the Go Core); below a tenant directory's default ACL
+# the kernel ignores it.
+WORKER_UMASK = 0o002
 
-    With isolation required the worker creates files with umask 002 (the
-    workspaces are shared with the tool user and the Go Core through the
-    workspace group), locks its secrets directory and opens workspaces created
-    before isolation to the workspace group.
+
+def setup_tool_isolation(settings: WorkerSettings) -> IsolationStatus:
+    """Check how agent tool processes run (KI-71, KI-96) and log it; call once every secret was read.
+
+    With isolation required the check prepares and verifies the volumes (the
+    workspace root 2771, the worker's state directory, the tool HOME base,
+    POSIX ACLs) and probes a tool process; the worker creates files with
+    umask 002 and locks its secrets directory.
     """
     config = IsolationConfig.from_settings(settings)
     if config.required:
-        os.umask(TOOL_UMASK)
+        os.umask(WORKER_UMASK)
     status = configure_tool_isolation(config)
     if not config.required:
         logger.info("tool isolation off: agent tool processes run as the worker user", worker_uid=os.getuid())
         return status
     if status.ready:
         logger.info(
-            "tool isolation required: agent tool processes run as the tool user",
+            "tool isolation required: every tenant's tool processes run as the tenant's tool UID",
             worker_uid=os.getuid(),
-            tool_uid=config.uid,
-            tool_gid=config.gid,
-            workspace_gid=config.workspace_gid,
+            workspace_root=config.workspace_root,
+            home_base=config.home_base,
+            tool_path=config.tool_path,
         )
     else:
         logger.error("tool isolation required but not available: every tool call fails", reason=status.reason)
     if lock_secrets_dir():
         logger.info("secrets directory locked after reading the secrets", path=str(SECRETS_DIR))
     return status
-
-
-def share_workspaces(settings: WorkerSettings, status: IsolationStatus) -> None:
-    """Open workspaces created before tool isolation to the workspace group (once per upgrade).
-
-    May walk a large tree: main() runs it with the health endpoint up
-    (starting) and before the consumer takes work.
-    """
-    if not status.config.required or not status.ready or not settings.workspace_root:
-        return
-    changed = share_workspace_root(settings.workspace_root, status.config.workspace_gid)
-    if changed:
-        logger.info("workspaces opened to the workspace group", root=settings.workspace_root, entries=changed)
 
 
 async def main() -> None:
@@ -569,7 +560,7 @@ async def main() -> None:
         logger.warning("using the development LiteLLM master key - set LITELLM_MASTER_KEY for production")
     tracing_manager.log_status()
     # After every secret was read: it locks the secrets directory.
-    isolation = await asyncio.to_thread(setup_tool_isolation, settings)
+    await asyncio.to_thread(setup_tool_isolation, settings)
 
     consumer = TaskConsumer(
         nats_url=settings.nats_url,
@@ -579,13 +570,13 @@ async def main() -> None:
 
     # A worker without its health endpoint would be restarted as unhealthy:
     # fail at once, before connecting to NATS.
-    shared = threading.Event()
+    started = threading.Event()
     try:
         health = start_health_server(
             settings.health_port,
             lambda: consumer.ready,
-            # Not ready while the workspaces are shared: starting.
-            describe=lambda: "not ready" if shared.is_set() else "starting",
+            # Not ready before the consumer starts: starting.
+            describe=lambda: "not ready" if started.is_set() else "starting",
         )
     except (OSError, OverflowError) as exc:
         logger.error("health server failed to start", port=settings.health_port, error=str(exc))
@@ -613,9 +604,7 @@ async def main() -> None:
         # start() returns once every loop ended (after a stop request or a
         # give-up), or at once when a stop was requested during its setup.
         try:
-            # Before any work, with the health endpoint answering (starting).
-            await asyncio.to_thread(share_workspaces, settings, isolation)
-            shared.set()
+            started.set()
             await consumer.start()
         except Exception as exc:  # e.g. NATS unreachable at startup
             crashed = True

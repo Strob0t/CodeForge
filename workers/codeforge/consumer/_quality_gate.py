@@ -10,6 +10,7 @@ import structlog
 from codeforge.consumer._subjects import SUBJECT_QG_RESULT, SUBJECT_RUN_HEARTBEAT
 from codeforge.models import QualityGateRequest, QualityGateResult
 from codeforge.runtime import heartbeats
+from codeforge.tool_identity import ToolIsolationError, tool_tenant
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -70,7 +71,14 @@ class QualityGateHandlerMixin:
 
         async def run_gate(request: QualityGateRequest, log: structlog.BoundLogger) -> QualityGateResult:
             async with gate_heartbeat(self._js, msg, request, log):
-                return await self._do_quality_gate(request, log)
+                try:
+                    # The gate commands run as the run's tenant's tool UID (KI-96).
+                    async with tool_tenant(request.tenant_id, request.tool_uid, request.workspace_path):
+                        return await self._do_quality_gate(request, log)
+                except ToolIsolationError as exc:
+                    # A gate that could not run: no verdict, the reason (no rollback).
+                    log.error("quality gate refused", error=str(exc))
+                    return QualityGateResult(run_id=request.run_id, tenant_id=request.tenant_id, error=str(exc))
 
         await self._handle_request(
             msg=msg,

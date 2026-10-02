@@ -1,11 +1,12 @@
-"""Agent tool processes run as the tool user (KI-71, KI-96).
+"""Agent tool processes run as their tenant's tool user (KI-71, KI-96).
 
 Every process the worker starts for an agent goes through codeforge.tool_process.
-With tool isolation required it runs as the unprivileged tool user (setpriv:
-tool UID/GID, the workspace group, no capabilities, no_new_privs, umask 002,
-then the launch helper with the environment from a memfd, never on argv);
-when that is not possible the tool call fails and no process starts. With
-isolation off (development, tests) tool processes start as before.
+With tool isolation required it runs as the current tool identity (setpriv:
+the tenant's tool UID and GID, no supplementary group, no capabilities,
+no_new_privs, umask 007, then the launch helper with the environment from a
+memfd, never on argv); without an identity, or when isolation is not
+possible, the tool call fails and no process starts. With isolation off
+(development, tests) tool processes start as before.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import errno
 import json
 import os
 import random
@@ -24,8 +26,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from codeforge import tool_process
+from codeforge import posix_acl, tool_identity, tool_process
 from codeforge.subprocess_env import tool_env
+from codeforge.tool_identity import ToolIdentity, current_identity
 from codeforge.tool_process import (
     TOOL_EXEC,
     TOOL_UMASK,
@@ -33,11 +36,10 @@ from codeforge.tool_process import (
     IsolationStatus,
     ToolIsolationError,
     check_tool_isolation,
+    grant_tool_access,
     parse_isolation_mode,
     probe_problems,
     run_tool_process,
-    share_with_tools,
-    share_workspace_root,
     start_tool_process,
     start_tool_shell,
     worker_capability_problems,
@@ -45,7 +47,7 @@ from codeforge.tool_process import (
 from tests.test_subprocess_env import SPAWN_SITES, _FakeProc
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import Awaitable, Callable, Iterator, Mapping
 
 WORKERS_DIR = Path(__file__).resolve().parents[1]
 SOURCE_DIR = WORKERS_DIR / "codeforge"
@@ -53,18 +55,25 @@ SOURCE_DIR = WORKERS_DIR / "codeforge"
 LAUNCHER = "/usr/bin/setpriv"
 INTERPRETER = "/usr/bin/python3"
 LAUNCHER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
-CONFIG = IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=10010, home="/home/codeforge-tool")
-OFF = IsolationConfig(mode="off", uid=10002, gid=10002, workspace_gid=10010, home="/home/codeforge-tool")
+TOOL_PATH = "/usr/local/bin:/usr/bin:/bin"
+CONFIG = IsolationConfig(
+    mode="required", workspace_root="/data/workspaces", home_base="/home/codeforge-tools", tool_path=TOOL_PATH
+)
+OFF = IsolationConfig(mode="off")
 READY = IsolationStatus(config=CONFIG, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER)
 BROKEN = IsolationStatus(config=CONFIG, ready=False, reason="the worker lacks CAP_SETUID")
+# Workspaces outside the root (tests' temporary directories) need no tenant directory check.
+IDENT = ToolIdentity(
+    tenant_id="tenant-a", uid=20007, home="/home/codeforge-tools/20007", work_id="tok1", workspace="/ws"
+)
 
 
-def _prefix(config: IsolationConfig) -> list[str]:
+def _prefix(uid: int = 20007) -> list[str]:
     return [
         LAUNCHER,
-        f"--reuid={config.uid}",
-        f"--regid={config.gid}",
-        f"--groups={config.workspace_gid}",
+        f"--reuid={uid}",
+        f"--regid={uid}",
+        "--clear-groups",
         "--inh-caps=-all",
         "--ambient-caps=-all",
         "--no-new-privs",
@@ -72,17 +81,14 @@ def _prefix(config: IsolationConfig) -> list[str]:
     ]
 
 
-LAUNCH_PREFIX = _prefix(CONFIG)
-
-
-def _helper_prefix(config: IsolationConfig) -> list[str]:
+def _helper_prefix(uid: int = 20007) -> list[str]:
     """setpriv, then the launch helper with the base interpreter."""
-    return [*_prefix(config), INTERPRETER, "-I", "-S", TOOL_EXEC]
+    return [*_prefix(uid), INTERPRETER, "-I", "-S", TOOL_EXEC]
 
 
-def _command(config: IsolationConfig, args: tuple[object, ...]) -> list[object]:
+def _command(args: tuple[object, ...], uid: int = 20007) -> list[object]:
     """The command a launch runs: what follows the helper and its spec descriptor."""
-    prefix = _helper_prefix(config)
+    prefix = _helper_prefix(uid)
     assert list(args[: len(prefix)]) == prefix, args
     assert str(args[len(prefix)]).isdigit(), args
     return list(args[len(prefix) + 1 :])
@@ -110,6 +116,21 @@ def isolation(monkeypatch: pytest.MonkeyPatch) -> Callable[[IsolationStatus], No
         monkeypatch.setattr(tool_process, "_status", status)
 
     return install
+
+
+@pytest.fixture
+def identity() -> Iterator[Callable[[ToolIdentity | None], None]]:
+    """Set the current tool identity for the test.
+
+    An async test sets it in its own task's context, which ends with the
+    test; a sync test sets it in the main context, which is cleared here.
+    """
+
+    def install(ident: ToolIdentity | None) -> None:
+        current_identity.set(ident)
+
+    yield install
+    current_identity.set(None)
 
 
 Spawn = tuple[tuple[object, ...], dict[str, object]]
@@ -164,26 +185,33 @@ def test_isolation_config_from_settings(monkeypatch: pytest.MonkeyPatch) -> None
     from codeforge.config import WorkerSettings
 
     monkeypatch.setenv("CODEFORGE_TOOL_ISOLATION", "required")
-    monkeypatch.setenv("CODEFORGE_TOOL_UID", "20002")
-    monkeypatch.setenv("CODEFORGE_TOOL_GID", "20003")
+    monkeypatch.setenv("CODEFORGE_WORKSPACE_ROOT", "/data/workspaces/")
+    monkeypatch.setenv("CODEFORGE_TOOL_HOME_BASE", "/home/tools")
+    monkeypatch.setenv("CODEFORGE_TOOL_PATH", "/opt/bin:/usr/bin")
     monkeypatch.setenv("CODEFORGE_WORKSPACE_GID", "20010")
-    monkeypatch.setenv("CODEFORGE_TOOL_HOME", "/home/tool")
     config = IsolationConfig.from_settings(WorkerSettings())
-    assert config == IsolationConfig(mode="required", uid=20002, gid=20003, workspace_gid=20010, home="/home/tool")
+    assert config == IsolationConfig(
+        mode="required",
+        workspace_root="/data/workspaces",
+        home_base="/home/tools",
+        tool_path="/opt/bin:/usr/bin",
+        workspace_gid=20010,
+    )
 
 
 def test_isolation_defaults_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
     from codeforge.config import WorkerSettings
 
-    for name in ("CODEFORGE_TOOL_ISOLATION", "CODEFORGE_TOOL_UID", "CODEFORGE_TOOL_GID", "CODEFORGE_WORKSPACE_GID"):
+    for name in ("CODEFORGE_TOOL_ISOLATION", "CODEFORGE_TOOL_HOME_BASE", "CODEFORGE_TOOL_PATH"):
         monkeypatch.delenv(name, raising=False)
     config = IsolationConfig.from_settings(WorkerSettings())
     assert config.mode == "off"
-    assert (config.uid, config.gid, config.workspace_gid) == (10002, 10002, 10010)
+    assert config.home_base == "/home/codeforge-tools"
+    assert config.tool_path == "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
 # ---------------------------------------------------------------------------
-# Spawning: off, required and ready, required and not ready
+# Spawning: off, required with an identity, without one, not ready
 # ---------------------------------------------------------------------------
 
 
@@ -202,42 +230,126 @@ async def test_off_starts_the_command_as_before(
     assert kwargs["start_new_session"] is True
 
 
-async def test_required_starts_the_command_as_the_tool_user(
-    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+async def test_required_starts_the_command_as_the_tenants_tool_user(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
 ) -> None:
     isolation(READY)
+    identity(IDENT)
     await start_tool_process("git", "status", env={"PATH": "/bin"}, cwd="/ws", stdout=asyncio.subprocess.PIPE)
     args, kwargs = spawns[0]
-    assert _command(CONFIG, args) == ["git", "status"]
-    assert kwargs["umask"] == TOOL_UMASK == 0o002
+    assert _command(args) == ["git", "status"]
+    assert kwargs["umask"] == TOOL_UMASK == 0o007
     # setpriv holds the worker's capabilities: it gets a fixed environment; the
     # helper gives the command its own after the switch, from the spec.
     assert kwargs["env"] == LAUNCHER_ENV
     # The worker never changes into a directory a tool can write: the helper does.
     assert kwargs["cwd"] == "/"
     assert kwargs["spec"] == {
-        "uid": 10002,
-        "gid": 10002,
-        "groups": [10010],
-        "umask": TOOL_UMASK,
+        "uid": 20007,
+        "gid": 20007,
+        "groups": [],
+        "umask": 0o007,
         "env": {"PATH": "/bin"},
         "landlock": "off",
-        "prepare": [],
-        "home": None,
+        "prepare": ["tmp/tok1"],
+        "home": "/home/codeforge-tools/20007",
         "cwd": "/ws",
     }
 
 
-async def test_the_launcher_never_gets_the_tools_environment(
+async def test_an_explicit_identity_overrides_the_current_one(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    isolation(READY)
+    identity(IDENT)
+    system = ToolIdentity(tenant_id="", uid=19999, home="/home/codeforge-tools/19999", work_id="sys")
+    await start_tool_process("true", env={}, identity=system)
+    run_tool_process(["true"], env={}, identity=system)
+    for args, kwargs in spawns:
+        assert _command(args, 19999) == ["true"]
+        assert kwargs["spec"]["uid"] == 19999  # type: ignore[index]
+
+
+async def test_required_without_an_identity_starts_nothing(
     isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
 ) -> None:
     isolation(READY)
+    with pytest.raises(ToolIsolationError, match="without a tenant"):
+        await start_tool_process("true", env={})
+    with pytest.raises(ToolIsolationError):
+        run_tool_process(["true"], env={})
+    assert spawns == []
+
+
+@pytest.mark.parametrize("cwd", ["/", "/data/workspaces/other/p", "/ws-other", "/home/codeforge-tools/20008"])
+async def test_a_working_directory_outside_the_identitys_areas_is_refused(
+    cwd: str,
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    isolation(READY)
+    identity(IDENT)
+    with pytest.raises(ToolIsolationError, match="outside its workspace"):
+        await start_tool_process("true", env={}, cwd=cwd)
+    assert spawns == []
+
+
+async def test_a_working_directory_inside_the_workspace_or_home_is_accepted(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    isolation(READY)
+    identity(IDENT)
+    for cwd in ("/ws", "/ws/sub/dir", "/ws/./x/..", "/home/codeforge-tools/20007/tmp/tok1"):
+        await start_tool_process("true", env={}, cwd=cwd)
+    assert [kwargs["spec"]["cwd"] for _a, kwargs in spawns if _command(_a) == ["true"]] == [  # type: ignore[index]
+        "/ws",
+        "/ws/sub/dir",
+        "/ws",
+        "/home/codeforge-tools/20007/tmp/tok1",
+    ]
+
+
+async def test_the_tenant_directory_is_verified_at_every_launch(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolation(READY)
+    identity(IDENT.with_workspace("/data/workspaces/tenant-a/p1"))
+    checked: list[tuple[str, str, int]] = []
+
+    def refuse(root: str, tenant_id: str, uid: int) -> None:
+        checked.append((root, tenant_id, uid))
+        raise ToolIsolationError("the tenant directory of tenant tenant-a belongs to uid 10002")
+
+    monkeypatch.setattr(tool_process, "verify_tenant_dir", refuse)
+    with pytest.raises(ToolIsolationError, match="uid 10002"):
+        await start_tool_process("true", env={}, cwd="/data/workspaces/tenant-a/p1")
+    assert checked == [("/data/workspaces", "tenant-a", 20007)]
+    assert spawns == []
+
+
+async def test_the_launcher_never_gets_the_tools_environment(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    isolation(READY)
+    identity(IDENT)
     env = {"LD_PRELOAD": "/data/workspaces/t/p/evil.so", "GCONV_PATH": "/x", "PATH": "/bin", "": "x", "A=B": "y"}
     await start_tool_process("true", env=env)
     run_tool_process(["true"], env=env)
     for args, kwargs in spawns:
         assert kwargs["env"] == LAUNCHER_ENV
-        assert _command(CONFIG, args) == ["true"]
+        assert _command(args) == ["true"]
         assert not [a for a in args if "evil.so" in str(a) or "PATH=" in str(a)]
         # The command still gets its environment; invalid names are dropped.
         assert kwargs["spec"]["env"] == {  # type: ignore[index]
@@ -253,10 +365,13 @@ def _random_text(rng: random.Random) -> str:
 
 
 async def test_no_environment_value_is_ever_an_argument(
-    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
 ) -> None:
     """Property: whatever the environment, none of its values (secrets) is in argv (KI-96, E8)."""
     isolation(READY)
+    identity(IDENT)
     rng = random.Random(96)  # noqa: S311 - test data, not cryptography
     for _ in range(50):
         env = {f"V{index}_{rng.randint(0, 99)}": _random_text(rng) for index in range(rng.randint(1, 12))}
@@ -267,16 +382,19 @@ async def test_no_environment_value_is_ever_an_argument(
         for args, kwargs in spawns:
             joined = "\0".join(str(a) for a in args)
             assert not [value for value in env.values() if value in joined], args
-            if _command(CONFIG, args) == ["cmd"]:  # not the sharing pass after it
+            if _command(args) == ["cmd"]:  # not the sharing pass after it
                 commands += 1
                 assert kwargs["spec"]["env"] == env  # type: ignore[index]
         assert commands == 2
 
 
 async def test_the_launch_spec_is_closed_after_the_spawn(
-    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
 ) -> None:
     isolation(READY)
+    identity(IDENT)
     await start_tool_process("true", env={})
     run_tool_process(["true"], env={})
     for _args, kwargs in spawns:
@@ -286,10 +404,13 @@ async def test_the_launch_spec_is_closed_after_the_spawn(
 
 
 async def test_isolated_stdio_pipes_are_open_to_the_tool_user(
-    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tool user can reopen its pipes (/dev/stdout, /dev/stderr): they are 0666 (KI-96, E11)."""
     isolation(READY)
+    identity(IDENT)
     seen: dict[str, object] = {}
 
     async def fake_exec(*_args: object, **kwargs: object) -> _FakeProc:
@@ -323,40 +444,46 @@ async def test_off_keeps_asyncio_pipes(isolation: Callable[[IsolationStatus], No
     assert (kwargs["stdout"], kwargs["stderr"]) == (subprocess.PIPE, subprocess.STDOUT)
 
 
-async def test_shell_commands_run_through_sh(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
+async def test_shell_commands_run_through_sh(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
     isolation(READY)
+    identity(IDENT)
     await start_tool_shell("pytest -q && echo ok", env={}, cwd="/ws")
     args, _ = spawns[0]
-    assert _command(CONFIG, args) == ["/bin/sh", "-c", "pytest -q && echo ok"]
+    assert _command(args) == ["/bin/sh", "-c", "pytest -q && echo ok"]
 
 
-def test_sync_run_as_the_tool_user(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
+def test_sync_run_as_the_tool_user(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
     isolation(READY)
+    identity(IDENT)
     run_tool_process(["git", "log"], env={"PATH": "/bin"}, cwd="/ws", timeout=5)
     args, kwargs = spawns[0]
-    assert _command(CONFIG, args) == ["git", "log"]
+    assert _command(args) == ["git", "log"]
     assert kwargs["env"] == LAUNCHER_ENV
-    assert kwargs["umask"] == 0o002
+    assert kwargs["umask"] == 0o007
     assert kwargs["timeout"] == 5
     assert kwargs["cwd"] == "/"
     assert kwargs["spec"]["cwd"] == "/ws"  # type: ignore[index]
-
-
-def test_groups_cleared_without_a_workspace_group(
-    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
-) -> None:
-    config = IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=-1, home="/home/tool")
-    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
-    run_tool_process(["true"], env={})
-    args, _ = spawns[0]
-    assert "--clear-groups" in args
-    assert not [a for a in args if str(a).startswith("--groups")]
+    # Then the sharing pass, as the same tool user.
+    share_args, share_kwargs = spawns[1]
+    assert _command(share_args)[:3] == ["find", "-P", "/ws"]
+    assert share_kwargs["spec"]["uid"] == 20007  # type: ignore[index]
 
 
 async def test_required_without_isolation_fails_and_starts_nothing(
-    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
 ) -> None:
     isolation(BROKEN)
+    identity(IDENT)
     with pytest.raises(ToolIsolationError, match="CAP_SETUID") as exc_info:
         await start_tool_process("bash", "-c", "env", env={})
     with pytest.raises(ToolIsolationError):
@@ -374,27 +501,65 @@ async def test_required_without_isolation_fails_and_starts_nothing(
 # ---------------------------------------------------------------------------
 
 
-def test_tool_env_uses_the_tool_users_home_when_isolated(
-    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
+def test_tool_env_is_the_identitys_environment(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Every cache, config, data and temp location below the tenant's HOME; the tool PATH (S6, O1, O7)."""
     monkeypatch.setenv("HOME", "/home/codeforge")
-    monkeypatch.setenv("USER", "codeforge")
+    monkeypatch.setenv("PATH", "/app/.venv/bin:/usr/bin")
+    monkeypatch.setenv("GOCACHE", "/shared/go")
+    monkeypatch.setenv("XDG_CACHE_HOME", "/shared/cache")
+    monkeypatch.setenv("npm_config_cache", "/shared/npm")
+    monkeypatch.setenv("TMPDIR", "/tmp")
     isolation(READY)
+    identity(IDENT)
     env = tool_env()
-    assert env["HOME"] == "/home/codeforge-tool"
-    assert env["USER"] == env["LOGNAME"] == "codeforge-tool"
-    # An explicit value still wins (the Claude Code capability check's empty HOME).
-    assert tool_env(extra={"HOME": "/tmp/x"})["HOME"] == "/tmp/x"
+    home, tmp = "/home/codeforge-tools/20007", "/home/codeforge-tools/20007/tmp/tok1"
+    assert env["HOME"] == home
+    assert env["USER"] == env["LOGNAME"] == "codeforge-t20007"
+    assert env["PATH"].startswith(TOOL_PATH + ":")
+    assert "/app/.venv" not in env["PATH"]
+    assert env["PATH"].endswith(f"{home}/.npm-global/bin")
+    for name in ("TMPDIR", "TMP", "TEMP", "GOTMPDIR", "TMUX_TMPDIR"):
+        assert env[name] == tmp, name
+    assert env["JAVA_TOOL_OPTIONS"] == f"-Djava.io.tmpdir={tmp}"
+    for name in ("XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "GOPATH", "GOMODCACHE",
+                 "GOCACHE", "CARGO_HOME", "RUSTUP_HOME", "npm_config_cache", "npm_config_prefix", "PIP_CACHE_DIR",
+                 "UV_CACHE_DIR"):  # fmt: skip
+        assert env[name].startswith(home + "/"), name
+    # An explicit value still wins (the Claude Code config directory).
+    assert tool_env(extra={"CLAUDE_CONFIG_DIR": "/x"})["CLAUDE_CONFIG_DIR"] == "/x"
+
+
+def test_operator_values_of_identity_variables_are_dropped_with_a_warning(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setenv("GOCACHE", "/shared/go")
+    monkeypatch.setattr(tool_identity, "_warned_dropped", set())
+    isolation(READY)
+    identity(IDENT)
+    with caplog.at_level("WARNING"):
+        tool_env()
+        tool_env()
+    warnings = [r for r in caplog.records if "GOCACHE" in r.getMessage()]
+    assert len(warnings) == 1
 
 
 def test_tool_env_unchanged_when_off(
     isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", "/home/codeforge")
+    monkeypatch.setenv("GOCACHE", "/shared/go")
     monkeypatch.delenv("LOGNAME", raising=False)
     isolation(IsolationStatus(config=OFF, ready=True))
     env = tool_env()
     assert env["HOME"] == "/home/codeforge"
+    assert env["GOCACHE"] == "/shared/go"
     assert "LOGNAME" not in env
 
 
@@ -415,10 +580,10 @@ def test_tool_env_never_names_the_secret_files(name: str, monkeypatch: pytest.Mo
 # ---------------------------------------------------------------------------
 
 _STATUS_OK = """Name:\tcat
-Umask:\t0002
-Uid:\t10002\t10002\t10002\t10002
-Gid:\t10002\t10002\t10002\t10002
-Groups:\t10010
+Umask:\t0007
+Uid:\t19999\t19999\t19999\t19999
+Gid:\t19999\t19999\t19999\t19999
+Groups:\t
 CapInh:\t0000000000000000
 CapPrm:\t0000000000000000
 CapEff:\t0000000000000000
@@ -429,40 +594,40 @@ NoNewPrivs:\t1
 
 
 def test_probe_of_an_isolated_tool_process_passes() -> None:
-    assert probe_problems(_STATUS_OK, CONFIG) == []
+    assert probe_problems(_STATUS_OK, 19999) == []
 
 
 @pytest.mark.parametrize(
     ("line", "replacement", "problem"),
     [
-        ("Uid:\t10002\t10002\t10002\t10002", "Uid:\t10001\t10001\t10001\t10001", "uid"),
-        ("Uid:\t10002\t10002\t10002\t10002", "Uid:\t10002\t10001\t10002\t10002", "uid"),
-        ("Gid:\t10002\t10002\t10002\t10002", "Gid:\t10001\t10001\t10001\t10001", "gid"),
-        ("Groups:\t10010", "Groups:\t10001 10010", "groups"),
-        ("Groups:\t10010", "Groups:\t", "groups"),
+        ("Uid:\t19999\t19999\t19999\t19999", "Uid:\t10001\t10001\t10001\t10001", "uid"),
+        ("Uid:\t19999\t19999\t19999\t19999", "Uid:\t19999\t10001\t19999\t19999", "uid"),
+        ("Gid:\t19999\t19999\t19999\t19999", "Gid:\t10001\t10001\t10001\t10001", "gid"),
+        ("Groups:\t", "Groups:\t10010", "groups"),
+        ("Groups:\t", "Groups:\t10001 10010", "groups"),
         ("CapEff:\t0000000000000000", "CapEff:\t00000000000000c0", "capabilities"),
         ("CapPrm:\t0000000000000000", "CapPrm:\t0000000000000020", "capabilities"),
         ("CapAmb:\t0000000000000000", "CapAmb:\t00000000000000c0", "capabilities"),
         ("CapInh:\t0000000000000000", "CapInh:\t0000000000000080", "capabilities"),
         ("NoNewPrivs:\t1", "NoNewPrivs:\t0", "no_new_privs"),
-        ("Umask:\t0002", "Umask:\t0022", "umask"),
+        ("Umask:\t0007", "Umask:\t0002", "umask"),
     ],
 )
 def test_probe_finds_what_is_wrong(line: str, replacement: str, problem: str) -> None:
-    problems = probe_problems(_STATUS_OK.replace(line, replacement), CONFIG)
+    problems = probe_problems(_STATUS_OK.replace(line, replacement), 19999)
     assert problems, f"{problem} not detected"
     assert any(problem in p for p in problems), problems
 
 
 def test_probe_reports_readable_secrets_and_environ() -> None:
     output = _STATUS_OK + "cf-readable /run/secrets/database-url\ncf-readable /proc/1/environ\n"
-    problems = probe_problems(output, CONFIG)
+    problems = probe_problems(output, 19999)
     assert any("/run/secrets/database-url" in p for p in problems)
     assert any("/proc/1/environ" in p for p in problems)
 
 
 def test_probe_without_status_output_fails() -> None:
-    assert probe_problems("", CONFIG)
+    assert probe_problems("", 19999)
 
 
 _WORKER_STATUS = "CapInh:\t00000000000000e0\nCapPrm:\t00000000000000e0\nCapEff:\t00000000000000e0\nCapAmb:\t{amb}\n"
@@ -504,45 +669,50 @@ def test_check_required_without_launcher_is_not_ready(monkeypatch: pytest.Monkey
     assert "setpriv" in status.reason
 
 
-def test_check_required_without_capabilities_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def checkable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A worker that could isolate: launcher, capabilities, volumes, the system HOME."""
     monkeypatch.setattr(tool_process.shutil, "which", lambda *_a, **_k: LAUNCHER)
     monkeypatch.setattr(tool_process, "_is_root", lambda: False)
+    monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="00000000000000e0"))
+    monkeypatch.setattr(tool_process, "volume_problems", lambda _config: [])
+    monkeypatch.setattr(tool_identity, "tenant_home", lambda base, uid: f"{base}/{uid}")
+
+
+def test_check_required_without_capabilities_is_not_ready(checkable: None, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="0000000000000000"))
     status = check_tool_isolation(CONFIG)
     assert not status.ready
     assert "CAP_SETUID" in status.reason
 
 
-def test_check_required_with_the_worker_uid_as_tool_uid_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_process.shutil, "which", lambda *_a, **_k: LAUNCHER)
-    monkeypatch.setattr(tool_process, "_is_root", lambda: False)
-    monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="00000000000000e0"))
-    for config in (
-        IsolationConfig(mode="required", uid=os.getuid(), gid=10002, workspace_gid=10010, home="/h"),
-        IsolationConfig(mode="required", uid=10002, gid=os.getgid(), workspace_gid=10010, home="/h"),
-        IsolationConfig(mode="required", uid=0, gid=10002, workspace_gid=10010, home="/h"),
-    ):
-        status = check_tool_isolation(config)
-        assert not status.ready, config
-        assert "differ" in status.reason
+def test_check_required_with_volume_problems_is_not_ready(checkable: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tool_process, "volume_problems", lambda _config: ["the tool HOME base is mounted noexec"])
+    status = check_tool_isolation(CONFIG)
+    assert not status.ready
+    assert "noexec" in status.reason
 
 
-def test_check_required_runs_the_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_process.shutil, "which", lambda *_a, **_k: LAUNCHER)
-    monkeypatch.setattr(tool_process, "_is_root", lambda: False)
-    monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="00000000000000e0"))
-    probes: list[list[str]] = []
+def test_check_required_runs_the_probe_as_the_system_tool_user(
+    checkable: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probes: list[tuple[list[str], dict[str, object] | None]] = []
 
     def fake_probe(launch: tool_process.Launch, _timeout: float) -> str:
-        probes.append(launch.argv)
+        probes.append((launch.argv, read_spec({"pass_fds": launch.pass_fds})))
         launch.close()
         return _STATUS_OK
 
     monkeypatch.setattr(tool_process, "_run_probe", fake_probe)
     status = check_tool_isolation(CONFIG)
     assert status.ready, status.reason
-    assert probes[0][: len(LAUNCH_PREFIX)] == LAUNCH_PREFIX
-    assert f"/proc/{os.getpid()}/environ" in probes[0]
+    argv, spec = probes[0]
+    assert argv[: len(_prefix(19999))] == _prefix(19999)
+    assert f"/proc/{os.getpid()}/environ" in argv
+    assert spec is not None
+    assert spec["uid"] == 19999
+    assert spec["groups"] == []
+    assert spec["home"] == "/home/codeforge-tools/19999"
 
     monkeypatch.setattr(tool_process, "_run_probe", lambda *_a: _STATUS_OK.replace("NoNewPrivs:\t1", "NoNewPrivs:\t0"))
     status = check_tool_isolation(CONFIG)
@@ -550,12 +720,8 @@ def test_check_required_runs_the_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "no_new_privs" in status.reason
 
 
-def test_check_required_probe_failure_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_process.shutil, "which", lambda *_a, **_k: LAUNCHER)
-    monkeypatch.setattr(tool_process, "_is_root", lambda: False)
-    monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="00000000000000e0"))
-
-    def failing_probe(_argv: list[str], _timeout: float) -> str:
+def test_check_required_probe_failure_is_not_ready(checkable: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing_probe(_launch: tool_process.Launch, _timeout: float) -> str:
         raise OSError("setpriv: setresuid failed: Operation not permitted")
 
     monkeypatch.setattr(tool_process, "_run_probe", failing_probe)
@@ -564,251 +730,82 @@ def test_check_required_probe_failure_is_not_ready(monkeypatch: pytest.MonkeyPat
     assert "setresuid" in status.reason
 
 
+@pytest.mark.parametrize(
+    ("config", "problem"),
+    [
+        (IsolationConfig(mode="required"), "CODEFORGE_WORKSPACE_ROOT"),
+        (IsolationConfig(mode="required", workspace_root="data/workspaces"), "CODEFORGE_WORKSPACE_ROOT"),
+        (IsolationConfig(mode="required", workspace_root="/data/w", home_base="home"), "absolute"),
+    ],
+)
+def test_volume_problems_need_absolute_roots(config: IsolationConfig, problem: str) -> None:
+    problems = tool_process.volume_problems(config)
+    assert problems
+    assert problem in problems[0]
+
+
 # ---------------------------------------------------------------------------
-# Sharing files and workspaces with the tool user
+# Granting a tool identity access to what the worker made for it
 # ---------------------------------------------------------------------------
 
 
-def _own_group_config() -> IsolationConfig:
-    # The test process may change a file's group only to a group it is in.
-    return IsolationConfig(mode="required", uid=10002, gid=10002, workspace_gid=os.getgid(), home="/h")
-
-
-def test_share_with_tools_is_a_no_op_when_off(isolation: Callable[[IsolationStatus], None], tmp_path: Path) -> None:
+def test_grant_tool_access_is_a_no_op_when_off(isolation: Callable[[IsolationStatus], None], tmp_path: Path) -> None:
     isolation(IsolationStatus(config=OFF, ready=True))
     path = tmp_path / "f"
     path.write_text("x")
     path.chmod(0o600)
-    share_with_tools(str(path), writable=True)
+    grant_tool_access(str(path), writable=True)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert posix_acl.get_acl(str(path), posix_acl.ACCESS) is None
 
 
 @pytest.mark.parametrize(
-    ("is_dir", "writable", "mode"),
-    [(True, True, 0o2770), (True, False, 0o2750), (False, True, 0o660), (False, False, 0o640)],
+    ("is_dir", "writable", "tool_perm"),
+    [(True, True, 7), (True, False, 5), (False, True, 6), (False, False, 4)],
 )
-def test_share_with_tools(
-    is_dir: bool, writable: bool, mode: int, isolation: Callable[[IsolationStatus], None], tmp_path: Path
+def test_grant_tool_access(
+    is_dir: bool,
+    writable: bool,
+    tool_perm: int,
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    tmp_path: Path,
 ) -> None:
-    isolation(IsolationStatus(config=_own_group_config(), ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
+    isolation(READY)
+    identity(IDENT)
     path = tmp_path / "x"
     if is_dir:
         path.mkdir(mode=0o700)
     else:
         path.write_text("x")
         path.chmod(0o600)
-    share_with_tools(str(path), writable=writable)
-    info = path.stat()
-    assert stat.S_IMODE(info.st_mode) == mode
-    assert info.st_gid == os.getgid()
-
-
-def test_share_workspace_root(tmp_path: Path) -> None:
-    root = tmp_path / "workspaces"
-    (root / "tenant" / "project" / "src").mkdir(parents=True)
-    for d in (root, root / "tenant", root / "tenant" / "project", root / "tenant" / "project" / "src"):
-        d.chmod(0o755)
-    source = root / "tenant" / "project" / "src" / "main.py"
-    source.write_text("print(1)\n")
-    source.chmod(0o644)
-    script = root / "tenant" / "project" / "run.sh"
-    script.write_text("#!/bin/sh\n")
-    script.chmod(0o755)
-    private = root / "tenant" / "project" / "key"
-    private.write_text("x")
-    private.chmod(0o600)
-    outside = tmp_path / "outside"
-    outside.write_text("x")
-    outside.chmod(0o600)
-    (root / "tenant" / "project" / "link").symlink_to(outside)
-
-    changed = share_workspace_root(str(root), os.getgid())
-
-    assert changed == 7
-    for d in (root, root / "tenant", root / "tenant" / "project", root / "tenant" / "project" / "src"):
-        assert stat.S_IMODE(d.stat().st_mode) == 0o2775, d
-    assert stat.S_IMODE(source.stat().st_mode) == 0o664
-    assert stat.S_IMODE(script.stat().st_mode) == 0o775
-    assert stat.S_IMODE(private.stat().st_mode) == 0o660
-    # Symlinks and their targets are left alone.
-    assert stat.S_IMODE(outside.stat().st_mode) == 0o600
-    # Once the root is shared, nothing is walked again (finding 10: a version
-    # stamp, not the root's mode, says so).
-    source.chmod(0o644)
-    root.chmod(0o755)
-    assert share_workspace_root(str(root), os.getgid()) == 0
-    assert stat.S_IMODE(source.stat().st_mode) == 0o644
-
-
-def test_share_workspace_root_walks_again_after_an_upgrade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import codeforge.tool_process as tool_process
-
-    root = tmp_path / "workspaces"
-    (root / "project").mkdir(parents=True)
-    source = root / "project" / "main.py"
-    source.write_text("x")
-    share_workspace_root(str(root), os.getgid())
-    source.chmod(0o644)
-
-    monkeypatch.setattr(tool_process, "WORKSPACE_SHARING_VERSION", "999")
-    assert share_workspace_root(str(root), os.getgid()) == 1
-    assert stat.S_IMODE(source.stat().st_mode) == 0o664
-
-
-def test_share_workspace_root_of_another_user_is_reported_once_and_never_walked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    root = tmp_path / "workspaces"
-    (root / "project").mkdir(parents=True)
-    walked: list[str] = []
-    monkeypatch.setattr(os, "walk", lambda *args, **kwargs: walked.append("walk") or iter(()))
-    monkeypatch.setattr(os, "getuid", lambda: root.stat().st_uid + 1)
-
-    with caplog.at_level("ERROR"):
-        assert share_workspace_root(str(root), os.getgid()) == 0
-
-    assert walked == []
-    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert len(errors) == 1
-    assert "chown" in errors[0]
-    assert str(root) in errors[0]
-
-
-def test_share_workspace_root_never_writes_through_a_planted_stamp(tmp_path: Path) -> None:
-    """The root is group-writable: the tool user may plant a symlink where the stamp goes."""
-    import codeforge.tool_process as tool_process
-
-    root = tmp_path / "workspaces"
-    root.mkdir()
-    target = tmp_path / "target"
-    target.write_text("keep")
-    (root / tool_process._SHARING_STAMP).symlink_to(target)
-
-    share_workspace_root(str(root), os.getgid())
-
-    assert target.read_text() == "keep"
-
-
-def _plant(kind: str, path: Path, elsewhere: Path) -> None:
-    """Put what the tool user could put where the stamp goes (it may write the root)."""
-    if kind == "directory":
-        path.mkdir()
-    elif kind == "fifo":
-        os.mkfifo(path)
-    elif kind == "invalid utf-8":
-        path.write_bytes(b"\xff\xfe2\n")
-    elif kind == "oversized":
-        path.write_bytes(b"2" * 1_000_000)
-    elif kind == "symlink":
-        elsewhere.write_text(tool_process.WORKSPACE_SHARING_VERSION + "\n")
-        path.symlink_to(elsewhere)
-
-
-@pytest.mark.parametrize("kind", ["directory", "fifo", "invalid utf-8", "oversized", "symlink"])
-def test_a_planted_stamp_never_stops_the_worker(kind: str, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    """Round 5, item 2: anything at the stamp's place counts as no valid stamp (the walk runs,
-    logged once); it never blocks, crashes or is followed, so the worker cannot crash-loop."""
-    import threading
-
-    root = tmp_path / "workspaces"
-    (root / "project").mkdir(parents=True)
-    source = root / "project" / "main.py"
-    source.write_text("x")
-    source.chmod(0o644)
-    elsewhere = tmp_path / "elsewhere"
-    _plant(kind, root / tool_process._SHARING_STAMP, elsewhere)
-
-    outcome: list[object] = []
-
-    def walk() -> None:
-        try:
-            outcome.append(share_workspace_root(str(root), os.getgid()))
-        except BaseException as exc:
-            outcome.append(exc)
-
-    with caplog.at_level("WARNING"):
-        thread = threading.Thread(target=walk, daemon=True)
-        thread.start()
-        thread.join(timeout=5)
-
-    assert not thread.is_alive(), "share_workspace_root blocked on the planted stamp"
-    assert outcome, "no outcome"
-    assert isinstance(outcome[0], int), outcome
-    assert stat.S_IMODE(source.stat().st_mode) == 0o664, "no valid stamp: the walk must run"
-    stamp_warnings = [r for r in caplog.records if tool_process._SHARING_STAMP in r.getMessage()]
-    assert stamp_warnings, "an invalid stamp is logged"
-    if kind == "symlink":
-        assert elsewhere.read_text() == tool_process.WORKSPACE_SHARING_VERSION + "\n"
-
-
-def test_share_workspace_root_never_follows_an_entry_swapped_for_a_symlink(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Round 5, item 3: tool processes may run during the walk (a second worker instance, a
-    rolling update). An entry swapped for a symlink between the walk's check and its change
-    must not redirect the change, or the walk, onto the worker's files outside the workspaces.
-    """
-    root = tmp_path / "workspaces"
-    sub = root / "project" / "sub"
-    sub.mkdir(parents=True)
-    (sub / "inner.py").write_text("x")
-    main = root / "project" / "main.py"
-    main.write_text("x")
-    main.chmod(0o644)
-    secret = tmp_path / "secret"  # the worker's own files outside the workspaces
-    secret.write_text("key")
-    secret.chmod(0o600)
-    secret_dir = tmp_path / "secret-dir"
-    secret_dir.mkdir()
-    (secret_dir / "key").write_text("key")
-    (secret_dir / "key").chmod(0o600)
-    secret_dir.chmod(0o700)
-    # Swapped right after the walk first checks the entry (by path or by name).
-    swaps = {
-        str(main): (main, secret),
-        main.name: (main, secret),
-        str(sub): (sub, secret_dir),
-        sub.name: (sub, secret_dir),
-    }
-    real_stat, real_lstat = os.stat, os.lstat
-
-    def swap_after(path: object, result: os.stat_result) -> os.stat_result:
-        key = os.fsdecode(path) if isinstance(path, (str, bytes, os.PathLike)) else None
-        swap = swaps.pop(key, None) if key is not None else None
-        if swap is None:
-            return result
-        entry, target = swap
-        swaps.pop(str(entry), None)
-        swaps.pop(entry.name, None)
-        if entry == sub:
-            os.unlink(sub / "inner.py")
-            os.rmdir(sub)
-        else:
-            os.unlink(entry)
-        os.symlink(target, entry)
-        return result
-
-    def stat_then_swap(path: object, *args: object, **kwargs: object) -> os.stat_result:
-        return swap_after(path, real_stat(path, *args, **kwargs))  # type: ignore[arg-type]
-
-    def lstat_then_swap(path: object, *args: object, **kwargs: object) -> os.stat_result:
-        return swap_after(path, real_lstat(path, *args, **kwargs))  # type: ignore[arg-type]
-
-    monkeypatch.setattr(tool_process.os, "stat", stat_then_swap)
-    monkeypatch.setattr(tool_process.os, "lstat", lstat_then_swap)
     try:
-        share_workspace_root(str(root), os.getgid())
-    finally:
-        monkeypatch.undo()
+        grant_tool_access(str(path), writable=writable)
+    except OSError as exc:
+        if exc.errno == errno.EOPNOTSUPP:
+            pytest.skip("no POSIX ACLs on the test file system")
+        raise
+    acl = posix_acl.get_acl(str(path), posix_acl.ACCESS)
+    assert acl is not None
+    assert posix_acl.Entry(posix_acl.USER, tool_perm, 20007) in acl
+    assert posix_acl.Entry(posix_acl.GROUP_OBJ, 0) in acl
+    assert posix_acl.Entry(posix_acl.OTHER, 0) in acl
 
-    assert not swaps, f"the walk never checked {sorted(swaps)}"
-    assert stat.S_IMODE(secret.stat().st_mode) == 0o600
-    assert stat.S_IMODE(secret_dir.stat().st_mode) == 0o700
-    assert stat.S_IMODE((secret_dir / "key").stat().st_mode) == 0o600
 
-
-def test_share_workspace_root_missing_root_is_no_error(tmp_path: Path) -> None:
-    assert share_workspace_root(str(tmp_path / "missing"), os.getgid()) == 0
+def test_grant_tool_access_never_follows_a_symlink(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    tmp_path: Path,
+) -> None:
+    isolation(READY)
+    identity(IDENT)
+    target = tmp_path / "target"
+    target.write_text("x")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    with pytest.raises(ToolIsolationError):
+        grant_tool_access(str(link), writable=True)
+    assert posix_acl.get_acl(str(target), posix_acl.ACCESS) is None
 
 
 # ---------------------------------------------------------------------------
@@ -940,38 +937,59 @@ _SITES = [
 
 
 @pytest.mark.parametrize("site", ["bash", *_SITES])
-async def test_every_spawn_site_runs_as_the_tool_user(
+async def test_every_spawn_site_runs_as_the_tenants_tool_user(
     site: str,
     isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
     spawns: list[Spawn],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
-    # The workspace group is the test's own: sharing a file with the tool user
-    # changes its group, which a non-root test may do only to its own groups.
-    config = _own_group_config()
-    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
+    monkeypatch.setattr(tool_identity, "tenant_home", lambda base, uid: f"{base}/{uid}")
+    isolation(READY)
+    identity(IDENT.with_workspace(str(tmp_path)))
     await _site(site)(tmp_path)
     assert spawns, f"{site} started no process"
     for args, kwargs in spawns:
-        assert _command(config, args), f"{site}: {args}"
-        assert kwargs.get("umask") == 0o002, site
+        spec = kwargs["spec"]
+        assert spec is not None, site
+        uid = spec["uid"]  # type: ignore[index]
+        # The CLI check belongs to no tenant: the system tool user.
+        assert uid == (19999 if site == "claude_code_cli_check" else 20007), site
+        assert _command(args, uid), f"{site}: {args}"  # type: ignore[arg-type]
+        assert kwargs.get("umask") == 0o007, site
         assert kwargs["env"] == LAUNCHER_ENV, site
-        assert kwargs["spec"] is not None, site
+        assert spec["groups"] == [], site  # type: ignore[index]
 
 
 @pytest.mark.parametrize("site", ["bash", *_SITES])
 async def test_every_spawn_site_fails_closed(
     site: str,
     isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
     spawns: list[Spawn],
     tmp_path: Path,
 ) -> None:
     isolation(BROKEN)
+    identity(IDENT.with_workspace(str(tmp_path)))
     with contextlib.suppress(ToolIsolationError):
         await _site(site)(tmp_path)
     assert spawns == [], f"{site} started a process without isolation"
+
+
+@pytest.mark.parametrize("site", ["bash", *[s for s in _SITES if s != "claude_code_cli_check"]])
+async def test_every_spawn_site_without_a_tenant_fails_closed(
+    site: str,
+    isolation: Callable[[IsolationStatus], None],
+    spawns: list[Spawn],
+    tmp_path: Path,
+) -> None:
+    """A tenant's spawn site with no tool identity starts nothing (only the marked system calls may)."""
+    isolation(READY)
+    with contextlib.suppress(ToolIsolationError):
+        await _site(site)(tmp_path)
+    assert spawns == [], f"{site} started a process without a tool identity"
 
 
 # ---------------------------------------------------------------------------
@@ -1002,18 +1020,17 @@ def test_lock_secrets_dir_leaves_other_users_directories(tmp_path: Path, monkeyp
 
 
 @pytest.mark.parametrize(
-    ("mode", "ready", "locks", "shares", "umask"),
+    ("mode", "ready", "locks", "umask"),
     [
-        ("off", True, False, False, None),
-        ("required", True, True, True, 0o002),
-        ("required", False, True, False, 0o002),
+        ("off", True, False, None),
+        ("required", True, True, 0o002),
+        ("required", False, True, 0o002),
     ],
 )
 def test_setup_tool_isolation(
     mode: str,
     ready: bool,
     locks: bool,
-    shares: bool,
     umask: int | None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1026,7 +1043,7 @@ def test_setup_tool_isolation(
     umasks: list[int] = []
 
     def fake_configure(config: IsolationConfig) -> IsolationStatus:
-        calls.append("check")
+        calls.append(f"check {config.workspace_root}")
         return IsolationStatus(
             config=config,
             ready=ready,
@@ -1037,20 +1054,13 @@ def test_setup_tool_isolation(
 
     monkeypatch.setattr(consumer_module, "configure_tool_isolation", fake_configure)
     monkeypatch.setattr(consumer_module, "lock_secrets_dir", lambda: calls.append("lock") or True)
-    monkeypatch.setattr(
-        consumer_module, "share_workspace_root", lambda root, gid: calls.append(f"share {root} {gid}") or 3
-    )
     monkeypatch.setattr(consumer_module.os, "umask", lambda value: umasks.append(value) or 0o022)
 
-    settings = WorkerSettings()
-    status = consumer_module.setup_tool_isolation(settings)
-    assert not [c for c in calls if c.startswith("share")], "the walk runs later, with the health server up"
-    consumer_module.share_workspaces(settings, status)
+    status = consumer_module.setup_tool_isolation(WorkerSettings())
 
     assert status.ready is ready
-    assert calls[0] == "check"
+    assert calls[0] == "check /data/workspaces"
     assert ("lock" in calls) is locks
-    assert ("share /data/workspaces 10010" in calls) is shares
     assert umasks == ([] if umask is None else [umask])
 
 
@@ -1059,14 +1069,18 @@ def test_setup_tool_isolation(
 # ---------------------------------------------------------------------------
 
 
-async def test_mcp_stdio_server_runs_as_the_tool_user(
-    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn], monkeypatch: pytest.MonkeyPatch
+async def test_mcp_stdio_server_runs_as_the_tenants_tool_user(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from codeforge.tool_process import tool_stdio_client
 
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.setenv("CODEFORGE_INTERNAL_KEY", "internal-admin-key")
     isolation(READY)
+    identity(IDENT)
     with open(os.devnull, "w") as errlog:
         async with tool_stdio_client(
             "npx",
@@ -1075,14 +1089,18 @@ async def test_mcp_stdio_server_runs_as_the_tool_user(
             errlog=errlog,
         ):
             pass
-    ((args, kwargs),) = spawns
-    assert _command(CONFIG, args) == ["npx", "-y", "@modelcontextprotocol/server-github"]
+    (args, kwargs), *sharing = spawns
+    assert all(_command(a)[:2] == ["find", "-P"] for a, _k in sharing), sharing
+    assert _command(args) == ["npx", "-y", "@modelcontextprotocol/server-github"]
     # The server's token is in the spec on the memfd, never an argument (KI-96).
     assert not [a for a in args if "ghp_x" in str(a)]
-    env = kwargs["spec"]["env"]  # type: ignore[index]
+    spec = kwargs["spec"]
+    env = spec["env"]  # type: ignore[index]
     assert env["GITHUB_PERSONAL_ACCESS_TOKEN"] == "ghp_x"  # noqa: S105 - a test value
-    assert env["HOME"] == "/home/codeforge-tool"
+    assert env["HOME"] == "/home/codeforge-tools/20007"
     assert not [name for name in env if name.startswith(("LD_PRELOAD", "PYTHONPATH", "CODEFORGE_"))]
+    # It starts in the run's workspace.
+    assert spec["cwd"] == "/ws"  # type: ignore[index]
     assert kwargs["env"] == LAUNCHER_ENV
     assert kwargs["start_new_session"] is True
 
@@ -1103,11 +1121,16 @@ async def test_mcp_stdio_server_off_keeps_the_command(
     assert "CODEFORGE_INTERNAL_KEY" not in kwargs["env"]  # type: ignore[operator]
 
 
-async def test_mcp_stdio_server_fails_closed(isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]) -> None:
+async def test_mcp_stdio_server_fails_closed(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
     from codeforge.mcp_models import MCPServerDef
     from codeforge.mcp_workbench import McpServerConnection
 
     isolation(BROKEN)
+    identity(IDENT)
     connection = McpServerConnection(MCPServerDef(id="s1", name="s1", transport="stdio", command="node"))
     with pytest.raises(ToolIsolationError):
         await connection.connect()

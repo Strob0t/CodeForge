@@ -78,6 +78,13 @@ class FakeAgentLoopExecutor:
         self.call_count = 0
         self.last_messages: list[dict] | None = None
         self.last_config: object = None
+        self.workspaces: list[str] = []
+
+    def for_workspace(self, workspace: str) -> FakeAgentLoopExecutor:
+        """The executor factory: one executor per task, built for the task's workspace."""
+        self.workspaces.append(workspace)
+        self._workspace_path = workspace
+        return self
 
     async def run(self, messages: list[dict[str, object]], config: object = None) -> FakeAgentLoopResult:
         self.call_count += 1
@@ -241,7 +248,7 @@ class TestAgentBenchmarkRunner:
     async def test_run_single_task(self) -> None:
         executor = FakeAgentLoopExecutor()
         pipeline = EvaluationPipeline([StubEvaluator(0.9)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(id="t1", name="FizzBuzz", input="Write fizzbuzz.py")
         result = await runner.run_task(task)
@@ -261,7 +268,7 @@ class TestAgentBenchmarkRunner:
     async def test_workspace_with_initial_files(self) -> None:
         executor = FakeAgentLoopExecutor()
         pipeline = EvaluationPipeline([StubEvaluator(0.8)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(
             id="t1",
@@ -279,7 +286,7 @@ class TestAgentBenchmarkRunner:
         # Executor will create a new file in workspace
         executor = FakeAgentLoopExecutor(files_to_create={"output.py": "print('created by agent')"})
         pipeline = EvaluationPipeline([StubEvaluator(0.85)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(id="t1", name="Create", input="Create output.py")
         result = await runner.run_task(task)
@@ -290,7 +297,7 @@ class TestAgentBenchmarkRunner:
     async def test_files_modified_detection(self) -> None:
         executor = FakeAgentLoopExecutor(files_to_create={"main.py": "modified content"})
         pipeline = EvaluationPipeline([StubEvaluator(0.8)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(
             id="t1",
@@ -306,7 +313,7 @@ class TestAgentBenchmarkRunner:
     async def test_test_command_execution(self) -> None:
         executor = FakeAgentLoopExecutor(files_to_create={"hello.py": "print('hello')"})
         pipeline = EvaluationPipeline([StubEvaluator(0.9)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(
             id="t1",
@@ -322,7 +329,7 @@ class TestAgentBenchmarkRunner:
     async def test_agent_failure_handled(self) -> None:
         executor = FakeAgentLoopExecutor(fail=True)
         pipeline = EvaluationPipeline([StubEvaluator(0.0)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(id="t1", name="Fail", input="fail please")
         result = await runner.run_task(task)
@@ -334,7 +341,7 @@ class TestAgentBenchmarkRunner:
     async def test_multiple_tasks(self) -> None:
         executor = FakeAgentLoopExecutor()
         pipeline = EvaluationPipeline([StubEvaluator(0.7)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         tasks = [
             TaskSpec(id="t1", name="Task1", input="Do thing 1"),
@@ -351,7 +358,7 @@ class TestAgentBenchmarkRunner:
     async def test_workspace_cleanup(self) -> None:
         executor = FakeAgentLoopExecutor()
         pipeline = EvaluationPipeline([StubEvaluator(0.8)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(
             id="t1",
@@ -362,10 +369,9 @@ class TestAgentBenchmarkRunner:
         # After run_task, workspace should be cleaned up
         await runner.run_task(task)
 
-        # Verify no leftover directories (check that temp dir was removed)
-        # The workspace was in a temp dir, so it should be gone
-        # We can't easily verify this without capturing the path,
-        # but the test succeeding means cleanup didn't error
+        # The executor was built for the task's workspace, which is gone now.
+        (workspace,) = executor.workspaces
+        assert not Path(workspace).exists()
 
     @pytest.mark.asyncio
     async def test_tool_messages_extracted(self) -> None:
@@ -378,7 +384,7 @@ class TestAgentBenchmarkRunner:
         )
         executor = FakeAgentLoopExecutor(result=result)
         pipeline = EvaluationPipeline([StubEvaluator(0.8)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(id="t1", name="Tools", input="use tools")
         run_result = await runner.run_task(task)
@@ -509,7 +515,7 @@ class TestAgentRunnerIntegration:
         result = FakeAgentLoopResult(step_count=5, total_cost=0.10)
         executor = FakeAgentLoopExecutor(result=result)
         pipeline = EvaluationPipeline([SPARCEvaluator()])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(id="t1", name="Agent", input="code something")
         run_result = await runner.run_task(task)
@@ -526,7 +532,7 @@ class TestAgentRunnerIntegration:
     async def test_agent_with_multi_evaluator(self) -> None:
         executor = FakeAgentLoopExecutor()
         pipeline = EvaluationPipeline([StubEvaluator(0.8), StubEvaluator(0.6)])
-        runner = AgentBenchmarkRunner(executor=executor, pipeline=pipeline)
+        runner = AgentBenchmarkRunner(executor_factory=executor.for_workspace, pipeline=pipeline)
 
         task = TaskSpec(id="t1", name="Multi", input="test")
         result = await runner.run_task(task)

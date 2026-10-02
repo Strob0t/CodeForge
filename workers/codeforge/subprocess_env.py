@@ -6,9 +6,12 @@ worker's own environment holds CODEFORGE_INTERNAL_KEY (admin on the core API)
 and the database, NATS and LiteLLM credentials, so these subprocesses get an
 allowlisted environment instead of inheriting os.environ.
 
-With tool isolation (codeforge.tool_process, KI-71) these commands also run
-as the tool user, whose HOME, USER and LOGNAME they get, and cannot read the
-worker's secret files or its process environment.
+With tool isolation (codeforge.tool_process, KI-71, KI-96) these commands
+also run as their tenant's tool user and cannot read the worker's secret
+files or its process environment. They get the identity's environment
+(codeforge.tool_identity.identity_env): HOME, USER, the tool PATH and every
+cache, config, data and temp location below the tenant's HOME; the worker's
+own values of those names never reach them.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from codeforge.tool_process import tool_identity_env
+from codeforge.tool_identity import IDENTITY_ENV_NAMES, tool_identity_env
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -158,12 +161,15 @@ def tool_env(
     """
     env: dict[str, str] = {}
     wanted = set(passthrough)
+    identity = tool_identity_env()
     for name, value in os.environ.items():
+        if identity and name in IDENTITY_ENV_NAMES:
+            continue  # the identity sets it: the worker's value never reaches the tool
         allowed = (name in _ALLOWED_NAMES or name.startswith(_ALLOWED_PREFIXES)) and not _looks_secret(name)
         requested = name in wanted or (bool(passthrough_prefixes) and name.startswith(passthrough_prefixes))
         if allowed or (requested and not _is_worker_credential(name)):
             env[name] = value
-    env.update(tool_identity_env())
+    env.update(identity)
     if extra:
         env.update(extra)
     return env

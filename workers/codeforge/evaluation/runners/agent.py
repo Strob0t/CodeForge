@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -20,10 +19,12 @@ from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
 from codeforge.subprocess_env import tool_env
-from codeforge.tool_process import share_tool_files, share_with_tools, start_tool_shell
+from codeforge.tool_process import start_tool_shell, tool_workspace
 from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
     from codeforge.evaluation.pipeline import EvaluationPipeline
 
@@ -70,16 +71,18 @@ def _compute_files_changed(before: dict[str, str], after: dict[str, str]) -> lis
 
 
 def _setup_workspace(task: TaskSpec, base_dir: str | None = None) -> Path:
-    """Create a temporary workspace and write initial files from task spec."""
+    """Create a temporary workspace and write initial files from task spec (no tool identity)."""
     workspace = Path(tempfile.mkdtemp(prefix="bench_agent_", dir=base_dir))
-    # The agent's tools and the test command run as the tool user.
-    share_with_tools(str(workspace), writable=True)
+    _write_initial_files(task, workspace)
+    return workspace
+
+
+def _write_initial_files(task: TaskSpec, workspace: Path) -> None:
     # Task files stay inside the workspace (a dataset path with ".." or an
     # absolute path is refused).
     with WorkspaceRoot(str(workspace)) as root:
         for rel_path, content in task.initial_files.items():
             root.write_text(rel_path, content, make_parents=True)
-    return workspace
 
 
 async def _run_test_command(test_command: str, workspace: Path, timeout: int = 60) -> tuple[str, int]:
@@ -135,12 +138,15 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
 
     def __init__(
         self,
-        executor: AgentLoopExecutor,
+        executor_factory: Callable[[str], AgentLoopExecutor],
         pipeline: EvaluationPipeline,
         loop_config: LoopConfig | None = None,
         workspace_base: str | None = None,
     ) -> None:
-        self._executor = executor
+        # A fresh executor (and so a fresh tool executor) per task, built for the
+        # task's workspace: overriding a shared executor's workspace never reached
+        # its tools, which ran in the worker's temporary directory (KI-96 S7).
+        self._executor_factory = executor_factory
         self._pipeline = pipeline
         self._loop_config = loop_config
         self._workspace_base = workspace_base
@@ -150,17 +156,15 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
         log = logger.bind(task_id=task.id, task_name=task.name)
         log.info("running agent benchmark task")
 
-        workspace = _setup_workspace(task, self._workspace_base)
-        log.debug("workspace created", path=str(workspace))
-
         start = time.monotonic()
-        try:
+        # The task's workspace: with tool isolation the benchmark tenant's
+        # identity works there; leaving it shares and removes it (KI-71 review).
+        async with tool_workspace("cf-bench-", self._workspace_base) as path:
+            workspace = Path(path)
+            _write_initial_files(task, workspace)
+            log.debug("workspace created", path=path)
             result = await self._run_agent(task, workspace, log)
-        finally:
-            # Clean up workspace; the tool user's files first become deletable (KI-71 review).
-            await share_tool_files(str(workspace))
-            shutil.rmtree(workspace, ignore_errors=True)
-            log.debug("workspace cleaned up")
+        log.debug("workspace cleaned up")
 
         duration_ms = int((time.monotonic() - start) * 1000)
         log.info(
@@ -183,13 +187,9 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
         # Build loop config with task-specific overrides
         config = self._build_config(task)
 
-        # Store original workspace on executor if it supports it
-        original_workspace = getattr(self._executor, "_workspace_path", None)
-        if hasattr(self._executor, "_workspace_path"):
-            self._executor._workspace_path = str(workspace)
-
+        executor = self._executor_factory(str(workspace))
         try:
-            agent_result = await self._executor.run(messages=messages, config=config)
+            agent_result = await executor.run(messages=messages, config=config)
         except Exception as exc:
             log.error("agent loop failed", error=str(exc))
             execution = ExecutionResult(
@@ -198,10 +198,6 @@ class AgentBenchmarkRunner(BaseBenchmarkRunner):
             )
             eval_score = await self._pipeline.evaluate(task, execution)
             return RunResult(task=task, execution=execution, eval_score=eval_score)
-        finally:
-            # Restore original workspace
-            if original_workspace is not None and hasattr(self._executor, "_workspace_path"):
-                self._executor._workspace_path = original_workspace
 
         # Snapshot after and compute diff
         after = _snapshot_files(workspace)

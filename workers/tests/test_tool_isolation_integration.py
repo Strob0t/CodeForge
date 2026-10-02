@@ -1,9 +1,10 @@
-"""Tool processes really run as the tool user (KI-71), with real setpriv processes.
+"""Tool processes really run as their tenant's tool user (KI-71, KI-96), with real setpriv processes.
 
 Needs root (to start processes as other users and to set up a secret owned by
-the worker user); skipped otherwise. scripts/check-tool-isolation.sh runs the
-same checks in a container with the production settings (worker uid 10001
-with ambient capabilities, a tmpfs secrets directory).
+the worker user) and POSIX ACLs on /tmp; skipped otherwise.
+scripts/check-tool-isolation.sh runs the same checks in a container with the
+production settings (worker uid 10001 with ambient capabilities, a tmpfs
+secrets directory).
 """
 
 from __future__ import annotations
@@ -12,15 +13,23 @@ import asyncio
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.tool_isolation_check import run_checks
+from codeforge.tool_identity import tool_tenant
+from codeforge.tool_process import configure_tool_isolation, start_tool_process, start_tool_shell
+from tests.tool_isolation_check import TENANTS, isolation_config, make_tenant_dir, run_checks
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 WORKER_UID = 10001
 WORKSPACE_GID = 10010
+TENANT_A, UID_A = TENANTS["A"]
 
 pytestmark = pytest.mark.skipif(
     not hasattr(os, "geteuid") or os.geteuid() != 0 or shutil.which("setpriv") is None,
@@ -29,32 +38,52 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture
-def shared_tmp() -> Path:
-    # pytest's tmp_path is private to root; the tool user must reach these.
-    base = Path(tempfile.mkdtemp(prefix="cf-ki71-", dir="/tmp"))
+def shared_tmp() -> Iterator[Path]:
+    # pytest's tmp_path is private to root; the tool users must reach these.
+    base = Path(tempfile.mkdtemp(prefix="cf-ki96-", dir="/tmp"))
     base.chmod(0o755)
     yield base
     shutil.rmtree(base, ignore_errors=True)
 
 
-async def test_tool_process_runs_isolated(shared_tmp: Path) -> None:
-    workspace = shared_tmp / "workspace"
-    workspace.mkdir()
-    os.chown(workspace, WORKER_UID, WORKSPACE_GID)
-    workspace.chmod(0o2775)
+@pytest.fixture
+def volumes(shared_tmp: Path) -> tuple[str, str]:
+    """The workspace root and the tool HOME base, as the worker (here: root) owns them."""
+    root = shared_tmp / "workspaces"
+    root.mkdir()
+    os.chown(root, os.getuid(), WORKSPACE_GID)
+    root.chmod(0o2771)
+    home_base = shared_tmp / "tool-homes"
+    home_base.mkdir(mode=0o711)
+    return str(root), str(home_base)
 
+
+@pytest.fixture
+def workspace_a(volumes: tuple[str, str]) -> str:
+    """Isolation configured for the volumes; tenant A's project workspace."""
+    root, home_base = volumes
+    status = configure_tool_isolation(isolation_config(root, home_base))
+    assert status.ready, status.reason
+    return make_tenant_dir(root, TENANT_A, UID_A)
+
+
+async def test_tool_processes_of_two_tenants_are_isolated(shared_tmp: Path, volumes: tuple[str, str]) -> None:
+    root, home_base = volumes
     secret = shared_tmp / "secret"
     secret.write_text("internal-admin-key")
     os.chown(secret, WORKER_UID, WORKER_UID)
     secret.chmod(0o400)
 
-    report, problems = await run_checks(str(workspace), [str(secret)])
+    report, problems = await run_checks(root, home_base, [str(secret)])
 
     assert problems == [], report
-    assert report["tool"]["CapEff"] == "0000000000000000"  # type: ignore[index]
-    assert report["tool"]["NoNewPrivs"] == "1"  # type: ignore[index]
-    assert "Permission denied" in str(report[f"read {secret}"])
-    assert "Permission denied" in str(report[f"read /proc/{os.getpid()}/environ"])
+    for name, (tenant_id, uid) in TENANTS.items():
+        tenant = report[f"tenant {name} ({tenant_id}, uid {uid})"]
+        assert tenant["credentials"]["Uid"].split() == [str(uid)] * 4  # type: ignore[index]
+        assert tenant["credentials"]["Groups"] == ""  # type: ignore[index]
+        assert tenant["credentials"]["CapEff"] == "0000000000000000"  # type: ignore[index]
+        assert "Permission denied" in str(tenant["worker secrets"][str(secret)])  # type: ignore[index]
+        assert "Operation not permitted" in str(tenant["denied"]["signal the other tenant's process"])  # type: ignore[index]
 
 
 # Run as another user: polls every process's command line and environment for
@@ -83,15 +112,9 @@ print(len(seen), helpers)
 """
 
 
-async def test_no_secret_is_ever_on_a_tool_command_line(shared_tmp: Path) -> None:
+async def test_no_secret_is_ever_on_a_tool_command_line(shared_tmp: Path, workspace_a: str) -> None:
     """KI-96 (E8): the KI-71 launcher passed the environment as env(1) arguments, which every
     process could read in /proc/<pid>/cmdline; the launch spec on a memfd is not readable."""
-    import sys
-
-    from codeforge.tool_process import configure_tool_isolation, start_tool_process
-    from tests.tool_isolation_check import CONFIG
-
-    assert configure_tool_isolation(CONFIG).ready
     go = shared_tmp / "polling"
     go.write_text("")
     go.chmod(0o644)
@@ -103,11 +126,12 @@ async def test_no_secret_is_ever_on_a_tool_command_line(shared_tmp: Path) -> Non
         text=True,
     )  # fmt: skip
     try:
-        for index in range(200):
-            proc = await start_tool_process(
-                "sh", "-c", "sleep 0.01", env={"PATH": "/usr/bin:/bin", "TOKEN": f"LEAKME{index:04d}"}
-            )
-            assert await proc.wait() == 0
+        async with tool_tenant(TENANT_A, UID_A, workspace_a):
+            for index in range(200):
+                proc = await start_tool_process(
+                    "sh", "-c", "sleep 0.01", env={"PATH": "/usr/bin:/bin", "TOKEN": f"LEAKME{index:04d}"}
+                )
+                assert await proc.wait() == 0
     finally:
         go.unlink()
         out, _ = poller.communicate(timeout=60)
@@ -116,37 +140,54 @@ async def test_no_secret_is_ever_on_a_tool_command_line(shared_tmp: Path) -> Non
     assert seen == 0, f"{seen} secrets read from other processes' command lines or environments"
 
 
-async def test_a_tool_process_can_reopen_its_stdio_pipes() -> None:
+async def test_a_tool_process_can_reopen_its_stdio_pipes(workspace_a: str) -> None:
     """Tools write to /dev/stdout and /dev/stderr (echo x > /dev/stderr, tee /dev/stderr, logging
     configs): reopening a pipe needs the pipe inode's permission, and the worker's pipes were 0600
     (KI-96, E11)."""
-    from codeforge.tool_process import configure_tool_isolation, start_tool_process
-    from tests.tool_isolation_check import CONFIG
+    async with tool_tenant(TENANT_A, UID_A, workspace_a):
+        proc = await start_tool_process(
+            "sh",
+            "-c",
+            "echo out > /dev/stdout && echo err > /dev/stderr && cat /dev/stdin > /dev/fd/1",
+            env={"PATH": "/usr/bin:/bin"},
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await proc.communicate(b"in\n")
+        assert (proc.returncode, out, err) == (0, b"out\nin\n", b"err\n")
 
-    assert configure_tool_isolation(CONFIG).ready
-    proc = await start_tool_process(
-        "sh",
-        "-c",
-        "echo out > /dev/stdout && echo err > /dev/stderr && cat /dev/stdin > /dev/fd/1",
-        env={"PATH": "/usr/bin:/bin"},
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    out, err = await proc.communicate(b"in\n")
-    assert (proc.returncode, out, err) == (0, b"out\nin\n", b"err\n")
+        proc = await start_tool_process(
+            "sh",
+            "-c",
+            "echo merged > /dev/stderr",
+            env={"PATH": "/usr/bin:/bin"},
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        assert proc.stdout is not None
+        assert await proc.stdout.readline() == b"merged\n"
+        assert await proc.wait() == 0
 
-    proc = await start_tool_process(
-        "sh",
-        "-c",
-        "echo merged > /dev/stderr",
-        env={"PATH": "/usr/bin:/bin"},
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    assert proc.stdout is not None
-    assert await proc.stdout.readline() == b"merged\n"
-    assert await proc.wait() == 0
+
+async def test_tmpdir_and_home_are_the_tenants(workspace_a: str, volumes: tuple[str, str]) -> None:
+    """TMPDIR exists (the helper made it as the tool user) and lies below the tenant's HOME."""
+    from codeforge.subprocess_env import tool_env
+
+    _, home_base = volumes
+    async with tool_tenant(TENANT_A, UID_A, workspace_a) as identity:
+        assert identity is not None
+        proc = await start_tool_shell(
+            'echo "$HOME $TMPDIR" && mktemp && stat -c "%u %a" "$TMPDIR"',
+            env=tool_env(),
+            cwd=workspace_a,
+            stdout=asyncio.subprocess.PIPE,
+        )
+        out, _ = await proc.communicate()
+    home_line, temp_file, tmp_stat = out.decode().split("\n")[:3]
+    assert home_line == f"{home_base}/{UID_A} {home_base}/{UID_A}/tmp/{identity.work_id}"
+    assert temp_file.startswith(f"{home_base}/{UID_A}/tmp/{identity.work_id}/")
+    assert tmp_stat == f"{UID_A} 700"
 
 
 # A minimal MCP stdio server (newline-delimited JSON-RPC, standard library
@@ -175,28 +216,26 @@ for line in sys.stdin:
 
 
 @pytest.mark.skipif(not Path("/usr/bin/python3").exists(), reason="needs /usr/bin/python3 for the server")
-async def test_mcp_stdio_server_runs_as_the_tool_user(shared_tmp: Path) -> None:
+async def test_mcp_stdio_server_runs_as_the_tenants_tool_user(shared_tmp: Path, workspace_a: str) -> None:
     from codeforge.mcp_models import MCPServerDef
     from codeforge.mcp_workbench import McpServerConnection
-    from codeforge.tool_process import configure_tool_isolation
-    from tests.tool_isolation_check import CONFIG
 
-    assert configure_tool_isolation(CONFIG).ready
     script = shared_tmp / "whoami_server.py"
     script.write_text(_MCP_SERVER)
     script.chmod(0o644)
-    connection = McpServerConnection(
-        MCPServerDef(id="whoami", name="whoami", transport="stdio", command="/usr/bin/python3", args=[str(script)])
-    )
-    await connection.connect()
-    try:
-        assert [tool.name for tool in await connection.list_tools()] == ["whoami"]
-        result = await connection.call_tool("whoami", {})
-    finally:
-        await connection.disconnect()
+    async with tool_tenant(TENANT_A, UID_A, workspace_a):
+        connection = McpServerConnection(
+            MCPServerDef(id="whoami", name="whoami", transport="stdio", command="/usr/bin/python3", args=[str(script)])
+        )
+        await connection.connect()
+        try:
+            assert [tool.name for tool in await connection.list_tools()] == ["whoami"]
+            result = await connection.call_tool("whoami", {})
+        finally:
+            await connection.disconnect()
     fields = dict(line.split(":", 1) for line in result.output.splitlines() if ":" in line)
-    assert fields["Uid"].split() == ["10002"] * 4
-    assert fields["Groups"].split() == ["10010"]
+    assert fields["Uid"].split() == [str(UID_A)] * 4
+    assert fields["Groups"].split() == []
     assert fields["CapEff"].strip() == "0000000000000000"
     assert fields["CapAmb"].strip() == "0000000000000000"
     assert fields["NoNewPrivs"].strip() == "1"
@@ -211,39 +250,30 @@ _PRIVATE_FILES = """
 umask 077
 mkdir -m 0700 private && echo secret > private/file
 tmp=$(mktemp -d -p .) && echo tmp > "$tmp/file" && mv "$tmp" made-by-mktemp
-mkdir other-group && chgrp 10002 other-group && chmod 0700 other-group && echo x > other-group/file
 echo outside > "$OUTSIDE" && chmod 0600 "$OUTSIDE" && ln -s "$OUTSIDE" link-to-outside
 """
 
 
-def _as_worker(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _as_worker(args: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
     """Run *args* as the worker user (uid 10001, workspace group 10010), like the worker and the Go Core."""
     setpriv = ["setpriv", f"--reuid={WORKER_UID}", f"--regid={WORKER_UID}", f"--groups={WORKSPACE_GID}", "--"]
     return subprocess.run([*setpriv, *args], cwd=cwd, capture_output=True, text=True, check=False)  # noqa: S603
 
 
-async def test_files_the_tool_user_keeps_private_are_shared_with_the_workspace_group(shared_tmp: Path) -> None:
-    from codeforge.tool_process import configure_tool_isolation, start_tool_shell
-    from tests.tool_isolation_check import CONFIG
+async def test_files_the_tool_user_keeps_private_are_shared_with_the_workspace_group(
+    workspace_a: str, volumes: tuple[str, str]
+) -> None:
+    _, home_base = volumes
+    outside = f"{home_base}/{UID_A}/outside"  # the tool user's own file, outside the workspace
+    async with tool_tenant(TENANT_A, UID_A, workspace_a):
+        proc = await start_tool_shell(
+            _PRIVATE_FILES, env={"PATH": "/usr/bin:/bin", "OUTSIDE": outside}, cwd=workspace_a
+        )
+        assert await proc.wait() == 0
 
-    assert configure_tool_isolation(CONFIG).ready
-    workspace = shared_tmp / "workspace"
-    workspace.mkdir()
-    os.chown(workspace, WORKER_UID, WORKSPACE_GID)
-    workspace.chmod(0o2775)
-    home = shared_tmp / "tool-home"  # the tool user's own directory, outside the workspace
-    home.mkdir()
-    os.chown(home, CONFIG.uid, CONFIG.gid)
-    outside = home / "outside"
-
-    proc = await start_tool_shell(
-        _PRIVATE_FILES, env={"PATH": "/usr/bin:/bin", "OUTSIDE": str(outside)}, cwd=str(workspace)
-    )
-    assert await proc.wait() == 0
-
-    read = _as_worker(["sh", "-c", "cat private/file made-by-mktemp/file other-group/file"], workspace)
+    read = _as_worker(["sh", "-c", "cat private/file made-by-mktemp/file"], workspace_a)
     assert read.returncode == 0, read.stderr
-    removed = _as_worker(["rm", "-rf", "private", "made-by-mktemp", "other-group"], workspace)
+    removed = _as_worker(["rm", "-rf", "private", "made-by-mktemp"], workspace_a)
     assert removed.returncode == 0, removed.stderr
     # A symlink is never followed: the file it points to keeps its mode.
-    assert outside.stat().st_mode & 0o777 == 0o600
+    assert os.stat(outside).st_mode & 0o777 == 0o600

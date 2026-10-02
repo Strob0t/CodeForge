@@ -17,6 +17,7 @@ import structlog
 from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_TEST_RESULT
 from codeforge.models import WorkspaceTestRequest, WorkspaceTestResult
+from codeforge.tool_identity import ToolIsolationError, tool_tenant
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -77,7 +78,14 @@ class WorkspaceTestHandlerMixin:
             return result
         timeout = request.timeout_seconds or DEFAULT_QG_TIMEOUT_SECONDS
         command = f"python -m pytest {request.test_file} -v --tb=short"
-        passed, output = await self._gate_executor.run_command(command, request.workspace_path, log, timeout)
+        try:
+            # The test runs as the tenant's tool UID (KI-96).
+            async with tool_tenant(request.tenant_id, request.tool_uid, request.workspace_path):
+                passed, output = await self._gate_executor.run_command(command, request.workspace_path, log, timeout)
+        except ToolIsolationError as exc:
+            log.error("workspace test refused", error=str(exc))
+            result.error = str(exc)
+            return result
         output = _tail(output)
         result.passed, result.output = passed, output
         if passed is None:
