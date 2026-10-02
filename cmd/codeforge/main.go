@@ -460,6 +460,9 @@ func run() error {
 		}
 		specProvs = append(specProvs, p)
 	}
+	if err := setPMOutboundPolicy(cfg.PM.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("pm.allowed_private_hosts: %w", err)
+	}
 	var pmProvs []pmprovider.Provider
 	pmConfigs := map[string]map[string]string{
 		"plane": {"api_token": cfg.Plane.APIToken, "base_url": cfg.Plane.BaseURL},

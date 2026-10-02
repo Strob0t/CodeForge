@@ -383,6 +383,9 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
 	setString(&cfg.Plane.BaseURL, "CODEFORGE_PLANE_BASE_URL")
 
+	// PM syncs
+	setStringSlice(&cfg.PM.AllowedPrivateHosts, "CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS")
+
 	// Retention
 	setTyped(&cfg.Retention.Interval, "CODEFORGE_RETENTION_INTERVAL", time.ParseDuration)
 	setTyped(&cfg.Retention.Sessions, "CODEFORGE_RETENTION_SESSIONS", time.ParseDuration)
@@ -524,6 +527,9 @@ func validate(cfg *Config) error {
 	}
 	if _, err := netutil.NewOutboundPolicy(cfg.MCP.AllowedPrivateHosts); err != nil {
 		return fmt.Errorf("mcp.allowed_private_hosts: %w", err)
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.PM.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("pm.allowed_private_hosts: %w", err)
 	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.

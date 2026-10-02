@@ -50,6 +50,7 @@ type Config struct {
 	Routing      Routing      `yaml:"routing"`
 	Ollama       Ollama       `yaml:"ollama"`
 	Plane        Plane        `yaml:"plane"`
+	PM           PM           `yaml:"pm"`
 	Retention    Retention    `yaml:"retention"`
 	EnvFile      string       `yaml:"env_file"` // Path to .env file for OAuth device flow
 }
@@ -114,6 +115,21 @@ type Plane struct {
 	// BaseURL is the Plane API the token belongs to; the token is never sent
 	// to another host (a project's plane_base_url must match it).
 	BaseURL string `yaml:"base_url"`
+}
+
+// PM holds settings of the PM syncs (roadmap import, manual and webhook
+// syncs).
+type PM struct {
+	// AllowedPrivateHosts are the host names, IP addresses and CIDR prefixes
+	// whose private addresses (RFC 1918, ULA, CGNAT) the GitLab PM provider
+	// may connect to: its base URL is the host of a project's repo_url or a
+	// manual sync's base_url, both chosen by tenants (KI-85 review; default
+	// none, so a self-hosted GitLab on a private network must be listed).
+	// Loopback needs an explicit entry (localhost, 127.0.0.1, ::1, a loopback
+	// CIDR); link-local, metadata, unspecified, multicast and reserved
+	// addresses stay refused. Separate from mcp.allowed_private_hosts: each
+	// list opens private hosts for its own feature only.
+	AllowedPrivateHosts []string `yaml:"allowed_private_hosts"`
 }
 
 // Agent holds agentic conversation loop configuration.

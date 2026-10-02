@@ -114,6 +114,20 @@ orchestrator:
 #   # Env: CODEFORGE_MCP_USE_PROXY.
 #   use_proxy: false
 
+# PM syncs (roadmap import, manual and webhook syncs)
+# pm:
+#   # The GitLab PM provider calls the host of a project's repo_url (webhook
+#   # syncs) or a manual sync's base_url, both chosen by tenants. It never
+#   # reaches link-local (cloud metadata), unspecified, multicast or reserved
+#   # addresses; private ones (RFC 1918, ULA, CGNAT) only for the host names,
+#   # addresses or CIDR prefixes listed here; loopback only with an explicit
+#   # entry (default: none). A self-hosted GitLab on a private network must be
+#   # listed. Redirects are followed only within the same origin, and no proxy
+#   # is used. Separate from mcp.allowed_private_hosts.
+#   # Env: CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS (comma-separated).
+#   allowed_private_hosts:
+#     - gitlab.corp.internal
+
 # Language Server Protocol integration (Phase 15D)
 # Provides code intelligence (go-to-def, references, diagnostics) for agent conversations.
 # Requires language server binaries installed (gopls, pyright, typescript-language-server).

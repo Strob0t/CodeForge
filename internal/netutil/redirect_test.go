@@ -1,4 +1,4 @@
-package service
+package netutil
 
 import (
 	"errors"
@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-// TestSameOriginRedirect (KI-100 review): the connection test follows a
-// redirect exactly when the worker's MCP SDK does (mcp 1.30.0,
+// TestSameOriginRedirect (KI-100 review, KI-85 review): the MCP connection
+// test and the GitLab PM provider follow a redirect exactly when the
+// worker's MCP SDK does (mcp 1.30.0,
 // mcp.shared._httpx_utils.next_request_within_origin with httpx 0.28.1): the
 // method stays, the Location brings no userinfo of its own, the url stays on
 // the origin of the request just sent (same scheme, host and port, a default
@@ -64,7 +65,7 @@ func TestSameOriginRedirect(t *testing.T) {
 			via[hops-1] = &http.Request{Method: method, URL: mustParseURL(t, tt.sent)}
 			next := &http.Request{Method: nextMethod, URL: mustParseURL(t, tt.next)}
 
-			err := sameOriginRedirect(next, via)
+			err := SameOriginRedirect(next, via)
 
 			if tt.follow && err != nil {
 				t.Fatalf("redirect %s -> %s refused: %v", tt.sent, tt.next, err)

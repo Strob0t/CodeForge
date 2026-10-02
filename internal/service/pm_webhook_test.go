@@ -13,13 +13,14 @@ import (
 
 	// The PM providers the webhooks sync with (main registers them the same way).
 	_ "github.com/Strob0t/CodeForge/internal/adapter/githubpm"
-	_ "github.com/Strob0t/CodeForge/internal/adapter/gitlab"
+	"github.com/Strob0t/CodeForge/internal/adapter/gitlab"
 	_ "github.com/Strob0t/CodeForge/internal/adapter/plane"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -284,6 +285,7 @@ func TestPMWebhook_GitLabTokenReachesGitLab(t *testing.T) {
 	}))
 	defer gitlabAPI.Close()
 
+	setGitLabOutboundPolicy(t, "127.0.0.1") // the fake GitLab listens on loopback
 	hub := &internalMockBroadcaster{}
 	svc := NewPMWebhookService(hub, NewSyncService(&mockStore{}), nil)
 	proj := &project.Project{ID: "gl-private", RepoURL: gitlabAPI.URL + "/group/private-app.git"}
@@ -306,6 +308,73 @@ func TestPMWebhook_GitLabTokenReachesGitLab(t *testing.T) {
 			t.Fatal("the sync did not call the GitLab API")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// setGitLabOutboundPolicy lets the GitLab PM provider reach the private
+// and loopback addresses of allowed (pm.allowed_private_hosts) until the
+// test ends; then none again, the default.
+func setGitLabOutboundPolicy(t *testing.T, allowed ...string) {
+	t.Helper()
+	policy, err := netutil.NewOutboundPolicy(allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitlab.SetOutboundPolicy(policy)
+	t.Cleanup(func() {
+		none, _ := netutil.NewOutboundPolicy(nil)
+		gitlab.SetOutboundPolicy(none)
+	})
+}
+
+// TestPMWebhook_GitLabSyncReachesNoPrivateHost (KI-85 review, security
+// finding 2): a tenant chooses its project's repo_url, whose host the GitLab
+// sync calls. A loopback or private host is refused before anything
+// connects, unless the operator allowlists it, and the pm.sync event says
+// why without the token.
+func TestPMWebhook_GitLabSyncReachesNoPrivateHost(t *testing.T) {
+	setGitLabOutboundPolicy(t)
+	var mu sync.Mutex
+	var hits int
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer internal.Close()
+
+	hub := &internalMockBroadcaster{}
+	svc := NewPMWebhookService(hub, NewSyncService(&mockStore{}), nil)
+	proj := &project.Project{ID: "gl-internal", RepoURL: internal.URL + "/group/app.git"}
+	body := `{"object_attributes":{"iid":3,"action":"open"},"project":{"path_with_namespace":"group/app","web_url":"` + internal.URL + `/group/app"}}`
+	if _, err := svc.HandleEvent(tenantctx.WithTenant(context.Background(), otherTenantID), "gitlab", proj, "glpat-tenant-b", []byte(body)); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		hub.mu.Lock()
+		events := slices.Clone(hub.events)
+		hub.mu.Unlock()
+		if len(events) > 0 {
+			ev, ok := events[0].data.(event.PMSyncEvent)
+			if !ok || ev.Status != "failed" || !strings.Contains(ev.Error, "loopback address") || !strings.Contains(ev.Error, "pm.allowed_private_hosts") {
+				t.Fatalf("pm.sync = %+v, want a failure naming the refused loopback address and pm.allowed_private_hosts", events[0])
+			}
+			if strings.Contains(ev.Error, "glpat-tenant-b") {
+				t.Fatalf("pm.sync error %q carries the token", ev.Error)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the refused sync was not announced")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 0 {
+		t.Fatalf("the loopback server got %d requests, want none", hits)
 	}
 }
 

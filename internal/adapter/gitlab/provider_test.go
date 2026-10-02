@@ -52,7 +52,7 @@ func TestGitLab_ListItems(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	items, err := p.ListItems(context.Background(), "mygroup/myproject")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -83,7 +83,7 @@ func TestGitLab_GetItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	item, err := p.GetItem(context.Background(), "mygroup/myproject", "42")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -109,7 +109,7 @@ func TestGitLab_CreateItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	result, err := p.CreateItem(context.Background(), "mygroup/myproject", &pmprovider.Item{
 		Title:       "New Issue",
 		Description: "Some description",
@@ -132,7 +132,7 @@ func TestUpdateItem(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	result, err := p.UpdateItem(context.Background(), "mygroup/myproject", &pmprovider.Item{
 		ID:          "5",
 		Title:       "Updated",
@@ -154,7 +154,7 @@ func TestAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := NewProvider(srv.URL, "test-token")
+	p := newLoopbackProvider(t, srv.URL, "test-token")
 	_, err := p.ListItems(context.Background(), "nonexistent/project")
 	if err == nil {
 		t.Fatal("expected error for 404 response")
