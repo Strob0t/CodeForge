@@ -1,7 +1,9 @@
 """Tool processes really run as their tenant's tool user (KI-71, KI-96), with real setpriv processes.
 
 Needs root (to start processes as other users and to set up a secret owned by
-the worker user) and POSIX ACLs on /tmp; skipped otherwise.
+the worker user), setpriv, POSIX ACLs on /tmp and Landlock; skipped otherwise,
+failed with CODEFORGE_ISOLATION_TESTS=required (the CI step runs them with
+sudo, tests.isolation_requirements).
 scripts/check-tool-isolation.sh runs the same checks in a container with the
 production settings (worker uid 10001 with ambient capabilities, a tmpfs
 secrets directory).
@@ -22,6 +24,7 @@ import pytest
 
 from codeforge.tool_identity import tool_tenant
 from codeforge.tool_process import configure_tool_isolation, start_tool_process, start_tool_shell
+from tests.isolation_requirements import require, root_isolation_problem
 from tests.tool_isolation_check import TENANTS, isolation_config, make_tenant_dir, run_checks
 
 if TYPE_CHECKING:
@@ -31,10 +34,12 @@ WORKER_UID = 10001
 WORKSPACE_GID = 10010
 TENANT_A, UID_A = TENANTS["A"]
 
-pytestmark = pytest.mark.skipif(
-    not hasattr(os, "geteuid") or os.geteuid() != 0 or shutil.which("setpriv") is None,
-    reason="needs root and setpriv (util-linux) to start processes as the tool user",
-)
+
+@pytest.fixture(autouse=True, scope="module")
+def _requirements() -> None:
+    """Skipped without root, setpriv, ACLs or Landlock; failed with CODEFORGE_ISOLATION_TESTS=required (CI)."""
+    problem = root_isolation_problem()
+    require(not problem, problem)
 
 
 @pytest.fixture

@@ -38,6 +38,8 @@ HOME_BASE_MODE = 0o711
 # rwx for the owner, nothing for others; the group bits are the mask of the
 # HOME's ACL (u:<uid>:rwx), its owning group (the worker's own) gets nothing.
 HOME_MODE = 0o770
+# What an operator does about a volume without POSIX ACLs (EOPNOTSUPP).
+ACL_REMEDY = "use a file system with POSIX ACLs (ext4, xfs, btrfs; ZFS with acltype=posixacl)"
 STATE_DIR = ".codeforge"
 STATE_SUBDIRS = ("uids", "tenants", "locks", "adopted")
 _BINDING_MAX_BYTES = 128
@@ -86,12 +88,21 @@ def root_problems(root: str, *, fix: bool) -> list[str]:
         problems = []
         if stat.S_IMODE(info.st_mode) != ROOT_MODE:
             problems.append(f"the workspace root {root} has mode {stat.S_IMODE(info.st_mode):o}, expected 2771")
-        named = named_entries(posix_acl.get_acl(fd, posix_acl.ACCESS))
-        if named or posix_acl.get_acl(fd, posix_acl.DEFAULT) is not None:
+        try:
+            named = named_entries(posix_acl.get_acl(fd, posix_acl.ACCESS))
+            default = posix_acl.get_acl(fd, posix_acl.DEFAULT)
+        except OSError as exc:
+            return [*problems, no_acls_problem(root, exc)]
+        if named or default is not None:
             problems.append(f"the workspace root {root} carries ACL entries (remove them: setfacl -b {root})")
         return problems
     finally:
         os.close(fd)
+
+
+def no_acls_problem(path: str, exc: OSError) -> str:
+    """The reason a volume cannot isolate tenants when its ACLs cannot be read or set."""
+    return f"no POSIX ACLs on {path} ({exc.strerror or exc}): {ACL_REMEDY}"
 
 
 def private_dir_problem(fd: int, path: str) -> str:
@@ -314,9 +325,19 @@ def home_base_problems(base: str) -> list[str]:
             problems.append(f"the tool HOME base {base} belongs to uid {info.st_uid}, not the worker")
         elif stat.S_IMODE(info.st_mode) != HOME_BASE_MODE:
             os.fchmod(fd, HOME_BASE_MODE)
-        if posix_acl.get_acl(fd, posix_acl.ACCESS) is not None or posix_acl.get_acl(fd, posix_acl.DEFAULT) is not None:
-            problems.append(f"the tool HOME base {base} carries an ACL")
-        if os.fstatvfs(fd).f_flag & os.ST_NOEXEC:
+        try:
+            acls = (posix_acl.get_acl(fd, posix_acl.ACCESS), posix_acl.get_acl(fd, posix_acl.DEFAULT))
+        except OSError as exc:
+            problems.append(no_acls_problem(base, exc))
+        else:
+            if acls != (None, None):
+                problems.append(f"the tool HOME base {base} carries an ACL")
+        flags = os.fstatvfs(fd).f_flag
+        if flags & os.ST_RDONLY:
+            problems.append(
+                f"the tool HOME base {base} is read-only (no volume mounted?): mount the tool_homes volume there"
+            )
+        if flags & os.ST_NOEXEC:
             problems.append(
                 f"the tool HOME base {base} is mounted noexec (an old tmpfs?): tools run binaries from their HOME; "
                 "mount the tool_homes volume there"
@@ -387,8 +408,14 @@ def acl_support_problem(directory: str) -> str:
         return f"{directory} cannot be opened ({exc.strerror})"
     name = f".cf-acl-check-{os.getpid()}"
     try:
-        with contextlib.suppress(FileExistsError):
-            os.mkdir(name, 0o700, dir_fd=parent)
+        try:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(name, 0o700, dir_fd=parent)
+        except OSError as exc:
+            return (
+                f"the worker cannot create a directory in {directory} ({exc.strerror}): it must be a writable "
+                f"volume of the worker (uid {worker_uid()})"
+            )
         fd = open_dir_at(parent, name)
         try:
             wanted = posix_acl.tenant_default(20000)
@@ -398,7 +425,7 @@ def acl_support_problem(directory: str) -> str:
         finally:
             os.close(fd)
     except OSError as exc:
-        return f"no POSIX ACLs on {directory} ({exc.strerror}): use a file system with POSIX ACLs (ext4, xfs, btrfs)"
+        return no_acls_problem(directory, exc)
     finally:
         with contextlib.suppress(OSError):
             os.rmdir(name, dir_fd=parent)

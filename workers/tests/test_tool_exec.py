@@ -19,6 +19,7 @@ import pytest
 from codeforge import tool_exec
 from codeforge.tool_exec import EXIT_REFUSED, LaunchRefusedError
 from codeforge.tool_process import TOOL_EXEC, write_spec
+from tests.isolation_requirements import require
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -440,8 +441,8 @@ for path in sys.argv[3:]:
 """
 
 
-@pytest.mark.skipif(tool_exec.landlock_abi() < 2, reason="needs Landlock ABI 2 or later")
 def test_a_real_ruleset_confines_the_process(tmp_path: Path) -> None:
+    require(tool_exec.landlock_abi() >= 2, "the test needs Landlock ABI 2 or later")
     allowed = tmp_path / "allowed"
     allowed.mkdir()
     (allowed / "f").write_text("x")

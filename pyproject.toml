@@ -104,3 +104,6 @@ indent-style = "space"
 [tool.pytest.ini_options]
 testpaths = ["workers/tests"]
 asyncio_mode = "auto"
+markers = [
+    "docker: runs the built worker image with docker compose (CODEFORGE_TEST_WORKER_IMAGE; KI-96)",
+]

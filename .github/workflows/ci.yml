@@ -114,6 +114,73 @@ jobs:
       - name: Test
         run: poetry run pytest -v
 
+      - name: Tool isolation tests as root (KI-96)
+        # Real tool processes as the tenants' tool users under Landlock need
+        # root (sudo keeps the environment); the step above skips them. With
+        # CODEFORGE_ISOLATION_TESTS=required a missing requirement (root,
+        # setpriv, POSIX ACLs on /tmp, Landlock ABI 2) fails instead.
+        env:
+          CODEFORGE_ISOLATION_TESTS: required
+        run: |
+          echo "kernel $(uname -r); LSMs: $(cat /sys/kernel/security/lsm 2>/dev/null || echo unknown)"
+          sudo -E "$(poetry env info -p)/bin/python" -m pytest -v -p no:cacheprovider \
+            workers/tests/test_tool_isolation_integration.py workers/tests/test_tool_exec.py \
+            workers/tests/test_landlock.py
+
+  tenant-isolation-docker:
+    name: Tenant isolation (Docker, KI-96)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Host kernel, LSMs and Landlock ABI
+        run: |
+          uname -r
+          cat /sys/kernel/security/lsm
+          python3 -c 'import ctypes; libc = ctypes.CDLL(None, use_errno=True); print("Landlock ABI", libc.syscall(444, None, ctypes.c_size_t(0), ctypes.c_uint32(1)))'
+          docker version --format 'docker engine {{.Server.Version}}'
+
+      - name: Install Poetry
+        run: pip install poetry==2.1.1
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Build the worker image
+        run: docker build -f Dockerfile.worker -t codeforge-worker:ci .
+
+      - name: Build the battery image (node, go, JDK)
+        run: >-
+          docker build -f workers/tests/docker/Dockerfile.battery
+          --build-arg WORKER_IMAGE=codeforge-worker:ci -t codeforge-worker-battery:ci workers/tests/docker
+
+      - name: Two tenants in the worker image
+        run: ./scripts/check-tool-isolation.sh codeforge-worker:ci
+
+      - name: Docker tenant-isolation suite (production service definition)
+        # Dropping the host's caches (E6, the migration at scale) uses
+        # passwordless sudo; every skip fails here.
+        env:
+          CODEFORGE_ISOLATION_TESTS: required
+          CODEFORGE_TEST_WORKER_IMAGE: codeforge-worker:ci
+          CODEFORGE_TEST_BATTERY_IMAGE: codeforge-worker-battery:ci
+          CODEFORGE_TEST_MIGRATION_ENTRIES: "1000000"
+          CODEFORGE_TEST_EVIDENCE_DIR: ${{ runner.temp }}/isolation-evidence
+        run: poetry run pytest -v -p no:cacheprovider workers/tests/test_tenant_isolation_docker.py
+
+      - name: Upload the isolation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tenant-isolation-evidence
+          path: ${{ runner.temp }}/isolation-evidence
+          retention-days: 30
+
   test-frontend:
     name: Frontend
     runs-on: ubuntu-latest

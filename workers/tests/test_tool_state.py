@@ -293,3 +293,47 @@ def test_acl_support(tmp_path: Path) -> None:
     assert tool_state.acl_support_problem(str(tmp_path)) == ""
     assert sorted(os.listdir(tmp_path)) == []  # the check directory is removed
     assert "cannot be opened" in tool_state.acl_support_problem(str(tmp_path / "missing"))
+
+
+def _no_acls(*_args: object) -> object:
+    raise OSError(errno.EOPNOTSUPP, os.strerror(errno.EOPNOTSUPP))
+
+
+def test_a_volume_without_acls_is_named_with_its_remedy(
+    root: Path, home_base: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 D12: ramfs, ZFS with acltype=off, NFSv4 answer EOPNOTSUPP; the reason names the volume
+    and the remedy, next to the other problems (a ramfs root belongs to root)."""
+    monkeypatch.setattr(tool_state.posix_acl, "get_acl", _no_acls)
+    monkeypatch.setattr(tool_state, "worker_uid", lambda: os.getuid() + 1)
+    problems = tool_state.home_base_problems(str(home_base))
+    assert any("belongs to uid" in p for p in problems), problems
+    assert any(f"no POSIX ACLs on {home_base}" in p and "acltype=posixacl" in p for p in problems), problems
+    monkeypatch.setattr(tool_state, "worker_uid", os.getuid)
+    problems = tool_state.root_problems(str(root), fix=True)
+    assert problems == [f"no POSIX ACLs on {root} (Operation not supported): " + tool_state.ACL_REMEDY], problems
+
+
+def test_acl_support_tells_a_foreign_directory_from_missing_acls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def denied(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError(errno.EACCES, "Permission denied")
+
+    monkeypatch.setattr(tool_state.os, "mkdir", denied)
+    problem = tool_state.acl_support_problem(str(tmp_path))
+    assert problem.startswith(f"the worker cannot create a directory in {tmp_path} (Permission denied)"), problem
+
+
+def test_a_read_only_home_base_names_the_missing_volume(home_base: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The KI-71 compose file mounts no tool_homes volume: the base is a directory of the read-only root."""
+    real = os.fstatvfs
+
+    def read_only(fd: int) -> os.statvfs_result:
+        values = list(real(fd))
+        values[8] |= os.ST_RDONLY  # f_flag
+        return os.statvfs_result(values)
+
+    monkeypatch.setattr(tool_state.os, "fstatvfs", read_only)
+    problems = tool_state.home_base_problems(str(home_base))
+    assert any("read-only" in p and "tool_homes volume" in p for p in problems), problems
