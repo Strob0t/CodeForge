@@ -271,3 +271,22 @@ async def test_retrieval_no_js_error_publish() -> None:
     await mixin._handle_retrieval_search(msg)
 
     msg.ack.assert_called_once()
+
+
+async def test_retrieval_index_refuses_an_empty_workspace_path() -> None:
+    """A project index without a workspace path is refused, never built from the worker's cwd."""
+    for index, workspace_path in enumerate(("", "   ")):
+        mixin = _TestMixin()
+        mixin._retriever.build_index = AsyncMock(return_value=_FakeIndexStatus())
+        msg = _make_msg(
+            RetrievalIndexRequest(project_id=f"proj-empty-{index}", workspace_path=workspace_path).model_dump()
+        )
+
+        await mixin._handle_retrieval_index(msg)
+
+        mixin._retriever.build_index.assert_not_awaited()
+        assert mixin._js is not None
+        result = json.loads(mixin._js.publish.call_args.args[1])
+        assert result["status"] == "error"
+        assert "workspace_path" in result["error"]
+        msg.ack.assert_called_once()

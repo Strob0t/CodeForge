@@ -75,6 +75,11 @@ class RetrievalHandlerMixin:
                 log.warning("knowledge index refused", reason=refusal)
                 return RetrievalIndexResult(project_id=request.project_id, status="error", error=refusal)
             workspace_path, tenant, below = self._knowledge_content_root, request.tenant_id, request.knowledge_path
+        elif not workspace_path.strip():
+            # An empty path would index the worker's working directory.
+            refusal = "workspace_path is required for a project index"
+            log.warning("retrieval index refused", reason=refusal)
+            return RetrievalIndexResult(project_id=request.project_id, status="error", error=refusal)
         else:
             tenant = ""
         status = await self._retriever.build_index(
