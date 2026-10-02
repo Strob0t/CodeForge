@@ -1737,8 +1737,9 @@ paths:
       tags: [MCP]
       summary: List registered MCP servers
       description: |
-        Returns the MCP servers of the caller's tenant. Env and header values are never returned: every
-        value that is set is shown as `***` (an empty value stays empty), for every role.
+        Returns the MCP servers of the caller's tenant. Secrets are never returned, for every role: every env and
+        header value that is set is shown as `***` (an empty value stays empty), and so are the `url`'s userinfo
+        and credential query and fragment values and the values of credential arguments (see `MCPServer`).
       operationId: listMCPServers
       security:
         - bearerAuth: []
@@ -1757,7 +1758,8 @@ paths:
       description: |
         Adds an MCP server to the tenant's registry. Requires the admin role of the tenant (not only a platform
         admin; editors and viewers get 403). Audited. Stdio servers run in the worker as the tool user, never in
-        the Go Core. The response redacts env and header values to `***`.
+        the Go Core. The URL of an `sse` or `streamable_http` server is checked by the outbound policy before it is
+        saved (see 400). The response redacts secrets to `***` like every read (see `MCPServer`).
       operationId: createMCPServer
       security:
         - bearerAuth: []
@@ -1776,8 +1778,14 @@ paths:
                 $ref: "#/components/schemas/MCPServer"
         "400":
           description: |
-            Invalid definition (name, transport, `command` for stdio or `url` for sse and streamable_http missing),
-            or an env or header value is `***`: a new server has no stored value that could stand for it.
+            Invalid definition (name, transport, `command` for stdio or `url` for sse and streamable_http missing;
+            an sse or streamable_http `url` that is not an http or https URL with a host). Also a `url` whose host
+            is, or resolves to, an address the outbound policy refuses (a host that does not resolve passes), for
+            example "url: docs-mcp resolves to 172.18.0.3, a private address; only the platform operator can allow
+            it (mcp.allowed_private_hosts)" for a private or loopback address (loopback needs an explicit
+            allowlist entry), or "url: 169.254.169.254 is a link-local address; MCP servers may never use it" for a
+            link-local, cloud metadata, unspecified, multicast or reserved one. Also an env value, header value, the
+            `url` or `args` carrying `***`: a new server has no stored value that could stand for it.
           content:
             application/json:
               schema:
@@ -1792,10 +1800,14 @@ paths:
       description: |
         Performs a real MCP handshake (initialize and tools/list) from the Go Core against an `sse` or
         `streamable_http` definition. Requires the admin role of the tenant. The body may carry the `id` of a
-        saved server of the tenant: env and header values sent as `***` then connect with the stored values, but
-        only while transport, url, command and args equal the stored ones (otherwise 400, so a stored secret is
-        never sent to another destination). Stdio definitions are refused with 400: the Go Core never starts a
-        stdio server, they run in the worker.
+        saved server of the tenant: env and header values, a `url` and `args` sent as `***` (the value as read,
+        as a whole) then connect with the stored values, but only while transport, url, command and args equal the
+        stored ones (otherwise 400, so a stored secret is never sent to another destination). Stdio definitions are
+        refused with 400: the Go Core never starts a stdio server, they run in the worker. The `url` is checked by
+        the outbound policy before anything connects (400, as on create); every connection of the test is checked
+        again at the address it dials, goes through no proxy unless `mcp.use_proxy` is on, and follows a redirect
+        only as the worker's MCP SDK does (same method, same origin, no userinfo in the Location, at most 20), so
+        the headers never go to another host. `error` of a failed test never quotes the url's secrets.
       operationId: testMCPServerDefinition
       security:
         - bearerAuth: []
@@ -1814,9 +1826,12 @@ paths:
                 $ref: "#/components/schemas/MCPTestResult"
         "400":
           description: |
-            Invalid definition, a stdio transport ("stdio servers cannot be tested from the core; they run in the
-            worker"), or `***` values that cannot be resolved (no `id`, nothing stored for the key, or a changed
-            transport, url, command or args).
+            Invalid definition (an sse or streamable_http `url` that is not an http or https URL with a host), a
+            stdio transport ("stdio servers cannot be tested from the core; they run in the worker"), a `url`
+            whose host is, or resolves to, an address the outbound policy refuses (same messages as on create:
+            "...; only the platform operator can allow it (mcp.allowed_private_hosts)" or "...; MCP servers may
+            never use it"), or `***` values that cannot be resolved (no `id`, nothing stored for the key, a `url`
+            or `args` that carry `***` but are not the value as read, or a changed transport, url, command or args).
           content:
             application/json:
               schema:
@@ -1830,7 +1845,7 @@ paths:
     get:
       tags: [MCP]
       summary: Get an MCP server by ID
-      description: Env and header values are returned as `***` (see the list endpoint).
+      description: Secrets are returned as `***` (see the list endpoint).
       operationId: getMCPServer
       security:
         - bearerAuth: []
@@ -1854,10 +1869,14 @@ paths:
       tags: [MCP]
       summary: Update an MCP server
       description: |
-        Requires the admin role of the tenant. Audited. An env or header value sent as `***` (what reads return)
-        keeps the stored value, only while transport, url, command and args are unchanged. 400 when `***` is sent
-        for a key with nothing stored, or when the transport, url, command or args changed while a value is
-        `***` (enter the values again). The response redacts values to `***`.
+        Requires the admin role of the tenant. Audited. A value sent as `***` (what reads return) keeps the stored
+        one: env and header values per key; `url` and `args` only when sent exactly as read, as a whole (the stored
+        value is then used as a whole). Transport, url, command and args must then equal the stored ones. 400 when
+        `***` is sent for a key with nothing stored, when `url` or `args` carry `***` but differ from the value as
+        read, or when the transport, url, command or args changed while a value is `***` (enter the values
+        again). PUT checks the URL against the outbound policy only when the transport or the URL changed, so a
+        server saved on an address that is refused now can still be disabled, renamed or edited otherwise. The
+        response redacts secrets to `***`.
       operationId: updateMCPServer
       security:
         - bearerAuth: []
@@ -1882,7 +1901,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/MCPServer"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            Invalid definition; a changed transport or `url` the outbound policy refuses (same messages as on
+            create); or `***` values that cannot be kept (nothing stored for the key, a `url` or `args` that carry
+            `***` but are not the value as read, or a changed transport, url, command or args).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -1914,9 +1940,10 @@ paths:
       tags: [MCP]
       summary: Test a saved MCP server
       description: |
-        Re-reads the saved definition (with its stored env and header values), performs a real MCP handshake from
-        the Go Core and updates the server's status (`connected` or `error`). Requires the admin role of the
-        tenant. A stdio server answers 400 and its status is left unchanged: stdio servers run in the worker.
+        Re-reads the saved definition (with its stored secrets), performs a real MCP handshake from the Go Core
+        and updates the server's status (`connected` or `error`). Requires the admin role of the tenant. A stdio
+        server answers 400 and its status is left unchanged: stdio servers run in the worker. So does a server
+        whose stored `url` the outbound policy refuses now (it stays readable; the worker skips it in runs).
       operationId: testMCPServer
       security:
         - bearerAuth: []
@@ -1935,7 +1962,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/MCPTestResult"
         "400":
-          description: The server uses the stdio transport
+          description: |
+            The server uses the stdio transport, or its stored `url` is refused by the outbound policy (private or
+            loopback address not allowlisted in `mcp.allowed_private_hosts`; link-local, cloud metadata,
+            unspecified, multicast or reserved address). The status is left unchanged.
           content:
             application/json:
               schema:
@@ -3835,10 +3865,18 @@ components:
           type: array
           items:
             type: string
-          description: Command arguments; not redacted, keep secrets in env or headers
+          description: |
+            Command arguments. The value of a credential argument is returned as `***` (`--token=***`,
+            `-name=***`, `name=***`, or the argument after `--api-key`; the flag stays; names per the credential
+            name list: token, api-key, password, secret, ...). Other shapes (`--header=Authorization: Bearer x`, a
+            URL with userinfo as an argument) are not recognised: keep secrets in env or headers.
         url:
           type: string
-          description: Endpoint of an sse or streamable_http server; credentials in the URL are not redacted
+          description: |
+            Endpoint of an sse or streamable_http server, redacted as one URL value: the userinfo (all of it, a
+            token-only user too) and the values of credential query and fragment parameters are returned as `***`
+            (`https://***@host/sse?api_key=***`). The host shown is the host the server connects to: an `@` in the
+            path or query never changes it.
         env:
           type: object
           additionalProperties:
@@ -3863,8 +3901,8 @@ components:
           type: string
           format: uuid
           description: |
-            Only for `POST /mcp/servers/test`: the saved server whose stored env and header values stand for
-            values sent as `***`.
+            Only for `POST /mcp/servers/test`: the saved server whose stored env, header, url and args values
+            stand for values sent as `***`.
         name:
           type: string
         description:
@@ -3879,9 +3917,16 @@ components:
           type: array
           items:
             type: string
+          description: |
+            Command arguments. An argument list that carries `***` keeps the stored list only when it equals the
+            list as read (`MCPServer.args`), as a whole; any other list with `***` is 400 (and always on create).
+            Transport, url, command and args must then equal the stored ones.
         url:
           type: string
-          description: Required for sse and streamable_http
+          description: |
+            Required for sse and streamable_http: an http or https URL with a host, which the outbound policy
+            allows (see the 400 of create). A url that carries `***` keeps the stored url only when it equals the
+            url as read (`MCPServer.url`), as a whole; any other url with `***` is 400 (and always on create).
         env:
           type: object
           additionalProperties:
@@ -3919,6 +3964,10 @@ components:
                 type: string
         error:
           type: string
+          description: |
+            Why the test failed, starting with `failed to create client:`, `connect failed:` (the transport could
+            not start or connect), `initialize failed:` or `tools/list failed:` (the handshake worked, `success`
+            stays true). Never quotes the url's secrets or header values.
 
     Channel:
       type: object

@@ -147,7 +147,7 @@ CodeForge/
 │   ├── git/                  # Hardened git for workspaces (sanitised environment, config allowlist, no nested repositories) + worker pool
 │   ├── logger/               # Async slog JSON logging
 │   ├── middleware/            # HTTP middleware (request ID, tenant, rate limit, idempotency, deprecation)
-│   ├── netutil/              # SSRF checks (private IP filter, safe HTTP transport)
+│   ├── netutil/              # SSRF checks (private IP filter, safe HTTP transport, OutboundPolicy for MCP URLs)
 │   ├── port/                 # Interfaces + Registries (20 packages)
 │   │   ├── agentbackend/     # Agent backend interface + registry
 │   │   ├── benchprovider/    # Benchmark provider interface
@@ -216,6 +216,7 @@ CodeForge/
 │       ├── executor.py       # Agent execution (runtime protocol)
 │       ├── graphrag.py       # GraphRAG code graph builder + searcher
 │       ├── llm.py            # LiteLLM async client (completions, embeddings)
+│       ├── mcp_outbound.py   # Outbound policy + guarded transport for sse/streamable_http MCP servers
 │       ├── mcp_workbench.py  # MCP workbench (multi-server, BM25 recommender)
 │       ├── models.py         # Pydantic data models
 │       ├── retrieval.py      # Hybrid retrieval (BM25 + semantic + sub-agent)
@@ -376,6 +377,12 @@ docker exec codeforge-docs-mcp npx docs-mcp-server scrape fastapi https://fastap
 1. Open "MCP Servers" in the sidebar (`/mcp`) > register docs-mcp-server (type: SSE, URL: http://docs-mcp:6280/sse)
 2. Open project > Settings (gear icon) > check "docs-mcp-server"
 3. Agent now has `search_docs`, `scrape_docs`, `list_libraries` tools
+
+**Outbound policy:** the Core's connection test and the worker refuse private and loopback addresses unless the operator allowlists them (`mcp.allowed_private_hosts` / `CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS`). docs-mcp needs an entry in dev:
+
+- Core and worker on the host, docs-mcp published on `127.0.0.1:6280`: allowlist `127.0.0.1` and register `http://127.0.0.1:6280/sse` (`localhost` may also resolve to `::1`, which that entry does not open; the entry `localhost` opens both).
+- Core and worker in the compose network: register `http://docs-mcp:6280/sse` and allowlist `docs-mcp`, or the container address or the network's CIDR (for example `172.18.0.0/16`).
+- A `servers_dir` YAML definition needs no entry in the worker (operator config).
 
 
 
@@ -604,6 +611,8 @@ Example:
 | `mcp.enabled` | `CODEFORGE_MCP_ENABLED` | `false` | Enable MCP integration |
 | `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
 | `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
+| `mcp.allowed_private_hosts` | `CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS` | `` (none) | Host names, IPs and CIDRs (comma-separated in the env) whose private addresses `sse` / `streamable_http` MCP servers may use (Core connection test and worker runs). Loopback opens only by an explicit entry (`localhost`, `127.0.0.1`, `::1`, a loopback CIDR); link-local and cloud metadata addresses never. Invalid entries (`host:port`, URLs, wildcards, bad CIDRs) stop startup. Servers from `mcp.servers_dir` need no entry in the worker. No CLI flag |
+| `mcp.use_proxy` | `CODEFORGE_MCP_USE_PROXY` | `false` | Send `sse` / `streamable_http` MCP connections (Core test, worker runs) through the proxy of the environment (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`). The URL's host is still checked, but the address is not pinned (DNS rebinding is then the proxy's job); the Core logs a warning at startup |
 | `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `true` | Enable JWT authentication |
 | `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | `` (random per start) | HMAC-SHA256 signing key; empty = auto-generated in memory at every start (sessions lost on restart). Must be >= 32 chars; well-known values are rejected unless `APP_ENV=development` |
 | `auth.llm_key_encryption_secret` | `CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET` | `` (falls back to the JWT secret) | Key material for encrypting stored LLM provider keys; set it to decouple them from the JWT secret (rotating it makes stored LLM keys unreadable). Every secret setting also accepts `<KEY>_FILE` |
@@ -1008,6 +1017,8 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_MCP_ENABLED     | false                                    | Enable MCP integration          |
 | CODEFORGE_MCP_SERVERS_DIR |                                          | MCP server YAML definitions dir |
 | CODEFORGE_MCP_SERVER_PORT | 3001                                     | Built-in MCP server port        |
+| CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS |                                | Comma-separated hosts, IPs, CIDRs whose private addresses sse/streamable_http MCP servers may use; loopback only by an explicit entry; metadata never |
+| CODEFORGE_MCP_USE_PROXY   | false                                    | Connect sse/streamable_http MCP servers through the environment proxy (address not pinned) |
 | CODEFORGE_AUTH_ENABLED    | true                                     | Enable JWT authentication       |
 | CODEFORGE_AUTH_JWT_SECRET | (empty: random secret per start)         | HMAC-SHA256 JWT signing key; if unset, a random secret is generated at startup and lost on restart. Must be >= 32 chars; well-known values such as `codeforge-dev-jwt-secret-change-in-production` are rejected unless `APP_ENV=development` |
 | CODEFORGE_AUTH_ACCESS_EXPIRY | 15m                                   | Access token lifetime           |

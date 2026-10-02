@@ -1,7 +1,7 @@
 # ADR-017: Tool Process Isolation and NATS Authentication
 
 > **Status:** accepted (implemented as KI-71 of the [fix plan](../../known-issues-fix-plan.md), four review rounds and a
-> security-review round)
+> security-review round); decision 9 amended 2026-10-02 (S7-A: outbound policy, redaction, tenant-scoped tool upserts)
 > **Date:** 2026-10-01
 > **Deciders:** Project owner (lead decisions of the KI-71 milestone: a separate tool user, a shared workspace group,
 > a fail-closed isolation mode, one authenticated NATS user per service)
@@ -169,7 +169,7 @@ before the upgrade stay unconsumed; handoffs already carried out stay protected 
 - *Where they run.* Stdio servers start only in the worker, through `tool_process.tool_stdio_client`, as the tool user
   with the environment of decision 1. The Go Core never starts a stdio MCP server: the connection test answers 400
   "stdio servers cannot be tested from the core; they run in the worker" and leaves a saved server's status unchanged;
-  `sse` and `streamable_http` are tested from the core as before. This also fixed a pre-existing defect: the worker
+  `sse` and `streamable_http` are tested from the core (under the outbound policy, see the note of 2026-10-02 below). This also fixed a pre-existing defect: the worker
   passed `errlog=io.StringIO()` (no file descriptor) to the MCP SDK, so no stdio server ever started; it now gets
   `/dev/null`, and a failed connection closes its server process and log handle.
 - *Secrets.* Every MCP server response (list, get, project list, create, update) shows env and header values as `***`
@@ -191,6 +191,34 @@ before the upgrade stay unconsumed; handoffs already carried out stay protected 
   request is refused with 503 and nothing changes (`middleware.AuditLogByHandler`, `RecordAudit`). A body re-read by
   the middleware could differ from what the handler decoded (trailing data, duplicate keys, padding), so the handler
   names the resource.
+- *Outbound policy, redaction and tool upserts (note of 2026-10-02, S7-A: KI-97, KI-100, KI-101).*
+  - *Outbound policy.* The URL of an `sse` or `streamable_http` server is tenant input, and the core (connection test) and
+    the worker (runs) connect to it. Create, update (when the transport or URL changed), both test routes, the core's
+    test client and the worker's connections follow one policy (`netutil.OutboundPolicy`,
+    `workers/codeforge/mcp_outbound.py`, one shared case table): link-local (cloud metadata), unspecified, multicast
+    and reserved addresses are never allowed; private ranges only for the hosts, IPs and CIDRs the platform operator
+    lists in `mcp.allowed_private_hosts`; every address a name resolves to must pass, and the address that is dialled
+    is checked again (DNS rebinding, redirects). Only the operator sets the list. The core sends it with each server on
+    `runs.start` and `conversation.run.start` (a worker setting of its own could drift from the core's; only the core
+    can publish these payloads), so there is one source.
+  - *Operator trust.* Servers from `mcp.servers_dir` are operator config: the core never connects to them, and the
+    worker trusts them (`trusted`, set by the core only, never for a stored server that reuses an operator server's ID)
+    with private and loopback addresses, never with link-local or metadata addresses.
+  - *Explicit loopback.* Loopback is refused by default (the core's and the worker's own services are there) and opens
+    only by an explicit entry (`localhost`, `127.0.0.1`, `::1`, a loopback CIDR); a broad prefix such as `0.0.0.0/0`
+    does not open it.
+  - *Proxy opt-in.* No proxy is used unless `mcp.use_proxy` is on, because a proxy chooses the address the policy
+    checks. With it only the URL's host is checked before connecting and the address is not pinned (rebinding is then
+    the proxy's egress policy); the core logs a warning at startup.
+  - *Redirect parity.* The core's test client follows redirects exactly as the worker's MCP SDK does (same method, no
+    userinfo in the Location, the origin of the request just sent, at most 20), so headers never go to another host and
+    a passing test predicts a run.
+  - *Redaction.* The URL is redacted as one URL value (`secrets.RedactURLField`: the whole userinfo and credential
+    query and fragment values; the host shown is the host connected to) and credential argument values become `***`
+    like env and header values. A URL or argument list that carries `***` is kept only when it equals the value as read,
+    as a whole; every kept value still needs the same transport, URL, command and arguments. Connection-test errors
+    and worker connect logs never quote URL secrets.
+  - *Tenancy.* `UpsertMCPServerTools` locks the server row by id and tenant and writes the rows with that tenant.
 
 **10. Health states.** The worker's `GET /health/ready` answers `503 {"status":"starting"}` while it shares the
 workspaces (the walk runs after the health server is up and before the consumer takes work) and `503
@@ -236,10 +264,11 @@ worker, its loops and the hub are ready.
 - A read-back depends on stream retention (30 days, 5 million messages, discard old); a gap older than that is lost. After
   a long disconnect the read-back of tool-call responses is unbounded, though streamed to the listeners. The worker can
   read any stream message through direct get (no new exposure: its own durables could filter any subject).
-- MCP args and URL userinfo are not redacted (KI-97); the connection test of `sse` and `streamable_http` servers
-  reaches internal hosts from the Go Core (KI-100); `UpsertMCPServerTools` has no tenant filter (KI-101); the UI lacks
-  a header editor and shows admin actions to everyone (KI-98). LSP servers started by the Go Core are not isolated
-  (KI-83).
+- The MCP UI lacks a header editor and shows admin actions to everyone (KI-98). LSP servers started by the Go Core are
+  not isolated (KI-83). The MCP outbound policy needs operator upkeep (private hosts such as a compose `docs-mcp` must
+  be listed), is defense in depth in the worker (stdio servers and the agents' own tools reach internal hosts), counts
+  6to4 and Teredo as public, and gives up address pinning with `mcp.use_proxy`; other callers of the older SSRF filter
+  lack ranges (KI-104).
 
 #### Neutral
 
@@ -274,7 +303,7 @@ worker, its loops and the hub are ready.
 
 - [ADR-006: Approach C](006-agent-execution-approach-c.md), [ADR-011: Trust and quarantine](011-trust-quarantine-system.md),
   [ADR-015: Policy deny lists](015-policy-deny-lists-and-tool-names.md), [ADR-016: NATS delivery semantics](016-nats-delivery-semantics.md)
-- [Known Issues KI-71 and the follow-ups KI-95 to KI-103](../../todo.md#known-issues), [fix plan](../../known-issues-fix-plan.md)
+- [Known Issues KI-71 and the follow-ups KI-95 to KI-104](../../todo.md#known-issues), [fix plan](../../known-issues-fix-plan.md)
 - [SECURITY.md](../../SECURITY.md), [architecture.md, process and UID model](../../architecture.md#process-and-uid-model), [dev-setup.md](../../dev-setup.md#tool-isolation-and-nats-authentication)
 - `workers/codeforge/tool_process.py`, `workers/codeforge/notifications.py`, `scripts/worker-entrypoint.sh`,
   `scripts/check-tool-isolation.sh`, `configs/nats/nats-server.conf`
