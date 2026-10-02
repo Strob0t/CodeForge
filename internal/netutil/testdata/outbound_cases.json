@@ -1,5 +1,5 @@
 {
-  "comment": "Outbound address rules for MCP connections (KI-100), shared by internal/netutil/outbound_test.go and workers/tests/test_mcp_outbound.py so the Go Core and the worker decide alike. allowable: refused only because the address is private (the operator can allowlist it).",
+  "comment": "Outbound address rules for MCP connections (KI-100), shared by internal/netutil/outbound_test.go and workers/tests/test_mcp_outbound.py so the Go Core and the worker decide alike. allowable: refused only because the operator did not allowlist it (private, or loopback with an explicit entry). trusted: an operator (YAML) server, checked only by the worker.",
   "policies": [
     {
       "name": "operator allowlist",
@@ -19,14 +19,28 @@
           "ip": "93.184.216.34",
           "allowed": true
         },
-        { "name": "loopback v4", "host": "evil.example", "ip": "127.0.0.1" },
+        {
+          "name": "loopback v4",
+          "host": "evil.example",
+          "ip": "127.0.0.1",
+          "allowable": true
+        },
         {
           "name": "loopback v4 range",
           "host": "evil.example",
-          "ip": "127.255.0.9"
+          "ip": "127.255.0.9",
+          "allowable": true
         },
-        { "name": "unspecified v4", "host": "evil.example", "ip": "0.0.0.0" },
-        { "name": "this network v4", "host": "evil.example", "ip": "0.1.2.3" },
+        {
+          "name": "unspecified v4",
+          "host": "evil.example",
+          "ip": "0.0.0.0"
+        },
+        {
+          "name": "this network v4",
+          "host": "evil.example",
+          "ip": "0.1.2.3"
+        },
         {
           "name": "link-local v4",
           "host": "evil.example",
@@ -42,13 +56,21 @@
           "host": "evil.example",
           "ip": "100.100.100.200"
         },
-        { "name": "multicast v4", "host": "evil.example", "ip": "239.1.2.3" },
+        {
+          "name": "multicast v4",
+          "host": "evil.example",
+          "ip": "239.1.2.3"
+        },
         {
           "name": "broadcast",
           "host": "evil.example",
           "ip": "255.255.255.255"
         },
-        { "name": "reserved v4", "host": "evil.example", "ip": "240.0.0.1" },
+        {
+          "name": "reserved v4",
+          "host": "evil.example",
+          "ip": "240.0.0.1"
+        },
         {
           "name": "rfc1918 10",
           "host": "evil.example",
@@ -91,15 +113,32 @@
           "ip": "2606:2800:220:1:248:1893:25c8:1946",
           "allowed": true
         },
-        { "name": "loopback v6", "host": "evil.example", "ip": "::1" },
-        { "name": "unspecified v6", "host": "evil.example", "ip": "::" },
-        { "name": "link-local v6", "host": "evil.example", "ip": "fe80::1" },
+        {
+          "name": "loopback v6",
+          "host": "evil.example",
+          "ip": "::1",
+          "allowable": true
+        },
+        {
+          "name": "unspecified v6",
+          "host": "evil.example",
+          "ip": "::"
+        },
+        {
+          "name": "link-local v6",
+          "host": "evil.example",
+          "ip": "fe80::1"
+        },
         {
           "name": "link-local v6 with zone",
           "host": "evil.example",
           "ip": "fe80::1%eth0"
         },
-        { "name": "multicast v6", "host": "evil.example", "ip": "ff02::1" },
+        {
+          "name": "multicast v6",
+          "host": "evil.example",
+          "ip": "ff02::1"
+        },
         {
           "name": "metadata v6",
           "host": "evil.example",
@@ -120,7 +159,8 @@
         {
           "name": "v4-mapped loopback",
           "host": "evil.example",
-          "ip": "::ffff:127.0.0.1"
+          "ip": "::ffff:127.0.0.1",
+          "allowable": true
         },
         {
           "name": "v4-mapped metadata",
@@ -142,7 +182,8 @@
         {
           "name": "v4-compatible loopback",
           "host": "evil.example",
-          "ip": "::127.0.0.1"
+          "ip": "::127.0.0.1",
+          "allowable": true
         },
         {
           "name": "nat64 metadata",
@@ -194,7 +235,8 @@
         {
           "name": "allowlisted host stays off loopback",
           "host": "docs-mcp",
-          "ip": "127.0.0.1"
+          "ip": "127.0.0.1",
+          "allowable": true
         },
         {
           "name": "allowlisted host stays off metadata",
@@ -286,9 +328,15 @@
         {
           "name": "loopback with 0.0.0.0/0",
           "host": "any.example",
-          "ip": "127.0.0.1"
+          "ip": "127.0.0.1",
+          "allowable": true
         },
-        { "name": "loopback v6 with ::/0", "host": "any.example", "ip": "::1" },
+        {
+          "name": "loopback v6 with ::/0",
+          "host": "any.example",
+          "ip": "::1",
+          "allowable": true
+        },
         {
           "name": "metadata listed",
           "host": "any.example",
@@ -299,9 +347,21 @@
           "host": "any.example",
           "ip": "fd00:ec2::254"
         },
-        { "name": "unspecified", "host": "any.example", "ip": "0.0.0.0" },
-        { "name": "multicast", "host": "any.example", "ip": "224.0.0.1" },
-        { "name": "link-local v6", "host": "any.example", "ip": "fe80::1" },
+        {
+          "name": "unspecified",
+          "host": "any.example",
+          "ip": "0.0.0.0"
+        },
+        {
+          "name": "multicast",
+          "host": "any.example",
+          "ip": "224.0.0.1"
+        },
+        {
+          "name": "link-local v6",
+          "host": "any.example",
+          "ip": "fe80::1"
+        },
         {
           "name": "metadata alibaba",
           "host": "any.example",
@@ -342,6 +402,167 @@
           "host": "evil.example",
           "ip": "64:ff9b:1:abcd::1",
           "allowed": true
+        }
+      ]
+    },
+    {
+      "name": "loopback opened by name or address",
+      "allowed_private_hosts": ["localhost", "127.0.0.1"],
+      "cases": [
+        {
+          "name": "localhost by name",
+          "host": "localhost",
+          "ip": "127.0.0.1",
+          "allowed": true
+        },
+        {
+          "name": "localhost by name, v6",
+          "host": "LocalHost.",
+          "ip": "::1",
+          "allowed": true
+        },
+        {
+          "name": "the listed address",
+          "host": "dev.example",
+          "ip": "127.0.0.1",
+          "allowed": true
+        },
+        {
+          "name": "another loopback address",
+          "host": "dev.example",
+          "ip": "127.0.0.2",
+          "allowable": true
+        },
+        {
+          "name": "v6 loopback by address",
+          "host": "dev.example",
+          "ip": "::1",
+          "allowable": true
+        },
+        {
+          "name": "an allowlisted name allows its private addresses, localhost too",
+          "host": "localhost",
+          "ip": "10.0.0.1",
+          "allowed": true
+        },
+        {
+          "name": "link-local stays refused",
+          "host": "localhost",
+          "ip": "169.254.169.254"
+        }
+      ]
+    },
+    {
+      "name": "loopback opened by cidr",
+      "allowed_private_hosts": ["127.0.0.0/8", "::1"],
+      "cases": [
+        {
+          "name": "any v4 loopback",
+          "host": "dev.example",
+          "ip": "127.5.5.5",
+          "allowed": true
+        },
+        {
+          "name": "v4-mapped loopback",
+          "host": "dev.example",
+          "ip": "::ffff:127.0.0.1",
+          "allowed": true
+        },
+        {
+          "name": "v6 loopback",
+          "host": "dev.example",
+          "ip": "::1",
+          "allowed": true
+        },
+        {
+          "name": "unspecified stays refused",
+          "host": "dev.example",
+          "ip": "0.0.0.0"
+        },
+        {
+          "name": "private is not opened by a loopback cidr",
+          "host": "dev.example",
+          "ip": "10.0.0.1",
+          "allowable": true
+        }
+      ]
+    },
+    {
+      "name": "a name entry opens loopback only for localhost",
+      "allowed_private_hosts": ["docs-mcp"],
+      "cases": [
+        {
+          "name": "allowlisted name resolving to loopback",
+          "host": "docs-mcp",
+          "ip": "127.0.0.1",
+          "allowable": true
+        }
+      ]
+    },
+    {
+      "name": "operator (YAML) server",
+      "trusted": true,
+      "allowed_private_hosts": [],
+      "cases": [
+        {
+          "name": "loopback",
+          "host": "localhost",
+          "ip": "127.0.0.1",
+          "allowed": true
+        },
+        {
+          "name": "loopback v6",
+          "host": "docs.local",
+          "ip": "::1",
+          "allowed": true
+        },
+        {
+          "name": "private",
+          "host": "docs-mcp",
+          "ip": "172.18.0.5",
+          "allowed": true
+        },
+        {
+          "name": "ula",
+          "host": "docs-mcp",
+          "ip": "fd00:1::5",
+          "allowed": true
+        },
+        {
+          "name": "public",
+          "host": "example.com",
+          "ip": "93.184.216.34",
+          "allowed": true
+        },
+        {
+          "name": "link-local",
+          "host": "docs-mcp",
+          "ip": "169.254.169.254"
+        },
+        {
+          "name": "metadata v6",
+          "host": "docs-mcp",
+          "ip": "fd00:ec2::254"
+        },
+        {
+          "name": "metadata alibaba",
+          "host": "docs-mcp",
+          "ip": "100.100.100.200"
+        },
+        {
+          "name": "unspecified",
+          "host": "docs-mcp",
+          "ip": "0.0.0.0"
+        },
+        {
+          "name": "multicast",
+          "host": "docs-mcp",
+          "ip": "224.0.0.1"
+        },
+        {
+          "name": "reserved",
+          "host": "docs-mcp",
+          "ip": "240.0.0.1"
         }
       ]
     }

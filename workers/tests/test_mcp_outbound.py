@@ -44,7 +44,10 @@ def _policy_cases() -> list[object]:
 
 @pytest.mark.parametrize(("policy_case", "case"), _policy_cases())
 def test_check_address(policy_case: dict[str, object], case: dict[str, object]) -> None:
-    policy = OutboundPolicy(policy_case["allowed_private_hosts"])  # type: ignore[arg-type]
+    policy = OutboundPolicy(
+        policy_case["allowed_private_hosts"],  # type: ignore[arg-type]
+        trusted=bool(policy_case.get("trusted")),
+    )
     host, ip = str(case["host"]), str(case["ip"])
     if case.get("allowed"):
         policy.check_address(host, ip)
@@ -280,7 +283,8 @@ async def test_connection_refuses_a_loopback_url_before_connecting(transport: st
                 name="S1",
                 transport=transport,
                 url=f"http://127.0.0.1:{port}/mcp",
-                allowed_private_hosts=["127.0.0.1", "localhost"],
+                # A broad prefix does not open loopback; only an explicit entry does.
+                allowed_private_hosts=["0.0.0.0/0", "::/0"],
             )
         )
         with pytest.raises(AddressRefusedError, match=r"127\.0\.0\.1 is a loopback address"):
@@ -396,13 +400,69 @@ async def test_a_private_host_without_the_allowlist_never_reaches_the_sdk(monkey
             await conn.connect()
 
 
+@pytest.mark.parametrize(
+    ("allowed", "trusted"),
+    [(["127.0.0.1"], False), (["localhost"], False), (["127.0.0.0/8"], False), ([], True)],
+    ids=["allowlisted address", "allowlisted name", "allowlisted prefix", "operator server"],
+)
+async def test_loopback_is_opened_by_an_explicit_entry_or_for_an_operator_server(
+    allowed: list[str], trusted: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dev topology: docs-mcp published on 127.0.0.1:6280 (KI-100 review)."""
+    from contextlib import asynccontextmanager
+
+    used: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def sse_client(url: str, headers: object = None, httpx_client_factory: object = None, **_: object):  # type: ignore[no-untyped-def]
+        used["url"] = url
+        yield (object(), object())
+
+    async def lookup(_self: OutboundPolicy, _host: str, _port: int) -> list[str]:
+        return ["127.0.0.1"]
+
+    monkeypatch.setattr("codeforge.mcp_workbench.sse_client", sse_client)
+    monkeypatch.setattr("codeforge.mcp_workbench.ClientSession", _Session)
+    monkeypatch.setattr(OutboundPolicy, "_lookup", lookup)
+    conn = McpServerConnection(
+        MCPServerDef(
+            id="s1",
+            name="docs",
+            transport="sse",
+            url="http://localhost:6280/sse",
+            allowed_private_hosts=allowed,
+            trusted=trusted,
+        )
+    )
+    await conn.connect()
+    assert used["url"] == "http://localhost:6280/sse"
+    await conn.disconnect()
+
+
+async def test_an_operator_server_still_never_reaches_metadata() -> None:
+    conn = McpServerConnection(
+        MCPServerDef(id="s1", name="docs", transport="sse", url="http://169.254.169.254/latest/", trusted=True)
+    )
+    with pytest.raises(AddressRefusedError, match="link-local address; MCP servers may never use it"):
+        await conn.connect()
+
+
 def test_server_def_reads_the_allowlist() -> None:
     default = MCPServerDef.model_validate({"id": "s", "name": "s", "transport": "sse", "url": "http://x"})
     assert default.allowed_private_hosts == []
+    assert default.trusted is False
     sent = MCPServerDef.model_validate(
-        {"id": "s", "name": "s", "transport": "sse", "url": "http://x", "allowed_private_hosts": ["docs-mcp"]}
+        {
+            "id": "s",
+            "name": "s",
+            "transport": "sse",
+            "url": "http://x",
+            "allowed_private_hosts": ["docs-mcp"],
+            "trusted": True,
+        }
     )
     assert sent.allowed_private_hosts == ["docs-mcp"]
+    assert sent.trusted is True
 
 
 @pytest.mark.parametrize("fixture", ["runs_start.json", "conversation_run_start.json"])
@@ -410,3 +470,4 @@ def test_go_payloads_carry_the_allowlist(fixture: str) -> None:
     raw = json.loads((_CONTRACTS / fixture).read_text())
     server = MCPServerDef.model_validate(raw["mcp_servers"][0])
     assert server.allowed_private_hosts == ["docs-mcp", "10.20.0.0/16"]
+    assert server.trusted is True

@@ -84,6 +84,7 @@ func sampleMCPServerDefPayload() mq.MCPServerDefPayload {
 		Enabled:     true,
 		// KI-100: sent with sse and streamable_http servers.
 		AllowedPrivateHosts: []string{"docs-mcp", "10.20.0.0/16"},
+		Trusted:             true,
 	}
 }
 

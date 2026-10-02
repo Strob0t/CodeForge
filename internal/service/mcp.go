@@ -139,16 +139,34 @@ func (s *MCPService) Remove(id string) error {
 // of the run's tenant (the tenant in ctx) are included. The modeID
 // parameter is reserved for future filtering.
 func (s *MCPService) ResolveForRun(ctx context.Context, projectID, _ string) []mcp.ServerDef {
+	resolved := s.resolveForRun(ctx, projectID)
+	defs := make([]mcp.ServerDef, len(resolved))
+	for i := range resolved {
+		defs[i] = resolved[i].def
+	}
+	return defs
+}
+
+// runServer is a server of a run and whether the operator defined it
+// (servers_dir) rather than a tenant (the database).
+type runServer struct {
+	def      mcp.ServerDef
+	operator bool
+}
+
+// resolveForRun is ResolveForRun with the origin of each server. An operator
+// server wins over a stored one with the same ID.
+func (s *MCPService) resolveForRun(ctx context.Context, projectID string) []runServer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	seen := make(map[string]bool)
-	var defs []mcp.ServerDef
+	var servers []runServer
 
 	// Include globally-enabled YAML-loaded servers.
 	for _, d := range s.servers { //nolint:gocritic // rangeValCopy: map iteration requires value copy
 		if d.Enabled {
-			defs = append(defs, d)
+			servers = append(servers, runServer{def: d, operator: true})
 			seen[d.ID] = true
 		}
 	}
@@ -161,28 +179,30 @@ func (s *MCPService) ResolveForRun(ctx context.Context, projectID, _ string) []m
 		} else {
 			for i := range dbDefs {
 				if dbDefs[i].Enabled && !seen[dbDefs[i].ID] {
-					defs = append(defs, dbDefs[i])
+					servers = append(servers, runServer{def: dbDefs[i]})
 					seen[dbDefs[i].ID] = true
 				}
 			}
 		}
 	}
 
-	sort.Slice(defs, func(i, j int) bool {
-		return defs[i].ID < defs[j].ID
+	sort.Slice(servers, func(i, j int) bool {
+		return servers[i].def.ID < servers[j].def.ID
 	})
-	return defs
+	return servers
 }
 
 // RunServerPayloads returns the NATS payloads of the servers ResolveForRun
 // returns, for runs and conversations alike. sse and streamable_http
 // servers carry mcp.allowed_private_hosts: the worker applies the outbound
-// rules of the Go Core to every connection it opens (KI-100).
-func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, modeID string) []messagequeue.MCPServerDefPayload {
-	defs := s.ResolveForRun(ctx, projectID, modeID)
-	payloads := make([]messagequeue.MCPServerDefPayload, 0, len(defs))
-	for i := range defs {
-		d := &defs[i]
+// rules of the Go Core to every connection it opens (KI-100). Operator
+// servers (servers_dir) are marked trusted: the worker lets them use private
+// and loopback addresses; a tenant's server never is.
+func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, _ string) []messagequeue.MCPServerDefPayload {
+	servers := s.resolveForRun(ctx, projectID)
+	payloads := make([]messagequeue.MCPServerDefPayload, 0, len(servers))
+	for i := range servers {
+		d := &servers[i].def
 		p := messagequeue.MCPServerDefPayload{
 			ID:          d.ID,
 			Name:        d.Name,
@@ -197,6 +217,7 @@ func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, modeID st
 		}
 		if d.Transport == mcp.TransportSSE || d.Transport == mcp.TransportStreamableHTTP {
 			p.AllowedPrivateHosts = s.allowedPrivateHosts
+			p.Trusted = servers[i].operator
 		}
 		payloads = append(payloads, p)
 	}

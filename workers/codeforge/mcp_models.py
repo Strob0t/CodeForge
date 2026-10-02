@@ -21,6 +21,9 @@ class MCPServerDef(BaseModel):
     # Host names, IPs and CIDR prefixes whose private addresses an sse or
     # streamable_http server may use (mcp.allowed_private_hosts, KI-100).
     allowed_private_hosts: list[str] = Field(default_factory=list)
+    # An operator server (servers_dir): it may use private and loopback addresses.
+    # Only the Go Core sets it, never for a server a tenant stored.
+    trusted: bool = False
 
 
 class MCPTool(BaseModel):

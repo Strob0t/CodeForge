@@ -86,7 +86,7 @@ class McpServerConnection:
         the reason, before anything connects; the client's transport checks
         the address of every request again (DNS rebinding, redirects).
         """
-        policy = OutboundPolicy(self._def.allowed_private_hosts)
+        policy = OutboundPolicy(self._def.allowed_private_hosts, trusted=self._def.trusted)
         await policy.check_url(self._def.url)
         client_factory = guarded_client_factory(policy)
         if self._def.transport == "sse":

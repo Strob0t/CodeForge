@@ -16,10 +16,13 @@ import (
 
 // SSRF protection for sse and streamable_http MCP servers (KI-100): a
 // tenant admin chooses their url, and the Go Core (connection test) and the
-// worker (runs) connect to it. Loopback, link-local (cloud metadata),
-// unspecified, multicast and reserved addresses are never used; private
-// ones only for the hosts in mcp.allowed_private_hosts, which only the
-// platform operator sets.
+// worker (runs) connect to it. Link-local (cloud metadata), unspecified,
+// multicast and reserved addresses are never used; private ones only for
+// the hosts in mcp.allowed_private_hosts, loopback only for explicit
+// loopback entries there (localhost, 127.0.0.1, ::1, a loopback prefix).
+// Only the platform operator sets it. Operator (YAML) servers are not
+// checked by the Go Core (it never connects to them); the worker trusts
+// them with private and loopback addresses.
 
 // mcpURLCheckTimeout bounds the DNS lookup of a url check.
 const mcpURLCheckTimeout = 5 * time.Second
@@ -63,7 +66,7 @@ func (s *MCPService) checkServerURL(ctx context.Context, def *mcp.ServerDef) err
 		return nil
 	}
 	if refused.Allowable() {
-		return fmt.Errorf("%w: url: %w; only the platform operator can allow a private host (mcp.allowed_private_hosts)", domain.ErrValidation, err)
+		return fmt.Errorf("%w: url: %w; only the platform operator can allow it (mcp.allowed_private_hosts)", domain.ErrValidation, err)
 	}
 	return fmt.Errorf("%w: url: %w; MCP servers may never use it", domain.ErrValidation, err)
 }

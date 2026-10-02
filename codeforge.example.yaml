@@ -94,15 +94,19 @@ orchestrator:
 #   enabled: false           # Enable MCP integration (default: false)
 #   servers_dir: ""          # Directory with MCP server YAML definitions
 #   server_port: 3001        # Port for the built-in MCP server (default: 3001)
-#   # sse and streamable_http MCP servers never reach loopback, link-local
-#   # (cloud metadata), unspecified, multicast or reserved addresses. Private
+#   # sse and streamable_http MCP servers never reach link-local (cloud
+#   # metadata), unspecified, multicast or reserved addresses. Private
 #   # addresses (RFC 1918, ULA, CGNAT) are refused unless the host name, the
-#   # address or its CIDR prefix is listed here (default: none). Applies to the
-#   # connection test, create/update and the worker's connections in runs.
+#   # address or its CIDR prefix is listed here; loopback only with an explicit
+#   # entry: localhost, 127.0.0.1, ::1 or a loopback CIDR (default: none).
+#   # Applies to the connection test, create/update and the worker's
+#   # connections in runs. Servers from servers_dir are operator config: the
+#   # worker lets them use private and loopback addresses without a listing.
 #   # Env: CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS (comma-separated).
 #   allowed_private_hosts:
 #     - docs-mcp             # e.g. the docs-mcp service on the compose network
 #     - 10.20.0.0/16
+#     # - 127.0.0.1          # dev: a core on the host, docs-mcp on 127.0.0.1:6280
 
 # Language Server Protocol integration (Phase 15D)
 # Provides code intelligence (go-to-def, references, diagnostics) for agent conversations.

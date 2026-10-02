@@ -65,7 +65,8 @@
       "allowed_private_hosts": [
         "docs-mcp",
         "10.20.0.0/16"
-      ]
+      ],
+      "trusted": true
     }
   ],
   "microagent_prompts": [

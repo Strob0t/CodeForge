@@ -18,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // KI-100: the connection test, create and update of an sse or
@@ -124,18 +125,19 @@ func newMCPTestService(t *testing.T, allowed []string, store *recordingMCPStore)
 func TestMCPConnectionTest_RefusesBeforeConnecting(t *testing.T) {
 	local, hits := countingServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	port := strings.TrimPrefix(local.URL, "http://127.0.0.1:")
-	// The allowlist never opens loopback or link-local.
-	svc := newMCPTestService(t, []string{"localhost", "127.0.0.1", "169.254.0.0/16"}, newRecordingMCPStore())
+	// Link-local is never opened; loopback only by an explicit entry, not by
+	// a broad prefix.
+	svc := newMCPTestService(t, []string{"0.0.0.0/0", "::/0", "169.254.0.0/16"}, newRecordingMCPStore())
 
 	tests := []struct {
 		url  string
 		want string
 	}{
-		{local.URL + "/sse", "127.0.0.1 is a loopback address; MCP servers may never use it"},
+		{local.URL + "/sse", "127.0.0.1 is a loopback address; only the platform operator can allow it (mcp.allowed_private_hosts)"},
 		{"http://localhost:" + port + "/mcp", "a loopback address"},
 		{"http://[::1]:" + port + "/mcp", "::1 is a loopback address"},
 		{"http://[::ffff:127.0.0.1]:" + port + "/mcp", "a loopback address"},
-		{"http://169.254.169.254/latest/meta-data/", "a link-local address"},
+		{"http://169.254.169.254/latest/meta-data/", "169.254.169.254 is a link-local address; MCP servers may never use it"},
 		{"http://[fd00:ec2::254]/latest/meta-data/", "a cloud metadata address"},
 		{"http://0.0.0.0:" + port + "/sse", "an unspecified address"},
 	}
@@ -154,6 +156,35 @@ func TestMCPConnectionTest_RefusesBeforeConnecting(t *testing.T) {
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("the local server saw %d requests, want none", hits.Load())
+	}
+}
+
+// TestMCPConnectionTest_ReachesAnAllowlistedLoopback (KI-100 review): the
+// dev topology (an MCP server published on 127.0.0.1) works once the
+// operator opens loopback with an explicit entry.
+func TestMCPConnectionTest_ReachesAnAllowlistedLoopback(t *testing.T) {
+	local, hits := countingServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not an MCP server", http.StatusInternalServerError)
+	})
+	for _, entry := range []string{"localhost", "127.0.0.1", "127.0.0.0/8"} {
+		svc := service.NewMCPService(&config.MCP{AllowedPrivateHosts: []string{entry}}, &config.Limits{MCPTestTimeout: 5 * time.Second})
+		policy, err := netutil.NewOutboundPolicy([]string{entry}, netutil.WithLookup(fakeLookup)) // real dialer
+		if err != nil {
+			t.Fatal(err)
+		}
+		svc.SetOutboundPolicy(policy)
+		target := local.URL
+		if entry == "localhost" {
+			target = strings.Replace(local.URL, "127.0.0.1", "localhost", 1)
+		}
+		before := hits.Load()
+		result, err := svc.TestConnection(context.Background(), &mcp.ServerDef{Name: "s", Transport: mcp.TransportStreamableHTTP, URL: target + "/mcp"})
+		if err != nil {
+			t.Fatalf("allowlist %q: TestConnection: %v", entry, err)
+		}
+		if result.Success || hits.Load() == before {
+			t.Fatalf("allowlist %q: result %+v, %d requests; want the local server reached", entry, result, hits.Load()-before)
+		}
 	}
 }
 
@@ -318,6 +349,41 @@ func TestMCPRunServerPayloads_CarryTheAllowlist(t *testing.T) {
 	if local.Command != "mcp-files" || strings.Join(local.Args, " ") != "--root /w" || local.Env["TOKEN"] != "x" ||
 		local.AllowedPrivateHosts != nil {
 		t.Errorf("stdio payload = %+v, want command, args, env and no allowlist", local)
+	}
+}
+
+// TestMCPRunServerPayloads_TrustOnlyOperatorServers (KI-100 review): servers
+// from servers_dir are operator config, so the worker lets them use private
+// and loopback addresses; servers a tenant admin stored never get that, even
+// one that claims the ID of an operator server (the operator's wins).
+func TestMCPRunServerPayloads_TrustOnlyOperatorServers(t *testing.T) {
+	store := &tenantMCPStore{runtimeMockStore: &runtimeMockStore{}, byTenant: map[string][]mcp.ServerDef{
+		tenantctx.DefaultTenantID: {
+			{ID: "db-remote", Name: "tenant", Transport: mcp.TransportSSE, URL: "http://10.0.0.5/sse", Enabled: true},
+			{ID: "yaml-docs", Name: "impostor", Transport: mcp.TransportSSE, URL: "http://127.0.0.1:6280/sse", Enabled: true},
+			{ID: "yaml-off", Name: "tenant-2", Transport: mcp.TransportSSE, URL: "http://10.0.0.6/sse", Enabled: true},
+		},
+	}}
+	svc := service.NewMCPService(&config.MCP{}, nil)
+	svc.SetStore(store)
+	if err := svc.Register(mcp.ServerDef{ID: "yaml-docs", Name: "docs", Transport: mcp.TransportStreamableHTTP, URL: "http://docs-mcp:6280/mcp", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	// A disabled operator server leaves its ID to the stored server, untrusted.
+	if err := svc.Register(mcp.ServerDef{ID: "yaml-off", Name: "off", Transport: mcp.TransportSSE, URL: "http://docs-mcp:6281/sse"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := svc.RunServerPayloads(tenantctx.WithTenant(context.Background(), tenantctx.DefaultTenantID), "p1", "")
+
+	if len(got) != 3 || got[0].ID != "db-remote" || got[1].ID != "yaml-docs" || got[2].ID != "yaml-off" {
+		t.Fatalf("payloads = %+v, want db-remote, yaml-docs and yaml-off", got)
+	}
+	if got[0].Trusted || got[2].Trusted || got[2].Name != "tenant-2" {
+		t.Errorf("a tenant's server is trusted: %+v, %+v", got[0], got[2])
+	}
+	if !got[1].Trusted || got[1].Name != "docs" || got[1].URL != "http://docs-mcp:6280/mcp" {
+		t.Errorf("operator server payload = %+v, want the operator's definition, trusted", got[1])
 	}
 }
 

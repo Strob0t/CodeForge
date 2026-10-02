@@ -28,6 +28,7 @@ type outboundCases struct {
 	Policies []struct {
 		Name                string   `json:"name"`
 		AllowedPrivateHosts []string `json:"allowed_private_hosts"`
+		Trusted             bool     `json:"trusted"`
 		Cases               []struct {
 			Name      string `json:"name"`
 			Host      string `json:"host"`
@@ -55,6 +56,11 @@ func loadOutboundCases(t *testing.T) outboundCases {
 
 func TestOutboundPolicy_CheckAddr(t *testing.T) {
 	for _, pc := range loadOutboundCases(t).Policies {
+		if pc.Trusted {
+			// Operator (YAML) servers: only the worker connects to them and
+			// checks them (workers/tests/test_mcp_outbound.py runs these).
+			continue
+		}
 		policy, err := NewOutboundPolicy(pc.AllowedPrivateHosts)
 		if err != nil {
 			t.Fatalf("%s: NewOutboundPolicy: %v", pc.Name, err)
@@ -136,11 +142,11 @@ func TestOutboundPolicy_CheckHost(t *testing.T) {
 	}{
 		{"public.example", false, false},
 		{"internal.example", true, true},
-		{"mixed.example", true, false},
+		{"mixed.example", true, true}, // loopback: only an explicit entry opens it
 		{"docs-mcp", false, false},
-		{"127.0.0.1", true, false},
-		{"::1", true, false},
-		{"[::1]", true, false},
+		{"127.0.0.1", true, true},
+		{"::1", true, true},
+		{"[::1]", true, true},
 		{"169.254.169.254", true, false},
 		{"93.184.216.34", false, false},
 	}
@@ -286,6 +292,35 @@ func TestOutboundPolicy_TransportDialsAllowlistedHost(t *testing.T) {
 	}
 	if len(dialed) != 1 || dialed[0] != "172.18.0.5:6280" {
 		t.Fatalf("dialed %v, want the checked address", dialed)
+	}
+}
+
+// TestOutboundPolicy_TransportReachesAllowlistedLoopback (KI-100 review): the
+// dev topology (docs-mcp published on 127.0.0.1:6280) works once the
+// operator opens loopback explicitly; 0.0.0.0/0 does not open it.
+func TestOutboundPolicy_TransportReachesAllowlistedLoopback(t *testing.T) {
+	srv, hits := upstream(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	for _, entry := range []string{"127.0.0.1", "127.0.0.0/8"} {
+		policy, err := NewOutboundPolicy([]string{entry})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := (&http.Client{Transport: policy.Transport()}).Get(srv.URL)
+		if err != nil {
+			t.Fatalf("allowlist %q: %v", entry, err)
+		}
+		_ = resp.Body.Close()
+	}
+	broad, err := NewOutboundPolicy([]string{"0.0.0.0/0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, err := (&http.Client{Transport: broad.Transport()}).Get(srv.URL); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("0.0.0.0/0 opened loopback")
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("the loopback server saw %d requests, want 2", hits.Load())
 	}
 }
 

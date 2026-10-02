@@ -1,11 +1,14 @@
 """SSRF protection for the worker's sse and streamable_http MCP connections (KI-100).
 
 A tenant admin chooses the url of such a server, and the worker connects to it
-in runs. Loopback, link-local (cloud metadata), unspecified, multicast and
-reserved addresses are never used; private ones (RFC 1918, ULA, CGNAT, ...)
+in runs. Link-local (cloud metadata), unspecified, multicast and reserved
+addresses are never used. Private ones (RFC 1918, ULA, CGNAT, ...) are used
 only for the host names, addresses and CIDR prefixes the platform operator
 allowlisted (``mcp.allowed_private_hosts``; Go sends the list with each server
-as ``allowed_private_hosts``). The rules match ``internal/netutil/outbound.go``.
+as ``allowed_private_hosts``), loopback ones only for an explicit loopback entry
+(``localhost``, ``127.0.0.1``, ``::1`` or a loopback prefix). An operator server
+(``servers_dir``, sent with ``trusted``) may use private and loopback addresses.
+The rules match ``internal/netutil/outbound.go``.
 
 ``GuardedTransport`` resolves the host of every request, checks every address
 and sends the request to a checked address (the Host header and TLS server name
@@ -37,8 +40,10 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 _PRIVATE = "private"
+_LOOPBACK = "loopback"
 
-# Refused for every host, allowlisted or not.
+# Refused by default: loopback (only an explicit allowlist entry or an operator
+# server opens it) and, for every server, the rest.
 _NEVER_ALLOWED: tuple[tuple[IPNetwork, str], ...] = tuple(
     (ipaddress.ip_network(net), kind)
     for net, kind in (
@@ -77,6 +82,9 @@ _PRIVATE_NETWORKS: tuple[IPNetwork, ...] = tuple(
 # IPv4-compatible addresses and the NAT64 well-known prefix.
 _EMBEDS_IPV4: tuple[IPNetwork, ...] = (ipaddress.ip_network("::/96"), ipaddress.ip_network("64:ff9b::/96"))
 
+# The loopback ranges an explicit allowlist entry can open.
+_LOOPBACK_NETWORKS: tuple[IPNetwork, ...] = (ipaddress.ip_network("127.0.0.0/8"), ipaddress.ip_network("::1/128"))
+
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -87,7 +95,7 @@ class AddressRefusedError(httpx.ConnectError):
     def __init__(self, message: str, *, allowable: bool = False) -> None:
         super().__init__(message)
         self.allowable = allowable
-        """True when the address is refused only because it is private."""
+        """True when the operator could allow the address (private, or loopback with an explicit entry)."""
 
 
 def _address(value: str | IPAddress) -> IPAddress:
@@ -147,17 +155,25 @@ def _is_ip_literal(host: str) -> bool:
 class OutboundPolicy:
     """Decides which addresses an MCP connection may reach."""
 
-    def __init__(self, allowed_private_hosts: Sequence[str], *, resolver: Resolver | None = None) -> None:
+    def __init__(
+        self, allowed_private_hosts: Sequence[str], *, trusted: bool = False, resolver: Resolver | None = None
+    ) -> None:
         self._hosts: set[str] = set()
         self._networks: list[IPNetwork] = []
+        self._loopback: list[IPNetwork] = []
+        self._trusted = trusted
         self._resolver = resolver
         for raw in allowed_private_hosts:
             entry = raw.strip()
             try:
-                self._networks.append(_unmap_network(ipaddress.ip_network(entry, strict=False)))
-                continue
+                network = _unmap_network(ipaddress.ip_network(entry, strict=False))
             except ValueError:
-                pass
+                network = None
+            if network is not None:
+                self._networks.append(network)
+                if any(network.subnet_of(lo) for lo in _LOOPBACK_NETWORKS if lo.version == network.version):
+                    self._loopback.append(network)
+                continue
             if _is_host_name(entry):
                 self._hosts.add(_normalise_host(entry))
             else:
@@ -171,7 +187,13 @@ class OutboundPolicy:
         if not kind:
             return
         if kind == _PRIVATE and (
-            _normalise_host(host) in self._hosts or any(effective in net for net in self._networks)
+            self._trusted or _normalise_host(host) in self._hosts or any(effective in net for net in self._networks)
+        ):
+            return
+        if kind == _LOOPBACK and (
+            self._trusted
+            or (_normalise_host(host) == "localhost" and "localhost" in self._hosts)
+            or any(effective in net for net in self._loopback)
         ):
             return
         shown = (
@@ -182,11 +204,12 @@ class OutboundPolicy:
             message = f"{shown} is {article} {kind} address"
         else:
             message = f"{host} resolves to {shown}, {article} {kind} address"
-        if kind == _PRIVATE:
-            message += "; only the platform operator can allow a private host (mcp.allowed_private_hosts)"
+        allowable = kind in (_PRIVATE, _LOOPBACK)
+        if allowable:
+            message += "; only the platform operator can allow it (mcp.allowed_private_hosts)"
         else:
             message += "; MCP servers may never use it"
-        raise AddressRefusedError(message, allowable=kind == _PRIVATE)
+        raise AddressRefusedError(message, allowable=allowable)
 
     async def resolve(self, host: str, port: int) -> list[str]:
         """The addresses of host; AddressRefusedError when one of them is refused."""

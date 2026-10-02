@@ -19,6 +19,9 @@ type MCPServerDefPayload struct {
 	// AllowedPrivateHosts is mcp.allowed_private_hosts for sse and
 	// streamable_http servers: the worker refuses other private addresses (KI-100).
 	AllowedPrivateHosts []string `json:"allowed_private_hosts,omitempty"`
+	// Trusted marks an operator server (servers_dir): the worker lets it use
+	// private and loopback addresses. Servers stored by tenants never are.
+	Trusted bool `json:"trusted,omitempty"`
 }
 
 // --- Conversation run payloads (Phase 17C) ---

@@ -33,8 +33,9 @@ type addrRange struct {
 	kind   string
 }
 
-// neverAllowed are refused for every host, allowlisted or not: the Go Core's
-// and the worker's own services (loopback), cloud metadata endpoints
+// neverAllowed are refused by default: loopback (the Go Core's and the
+// worker's own services; only an explicit allowlist entry opens it) and,
+// for every host whatever the allowlist, cloud metadata endpoints
 // (link-local, fd00:ec2::254, 100.100.100.200) and addresses no server
 // listens on.
 var neverAllowed = []addrRange{
@@ -93,19 +94,30 @@ func (e *RefusedAddressError) Error() string {
 // Is makes errors.Is(err, ErrAddressRefused) hold.
 func (e *RefusedAddressError) Is(target error) bool { return target == ErrAddressRefused }
 
-// Allowable reports whether the address is refused only because it is
-// private: the platform operator can allowlist its host.
-func (e *RefusedAddressError) Allowable() bool { return e.Kind == kindPrivate }
+// Allowable reports whether the address is refused only because the
+// platform operator did not allowlist it: a private address, or a loopback
+// one (which needs an explicit loopback entry).
+func (e *RefusedAddressError) Allowable() bool {
+	return e.Kind == kindPrivate || e.Kind == kindLoopback
+}
+
+// loopbackRanges are the loopback addresses an explicit allowlist entry can
+// open: "localhost", 127.0.0.1, ::1 or a CIDR prefix inside 127.0.0.0/8.
+var loopbackRanges = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
 
 // OutboundPolicy decides which addresses an outbound connection to a URL that
-// a tenant supplied may reach (KI-100). Loopback, link-local (cloud
-// metadata), unspecified, multicast and reserved addresses are always
-// refused; private ones (RFC 1918, ULA, CGNAT, NAT64 local-use, ...) only
-// when neither the host name nor the address is on the operator's allowlist. IPv4 addresses
-// inside IPv6 (mapped, compatible, NAT64) are judged as IPv4.
+// a tenant supplied may reach (KI-100). Link-local (cloud metadata),
+// unspecified, multicast and reserved addresses are always refused. Private
+// ones (RFC 1918, ULA, CGNAT, NAT64 local-use, ...) are refused unless the
+// host name or the address is on the operator's allowlist; loopback ones
+// unless the allowlist opens loopback explicitly ("localhost" for that name,
+// or a loopback address or prefix; a broader prefix such as 0.0.0.0/0 does
+// not). IPv4 addresses inside IPv6 (mapped, compatible, NAT64) are judged as
+// IPv4.
 type OutboundPolicy struct {
 	hosts    map[string]bool
 	prefixes []netip.Prefix
+	loopback []netip.Prefix // allowlisted prefixes that lie inside a loopback range
 	lookup   func(ctx context.Context, host string) ([]netip.Addr, error)
 	dial     func(ctx context.Context, network, address string) (net.Conn, error)
 }
@@ -125,7 +137,9 @@ func WithDial(dial func(ctx context.Context, network, address string) (net.Conn,
 
 // NewOutboundPolicy builds a policy whose private addresses are allowed for
 // the given host names (exact, case-insensitive), IP addresses and CIDR
-// prefixes. An entry that is none of these is an error.
+// prefixes, and whose loopback addresses are allowed for the name
+// "localhost" and for loopback addresses and prefixes among them. An entry
+// that is none of these is an error.
 func NewOutboundPolicy(allowedPrivate []string, opts ...OutboundOption) (*OutboundPolicy, error) {
 	p := &OutboundPolicy{
 		hosts: make(map[string]bool),
@@ -137,12 +151,12 @@ func NewOutboundPolicy(allowedPrivate []string, opts ...OutboundOption) (*Outbou
 	for _, raw := range allowedPrivate {
 		entry := strings.TrimSpace(raw)
 		if prefix, err := netip.ParsePrefix(entry); err == nil {
-			p.prefixes = append(p.prefixes, unmapPrefix(prefix))
+			p.addPrefix(unmapPrefix(prefix))
 			continue
 		}
 		if addr, err := netip.ParseAddr(entry); err == nil {
 			addr = addr.WithZone("").Unmap()
-			p.prefixes = append(p.prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+			p.addPrefix(netip.PrefixFrom(addr, addr.BitLen()))
 			continue
 		}
 		if !isHostName(entry) {
@@ -156,6 +170,15 @@ func NewOutboundPolicy(allowedPrivate []string, opts ...OutboundOption) (*Outbou
 	return p, nil
 }
 
+func (p *OutboundPolicy) addPrefix(prefix netip.Prefix) {
+	p.prefixes = append(p.prefixes, prefix)
+	for _, loopback := range loopbackRanges {
+		if loopback.Bits() <= prefix.Bits() && loopback.Contains(prefix.Addr()) {
+			p.loopback = append(p.loopback, prefix)
+		}
+	}
+}
+
 // CheckAddr returns a *RefusedAddressError when a connection to host may not
 // reach addr, nil when it may.
 func (p *OutboundPolicy) CheckAddr(host string, addr netip.Addr) error {
@@ -164,16 +187,24 @@ func (p *OutboundPolicy) CheckAddr(host string, addr netip.Addr) error {
 	case "":
 		return nil
 	case kindPrivate:
-		if p.hosts[normaliseHost(host)] {
+		if p.hosts[normaliseHost(host)] || containsAddr(p.prefixes, effective) {
 			return nil
 		}
-		for _, prefix := range p.prefixes {
-			if prefix.Contains(effective) {
-				return nil
-			}
+	case kindLoopback:
+		if (normaliseHost(host) == "localhost" && p.hosts["localhost"]) || containsAddr(p.loopback, effective) {
+			return nil
 		}
 	}
 	return &RefusedAddressError{Host: host, Addr: addr.Unmap(), Kind: kind}
+}
+
+func containsAddr(prefixes []netip.Prefix, addr netip.Addr) bool {
+	for _, prefix := range prefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // CheckHost resolves host (a name or an IP literal) and checks every address

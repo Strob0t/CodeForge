@@ -28,9 +28,9 @@ func TestMCPServerURLs_RefusedWith400(t *testing.T) {
 	tenantAdmin := &user.User{ID: "ta", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
 
 	for _, tt := range []struct{ url, reason string }{
-		{local.URL + "/mcp", "127.0.0.1 is a loopback address; MCP servers may never use it"},
-		{"http://169.254.169.254/latest/meta-data/", "169.254.169.254 is a link-local address"},
-		{"http://10.0.0.5:6280/mcp", "10.0.0.5 is a private address; only the platform operator can allow a private host (mcp.allowed_private_hosts)"},
+		{local.URL + "/mcp", "127.0.0.1 is a loopback address; only the platform operator can allow it (mcp.allowed_private_hosts)"},
+		{"http://169.254.169.254/latest/meta-data/", "169.254.169.254 is a link-local address; MCP servers may never use it"},
+		{"http://10.0.0.5:6280/mcp", "10.0.0.5 is a private address; only the platform operator can allow it (mcp.allowed_private_hosts)"},
 		{"http://internal.example.com:6280/mcp", "internal.example.com resolves to 10.1.2.3, a private address"},
 	} {
 		def := map[string]any{"name": "remote", "transport": "streamable_http", "url": tt.url, "enabled": true}
