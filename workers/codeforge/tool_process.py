@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import logging
 import os
 import secrets
@@ -606,20 +607,43 @@ def _shared_mode(mode: int) -> int:
     return shared
 
 
-def _share_entry(path: str, gid: int, uid: int) -> bool:
-    """Move one entry of the worker's into group *gid* and open it to the group; True if it changed."""
+def _share_entry(name: str, gid: int, uid: int, dir_fd: int | None = None) -> bool:
+    """Move one entry of the worker's into group *gid* and open it to the group; True if it changed.
+
+    The entry (*name*, relative to *dir_fd*) is changed only through a
+    descriptor opened without following a symlink, after checking it is the
+    regular file or directory the walk saw: a tool process may swap an entry
+    for a symlink while the walk runs, and a change by path would follow it
+    onto the worker's files outside the workspaces. Anything else (symlinks,
+    FIFOs, devices, other users' entries) is left alone.
+    """
     try:
-        info = os.lstat(path)
-        if stat.S_ISLNK(info.st_mode) or info.st_uid != uid:
-            return False
+        seen = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except OSError as exc:
+        logger.warning("cannot share %s with the tool user: %s", name, exc)
+        return False
+    if not (stat.S_ISREG(seen.st_mode) or stat.S_ISDIR(seen.st_mode)) or seen.st_uid != uid:
+        return False
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dir_fd)
+    except OSError as exc:
+        if exc.errno != errno.ELOOP:  # ELOOP: swapped for a symlink meanwhile, left alone
+            logger.warning("cannot share %s with the tool user: %s", name, exc)
+        return False
+    try:
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) != (seen.st_dev, seen.st_ino) or info.st_uid != uid:
+            return False  # swapped for another entry meanwhile
         mode = _shared_mode(info.st_mode)
         if info.st_gid == gid and stat.S_IMODE(info.st_mode) == mode:
             return False
-        os.chown(path, -1, gid, follow_symlinks=False)
-        os.chmod(path, mode)
+        os.fchown(fd, -1, gid)
+        os.fchmod(fd, mode)
     except OSError as exc:
-        logger.warning("cannot share %s with the tool user: %s", path, exc)
+        logger.warning("cannot share %s with the tool user: %s", name, exc)
         return False
+    finally:
+        os.close(fd)
     return True
 
 
@@ -659,11 +683,13 @@ def share_workspace_root(root: str, gid: int) -> int:
     if _read_stamp(root) == WORKSPACE_SHARING_VERSION:
         return 0
     changed = 0
-    for dirpath, dirnames, filenames in os.walk(root):
+    # Relative to directory descriptors, never following a symlink: a tool
+    # process may change the tree while it is walked (_share_entry).
+    for dirpath, dirnames, filenames, dir_fd in os.fwalk(root, follow_symlinks=False):
         for name in (*dirnames, *filenames):
-            if dirpath == root and name == _SHARING_STAMP:
+            if dirpath == root and name.startswith(_SHARING_STAMP):
                 continue
-            changed += _share_entry(os.path.join(dirpath, name), gid, uid)
+            changed += _share_entry(name, gid, uid, dir_fd=dir_fd)
     changed += _share_entry(root, gid, uid)
     share_tool_files_sync(root)
     _write_stamp(root)

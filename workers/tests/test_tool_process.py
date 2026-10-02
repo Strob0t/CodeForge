@@ -617,6 +617,72 @@ def test_a_planted_stamp_never_stops_the_worker(kind: str, tmp_path: Path, caplo
         assert elsewhere.read_text() == tool_process.WORKSPACE_SHARING_VERSION + "\n"
 
 
+def test_share_workspace_root_never_follows_an_entry_swapped_for_a_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round 5, item 3: tool processes may run during the walk (a second worker instance, a
+    rolling update). An entry swapped for a symlink between the walk's check and its change
+    must not redirect the change, or the walk, onto the worker's files outside the workspaces.
+    """
+    root = tmp_path / "workspaces"
+    sub = root / "project" / "sub"
+    sub.mkdir(parents=True)
+    (sub / "inner.py").write_text("x")
+    main = root / "project" / "main.py"
+    main.write_text("x")
+    main.chmod(0o644)
+    secret = tmp_path / "secret"  # the worker's own files outside the workspaces
+    secret.write_text("key")
+    secret.chmod(0o600)
+    secret_dir = tmp_path / "secret-dir"
+    secret_dir.mkdir()
+    (secret_dir / "key").write_text("key")
+    (secret_dir / "key").chmod(0o600)
+    secret_dir.chmod(0o700)
+    # Swapped right after the walk first checks the entry (by path or by name).
+    swaps = {
+        str(main): (main, secret),
+        main.name: (main, secret),
+        str(sub): (sub, secret_dir),
+        sub.name: (sub, secret_dir),
+    }
+    real_stat, real_lstat = os.stat, os.lstat
+
+    def swap_after(path: object, result: os.stat_result) -> os.stat_result:
+        key = os.fsdecode(path) if isinstance(path, (str, bytes, os.PathLike)) else None
+        swap = swaps.pop(key, None) if key is not None else None
+        if swap is None:
+            return result
+        entry, target = swap
+        swaps.pop(str(entry), None)
+        swaps.pop(entry.name, None)
+        if entry == sub:
+            os.unlink(sub / "inner.py")
+            os.rmdir(sub)
+        else:
+            os.unlink(entry)
+        os.symlink(target, entry)
+        return result
+
+    def stat_then_swap(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        return swap_after(path, real_stat(path, *args, **kwargs))  # type: ignore[arg-type]
+
+    def lstat_then_swap(path: object, *args: object, **kwargs: object) -> os.stat_result:
+        return swap_after(path, real_lstat(path, *args, **kwargs))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(tool_process.os, "stat", stat_then_swap)
+    monkeypatch.setattr(tool_process.os, "lstat", lstat_then_swap)
+    try:
+        share_workspace_root(str(root), os.getgid())
+    finally:
+        monkeypatch.undo()
+
+    assert not swaps, f"the walk never checked {sorted(swaps)}"
+    assert stat.S_IMODE(secret.stat().st_mode) == 0o600
+    assert stat.S_IMODE(secret_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE((secret_dir / "key").stat().st_mode) == 0o600
+
+
 def test_share_workspace_root_missing_root_is_no_error(tmp_path: Path) -> None:
     assert share_workspace_root(str(tmp_path / "missing"), os.getgid()) == 0
 
