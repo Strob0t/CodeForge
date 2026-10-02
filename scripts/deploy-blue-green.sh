@@ -12,6 +12,15 @@
 #   docker-compose.blue-green.yml up -d`). The color is started with
 #   --no-deps, so the deployment never recreates them.
 #
+#   This script switches only the core and the frontend. The worker is not
+#   colored: an upgrade to per-tenant tool users (KI-96, ADR-018) stops every
+#   worker by hand first (`docker compose ... stop worker`, all replicas),
+#   deploys a color with this script, then starts the new worker image
+#   (`docker compose ... up -d worker`). An older worker must never run next
+#   to a new one or after the upgrade: it runs every tenant's tools as one
+#   user in the workspace group and takes no tenant lock. Run
+#   ./scripts/check-host.sh with the new worker image before.
+#
 # Environment:
 #   ACME_EMAIL, CODEFORGE_DOMAIN  required by the overlay (or set in .env)
 #   DRY_RUN=1                     print the plan and run the changing compose

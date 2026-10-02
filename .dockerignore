@@ -22,8 +22,9 @@ coverage/
 tests/
 docs/
 scripts/
-# Dockerfile.worker copies the healthcheck script.
+# Dockerfile.worker copies the healthcheck script and its entrypoint.
 !scripts/worker-healthcheck.py
+!scripts/worker-entrypoint.sh
 *.md
 .worktrees/
 .github/

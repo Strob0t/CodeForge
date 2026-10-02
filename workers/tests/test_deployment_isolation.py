@@ -81,6 +81,59 @@ def test_worker_image_isolates_tools() -> None:
     assert os.access(REPO / "scripts" / "worker-entrypoint.sh", os.X_OK)
 
 
+def _runtime_stage() -> str:
+    return (REPO / "Dockerfile.worker").read_text().split("# --- Runtime stage ---", 1)[1]
+
+
+def test_worker_image_has_per_tenant_tool_users() -> None:
+    """KI-96: passwd entries for 19999 and 20000-29999 written directly (useradd would hand out
+    65,536 subordinate IDs per user and run out), the retired shared tool user outside the
+    workspace group, and no setting of the KI-71 single tool user."""
+    runtime = _runtime_stage()
+    assert "seq 20000 29999" in runtime
+    assert "/etc/passwd" in runtime
+    assert "/etc/group" in runtime
+    assert "codeforge-system:x:19999:19999:" in runtime
+    assert not re.search(r"useradd[^\n]*-u (19999|2\d{4})", runtime)
+    assert "codeforge-tool-legacy" in runtime
+    assert not re.search(r"useradd[^&]*-u 10002[^&]*-G codeforge-ws", runtime), "10002 left the workspace group"
+    for name in ("CODEFORGE_TOOL_UID", "CODEFORGE_TOOL_GID", "CODEFORGE_TOOL_HOME="):
+        assert name not in runtime, name
+
+
+def test_worker_image_layout_for_landlock_and_acls() -> None:
+    runtime = _runtime_stage()
+    assert re.search(r"apt-get install[^&]*\bacl\b", runtime), "the acl package (setfacl for operators)"
+    assert "python -m compileall -q /usr/local/lib/python3.12" in runtime, "the launch helper imports fast"
+    assert "chmod 2771 /data/workspaces" in runtime
+    assert "install -d -o 10001 -g 10001 -m 0711 /home/codeforge-tools" in runtime
+    assert "/var/lib/codeforge/landlock-canary" in runtime
+    assert "user.name 'CodeForge agent'" in runtime
+    assert "user.email agent@codeforge.invalid" in runtime
+    assert "safe.directory '*'" in runtime
+
+
+def test_core_image_sets_tool_acls() -> None:
+    dockerfile = (REPO / "Dockerfile").read_text()
+    runtime = dockerfile.split("# --- Runtime stage ---", 1)[1]
+    assert "CODEFORGE_WORKSPACE_TOOL_ACLS=required" in runtime
+    assert "chmod 2771 /data/workspaces" in runtime
+
+
+def test_compose_gives_tools_a_home_volume_and_a_closed_tmp() -> None:
+    """KI-96 D7: HOMEs on a disk volume (a tmpfs is noexec and counts against the worker's
+    memory); /tmp writable only by the worker; the Core sets tool ACLs; no new capability."""
+    assert "tool_homes:/home/codeforge-tools" in WORKER["volumes"]
+    assert "tool_homes" in COMPOSE["volumes"]
+    assert "/tmp:uid=10001,gid=10010,mode=1771" in WORKER["tmpfs"]
+    assert not any(entry.startswith("/home/codeforge-tool") for entry in WORKER["tmpfs"])
+    assert "/tmp" not in WORKER["tmpfs"]
+    assert CORE["environment"]["CODEFORGE_WORKSPACE_TOOL_ACLS"] == "required"
+    assert sorted(WORKER["cap_add"]) == ["KILL", "SETGID", "SETUID"]
+    for name in ("CODEFORGE_TOOL_UID", "CODEFORGE_TOOL_GID", "CODEFORGE_TOOL_HOME", "CODEFORGE_TOOL_LANDLOCK"):
+        assert name not in WORKER["environment"], name
+
+
 needs_tools = pytest.mark.skipif(BASH is None or shutil.which("openssl") is None, reason="needs bash and openssl")
 
 
@@ -187,6 +240,10 @@ def test_compose_config_is_valid(overlay: bool, tmp_path: Path) -> None:
     for name in cores:
         targets = {s["source"]: s["target"] for s in services[name]["secrets"]}
         assert targets["nats-core-url"] in ("nats-url", "/run/secrets/nats-url"), name
+        assert services[name]["environment"]["CODEFORGE_WORKSPACE_TOOL_ACLS"] == "required", name
     worker_targets = {s["source"]: s["target"] for s in services["worker"]["secrets"]}
     assert worker_targets["nats-worker-url"] in ("nats-url", "/run/secrets/nats-url")
     assert sorted(services["worker"]["cap_add"]) == ["KILL", "SETGID", "SETUID"]
+    homes = [v for v in services["worker"]["volumes"] if v["target"] == "/home/codeforge-tools"]
+    assert homes, services["worker"]["volumes"]
+    assert homes[0]["type"] == "volume", homes
