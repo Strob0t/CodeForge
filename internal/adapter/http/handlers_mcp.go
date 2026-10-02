@@ -11,9 +11,11 @@ import (
 
 // --- MCP Server Handlers (Phase 15C) ---
 
-// MCP server env variables and headers carry credentials: every response
-// shows which are set (mcp.RedactedValue), never a value, to admins too
-// (KI-71 review). An update that sends RedactedValue back keeps the value.
+// MCP server env variables, headers, the url's password and credential
+// arguments (--token=..., --api-key ...) carry credentials: every response
+// shows where one is set (mcp.RedactedValue), never a value, to admins too
+// (KI-71 review, KI-97). An update or test that sends RedactedValue back
+// keeps the stored value for the same transport, url, command and arguments.
 
 func redactedServers(servers []mcp.ServerDef) []mcp.ServerDef {
 	out := make([]mcp.ServerDef, len(servers))

@@ -3,6 +3,8 @@ package mcp
 import (
 	"errors"
 	"maps"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -88,5 +90,219 @@ func TestServerDef_KeepRedacted(t *testing.T) {
 				t.Errorf("env %v, headers %v; want %v, %v", def.Env, def.Headers, tt.wantEnv, tt.wantHeaders)
 			}
 		})
+	}
+}
+
+// KI-97: the url's password and arguments that carry a credential are
+// redacted on reads too; a client that sends them back as read keeps the
+// stored values, for the same transport, url, command and arguments only.
+
+func TestServerDef_RedactedURLAndArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		args     []string
+		wantURL  string
+		wantArgs []string
+	}{
+		{name: "password", url: "https://user:s3cret@mcp.example/sse?x=1", wantURL: "https://user:***@mcp.example/sse?x=1"},
+		{name: "encoded password with @ and :", url: "https://user:p%40ss:w@mcp.example:8443/", wantURL: "https://user:***@mcp.example:8443/"},
+		{name: "user without password stays", url: "https://user@mcp.example/", wantURL: "https://user@mcp.example/"},
+		{name: "empty password stays", url: "https://user:@mcp.example/", wantURL: "https://user:@mcp.example/"},
+		{name: "no userinfo", url: "http://mcp.example/a@b", wantURL: "http://mcp.example/a@b"},
+		{name: "@ in the query is no userinfo", url: "http://mcp.example/?u=a:b@c", wantURL: "http://mcp.example/?u=a:b@c"},
+		{name: "unparsable url", url: "https://user:p%zz@mcp.example/", wantURL: "https://user:***@mcp.example/"},
+		{
+			name:     "flag=value forms",
+			args:     []string{"--token=ghp_1", "-api-key=k2", "PASSWORD=p3", "--githubToken=t4", "--port=8080", "--max-tokens=5", "--token="},
+			wantArgs: []string{"--token=***", "-api-key=***", "PASSWORD=***", "--githubToken=***", "--port=8080", "--max-tokens=5", "--token="},
+		},
+		{
+			name:     "flag value form",
+			args:     []string{"--api-key", "k1", "-password", "p2", "--verbose", "--root", "/w", "--token"},
+			wantArgs: []string{"--api-key", "***", "-password", "***", "--verbose", "--root", "/w", "--token"},
+		},
+		{
+			name:     "a value that looks like a flag is still the value",
+			args:     []string{"--secret", "--not-a-flag", "x"},
+			wantArgs: []string{"--secret", "***", "x"},
+		},
+		{
+			name:     "no credentials",
+			args:     []string{"-y", "@modelcontextprotocol/server-filesystem", "/data", "token"},
+			wantArgs: []string{"-y", "@modelcontextprotocol/server-filesystem", "/data", "token"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stored := ServerDef{Transport: TransportSSE, URL: tt.url, Args: tt.args}
+			got := stored.Redacted()
+			if got.URL != tt.wantURL {
+				t.Errorf("URL = %q, want %q", got.URL, tt.wantURL)
+			}
+			if !slices.Equal(got.Args, tt.wantArgs) {
+				t.Errorf("Args = %q, want %q", got.Args, tt.wantArgs)
+			}
+			if stored.URL != tt.url || !slices.Equal(stored.Args, tt.args) {
+				t.Errorf("Redacted changed the stored definition: %+v", stored)
+			}
+		})
+	}
+}
+
+func TestServerDef_KeepRedactedURLAndArgs(t *testing.T) {
+	stored := &ServerDef{
+		Transport: TransportStdio, Command: "npx",
+		Args: []string{"-y", "mcp-github", "--token=ghp_1", "--api-key", "k2", "--root", "/w"},
+		Env:  map[string]string{"GITHUB_TOKEN": "env-secret"},
+	}
+	remote := &ServerDef{
+		Transport: TransportStreamableHTTP, URL: "https://user:s3cret@mcp.example/mcp",
+		Headers: map[string]string{"Authorization": "Bearer h"},
+	}
+	// base is what the client read; stored is what the store holds (nil on create).
+	tests := []struct {
+		name     string
+		base     *ServerDef
+		stored   *ServerDef
+		edit     func(d *ServerDef)
+		wantErr  bool
+		wantArgs []string
+		wantURL  string
+	}{
+		{
+			name: "args sent back as read", base: stored, stored: stored, edit: func(*ServerDef) {},
+			wantArgs: stored.Args,
+		},
+		{
+			name: "a new value replaces the stored one", base: stored, stored: stored,
+			edit: func(d *ServerDef) { d.Args[2] = "--token=ghp_new" },
+			// The other redacted value is kept, so the rest must stay as stored.
+			wantErr: true,
+		},
+		{
+			name: "all secrets entered again", base: stored, stored: stored,
+			edit: func(d *ServerDef) {
+				d.Args = []string{"-y", "mcp-github", "--token=ghp_new", "--api-key", "k_new", "--verbose"}
+				d.Env = map[string]string{"GITHUB_TOKEN": "env-new"}
+			},
+			wantArgs: []string{"-y", "mcp-github", "--token=ghp_new", "--api-key", "k_new", "--verbose"},
+		},
+		{
+			name: "changed flag name", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Args[2] = "--password=***" },
+			wantErr: true,
+		},
+		{
+			name: "changed flag of a separate value", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Args[3] = "--secret" },
+			wantErr: true,
+		},
+		{
+			name: "moved to another position", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Args = append([]string{"--verbose"}, d.Args...) },
+			wantErr: true,
+		},
+		{
+			name: "another argument changed", base: stored, stored: stored,
+			edit:    func(d *ServerDef) { d.Args[1] = "other-package" },
+			wantErr: true,
+		},
+		{
+			name: "redacted argument without a stored server", base: stored, stored: nil, edit: func(*ServerDef) {},
+			wantErr: true,
+		},
+		{
+			name: "url sent back as read", base: remote, stored: remote, edit: func(*ServerDef) {},
+			wantURL: remote.URL,
+		},
+		{
+			name: "url with another host", base: remote, stored: remote,
+			edit:    func(d *ServerDef) { d.URL = "https://user:***@evil.example/mcp" },
+			wantErr: true,
+		},
+		{
+			name: "url with another path", base: remote, stored: remote,
+			edit:    func(d *ServerDef) { d.URL = "https://user:***@mcp.example/other" },
+			wantErr: true,
+		},
+		{
+			name: "url with another user", base: remote, stored: remote,
+			edit:    func(d *ServerDef) { d.URL = "https://admin:***@mcp.example/mcp" },
+			wantErr: true,
+		},
+		{
+			name: "url with another transport", base: remote, stored: remote,
+			edit:    func(d *ServerDef) { d.Transport = TransportSSE },
+			wantErr: true,
+		},
+		{
+			name: "url with a new password", base: remote, stored: remote,
+			edit: func(d *ServerDef) {
+				d.URL = "https://user:new@mcp.example/mcp"
+				d.Headers = map[string]string{"Authorization": "Bearer new"}
+			},
+			wantURL: "https://user:new@mcp.example/mcp",
+		},
+		{
+			name: "redacted url without a stored password", base: remote, stored: &ServerDef{Transport: TransportStreamableHTTP, URL: "https://user@mcp.example/mcp"},
+			edit:    func(d *ServerDef) { d.URL = "https://user:***@mcp.example/mcp" },
+			wantErr: true,
+		},
+		{
+			name: "redacted url on create", base: remote, stored: nil,
+			edit:    func(d *ServerDef) { d.URL = "https://user:***@mcp.example/mcp" },
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := tt.base.Redacted()
+			tt.edit(&def)
+			sent := def.URL
+
+			err := def.KeepRedacted(tt.stored)
+
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrValidation) {
+					t.Fatalf("KeepRedacted = %v, want domain.ErrValidation", err)
+				}
+				if strings.Contains(err.Error(), "s3cret") || strings.Contains(err.Error(), "ghp_1") {
+					t.Fatalf("the error quotes a secret: %v", err)
+				}
+				if def.URL != sent || slices.Contains(def.Args, "ghp_1") || slices.Contains(def.Args, "--token=ghp_1") ||
+					slices.Contains(def.Args, "k2") {
+					t.Fatalf("a refused definition carries stored secrets: %+v", def)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("KeepRedacted: %v", err)
+			}
+			if tt.wantArgs != nil && !slices.Equal(def.Args, tt.wantArgs) {
+				t.Errorf("Args = %q, want %q", def.Args, tt.wantArgs)
+			}
+			if tt.wantURL != "" && def.URL != tt.wantURL {
+				t.Errorf("URL = %q, want %q", def.URL, tt.wantURL)
+			}
+		})
+	}
+}
+
+func TestServerDef_HasRedactedURLAndArgs(t *testing.T) {
+	for _, tt := range []struct {
+		def  ServerDef
+		want bool
+	}{
+		{ServerDef{URL: "https://u:***@h/"}, true},
+		{ServerDef{URL: "https://u:pw@h/"}, false},
+		{ServerDef{Args: []string{"--token=***"}}, true},
+		{ServerDef{Args: []string{"--token", "***"}}, true},
+		{ServerDef{Args: []string{"--name", "***"}}, false},
+		{ServerDef{Args: []string{"***"}}, false},
+	} {
+		if got := tt.def.HasRedacted(); got != tt.want {
+			t.Errorf("HasRedacted(%+v) = %v, want %v", tt.def, got, tt.want)
+		}
 	}
 }

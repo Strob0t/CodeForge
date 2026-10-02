@@ -170,3 +170,54 @@ describe("MCP server connection tests", () => {
     expect(screen.queryByLabelText("Test connection for local")).toBeNull();
   });
 });
+
+// KI-97: reads show the url's password and credential argument values as
+// "***"; the form sends them back as read, so the Go Core keeps the stored
+// values. Secrets belong in env variables, whose values no read shows.
+describe("MCP server arguments", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mcp.servers = [
+      { ...local, args: ["-y", "mcp-github", "--token=***", "--api-key", "***"] },
+      { ...remote, url: "https://user:***@mcp.example/sse" },
+    ];
+    mcp.listServers.mockImplementation(() => Promise.resolve(mcp.servers));
+    mcp.updateServer.mockResolvedValue(remote);
+    mcp.testConnection.mockResolvedValue({ success: true, tools: [] });
+  });
+
+  it("tells admins to keep secrets out of the arguments", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Add Server"));
+
+    expect(
+      screen.getByText(
+        "Use env variables for secrets; arguments are visible to all users of the tenant.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("sends redacted arguments back as read", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server local"));
+    fireEvent.click(await screen.findByText("Update Server"));
+
+    await waitFor(() => expect(mcp.updateServer).toHaveBeenCalled());
+    expect(mcp.updateServer).toHaveBeenCalledWith(
+      "s-local",
+      expect.objectContaining({ args: ["-y", "mcp-github", "--token=***", "--api-key", "***"] }),
+    );
+  });
+
+  it("sends a redacted url password back as read", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server remote"));
+    fireEvent.click(await screen.findByText("Update Server"));
+
+    await waitFor(() => expect(mcp.updateServer).toHaveBeenCalled());
+    expect(mcp.updateServer).toHaveBeenCalledWith(
+      "s-remote",
+      expect.objectContaining({ url: "https://user:***@mcp.example/sse" }),
+    );
+  });
+});

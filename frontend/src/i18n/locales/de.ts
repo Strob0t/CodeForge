@@ -1254,6 +1254,8 @@ const de: Translations = {
   "mcp.form.commandPlaceholder": "z.B. npx -y @modelcontextprotocol/server-filesystem",
   "mcp.form.args": "Argumente (eins pro Zeile)",
   "mcp.form.argsPlaceholder": "/pfad/zum/erlaubten/verzeichnis",
+  "mcp.form.argsHint":
+    "Verwenden Sie Umgebungsvariablen f\u00fcr Geheimnisse; Argumente sind f\u00fcr alle Benutzer des Mandanten sichtbar.",
   "mcp.form.url": "Server-URL",
   "mcp.form.urlPlaceholder": "http://localhost:3001/sse",
   "mcp.form.env": "Umgebungsvariablen",

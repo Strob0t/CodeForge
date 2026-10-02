@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -304,6 +305,173 @@ func TestMCPServerConnectionTest_KeepsRedactedValues(t *testing.T) {
 	select {
 	case got := <-elsewhere:
 		t.Fatalf("the stored header value went to another url: Authorization %q", got)
+	default:
+	}
+}
+
+// KI-97: the url's password and credential arguments are secrets too.
+const (
+	mcpURLSecret = "url_secret_value"
+	mcpArgToken  = "ghp_arg_token_value"
+	mcpArgKey    = "arg_api_key_value"
+)
+
+func mcpServersWithURLAndArgSecrets() []mcp.ServerDef {
+	return []mcp.ServerDef{
+		{
+			ID: "s1", Name: "github", Transport: mcp.TransportStdio, Command: "npx", Enabled: true,
+			Args:   []string{"-y", "mcp-github", "--token=" + mcpArgToken, "--api-key", mcpArgKey, "--root", "/w"},
+			Status: mcp.ServerStatusRegistered,
+		},
+		{
+			ID: "s2", Name: "remote", Transport: mcp.TransportSSE, URL: "https://user:" + mcpURLSecret + "@mcp.example/sse",
+			Enabled: true, Status: mcp.ServerStatusRegistered,
+		},
+	}
+}
+
+func TestMCPServerReads_RedactURLPasswordAndCredentialArgs(t *testing.T) {
+	admin := &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
+	viewer := &user.User{ID: "vi", Role: user.RoleViewer, TenantID: tenantctx.DefaultTenantID}
+	for _, path := range []string{"/api/v1/mcp/servers", "/api/v1/mcp/servers/s1", "/api/v1/mcp/servers/s2", "/api/v1/projects/p1/mcp-servers"} {
+		for _, u := range []*user.User{viewer, admin} {
+			t.Run(path+"/"+u.ID, func(t *testing.T) {
+				store := &mockStore{mcpServers: mcpServersWithURLAndArgSecrets()}
+				store.mcpProjectLinks = append(store.mcpProjectLinks,
+					struct{ ProjectID, ServerID string }{"p1", "s1"}, struct{ ProjectID, ServerID string }{"p1", "s2"})
+
+				w := serveMCP(t, store, u, http.MethodGet, path, "")
+
+				if w.Code != http.StatusOK {
+					t.Fatalf("status %d: %s", w.Code, w.Body.String())
+				}
+				body := w.Body.String()
+				for _, secret := range []string{mcpURLSecret, mcpArgToken, mcpArgKey} {
+					if strings.Contains(body, secret) {
+						t.Fatalf("response carries a secret: %s", body)
+					}
+				}
+				if path != "/api/v1/mcp/servers/s2" && !strings.Contains(body, `["-y","mcp-github","--token=***","--api-key","***","--root","/w"]`) {
+					t.Fatalf("response does not show the arguments with redacted values: %s", body)
+				}
+				if path != "/api/v1/mcp/servers/s1" && !strings.Contains(body, `"url":"https://user:***@mcp.example/sse"`) {
+					t.Fatalf("response does not show the url with a redacted password: %s", body)
+				}
+			})
+		}
+	}
+}
+
+func TestMCPServerUpdate_KeepsRedactedURLAndArgs(t *testing.T) {
+	admin := &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
+	update := func(t *testing.T, store *mockStore, id string, def *mcp.ServerDef) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(def)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return serveMCP(t, store, admin, http.MethodPut, "/api/v1/mcp/servers/"+id, string(body))
+	}
+
+	t.Run("sent back as read", func(t *testing.T) {
+		store := &mockStore{mcpServers: mcpServersWithURLAndArgSecrets()}
+		want := mcpServersWithURLAndArgSecrets()
+		for i, id := range []string{"s1", "s2"} {
+			read := want[i].Redacted()
+			read.Description = "edited"
+			w := update(t, store, id, &read)
+			if w.Code != http.StatusOK {
+				t.Fatalf("update %s: status %d: %s", id, w.Code, w.Body.String())
+			}
+			for _, secret := range []string{mcpURLSecret, mcpArgToken, mcpArgKey} {
+				if strings.Contains(w.Body.String(), secret) {
+					t.Fatalf("update response carries a secret: %s", w.Body.String())
+				}
+			}
+			if got := store.mcpServers[i]; got.URL != want[i].URL || !slices.Equal(got.Args, want[i].Args) || got.Description != "edited" {
+				t.Errorf("stored %s = %+v, want the stored secrets kept", id, got)
+			}
+		}
+	})
+
+	for name, edit := range map[string]func(d *mcp.ServerDef){
+		"another host keeps no password":       func(d *mcp.ServerDef) { d.URL = "https://user:***@evil.example/sse" },
+		"another flag name keeps no value":     func(d *mcp.ServerDef) { d.Args[2] = "--password=***" },
+		"another flag before a separate value": func(d *mcp.ServerDef) { d.Args[3] = "--secret" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &mockStore{mcpServers: mcpServersWithURLAndArgSecrets()}
+			i, id := 0, "s1"
+			if strings.Contains(name, "host") {
+				i, id = 1, "s2"
+			}
+			read := mcpServersWithURLAndArgSecrets()[i].Redacted()
+			edit(&read)
+			w := update(t, store, id, &read)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status %d, want 400: %s", w.Code, w.Body.String())
+			}
+			if want := mcpServersWithURLAndArgSecrets()[i]; store.mcpServers[i].URL != want.URL || !slices.Equal(store.mcpServers[i].Args, want.Args) {
+				t.Fatalf("a refused update changed the stored server: %+v", store.mcpServers[i])
+			}
+		})
+	}
+}
+
+// TestMCPServerConnectionTest_KeepsRedactedURLPassword (KI-97): testing a
+// saved server read with a redacted url password connects with the stored
+// password, to the stored host only.
+func TestMCPServerConnectionTest_KeepsRedactedURLPassword(t *testing.T) {
+	received := make(chan string, 4)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, password, _ := r.BasicAuth()
+		received <- password
+		http.Error(w, "not an MCP server", http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+	elsewhere := make(chan string, 4)
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhere <- r.Header.Get("Authorization")
+		http.Error(w, "not an MCP server", http.StatusInternalServerError)
+	}))
+	defer other.Close()
+	routed := routedMCPPolicy(t, map[string]*httptest.Server{"upstream.example": upstream, "other.example": other})
+	saved := mcp.ServerDef{
+		ID: "s1", Name: "remote", Transport: mcp.TransportStreamableHTTP,
+		URL: "http://user:" + mcpURLSecret + "@upstream.example/mcp", Status: mcp.ServerStatusRegistered,
+	}
+	admin := &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
+	read := saved.Redacted()
+	body, err := json.Marshal(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := serveMCPWith(t, &mockStore{mcpServers: []mcp.ServerDef{saved}}, admin, http.MethodPost, "/api/v1/mcp/servers/test", string(body), routed)
+
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), mcpURLSecret) {
+		t.Fatalf("status %d, body %s; want 200 without the password", w.Code, w.Body.String())
+	}
+	select {
+	case got := <-received:
+		if got != mcpURLSecret {
+			t.Fatalf("the test connected with password %q, want the stored one", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the test never connected")
+	}
+
+	read.URL = "http://user:***@other.example/mcp"
+	if body, err = json.Marshal(read); err != nil {
+		t.Fatal(err)
+	}
+	w = serveMCPWith(t, &mockStore{mcpServers: []mcp.ServerDef{saved}}, admin, http.MethodPost, "/api/v1/mcp/servers/test", string(body), routed)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("test with another host: status %d, want 400: %s", w.Code, w.Body.String())
+	}
+	select {
+	case got := <-elsewhere:
+		t.Fatalf("the stored password went to another host: Authorization %q", got)
 	default:
 	}
 }

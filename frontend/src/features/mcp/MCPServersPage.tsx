@@ -420,7 +420,12 @@ export default function MCPServersPage() {
                       placeholder={t("mcp.form.commandPlaceholder")}
                     />
                   </FormField>
-                  <FormField label={t("mcp.form.args")} id="mcp-args" class="sm:col-span-2">
+                  <FormField
+                    label={t("mcp.form.args")}
+                    id="mcp-args"
+                    class="sm:col-span-2"
+                    help={t("mcp.form.argsHint")}
+                  >
                     <Textarea
                       id="mcp-args"
                       value={crud.form.state.args}

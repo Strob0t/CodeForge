@@ -1247,6 +1247,8 @@ const en = {
   "mcp.form.commandPlaceholder": "e.g. npx -y @modelcontextprotocol/server-filesystem",
   "mcp.form.args": "Arguments (one per line)",
   "mcp.form.argsPlaceholder": "/path/to/allowed/dir",
+  "mcp.form.argsHint":
+    "Use env variables for secrets; arguments are visible to all users of the tenant.",
   "mcp.form.url": "Server URL",
   "mcp.form.urlPlaceholder": "http://localhost:3001/sse",
   "mcp.form.env": "Environment Variables",
