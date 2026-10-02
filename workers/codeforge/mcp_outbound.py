@@ -22,6 +22,7 @@ import ipaddress
 import logging
 import re
 import socket
+import time
 from typing import TYPE_CHECKING
 
 import httpx
@@ -84,6 +85,9 @@ _EMBEDS_IPV4: tuple[IPNetwork, ...] = (ipaddress.ip_network("::/96"), ipaddress.
 
 # The loopback ranges an explicit allowlist entry can open.
 _LOOPBACK_NETWORKS: tuple[IPNetwork, ...] = (ipaddress.ip_network("127.0.0.0/8"), ipaddress.ip_network("::1/128"))
+
+# How long a transport keeps the checked addresses of a host (seconds).
+_ADDRESS_CACHE_TTL = 30.0
 
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -211,12 +215,20 @@ class OutboundPolicy:
             message += "; MCP servers may never use it"
         raise AddressRefusedError(message, allowable=allowable)
 
-    async def resolve(self, host: str, port: int) -> list[str]:
-        """The addresses of host; AddressRefusedError when one of them is refused."""
+    async def resolve(self, host: str, port: int, timeout: float | None = MCP_DEFAULT_TIMEOUT) -> list[str]:
+        """The addresses of host; AddressRefusedError when one of them is refused.
+
+        The lookup is bounded by timeout (the connect timeout of the request):
+        httpx.ConnectTimeout when it takes longer.
+        """
         if _is_ip_literal(host):
             addresses = [host]
         else:
-            addresses = await self._lookup(host, port)
+            try:
+                addresses = await asyncio.wait_for(self._lookup(host, port), timeout)
+            except TimeoutError:
+                msg = f"DNS lookup of {host} timed out after {timeout:g} s"
+                raise httpx.ConnectTimeout(msg) from None
             if not addresses:
                 raise OSError(f"{host} has no addresses")
         for address in addresses:
@@ -229,26 +241,53 @@ class OutboundPolicy:
         infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
         return list(dict.fromkeys(str(info[4][0]) for info in infos))
 
-    async def check_url(self, url: str) -> None:
+    async def check_url(self, url: str, timeout: float = MCP_DEFAULT_TIMEOUT) -> None:
         """Refuse url before anything connects to it (AddressRefusedError, with the reason)."""
         parsed = httpx.URL(url)
         if parsed.scheme not in _DEFAULT_PORTS or not parsed.host:
             raise AddressRefusedError("the url must be an http or https URL with a host")
-        await self.resolve(parsed.host, parsed.port or _DEFAULT_PORTS[parsed.scheme])
+        await self.resolve(parsed.host, parsed.port or _DEFAULT_PORTS[parsed.scheme], timeout)
 
 
 class GuardedTransport(httpx.AsyncBaseTransport):
-    """Sends each request to a checked address of its host."""
+    """Sends each request to a checked address of its host.
 
-    def __init__(self, policy: OutboundPolicy, inner: httpx.AsyncBaseTransport | None = None) -> None:
+    The checked addresses of a host are kept for ``cache_ttl`` seconds, so an
+    MCP session does not look its host up for every message; that is safe
+    because a request goes only to an address that was checked.
+    """
+
+    def __init__(
+        self,
+        policy: OutboundPolicy,
+        inner: httpx.AsyncBaseTransport | None = None,
+        *,
+        cache_ttl: float = _ADDRESS_CACHE_TTL,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._policy = policy
         self._inner = inner or httpx.AsyncHTTPTransport()
+        self._cache_ttl = cache_ttl
+        self._clock = clock
+        self._cache: dict[tuple[str, int], tuple[float, list[str]]] = {}
+
+    async def _checked_addresses(self, host: str, port: int, timeout: float | None) -> list[str]:
+        key = (host.lower(), port)
+        cached = self._cache.get(key)
+        if cached is not None and self._clock() < cached[0]:
+            return cached[1]
+        addresses = await self._policy.resolve(host, port, timeout)
+        self._cache[key] = (self._clock() + self._cache_ttl, addresses)
+        return addresses
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
         if url.scheme not in _DEFAULT_PORTS or not url.host:
             raise AddressRefusedError(f"refused a {url.scheme} request: only http and https are used")
-        addresses = await self._policy.resolve(url.host, url.port or _DEFAULT_PORTS[url.scheme])
+        timeouts = request.extensions.get("timeout") or {}
+        addresses = await self._checked_addresses(
+            url.host, url.port or _DEFAULT_PORTS[url.scheme], timeouts.get("connect", MCP_DEFAULT_TIMEOUT)
+        )
         extensions = dict(request.extensions)
         if not _is_ip_literal(url.host):
             # TLS verifies the certificate for the host, not for the address.

@@ -179,18 +179,25 @@ async def test_transport_refuses_before_connecting() -> None:
     assert recorder.requests == []
 
 
-async def test_transport_checks_every_request_dns_rebinding() -> None:
+async def test_transport_dns_rebinding_never_reaches_the_new_address() -> None:
+    """Within the cache ttl the request goes to the checked address; after it, the new one is checked."""
     answers = iter([["93.184.216.34"], ["10.0.0.7"]])
 
     async def rebinding(_host: str, _port: int) -> list[str]:
         return next(answers)
 
+    now = [0.0]
     recorder = _Recorder()
-    async with _client(OutboundPolicy([], resolver=rebinding), recorder) as client:
+    transport = GuardedTransport(
+        OutboundPolicy([], resolver=rebinding), inner=httpx.MockTransport(recorder), clock=lambda: now[0]
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
         assert (await client.get("http://rebind.example/a")).status_code == 204
+        assert (await client.get("http://rebind.example/b")).status_code == 204
+        now[0] += 31
         with pytest.raises(AddressRefusedError, match=r"10\.0\.0\.7"):
-            await client.get("http://rebind.example/b")
-    assert [str(r.url) for r in recorder.requests] == ["http://93.184.216.34/a"]
+            await client.get("http://rebind.example/c")
+    assert [str(r.url) for r in recorder.requests] == ["http://93.184.216.34/a", "http://93.184.216.34/b"]
 
 
 async def test_transport_tries_the_next_checked_address() -> None:
@@ -222,6 +229,61 @@ async def test_transport_tries_the_next_checked_address() -> None:
         with pytest.raises(httpx.ConnectError, match="down"):
             await client.get("http://multi.example/a")
     assert len(recorder.requests) == 2
+
+
+def _slow_resolver(seconds: float):  # type: ignore[no-untyped-def]
+    async def resolve(_host: str, _port: int) -> list[str]:
+        await asyncio.sleep(seconds)
+        return ["93.184.216.34"]
+
+    return resolve
+
+
+async def test_a_lookup_is_bounded_by_the_connect_timeout() -> None:
+    recorder = _Recorder()
+    policy = OutboundPolicy([], resolver=_slow_resolver(30))
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    async with _client(policy, recorder, timeout=httpx.Timeout(5, connect=0.1)) as client:
+        with pytest.raises(httpx.ConnectTimeout, match=r"DNS lookup of slow\.example timed out"):
+            await client.get("http://slow.example/")
+    assert loop.time() - started < 5
+    assert recorder.requests == []
+
+    with pytest.raises(httpx.ConnectTimeout, match=r"DNS lookup of slow\.example timed out"):
+        await policy.check_url("http://slow.example/sse", timeout=0.1)
+
+
+async def test_checked_addresses_are_cached_per_transport_and_host() -> None:
+    calls: list[str] = []
+    now = [100.0]
+    policy = OutboundPolicy(
+        [], resolver=_resolver({"a.example": ["93.184.216.34"], "b.example": ["93.184.216.35"]}, calls)
+    )
+    recorder = _Recorder()
+    transport = GuardedTransport(policy, inner=httpx.MockTransport(recorder), clock=lambda: now[0])
+    async with httpx.AsyncClient(transport=transport) as client:
+        for _ in range(3):
+            await client.get("http://a.example/")
+        await client.get("http://b.example/")
+        assert calls == ["a.example", "b.example"]
+        now[0] += 29.9
+        await client.get("http://a.example/")
+        assert calls == ["a.example", "b.example"]
+        now[0] += 0.2  # past the 30 s ttl of the first lookup
+        await client.get("http://a.example/")
+        assert calls == ["a.example", "b.example", "a.example"]
+    assert [str(r.url) for r in recorder.requests][-1] == "http://93.184.216.34/"
+
+
+async def test_a_refused_lookup_is_not_cached() -> None:
+    calls: list[str] = []
+    policy = OutboundPolicy([], resolver=_resolver({"internal.example": ["10.0.0.1"]}, calls))
+    async with _client(policy, _Recorder()) as client:
+        for _ in range(2):
+            with pytest.raises(AddressRefusedError):
+                await client.get("http://internal.example/")
+    assert calls == ["internal.example", "internal.example"]
 
 
 async def test_transport_falls_back_over_real_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
