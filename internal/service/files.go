@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -103,14 +104,14 @@ func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries
 	defer func() { _ = ws.Close() }()
 
 	result := make([]FileEntry, 0, 256)
-	err = ws.WalkDir(".", func(path string, d fs.DirEntry, walkErr error) error {
+	err = ws.WalkDir(".", func(entryPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip unreadable entries
 		}
 		if len(result) >= maxEntries {
 			return filepath.SkipAll
 		}
-		if path == "." {
+		if entryPath == "." {
 			return nil
 		}
 		// Skip the git directory (large, irrelevant for file browsing)
@@ -123,7 +124,7 @@ func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries
 		}
 		result = append(result, FileEntry{
 			Name:    d.Name(),
-			Path:    path,
+			Path:    entryPath,
 			IsDir:   d.IsDir(),
 			Size:    fi.Size(),
 			ModTime: fi.ModTime(),
@@ -199,7 +200,7 @@ func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string)
 	defer func() { _ = ws.Close() }()
 	name := workspaceName(relPath)
 	if name == "." {
-		return fmt.Errorf("%w: the workspace root cannot be deleted", domain.ErrValidation)
+		return errWorkspaceRoot
 	}
 
 	if _, statErr := ws.Lstat(name); statErr != nil {
@@ -221,6 +222,9 @@ func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, new
 	}
 	defer func() { _ = ws.Close() }()
 	oldName, newName := workspaceName(oldRelPath), workspaceName(newRelPath)
+	if oldName == "." || newName == "." {
+		return errWorkspaceRoot
+	}
 
 	if _, statErr := ws.Lstat(oldName); statErr != nil {
 		return refused(statErr, "source does not exist")
@@ -253,14 +257,16 @@ func (s *FileService) openWorkspace(ctx context.Context, projectID string) (*wor
 	return ws, nil
 }
 
-// workspaceName turns an API path into a name inside the workspace. API
-// paths are workspace-relative; a leading slash was always ignored.
+// errWorkspaceRoot refuses deleting or renaming the workspace itself.
+var errWorkspaceRoot = fmt.Errorf("%w: the workspace root cannot be deleted or renamed", domain.ErrValidation)
+
+// workspaceName turns an API path into a cleaned name inside the workspace
+// ("." for the workspace itself). API paths are workspace-relative; a
+// leading slash was always ignored. Cleaning comes first, so a name like
+// "x/.." is recognised as the workspace root before any check; ".." that
+// climbs out stays and is refused by os.Root.
 func workspaceName(relPath string) string {
-	name := strings.TrimLeft(filepath.ToSlash(relPath), "/")
-	if name == "" {
-		return "."
-	}
-	return name
+	return path.Clean(strings.TrimLeft(filepath.ToSlash(relPath), "/"))
 }
 
 // refused wraps err with what failed; a path workspacefs refused (it leaves
@@ -275,8 +281,8 @@ func refused(err error, what string) error {
 }
 
 // detectLanguage returns a language identifier based on file extension.
-func detectLanguage(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
+func detectLanguage(name string) string {
+	ext := strings.ToLower(filepath.Ext(name))
 	languages := map[string]string{
 		".go":         "go",
 		".py":         "python",
@@ -319,7 +325,7 @@ func detectLanguage(path string) string {
 		return lang
 	}
 	// Check filename-based detection
-	base := strings.ToLower(filepath.Base(path))
+	base := strings.ToLower(filepath.Base(name))
 	filenames := map[string]string{
 		"dockerfile":     "dockerfile",
 		"makefile":       "makefile",

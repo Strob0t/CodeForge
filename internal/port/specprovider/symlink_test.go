@@ -1,3 +1,5 @@
+//go:build unix
+
 package specprovider_test
 
 // Spec providers read (and the markdown provider writes) workspace files

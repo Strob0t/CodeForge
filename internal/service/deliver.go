@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // DeliveryResult holds the outcome of a delivery operation.
@@ -154,11 +154,13 @@ const patchDir = "codeforge/patches"
 
 // writePatch writes the patch to .git/codeforge/patches/<run>.patch and
 // returns its path. The directory is agent-writable: all access goes through
-// an os.Root on .git, which refuses symlinks leading out of it; the
-// directories must not be symlinks at all, and an existing file (or symlink)
-// of that name is replaced, never written through.
+// workspacefs on .git (os.Root, never blocking: a FIFO swapped in for .git
+// after git.OpenRepo looked at it would otherwise hold a slot of the shared
+// git pool), which refuses symlinks leading out of it; the directories must
+// not be symlinks at all, and an existing file (or symlink) of that name is
+// replaced, never written through.
 func writePatch(repo *git.Repo, runID, diff string) (string, error) {
-	root, err := os.OpenRoot(repo.GitDir)
+	root, err := workspacefs.Open(repo.GitDir)
 	if err != nil {
 		return "", err
 	}
@@ -179,16 +181,8 @@ func writePatch(repo *git.Repo, runID, diff string) (string, error) {
 	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
-	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
+	if err := root.CreateExclusive(name, []byte(diff), 0o600); err != nil {
 		return "", err
-	}
-	_, writeErr := f.WriteString(diff)
-	if closeErr := f.Close(); writeErr == nil {
-		writeErr = closeErr
-	}
-	if writeErr != nil {
-		return "", writeErr
 	}
 	return filepath.Join(repo.GitDir, filepath.FromSlash(name)), nil
 }

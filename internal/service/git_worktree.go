@@ -132,9 +132,11 @@ func hasFilterAttributes(ctx context.Context, repo *git.Repo) bool {
 	if err != nil {
 		return false
 	}
+	// A repository that cannot be opened counts as having filters:
+	// renormalizing is the safe side (S7-B review).
 	gitDir, err := workspacefs.Open(repo.GitDir)
 	if err != nil {
-		return false
+		return true
 	}
 	defer func() { _ = gitDir.Close() }()
 	if attributesMentionFilter(gitDir, "info/attributes") {
@@ -142,7 +144,7 @@ func hasFilterAttributes(ctx context.Context, repo *git.Repo) bool {
 	}
 	ws, err := workspacefs.Open(repo.Dir)
 	if err != nil {
-		return false
+		return true
 	}
 	defer func() { _ = ws.Close() }()
 	for _, name := range strings.Split(out, "\x00") {

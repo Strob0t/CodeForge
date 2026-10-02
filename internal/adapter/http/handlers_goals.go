@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -173,7 +175,8 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// maxGoalDocBytes caps a goal document injected into the discovery run (as goal discovery does).
+// maxGoalDocBytes caps a goal document injected into the discovery run; a longer
+// one is cut there and marked (as goal discovery caps its files).
 const maxGoalDocBytes = 50 * 1024
 
 // goalDocEntries reads the existing goal documents of a workspace; missing
@@ -187,15 +190,34 @@ func goalDocEntries(workspacePath string) []messagequeue.ContextEntryPayload {
 	defer func() { _ = ws.Close() }()
 	var entries []messagequeue.ContextEntryPayload
 	for _, name := range []string{"docs/PROJECT.md", "docs/REQUIREMENTS.md", "docs/STATE.md"} {
-		content, _, readErr := ws.ReadFile(name, maxGoalDocBytes)
+		content, info, truncated, readErr := ws.ReadFilePrefix(name, maxGoalDocBytes)
 		if readErr != nil {
 			continue // File doesn't exist yet -- that's fine.
+		}
+		text := string(content)
+		if truncated {
+			slog.Info("goal discovery: document truncated", "path", name, "size", info.Size(), "max", maxGoalDocBytes)
+			text = strings.ToValidUTF8(trimPartialRune(text), "") + goalDocTruncatedMarker
 		}
 		entries = append(entries, messagequeue.ContextEntryPayload{
 			Kind:    "file",
 			Path:    name,
-			Content: string(content),
+			Content: text,
 		})
 	}
 	return entries
+}
+
+// goalDocTruncatedMarker ends a goal document cut at maxGoalDocBytes.
+const goalDocTruncatedMarker = "\n\n[truncated]"
+
+// trimPartialRune drops an incomplete UTF-8 sequence the cut left at the end.
+func trimPartialRune(s string) string {
+	for i := 0; i < utf8.UTFMax && s != ""; i++ {
+		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size != 1 {
+			return s
+		}
+		s = s[:len(s)-1]
+	}
+	return s
 }

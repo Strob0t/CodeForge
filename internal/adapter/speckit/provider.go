@@ -5,10 +5,6 @@ package speckit
 import (
 	"bufio"
 	"context"
-	"errors"
-	"fmt"
-	"io/fs"
-	"path"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
@@ -27,65 +23,15 @@ func (p *Provider) Capabilities() specprovider.Capabilities {
 }
 
 func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error) {
-	info, err := workspacefs.StatAt(workspacePath, ".specify")
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, workspacefs.ErrLeavesWorkspace) {
-			return false, nil
-		}
-		return false, err
-	}
-	return info.IsDir(), nil
+	return specprovider.HasDir(workspacePath, ".specify")
 }
 
 func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specprovider.Spec, error) {
-	// The workspace is read through workspacefs (KI-95): the walk never
-	// descends into a symlink, and only regular files inside it are listed.
-	ws, err := workspacefs.Open(workspacePath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer func() { _ = ws.Close() }()
-	var specs []specprovider.Spec
-
-	err = ws.WalkDir(".specify", func(rel string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		ext := strings.ToLower(path.Ext(rel))
-		if ext != ".md" && ext != ".markdown" {
-			return nil
-		}
-		if info, statErr := ws.Stat(rel); statErr != nil || !info.Mode().IsRegular() {
-			return nil
-		}
-
-		specs = append(specs, specprovider.Spec{
-			Path:   rel,
-			Format: providerName,
-			Title:  extractMarkdownTitle(ws, rel),
-		})
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, workspacefs.ErrLeavesWorkspace) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("walk .specify/: %w", err)
-	}
-	return specs, nil
+	return specprovider.ListFiles(workspacePath, ".specify", providerName, []string{".md", ".markdown"}, extractMarkdownTitle)
 }
 
 func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) ([]byte, error) {
-	// Resolved inside the workspace by os.Root: "..", absolute paths and
-	// symlinks that leave the workspace are refused.
-	return workspacefs.ReadFileAt(workspacePath, specPath, specprovider.MaxSpecBytes)
+	return specprovider.ReadFile(workspacePath, specPath)
 }
 
 // extractMarkdownTitle reads the first H1 heading (# Title) from a Markdown file.
@@ -93,7 +39,7 @@ func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) (
 func extractMarkdownTitle(ws *workspacefs.Root, relPath string) string {
 	f, _, err := ws.OpenFile(relPath)
 	if err != nil {
-		return fileBaseName(relPath)
+		return specprovider.FileBaseName(relPath)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -104,10 +50,5 @@ func extractMarkdownTitle(ws *workspacefs.Root, relPath string) string {
 			return strings.TrimSpace(title)
 		}
 	}
-	return fileBaseName(relPath)
-}
-
-func fileBaseName(name string) string {
-	base := path.Base(name)
-	return strings.TrimSuffix(base, path.Ext(base))
+	return specprovider.FileBaseName(relPath)
 }

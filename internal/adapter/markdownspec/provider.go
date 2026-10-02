@@ -63,12 +63,12 @@ func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specpro
 }
 
 func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) ([]byte, error) {
-	return workspacefs.ReadFileAt(workspacePath, specPath, specprovider.MaxSpecBytes)
+	return specprovider.ReadFile(workspacePath, specPath)
 }
 
 // ParseSpec reads a spec file and returns parsed structured items.
 func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) ([]SpecItem, error) {
-	content, err := workspacefs.ReadFileAt(workspacePath, specPath, specprovider.MaxSpecBytes)
+	content, err := specprovider.ReadFile(workspacePath, specPath)
 	if err != nil {
 		return nil, err
 	}

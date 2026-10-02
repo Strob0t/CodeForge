@@ -1,3 +1,5 @@
+//go:build unix
+
 package service
 
 // In-process workspace readers and writers of the Go Core never follow a
