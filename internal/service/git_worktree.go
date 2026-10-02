@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/proctemp"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // privateIndex is an index file of a workspace repository outside the
@@ -118,6 +119,10 @@ func (i *privateIndex) dropUnnormalized() {
 	}
 }
 
+// maxAttributesSize caps an attributes file read for the filter check; a
+// larger one counts as mentioning a filter (renormalizing is the safe side).
+const maxAttributesSize = 1 << 20
+
 // hasFilterAttributes reports whether an attributes file of the repository
 // (a .gitattributes of the working tree, .git/info/attributes) mentions a
 // filter. Symlinked attributes files are skipped, as git does.
@@ -127,22 +132,39 @@ func hasFilterAttributes(ctx context.Context, repo *git.Repo) bool {
 	if err != nil {
 		return false
 	}
-	files := []string{filepath.Join(repo.GitDir, "info", "attributes")}
-	for _, name := range strings.Split(out, "\x00") {
-		if name != "" {
-			files = append(files, filepath.Join(repo.Dir, filepath.FromSlash(name)))
-		}
+	gitDir, err := workspacefs.Open(repo.GitDir)
+	if err != nil {
+		return false
 	}
-	for _, f := range files {
-		if info, err := os.Lstat(f); err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		data, err := os.ReadFile(f) //nolint:gosec // an attributes file of the workspace, read as data
-		if err == nil && strings.Contains(string(data), "filter") {
+	defer func() { _ = gitDir.Close() }()
+	if attributesMentionFilter(gitDir, "info/attributes") {
+		return true
+	}
+	ws, err := workspacefs.Open(repo.Dir)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = ws.Close() }()
+	for _, name := range strings.Split(out, "\x00") {
+		if name != "" && attributesMentionFilter(ws, name) {
 			return true
 		}
 	}
 	return false
+}
+
+// attributesMentionFilter reports whether the attributes file name mentions
+// a filter. It is read through workspacefs (KI-95): a symlink swapped in
+// after the Lstat never leads out of the workspace and a FIFO never blocks.
+func attributesMentionFilter(root *workspacefs.Root, name string) bool {
+	if info, err := root.Lstat(name); err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	data, _, err := root.ReadFile(name, maxAttributesSize)
+	if errors.Is(err, workspacefs.ErrTooLarge) {
+		return true
+	}
+	return err == nil && strings.Contains(string(data), "filter")
 }
 
 // filteredPaths returns the paths git would pass through a filter driver.
@@ -187,7 +209,15 @@ func (i *privateIndex) remove() {
 // repository without an index (nothing staged yet) leaves dst absent: git
 // reads a missing index file as an empty index, but refuses an empty file.
 func seedIndex(repo *git.Repo, dst string) error {
-	in, err := os.Open(filepath.Join(repo.GitDir, "index")) //nolint:gosec // the workspace's index; git.OpenRepo checked it is a regular file
+	// git.OpenRepo checked that the index is a regular file; it is opened
+	// through workspacefs, so a swap since then (a symlink, a FIFO) is never
+	// followed or waited on (KI-95).
+	gitDir, err := workspacefs.Open(repo.GitDir)
+	if err != nil {
+		return fmt.Errorf("open index: %w", err)
+	}
+	defer func() { _ = gitDir.Close() }()
+	in, _, err := gitDir.OpenFile("index")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

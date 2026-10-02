@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // Clone clones a project's repository to the workspace directory.
@@ -233,21 +234,27 @@ func (s *ProjectService) WorkspaceHealth(ctx context.Context, id string) (*proje
 		return info, nil
 	}
 
-	stat, err := os.Stat(p.WorkspacePath)
+	// Read through workspacefs (KI-95): the walk stays inside the workspace.
+	ws, err := workspacefs.Open(p.WorkspacePath)
+	if err != nil {
+		return info, nil
+	}
+	defer func() { _ = ws.Close() }()
+	stat, err := ws.Stat(".")
 	if err != nil {
 		return info, nil
 	}
 	info.Exists = true
 	info.LastModified = stat.ModTime()
 
-	// Check for .git directory.
-	if gitStat, gitErr := os.Stat(filepath.Join(p.WorkspacePath, ".git")); gitErr == nil && gitStat.IsDir() {
+	// Check for the git directory.
+	if gitStat, gitErr := ws.Stat(".git"); gitErr == nil && gitStat.IsDir() {
 		info.GitRepo = true
 	}
 
 	// Compute disk usage.
 	var totalSize int64
-	_ = filepath.WalkDir(p.WorkspacePath, func(_ string, d fs.DirEntry, walkErr error) error {
+	_ = ws.WalkDir(".", func(_ string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil //nolint:nilerr // skip unreadable entries
 		}
@@ -287,22 +294,21 @@ func (s *ProjectService) DetectStackByPath(_ context.Context, path string) (*pro
 	}
 
 	// Restrict to workspace root to prevent filesystem probing.
-	if s.workspaceRoot != "" {
-		wsRoot, _ := filepath.Abs(s.workspaceRoot)
-		if !strings.HasPrefix(absPath, wsRoot+string(filepath.Separator)) && absPath != wsRoot {
-			return nil, fmt.Errorf("detect stack: path must be within workspace root %s", wsRoot)
-		}
+	if s.workspaceRoot == "" {
+		return project.ScanWorkspace(absPath)
+	}
+	wsRoot, _ := filepath.Abs(s.workspaceRoot)
+	if !strings.HasPrefix(absPath, wsRoot+string(filepath.Separator)) && absPath != wsRoot {
+		return nil, fmt.Errorf("detect stack: path must be within workspace root %s", wsRoot)
 	}
 
-	info, err := os.Stat(absPath)
+	// Resolved inside the workspace root (KI-95): no symlink on the way leads out of it.
+	ws, err := workspacefs.OpenBelow(wsRoot, absPath)
 	if err != nil {
 		return nil, fmt.Errorf("detect stack: directory does not exist: %w", err)
 	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("detect stack: %s is not a directory", absPath)
-	}
-
-	return project.ScanWorkspace(absPath)
+	defer func() { _ = ws.Close() }()
+	return project.ScanWorkspaceFS(ws.FS(), absPath)
 }
 
 // isUnderWorkspaceRoot validates that the path is under the workspace root

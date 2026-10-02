@@ -1061,7 +1061,7 @@ func TestFullAutoGate_NoGoalsRedirectsToGoalResearcher(t *testing.T) {
 	svc.SetPolicyService(policySvc)
 
 	// Wire goal service backed by our store (which returns empty goals).
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1120,7 +1120,7 @@ func TestFullAutoGate_WithGoalsPassesThrough(t *testing.T) {
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	svc.SetPolicyService(policySvc)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1173,7 +1173,7 @@ func TestFullAutoGate_NonFullAutoSkipsGate(t *testing.T) {
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	svc.SetPolicyService(policySvc)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1242,7 +1242,7 @@ func TestFullAutoGate_OpenFeaturesPassesThrough(t *testing.T) {
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	svc.SetPolicyService(policySvc)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()

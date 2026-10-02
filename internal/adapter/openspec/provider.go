@@ -4,14 +4,16 @@ package openspec
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
+	"path"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 const providerName = "openspec"
@@ -26,9 +28,9 @@ func (p *Provider) Capabilities() specprovider.Capabilities {
 }
 
 func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error) {
-	info, err := os.Stat(filepath.Join(workspacePath, "openspec"))
+	info, err := workspacefs.StatAt(workspacePath, "openspec")
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, workspacefs.ErrLeavesWorkspace) {
 			return false, nil
 		}
 		return false, err
@@ -37,33 +39,43 @@ func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error)
 }
 
 func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specprovider.Spec, error) {
-	root := filepath.Join(workspacePath, "openspec")
+	// The workspace is read through workspacefs (KI-95): the walk never
+	// descends into a symlink, and only regular files inside it are listed.
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() { _ = ws.Close() }()
 	var specs []specprovider.Spec
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err = ws.WalkDir("openspec", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
-		ext := strings.ToLower(filepath.Ext(path))
+		ext := strings.ToLower(path.Ext(rel))
 		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
 			return nil
 		}
+		if info, statErr := ws.Stat(rel); statErr != nil || !info.Mode().IsRegular() {
+			return nil
+		}
 
-		rel, _ := filepath.Rel(workspacePath, path)
-		title := extractTitle(path, rel)
 		specs = append(specs, specprovider.Spec{
 			Path:   rel,
 			Format: providerName,
-			Title:  title,
+			Title:  extractTitle(ws, rel),
 		})
 		return nil
 	})
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, workspacefs.ErrLeavesWorkspace) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("walk openspec/: %w", err)
@@ -72,28 +84,15 @@ func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specpro
 }
 
 func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) ([]byte, error) {
-	full := filepath.Join(workspacePath, specPath)
-
-	// Prevent path traversal: resolved path must be under workspace.
-	resolved, err := filepath.Abs(full)
-	if err != nil {
-		return nil, fmt.Errorf("resolve path: %w", err)
-	}
-	wsAbs, err := filepath.Abs(workspacePath)
-	if err != nil {
-		return nil, fmt.Errorf("resolve workspace: %w", err)
-	}
-	if !strings.HasPrefix(resolved, wsAbs+string(filepath.Separator)) {
-		return nil, fmt.Errorf("path traversal rejected: %s", specPath)
-	}
-
-	return os.ReadFile(full) //nolint:gosec // Path validated above against traversal.
+	// Resolved inside the workspace by os.Root: "..", absolute paths and
+	// symlinks that leave the workspace are refused.
+	return workspacefs.ReadFileAt(workspacePath, specPath, specprovider.MaxSpecBytes)
 }
 
 // extractTitle attempts to parse a title from YAML front-matter.
 // Falls back to the filename without extension.
-func extractTitle(absPath, relPath string) string {
-	data, err := os.ReadFile(absPath) //nolint:gosec // Internal helper, path from Walk.
+func extractTitle(ws *workspacefs.Root, relPath string) string {
+	data, _, err := ws.ReadFile(relPath, specprovider.MaxSpecBytes)
 	if err != nil {
 		return fileBaseName(relPath)
 	}
@@ -107,8 +106,7 @@ func extractTitle(absPath, relPath string) string {
 	return fileBaseName(relPath)
 }
 
-func fileBaseName(path string) string {
-	base := filepath.Base(path)
-	ext := filepath.Ext(base)
-	return strings.TrimSuffix(base, ext)
+func fileBaseName(name string) string {
+	base := path.Base(name)
+	return strings.TrimSuffix(base, path.Ext(base))
 }

@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
@@ -13,6 +11,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // ListProjectGoals handles GET /api/v1/projects/{id}/goals.
@@ -139,20 +138,10 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Inject existing goal/project doc files as context for the agent.
-	var contextEntries []messagequeue.ContextEntryPayload
-	for _, name := range []string{"docs/PROJECT.md", "docs/REQUIREMENTS.md", "docs/STATE.md"} {
-		docPath := filepath.Join(proj.WorkspacePath, name) //nolint:gosec // name is a hardcoded constant
-		docContent, readErr := os.ReadFile(docPath)        //nolint:gosec // path constructed from constant names
-		if readErr != nil {
-			continue // File doesn't exist yet -- that's fine.
-		}
-		contextEntries = append(contextEntries, messagequeue.ContextEntryPayload{
-			Kind:    "file",
-			Path:    name,
-			Content: string(docContent),
-		})
-	}
+	// Inject existing goal/project doc files as context for the agent. They
+	// are read through workspacefs (KI-95): never through a symlink that
+	// leaves the workspace, a FIFO or a file over maxGoalDocBytes.
+	contextEntries := goalDocEntries(proj.WorkspacePath)
 
 	// Dispatch an agentic run with the goal_researcher mode.
 	initialPrompt := "Analyze this repository and help me define project goals. " +
@@ -182,4 +171,31 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 		"conversation_id": conv.ID,
 		"status":          "started",
 	})
+}
+
+// maxGoalDocBytes caps a goal document injected into the discovery run (as goal discovery does).
+const maxGoalDocBytes = 50 * 1024
+
+// goalDocEntries reads the existing goal documents of a workspace; missing
+// or refused ones are left out.
+func goalDocEntries(workspacePath string) []messagequeue.ContextEntryPayload {
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		slog.Warn("goal discovery: cannot open workspace", "path", workspacePath, "error", err)
+		return nil
+	}
+	defer func() { _ = ws.Close() }()
+	var entries []messagequeue.ContextEntryPayload
+	for _, name := range []string{"docs/PROJECT.md", "docs/REQUIREMENTS.md", "docs/STATE.md"} {
+		content, _, readErr := ws.ReadFile(name, maxGoalDocBytes)
+		if readErr != nil {
+			continue // File doesn't exist yet -- that's fine.
+		}
+		entries = append(entries, messagequeue.ContextEntryPayload{
+			Kind:    "file",
+			Path:    name,
+			Content: string(content),
+		})
+	}
+	return entries
 }

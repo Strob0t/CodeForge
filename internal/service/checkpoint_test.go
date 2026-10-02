@@ -24,7 +24,7 @@ func TestCheckpointService_StoreAndRevert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := svc.Store("run-1", "call-1", path); err != nil {
+	if err := svc.Store("run-1", "call-1", dir, "test.txt"); err != nil {
 		t.Fatalf("Store: %v", err)
 	}
 
@@ -65,7 +65,7 @@ func TestCheckpointService_RevertNotFound(t *testing.T) {
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Store("run-2", "call-1", path); err != nil {
+	if err := svc.Store("run-2", "call-1", dir, "test.txt"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,10 +83,10 @@ func TestCheckpointService_ClearRun(t *testing.T) {
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Store("run-3", "call-1", path); err != nil {
+	if err := svc.Store("run-3", "call-1", dir, "test.txt"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Store("run-3", "call-2", path); err != nil {
+	if err := svc.Store("run-3", "call-2", dir, "test.txt"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,7 +100,7 @@ func TestCheckpointService_ClearRun(t *testing.T) {
 
 func TestCheckpointService_StoreNonexistentFile(t *testing.T) {
 	svc := service.NewCheckpointService(git.NewPool(1))
-	err := svc.Store("run-4", "call-1", "/nonexistent/path/file.txt")
+	err := svc.Store("run-4", "call-1", t.TempDir(), "nonexistent/file.txt")
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
 	}
@@ -114,7 +114,7 @@ func TestCheckpointService_RevertRemovesSnapshot(t *testing.T) {
 	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Store("run-5", "call-1", path); err != nil {
+	if err := svc.Store("run-5", "call-1", dir, "test.txt"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte("modified"), 0o644); err != nil {

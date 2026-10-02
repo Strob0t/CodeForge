@@ -2,16 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/database"
-	"github.com/Strob0t/CodeForge/internal/port/filesystem"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // FileEntry represents a file or directory in a project workspace.
@@ -32,35 +33,42 @@ type FileContent struct {
 	Language string    `json:"language"`
 }
 
-// FileService provides file operations scoped to project workspaces.
+// FileService provides file operations scoped to project workspaces. Every
+// path is resolved inside the project's workspace by workspacefs (os.Root,
+// KI-95): a symlink never leads out of it, a FIFO never blocks a request,
+// and symlinks are deleted and renamed themselves, never their targets.
 type FileService struct {
 	store database.Store
-	fs    filesystem.Provider
 }
 
 // NewFileService creates a new FileService.
-func NewFileService(store database.Store, fsProvider filesystem.Provider) *FileService {
-	return &FileService{store: store, fs: fsProvider}
+func NewFileService(store database.Store) *FileService {
+	return &FileService{store: store}
 }
+
+// maxFileSize caps the files ReadFile returns, to prevent OOM.
+const maxFileSize = 10 * 1024 * 1024
 
 // ListDirectory lists files and directories at the given path within a project workspace.
 func (s *FileService) ListDirectory(ctx context.Context, projectID, relPath string) ([]FileEntry, error) {
-	absPath, err := s.resolveProjectPath(ctx, projectID, relPath)
+	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = ws.Close() }()
+	name := workspaceName(relPath)
 
-	info, err := s.fs.Stat(ctx, absPath)
+	info, err := ws.Stat(name)
 	if err != nil {
-		return nil, fmt.Errorf("path does not exist: %w", err)
+		return nil, refused(err, "path does not exist")
 	}
 	if !info.IsDir() {
 		return nil, fmt.Errorf("path is not a directory: %s", relPath)
 	}
 
-	entries, err := s.fs.ReadDir(ctx, absPath)
+	entries, err := ws.ReadDir(name)
 	if err != nil {
-		return nil, fmt.Errorf("read directory: %w", err)
+		return nil, refused(err, "read directory")
 	}
 
 	result := make([]FileEntry, 0, len(entries))
@@ -85,26 +93,27 @@ func (s *FileService) ListDirectory(ctx context.Context, projectID, relPath stri
 	return result, nil
 }
 
-// ListTree recursively lists all files and directories within a project workspace.
+// ListTree recursively lists all files and directories within a project
+// workspace; symlinks are listed, never descended.
 func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries int) ([]FileEntry, error) {
-	absPath, err := s.resolveProjectPath(ctx, projectID, ".")
+	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = ws.Close() }()
 
 	result := make([]FileEntry, 0, 256)
-	err = s.fs.WalkDir(ctx, absPath, func(path string, d fs.DirEntry, walkErr error) error {
+	err = ws.WalkDir(".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip unreadable entries
 		}
 		if len(result) >= maxEntries {
 			return filepath.SkipAll
 		}
-		rel, relErr := filepath.Rel(absPath, path)
-		if relErr != nil || rel == "." {
+		if path == "." {
 			return nil
 		}
-		// Skip .git directory (large, irrelevant for file browsing)
+		// Skip the git directory (large, irrelevant for file browsing)
 		if d.IsDir() && d.Name() == ".git" {
 			return filepath.SkipDir
 		}
@@ -114,7 +123,7 @@ func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries
 		}
 		result = append(result, FileEntry{
 			Name:    d.Name(),
-			Path:    filepath.ToSlash(rel),
+			Path:    path,
 			IsDir:   d.IsDir(),
 			Size:    fi.Size(),
 			ModTime: fi.ModTime(),
@@ -130,28 +139,24 @@ func (s *FileService) ListTree(ctx context.Context, projectID string, maxEntries
 
 // ReadFile reads the content of a file within a project workspace.
 func (s *FileService) ReadFile(ctx context.Context, projectID, relPath string) (*FileContent, error) {
-	absPath, err := s.resolveProjectPath(ctx, projectID, relPath)
+	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = ws.Close() }()
+	name := workspaceName(relPath)
 
-	info, err := s.fs.Stat(ctx, absPath)
+	info, err := ws.Stat(name)
 	if err != nil {
-		return nil, fmt.Errorf("file does not exist: %w", err)
+		return nil, refused(err, "file does not exist")
 	}
 	if info.IsDir() {
 		return nil, fmt.Errorf("path is a directory, not a file: %s", relPath)
 	}
 
-	// Limit file size to 10 MB to prevent OOM
-	const maxFileSize = 10 * 1024 * 1024
-	if info.Size() > maxFileSize {
-		return nil, fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), maxFileSize)
-	}
-
-	data, err := s.fs.ReadFile(ctx, absPath)
+	data, info, err := ws.ReadFile(name, maxFileSize)
 	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
+		return nil, refused(err, "read file")
 	}
 
 	return &FileContent{
@@ -165,112 +170,108 @@ func (s *FileService) ReadFile(ctx context.Context, projectID, relPath string) (
 
 // WriteFile writes content to a file within a project workspace.
 func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content string) error {
-	absPath, err := s.resolveProjectPath(ctx, projectID, relPath)
+	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = ws.Close() }()
+	name := workspaceName(relPath)
 
 	// Ensure parent directory exists
-	dir := filepath.Dir(absPath)
-	if err := s.fs.MkdirAll(ctx, dir, project.WorkspaceDirPerm); err != nil {
-		return fmt.Errorf("create parent directory: %w", err)
+	if err := ws.MkdirAll(filepath.Dir(name), project.WorkspaceDirPerm); err != nil {
+		return refused(err, "create parent directory")
 	}
 
-	if err := s.fs.WriteFile(ctx, absPath, []byte(content), project.WorkspaceFilePerm); err != nil {
-		return fmt.Errorf("write file: %w", err)
+	if err := ws.WriteFile(name, []byte(content), project.WorkspaceFilePerm); err != nil {
+		return refused(err, "write file")
 	}
 
 	return nil
 }
 
-// DeleteFile removes a file or directory within a project workspace.
+// DeleteFile removes a file or directory within a project workspace (a
+// symlink itself, never its target).
 func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string) error {
-	absPath, err := s.resolveProjectPath(ctx, projectID, relPath)
+	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return err
 	}
-
-	if _, statErr := s.fs.Stat(ctx, absPath); statErr != nil {
-		return fmt.Errorf("path does not exist: %w", statErr)
+	defer func() { _ = ws.Close() }()
+	name := workspaceName(relPath)
+	if name == "." {
+		return fmt.Errorf("%w: the workspace root cannot be deleted", domain.ErrValidation)
 	}
 
-	if err := s.fs.RemoveAll(ctx, absPath); err != nil {
-		return fmt.Errorf("delete failed: %w", err)
+	if _, statErr := ws.Lstat(name); statErr != nil {
+		return refused(statErr, "path does not exist")
+	}
+
+	if err := ws.RemoveAll(name); err != nil {
+		return refused(err, "delete failed")
 	}
 	return nil
 }
 
-// RenameFile moves/renames a file or directory within a project workspace.
+// RenameFile moves/renames a file or directory within a project workspace
+// (a symlink itself, never its target).
 func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, newRelPath string) error {
-	oldAbs, err := s.resolveProjectPath(ctx, projectID, oldRelPath)
+	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("resolve old path: %w", err)
+		return err
 	}
-	newAbs, err := s.resolveProjectPath(ctx, projectID, newRelPath)
-	if err != nil {
-		return fmt.Errorf("resolve new path: %w", err)
-	}
+	defer func() { _ = ws.Close() }()
+	oldName, newName := workspaceName(oldRelPath), workspaceName(newRelPath)
 
-	if _, statErr := s.fs.Stat(ctx, oldAbs); statErr != nil {
-		return fmt.Errorf("source does not exist: %w", statErr)
+	if _, statErr := ws.Lstat(oldName); statErr != nil {
+		return refused(statErr, "source does not exist")
 	}
 
 	// Ensure parent directory of destination exists
-	if mkErr := s.fs.MkdirAll(ctx, filepath.Dir(newAbs), project.WorkspaceDirPerm); mkErr != nil {
-		return fmt.Errorf("create parent directory: %w", mkErr)
+	if mkErr := ws.MkdirAll(filepath.Dir(newName), project.WorkspaceDirPerm); mkErr != nil {
+		return refused(mkErr, "create parent directory")
 	}
 
-	if err := s.fs.Rename(ctx, oldAbs, newAbs); err != nil {
-		return fmt.Errorf("rename failed: %w", err)
+	if err := ws.Rename(oldName, newName); err != nil {
+		return refused(err, "rename failed")
 	}
 	return nil
 }
 
-// resolveProjectPath resolves a relative path to an absolute path within a project workspace,
-// with path traversal protection.
-func (s *FileService) resolveProjectPath(ctx context.Context, projectID, relPath string) (string, error) {
+// openWorkspace opens the project's workspace directory.
+func (s *FileService) openWorkspace(ctx context.Context, projectID string) (*workspacefs.Root, error) {
 	p, err := s.store.GetProject(ctx, projectID)
 	if err != nil {
-		return "", fmt.Errorf("get project: %w", err)
+		return nil, fmt.Errorf("get project: %w", err)
 	}
 	if p.WorkspacePath == "" {
-		return "", fmt.Errorf("project %s has no workspace", projectID)
+		return nil, fmt.Errorf("project %s has no workspace", projectID)
 	}
-
-	wsPath, err := filepath.Abs(p.WorkspacePath)
+	ws, err := workspacefs.Open(p.WorkspacePath)
 	if err != nil {
-		return "", fmt.Errorf("resolve workspace path: %w", err)
+		return nil, refused(err, "open workspace")
 	}
+	return ws, nil
+}
 
-	// Clean and join the relative path
-	cleaned := filepath.Clean(relPath)
-	absPath := filepath.Join(wsPath, cleaned)
-
-	// Resolve symlinks to prevent symlink-based traversal
-	resolved, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		// If file doesn't exist yet (write case), verify parent directory
-		if os.IsNotExist(err) {
-			parentResolved, parentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
-			if parentErr != nil {
-				return "", fmt.Errorf("resolve parent path: %w", parentErr)
-			}
-			if !strings.HasPrefix(parentResolved+string(filepath.Separator), wsPath+string(filepath.Separator)) &&
-				parentResolved != wsPath {
-				return "", fmt.Errorf("path traversal denied: %s", relPath)
-			}
-			return absPath, nil
-		}
-		return "", fmt.Errorf("resolve path: %w", err)
+// workspaceName turns an API path into a name inside the workspace. API
+// paths are workspace-relative; a leading slash was always ignored.
+func workspaceName(relPath string) string {
+	name := strings.TrimLeft(filepath.ToSlash(relPath), "/")
+	if name == "" {
+		return "."
 	}
+	return name
+}
 
-	// Verify resolved path is within workspace
-	if !strings.HasPrefix(resolved+string(filepath.Separator), wsPath+string(filepath.Separator)) &&
-		resolved != wsPath {
-		return "", fmt.Errorf("path traversal denied: %s", relPath)
+// refused wraps err with what failed; a path workspacefs refused (it leaves
+// the workspace, is not a regular file, is too large) is the client's
+// error (400) with a clear message.
+func refused(err error, what string) error {
+	if errors.Is(err, workspacefs.ErrLeavesWorkspace) || errors.Is(err, workspacefs.ErrNotRegular) ||
+		errors.Is(err, workspacefs.ErrTooLarge) {
+		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
-
-	return resolved, nil
+	return fmt.Errorf("%s: %w", what, err)
 }
 
 // detectLanguage returns a language identifier based on file extension.

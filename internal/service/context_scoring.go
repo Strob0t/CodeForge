@@ -4,20 +4,30 @@ import (
 	"context"
 	"log/slog"
 	"math"
-	"path/filepath"
 	"strings"
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
-// scanWorkspaceFiles reads workspace files and scores them against the task prompt.
+// scanWorkspaceFiles reads workspace files and scores them against the task
+// prompt. The files go into the agent's context, so they are read through
+// workspacefs (KI-95): never through a symlink that leaves the workspace, a
+// FIFO or a file over the size limit; symlinked directories are not entered.
 func (s *ContextOptimizerService) scanWorkspaceFiles(ctx context.Context, workspacePath, taskPrompt string) []cfcontext.ContextEntry {
 	maxFiles := s.limits.MaxFiles
 	maxFileSize := int64(s.limits.MaxFileSize)
 
-	entries, err := s.fs.ReadDir(ctx, workspacePath)
+	ws, err := workspacefs.Open(workspacePath)
 	if err != nil {
-		slog.Warn("cannot read workspace", "path", workspacePath, "error", err)
+		slog.WarnContext(ctx, "cannot open workspace", "path", workspacePath, "error", err)
+		return nil
+	}
+	defer func() { _ = ws.Close() }()
+
+	entries, err := ws.ReadDir(".")
+	if err != nil {
+		slog.WarnContext(ctx, "cannot read workspace", "path", workspacePath, "error", err)
 		return nil
 	}
 
@@ -35,8 +45,7 @@ func (s *ContextOptimizerService) scanWorkspaceFiles(ctx context.Context, worksp
 
 		if e.IsDir() {
 			// Scan one level deep.
-			subPath := filepath.Join(workspacePath, name)
-			subEntries, err := s.fs.ReadDir(ctx, subPath)
+			subEntries, err := ws.ReadDir(name)
 			if err != nil {
 				continue
 			}
@@ -47,14 +56,14 @@ func (s *ContextOptimizerService) scanWorkspaceFiles(ctx context.Context, worksp
 				if se.IsDir() || strings.HasPrefix(se.Name(), ".") {
 					continue
 				}
-				entry := s.readAndScore(ctx, filepath.Join(subPath, se.Name()), name+"/"+se.Name(), taskPrompt, maxFileSize)
+				entry := readAndScore(ws, name+"/"+se.Name(), taskPrompt, maxFileSize)
 				if entry != nil {
 					result = append(result, *entry)
 					fileCount++
 				}
 			}
 		} else {
-			entry := s.readAndScore(ctx, filepath.Join(workspacePath, name), name, taskPrompt, maxFileSize)
+			entry := readAndScore(ws, name, taskPrompt, maxFileSize)
 			if entry != nil {
 				result = append(result, *entry)
 				fileCount++
@@ -65,15 +74,10 @@ func (s *ContextOptimizerService) scanWorkspaceFiles(ctx context.Context, worksp
 	return result
 }
 
-// readAndScore reads a file and returns a ContextEntry with relevance scoring.
-func (s *ContextOptimizerService) readAndScore(ctx context.Context, absPath, relPath, taskPrompt string, maxSize int64) *cfcontext.ContextEntry {
-	info, err := s.fs.Stat(ctx, absPath)
-	if err != nil || info.Size() > maxSize || info.Size() == 0 {
-		return nil
-	}
-
-	content, err := s.fs.ReadFile(ctx, absPath)
-	if err != nil {
+// readAndScore reads a workspace file and returns a ContextEntry with relevance scoring.
+func readAndScore(ws *workspacefs.Root, relPath, taskPrompt string, maxSize int64) *cfcontext.ContextEntry {
+	content, _, err := ws.ReadFile(relPath, maxSize)
+	if err != nil || len(content) == 0 {
 		return nil
 	}
 

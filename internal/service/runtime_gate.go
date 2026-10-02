@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"os"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // Quality gates (D9): a run the worker completed under a policy with gates
@@ -86,18 +86,30 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 // gateCommands returns the commands of the project's gate (KI-29): the
 // project config's test_command and lint_command, else the defaults of the
 // language detected in the workspace now (the run may have created the
-// project), else the configured runtime defaults.
+// project), else the configured runtime defaults. The workspace is read
+// through workspacefs (KI-95).
 func (s *RuntimeService) gateCommands(proj *project.Project) project.GateCommands {
 	cmds := proj.GateCommandOverrides()
 	if proj.WorkspacePath != "" {
-		stack, err := project.ScanWorkspace(proj.WorkspacePath)
-		if err != nil {
-			slog.Warn("quality gate: workspace language not detected", "project_id", proj.ID, "error", err)
-		} else {
-			cmds = cmds.Or(project.DefaultGateCommands(os.DirFS(proj.WorkspacePath), stack.Languages))
-		}
+		cmds = cmds.Or(detectedGateCommands(proj))
 	}
 	return cmds.Or(project.GateCommands{Test: s.runtimeCfg.DefaultTestCommand, Lint: s.runtimeCfg.DefaultLintCommand})
+}
+
+// detectedGateCommands are the default commands of the language detected in the project's workspace.
+func detectedGateCommands(proj *project.Project) project.GateCommands {
+	ws, err := workspacefs.Open(proj.WorkspacePath)
+	if err != nil {
+		slog.Warn("quality gate: workspace language not detected", "project_id", proj.ID, "error", err)
+		return project.GateCommands{}
+	}
+	defer func() { _ = ws.Close() }()
+	stack, err := project.ScanWorkspaceFS(ws.FS(), proj.WorkspacePath)
+	if err != nil {
+		slog.Warn("quality gate: workspace language not detected", "project_id", proj.ID, "error", err)
+		return project.GateCommands{}
+	}
+	return project.DefaultGateCommands(ws.FS(), stack.Languages)
 }
 
 // missingGateCommands names the project config keys of the required checks

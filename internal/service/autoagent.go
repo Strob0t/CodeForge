@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -25,6 +24,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // AutoAgentService manages the lifecycle of auto-agent runs that iterate
@@ -481,7 +481,8 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, conv
 	if !strings.HasPrefix(cleanTest, filepath.Clean(proj.WorkspacePath)+string(filepath.Separator)) {
 		return testResult{}, fmt.Errorf("test file path escapes workspace: %s", testFile)
 	}
-	if info, err := os.Stat(cleanTest); err != nil || info.IsDir() {
+	// Resolved inside the workspace (KI-95): a symlink out of it is refused.
+	if info, err := workspacefs.StatAt(proj.WorkspacePath, testFile); err != nil || info.IsDir() {
 		return testResult{}, fmt.Errorf("test file not found or is directory: %s", testFile)
 	}
 

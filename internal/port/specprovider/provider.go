@@ -4,6 +4,11 @@ package specprovider
 
 import "context"
 
+// MaxSpecBytes caps a spec file a provider reads from a workspace (KI-95:
+// workspace files are read through workspacefs, never through a symlink that
+// leaves the workspace).
+const MaxSpecBytes = 1 << 20
+
 // Spec represents a specification document discovered in a repository.
 type Spec struct {
 	Path   string `json:"path"`

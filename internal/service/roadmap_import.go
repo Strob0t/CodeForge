@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // fileMarkers maps spec format names to their file/directory indicators.
@@ -57,6 +58,16 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 		coveredFormats[prov.Name()] = true
 	}
 
+	// Phases 2 and 3 read the workspace through workspacefs (KI-95).
+	ws, err := workspacefs.Open(proj.WorkspacePath)
+	if err != nil {
+		slog.Warn("roadmap detection: cannot open workspace", "project_id", projectID, "error", err)
+		result.Platforms = detectPlatforms(proj)
+		result.Found = result.Found || len(result.Platforms) > 0
+		return result, nil
+	}
+	defer func() { _ = ws.Close() }()
+
 	// Phase 2: Fallback to hardcoded fileMarkers for formats without a provider.
 	seen := map[string]bool{}
 	for format, markers := range fileMarkers {
@@ -65,7 +76,7 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 		}
 		for _, marker := range markers {
 			fullPath := filepath.Join(proj.WorkspacePath, marker)
-			info, err := os.Stat(fullPath)
+			info, err := ws.Stat(marker)
 			if err != nil {
 				continue
 			}
@@ -87,13 +98,10 @@ func (s *RoadmapService) AutoDetect(ctx context.Context, projectID string) (*roa
 	}
 
 	// Phase 3: Shallow scan of root and docs/ for .md files with relevant keywords.
-	for _, found := range scanMarkdownKeywords(proj.WorkspacePath) {
+	for _, rel := range scanMarkdownKeywords(ws) {
+		found := filepath.Join(proj.WorkspacePath, rel)
 		if seen[found] {
 			continue
-		}
-		rel, err := filepath.Rel(proj.WorkspacePath, found)
-		if err != nil {
-			rel = found
 		}
 		result.Found = true
 		result.FileMarkers = append(result.FileMarkers, rel)
@@ -134,13 +142,16 @@ var keywordScanDirs = []string{"", "docs"}
 var keywordScanTerms = []string{"roadmap", "todo", "spec", "feature", "milestone"}
 
 // scanMarkdownKeywords performs a shallow scan of root and docs/ for .md files
-// containing relevant keywords. Returns absolute paths of matching files.
-func scanMarkdownKeywords(workspacePath string) []string {
+// containing relevant keywords. Returns the workspace-relative paths of matching files.
+func scanMarkdownKeywords(ws *workspacefs.Root) []string {
 	var matches []string
 
 	for _, dir := range keywordScanDirs {
-		scanDir := filepath.Join(workspacePath, dir)
-		entries, err := os.ReadDir(scanDir)
+		scanDir := dir
+		if scanDir == "" {
+			scanDir = "."
+		}
+		entries, err := ws.ReadDir(scanDir)
 		if err != nil {
 			continue
 		}
@@ -148,9 +159,9 @@ func scanMarkdownKeywords(workspacePath string) []string {
 			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".md") {
 				continue
 			}
-			fullPath := filepath.Join(scanDir, entry.Name())
-			if containsKeyword(fullPath) {
-				matches = append(matches, fullPath)
+			rel := path.Join(dir, entry.Name())
+			if containsKeyword(ws, rel) {
+				matches = append(matches, rel)
 			}
 		}
 	}
@@ -158,11 +169,11 @@ func scanMarkdownKeywords(workspacePath string) []string {
 	return matches
 }
 
-// containsKeyword reads a file line by line and returns true if any line
+// containsKeyword reads a workspace file line by line and returns true if any line
 // contains one of the keywordScanTerms (case-insensitive). Stops at 200 lines
-// to keep the scan shallow.
-func containsKeyword(path string) bool {
-	f, err := os.Open(path) //nolint:gosec // path is constructed from workspace root + known subdirs
+// to keep the scan shallow; a symlink that leaves the workspace or a FIFO is not read.
+func containsKeyword(ws *workspacefs.Root, name string) bool {
+	f, _, err := ws.OpenFile(name)
 	if err != nil {
 		return false
 	}

@@ -3,11 +3,10 @@ package markdownspec
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // Compile-time checks for optional interface compliance.
@@ -35,21 +34,24 @@ func (p *Provider) Capabilities() specprovider.Capabilities {
 	return specprovider.Capabilities{Read: true, Write: true, Sync: false}
 }
 
-func (p *Provider) Detect(_ context.Context, workspacePath string) (bool, error) {
-	for _, name := range candidates {
-		info, err := os.Stat(filepath.Join(workspacePath, name))
-		if err == nil && !info.IsDir() {
-			return true, nil
-		}
-	}
-	return false, nil
+// Detect, ListSpecs and the readers and writers below work through
+// workspacefs (KI-95): a candidate must be a regular file inside the
+// workspace, and a spec path never leads out of it.
+func (p *Provider) Detect(ctx context.Context, workspacePath string) (bool, error) {
+	specs, err := p.ListSpecs(ctx, workspacePath)
+	return len(specs) > 0, err
 }
 
 func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specprovider.Spec, error) {
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		return nil, nil //nolint:nilerr // a workspace that cannot be opened has no specs, as a missing file had none
+	}
+	defer func() { _ = ws.Close() }()
 	var specs []specprovider.Spec
 	for _, name := range candidates {
-		info, err := os.Stat(filepath.Join(workspacePath, name))
-		if err == nil && !info.IsDir() {
+		info, err := ws.Stat(name)
+		if err == nil && info.Mode().IsRegular() {
 			specs = append(specs, specprovider.Spec{
 				Path:   name,
 				Format: providerName,
@@ -61,12 +63,12 @@ func (p *Provider) ListSpecs(_ context.Context, workspacePath string) ([]specpro
 }
 
 func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(workspacePath, specPath)) //nolint:gosec // Path from known candidates list.
+	return workspacefs.ReadFileAt(workspacePath, specPath, specprovider.MaxSpecBytes)
 }
 
 // ParseSpec reads a spec file and returns parsed structured items.
 func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) ([]SpecItem, error) {
-	content, err := os.ReadFile(filepath.Join(workspacePath, specPath)) //nolint:gosec // Path from workspace + known spec file.
+	content, err := workspacefs.ReadFileAt(workspacePath, specPath, specprovider.MaxSpecBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +77,13 @@ func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) 
 
 // WriteSpec writes structured items back to a spec file as markdown.
 func (p *Provider) WriteSpec(_ context.Context, workspacePath, specPath string, items []SpecItem) error {
-	data := RenderMarkdown(items)
-	return os.WriteFile(filepath.Join(workspacePath, specPath), data, project.WorkspaceFilePerm) //nolint:gosec // Path from workspace + known spec file; shared with the worker's tool user (KI-71).
+	ws, err := workspacefs.Open(workspacePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ws.Close() }()
+	// Shared with the worker's tool user (KI-71).
+	return ws.WriteFile(specPath, RenderMarkdown(items), project.WorkspaceFilePerm)
 }
 
 // ParseItems implements specprovider.ItemParser by converting internal SpecItems

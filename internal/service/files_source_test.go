@@ -2,13 +2,15 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // --------------------------------------------------------------------------
@@ -35,11 +37,15 @@ func TestFiles_SourceQuality(t *testing.T) {
 		}
 	})
 
+	// Every path is resolved inside the workspace by os.Root (KI-95); the
+	// former check-then-open with EvalSymlinks could be raced by a symlink swap.
 	t.Run("PathTraversalProtection", func(t *testing.T) {
-		if !strings.Contains(content, "filepath.Clean") &&
-			!strings.Contains(content, "filepath.Abs") &&
-			!strings.Contains(content, "strings.HasPrefix") {
-			t.Error("files.go must validate paths to prevent directory traversal attacks")
+		if !strings.Contains(content, "workspacefs.Open") {
+			t.Error("files.go must open workspaces through workspacefs (os.Root)")
+		}
+		if strings.Contains(content, "EvalSymlinks") || strings.Contains(content, "os.ReadFile") ||
+			strings.Contains(content, "os.WriteFile") {
+			t.Error("files.go must not resolve or open workspace paths outside workspacefs")
 		}
 	})
 
@@ -49,9 +55,9 @@ func TestFiles_SourceQuality(t *testing.T) {
 		}
 	})
 
-	t.Run("ResolveProjectPath_Exists", func(t *testing.T) {
-		if !strings.Contains(content, "resolveProjectPath") {
-			t.Error("files.go must contain resolveProjectPath for path resolution")
+	t.Run("OpenWorkspace_Exists", func(t *testing.T) {
+		if !strings.Contains(content, "openWorkspace") {
+			t.Error("files.go must contain openWorkspace for path resolution")
 		}
 	})
 }
@@ -92,7 +98,7 @@ func newTestFileService(wsDir string) *FileService {
 			WorkspacePath: wsDir,
 		}},
 	}
-	return NewFileService(store, osfs.New())
+	return NewFileService(store)
 }
 
 func TestListDirectory_NonexistentPath(t *testing.T) {
@@ -139,24 +145,16 @@ func TestReadFile_NotFound(t *testing.T) {
 
 func TestWriteFile_CreatesDirectories(t *testing.T) {
 	wsDir := t.TempDir()
-	// resolveProjectPath uses EvalSymlinks on the parent directory when the
-	// target does not exist. The parent "sub" must already exist for
-	// EvalSymlinks to succeed. WriteFile's MkdirAll ensures the parent
-	// directory exists before writing.
-	sub := filepath.Join(wsDir, "sub")
-	if err := os.MkdirAll(sub, 0o750); err != nil {
-		t.Fatal(err)
-	}
-
 	svc := newTestFileService(wsDir)
 
-	relPath := filepath.Join("sub", "newfile.txt")
+	// WriteFile creates the missing parent directories inside the workspace.
+	relPath := filepath.Join("sub", "deeper", "newfile.txt")
 	err := svc.WriteFile(context.Background(), "p1", relPath, "hello world")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	absPath := filepath.Join(wsDir, "sub", "newfile.txt")
+	absPath := filepath.Join(wsDir, "sub", "deeper", "newfile.txt")
 	data, readErr := os.ReadFile(absPath) //nolint:gosec // test reads from t.TempDir()
 	if readErr != nil {
 		t.Fatalf("file not created: %v", readErr)
@@ -222,9 +220,9 @@ func TestResolveProjectPath_TraversalBlocked(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for path traversal attempt")
 	}
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "traversal") && !strings.Contains(errMsg, "resolve") && !strings.Contains(errMsg, "does not exist") {
-		t.Errorf("expected path traversal/resolve error, got: %v", err)
+	// A refused path is the client's error with a clear message (KI-95).
+	if !errors.Is(err, workspacefs.ErrLeavesWorkspace) || !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("expected a validation error that the path leaves the workspace, got: %v", err)
 	}
 }
 

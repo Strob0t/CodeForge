@@ -776,7 +776,7 @@ func run() error {
 	slog.Info("microagent service initialized")
 
 	// --- Goal Discovery Service (Phase 28) ---
-	goalSvc := service.NewGoalDiscoveryService(store, osFS)
+	goalSvc := service.NewGoalDiscoveryService(store)
 	projectSvc.SetGoalDiscovery(goalSvc)
 	conversationSvc.SetGoalService(goalSvc)
 	runtimeSvc.SetGoalService(goalSvc)
@@ -793,7 +793,7 @@ func run() error {
 	slog.Info("skill service initialized")
 
 	// --- File Service ---
-	fileSvc := service.NewFileService(store, osFS)
+	fileSvc := service.NewFileService(store)
 	slog.Info("file service initialized")
 
 	// --- Feedback Providers (Phase 22D) ---

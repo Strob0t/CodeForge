@@ -12,6 +12,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/proctemp"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // Checkpoint records a single git shadow commit for rollback.
@@ -25,9 +26,13 @@ type Checkpoint struct {
 
 // fileSnapshot holds a snapshot of a file's content before modification.
 type fileSnapshot struct {
-	Path    string
-	Content []byte
+	Workspace string
+	Path      string // relative to Workspace
+	Content   []byte
 }
+
+// maxSnapshotSize caps a per-call file snapshot.
+const maxSnapshotSize = 10 * 1024 * 1024
 
 // CheckpointService manages git-based shadow checkpoints for agent runs
 // and file-content snapshots for per-tool-call revert.
@@ -273,10 +278,11 @@ func (s *CheckpointService) CleanupCheckpoints(ctx context.Context, runID, works
 	})
 }
 
-// Store reads the current content of path and saves it under runID/callID.
-// This captures a pre-edit snapshot for per-tool-call revert.
-func (s *CheckpointService) Store(runID, callID, path string) error {
-	data, err := os.ReadFile(path) //nolint:gosec // path is validated by caller (workspace-scoped)
+// Store reads the current content of the workspace file relPath and saves it
+// under runID/callID. This captures a pre-edit snapshot for per-tool-call
+// revert. The file is read through workspacefs (KI-95).
+func (s *CheckpointService) Store(runID, callID, workspacePath, relPath string) error {
+	data, err := workspacefs.ReadFileAt(workspacePath, relPath, maxSnapshotSize)
 	if err != nil {
 		return fmt.Errorf("checkpoint read: %w", err)
 	}
@@ -287,7 +293,7 @@ func (s *CheckpointService) Store(runID, callID, path string) error {
 	if s.snapshots[runID] == nil {
 		s.snapshots[runID] = make(map[string]fileSnapshot)
 	}
-	s.snapshots[runID][callID] = fileSnapshot{Path: path, Content: data}
+	s.snapshots[runID][callID] = fileSnapshot{Workspace: workspacePath, Path: relPath, Content: data}
 	return nil
 }
 
@@ -307,9 +313,9 @@ func (s *CheckpointService) Revert(runID, callID string) error {
 	s.snapshotMu.RUnlock()
 
 	// A file the run deleted is recreated readable and writable for the
-	// workspace group, like the rest of the workspace (KI-71).
-	if err := os.WriteFile(snap.Path, snap.Content, project.WorkspaceFilePerm); err != nil { //nolint:gosec // G306: shared with the worker's tool user
-
+	// workspace group, like the rest of the workspace (KI-71); it is written
+	// through workspacefs, never through a symlink that leaves the workspace.
+	if err := writeSnapshot(&snap); err != nil {
 		return fmt.Errorf("checkpoint revert: %w", err)
 	}
 
@@ -326,4 +332,13 @@ func (s *CheckpointService) ClearRun(runID string) {
 	s.snapshotMu.Lock()
 	delete(s.snapshots, runID)
 	s.snapshotMu.Unlock()
+}
+
+func writeSnapshot(snap *fileSnapshot) error {
+	ws, err := workspacefs.Open(snap.Workspace)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ws.Close() }()
+	return ws.WriteFile(snap.Path, snap.Content, project.WorkspaceFilePerm)
 }

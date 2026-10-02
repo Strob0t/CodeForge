@@ -91,7 +91,7 @@ func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User,
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
-	filesSvc := service.NewFileService(store, osfs.New())
+	filesSvc := service.NewFileService(store)
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
 	microagentSvc := service.NewMicroagentService(store)
@@ -145,7 +145,7 @@ func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User,
 		}(),
 		ActiveWork:    service.NewActiveWorkService(store, bc),
 		Routing:       service.NewRoutingService(store),
-		GoalDiscovery: service.NewGoalDiscoveryService(store, osfs.New()),
+		GoalDiscovery: service.NewGoalDiscoveryService(store),
 		AppEnv:        os.Getenv("APP_ENV"),
 		Limits: &config.Limits{
 			MaxRequestBodySize: 1 << 20,
