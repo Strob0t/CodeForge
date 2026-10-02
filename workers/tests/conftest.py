@@ -50,6 +50,22 @@ def _fresh_worker_settings() -> Iterator[None]:
     get_settings.cache_clear()
 
 
+@pytest.fixture
+def datasets_in_tmp(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Point the benchmark datasets directory at the temp directory.
+
+    Datasets are read below that directory only (KI-107); tests that write
+    datasets to temporary files use this.
+    """
+    import tempfile
+
+    from codeforge.evaluation import datasets
+
+    directory = tempfile.gettempdir()
+    monkeypatch.setattr(datasets, "datasets_dir", lambda: directory)
+    return directory
+
+
 @pytest.fixture(autouse=True)
 def _fresh_tool_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Check tool isolation (KI-71) again from each test's settings.

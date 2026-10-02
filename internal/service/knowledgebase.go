@@ -121,7 +121,7 @@ func (s *KnowledgeBaseService) RequestIndex(ctx context.Context, id string) erro
 func (s *KnowledgeBaseService) checkContent(rel string) error {
 	root, err := s.content.open()
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errNoOperatorDir) {
 			return fmt.Errorf("the knowledge content root (knowledge.content_root) does not exist: %w", domain.ErrValidation)
 		}
 		return fmt.Errorf("open the knowledge content root: %w", err)

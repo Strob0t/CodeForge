@@ -156,6 +156,19 @@ class WorkspaceRoot:
                 raise WorkspacePathError(f"workspace directory {self.path} is a symlink") from None
             raise
 
+    @classmethod
+    def operator_dir(cls, path: str) -> WorkspaceRoot:
+        """A root for a directory the operator configured (the knowledge content root, the datasets directory).
+
+        Unlike a workspace, its own path may contain symlinks; names below it
+        are resolved like workspace names.
+        """
+        root = cls.__new__(cls)
+        root.path = os.path.normpath(path)
+        root._blocked = frozenset()
+        root._fd = os.open(root.path, _DIR_FLAGS & ~os.O_NOFOLLOW)
+        return root
+
     @property
     def fd(self) -> int:
         return self._fd

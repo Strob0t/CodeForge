@@ -6,8 +6,6 @@ import tempfile
 
 import structlog
 
-from codeforge.config import get_settings
-
 logger = structlog.get_logger()
 
 
@@ -32,25 +30,13 @@ def _dataset_to_task_specs(dataset_path: str) -> list:
 
 
 def _resolve_default_dataset(provider_name: str) -> str:
-    """Map built-in provider names to their default dataset YAML paths."""
-    from pathlib import Path
-
-    settings = get_settings()
-    datasets_dir = settings.benchmark_datasets_dir
+    """Map built-in provider names to their default dataset, a name in the datasets directory."""
     mapping = {
         "codeforge_simple": "basic-coding.yaml",
         "codeforge_tool_use": "tool-use-basic.yaml",
         "codeforge_agent": "agent-coding.yaml",
     }
-    filename = mapping.get(provider_name, "")
-    if not filename:
-        return ""
-    candidate = Path(datasets_dir) / filename
-    if candidate.exists():
-        return str(candidate)
-    workspace = Path(settings.workspace)
-    absolute = workspace / datasets_dir / filename
-    return str(absolute) if absolute.exists() else ""
+    return mapping.get(provider_name, "")
 
 
 async def load_tasks_for_run(req: object) -> list:

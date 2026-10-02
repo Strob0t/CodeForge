@@ -98,7 +98,7 @@ class RetrievalHandlerMixin:
         if not self._knowledge_content_root:
             return "no knowledge content root is configured (knowledge.content_root)"
         try:
-            with WorkspaceRoot(self._knowledge_content_root) as root:
+            with WorkspaceRoot.operator_dir(self._knowledge_content_root) as root:
                 root.resolve(request.knowledge_path)
         except FileNotFoundError:
             return f"knowledge_path {request.knowledge_path!r} does not exist below the knowledge content root"

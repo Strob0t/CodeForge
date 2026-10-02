@@ -402,6 +402,7 @@ class TestCodeForgeAgentProvider:
         assert p.capabilities.llm_judge is True
         assert p.capabilities.swe_bench_style is True
 
+    @pytest.mark.usefixtures("datasets_in_tmp")
     @pytest.mark.asyncio
     async def test_load_tasks_with_initial_files(self) -> None:
         from codeforge.evaluation.providers.codeforge_agent import CodeForgeAgentProvider
@@ -434,6 +435,7 @@ tasks:
         assert tasks[0].metadata["timeout_seconds"] == "120"
         assert tasks[0].difficulty == "easy"
 
+    @pytest.mark.usefixtures("datasets_in_tmp")
     @pytest.mark.asyncio
     async def test_load_tasks_with_tools(self) -> None:
         from codeforge.evaluation.providers.codeforge_agent import CodeForgeAgentProvider
@@ -464,6 +466,7 @@ tasks:
         assert tasks[0].expected_tools[0].name == "read_file"
         assert "tools" in tasks[0].metadata
 
+    @pytest.mark.usefixtures("datasets_in_tmp")
     @pytest.mark.asyncio
     async def test_task_count(self) -> None:
         from codeforge.evaluation.providers.codeforge_agent import CodeForgeAgentProvider

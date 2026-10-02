@@ -3,10 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // BenchmarkRunManager handles benchmark run lifecycle (create, start, list, update, delete).
@@ -39,13 +41,35 @@ func (m *BenchmarkRunManager) SetRoutingService(routingSvc *RoutingService) {
 	m.routingSvc = routingSvc
 }
 
-// CreateRun validates and persists a new benchmark run.
+// maxDatasetFileSize caps a dataset file the Go Core reads.
+const maxDatasetFileSize = 10 << 20
+
+// datasets returns the benchmark datasets directory (zero when not configured).
+func (m *BenchmarkRunManager) datasets() operatorDir {
+	if m.suiteSvc == nil {
+		return operatorDir{}
+	}
+	return m.suiteSvc.datasets
+}
+
+// CreateRun validates and persists a new benchmark run. The dataset is a
+// name or a path inside the benchmark datasets directory (KI-107), stored
+// relative to it.
 func (m *BenchmarkRunManager) CreateRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 	if err := checkBenchmarkExecMode(req.ExecMode); err != nil {
 		return nil, err
+	}
+	dataset := req.Dataset
+	if dataset != "" {
+		rel, ok := m.datasets().relative(dataset)
+		if !ok {
+			return nil, fmt.Errorf("%w: dataset %q must be a dataset name or a path inside the benchmark datasets directory (benchmark.datasets_dir)",
+				domain.ErrValidation, dataset)
+		}
+		dataset = rel
 	}
 	rolloutCount := req.RolloutCount
 	if rolloutCount < 1 {
@@ -57,7 +81,7 @@ func (m *BenchmarkRunManager) CreateRun(ctx context.Context, req *benchmark.Crea
 	}
 	r := &benchmark.Run{
 		ID:                 uuid.New().String(),
-		Dataset:            req.Dataset,
+		Dataset:            dataset,
 		Model:              req.Model,
 		Metrics:            req.Metrics,
 		Status:             benchmark.StatusRunning,
@@ -89,9 +113,9 @@ func (m *BenchmarkRunManager) StartRun(ctx context.Context, req *benchmark.Creat
 	}
 
 	// Resolve dataset name to absolute file path.
-	datasetPath := m.resolveDatasetPath(ctx, run)
-	if datasetPath == "" {
-		return nil, fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)
+	datasetPath, err := m.resolveDatasetPath(ctx, run)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve provider info from suite (if suite-based run).
@@ -144,36 +168,56 @@ func (m *BenchmarkRunManager) StartRun(ctx context.Context, req *benchmark.Creat
 	return run, nil
 }
 
-// resolveDatasetPath resolves a dataset name to an absolute file path.
-// Returns the resolved path, or "" if the dataset cannot be found and no suite fallback exists.
-func (m *BenchmarkRunManager) resolveDatasetPath(ctx context.Context, run *benchmark.Run) string {
-	datasetPath := run.Dataset
-	if m.suiteSvc == nil || m.suiteSvc.datasetsDir == "" || filepath.IsAbs(datasetPath) {
-		return datasetPath
+// resolveDatasetPath resolves the run's dataset name to the absolute path of
+// a regular file inside the datasets directory (".yaml" is added to a name
+// without .yaml or .yml), resolved through os.Root (KI-107): a symlink out of
+// the directory is refused. A missing dataset fails the run unless a suite
+// provider can load the tasks; then the name is passed on. Without a
+// datasets directory the name is passed on: the worker reads it below its
+// own datasets directory.
+func (m *BenchmarkRunManager) resolveDatasetPath(ctx context.Context, run *benchmark.Run) (string, error) {
+	dir := m.datasets()
+	if run.Dataset == "" || dir.path == "" {
+		return run.Dataset, nil
 	}
 
-	base := datasetPath
-	if !strings.HasSuffix(base, ".yaml") {
-		base += ".yaml"
+	name := run.Dataset
+	if ext := strings.ToLower(path.Ext(name)); ext != ".yaml" && ext != ".yml" {
+		name += ".yaml"
 	}
-	candidate := filepath.Join(m.suiteSvc.datasetsDir, base)
-	absCandidate, _ := filepath.Abs(candidate)
-	if _, statErr := os.Stat(absCandidate); statErr == nil {
-		slog.Info("resolved dataset path", "original", run.Dataset, "resolved", absCandidate)
-		return absCandidate
+	var statErr error
+	if root, err := dir.open(); err != nil {
+		statErr = err
+	} else {
+		var info fs.FileInfo
+		info, statErr = root.Stat(name)
+		_ = root.Close()
+		if statErr == nil && info.Mode().IsRegular() {
+			slog.Info("resolved dataset path", "original", run.Dataset, "resolved", dir.abs(name))
+			return dir.abs(name), nil
+		}
 	}
 
+	if errors.Is(statErr, workspacefs.ErrLeavesWorkspace) {
+		m.failRun(ctx, run, fmt.Sprintf("dataset %q leads out of the benchmark datasets directory", run.Dataset))
+		return "", fmt.Errorf("%w: dataset %q leads out of the benchmark datasets directory", domain.ErrValidation, run.Dataset)
+	}
 	if run.SuiteID == "" {
 		// No suite fallback -- the dataset is mandatory and must exist.
-		run.Status = benchmark.StatusFailed
-		run.ErrorMessage = fmt.Sprintf("dataset %q not found", run.Dataset)
-		logBestEffort(ctx, m.store.UpdateBenchmarkRun(ctx, run), "UpdateBenchmarkRun", slog.String("run_id", run.ID))
-		return ""
+		m.failRun(ctx, run, fmt.Sprintf("dataset %q not found", run.Dataset))
+		return "", fmt.Errorf("%w: dataset %q not found", domain.ErrValidation, run.Dataset)
 	}
 
 	slog.Warn("dataset path resolution failed, relying on suite provider",
-		"original", run.Dataset, "candidate", absCandidate)
-	return datasetPath
+		"original", run.Dataset, "error", statErr)
+	return run.Dataset, nil
+}
+
+// failRun marks a stored run as failed with msg.
+func (m *BenchmarkRunManager) failRun(ctx context.Context, run *benchmark.Run, msg string) {
+	run.Status = benchmark.StatusFailed
+	run.ErrorMessage = msg
+	logBestEffort(ctx, m.store.UpdateBenchmarkRun(ctx, run), "UpdateBenchmarkRun", slog.String("run_id", run.ID))
 }
 
 // GetRun retrieves a benchmark run by ID.

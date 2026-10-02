@@ -71,12 +71,8 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("evaluation/cache.py", "open"): _DATASETS,
     ("evaluation/cache.py", "tmp_path.write_bytes"): _DATASETS,
     ("evaluation/cache.py", "tmp_path.unlink"): _DATASETS,
-    ("evaluation/datasets.py", "p.read_text"): _DATASETS,
     ("evaluation/datasets.py", "p.parent.mkdir"): "benchmark result files (operator path)",
     ("evaluation/datasets.py", "p.write_text"): "benchmark result files (operator path)",
-    ("evaluation/providers/codeforge_agent.py", "path.read_text"): _DATASETS,
-    ("evaluation/providers/codeforge_simple.py", "path.read_text"): _DATASETS,
-    ("evaluation/providers/codeforge_tool_use.py", "path.read_text"): _DATASETS,
     ("evaluation/runners/agent.py", "shutil.rmtree"): (
         "removes the benchmark workspace; shutil.rmtree works on directory descriptors and "
         "never follows a symlink (a symlinked top is refused)"

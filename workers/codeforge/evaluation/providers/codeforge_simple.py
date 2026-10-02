@@ -6,8 +6,6 @@ Auto-registers via module import.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import yaml
 
 from codeforge.evaluation.providers.base import (
@@ -16,9 +14,6 @@ from codeforge.evaluation.providers.base import (
     TaskSpec,
     register_provider,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class CodeForgeSimpleProvider:
@@ -40,10 +35,9 @@ class CodeForgeSimpleProvider:
         return Capabilities(llm_judge=True)
 
     async def load_tasks(self) -> list[TaskSpec]:
-        from pathlib import Path as _Path
+        from codeforge.evaluation.datasets import read_dataset_text
 
-        path: Path = _Path(self._dataset_path)
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(read_dataset_text(self._dataset_path))
         return [
             TaskSpec(
                 id=t["id"],
