@@ -148,11 +148,36 @@ type Auth struct {
 	jwtSecretGenerated bool // JWTSecret was generated at load time, not configured
 }
 
-// Webhook holds VCS/PM webhook verification configuration.
+// Webhook configures the inbound VCS and PM webhooks. They are registered
+// per project (POST /api/v1/projects/{id}/webhooks) with their own secrets
+// (KI-85).
 type Webhook struct {
-	GitHubSecret string `yaml:"github_secret" json:"-"` // HMAC-SHA256 secret for GitHub webhooks
-	GitLabToken  string `yaml:"gitlab_token" json:"-"`  // Static token for GitLab webhooks
-	PlaneSecret  string `yaml:"plane_secret" json:"-"`  // HMAC secret for Plane.so webhooks
+	// DeliveryRetention is how long a webhook remembers a delivery ID, so a
+	// redelivered or replayed event is handled once (default 168h).
+	DeliveryRetention time.Duration `yaml:"delivery_retention"`
+
+	// Removed with KI-85 (the global webhook routes they verified are
+	// gone). They still load, so older files and environments keep
+	// working, and a set one is reported at startup.
+	GitHubSecret string `yaml:"github_secret" json:"-"`
+	GitLabToken  string `yaml:"gitlab_token" json:"-"`
+	PlaneSecret  string `yaml:"plane_secret" json:"-"`
+}
+
+// RemovedGlobalSecrets names the removed global webhook secrets that are
+// still set.
+func (w *Webhook) RemovedGlobalSecrets() []string {
+	var set []string
+	for _, s := range []struct{ key, value string }{
+		{"webhook.github_secret", w.GitHubSecret},
+		{"webhook.gitlab_token", w.GitLabToken},
+		{"webhook.plane_secret", w.PlaneSecret},
+	} {
+		if s.value != "" {
+			set = append(set, s.key)
+		}
+	}
+	return set
 }
 
 // Notification holds notification provider configuration.
@@ -659,7 +684,7 @@ func Defaults() Config {
 			GraphTopK:                 10,
 			GraphHopDecay:             0.7,
 		},
-		Webhook:      Webhook{},
+		Webhook:      Webhook{DeliveryRetention: 7 * 24 * time.Hour},
 		Notification: Notification{SMTPPort: 587, ApprovalTenants: []string{tenantctx.DefaultTenantID}},
 		Plane:        Plane{BaseURL: "https://api.plane.so"},
 		OTEL: OTEL{

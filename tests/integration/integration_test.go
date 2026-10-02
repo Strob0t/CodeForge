@@ -122,7 +122,7 @@ func newRouter(h *cfhttp.Handlers, authSvc *service.AuthService, authEnabled boo
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	cfhttp.MountRoutes(r, h, config.Webhook{})
+	cfhttp.MountRoutes(r, h)
 	return r
 }
 

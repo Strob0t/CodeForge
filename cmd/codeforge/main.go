@@ -496,9 +496,9 @@ func run() error {
 	slog.Info("replay and session services initialized")
 
 	// --- VCS Webhook & Sync Services ---
-	vcsWebhookSvc := service.NewVCSWebhookService(hub, store)
+	vcsWebhookSvc := service.NewVCSWebhookService(hub)
 	syncSvc := service.NewSyncService(store)
-	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc, store, pmConfigs)
+	pmWebhookSvc := service.NewPMWebhookService(hub, syncSvc, pmConfigs)
 	slog.Info("vcs webhook, pm webhook, and sync services initialized")
 
 	// --- Review Service (Phase 12I) ---
@@ -566,6 +566,19 @@ func run() error {
 		return fmt.Errorf("derive vcs encryption key: %w", err)
 	}
 	vcsAccountSvc := service.NewVCSAccountService(store, vcsKey)
+
+	// --- Inbound webhooks (KI-85): registered per project, their secrets
+	// and PM API tokens encrypted like VCS account tokens (own key). ---
+	webhookKey, err := crypto.DeriveKey(cfg.Auth.JWTSecret, nil, "codeforge/webhook/v1")
+	if err != nil {
+		return fmt.Errorf("derive webhook encryption key: %w", err)
+	}
+	webhookSvc := service.NewWebhookService(store, webhookKey, vcsWebhookSvc, pmWebhookSvc, cfg.Webhook.DeliveryRetention)
+	if removed := cfg.Webhook.RemovedGlobalSecrets(); len(removed) > 0 {
+		slog.Warn("the global webhook routes were removed (KI-85) and these settings are ignored - register a webhook per project "+
+			"(POST /api/v1/projects/{id}/webhooks) and point the provider at its URL with its secret",
+			"ignored", removed)
+	}
 
 	// --- GitHub OAuth web flow (KI-55): connects a GitHub account as a VCS
 	// account; its token is encrypted with the VCS account key. ---
@@ -863,9 +876,8 @@ func run() error {
 		BranchProtection: branchProtSvc,
 		Replay:           replaySvc,
 		Sessions:         sessionSvc,
-		VCSWebhook:       vcsWebhookSvc,
 		Sync:             syncSvc,
-		PMWebhook:        pmWebhookSvc,
+		Webhooks:         webhookSvc,
 		Notification:     notificationSvc,
 		Auth:             authSvc,
 		Scope:            scopeSvc,
@@ -996,7 +1008,7 @@ func run() error {
 		authRLCleanup := authRL.StartCleanup(cfg.Rate.CleanupInterval, cfg.Rate.MaxIdleTime)
 		defer authRLCleanup()
 
-		cfhttp.MountRoutes(api, handlers, cfg.Webhook, cfhttp.WithAuthRateLimiter(authRL))
+		cfhttp.MountRoutes(api, handlers, cfhttp.WithAuthRateLimiter(authRL))
 
 		// A2A protocol routes (Phase 27 — SDK-based)
 		if cfg.A2A.Enabled {

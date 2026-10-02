@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/version"
@@ -80,7 +79,7 @@ const auditByHandler auditOption = 1
 //
 // MIGRATION PLAN: These will be addressed in API v2. v1 routes remain stable
 // with Deprecation headers. Track: https://github.com/Strob0t/CodeForge/issues/XXX
-func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...RouteOption) {
+func MountRoutes(r chi.Router, h *Handlers, opts ...RouteOption) {
 	var ro routeOptions
 	for _, o := range opts {
 		o(&ro)
@@ -98,7 +97,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		return middleware.AuditLog(ro.auditStore, action, resource)
 	})
 
-	mountWebhookRoutes(r, h, webhookCfg)
+	mountWebhookRoutes(r, h)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Version
@@ -132,21 +131,20 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 	})
 }
 
-// mountWebhookRoutes registers VCS/PM webhook endpoints (outside auth, use HMAC/token verification).
-func mountWebhookRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
+// mountWebhookRoutes registers the inbound webhook endpoints. They are
+// outside authentication: a channel webhook presents its channel's key
+// (KI-73), a VCS or PM webhook is signed with the secret of the webhook its
+// URL names, which also names its tenant and project (KI-85).
+func mountWebhookRoutes(r chi.Router, h *Handlers) {
 	r.Route("/api/v1/webhooks", func(r chi.Router) {
-		// Channel webhooks authenticate with the channel's webhook key (KI-73).
 		r.Post("/channels/{id}", h.WebhookMessage)
-		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
-			Post("/vcs/github", h.HandleGitHubWebhook)
-		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
-			Post("/vcs/gitlab", h.HandleGitLabWebhook)
-		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
-			Post("/pm/github", h.HandleGitHubIssueWebhook)
-		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
-			Post("/pm/gitlab", h.HandleGitLabIssueWebhook)
-		r.With(middleware.WebhookHMAC(webhookCfg.PlaneSecret, "X-Plane-Signature")).
-			Post("/pm/plane", h.HandlePlaneWebhook)
+		r.Post("/vcs/{provider}/{webhookId}", h.ReceiveVCSWebhook)
+		r.Post("/pm/{provider}/{webhookId}", h.ReceivePMWebhook)
+		// The global routes (one operator secret, the default tenant) were
+		// removed with KI-85; they answer 410 and name the migration.
+		for _, old := range []string{"/vcs/github", "/vcs/gitlab", "/pm/github", "/pm/gitlab", "/pm/plane"} {
+			r.Post(old, h.RemovedWebhookRoute)
+		}
 	})
 }
 
@@ -156,6 +154,17 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Get("/projects", h.Project.ListProjects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "project")).Post("/projects", h.Project.CreateProject)
 	r.Get("/projects/remote-branches", h.Project.ListRemoteBranches)
+
+	// Inbound webhooks of a project (KI-85): admins register, rotate,
+	// change the token of and delete them; editors list them (no secrets).
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("create", "webhook")).Post("/projects/{id}/webhooks", h.RegisterWebhook)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Get("/projects/{id}/webhooks", h.ListWebhooks)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("rotate", "webhook", auditByHandler)).
+		Post("/projects/{id}/webhooks/{webhookId}/rotate", h.RotateWebhookSecret)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("update", "webhook", auditByHandler)).
+		Put("/projects/{id}/webhooks/{webhookId}/api-token", h.SetWebhookAPIToken)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "webhook", auditByHandler)).
+		Delete("/projects/{id}/webhooks/{webhookId}", h.DeleteWebhook)
 
 	// Batch project operations
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/delete", h.BatchDeleteProjects)

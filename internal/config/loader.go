@@ -273,7 +273,8 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Orchestrator.ContextRerankEnabled, "CODEFORGE_CONTEXT_RERANK_ENABLED", strconv.ParseBool)
 	setString(&cfg.Orchestrator.ContextRerankModel, "CODEFORGE_CONTEXT_RERANK_MODEL")
 
-	// Webhook
+	// Webhook (the secrets are the removed global ones, KI-85)
+	setTyped(&cfg.Webhook.DeliveryRetention, "CODEFORGE_WEBHOOK_DELIVERY_RETENTION", time.ParseDuration)
 	setString(&cfg.Webhook.GitHubSecret, "CODEFORGE_WEBHOOK_GITHUB_SECRET")
 	setString(&cfg.Webhook.GitLabToken, "CODEFORGE_WEBHOOK_GITLAB_TOKEN")
 	setString(&cfg.Webhook.PlaneSecret, "CODEFORGE_WEBHOOK_PLANE_SECRET")
@@ -502,6 +503,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Runtime.TaskAcceptTimeout < 0 {
 		return fmt.Errorf("runtime.task_accept_timeout must be 0 (check off) or positive (got %s)", cfg.Runtime.TaskAcceptTimeout)
+	}
+	if cfg.Webhook.DeliveryRetention <= 0 {
+		return fmt.Errorf("webhook.delivery_retention must be positive (got %s)", cfg.Webhook.DeliveryRetention)
 	}
 	if err := validateRetention(&cfg.Retention); err != nil {
 		return err

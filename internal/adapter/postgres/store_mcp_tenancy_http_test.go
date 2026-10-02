@@ -38,7 +38,7 @@ func TestMCPServers_TenantAdminsManageTheirOwn(t *testing.T) {
 	mcpSvc := service.NewMCPService(&config.MCP{}, &config.Limits{MCPTestTimeout: time.Second})
 	mcpSvc.SetStore(store)
 	r := chi.NewRouter()
-	cfhttp.MountRoutes(r, &cfhttp.Handlers{MCP: mcpSvc, Limits: &config.Limits{MaxRequestBodySize: 1 << 20}}, config.Webhook{})
+	cfhttp.MountRoutes(r, &cfhttp.Handlers{MCP: mcpSvc, Limits: &config.Limits{MaxRequestBodySize: 1 << 20}})
 	adminB := &user.User{ID: uuid.NewString(), Role: user.RoleAdmin, TenantID: tenantB}
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()

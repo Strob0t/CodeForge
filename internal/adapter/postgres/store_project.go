@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -36,43 +35,6 @@ func (s *Store) GetProject(ctx context.Context, id string) (*project.Project, er
 		return nil, notFoundWrap(err, "get project %s", id)
 	}
 	return &p, nil
-}
-
-func (s *Store) GetProjectByRepoName(ctx context.Context, repoName string) (*project.Project, error) {
-	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
-		 FROM projects WHERE position($1 IN repo_url) > 0 AND tenant_id = $2 LIMIT 1`, repoName, tenantFromCtx(ctx))
-
-	p, err := scanProject(row)
-	if err != nil {
-		return nil, notFoundWrap(err, "get project by repo %s", repoName)
-	}
-	return &p, nil
-}
-
-// FindProjectByRepo returns the tenant's oldest project whose repository URL
-// names repoPath on host exactly (case-insensitive). SQL narrows the
-// candidates by substring; the exact host and path comparison
-// (project.RepoHostPath) covers the URL forms (https, ssh, git@, .git).
-func (s *Store) FindProjectByRepo(ctx context.Context, host, repoPath string) (*project.Project, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, description, repo_url, provider, workspace_path, config, policy_profile, version, created_at, updated_at
-		 FROM projects WHERE tenant_id = $1 AND position(lower($2) IN lower(repo_url)) > 0
-		 ORDER BY created_at, id LIMIT $3`, tenantFromCtx(ctx), repoPath, DefaultListLimit)
-	if err != nil {
-		return nil, fmt.Errorf("find project by repo %s/%s: %w", host, repoPath, err)
-	}
-	candidates, err := scanRows(rows, func(r pgx.Rows) (project.Project, error) { return scanProject(r) })
-	if err != nil {
-		return nil, fmt.Errorf("find project by repo %s/%s: %w", host, repoPath, err)
-	}
-	for i := range candidates {
-		h, p, ok := project.RepoHostPath(candidates[i].RepoURL)
-		if ok && strings.EqualFold(h, host) && strings.EqualFold(p, repoPath) {
-			return &candidates[i], nil
-		}
-	}
-	return nil, fmt.Errorf("find project by repo %s/%s: %w", host, repoPath, domain.ErrNotFound)
 }
 
 func (s *Store) CreateProject(ctx context.Context, req *project.CreateRequest) (*project.Project, error) {

@@ -11,7 +11,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
-	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
@@ -70,57 +69,6 @@ func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
-// --- VCS Webhooks ---
-
-// HandleGitHubWebhook handles POST /api/v1/webhooks/vcs/github
-func (h *Handlers) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r)
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-GitHub-Event")
-	switch eventType {
-	case "push":
-		ev, err := h.VCSWebhook.HandleGitHubPush(r.Context(), body)
-		if err != nil {
-			writeDomainError(w, err, "webhook processing failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, ev)
-	case "pull_request":
-		ev, err := h.VCSWebhook.HandleGitHubPullRequest(r.Context(), body)
-		if err != nil {
-			writeDomainError(w, err, "webhook processing failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, ev)
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-	}
-}
-
-// HandleGitLabWebhook handles POST /api/v1/webhooks/vcs/gitlab
-func (h *Handlers) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r)
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-Gitlab-Event")
-	switch eventType {
-	case "Push Hook":
-		ev, err := h.VCSWebhook.HandleGitLabPush(r.Context(), body)
-		if err != nil {
-			writeDomainError(w, err, "webhook processing failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, ev)
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-	}
-}
-
 // --- Bidirectional Sync ---
 
 // SyncRoadmap handles POST /api/v1/projects/{id}/roadmap/sync
@@ -151,65 +99,6 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// --- PM Webhooks ---
-
-// writePMWebhookResult answers a PM webhook: 202 when the sync was started
-// (its outcome is announced as a pm.sync event), 404 when no project
-// matches, 400 when the provider cannot sync (e.g. not configured) - never
-// a success for a sync that cannot run (KI-56).
-func writePMWebhookResult(w http.ResponseWriter, ev *webhook.PMWebhookEvent, err error) {
-	if err != nil {
-		writeDomainError(w, err, "no project matches this webhook")
-		return
-	}
-	writeJSON(w, http.StatusAccepted, ev)
-}
-
-// HandleGitHubIssueWebhook handles POST /api/v1/webhooks/pm/github
-func (h *Handlers) HandleGitHubIssueWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r)
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-GitHub-Event")
-	if eventType != "issues" {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-		return
-	}
-
-	ev, err := h.PMWebhook.HandleGitHubIssueWebhook(r.Context(), body)
-	writePMWebhookResult(w, ev, err)
-}
-
-// HandleGitLabIssueWebhook handles POST /api/v1/webhooks/pm/gitlab
-func (h *Handlers) HandleGitLabIssueWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r)
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-Gitlab-Event")
-	if eventType != "Issue Hook" {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-		return
-	}
-
-	ev, err := h.PMWebhook.HandleGitLabIssueWebhook(r.Context(), body)
-	writePMWebhookResult(w, ev, err)
-}
-
-// HandlePlaneWebhook handles POST /api/v1/webhooks/pm/plane
-func (h *Handlers) HandlePlaneWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r)
-	if body == nil {
-		return
-	}
-
-	ev, err := h.PMWebhook.HandlePlaneWebhook(r.Context(), body)
-	writePMWebhookResult(w, ev, err)
 }
 
 // --- Review Policies & Reviews (Phase 12I) ---

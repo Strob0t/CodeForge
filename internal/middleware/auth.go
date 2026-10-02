@@ -47,10 +47,14 @@ var publicPaths = map[string]bool{
 	"/.well-known/agent-card.json": true,
 }
 
+// webhookPathPrefix is where the inbound webhooks are: they authenticate
+// with the key or secret of the channel or webhook their URL names, which
+// also names their tenant.
+const webhookPathPrefix = "/api/v1/webhooks/"
+
 // publicPrefixes are path prefixes exempt from authentication.
-// Webhook endpoints use their own HMAC/token verification middleware.
 var publicPrefixes = []string{
-	"/api/v1/webhooks/",
+	webhookPathPrefix,
 }
 
 // passwordChangeExempt paths are allowed even when MustChangePassword is true.

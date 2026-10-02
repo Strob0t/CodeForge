@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -15,8 +14,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/domain/webhook"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
-	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // pmSyncer runs a roadmap sync (SyncService).
@@ -24,20 +23,21 @@ type pmSyncer interface {
 	Sync(ctx context.Context, cfg *roadmap.SyncConfig) (*roadmap.SyncResult, error)
 }
 
-// PMWebhookService processes PM platform webhooks and triggers sync.
+// PMWebhookService turns a PM webhook event into a pull sync of the
+// webhook's project (KI-56, KI-85).
 type PMWebhookService struct {
-	hub   broadcast.Broadcaster
-	sync  pmSyncer
-	store database.Store
+	hub  broadcast.Broadcaster
+	sync pmSyncer
 	// providerConfigs are the operator's credentials per registered PM
-	// provider (plane: api_token, base_url; gitlab: token).
+	// provider (plane: api_token, base_url). They serve the default
+	// tenant only.
 	providerConfigs map[string]map[string]string
 }
 
 // NewPMWebhookService creates a PM webhook service. providerConfigs holds
 // the operator-configured settings per PM provider name.
-func NewPMWebhookService(hub broadcast.Broadcaster, syncer pmSyncer, store database.Store, providerConfigs map[string]map[string]string) *PMWebhookService {
-	return &PMWebhookService{hub: hub, sync: syncer, store: store, providerConfigs: providerConfigs}
+func NewPMWebhookService(hub broadcast.Broadcaster, syncer pmSyncer, providerConfigs map[string]map[string]string) *PMWebhookService {
+	return &PMWebhookService{hub: hub, sync: syncer, providerConfigs: providerConfigs}
 }
 
 // webhookProviders maps the webhook sources to the registered PM provider
@@ -48,27 +48,48 @@ var webhookProviders = map[string]string{
 	"plane":  "plane",
 }
 
-// prepareSync finds the project a webhook refers to and builds the sync the
-// provider can run: the registered provider name and its configuration (the
-// operator's credentials, the project's settings). A webhook it cannot serve
-// is an error - no project for the reference (domain.ErrNotFound), a
-// provider that is not registered or not configured (domain.ErrValidation) -
-// so the sender sees it instead of a silent success (KI-56).
-func (s *PMWebhookService) prepareSync(ctx context.Context, source, host, projectRef string) (*roadmap.SyncConfig, error) {
+// pmEvent is a parsed PM webhook event with what identifies its repository
+// or Plane project.
+type pmEvent struct {
+	webhook.PMWebhookEvent
+	repo         webhookRepository // GitHub, GitLab
+	planeProject string            // Plane project ID
+}
+
+// HandleEvent starts the pull sync of proj for a PM webhook event of source
+// (github, gitlab, plane). apiToken is the integration's own token for the
+// provider's API ("" for none). The event must be about proj's repository
+// (GitHub, GitLab) or Plane project (webhook.ErrRepositoryMismatch
+// otherwise, KI-85); a payload that cannot be read or a provider that
+// cannot sync is a domain.ErrValidation, so the sender sees it instead of a
+// silent success (KI-56). The sync runs in the background in ctx's tenant
+// and announces its outcome as a pm.sync event.
+func (s *PMWebhookService) HandleEvent(ctx context.Context, source string, proj *project.Project, apiToken string, data []byte) (*webhook.PMWebhookEvent, error) {
 	provider := webhookProviders[source]
 	if provider == "" {
 		return nil, fmt.Errorf("webhook source %q: %w", source, domain.ErrValidation)
 	}
-	proj, err := s.findProject(ctx, source, host, projectRef)
+	ev, err := parsePMEvent(source, data)
 	if err != nil {
 		return nil, err
 	}
+	slog.Info(source+" webhook received", "project_id", proj.ID, "action", ev.Action, "item_id", ev.ItemID, "project_ref", ev.ProjectRef)
+
+	projectRef := ev.ProjectRef
 	if source == "plane" {
+		if ev.planeProject == "" || ev.planeProject != proj.Config["plane_project_id"] {
+			slog.Warn("webhook event for another Plane project ignored", "project_id", proj.ID, "event_project", ev.planeProject)
+			return nil, fmt.Errorf("plane event for project %q, project %s is %q (config plane_project_id): %w",
+				ev.planeProject, proj.ID, proj.Config["plane_project_id"], webhook.ErrRepositoryMismatch)
+		}
 		// The provider addresses Plane projects by workspace slug; the
 		// webhook names the workspace by its ID.
 		projectRef = proj.Config["plane_workspace"] + "/" + proj.Config["plane_project_id"]
+	} else if err := checkRepository(proj, source, ev.repo); err != nil {
+		return nil, err
 	}
-	providerCfg, err := s.providerConfig(provider, proj)
+
+	providerCfg, err := s.providerConfig(ctx, provider, proj, apiToken)
 	if err != nil {
 		slog.Error("webhook: sync refused", "provider", provider, "project", proj.ID, "error", err)
 		s.announce(ctx, &event.PMSyncEvent{ProjectID: proj.ID, Provider: provider, Status: "failed", Error: err.Error()})
@@ -88,36 +109,71 @@ func (s *PMWebhookService) prepareSync(ctx context.Context, source, host, projec
 	if _, err := pmprovider.New(provider, cfg.ProviderConfig); err != nil {
 		return nil, fmt.Errorf("%s webhook for project %s: %w: %w", source, proj.ID, err, domain.ErrValidation)
 	}
-	return cfg, nil
+	go s.runSync(detachTenant(ctx), cfg) //nolint:gosec // G118: sync must outlive webhook request; keeps its tenant
+	return &ev.PMWebhookEvent, nil
 }
 
-// findProject returns the project of the webhook's reference: for GitHub
-// and GitLab the exact repository (host and full path, GitLab subgroups
-// included) in the webhook's tenant (S3-F review C3), for Plane the project
-// config key plane_project_id.
-func (s *PMWebhookService) findProject(ctx context.Context, source, host, projectRef string) (*project.Project, error) {
-	if source != "plane" {
-		proj, err := s.store.FindProjectByRepo(ctx, host, projectRef)
-		if err == nil && proj == nil {
-			err = domain.ErrNotFound
+// parsePMEvent reads the event of a PM webhook payload.
+func parsePMEvent(source string, data []byte) (*pmEvent, error) {
+	switch source {
+	case "github":
+		var raw struct {
+			Action string `json:"action"`
+			Issue  struct {
+				Number int `json:"number"`
+			} `json:"issue"`
+			Repository struct {
+				FullName string `json:"full_name"`
+				HTMLURL  string `json:"html_url"` // GitHub Enterprise: its own host
+			} `json:"repository"`
 		}
-		if err != nil {
-			return nil, fmt.Errorf("%s webhook: no project for repository %s/%s: %w", source, host, projectRef, err)
+		if err := parsePayload(data, "github issue webhook", &raw); err != nil {
+			return nil, err
 		}
-		return proj, nil
-	}
-	_, planeProject, _ := strings.Cut(projectRef, "/")
-	projects, err := s.store.ListProjects(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("plane webhook: list projects: %w", err)
-	}
-	for i := range projects {
-		c := projects[i].Config
-		if planeProject != "" && c["plane_project_id"] == planeProject && c["plane_workspace"] != "" {
-			return &projects[i], nil
+		return &pmEvent{
+			PMWebhookEvent: webhook.PMWebhookEvent{Provider: source, Action: raw.Action, ItemID: fmt.Sprintf("%d", raw.Issue.Number), ProjectRef: raw.Repository.FullName},
+			repo:           webhookRepository{raw.Repository.FullName, raw.Repository.HTMLURL},
+		}, nil
+	case "gitlab":
+		var raw struct {
+			ObjectAttributes struct {
+				IID    int    `json:"iid"`
+				Action string `json:"action"`
+			} `json:"object_attributes"`
+			Project struct {
+				PathWithNamespace string `json:"path_with_namespace"`
+				WebURL            string `json:"web_url"` // self-hosted GitLab: its own host
+			} `json:"project"`
 		}
+		if err := parsePayload(data, "gitlab issue webhook", &raw); err != nil {
+			return nil, err
+		}
+		return &pmEvent{
+			PMWebhookEvent: webhook.PMWebhookEvent{Provider: source, Action: raw.ObjectAttributes.Action, ItemID: fmt.Sprintf("%d", raw.ObjectAttributes.IID), ProjectRef: raw.Project.PathWithNamespace},
+			repo:           webhookRepository{raw.Project.PathWithNamespace, raw.Project.WebURL},
+		}, nil
+	default: // plane
+		var raw struct {
+			Event string `json:"event"`
+			Data  struct {
+				ID        string `json:"id"`
+				Workspace string `json:"workspace"`
+				Project   string `json:"project"`
+			} `json:"data"`
+		}
+		if err := parsePayload(data, "plane webhook", &raw); err != nil {
+			return nil, err
+		}
+		// Plane events are like "issue.created", "issue.updated".
+		action := raw.Event
+		if _, after, ok := strings.Cut(raw.Event, "."); ok {
+			action = after
+		}
+		return &pmEvent{
+			PMWebhookEvent: webhook.PMWebhookEvent{Provider: source, Action: action, ItemID: raw.Data.ID, ProjectRef: raw.Data.Workspace + "/" + raw.Data.Project},
+			planeProject:   raw.Data.Project,
+		}, nil
 	}
-	return nil, fmt.Errorf("plane webhook: no project for Plane project %q (config plane_workspace / plane_project_id): %w", planeProject, domain.ErrNotFound)
 }
 
 // repoURLParts splits a repository URL (https://host/path[.git] or
@@ -140,39 +196,50 @@ func repoURLParts(repoURL string) (base, path string, ok bool) {
 	return base, path, path != ""
 }
 
-// providerConfig is the operator's configuration of the provider plus what
-// the project determines. The operator's credentials go only to the
-// operator's host (S3-F security review S3): a project can name another
-// host (plane_base_url, its repository URL), but never get the operator's
-// token sent there.
-//   - Plane: the base URL is the operator's (plane.base_url); a project
-//     whose plane_base_url names another one is refused.
-//   - GitLab: the base URL is the project's repository host. An operator
-//     token is used only with the operator's base URL, and only for a
-//     project on that host; without a token the sync is anonymous.
-func (s *PMWebhookService) providerConfig(provider string, proj *project.Project) (map[string]string, error) {
-	cfg := maps.Clone(s.providerConfigs[provider])
-	if cfg == nil {
-		cfg = map[string]string{}
-	}
+// providerConfig is what the sync of proj authenticates with:
+//   - the integration's own API token (apiToken) when it has one;
+//   - otherwise the operator's credentials, but only in the default tenant
+//     (KI-85): the Plane token (plane.api_token) and the Go Core's gh login
+//     are the operator's, another tenant's integration needs its own token.
+//     GitLab without a token syncs anonymously (public projects).
+//
+// The operator's Plane token goes only to the operator's Plane (S3-F
+// security review S3): a project whose plane_base_url names another host is
+// refused. GitLab's base URL is the project's repository host.
+func (s *PMWebhookService) providerConfig(ctx context.Context, provider string, proj *project.Project, apiToken string) (map[string]string, error) {
+	operator := tenantctx.FromContext(ctx) == tenantctx.DefaultTenantID
 	switch provider {
 	case "gitlab":
 		base, _, ok := repoURLParts(proj.RepoURL)
 		if !ok {
 			return nil, fmt.Errorf("gitlab webhook: project %s has no GitLab repository URL: %w", proj.ID, domain.ErrValidation)
 		}
-		if cfg["token"] != "" && !sameBaseURL(cfg["base_url"], base) {
-			return nil, fmt.Errorf("gitlab webhook: project %s is on %s, the operator's GitLab token is for %q: %w",
-				proj.ID, base, cfg["base_url"], domain.ErrValidation)
+		return map[string]string{"base_url": base, "token": apiToken}, nil
+	case "github-issues":
+		if apiToken == "" && !operator {
+			return nil, fmt.Errorf("github webhook: project %s: the integration has no api_token, and the Core's GitHub login serves only the default tenant: %w",
+				proj.ID, domain.ErrValidation)
 		}
-		cfg["base_url"] = base
+		return map[string]string{"token": apiToken}, nil
 	case "plane":
+		cfg := maps.Clone(s.providerConfigs[provider])
+		if cfg == nil {
+			cfg = map[string]string{}
+		}
 		if own := proj.Config["plane_base_url"]; own != "" && !sameBaseURL(own, cfg["base_url"]) {
 			return nil, fmt.Errorf("plane webhook: project %s sets plane_base_url %q, not the operator's Plane %q "+
-				"(plane.base_url) - the operator's token is not sent there: %w", proj.ID, own, cfg["base_url"], domain.ErrValidation)
+				"(plane.base_url) - the token is not sent there: %w", proj.ID, own, cfg["base_url"], domain.ErrValidation)
 		}
+		switch {
+		case apiToken != "":
+			cfg["api_token"] = apiToken
+		case !operator:
+			return nil, fmt.Errorf("plane webhook: project %s: the integration has no api_token, and the operator's Plane token serves only the default tenant: %w",
+				proj.ID, domain.ErrValidation)
+		}
+		return cfg, nil
 	}
-	return cfg, nil
+	return nil, fmt.Errorf("webhook provider %q: %w", provider, domain.ErrValidation)
 }
 
 // sameBaseURL compares two base URLs, ignoring case of scheme and host and
@@ -213,44 +280,6 @@ func (s *PMWebhookService) announce(ctx context.Context, ev *event.PMSyncEvent) 
 	}
 }
 
-// accept prepares the sync of a webhook event and starts it. host is the
-// repository host the webhook names (GitHub, GitLab).
-func (s *PMWebhookService) accept(ctx context.Context, evt *webhook.PMWebhookEvent, host string) (*webhook.PMWebhookEvent, error) {
-	slog.Info(evt.Provider+" webhook received", "action", evt.Action, "item_id", evt.ItemID, "project_ref", evt.ProjectRef)
-	cfg, err := s.prepareSync(ctx, evt.Provider, host, evt.ProjectRef)
-	if err != nil {
-		slog.Warn("webhook: sync not started", "provider", evt.Provider, "ref", evt.ProjectRef, "error", err)
-		return nil, err
-	}
-	go s.runSync(detachTenant(ctx), cfg) //nolint:gosec // G118: sync must outlive webhook request; keeps its tenant
-	return evt, nil
-}
-
-// HandleGitHubIssueWebhook processes a GitHub issue event webhook.
-func (s *PMWebhookService) HandleGitHubIssueWebhook(ctx context.Context, data []byte) (*webhook.PMWebhookEvent, error) {
-	var raw struct {
-		Action string `json:"action"`
-		Issue  struct {
-			Number int    `json:"number"`
-			Title  string `json:"title"`
-			State  string `json:"state"`
-		} `json:"issue"`
-		Repository struct {
-			FullName string `json:"full_name"`
-			HTMLURL  string `json:"html_url"` // GitHub Enterprise: its own host
-		} `json:"repository"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse github issue webhook: %w: %w", err, domain.ErrValidation)
-	}
-	return s.accept(ctx, &webhook.PMWebhookEvent{
-		Provider:   "github",
-		Action:     raw.Action,
-		ItemID:     fmt.Sprintf("%d", raw.Issue.Number),
-		ProjectRef: raw.Repository.FullName,
-	}, webhookHost(raw.Repository.HTMLURL, "github.com"))
-}
-
 // webhookHost returns the host of a repository URL from a webhook payload,
 // or fallback when the payload has none.
 func webhookHost(repoURL, fallback string) string {
@@ -258,58 +287,4 @@ func webhookHost(repoURL, fallback string) string {
 		return strings.ToLower(u.Hostname())
 	}
 	return fallback
-}
-
-// HandleGitLabIssueWebhook processes a GitLab issue event webhook.
-func (s *PMWebhookService) HandleGitLabIssueWebhook(ctx context.Context, data []byte) (*webhook.PMWebhookEvent, error) {
-	var raw struct {
-		ObjectKind       string `json:"object_kind"`
-		ObjectAttributes struct {
-			IID    int    `json:"iid"`
-			Action string `json:"action"`
-			State  string `json:"state"`
-		} `json:"object_attributes"`
-		Project struct {
-			PathWithNamespace string `json:"path_with_namespace"`
-			WebURL            string `json:"web_url"` // self-hosted GitLab: its own host
-		} `json:"project"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse gitlab issue webhook: %w: %w", err, domain.ErrValidation)
-	}
-	return s.accept(ctx, &webhook.PMWebhookEvent{
-		Provider:   "gitlab",
-		Action:     raw.ObjectAttributes.Action,
-		ItemID:     fmt.Sprintf("%d", raw.ObjectAttributes.IID),
-		ProjectRef: raw.Project.PathWithNamespace,
-	}, webhookHost(raw.Project.WebURL, "gitlab.com"))
-}
-
-// HandlePlaneWebhook processes a Plane.so webhook event.
-func (s *PMWebhookService) HandlePlaneWebhook(ctx context.Context, data []byte) (*webhook.PMWebhookEvent, error) {
-	var raw struct {
-		Event string `json:"event"`
-		Data  struct {
-			ID        string `json:"id"`
-			Name      string `json:"name"`
-			State     string `json:"state"`
-			Workspace string `json:"workspace"`
-			Project   string `json:"project"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse plane webhook: %w: %w", err, domain.ErrValidation)
-	}
-
-	// Plane events are like "issue.created", "issue.updated"
-	action := raw.Event
-	if _, after, ok := strings.Cut(raw.Event, "."); ok {
-		action = after
-	}
-	return s.accept(ctx, &webhook.PMWebhookEvent{
-		Provider:   "plane",
-		Action:     action,
-		ItemID:     raw.Data.ID,
-		ProjectRef: fmt.Sprintf("%s/%s", raw.Data.Workspace, raw.Data.Project),
-	}, "")
 }

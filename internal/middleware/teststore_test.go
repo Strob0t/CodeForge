@@ -196,12 +196,6 @@ func (s *testStore) BatchDeleteProjects(_ context.Context, _ []string) ([]string
 func (s *testStore) BatchGetProjects(_ context.Context, _ []string) ([]project.Project, error) {
 	return nil, nil
 }
-func (s *testStore) FindProjectByRepo(_ context.Context, _, _ string) (*project.Project, error) {
-	return nil, nil
-}
-func (s *testStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
-	return nil, nil
-}
 
 // Agent stubs
 func (s *testStore) ListAgents(_ context.Context, _ string) ([]agent.Agent, error) { return nil, nil }

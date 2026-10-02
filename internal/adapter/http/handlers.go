@@ -52,9 +52,8 @@ type Handlers struct {
 	BranchProtection   *service.BranchProtectionService
 	Replay             *service.ReplayService
 	Sessions           *service.SessionService
-	VCSWebhook         *service.VCSWebhookService
 	Sync               *service.SyncService
-	PMWebhook          *service.PMWebhookService
+	Webhooks           *service.WebhookService
 	Notification       *service.NotificationService
 	Auth               *service.AuthService
 	Scope              *service.ScopeService
