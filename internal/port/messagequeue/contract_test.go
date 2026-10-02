@@ -388,6 +388,9 @@ func sampleRetrievalIndexRequestPayload() mq.RetrievalIndexRequestPayload {
 		WorkspacePath:  "/workspaces/my-project",
 		EmbeddingModel: "text-embedding-3-small",
 		FileExtensions: []string{".go", ".py", ".ts"},
+		// Set instead of WorkspacePath for a knowledge base (KI-105); both
+		// appear here to pin the contract.
+		KnowledgePath: "go-patterns",
 	}
 }
 
@@ -773,7 +776,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectEvalGemmasResult:            {"plan_id", "information_diversity_score", "unnecessary_path_ratio"},
 		mq.SubjectRepoMapRequest:              {"project_id", "workspace_path", "token_budget"},
 		mq.SubjectRepoMapResult:               {"project_id", "map_text", "token_count", "file_count"},
-		mq.SubjectRetrievalIndexRequest:       {"project_id", "workspace_path", "embedding_model"},
+		mq.SubjectRetrievalIndexRequest:       {"project_id", "workspace_path", "embedding_model", "knowledge_path"},
 		mq.SubjectRetrievalIndexResult:        {"project_id", "status", "file_count", "chunk_count"},
 		mq.SubjectRetrievalSearchRequest:      {"project_id", "query", "request_id", "top_k"},
 		mq.SubjectRetrievalSearchResult:       {"project_id", "query", "request_id", "results"},

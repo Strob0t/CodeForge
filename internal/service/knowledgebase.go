@@ -2,25 +2,29 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // KnowledgeBaseService manages knowledge base CRUD and scope attachment.
+// Content lives below the knowledge content root (KI-105).
 type KnowledgeBaseService struct {
 	store     database.Store
 	retrieval *RetrievalService
+	content   *knowledgeContent
 }
 
-// NewKnowledgeBaseService creates a KnowledgeBaseService.
-func NewKnowledgeBaseService(store database.Store) *KnowledgeBaseService {
-	return &KnowledgeBaseService{store: store}
+// NewKnowledgeBaseService creates a KnowledgeBaseService whose content lives
+// below contentRoot (knowledge.content_root).
+func NewKnowledgeBaseService(store database.Store, contentRoot string) *KnowledgeBaseService {
+	return &KnowledgeBaseService{store: store, content: newKnowledgeContent(contentRoot)}
 }
 
 // SetRetrieval wires the retrieval service for indexing.
@@ -31,7 +35,13 @@ func (s *KnowledgeBaseService) Create(ctx context.Context, req *knowledgebase.Cr
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validate knowledge base: %w", err)
 	}
-	return s.store.CreateKnowledgeBase(ctx, req)
+	rel, err := s.content.relative(req.ContentPath)
+	if err != nil {
+		return nil, err
+	}
+	stored := *req
+	stored.ContentPath = rel
+	return s.store.CreateKnowledgeBase(ctx, &stored)
 }
 
 // Get returns a knowledge base by ID.
@@ -84,18 +94,18 @@ func (s *KnowledgeBaseService) RequestIndex(ctx context.Context, id string) erro
 	if kb.ContentPath == "" {
 		return fmt.Errorf("knowledge base %q has no content path: %w", kb.Name, domain.ErrValidation)
 	}
-
-	// Validate that content_path is absolute and exists on disk.
-	if !filepath.IsAbs(kb.ContentPath) {
-		return fmt.Errorf("content_path must be an absolute path: %w", domain.ErrValidation)
+	rel, err := s.content.stored(kb)
+	if err != nil {
+		return err
 	}
-	if _, err := os.Stat(kb.ContentPath); err != nil {
-		return fmt.Errorf("content_path %q does not exist: %w", kb.ContentPath, domain.ErrValidation)
+	if err := s.checkContent(rel); err != nil {
+		return err
 	}
 
-	// Use "kb:<id>" as the project identifier to namespace KB indexes.
+	// Use "kb:<id>" as the project identifier to namespace KB indexes; the
+	// worker indexes rel below its own content root.
 	kbProjectID := "kb:" + kb.ID
-	if err := s.retrieval.RequestIndex(ctx, kbProjectID, kb.ContentPath, ""); err != nil {
+	if err := s.retrieval.RequestKnowledgeIndex(ctx, kbProjectID, rel); err != nil {
 		return fmt.Errorf("request index for knowledge base: %w", err)
 	}
 
@@ -104,4 +114,46 @@ func (s *KnowledgeBaseService) RequestIndex(ctx context.Context, id string) erro
 	}
 
 	return nil
+}
+
+// checkContent verifies that rel names a directory or a regular file inside
+// the content root.
+func (s *KnowledgeBaseService) checkContent(rel string) error {
+	root, err := s.content.open()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("the knowledge content root (knowledge.content_root) does not exist: %w", domain.ErrValidation)
+		}
+		return fmt.Errorf("open the knowledge content root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Stat(rel)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("content_path %q does not exist inside the knowledge content root: %w", rel, domain.ErrValidation)
+	case errors.Is(err, workspacefs.ErrLeavesWorkspace):
+		return fmt.Errorf("content_path %q leads out of the knowledge content root: %w", rel, domain.ErrValidation)
+	case err != nil:
+		return fmt.Errorf("content_path %q: %w", rel, err)
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		return fmt.Errorf("content_path %q is not a directory or regular file: %w", rel, domain.ErrValidation)
+	}
+	return nil
+}
+
+// ReadContent returns up to maxBytes of a knowledge base whose content_path
+// names a regular file below the content root, and whether it was cut.
+func (s *KnowledgeBaseService) ReadContent(kb *knowledgebase.KnowledgeBase, maxBytes int64) (data []byte, truncated bool, err error) {
+	rel, err := s.content.stored(kb)
+	if err != nil {
+		return nil, false, err
+	}
+	root, err := s.content.open()
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = root.Close() }()
+	data, _, truncated, err = root.ReadFilePrefix(rel, maxBytes)
+	return data, truncated, err
 }

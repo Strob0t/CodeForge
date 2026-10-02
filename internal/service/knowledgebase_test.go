@@ -143,7 +143,7 @@ func (m *kbMockStore) MarkInboxRead(_ context.Context, _ string) error { return 
 
 func TestKnowledgeBaseService_CreateGetList(t *testing.T) {
 	store := newKBMockStore()
-	svc := service.NewKnowledgeBaseService(store)
+	svc := service.NewKnowledgeBaseService(store, t.TempDir())
 
 	ctx := context.Background()
 
@@ -153,7 +153,7 @@ func TestKnowledgeBaseService_CreateGetList(t *testing.T) {
 		Description: "A test knowledge base",
 		Category:    "framework",
 		Tags:        []string{"go", "testing"},
-		ContentPath: "/data/test",
+		ContentPath: "test",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -183,13 +183,13 @@ func TestKnowledgeBaseService_CreateGetList(t *testing.T) {
 
 func TestKnowledgeBaseService_DeleteSucceeds(t *testing.T) {
 	store := newKBMockStore()
-	svc := service.NewKnowledgeBaseService(store)
+	svc := service.NewKnowledgeBaseService(store, t.TempDir())
 	ctx := context.Background()
 
 	kb, _ := svc.Create(ctx, &knowledgebase.CreateRequest{
 		Name:        "deleteme",
 		Category:    "custom",
-		ContentPath: "/data/deleteme",
+		ContentPath: "deleteme",
 	})
 
 	if err := svc.Delete(ctx, kb.ID); err != nil {
@@ -204,13 +204,13 @@ func TestKnowledgeBaseService_DeleteSucceeds(t *testing.T) {
 
 func TestKnowledgeBaseService_ScopeAttachDetach(t *testing.T) {
 	store := newKBMockStore()
-	svc := service.NewKnowledgeBaseService(store)
+	svc := service.NewKnowledgeBaseService(store, t.TempDir())
 	ctx := context.Background()
 
 	kb, _ := svc.Create(ctx, &knowledgebase.CreateRequest{
 		Name:        "scope-kb",
 		Category:    "language",
-		ContentPath: "/data/scope-kb",
+		ContentPath: "scope-kb",
 	})
 
 	// Attach
@@ -240,13 +240,13 @@ func TestKnowledgeBaseService_ScopeAttachDetach(t *testing.T) {
 
 func TestKnowledgeBaseService_CreateValidationError(t *testing.T) {
 	store := newKBMockStore()
-	svc := service.NewKnowledgeBaseService(store)
+	svc := service.NewKnowledgeBaseService(store, t.TempDir())
 	ctx := context.Background()
 
 	_, err := svc.Create(ctx, &knowledgebase.CreateRequest{
 		Name:        "",
 		Category:    "framework",
-		ContentPath: "/data/test",
+		ContentPath: "test",
 	})
 	if err == nil {
 		t.Fatal("expected validation error for empty name, got nil")
@@ -255,7 +255,7 @@ func TestKnowledgeBaseService_CreateValidationError(t *testing.T) {
 	_, err = svc.Create(ctx, &knowledgebase.CreateRequest{
 		Name:        "test",
 		Category:    "invalid-category",
-		ContentPath: "/data/test",
+		ContentPath: "test",
 	})
 	if err == nil {
 		t.Fatal("expected validation error for invalid category, got nil")

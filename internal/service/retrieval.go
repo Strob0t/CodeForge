@@ -99,8 +99,9 @@ func (s *RetrievalService) SetModelRegistry(r *ModelRegistry) {
 }
 
 // RequestIndex publishes a request for index building to the Python worker.
-// When workspacePath is non-empty it is used directly (e.g. for knowledge bases);
-// otherwise the workspace path is resolved from the project store.
+// When workspacePath is non-empty it is used directly; otherwise the workspace
+// path is resolved from the project store. Knowledge bases use
+// RequestKnowledgeIndex.
 func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspacePath, embeddingModel string) error {
 	if workspacePath == "" {
 		proj, err := s.store.GetProject(ctx, projectID)
@@ -110,16 +111,29 @@ func (s *RetrievalService) RequestIndex(ctx context.Context, projectID, workspac
 		workspacePath = proj.WorkspacePath
 	}
 
-	if embeddingModel == "" {
-		embeddingModel = s.orchCfg.DefaultEmbeddingModel
-	}
-
-	payload := messagequeue.RetrievalIndexRequestPayload{
+	return s.publishIndexRequest(ctx, &messagequeue.RetrievalIndexRequestPayload{
 		ProjectID:      projectID,
-		TenantID:       outgoingTenant(ctx, "retrieval.index.request"),
 		WorkspacePath:  workspacePath,
 		EmbeddingModel: embeddingModel,
+	})
+}
+
+// RequestKnowledgeIndex asks the worker to index a knowledge base: its content
+// at knowledgePath, relative to the worker's knowledge content root (KI-105).
+func (s *RetrievalService) RequestKnowledgeIndex(ctx context.Context, projectID, knowledgePath string) error {
+	return s.publishIndexRequest(ctx, &messagequeue.RetrievalIndexRequestPayload{
+		ProjectID:     projectID,
+		KnowledgePath: knowledgePath,
+	})
+}
+
+func (s *RetrievalService) publishIndexRequest(ctx context.Context, payload *messagequeue.RetrievalIndexRequestPayload) error {
+	projectID := payload.ProjectID
+	if payload.EmbeddingModel == "" {
+		payload.EmbeddingModel = s.orchCfg.DefaultEmbeddingModel
 	}
+	embeddingModel := payload.EmbeddingModel
+	payload.TenantID = outgoingTenant(ctx, "retrieval.index.request")
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal retrieval index request: %w", err)

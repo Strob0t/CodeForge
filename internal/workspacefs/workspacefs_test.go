@@ -402,3 +402,30 @@ func TestEscapeErrorIsRecognised(t *testing.T) {
 		t.Fatalf("os.Root escape error %q is not recognised", err)
 	}
 }
+
+// An operator directory (the knowledge content root, the datasets directory)
+// may itself be reached through a symlink; names below it still stay inside.
+func TestOpenOperatorDir(t *testing.T) {
+	ws, out := tree(t)
+	link := filepath.Join(filepath.Dir(ws), "operator-link")
+	mustSymlink(t, ws, link)
+	mustSymlink(t, out, filepath.Join(ws, "leak"))
+	r, err := OpenOperatorDir(link)
+	if err != nil {
+		t.Fatalf("OpenOperatorDir through a symlink: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+	if data, _, err := r.ReadFile("src/a.go", 1024); err != nil || string(data) != "package a\n" {
+		t.Fatalf("ReadFile = %q, %v", data, err)
+	}
+	if _, _, err := r.ReadFile("leak/secret.txt", 1024); !errors.Is(err, ErrLeavesWorkspace) {
+		t.Fatalf("ReadFile through a symlink out: %v, want ErrLeavesWorkspace", err)
+	}
+	fifo := filepath.Join(filepath.Dir(ws), "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := noBlock(t, func() error { _, err := OpenOperatorDir(fifo); return err }); err == nil {
+		t.Fatal("OpenOperatorDir of a FIFO must fail")
+	}
+}

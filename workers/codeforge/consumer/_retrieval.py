@@ -19,6 +19,7 @@ from codeforge.models import (
     SubAgentSearchRequest,
     SubAgentSearchResult,
 )
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     import nats.aio.msg
@@ -28,6 +29,10 @@ logger = structlog.get_logger()
 
 class RetrievalHandlerMixin:
     """Handles retrieval.index, retrieval.search, and retrieval.subagent messages."""
+
+    # Knowledge bases are indexed below this directory only (KI-105); the
+    # consumer sets it from knowledge.content_root.
+    _knowledge_content_root: str = ""
 
     async def _handle_retrieval_index(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval index request: build index and publish result."""
@@ -44,12 +49,24 @@ class RetrievalHandlerMixin:
         self, request: RetrievalIndexRequest, log: structlog.BoundLogger
     ) -> RetrievalIndexResult:
         """Business logic for retrieval index building."""
-        log.info("received retrieval index request", workspace=request.workspace_path)
+        log.info(
+            "received retrieval index request",
+            workspace=request.workspace_path,
+            knowledge_path=request.knowledge_path,
+        )
+        workspace_path, below = request.workspace_path, "."
+        if request.project_id.startswith("kb:") or request.knowledge_path:
+            refusal = self._knowledge_refusal(request)
+            if refusal:
+                log.warning("knowledge index refused", reason=refusal)
+                return RetrievalIndexResult(project_id=request.project_id, status="error", error=refusal)
+            workspace_path, below = self._knowledge_content_root, request.knowledge_path
         status = await self._retriever.build_index(
             project_id=request.project_id,
-            workspace_path=request.workspace_path,
+            workspace_path=workspace_path,
             embedding_model=request.embedding_model,
             file_extensions=request.file_extensions or None,
+            below=below,
         )
         return RetrievalIndexResult(
             project_id=status.project_id,
@@ -62,6 +79,32 @@ class RetrievalHandlerMixin:
             files_changed=status.files_changed,
             files_unchanged=status.files_unchanged,
         )
+
+    def _knowledge_refusal(self, request: RetrievalIndexRequest) -> str:
+        """Why a knowledge-base index request is refused, or "" (KI-105).
+
+        A knowledge base is indexed from knowledge_path below the worker's own
+        knowledge content root, never from a workspace_path or a path (or a
+        symlink) leading out of that root.
+        """
+        if not request.project_id.startswith("kb:"):
+            return "knowledge_path is only accepted for knowledge bases"
+        if request.workspace_path:
+            return "knowledge bases are indexed below the knowledge content root, not from workspace_path"
+        if not request.knowledge_path:
+            return "knowledge_path is required"
+        if request.knowledge_path.startswith("/"):
+            return "knowledge_path must be relative to the knowledge content root"
+        if not self._knowledge_content_root:
+            return "no knowledge content root is configured (knowledge.content_root)"
+        try:
+            with WorkspaceRoot(self._knowledge_content_root) as root:
+                root.resolve(request.knowledge_path)
+        except FileNotFoundError:
+            return f"knowledge_path {request.knowledge_path!r} does not exist below the knowledge content root"
+        except OSError as exc:
+            return f"knowledge_path {request.knowledge_path!r} refused: {exc.strerror or exc}"
+        return ""
 
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval search request: search index and publish result."""

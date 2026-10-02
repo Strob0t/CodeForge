@@ -122,10 +122,14 @@ class CodeChunker:
         self,
         workspace_path: str,
         file_extensions: list[str] | None = None,
+        *,
+        below: str = ".",
     ) -> dict[str, tuple[str, list[CodeChunk]]]:
         """Walk workspace and return {rel_path: (content_hash, chunks)} per file.
 
-        The content hash is the SHA-256 hex digest of the raw file bytes.
+        The content hash is the SHA-256 hex digest of the raw file bytes. With
+        *below* only that directory inside the workspace is walked (a knowledge
+        base below the knowledge content root), and paths are relative to it.
         """
         extensions: set[str] = set(_EXTENSION_MAP)
         if file_extensions:
@@ -133,9 +137,10 @@ class CodeChunker:
 
         result: dict[str, tuple[str, list[CodeChunk]]] = {}
         try:
-            root = WorkspaceRoot(workspace_path)
+            with WorkspaceRoot(workspace_path) as base:
+                root = base.subroot(below)
         except OSError as exc:
-            logger.warning("cannot open workspace", path=workspace_path, error=str(exc))
+            logger.warning("cannot open workspace", path=workspace_path, below=below, error=str(exc))
             return result
 
         with root:
@@ -369,8 +374,9 @@ class HybridRetriever:
         workspace_path: str,
         embedding_model: str = "text-embedding-3-small",
         file_extensions: list[str] | None = None,
+        below: str = ".",
     ) -> IndexStatus:
-        """Chunk workspace, build BM25 index and compute embeddings.
+        """Chunk workspace (only its directory *below*), build BM25 index and compute embeddings.
 
         Supports incremental builds: if a prior index exists with the same
         embedding model, only changed/new files are re-chunked and re-embedded.
@@ -383,7 +389,9 @@ class HybridRetriever:
             # Collect files with per-file content hashes. Walking and parsing the
             # workspace is CPU-bound: run it off the event loop, which also keeps
             # the in-progress acks of this request flowing.
-            per_file = await asyncio.to_thread(self._chunker.chunk_workspace_by_file, workspace_path, file_extensions)
+            per_file = await asyncio.to_thread(
+                self._chunker.chunk_workspace_by_file, workspace_path, file_extensions, below=below
+            )
             if not per_file:
                 log.info("index empty, no files found")
                 return IndexStatus(

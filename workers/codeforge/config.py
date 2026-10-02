@@ -201,6 +201,9 @@ class WorkerSettings:
     benchmark_max_parallel: int
     benchmark_datasets_dir: str
 
+    # Knowledge bases: indexed below this directory only (KI-105)
+    knowledge_content_root: str
+
     # OpenTelemetry
     otel_enabled: bool
     otel_endpoint: str
@@ -322,6 +325,12 @@ class WorkerSettings:
         self.benchmark_max_parallel = _resolve_int("CODEFORGE_BENCHMARK_MAX_PARALLEL", bench_cfg.get("max_parallel"), 3)
         self.benchmark_datasets_dir = _resolve_str(
             "CODEFORGE_BENCHMARK_DATASETS_DIR", bench_cfg.get("datasets_dir"), "configs/benchmarks"
+        )
+
+        # --- Knowledge bases (same key and env var as the Go config, KI-105) ---
+        knowledge_cfg: dict = yaml_cfg.get("knowledge", {}) if isinstance(yaml_cfg.get("knowledge"), dict) else {}
+        self.knowledge_content_root = _resolve_str(
+            "CODEFORGE_KNOWLEDGE_CONTENT_ROOT", knowledge_cfg.get("content_root"), "data/knowledge"
         )
 
         # --- OpenTelemetry ---

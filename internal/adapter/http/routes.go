@@ -548,11 +548,13 @@ func mountIntelligenceRoutes(r chi.Router, h *Handlers) {
 
 	// Knowledge Bases
 	r.Get("/knowledge-bases", h.ListKnowledgeBases)
-	r.Post("/knowledge-bases", h.CreateKnowledgeBase)
+	// KI-105: knowledge-base content is read from the operator's content root,
+	// so creating, changing, deleting and indexing a KB need admin.
+	r.With(middleware.RequireRole(user.RoleAdmin)).Post("/knowledge-bases", h.CreateKnowledgeBase)
 	r.Get("/knowledge-bases/{id}", h.GetKnowledgeBase)
-	r.Put("/knowledge-bases/{id}", h.UpdateKnowledgeBase)
-	r.Delete("/knowledge-bases/{id}", h.DeleteKnowledgeBase)
-	r.Post("/knowledge-bases/{id}/index", h.IndexKnowledgeBase)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Put("/knowledge-bases/{id}", h.UpdateKnowledgeBase)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/knowledge-bases/{id}", h.DeleteKnowledgeBase)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Post("/knowledge-bases/{id}/index", h.IndexKnowledgeBase)
 
 	// Memories (Phase 22B)
 	r.Get("/projects/{id}/memories", h.ListMemories)

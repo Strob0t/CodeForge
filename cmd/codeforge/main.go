@@ -32,7 +32,6 @@ import (
 	cfnats "github.com/Strob0t/CodeForge/internal/adapter/nats"
 	"github.com/Strob0t/CodeForge/internal/adapter/opencode"
 	"github.com/Strob0t/CodeForge/internal/adapter/openhands"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
@@ -196,7 +195,6 @@ func run() error {
 	hub := ws.NewHub(cfg.Server.CORSOrigin, wsTickets)
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
-	osFS := osfs.New()
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
 	projectSvc.SetAdoptRoots(cfg.Workspace.AdoptRoots)
 	taskSvc := service.NewTaskService(store, queue)
@@ -344,7 +342,7 @@ func run() error {
 	)
 
 	// --- Context Optimizer + Shared Context (Phase 5D) ---
-	contextOptSvc := service.NewContextOptimizerService(store, osFS, &cfg.Orchestrator, &cfg.Limits)
+	contextOptSvc := service.NewContextOptimizerService(store, &cfg.Orchestrator, &cfg.Limits)
 	sharedCtxSvc := service.NewSharedContextService(store, hub, queue)
 	runtimeSvc.SetContextOptimizer(contextOptSvc)
 	slog.Info("context optimizer and shared context initialized",
@@ -380,8 +378,9 @@ func run() error {
 	slog.Info("graph service initialized", "enabled", cfg.Orchestrator.GraphEnabled)
 
 	// --- Knowledge Base Service (Phase 12K) ---
-	kbSvc := service.NewKnowledgeBaseService(store)
+	kbSvc := service.NewKnowledgeBaseService(store, cfg.Knowledge.ContentRoot)
 	kbSvc.SetRetrieval(retrievalSvc)
+	contextOptSvc.SetKnowledgeBases(kbSvc)
 	retrievalSvc.SetKBUpdater(store)
 	slog.Info("knowledge base service initialized")
 

@@ -83,6 +83,10 @@ type RetrievalIndexRequestPayload struct {
 	WorkspacePath  string   `json:"workspace_path"`
 	EmbeddingModel string   `json:"embedding_model"`
 	FileExtensions []string `json:"file_extensions,omitempty"`
+	// KnowledgePath is set instead of WorkspacePath for a knowledge base
+	// ("kb:<id>"): its content, relative to the worker's knowledge content
+	// root (KI-105).
+	KnowledgePath string `json:"knowledge_path,omitempty"`
 }
 
 // RetrievalIndexResultPayload is the schema for retrieval.index.result messages.

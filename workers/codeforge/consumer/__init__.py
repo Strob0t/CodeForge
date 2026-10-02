@@ -174,6 +174,7 @@ class TaskConsumer(
         self._llm = LiteLLMClient(base_url=litellm_url, api_key=litellm_key)
         settings = get_settings()
         self._db_url = settings.database_url
+        self._knowledge_content_root = settings.knowledge_content_root
 
         from codeforge.memory.experience import ExperiencePool
 

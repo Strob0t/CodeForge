@@ -419,6 +419,19 @@ class WorkspaceRoot:
                 self._release(dir_fd)
         raise WorkspacePathError(f"path keeps changing: {rel}")
 
+    def subroot(self, rel: str) -> WorkspaceRoot:
+        """A root for the directory *rel* resolves to (symlinks inside followed); its paths stay below it.
+
+        Raises PathLeavesWorkspaceError when *rel* leaves this root,
+        NotADirectoryError when it is not a directory.
+        """
+        fd, resolved = self._open_dir(rel)
+        sub = WorkspaceRoot.__new__(WorkspaceRoot)
+        sub.path = os.path.normpath(os.path.join(self.path, resolved))
+        sub._blocked = self._blocked
+        sub._fd = fd
+        return sub
+
     def list_dir(self, rel: str = ".") -> list[ListedEntry]:
         """The entries of the directory *rel* (unsorted); symlinks are classified, never descended."""
         fd, base = self._open_dir(rel)

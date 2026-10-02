@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -200,7 +199,7 @@ func TestGoalDiscovery_StaysInsideTheWorkspace(t *testing.T) {
 func TestContextScoring_StaysInsideTheWorkspace(t *testing.T) {
 	ws, _ := symlinkWorkspace(t)
 	writeTestFile(t, filepath.Join(ws, "src", "auth.go"), "package auth // jwt auth roadmap")
-	svc := NewContextOptimizerService(&mockStore{}, osfs.New(), &config.Orchestrator{},
+	svc := NewContextOptimizerService(&mockStore{}, &config.Orchestrator{},
 		&config.Limits{MaxFiles: 50, MaxFileSize: 32768})
 
 	entries := within(t, func() []string {

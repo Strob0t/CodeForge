@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/knowledgebase"
@@ -222,27 +223,26 @@ func (s *ContextOptimizerService) processKnowledgeBase(
 		}
 	}
 
-	// Fallback: read content directly from the KB file (truncated).
-	if kb.ContentPath == "" {
+	// Fallback: read the start of the KB file below the knowledge content
+	// root (KI-105); a directory, a path outside the root or a symlink out of
+	// it gives no entry.
+	if kb.ContentPath == "" || s.knowledge == nil {
 		return nil
 	}
-
-	content, readErr := s.fs.ReadFile(ctx, kb.ContentPath)
+	const maxKBTokens = 2048
+	content, truncated, readErr := s.knowledge.ReadContent(kb, maxKBTokens*4)
 	if readErr != nil || len(content) == 0 {
+		if readErr != nil {
+			slog.Debug("knowledge base fallback read skipped", "kb_id", kb.ID, "error", readErr)
+		}
 		return nil
 	}
 
 	text := string(content)
-	const maxKBTokens = 2048
-	tokens := cfcontext.EstimateTokens(text)
-	if tokens > maxKBTokens {
-		// Truncate to roughly maxKBTokens worth of characters.
-		maxChars := maxKBTokens * 4
-		if maxChars < len(text) {
-			text = text[:maxChars]
-		}
-		tokens = maxKBTokens
+	if truncated {
+		text = strings.ToValidUTF8(text, "") // the cut may split a rune
 	}
+	tokens := min(cfcontext.EstimateTokens(text), maxKBTokens)
 
 	return []cfcontext.ContextEntry{{
 		Kind:     cfcontext.EntryKnowledge,

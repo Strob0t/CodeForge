@@ -39,6 +39,7 @@ type Config struct {
 	LSP          LSP          `yaml:"lsp"`
 	Auth         Auth         `yaml:"auth"`
 	Workspace    Workspace    `yaml:"workspace"`
+	Knowledge    Knowledge    `yaml:"knowledge"`
 	Agent        Agent        `yaml:"agent"`
 	Benchmark    Benchmark    `yaml:"benchmark"`
 	Copilot      Copilot      `yaml:"copilot"`
@@ -308,6 +309,15 @@ type SandboxConfig struct {
 type Policy struct {
 	DefaultProfile string `yaml:"default_profile"`
 	CustomDir      string `yaml:"custom_dir"` // Custom profiles, API and Allow-Always writes (default: data/policies; "" = memory only)
+}
+
+// Knowledge holds the knowledge-base content configuration (KI-105).
+type Knowledge struct {
+	// ContentRoot is the operator directory knowledge-base content lives in;
+	// content_path values are stored relative to it and resolved inside it
+	// (no symlink out of it). The worker indexes below its own root with the
+	// same setting (default: data/knowledge).
+	ContentRoot string `yaml:"content_root"`
 }
 
 // Workspace holds workspace directory configuration.
@@ -580,6 +590,9 @@ func Defaults() Config {
 		},
 		Workspace: Workspace{
 			Root: "data/workspaces",
+		},
+		Knowledge: Knowledge{
+			ContentRoot: "data/knowledge",
 		},
 		Runtime: Runtime{
 			StallThreshold:         5,

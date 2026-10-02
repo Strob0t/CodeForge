@@ -281,6 +281,9 @@ class RetrievalIndexRequest(BaseModel):
     workspace_path: str
     embedding_model: str = "text-embedding-3-small"
     file_extensions: list[str] = Field(default_factory=list)
+    # Set instead of workspace_path for a knowledge base ("kb:<id>"): its
+    # content, relative to the worker's knowledge content root (KI-105).
+    knowledge_path: str = ""
 
 
 class RetrievalIndexResult(BaseModel):

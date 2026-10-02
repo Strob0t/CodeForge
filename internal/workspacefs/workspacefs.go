@@ -138,6 +138,19 @@ func OpenBelow(base, dir string) (*Root, error) {
 	return &Root{root: root, path: filepath.Join(base, rel)}, nil
 }
 
+// OpenOperatorDir opens a directory the operator configured (the knowledge
+// content root, the benchmark datasets directory): its own path may contain
+// symlinks, names below it are resolved like workspace names (no symlink out
+// of it, never blocking, regular files only).
+func OpenOperatorDir(dir string) (*Root, error) {
+	clean := filepath.Clean(dir)
+	root, err := openDir(clean)
+	if err != nil {
+		return nil, err
+	}
+	return &Root{root: root, path: clean}, nil
+}
+
 // ReadFileAt reads the regular file name of the workspace at workspacePath
 // (at most maxSize bytes): Open, ReadFile and Close in one call.
 func ReadFileAt(workspacePath, name string, maxSize int64) ([]byte, error) {

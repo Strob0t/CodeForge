@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,6 @@ import (
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -72,7 +72,7 @@ func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User,
 	poolManagerSvc := service.NewPoolManagerService(store, bc, orchCfg)
 	metaAgentSvc := service.NewMetaAgentService(store, litellm.NewClient("http://localhost:4000", ""), orchSvc, orchCfg, &config.Limits{})
 	taskPlannerSvc := service.NewTaskPlannerService(metaAgentSvc, poolManagerSvc, store, orchCfg, &config.Limits{})
-	contextOptSvc := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{})
+	contextOptSvc := service.NewContextOptimizerService(store, orchCfg, &config.Limits{})
 	sharedCtxSvc := service.NewSharedContextService(store, bc, queue)
 	modeSvc := service.NewModeService()
 	pipelineSvc := service.NewPipelineService(modeSvc)
@@ -98,7 +98,7 @@ func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User,
 	skillSvc := service.NewSkillService(store)
 	memorySvc := service.NewMemoryService(store, queue)
 	experiencePoolSvc := service.NewExperiencePoolService(store)
-	kbSvc := service.NewKnowledgeBaseService(store)
+	kbSvc := service.NewKnowledgeBaseService(store, filepath.Join(os.TempDir(), "codeforge-test-knowledge"))
 	sessionSvc := service.NewSessionService(store, es)
 	mcpSvc := newTestMCPService(store)
 	handlers := &cfhttp.Handlers{

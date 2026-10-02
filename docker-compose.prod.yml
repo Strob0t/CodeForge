@@ -248,13 +248,16 @@ services:
       CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET_FILE: /run/secrets/codeforge-auth-llm-key-encryption-secret
       CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
       CODEFORGE_WORKSPACE_ROOT: /data/workspaces
+      CODEFORGE_KNOWLEDGE_CONTENT_ROOT: /data/knowledge
       CODEFORGE_AUTH_INITIAL_PASSWORD_FILE: /data/initial_admin_password
     # The root filesystem stays read-only: /data (initial admin password, the
     # OAuth .env next to the workspace root) and the workspaces shared with the
-    # worker are volumes, /tmp is a tmpfs.
+    # worker are volumes, /tmp is a tmpfs. Knowledge-base content (KI-105) is
+    # read only below /data/knowledge, a read-only volume the operator fills.
     volumes:
       - core_data:/data
       - workspaces:/data/workspaces
+      - knowledge:/data/knowledge:ro
     tmpfs:
       - /tmp
     ports:
@@ -319,9 +322,12 @@ services:
       CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
       CODEFORGE_TOOL_ISOLATION: required
       CODEFORGE_WORKSPACE_ROOT: /data/workspaces
+      CODEFORGE_KNOWLEDGE_CONTENT_ROOT: /data/knowledge
     # Agent tools edit the workspaces in place, at the paths the core sends.
+    # Knowledge bases are indexed below /data/knowledge only (KI-105).
     volumes:
       - workspaces:/data/workspaces
+      - knowledge:/data/knowledge:ro
     tmpfs:
       - /tmp
       # Only the worker user may enter the secrets directory (the secret files
@@ -419,6 +425,7 @@ volumes:
   nats_data:
   core_data:
   workspaces:
+  knowledge:
 
 networks:
   public:
