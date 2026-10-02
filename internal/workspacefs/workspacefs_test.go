@@ -255,6 +255,32 @@ func TestWorkspaceDirectoryMustNotBeASymlink(t *testing.T) {
 	}
 }
 
+// The tool user can put a FIFO in its workspace's place: opening the
+// workspace must fail at once, not block the Go Core.
+func TestOpenNeverBlocksOnAFIFOWorkspace(t *testing.T) {
+	base := t.TempDir()
+	fifo := filepath.Join(base, "ws")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := noBlock(t, func() error { _, err := Open(fifo); return err }); err == nil {
+		t.Fatal("Open of a FIFO must fail")
+	}
+	if err := noBlock(t, func() error { _, err := OpenBelow(base, fifo); return err }); err == nil {
+		t.Fatal("OpenBelow of a FIFO must fail")
+	}
+	mustMkdir(t, filepath.Join(base, "real", "sub"))
+	mustSymlink(t, "real", filepath.Join(base, "link"))
+	r, err := OpenBelow(base, filepath.Join(base, "link", "sub"))
+	if err != nil {
+		t.Fatalf("OpenBelow through a symlink inside the base: %v", err)
+	}
+	_ = r.Close()
+	if _, err := OpenBelow(base, filepath.Dir(base)); !errors.Is(err, ErrLeavesWorkspace) {
+		t.Fatalf("OpenBelow above the base: %v", err)
+	}
+}
+
 func TestStatReadDirAndWalk(t *testing.T) {
 	ws, _ := tree(t)
 	mustSymlink(t, "../out", filepath.Join(ws, "outdir"))

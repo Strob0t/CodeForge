@@ -64,7 +64,10 @@ type Root struct {
 // not be one.
 func Open(path string) (*Root, error) {
 	clean := filepath.Clean(path)
-	root, err := os.OpenRoot(clean)
+	// os.OpenRoot opens without O_DIRECTORY and O_NONBLOCK, so a FIFO put in
+	// the workspace's place would block it; "/." makes the kernel resolve the
+	// name as a directory first (a FIFO fails with ENOTDIR at once).
+	root, err := os.OpenRoot(clean + string(filepath.Separator) + ".")
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +104,7 @@ func OpenBelow(base, path string) (*Root, error) {
 		return nil, err
 	}
 	defer func() { _ = baseRoot.Close() }()
-	root, err := baseRoot.OpenRoot(rel)
+	root, err := baseRoot.OpenRoot(rel + string(filepath.Separator) + ".") // never blocks on a FIFO (see Open)
 	if err != nil {
 		return nil, check(rel, err)
 	}

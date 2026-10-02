@@ -361,6 +361,11 @@ class TestWorkspaceDirectory:
         with pytest.raises(WorkspacePathError):
             WorkspaceRoot(f"{link}/")
 
+    def test_fifo_workspace_does_not_block(self, tmp_path: Path) -> None:
+        os.mkfifo(tmp_path / "ws")
+        exc = _no_block(lambda: WorkspaceRoot(str(tmp_path / "ws")))
+        assert isinstance(exc, NotADirectoryError)
+
     def test_missing_workspace(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             WorkspaceRoot(str(tmp_path / "missing"))
