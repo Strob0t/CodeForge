@@ -116,6 +116,14 @@ def _kind_of(address: IPAddress) -> str:
     return ""
 
 
+def _unmap_network(network: IPNetwork) -> IPNetwork:
+    """An IPv4-mapped IPv6 entry (::ffff:10.0.0.0/104) as the IPv4 network it maps, as Go does."""
+    mapped = network.network_address.ipv4_mapped if isinstance(network, ipaddress.IPv6Network) else None
+    if mapped is None or network.prefixlen < 96:
+        return network
+    return ipaddress.IPv4Network((mapped, network.prefixlen - 96))
+
+
 def _normalise_host(host: str) -> str:
     return host.lower().removesuffix(".")
 
@@ -144,7 +152,7 @@ class OutboundPolicy:
         for raw in allowed_private_hosts:
             entry = raw.strip()
             try:
-                self._networks.append(ipaddress.ip_network(entry, strict=False))
+                self._networks.append(_unmap_network(ipaddress.ip_network(entry, strict=False)))
                 continue
             except ValueError:
                 pass

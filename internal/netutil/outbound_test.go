@@ -2,12 +2,15 @@ package netutil
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,128 +21,85 @@ import (
 // multicast or reserved addresses, and reaches private ones only for hosts
 // the platform operator allowlisted.
 
-func TestOutboundPolicy_CheckAddr(t *testing.T) {
-	policy, err := NewOutboundPolicy([]string{"docs-mcp", "Tools.Internal.", "10.20.0.0/16", "fd12:3456::/32", "192.168.7.7"})
+// outboundCases is internal/netutil/testdata/outbound_cases.json, which
+// workers/tests/test_mcp_outbound.py reads too: the Go Core and the worker
+// decide alike.
+type outboundCases struct {
+	Policies []struct {
+		Name                string   `json:"name"`
+		AllowedPrivateHosts []string `json:"allowed_private_hosts"`
+		Cases               []struct {
+			Name      string `json:"name"`
+			Host      string `json:"host"`
+			IP        string `json:"ip"`
+			Allowed   bool   `json:"allowed"`
+			Allowable bool   `json:"allowable"`
+		} `json:"cases"`
+	} `json:"policies"`
+	InvalidEntries []string `json:"invalid_entries"`
+	ValidEntries   []string `json:"valid_entries"`
+}
+
+func loadOutboundCases(t *testing.T) outboundCases {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "outbound_cases.json"))
 	if err != nil {
-		t.Fatalf("NewOutboundPolicy: %v", err)
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name      string
-		host      string
-		ip        string
-		allowed   bool
-		allowable bool // refused only because it is private
-	}{
-		// IPv4
-		{"public v4", "example.com", "93.184.216.34", true, false},
-		{"loopback v4", "evil.example", "127.0.0.1", false, false},
-		{"loopback v4 range", "evil.example", "127.255.0.9", false, false},
-		{"unspecified v4", "evil.example", "0.0.0.0", false, false},
-		{"this network v4", "evil.example", "0.1.2.3", false, false},
-		{"link-local v4", "evil.example", "169.254.10.10", false, false},
-		{"metadata v4", "evil.example", "169.254.169.254", false, false},
-		{"metadata alibaba", "evil.example", "100.100.100.200", false, false},
-		{"multicast v4", "evil.example", "239.1.2.3", false, false},
-		{"broadcast", "evil.example", "255.255.255.255", false, false},
-		{"reserved v4", "evil.example", "240.0.0.1", false, false},
-		{"rfc1918 10", "evil.example", "10.0.0.1", false, true},
-		{"rfc1918 172", "evil.example", "172.16.5.4", false, true},
-		{"rfc1918 192", "evil.example", "192.168.1.1", false, true},
-		{"cgnat", "evil.example", "100.64.0.1", false, true},
-		{"benchmarking", "evil.example", "198.18.0.1", false, true},
-		{"just outside 172.16/12", "evil.example", "172.32.0.1", true, false},
-		// IPv6
-		{"public v6", "example.com", "2606:2800:220:1:248:1893:25c8:1946", true, false},
-		{"loopback v6", "evil.example", "::1", false, false},
-		{"unspecified v6", "evil.example", "::", false, false},
-		{"link-local v6", "evil.example", "fe80::1", false, false},
-		{"link-local v6 with zone", "evil.example", "fe80::1%eth0", false, false},
-		{"multicast v6", "evil.example", "ff02::1", false, false},
-		{"metadata v6", "evil.example", "fd00:ec2::254", false, false},
-		{"ula", "evil.example", "fd00:1::5", false, true},
-		{"site-local v6", "evil.example", "fec0::1", false, true},
-		// IPv4 inside IPv6
-		{"v4-mapped loopback", "evil.example", "::ffff:127.0.0.1", false, false},
-		{"v4-mapped metadata", "evil.example", "::ffff:169.254.169.254", false, false},
-		{"v4-mapped private", "evil.example", "::ffff:10.0.0.1", false, true},
-		{"v4-mapped public", "example.com", "::ffff:93.184.216.34", true, false},
-		{"v4-compatible loopback", "evil.example", "::127.0.0.1", false, false},
-		{"nat64 metadata", "evil.example", "64:ff9b::169.254.169.254", false, false},
-		{"nat64 private", "evil.example", "64:ff9b::10.0.0.1", false, true},
-		{"nat64 public", "example.com", "64:ff9b::93.184.216.34", true, false},
-		// Allowlist
-		{"allowlisted host", "docs-mcp", "172.18.0.5", true, false},
-		{"allowlisted host, case and trailing dot", "TOOLS.internal.", "10.9.9.9", true, false},
-		{"allowlisted host stays off loopback", "docs-mcp", "127.0.0.1", false, false},
-		{"allowlisted host stays off metadata", "docs-mcp", "169.254.169.254", false, false},
-		{"allowlisted host stays off v6 metadata", "docs-mcp", "fd00:ec2::254", false, false},
-		{"allowlisted cidr", "evil.example", "10.20.3.4", true, false},
-		{"allowlisted cidr, v4-mapped", "evil.example", "::ffff:10.20.3.4", true, false},
-		{"outside the allowlisted cidr", "evil.example", "10.21.0.1", false, true},
-		{"allowlisted v6 cidr", "evil.example", "fd12:3456::9", true, false},
-		{"allowlisted single ip", "evil.example", "192.168.7.7", true, false},
-		{"other host on an allowlisted name's network", "docs-mcp.evil.example", "172.18.0.5", false, true},
+	var cases outboundCases
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := policy.CheckAddr(tt.host, netip.MustParseAddr(tt.ip))
-			if tt.allowed {
-				if err != nil {
-					t.Fatalf("CheckAddr(%s, %s) = %v, want allowed", tt.host, tt.ip, err)
+	return cases
+}
+
+func TestOutboundPolicy_CheckAddr(t *testing.T) {
+	for _, pc := range loadOutboundCases(t).Policies {
+		policy, err := NewOutboundPolicy(pc.AllowedPrivateHosts)
+		if err != nil {
+			t.Fatalf("%s: NewOutboundPolicy: %v", pc.Name, err)
+		}
+		for _, tt := range pc.Cases {
+			t.Run(pc.Name+"/"+tt.Name, func(t *testing.T) {
+				err := policy.CheckAddr(tt.Host, netip.MustParseAddr(tt.IP))
+				if tt.Allowed {
+					if err != nil {
+						t.Fatalf("%s -> %s = %v, want allowed", tt.Host, tt.IP, err)
+					}
+					return
 				}
-				return
-			}
-			if !errors.Is(err, ErrAddressRefused) {
-				t.Fatalf("CheckAddr(%s, %s) = %v, want ErrAddressRefused", tt.host, tt.ip, err)
-			}
-			var refused *RefusedAddressError
-			if !errors.As(err, &refused) || refused.Allowable() != tt.allowable {
-				t.Fatalf("CheckAddr(%s, %s) = %v, allowable = %v, want %v", tt.host, tt.ip, err, refused != nil && refused.Allowable(), tt.allowable)
-			}
-		})
+				if !errors.Is(err, ErrAddressRefused) {
+					t.Fatalf("%s -> %s = %v, want ErrAddressRefused", tt.Host, tt.IP, err)
+				}
+				var refused *RefusedAddressError
+				if !errors.As(err, &refused) || refused.Allowable() != tt.Allowable {
+					t.Fatalf("%s -> %s = %v, allowable = %v, want %v", tt.Host, tt.IP, err, refused != nil && refused.Allowable(), tt.Allowable)
+				}
+			})
+		}
 	}
 }
 
-func TestOutboundPolicy_EmptyAllowlistRefusesPrivate(t *testing.T) {
+func TestOutboundPolicy_InvalidAddressIsRefused(t *testing.T) {
 	policy, err := NewOutboundPolicy(nil)
 	if err != nil {
-		t.Fatalf("NewOutboundPolicy: %v", err)
-	}
-	if err := policy.CheckAddr("docs-mcp", netip.MustParseAddr("172.18.0.5")); !errors.Is(err, ErrAddressRefused) {
-		t.Fatalf("private address without an allowlist = %v, want refused", err)
-	}
-	if err := policy.CheckAddr("example.com", netip.MustParseAddr("93.184.216.34")); err != nil {
-		t.Fatalf("public address = %v, want allowed", err)
+		t.Fatal(err)
 	}
 	if err := policy.CheckAddr("x", netip.Addr{}); !errors.Is(err, ErrAddressRefused) {
 		t.Fatalf("invalid address = %v, want refused", err)
 	}
 }
 
-func TestOutboundPolicy_AllowlistNeverOpensTheRefusedRanges(t *testing.T) {
-	policy, err := NewOutboundPolicy([]string{"0.0.0.0/0", "::/0", "localhost", "127.0.0.1", "169.254.169.254"})
-	if err != nil {
-		t.Fatalf("NewOutboundPolicy: %v", err)
-	}
-	for _, ip := range []string{"127.0.0.1", "169.254.169.254", "0.0.0.0", "224.0.0.1", "::1", "fe80::1", "fd00:ec2::254", "100.100.100.200"} {
-		if err := policy.CheckAddr("localhost", netip.MustParseAddr(ip)); !errors.Is(err, ErrAddressRefused) {
-			t.Errorf("CheckAddr(localhost, %s) = %v, want refused", ip, err)
-		}
-	}
-	if err := policy.CheckAddr("any.example", netip.MustParseAddr("10.0.0.1")); err != nil {
-		t.Errorf("private address with 0.0.0.0/0 allowlisted = %v, want allowed", err)
-	}
-}
-
-func TestNewOutboundPolicy_InvalidEntries(t *testing.T) {
-	for _, entry := range []string{"", " ", "docs-mcp:6280", "http://docs-mcp", "10.0.0.0/33", "*.internal", "docs mcp", "a/b", ".internal"} {
-		t.Run(fmt.Sprintf("%q", entry), func(t *testing.T) {
+func TestNewOutboundPolicy_Entries(t *testing.T) {
+	cases := loadOutboundCases(t)
+	for _, entry := range cases.InvalidEntries {
+		t.Run(fmt.Sprintf("invalid %q", entry), func(t *testing.T) {
 			if _, err := NewOutboundPolicy([]string{entry}); err == nil {
 				t.Fatalf("NewOutboundPolicy(%q) = nil error, want an error", entry)
 			}
 		})
 	}
-	if _, err := NewOutboundPolicy([]string{" docs-mcp ", "docs_mcp_1", "fd00::/8", "::1"}); err != nil {
+	if _, err := NewOutboundPolicy(cases.ValidEntries); err != nil {
 		t.Fatalf("valid entries: %v", err)
 	}
 }

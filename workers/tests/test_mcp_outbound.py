@@ -27,89 +27,48 @@ from codeforge.mcp_outbound import (
 )
 from codeforge.mcp_workbench import McpServerConnection, McpWorkbench
 
-_ALLOWLIST = ["docs-mcp", "Tools.Internal.", "10.20.0.0/16", "fd12:3456::/32", "192.168.7.7"]
 _CONTRACTS = Path(__file__).parents[2] / "internal" / "port" / "messagequeue" / "testdata" / "contracts"
-
-
-@pytest.mark.parametrize(
-    ("host", "ip", "allowed", "allowable"),
-    [
-        # IPv4
-        ("example.com", "93.184.216.34", True, False),
-        ("evil.example", "127.0.0.1", False, False),
-        ("evil.example", "127.255.0.9", False, False),
-        ("evil.example", "0.0.0.0", False, False),  # noqa: S104 - an address to refuse, not a bind
-        ("evil.example", "0.1.2.3", False, False),
-        ("evil.example", "169.254.10.10", False, False),
-        ("evil.example", "169.254.169.254", False, False),
-        ("evil.example", "100.100.100.200", False, False),
-        ("evil.example", "239.1.2.3", False, False),
-        ("evil.example", "255.255.255.255", False, False),
-        ("evil.example", "240.0.0.1", False, False),
-        ("evil.example", "10.0.0.1", False, True),
-        ("evil.example", "172.16.5.4", False, True),
-        ("evil.example", "192.168.1.1", False, True),
-        ("evil.example", "100.64.0.1", False, True),
-        ("evil.example", "198.18.0.1", False, True),
-        ("evil.example", "172.32.0.1", True, False),
-        # IPv6
-        ("example.com", "2606:2800:220:1:248:1893:25c8:1946", True, False),
-        ("evil.example", "::1", False, False),
-        ("evil.example", "::", False, False),
-        ("evil.example", "fe80::1", False, False),
-        ("evil.example", "fe80::1%eth0", False, False),
-        ("evil.example", "ff02::1", False, False),
-        ("evil.example", "fd00:ec2::254", False, False),
-        ("evil.example", "fd00:1::5", False, True),
-        ("evil.example", "fec0::1", False, True),
-        # IPv4 inside IPv6
-        ("evil.example", "::ffff:127.0.0.1", False, False),
-        ("evil.example", "::ffff:169.254.169.254", False, False),
-        ("evil.example", "::ffff:10.0.0.1", False, True),
-        ("example.com", "::ffff:93.184.216.34", True, False),
-        ("evil.example", "::127.0.0.1", False, False),
-        ("evil.example", "64:ff9b::169.254.169.254", False, False),
-        ("evil.example", "64:ff9b::10.0.0.1", False, True),
-        ("example.com", "64:ff9b::93.184.216.34", True, False),
-        # Allowlist
-        ("docs-mcp", "172.18.0.5", True, False),
-        ("TOOLS.internal.", "10.9.9.9", True, False),
-        ("docs-mcp", "127.0.0.1", False, False),
-        ("docs-mcp", "169.254.169.254", False, False),
-        ("docs-mcp", "fd00:ec2::254", False, False),
-        ("evil.example", "10.20.3.4", True, False),
-        ("evil.example", "::ffff:10.20.3.4", True, False),
-        ("evil.example", "10.21.0.1", False, True),
-        ("evil.example", "fd12:3456::9", True, False),
-        ("evil.example", "192.168.7.7", True, False),
-        ("docs-mcp.evil.example", "172.18.0.5", False, True),
-    ],
+# Shared with internal/netutil/outbound_test.go: the worker and the Go Core decide alike.
+_CASES = json.loads(
+    (Path(__file__).parents[2] / "internal" / "netutil" / "testdata" / "outbound_cases.json").read_text()
 )
-def test_check_address(host: str, ip: str, allowed: bool, allowable: bool) -> None:
-    policy = OutboundPolicy(_ALLOWLIST)
-    if allowed:
+
+
+def _policy_cases() -> list[object]:
+    return [
+        pytest.param(policy, case, id=f"{policy['name']}/{case['name']}")
+        for policy in _CASES["policies"]
+        for case in policy["cases"]
+    ]
+
+
+@pytest.mark.parametrize(("policy_case", "case"), _policy_cases())
+def test_check_address(policy_case: dict[str, object], case: dict[str, object]) -> None:
+    policy = OutboundPolicy(policy_case["allowed_private_hosts"])  # type: ignore[arg-type]
+    host, ip = str(case["host"]), str(case["ip"])
+    if case.get("allowed"):
         policy.check_address(host, ip)
         return
     with pytest.raises(AddressRefusedError) as refused:
         policy.check_address(host, ip)
-    assert refused.value.allowable is allowable
+    assert refused.value.allowable is bool(case.get("allowable"))
 
 
-def test_the_allowlist_never_opens_the_refused_ranges() -> None:
-    policy = OutboundPolicy(["0.0.0.0/0", "::/0", "localhost", "127.0.0.1", "169.254.169.254"])
-    for ip in ["127.0.0.1", "169.254.169.254", "0.0.0.0", "224.0.0.1", "::1", "fe80::1", "fd00:ec2::254"]:  # noqa: S104
-        with pytest.raises(AddressRefusedError):
-            policy.check_address("localhost", ip)
-    policy.check_address("any.example", "10.0.0.1")
-
-
-def test_invalid_allowlist_entries_are_ignored(caplog: pytest.LogCaptureFixture) -> None:
+@pytest.mark.parametrize("entry", _CASES["invalid_entries"])
+def test_invalid_allowlist_entries_allow_nothing(entry: str, caplog: pytest.LogCaptureFixture) -> None:
+    """Go refuses them at startup; a payload carrying one anyway allows nothing (fail closed)."""
     with caplog.at_level(logging.WARNING):
-        policy = OutboundPolicy(["docs-mcp:6280", "http://docs-mcp", "*.internal", "10.0.0.0/33", "", "docs-mcp"])
+        policy = OutboundPolicy([entry, "docs-mcp"])
+    assert "ignoring invalid allowed private host" in caplog.text
     with pytest.raises(AddressRefusedError):
         policy.check_address("docs-mcp.evil", "10.0.0.1")
     policy.check_address("docs-mcp", "10.0.0.1")
-    assert "docs-mcp:6280" in caplog.text
+
+
+def test_valid_allowlist_entries(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        OutboundPolicy(_CASES["valid_entries"])
+    assert caplog.text == ""
 
 
 def test_messages_name_the_address() -> None:
