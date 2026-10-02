@@ -269,7 +269,7 @@ func TestMCPRunServerPayloads_CarryTheAllowlist(t *testing.T) {
 
 // routedPolicy resolves names to fixed addresses and connects every checked
 // address to the local server that stands for it.
-func routedPolicy(t *testing.T, names map[string]string, servers map[string]*httptest.Server) *netutil.OutboundPolicy {
+func routedPolicy(t *testing.T, names map[string]string, servers map[string]*httptest.Server, dialed ...*atomic.Int32) *netutil.OutboundPolicy {
 	t.Helper()
 	policy, err := netutil.NewOutboundPolicy(nil,
 		netutil.WithLookup(func(_ context.Context, host string) ([]netip.Addr, error) {
@@ -280,6 +280,9 @@ func routedPolicy(t *testing.T, names map[string]string, servers map[string]*htt
 			return []netip.Addr{netip.MustParseAddr(ip)}, nil
 		}),
 		netutil.WithDial(func(ctx context.Context, network, address string) (net.Conn, error) {
+			for _, counter := range dialed {
+				counter.Add(1)
+			}
 			host, _, _ := net.SplitHostPort(address)
 			srv, ok := servers[host]
 			if !ok {
@@ -330,5 +333,35 @@ func TestMCPConnectionTest_RedirectsStayInTheOrigin(t *testing.T) {
 	}
 	if internalHits.Load() != 0 || otherHits.Load() != 0 {
 		t.Fatalf("redirect targets saw %d (internal) and %d (other) requests, want none", internalHits.Load(), otherHits.Load())
+	}
+}
+
+// TestMCPConnectionTest_FollowsASameOriginRedirect (KI-100 review): a
+// redirect within the origin (the worker's SDK follows it too) is followed,
+// and its connection is dialled through the policy.
+func TestMCPConnectionTest_FollowsASameOriginRedirect(t *testing.T) {
+	var redirected atomic.Int32
+	public, _ := countingServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/mcp" {
+			http.Redirect(w, r, "http://mcp.example:80/mcp/", http.StatusTemporaryRedirect)
+			return
+		}
+		redirected.Add(1)
+		http.Error(w, "not an MCP server", http.StatusInternalServerError)
+	})
+	var dialed atomic.Int32
+	routed := routedPolicy(t, map[string]string{"mcp.example": "203.0.113.10"}, map[string]*httptest.Server{"203.0.113.10": public}, &dialed)
+	svc := newMCPTestService(t, nil, newRecordingMCPStore())
+	svc.SetOutboundPolicy(routed)
+
+	result, err := svc.TestConnection(context.Background(), &mcp.ServerDef{Name: "s", Transport: mcp.TransportStreamableHTTP, URL: "http://mcp.example/mcp"})
+	if err != nil {
+		t.Fatalf("TestConnection: %v", err)
+	}
+	if result.Success || redirected.Load() == 0 {
+		t.Fatalf("result %+v after %d requests to the redirect target, want the redirect followed", result, redirected.Load())
+	}
+	if dialed.Load() == 0 {
+		t.Fatal("the connection was not dialled through the policy")
 	}
 }
