@@ -292,9 +292,12 @@ CodeForge/
 │   ├── sync-version.sh             # Propagate VERSION to package manifests
 │   ├── verify-features.sh          # Feature verification matrix (CI verify job)
 │   ├── worker-healthcheck.py       # Worker container healthcheck (GET /health/ready)
+│   ├── worker-entrypoint.sh        # Worker image entrypoint: runs the worker as uid 10001 with ambient SETUID/SETGID/KILL (KI-71)
+│   ├── check-tool-isolation.sh     # Checks tool isolation in a container with the production settings (KI-71)
 │   └── setup-branch-protection.sh  # GitHub branch protection for main
 ├── configs/
 │   ├── model_pricing.yaml    # Fallback LLM pricing table
+│   ├── nats/                 # nats-server.conf of the production NATS: users core and worker, permissions (KI-71)
 │   ├── prometheus/           # Prometheus alert rules
 │   └── benchmarks/           # Benchmark datasets (Phase 20): basic-coding, tool-use-basic, agent-coding, e2e-quick
 ├── tests/
@@ -490,6 +493,14 @@ cd frontend && npx playwright test --config=playwright.llm.config.ts
 ```
 
 88 tests across 11 spec files covering: prerequisites (6), model management (7), simple conversation (11), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (4), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
+
+#### Tests That Need Root or a nats-server Binary (KI-71)
+
+A few tests skip with a reason unless their prerequisite is present, and CI provides both:
+
+- `workers/tests/test_tool_isolation_integration.py` starts real `setpriv` tool processes and needs root.
+- `workers/tests/test_nats_permissions.py`, `workers/tests/test_deployment_isolation.py` (`nats-server -t` on the generated config) and `internal/adapter/nats/auth_test.go` start a real `nats-server` with `configs/nats/nats-server.conf`. They need the binary: `NATS_SERVER_BIN=/path/to/nats-server` or `nats-server` on `PATH` (CI copies it from `nats:2.15-alpine`: `docker create --name nats-bin nats:2.15-alpine && docker cp nats-bin:/usr/local/bin/nats-server ./nats-server`). Use nats-server 2.11 or newer; the notification read-back needs batched direct get.
+- `./scripts/check-tool-isolation.sh [image]` runs the isolation check in a container with the production worker settings (default image `python:3.12-slim`; needs Docker).
 
 #### Integration Tests
 
@@ -694,12 +705,18 @@ Example:
 
 | ENV Variable | Default | Description |
 |---|---|---|
-| `NATS_URL` | `nats://localhost:4222` | NATS server URL |
+| `NATS_URL` | `nats://localhost:4222` | NATS server URL, with `user:password@` when the server requires authentication (production). Read from `NATS_URL_FILE` when that is set |
 | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
-| `LITELLM_MASTER_KEY` | `sk-codeforge-dev` | LiteLLM API key (dev default, matches the compose LiteLLM default; a warning is logged) |
+| `LITELLM_MASTER_KEY` | `sk-codeforge-dev` | LiteLLM API key (dev default, matches the compose LiteLLM default; a warning is logged). Read from `LITELLM_MASTER_KEY_FILE` when that is set |
+| `DATABASE_URL_FILE`, `NATS_URL_FILE`, `LITELLM_MASTER_KEY_FILE`, `CODEFORGE_INTERNAL_KEY_FILE` | unset | Path of a secret file for the setting without the suffix (production: `/run/secrets/<name>`). Setting both forms is a startup error; an empty or missing file is an error; the files are read once, then the worker locks its secrets directory (KI-71) |
+| `CODEFORGE_TOOL_ISOLATION` | `off` (`required` in the worker image and in `docker-compose.prod.yml`) | `required`: agent tool processes start only as the tool user and every tool call fails with `ToolIsolationError` when that is not possible; `off`: they run as the worker user (development, tests). An unknown value counts as `required` |
+| `CODEFORGE_TOOL_UID` / `CODEFORGE_TOOL_GID` | `10002` / `10002` | uid and gid of the tool user; must differ from the worker's and be unprivileged |
+| `CODEFORGE_WORKSPACE_GID` | `10010` | Workspace group (`codeforge-ws`): the tool user's only supplementary group, shared with the worker and the Go Core |
+| `CODEFORGE_TOOL_HOME` | `/home/codeforge-tool` | `HOME` of tool processes (a tmpfs in production) |
+| `CODEFORGE_WORKSPACE_ROOT` | unset | The Go Core's workspace root (same variable, `/data/workspaces` in production). With isolation required the worker opens workspaces created before it to the workspace group once per upgrade (stamp file `.codeforge-workspace-sharing`) |
 | `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level (falls back to `logging.level` in codeforge.yaml) |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
-| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker HTTP health server: `GET /health` (liveness) and `GET /health/ready` (NATS connected, every consumer loop alive, not stopping); `0` picks a free port; a port that cannot be bound makes the worker exit 1 before connecting to NATS. Two workers on one host need different ports |
+| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker HTTP health server: `GET /health` (liveness) and `GET /health/ready` (NATS connected, every consumer loop alive, notification consumers restored, not stopping; `503 {"status":"starting"}` while the workspaces are shared at startup, `503 {"status":"not ready"}` otherwise); `0` picks a free port; a port that cannot be bound makes the worker exit 1 before connecting to NATS. Two workers on one host need different ports |
 | `CODEFORGE_AIDER_PATH` | `aider` | Path to Aider CLI binary |
 | `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
 | `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
@@ -764,6 +781,8 @@ The readiness endpoint checks PostgreSQL (ping), NATS (connection status), and L
 ### NATS Subjects
 
 The Go Core and Python Workers communicate via NATS JetStream subjects. The tables below are a subset; the authoritative lists are `internal/port/messagequeue/queue.go` (Go) and `workers/codeforge/nats_subjects.py` (Python). Not listed here: `runs.heartbeat`, `runs.qualitygate.*`, `runs.trajectory.event`, `benchmark.task.*`, `context.shared.updated`, `context.rerank.*`, `repomap.generate.*`, `conversation.run.*`, `conversation.compact.*`, `conversation.test.*` (workspace test run of the auto-agent, worker side), `evaluation.gemmas.*`, `a2a.task.*`, `memory.*`, `handoff.request` (worker -> Go Core) and `handoff.approved` (Go Core only), `backends.health.*`, `prompt.evolution.*`. Dead-letter copies (`<subject>.dlq`) of `runs.start`, `conversation.run.start`, `tasks.agent.*`, `handoff.request`, `handoff.approved` and `benchmark.run.request` end the work they carried as failed in the Go Core.
+
+In production a new subject, worker durable or notification consumer also needs an entry in `configs/nats/nats-server.conf` (the `core` and `worker` users publish only their own subjects and the worker may use only consumers named there); `workers/tests/test_nats_permissions.py` fails without it. See [Tool Isolation and NATS Authentication](#tool-isolation-and-nats-authentication).
 
 #### Legacy Task Protocol (fire-and-forget)
 
@@ -894,7 +913,7 @@ CodeForge ships with multi-stage Dockerfiles for all three services.
 # Go Core (multi-stage: golang:1.25-alpine -> alpine:3.21)
 docker build -t codeforge-core .
 
-# Python Worker (python:3.12-slim, poetry, non-root user)
+# Python Worker (python:3.12-slim, poetry; starts as root, the entrypoint runs the worker as uid 10001, tool processes as uid 10002)
 docker build -t codeforge-worker -f Dockerfile.worker .
 
 # Frontend (node:22-alpine build -> nginxinc/nginx-unprivileged:1.27-alpine serve on port 8080)
@@ -916,7 +935,7 @@ docker compose -f docker-compose.prod.yml down
 
 Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
-Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path), tmpfs `/tmp` for core and worker, images running as UID/GID 10001, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
+Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path), tmpfs `/tmp` for core and worker, the core running as UID/GID 10001 and the worker starting as root with only `SETUID`, `SETGID` and `KILL` and running as UID 10001 while agent tool processes run as UID 10002 (see [Tool Isolation and NATS Authentication](#tool-isolation-and-nats-authentication)), NATS pinned to `nats:2.15-alpine` with authenticated users, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
 
 #### Blue-green deployment
 
@@ -1057,9 +1076,11 @@ In production, every secret comes from a Docker secret file. The Go Core reads `
 `CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET`, the admin password, webhook secrets, GitHub client secret, SMTP password,
 Plane token, A2A keys; `internal/secrets.LookupFileEnv`). Setting both `KEY` and `KEY_FILE` stops the core at startup;
 a missing or empty file is an error; a trailing newline is trimmed; list settings (A2A keys) split on commas and
-newlines. PostgreSQL uses `POSTGRES_PASSWORD_FILE`, NATS a generated `nats-auth.conf`, and LiteLLM and the worker export
-their values from the files in an entrypoint wrapper. Agent tool subprocesses never inherit these values (scrubbed
-environment, `workers/codeforge/subprocess_env.py`). URL credentials are redacted in all logs.
+newlines. The worker reads `DATABASE_URL_FILE`, `NATS_URL_FILE`, `LITELLM_MASTER_KEY_FILE` and `CODEFORGE_INTERNAL_KEY_FILE`
+the same way (no secret in its environment). PostgreSQL uses `POSTGRES_PASSWORD_FILE`, NATS reads the passwords of its users
+from a generated `nats-passwords.conf`, and LiteLLM exports its values from the files in an entrypoint wrapper. Agent tool
+subprocesses never inherit these values (scrubbed environment, `workers/codeforge/subprocess_env.py`) and cannot read the
+files (tool user, secrets tmpfs). URL credentials are redacted in all logs.
 
 ```bash
 ./scripts/generate-secrets.sh        # writes ./secrets next to docker-compose.prod.yml (or SECRETS_DIR from env/.env)
@@ -1067,19 +1088,69 @@ environment, `workers/codeforge/subprocess_env.py`). URL credentials are redacte
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-`generate-secrets.sh` creates missing secrets as hex values, a PostgreSQL TLS pair and the derived `database-url`,
-`nats-url` and `nats-auth.conf` (written only when missing or when their inputs were just generated, so edits such as
-`sslmode=verify-full` survive). It reads `POSTGRES_USER`/`POSTGRES_DB` like compose (environment, then `.env`).
-Rotation: `codeforge-internal-key`, `nats-user` and `nats-pass` rotate by deleting the file and re-running;
+`generate-secrets.sh` creates missing secrets as hex values (`nats-core-pass` and `nats-worker-pass` among them), a PostgreSQL TLS pair
+and the derived `database-url`, `nats-core-url`, `nats-worker-url` and `nats-passwords.conf` (written only when missing or when
+their inputs were just generated, so edits such as `sslmode=verify-full` survive). The pre-KI-71 files `nats-user`,
+`nats-pass`, `nats-url` and `nats-auth.conf` are unused; the script says so and you may delete them. It reads `POSTGRES_USER`/`POSTGRES_DB` like compose (environment, then `.env`).
+Rotation: `codeforge-internal-key`, `nats-core-pass` and `nats-worker-pass` rotate by deleting the file and re-running (the NATS URLs and `nats-passwords.conf` follow; then recreate the services);
 `postgres-password` must be changed in the database first (`ALTER USER`), then in `postgres-password` and
 `database-url`; the JWT secret (logs everyone out, VCS tokens become unreadable), the LLM key encryption secret and the
 LiteLLM master key are never regenerated for a directory in use (the script stops and explains). A directory counts as in use once any file only the script creates exists (derived files, JWT or LLM key secret, TLS pair); a directory with only operator pre-seeded files (e.g. your own `postgres-password`) is treated as new. For an existing
 installation the LLM key encryption secret is created with the JWT secret's value, so stored LLM keys stay readable.
 `validate-env.sh` checks presence, readability by the non-root containers, length, known dev defaults, that
-`database-url` matches `POSTGRES_USER`/`POSTGRES_DB` and does not disable TLS, and that `nats-url` matches
-`nats-auth.conf`.
+`database-url` matches `POSTGRES_USER`/`POSTGRES_DB` and does not disable TLS, that `nats-core-url` and `nats-worker-url`
+connect as the users `core` and `worker` with the passwords in `nats-passwords.conf`, and that the two passwords differ.
 
 See `docs/SECURITY.md` for the full secret management policy.
+
+### Tool Isolation and NATS Authentication
+
+Design and rationale: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md); the security model:
+[SECURITY.md](SECURITY.md#agent-tool-isolation); the process and UID model:
+[architecture.md](architecture.md#process-and-uid-model).
+
+**Production.** The worker container starts as root with `cap_drop: ALL`, `cap_add: SETUID, SETGID, KILL` and
+`no-new-privileges`; `scripts/worker-entrypoint.sh` runs the worker as uid 10001 (group `codeforge-ws` 10010) with those
+capabilities as ambient capabilities. Agent tool processes run as uid/gid 10002 (`codeforge-tool`) with group 10010,
+no capabilities and umask 002, started only through `workers/codeforge/tool_process.py`. The worker mounts `/run/secrets` as a
+tmpfs (`uid=10001,mode=0700`) with the secret files inside and `/home/codeforge-tool` as a tmpfs (`HOME` of the tool
+user); the workspaces volume is `10001:10010`, mode 2775. The NATS server loads `configs/nats/nats-server.conf`
+(Compose `configs:`) and the secret `nats-passwords.conf`; the core connects with `nats-core-url`, the worker with
+`nats-worker-url` (both mounted as `/run/secrets/nats-url`, also in the blue-green overlay).
+
+**Upgrading from before KI-71.**
+
+```bash
+git pull                                         # configs/nats/ must be in the deploy directory
+./scripts/generate-secrets.sh                    # creates nats-core-pass, nats-worker-pass and the derived NATS files
+./scripts/validate-env.sh                        # Compose fails until the new NATS files exist
+docker compose -f docker-compose.prod.yml pull   # or build; the NATS image is nats:2.15-alpine
+docker compose -f docker-compose.prod.yml up -d
+```
+
+The Go Core applies migrations 111 (`quarantine_messages.consumed_at`) and 112 (tenant of MCP links; it deletes links
+between a project and a server of different tenants). The first worker start walks the existing workspaces once
+(`/health/ready` answers `503 {"status":"starting"}` meanwhile) and logs "workspaces opened to the workspace group". A
+workspace root the worker does not own is not walked: the log names the fix (`chown 10001:10010 <root> && chmod 2775
+<root>`). `CLAUDE_CONFIG_DIR` and adopted workspaces outside `/data/workspaces` must be accessible to group 10010. Platforms
+that forbid root containers cannot start tool processes: every tool call fails with `ToolIsolationError`.
+
+**Checking it.** The worker logs "tool isolation required: agent tool processes run as the tool user" (or the error and
+its reason) once at startup. `./scripts/check-tool-isolation.sh` runs the same check in a container with the production
+settings and prints a tool process's credentials (Uid and Gid 10002, Groups 10010, `CapEff`/`CapAmb` 0, `NoNewPrivs` 1,
+Umask 0002) and that it cannot read `/proc/1/environ` or `/run/secrets`.
+
+**Development.** Isolation is `off` and the dev compose runs NATS without authentication; nothing changes for
+`go run`, `poetry run` or the devcontainer. To try isolation locally run the worker image with the production settings
+(`docker compose -f docker-compose.prod.yml`, or `scripts/check-tool-isolation.sh`).
+
+| Config / secret | Purpose |
+|---|---|
+| `configs/nats/nats-server.conf` | NATS users `core` and `worker`, their permissions, per-service inbox prefixes; keep it in step with `internal/port/messagequeue/queue.go` and `workers/codeforge/nats_subjects.py` |
+| `nats-core-pass`, `nats-worker-pass` (secrets) | Passwords of the two NATS users |
+| `nats-core-url`, `nats-worker-url`, `nats-passwords.conf` (derived) | URLs with credentials for the core and the worker; the password file the NATS config includes |
+| `scripts/worker-entrypoint.sh` | Image entrypoint of the worker |
+| `scripts/check-tool-isolation.sh` | Container check of the isolation |
 
 ### Distributed Tracing (OpenTelemetry)
 

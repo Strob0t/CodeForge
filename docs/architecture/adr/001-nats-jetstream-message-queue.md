@@ -1,6 +1,6 @@
 # ADR-001: NATS JetStream as Message Queue
 
-> **Status:** accepted; delivery, acknowledgement and retry semantics refined by [ADR-016](016-nats-delivery-semantics.md) (2026-09-30)
+> **Status:** accepted; delivery, acknowledgement and retry semantics refined by [ADR-016](016-nats-delivery-semantics.md) (2026-09-30); production NATS requires authentication with per-service users, see [ADR-017](017-tool-isolation-and-nats-authentication.md) (2026-10-01)
 > **Date:** 2026-02-14
 > **Deciders:** Project lead + Claude Code analysis
 

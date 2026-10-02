@@ -1,7 +1,7 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-10-01). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents) and KI-71 (tool process isolation)**; the follow-up Known Issues KI-83 to KI-94 are open.
-> **Scope:** the verified defects KI-1 to KI-94 in [todo.md - Known Issues](todo.md#known-issues), found by the
+> **Status:** In progress (2026-10-01). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-103 are open.
+> **Scope:** the verified defects KI-1 to KI-103 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
 > promise, and a run pipeline that completes end to end - without changing the vision or the architecture.
@@ -153,7 +153,7 @@ scheduled as follows:
 | **KI-68** | Policy profiles are one global namespace | S6, **done 2026-09-30** |
 | **KI-69** | Policy follow-ups (tools offered despite mode, clone snapshots, run profile, feedback providers, redirections) | S6, **done 2026-09-30** |
 | **KI-70** | Blue-green overlay does not work | S4, **done 2026-10-01** |
-| **KI-71** | Agent tools can read the worker's secrets (same UID) | S6 (with KI-13), open |
+| **KI-71** | Agent tools can read the worker's secrets (same UID); no NATS authentication | S6, **done 2026-10-01** (tool user uid 10002, secrets tmpfs, NATS users, [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)) |
 | **KI-72** | Claude Code runs bypass the policy layer | S6, **done 2026-09-30** |
 | **KI-73** | Channel follow-ups (webhook key, ThreadPanel unmounted, typing/read) | S6, **done 2026-10-01** |
 | **KI-74** | Frontend live-update follow-ups | S6, **done 2026-10-01** |
@@ -177,6 +177,15 @@ scheduled as follows:
 | **KI-92** | War Room arrows of `initiated` handoffs are never removed | S6 follow-up, open |
 | **KI-93** | Privacy page links to a Settings > Privacy export/delete screen that does not exist | S6 follow-up, open |
 | **KI-94** | Review pipeline and stall re-plan leftovers (edits during the refactorer, agent reservation, debate sub-plan cancel, partial approval, quoted paths, stall prompt, shared stall budget) | S6 follow-up, open |
+| **KI-95** | In-process worker readers (repo map, retrieval, GraphRAG collectors, file tools) follow symlinks out of the workspace | KI-71 follow-up, open |
+| **KI-96** | All tenants share the tool uid 10002 | KI-71 follow-up, open (per-tenant UIDs or the sandbox, KI-13) |
+| **KI-97** | MCP args and URL userinfo are not redacted | KI-71 follow-up, open |
+| **KI-98** | MCP UI: header editor, "stored, unchanged" hint, admin actions shown to non-admins | KI-71 follow-up, open |
+| **KI-99** | NATS does not permission-check deliveries to a known plain subscription (residual) | KI-71 follow-up, open |
+| **KI-100** | SSRF in the MCP connection test (sse/streamable_http URLs from the Go Core) | KI-71 follow-up, open |
+| **KI-101** | `UpsertMCPServerTools` has no tenant filter | KI-71 follow-up, open |
+| **KI-102** | Re-run the NATS permission tests before a NATS image upgrade (nats-server 2.11 or newer) | KI-71 follow-up, open |
+| **KI-103** | Cost of the tool-file sharing pass on very large workspaces; files of processes that outlive the pass | KI-71 follow-up, open |
 
 ## Decisions
 

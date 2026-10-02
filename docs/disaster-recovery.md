@@ -170,6 +170,8 @@ docker compose -f docker-compose.prod.yml up -d core litellm worker
 
 NATS JetStream state is ephemeral for CodeForge. The Go backend auto-recreates streams and consumers on startup (see `internal/port/messagequeue/jetstream.go`).
 
+Production NATS requires authentication ([ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)): it starts only with `configs/nats/nats-server.conf` (in the repository checkout, mounted by Compose) and the secret `nats-passwords.conf`, and the core and the worker connect with `nats-core-url` and `nats-worker-url`. A NATS volume loss does not touch them; if they are missing, see the secrets step in section 7.
+
 ### Recovery Steps
 
 ```bash
@@ -185,6 +187,10 @@ docker compose -f docker-compose.prod.yml up -d nats
 
 # Restart Go Core -- it recreates streams/consumers automatically
 docker compose -f docker-compose.prod.yml restart core
+
+# Restart the worker afterwards -- it waits for the stream; its NotificationHub recreates the
+# notification consumers (retrying until they exist; the worker's /health/ready is 503 meanwhile)
+docker compose -f docker-compose.prod.yml restart worker
 ```
 
 No data is lost because:
@@ -224,8 +230,9 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
 
 - [ ] Docker and Docker Compose installed on the target host
 - [ ] Access to backup storage (pg_dump files, base backups, WAL archives)
-- [ ] CodeForge repository cloned (for docker-compose.prod.yml and configs)
+- [ ] CodeForge repository cloned (for docker-compose.prod.yml and configs; `configs/nats/` must be in the deploy directory)
 - [ ] Environment variables configured (.env file)
+- [ ] Secrets directory restored (`SECRETS_DIR`, `./secrets` by default) from your secure backup; it is not in a Docker volume or in version control
 
 ### Step-by-Step
 
@@ -236,9 +243,16 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
    git checkout <production-tag>
    ```
 
-2. **Restore environment configuration**
+2. **Restore environment configuration and secrets**
    ```bash
    cp /backups/env/.env.prod .env
+   ```
+
+   If the restored secrets directory has no NATS secrets (a backup from before KI-71), run `./scripts/generate-secrets.sh`: it creates only what is missing
+   (`nats-core-pass`, `nats-worker-pass` and the derived `nats-core-url`, `nats-worker-url`, `nats-passwords.conf`) and never replaces the
+   JWT secret, the LLM key encryption secret, the LiteLLM master key or the PostgreSQL password. Then check the files:
+   ```bash
+   ./scripts/validate-env.sh
    ```
 
 3. **Start PostgreSQL only**

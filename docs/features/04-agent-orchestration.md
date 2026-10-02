@@ -346,7 +346,7 @@ Agents connect to external MCP servers during runs to use their tools.
 
 - **McpWorkbench**: Multi-server container (connect/disconnect, tool discovery, tool call bridging)
 - **McpToolRecommender**: BM25-based ranking of relevant tools for task prompts
-- **Transport**: stdio, SSE and Streamable HTTP via Python `mcp` SDK
+- **Transport**: stdio, SSE and Streamable HTTP via Python `mcp` SDK; stdio servers start through `tool_process.tool_stdio_client` as the tool user (uid 10002, no capabilities; declared env without the worker's credentials and code-loading variables), never in the Go Core (KI-71, [ADR-017](../architecture/adr/017-tool-isolation-and-nats-authentication.md))
 - **Code**: `workers/codeforge/mcp_workbench.py`, `workers/codeforge/mcp_models.py`
 
 #### MCP Server Registry
@@ -354,7 +354,10 @@ Agents connect to external MCP servers during runs to use their tools.
 Persistent storage for MCP server definitions with project-level assignment.
 
 - **Database**: `mcp_servers`, `project_mcp_servers`, `mcp_server_tools` tables (migration 036)
-- **HTTP API**: 11 endpoints for CRUD, test connection, tools listing, project assignment
+- **HTTP API**: 11 endpoints for CRUD, test connection, tools listing, project assignment ([openapi.yaml](../api/openapi.yaml))
+- **Access**: every user of a tenant reads its servers; a tenant's admins (`RoleAdmin`) create, change, delete, test and assign them. The Go Core tests only `sse` and `streamable_http` servers (a stdio test answers 400)
+- **Secrets**: env and header values are redacted to `***` in every response; an update that sends `***` keeps the stored value only while transport, URL, command and args are unchanged (`internal/domain/mcp/redact.go`)
+- **Tenancy**: servers and `project_mcp_servers` links are tenant-scoped (migration 112); assignment audit entries name the server and are written before the change
 - **Frontend**: MCPServersPage (server list, add/edit modal, test connection, tools discovery)
 - **Code**: `internal/adapter/postgres/store_mcp.go`, `internal/adapter/http/handlers_mcp.go`, `frontend/src/features/mcp/MCPServersPage.tsx`
 

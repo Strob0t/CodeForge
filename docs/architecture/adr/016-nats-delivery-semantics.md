@@ -169,10 +169,17 @@ this decision.
 > - **Handoffs.** `handoff.request` (worker -> Go Core, with `handoff_id` and string metadata) and `handoff.approved` (Go Core only) are at-least-once but start a workspace-changing run, so the Go Core claims each stage in `handoff_claims` before it starts anything (migrations 102, 106, 107): a claim that was never marked done is taken over after an 11-minute lease (longer than the 10 minutes a running handler is kept in progress), a retry reuses the stage's task, a permanent start error refuses the handoff at once, a transient one is retried and dead-lettered after the last attempt.
 > - **Conversation completions.** A turn's worker completion is claimed once (`conversation_turn_completions`, migration 105; the Go Core's own failed completions do not claim). The completion of a turn that is no longer the active one stores its messages and cost when no newer turn started, otherwise only its cost; tool calls of a turn that is not the active one are denied.
 
+> **Update (2026-10-01, KI-71, [ADR-017](017-tool-isolation-and-nats-authentication.md)):** NATS requires authentication in the deployment, with per-user subject permissions. Delivery semantics stay as described here, with these changes.
+>
+> - **Notifications.** The per-listener ephemeral notification consumers of section 7 (cancels, tool-call responses) are replaced by the worker's `NotificationHub` (`workers/codeforge/notifications.py`): one shared named push consumer per notification subject (`codeforge-py-notify-<subject>`, ack none, deliver policy `new`), delivering to `_INBOX_worker.notify.<name>`, with fan-out to every worker instance. The hub never deletes a consumer.
+> - **No cancel lost.** "Replay from the start message's stream sequence" now comes from reading the stream back with batched direct gets (the stream is created with `AllowDirect`), at subscription time, on every gap in the consumer sequences and after every reconnect. A read-back that fails or exceeds 100,000 messages fails the run or task.
+> - **Permissions.** New subjects, and new worker durables or notification consumers, also need entries in `configs/nats/nats-server.conf`: the `core` and `worker` users publish only their own subjects, and the worker may use only consumers named there. `workers/tests/test_nats_permissions.py` and `internal/adapter/nats/auth_test.go` fail without them (they need a `nats-server` binary, `NATS_SERVER_BIN`). Both clients keep their inbox prefixes (`_INBOX_core`, `_INBOX_worker`).
+> - **Version.** Production pins `nats:2.15-alpine`; batched direct get needs nats-server 2.11 or newer.
+
 **7. Per-run subscriptions.** A run's cancel listeners (`runs.cancel` plus `tasks.cancel` or
 `conversation.run.cancel`) and its heartbeat belong to the run: `RuntimeClient.close()` releases them and every run
 handler calls it when the run ends, successfully or not. The cancel listeners and the per-call subscription for a
-tool-call response are ephemeral consumers with deliver policy `new` and ack policy `none`: they are never acked,
+tool-call response are ephemeral consumers with deliver policy `new` and ack policy `none` (since KI-71 the worker's `NotificationHub` provides the same subscriptions on shared named consumers, see the update above): they are never acked,
 and with explicit acks JetStream would redeliver each message after the ack wait and stop delivering once
 `MaxAckPending` messages are outstanding (a long run would stop receiving its cancel). The cancel subjects are shared
 by all active runs, so a malformed cancel message is skipped, never fatal to the listener, and empty run or task IDs
@@ -223,8 +230,9 @@ consumer provisioning, delivery count and heartbeat in `workers/codeforge/consum
 
 - The Go Core does not provision the worker's durables (the design reference proposed it): each side owns the
   durables of the subjects it consumes, so no consumer list is duplicated across languages.
-- Notifications (cancel signals, permission decisions) still use ephemeral JetStream consumers (deliver policy
-  `new`, ack policy `none`), per run and per tool call, instead of process-wide core NATS subscriptions.
+- Notifications (cancel signals, permission decisions) use JetStream consumers with deliver policy `new` and ack
+  policy `none` instead of process-wide core NATS subscriptions: ephemeral ones per run and per tool call when this
+  ADR was written, shared named ones in the worker's `NotificationHub` since KI-71 ([ADR-017](017-tool-isolation-and-nats-authentication.md)).
 - Durable names are contracts: a start-policy change needs a new durable name.
 
 ### Alternatives Considered

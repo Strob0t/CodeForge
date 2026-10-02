@@ -1736,7 +1736,9 @@ paths:
     get:
       tags: [MCP]
       summary: List registered MCP servers
-      description: Returns all MCP servers in the registry.
+      description: |
+        Returns the MCP servers of the caller's tenant. Env and header values are never returned: every
+        value that is set is shown as `***` (an empty value stays empty), for every role.
       operationId: listMCPServers
       security:
         - bearerAuth: []
@@ -1752,7 +1754,10 @@ paths:
     post:
       tags: [MCP]
       summary: Register a new MCP server
-      description: Adds an MCP server to the registry. Requires admin or editor role.
+      description: |
+        Adds an MCP server to the tenant's registry. Requires the admin role of the tenant (not only a platform
+        admin; editors and viewers get 403). Audited. Stdio servers run in the worker as the tool user, never in
+        the Go Core. The response redacts env and header values to `***`.
       operationId: createMCPServer
       security:
         - bearerAuth: []
@@ -1770,14 +1775,62 @@ paths:
               schema:
                 $ref: "#/components/schemas/MCPServer"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            Invalid definition (name, transport, `command` for stdio or `url` for sse and streamable_http missing),
+            or an env or header value is `***`: a new server has no stored value that could stand for it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /mcp/servers/test:
+    post:
+      tags: [MCP]
+      summary: Test an MCP server definition before saving it
+      description: |
+        Performs a real MCP handshake (initialize and tools/list) from the Go Core against an `sse` or
+        `streamable_http` definition. Requires the admin role of the tenant. The body may carry the `id` of a
+        saved server of the tenant: env and header values sent as `***` then connect with the stored values, but
+        only while transport, url, command and args equal the stored ones (otherwise 400, so a stored secret is
+        never sent to another destination). Stdio definitions are refused with 400: the Go Core never starts a
+        stdio server, they run in the worker.
+      operationId: testMCPServerDefinition
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMCPServerRequest"
+      responses:
+        "200":
+          description: Test outcome (`success` is false when the connection failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPTestResult"
+        "400":
+          description: |
+            Invalid definition, a stdio transport ("stdio servers cannot be tested from the core; they run in the
+            worker"), or `***` values that cannot be resolved (no `id`, nothing stored for the key, or a changed
+            transport, url, command or args).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /mcp/servers/{id}:
     get:
       tags: [MCP]
       summary: Get an MCP server by ID
+      description: Env and header values are returned as `***` (see the list endpoint).
       operationId: getMCPServer
       security:
         - bearerAuth: []
@@ -1800,6 +1853,11 @@ paths:
     put:
       tags: [MCP]
       summary: Update an MCP server
+      description: |
+        Requires the admin role of the tenant. Audited. An env or header value sent as `***` (what reads return)
+        keeps the stored value, only while transport, url, command and args are unchanged. 400 when `***` is sent
+        for a key with nothing stored, or when the transport, url, command or args changed while a value is
+        `***` (enter the values again). The response redacts values to `***`.
       operationId: updateMCPServer
       security:
         - bearerAuth: []
@@ -1825,11 +1883,14 @@ paths:
                 $ref: "#/components/schemas/MCPServer"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
       tags: [MCP]
       summary: Delete an MCP server
+      description: Requires the admin role of the tenant. Audited.
       operationId: deleteMCPServer
       security:
         - bearerAuth: []
@@ -1843,6 +1904,42 @@ paths:
       responses:
         "204":
           description: MCP server deleted
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /mcp/servers/{id}/test:
+    post:
+      tags: [MCP]
+      summary: Test a saved MCP server
+      description: |
+        Re-reads the saved definition (with its stored env and header values), performs a real MCP handshake from
+        the Go Core and updates the server's status (`connected` or `error`). Requires the admin role of the
+        tenant. A stdio server answers 400 and its status is left unchanged: stdio servers run in the worker.
+      operationId: testMCPServer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Test outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPTestResult"
+        "400":
+          description: The server uses the stdio transport
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -1880,6 +1977,100 @@ paths:
                       type: object
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /projects/{id}/mcp-servers:
+    get:
+      tags: [MCP]
+      summary: List the MCP servers assigned to a project
+      description: Env and header values are returned as `***`.
+      operationId: listProjectMCPServers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      responses:
+        "200":
+          description: Assigned MCP servers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MCPServer"
+    post:
+      tags: [MCP]
+      summary: Assign an MCP server to a project
+      description: |
+        Requires the admin role of the tenant. The project and the server must belong to the caller's tenant;
+        assigning across tenants answers 404. Assigning an assigned server again changes nothing.
+        The assignment is audited as action `assign` on resource `mcp_server` (resource ID: the `server_id`,
+        details: `project_id`) and the entry is written before the change: when it cannot be written the
+        request is refused with 503 and nothing changes. A request refused earlier (invalid body) is audited
+        afterwards with an empty resource ID and its HTTP status.
+      operationId: assignMCPServerToProject
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [server_id]
+              properties:
+                server_id:
+                  type: string
+                  format: uuid
+      responses:
+        "204":
+          description: Server assigned
+        "400":
+          description: Invalid body or `server_id` missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The project or the server does not exist in the caller's tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The audit log is unavailable; nothing was changed
+
+  /projects/{id}/mcp-servers/{serverId}:
+    delete:
+      tags: [MCP]
+      summary: Unassign an MCP server from a project
+      description: |
+        Requires the admin role of the tenant. Audited like the assignment (action `unassign`, written before
+        the change, 503 when it cannot be written). A link that does not exist in the caller's tenant, including
+        one of another tenant, answers 404.
+      operationId: unassignMCPServerFromProject
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectID"
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Server unassigned
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: The audit log is unavailable; nothing was changed
 
   # -----------------------------------------------
   # Channels
@@ -3634,58 +3825,100 @@ components:
           type: string
         description:
           type: string
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
         command:
           type: string
-          description: Command to start the MCP server
+          description: Command the worker starts as the tool user (stdio transport)
         args:
           type: array
           items:
             type: string
+          description: Command arguments; not redacted, keep secrets in env or headers
+        url:
+          type: string
+          description: Endpoint of an sse or streamable_http server; credentials in the URL are not redacted
         env:
           type: object
           additionalProperties:
             type: string
-        transport:
-          type: string
-          enum: [stdio, http]
-        url:
-          type: string
-          description: HTTP URL (for http transport)
+          description: Environment variables of a stdio server. Every set value is returned as `***`.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: HTTP headers of an sse or streamable_http server. Every set value is returned as `***`.
         enabled:
           type: boolean
-        created_at:
+        status:
           type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
+          enum: [registered, connected, disconnected, error]
 
     CreateMCPServerRequest:
       type: object
-      required: [name]
+      required: [name, transport]
       properties:
+        id:
+          type: string
+          format: uuid
+          description: |
+            Only for `POST /mcp/servers/test`: the saved server whose stored env and header values stand for
+            values sent as `***`.
         name:
           type: string
         description:
           type: string
+        transport:
+          type: string
+          enum: [stdio, sse, streamable_http]
         command:
           type: string
+          description: Required for stdio
         args:
           type: array
           items:
             type: string
+        url:
+          type: string
+          description: Required for sse and streamable_http
         env:
           type: object
           additionalProperties:
             type: string
-        transport:
-          type: string
-          enum: [stdio, http]
-        url:
-          type: string
+          description: |
+            Values are stored and never returned. `***` keeps the stored value of an update (400 on create or
+            for a key with nothing stored). Names that make the loader or an interpreter load code (`LD_*`,
+            `PYTHON*`, `NODE_OPTIONS`, ...) and the worker's own credentials are dropped by the worker.
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Like env.
         enabled:
           type: boolean
           default: true
+
+    MCPTestResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        server_name:
+          type: string
+        server_version:
+          type: string
+        tools:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+        error:
+          type: string
 
     Channel:
       type: object
