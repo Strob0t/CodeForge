@@ -40,6 +40,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import secrets
 import shutil
 import stat
 import subprocess
@@ -669,25 +670,61 @@ def share_workspace_root(root: str, gid: int) -> int:
     return changed
 
 
+# A stamp holds a short version; anything longer is not one.
+_STAMP_MAX_BYTES = 64
+
+
 def _read_stamp(root: str) -> str:
+    """The version the stamp records; "" when there is no valid stamp, and the walk runs.
+
+    The tool user may write the root and plant anything at the stamp's
+    place: it is opened without following a symlink and without blocking (a
+    FIFO), must be a regular file of at most _STAMP_MAX_BYTES bytes, and is
+    read as bytes. Anything else is logged and ignored, never raised: a
+    worker that failed here would crash-loop at its start.
+    """
+    path = os.path.join(root, _SHARING_STAMP)
     try:
-        fd = os.open(os.path.join(root, _SHARING_STAMP), os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except FileNotFoundError:
         return ""
-    with os.fdopen(fd) as stamp:
-        return stamp.read().strip()
+    except OSError as exc:
+        logger.warning("ignoring the workspace sharing stamp %s: %s", path, exc)
+        return ""
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            logger.warning("ignoring the workspace sharing stamp %s: not a regular file", path)
+            return ""
+        data = os.read(fd, _STAMP_MAX_BYTES + 1)
+    except OSError as exc:
+        logger.warning("ignoring the workspace sharing stamp %s: %s", path, exc)
+        return ""
+    finally:
+        os.close(fd)
+    if len(data) > _STAMP_MAX_BYTES:
+        logger.warning("ignoring the workspace sharing stamp %s: longer than %d bytes", path, _STAMP_MAX_BYTES)
+        return ""
+    try:
+        return data.decode("ascii").strip()
+    except UnicodeDecodeError:
+        logger.warning("ignoring the workspace sharing stamp %s: not a version", path)
+        return ""
 
 
 def _write_stamp(root: str) -> None:
-    """Record the walk; never through a symlink (the tool user may write the root)."""
+    """Record the walk: a new file renamed over the stamp's place, so whatever the tool user
+    planted there (a symlink, a FIFO) is replaced, never written through or waited on.
+    """
     path = os.path.join(root, _SHARING_STAMP)
-    with contextlib.suppress(FileNotFoundError):
-        if os.path.islink(path):
-            os.unlink(path)
+    temporary = f"{path}.{secrets.token_hex(8)}"
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o664)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o664)
+        try:
+            os.write(fd, (WORKSPACE_SHARING_VERSION + "\n").encode())
+        finally:
+            os.close(fd)
+        os.replace(temporary, path)
     except OSError as exc:
         logger.warning("cannot record the workspace sharing in %s (walked again on the next start): %s", root, exc)
-        return
-    with os.fdopen(fd, "w") as stamp:
-        stamp.write(WORKSPACE_SHARING_VERSION + "\n")
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)

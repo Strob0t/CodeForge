@@ -565,6 +565,58 @@ def test_share_workspace_root_never_writes_through_a_planted_stamp(tmp_path: Pat
     assert target.read_text() == "keep"
 
 
+def _plant(kind: str, path: Path, elsewhere: Path) -> None:
+    """Put what the tool user could put where the stamp goes (it may write the root)."""
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(path)
+    elif kind == "invalid utf-8":
+        path.write_bytes(b"\xff\xfe2\n")
+    elif kind == "oversized":
+        path.write_bytes(b"2" * 1_000_000)
+    elif kind == "symlink":
+        elsewhere.write_text(tool_process.WORKSPACE_SHARING_VERSION + "\n")
+        path.symlink_to(elsewhere)
+
+
+@pytest.mark.parametrize("kind", ["directory", "fifo", "invalid utf-8", "oversized", "symlink"])
+def test_a_planted_stamp_never_stops_the_worker(kind: str, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Round 5, item 2: anything at the stamp's place counts as no valid stamp (the walk runs,
+    logged once); it never blocks, crashes or is followed, so the worker cannot crash-loop."""
+    import threading
+
+    root = tmp_path / "workspaces"
+    (root / "project").mkdir(parents=True)
+    source = root / "project" / "main.py"
+    source.write_text("x")
+    source.chmod(0o644)
+    elsewhere = tmp_path / "elsewhere"
+    _plant(kind, root / tool_process._SHARING_STAMP, elsewhere)
+
+    outcome: list[object] = []
+
+    def walk() -> None:
+        try:
+            outcome.append(share_workspace_root(str(root), os.getgid()))
+        except BaseException as exc:
+            outcome.append(exc)
+
+    with caplog.at_level("WARNING"):
+        thread = threading.Thread(target=walk, daemon=True)
+        thread.start()
+        thread.join(timeout=5)
+
+    assert not thread.is_alive(), "share_workspace_root blocked on the planted stamp"
+    assert outcome, "no outcome"
+    assert isinstance(outcome[0], int), outcome
+    assert stat.S_IMODE(source.stat().st_mode) == 0o664, "no valid stamp: the walk must run"
+    stamp_warnings = [r for r in caplog.records if tool_process._SHARING_STAMP in r.getMessage()]
+    assert stamp_warnings, "an invalid stamp is logged"
+    if kind == "symlink":
+        assert elsewhere.read_text() == tool_process.WORKSPACE_SHARING_VERSION + "\n"
+
+
 def test_share_workspace_root_missing_root_is_no_error(tmp_path: Path) -> None:
     assert share_workspace_root(str(tmp_path / "missing"), os.getgid()) == 0
 
