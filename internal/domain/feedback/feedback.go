@@ -3,6 +3,7 @@
 package feedback
 
 import (
+	"slices"
 	"time"
 )
 
@@ -42,8 +43,8 @@ type AuditEntry struct {
 // truncated preview of the call's arguments (display only).
 type FeedbackRequest struct {
 	// TenantID is the tenant of the run asking ("" when unknown): providers
-	// that send to operator-wide recipients answer only the operator's
-	// (default) tenant.
+	// that send to operator-wide recipients answer only the tenants the
+	// operator configured (SendsTo).
 	TenantID         string `json:"tenant_id"`
 	RunID            string `json:"run_id"`
 	CallID           string `json:"call_id"`
@@ -52,6 +53,15 @@ type FeedbackRequest struct {
 	Path             string `json:"path"`
 	Profile          string `json:"profile,omitempty"`
 	ArgumentsPreview string `json:"arguments_preview,omitempty"`
+}
+
+// SendsTo reports whether an operator-configured approval channel (the
+// Slack channel, the approval email recipients) receives the approval
+// requests of tenantID: only the tenants listed in tenants
+// (notification.approval_tenants, KI-84). A request without a tenant is
+// never sent.
+func SendsTo(tenants []string, tenantID string) bool {
+	return tenantID != "" && slices.Contains(tenants, tenantID)
 }
 
 // FeedbackResult is the outcome of a feedback request.

@@ -35,7 +35,6 @@ import (
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
-	slackAdapter "github.com/Strob0t/CodeForge/internal/adapter/slack"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/crypto"
@@ -796,15 +795,20 @@ func run() error {
 	slog.Info("file service initialized")
 
 	// --- Feedback Providers (Phase 22D) ---
-	if cfg.Notification.SlackWebhookURL != "" {
-		slackFB := slackAdapter.NewFeedbackProvider(cfg.Notification.SlackWebhookURL)
+	// The operator's approval channels receive the requests of
+	// notification.approval_tenants only (KI-84).
+	if slackFB, why := slackApprovalProvider(&cfg.Notification); slackFB != nil {
 		runtimeSvc.RegisterFeedbackProvider(slackFB)
-		slog.Info("slack feedback provider registered")
+		slog.Info("slack feedback provider registered",
+			"tenants", cfg.Notification.ApprovalTenants, "web_ui_url", cfg.Notification.WebUIURL)
+	} else {
+		slog.Info(why)
 	}
 	if emailFB, why := emailApprovalProvider(&cfg.Notification); emailFB != nil {
 		runtimeSvc.RegisterFeedbackProvider(emailFB)
 		slog.Info("email feedback provider registered",
-			"recipients", len(cfg.Notification.ApprovalRecipients), "web_ui_url", cfg.Notification.WebUIURL)
+			"recipients", len(cfg.Notification.ApprovalRecipients), "tenants", cfg.Notification.ApprovalTenants,
+			"web_ui_url", cfg.Notification.WebUIURL)
 	} else {
 		slog.Info(why)
 	}

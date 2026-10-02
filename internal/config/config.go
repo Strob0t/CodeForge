@@ -167,9 +167,14 @@ type Notification struct {
 	// ApprovalRecipients receive an email for each tool call awaiting
 	// approval (with smtp_host and web_ui_url set; default: none).
 	ApprovalRecipients []string `yaml:"approval_recipients"`
-	// WebUIURL is the base URL of the web UI; approval emails link to its
-	// approval page (<web_ui_url>/approvals/<run>/<call>).
+	// WebUIURL is the base URL of the web UI; approval emails and Slack
+	// approval messages link to its approval page
+	// (<web_ui_url>/approvals/<run>/<call>).
 	WebUIURL string `yaml:"web_ui_url"`
+	// ApprovalTenants are the tenants (IDs) whose approval requests reach the
+	// operator's approval channels, the Slack channel and the approval email
+	// recipients (KI-84; default: the default tenant; empty: none).
+	ApprovalTenants []string `yaml:"approval_tenants"`
 }
 
 // Copilot holds GitHub Copilot token exchange configuration.
@@ -455,8 +460,8 @@ func a2aKeyID(key string) string {
 	return "key-" + hex.EncodeToString(sum[:8])
 }
 
-// a2aTenantPattern matches the tenant UUID of a "<tenant-uuid>:<key>" entry.
-var a2aTenantPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+// tenantIDPattern matches a tenant ID (a UUID, lower case).
+var tenantIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // looksLikeUUID reports whether s has the shape of a UUID (36 characters,
 // dashes after 8, 13, 18 and 23), whatever its characters.
@@ -484,7 +489,7 @@ func (a *A2A) ParsedAPIKeys() ([]A2AAPIKey, error) {
 		k := A2AAPIKey{Key: strings.TrimSpace(entry), TenantID: tenantctx.DefaultTenantID}
 		if tenant, key, ok := strings.Cut(k.Key, ":"); ok && looksLikeUUID(tenant) {
 			tenant = strings.ToLower(tenant)
-			if !a2aTenantPattern.MatchString(tenant) {
+			if !tenantIDPattern.MatchString(tenant) {
 				return nil, fmt.Errorf("entry %d: tenant %q is not a UUID", i+1, tenant)
 			}
 			k = A2AAPIKey{Key: key, TenantID: tenant}
@@ -655,7 +660,7 @@ func Defaults() Config {
 			GraphHopDecay:             0.7,
 		},
 		Webhook:      Webhook{},
-		Notification: Notification{SMTPPort: 587},
+		Notification: Notification{SMTPPort: 587, ApprovalTenants: []string{tenantctx.DefaultTenantID}},
 		Plane:        Plane{BaseURL: "https://api.plane.so"},
 		OTEL: OTEL{
 			Enabled:     false,

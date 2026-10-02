@@ -13,6 +13,9 @@ import (
 // KI-57: approval emails reach the configured recipients and link to the
 // web UI's approval page - no API call, no state-changing GET.
 
+// defaultTenantOnly is the default of notification.approval_tenants.
+var defaultTenantOnly = []string{tenantctx.DefaultTenantID}
+
 type sentMail struct{ to, subject, body string }
 
 type recordingSender struct {
@@ -28,27 +31,41 @@ func (r *recordingSender) Send(_ context.Context, to, subject, body string) erro
 	return nil
 }
 
-// S3-F review C5: the email provider is the operator's (one global list of
-// recipients): it mails only requests of the default tenant. Other
-// tenants' tool calls, commands and arguments are not sent to the
-// operator's recipients.
-func TestFeedbackProvider_MailsOnlyTheDefaultTenantsRequests(t *testing.T) {
-	for _, tenant := range []string{"", "22222222-2222-2222-2222-222222222222"} {
+// S3-F review C5, KI-84: the email provider is the operator's (one global
+// list of recipients): it mails only requests of the tenants configured in
+// notification.approval_tenants (default: the default tenant), the same rule
+// as the Slack provider. Other tenants' tool calls, commands and arguments
+// are not sent to the operator's recipients; a request without a tenant is
+// not mailed either.
+func TestFeedbackProvider_MailsOnlyTheConfiguredTenantsRequests(t *testing.T) {
+	const other = "22222222-2222-2222-2222-222222222222"
+	tests := []struct {
+		tenants  []string
+		tenantID string
+		wantMail bool
+	}{
+		{[]string{tenantctx.DefaultTenantID}, "", false},
+		{[]string{tenantctx.DefaultTenantID}, other, false},
+		{[]string{tenantctx.DefaultTenantID}, tenantctx.DefaultTenantID, true},
+		{[]string{tenantctx.DefaultTenantID, other}, other, true},
+		{nil, tenantctx.DefaultTenantID, false},
+	}
+	for _, tc := range tests {
 		sender := &recordingSender{}
-		p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com")
-		res, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tenant, RunID: "r", CallID: "c", Tool: "Bash", Command: "secret"})
+		p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com", tc.tenants)
+		res, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tc.tenantID, RunID: "r", CallID: "c", Tool: "Bash", Command: "secret"})
 		if err != nil || res.Decision != "" {
-			t.Fatalf("tenant %q: result %+v, %v; want no decision and no error", tenant, res, err)
+			t.Fatalf("tenant %q: result %+v, %v; want no decision and no error", tc.tenantID, res, err)
 		}
-		if len(sender.sent) != 0 {
-			t.Fatalf("tenant %q: mails sent %+v, want none", tenant, sender.sent)
+		if got := len(sender.sent) == 1; got != tc.wantMail {
+			t.Fatalf("tenants %v, request of %q: mails sent %+v, want mail = %v", tc.tenants, tc.tenantID, sender.sent, tc.wantMail)
 		}
 	}
 }
 
 func TestFeedbackProvider_MailsEveryRecipientALinkToTheApprovalPage(t *testing.T) {
 	sender := &recordingSender{}
-	p := NewFeedbackProvider(sender, []string{"ops@example.com", "lead@example.com"}, "https://cf.example.com/")
+	p := NewFeedbackProvider(sender, []string{"ops@example.com", "lead@example.com"}, "https://cf.example.com/", defaultTenantOnly)
 
 	res, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tenantctx.DefaultTenantID, RunID: "run 1", CallID: "call/2", Tool: "Bash", Command: "make deploy", Path: "."})
 	if err != nil {
@@ -72,7 +89,7 @@ func TestFeedbackProvider_MailsEveryRecipientALinkToTheApprovalPage(t *testing.T
 
 func TestFeedbackProvider_EscapesWhatTheAgentAsks(t *testing.T) {
 	sender := &recordingSender{}
-	p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com")
+	p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com", defaultTenantOnly)
 
 	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{
 		TenantID: tenantctx.DefaultTenantID, RunID: "r", CallID: "c",
@@ -97,7 +114,7 @@ func TestFeedbackProvider_EscapesWhatTheAgentAsks(t *testing.T) {
 
 func TestFeedbackProvider_OneFailedRecipientDoesNotStopTheOthers(t *testing.T) {
 	sender := &recordingSender{failTo: "ops@example.com"}
-	p := NewFeedbackProvider(sender, []string{"ops@example.com", "lead@example.com"}, "https://cf.example.com")
+	p := NewFeedbackProvider(sender, []string{"ops@example.com", "lead@example.com"}, "https://cf.example.com", defaultTenantOnly)
 
 	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{TenantID: tenantctx.DefaultTenantID, RunID: "r", CallID: "c", Tool: "Edit"})
 	if err == nil || !strings.Contains(err.Error(), "ops@example.com") {
@@ -124,7 +141,7 @@ func TestNotifier_RefusesHeaderInjection(t *testing.T) {
 // preview; agent-controlled text is HTML-escaped.
 func TestFeedbackProvider_ShowsProfileAndPreviewEscaped(t *testing.T) {
 	sender := &recordingSender{}
-	p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com")
+	p := NewFeedbackProvider(sender, []string{"ops@example.com"}, "https://cf.example.com", defaultTenantOnly)
 
 	_, err := p.RequestFeedback(context.Background(), fb.FeedbackRequest{
 		TenantID: tenantctx.DefaultTenantID, RunID: "run-1", CallID: "c-1", Tool: "Bash", Command: `echo "<script>alert(1)</script>"`,

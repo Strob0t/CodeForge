@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	fb "github.com/Strob0t/CodeForge/internal/domain/feedback"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // sender delivers one email (Notifier).
@@ -25,15 +24,18 @@ type sender interface {
 type FeedbackProvider struct {
 	sender     sender
 	recipients []string
-	webUIURL   string // base URL of the web UI, e.g. "https://codeforge.example.com"
+	webUIURL   string   // base URL of the web UI, e.g. "https://codeforge.example.com"
+	tenants    []string // tenants whose requests are mailed (notification.approval_tenants)
 }
 
-// NewFeedbackProvider creates an email feedback provider.
-func NewFeedbackProvider(s sender, recipients []string, webUIURL string) *FeedbackProvider {
+// NewFeedbackProvider creates an email feedback provider that mails the
+// approval requests of tenants to recipients.
+func NewFeedbackProvider(s sender, recipients []string, webUIURL string, tenants []string) *FeedbackProvider {
 	return &FeedbackProvider{
 		sender:     s,
 		recipients: recipients,
 		webUIURL:   strings.TrimRight(webUIURL, "/"),
+		tenants:    tenants,
 	}
 }
 
@@ -61,10 +63,11 @@ var approvalMail = template.Must(template.New("approval").Parse(`<h2>Tool approv
 //
 //nolint:gocritic // hugeParam: req must be passed by value to match feedback.Provider interface
 func (p *FeedbackProvider) RequestFeedback(ctx context.Context, req fb.FeedbackRequest) (fb.FeedbackResult, error) {
-	// The recipients are the operator's: other tenants' tool calls,
-	// commands and arguments are not mailed to them (S3-F review C5).
-	if req.TenantID != tenantctx.DefaultTenantID {
-		slog.DebugContext(ctx, "approval email skipped: the request is not of the default tenant",
+	// The recipients are the operator's: the tool calls, commands and
+	// arguments of tenants not configured for them are not mailed (S3-F
+	// review C5, KI-84).
+	if !fb.SendsTo(p.tenants, req.TenantID) {
+		slog.DebugContext(ctx, "approval email skipped: the tenant is not in notification.approval_tenants",
 			"tenant_id", req.TenantID, "run_id", req.RunID, "call_id", req.CallID)
 		return fb.FeedbackResult{Provider: fb.ProviderEmail}, nil
 	}
