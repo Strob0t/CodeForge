@@ -2,17 +2,24 @@ package http_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/netutil"
+	"github.com/Strob0t/CodeForge/internal/service"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -32,13 +39,57 @@ func mcpServerWithSecrets() mcp.ServerDef {
 
 func serveMCP(t *testing.T, store *mockStore, u *user.User, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	r := newTestRouterWithStore(store)
+	return serveMCPWith(t, store, u, method, path, body)
+}
+
+// serveMCPWith is serveMCP with handler mods (routedMCPPolicy).
+func serveMCPWith(t *testing.T, store *mockStore, u *user.User, method, path, body string, mods ...func(*cfhttp.Handlers)) *httptest.ResponseRecorder {
+	t.Helper()
+	r := newTestRouterWithLLM(store, service.NewPolicyService("headless-safe-sandbox", nil), "http://localhost:4000", mods...)
 	req := httptest.NewRequest(method, path, bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req = req.WithContext(middleware.ContextWithTestUser(req.Context(), u))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+// routedMCPPolicy makes the MCP service resolve each name to a public
+// address (from 203.0.113.0/24) and connect that address to the name's local
+// server, so tests reach local servers through the outbound policy (KI-100).
+func routedMCPPolicy(t *testing.T, servers map[string]*httptest.Server) func(*cfhttp.Handlers) {
+	t.Helper()
+	names := make(map[string]netip.Addr, len(servers))
+	listeners := make(map[netip.Addr]string, len(servers))
+	next := netip.MustParseAddr("203.0.113.1")
+	for name, srv := range servers {
+		names[name] = next
+		listeners[next] = srv.Listener.Addr().String()
+		next = next.Next()
+	}
+	policy, err := netutil.NewOutboundPolicy(nil,
+		netutil.WithLookup(func(_ context.Context, host string) ([]netip.Addr, error) {
+			if addr, ok := names[host]; ok {
+				return []netip.Addr{addr}, nil
+			}
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}),
+		netutil.WithDial(func(ctx context.Context, network, address string) (net.Conn, error) {
+			addrPort, err := netip.ParseAddrPort(address)
+			if err != nil {
+				return nil, err
+			}
+			listener, ok := listeners[addrPort.Addr()]
+			if !ok {
+				return nil, errors.New("no route to " + address)
+			}
+			var d net.Dialer
+			return d.DialContext(ctx, network, listener)
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return func(h *cfhttp.Handlers) { h.MCP.SetOutboundPolicy(policy) }
 }
 
 // TestMCPServerReads_RedactSecrets (KI-71 review): MCP server env variables
@@ -196,8 +247,18 @@ func TestMCPServerConnectionTest_KeepsRedactedValues(t *testing.T) {
 		http.Error(w, "not an MCP server", http.StatusInternalServerError)
 	}))
 	defer upstream.Close()
+	elsewhere := make(chan string, 4)
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhere <- r.Header.Get("Authorization")
+		http.Error(w, "not an MCP server", http.StatusInternalServerError)
+	}))
+	defer other.Close()
+	// KI-100: the core never connects to loopback, so the two local servers
+	// stand for public hosts.
+	routed := routedMCPPolicy(t, map[string]*httptest.Server{"upstream.example": upstream, "other.example": other})
+
 	saved := mcp.ServerDef{
-		ID: "s1", Name: "remote", Transport: mcp.TransportStreamableHTTP, URL: upstream.URL,
+		ID: "s1", Name: "remote", Transport: mcp.TransportStreamableHTTP, URL: "http://upstream.example/mcp",
 		Headers: map[string]string{"Authorization": mcpBearerValue}, Status: mcp.ServerStatusRegistered,
 	}
 	edited := saved.Redacted()
@@ -207,7 +268,7 @@ func TestMCPServerConnectionTest_KeepsRedactedValues(t *testing.T) {
 	}
 	platformAdmin := &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
 
-	w := serveMCP(t, &mockStore{mcpServers: []mcp.ServerDef{saved}}, platformAdmin, http.MethodPost, "/api/v1/mcp/servers/test", string(body))
+	w := serveMCPWith(t, &mockStore{mcpServers: []mcp.ServerDef{saved}}, platformAdmin, http.MethodPost, "/api/v1/mcp/servers/test", string(body), routed)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
@@ -222,13 +283,7 @@ func TestMCPServerConnectionTest_KeepsRedactedValues(t *testing.T) {
 	}
 
 	// The stored values go only to the stored url: another one gets nothing.
-	elsewhere := make(chan string, 4)
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		elsewhere <- r.Header.Get("Authorization")
-		http.Error(w, "not an MCP server", http.StatusInternalServerError)
-	}))
-	defer other.Close()
-	edited.URL = other.URL
+	edited.URL = "http://other.example/mcp"
 	if body, err = json.Marshal(edited); err != nil {
 		t.Fatal(err)
 	}
@@ -238,11 +293,11 @@ func TestMCPServerConnectionTest_KeepsRedactedValues(t *testing.T) {
 			method = http.MethodPut
 		}
 		store := &mockStore{mcpServers: []mcp.ServerDef{saved}}
-		w = serveMCP(t, store, platformAdmin, method, path, string(body))
+		w = serveMCPWith(t, store, platformAdmin, method, path, string(body), routed)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s %s with another url: status %d, want 400: %s", method, path, w.Code, w.Body.String())
 		}
-		if store.mcpServers[0].URL != upstream.URL {
+		if store.mcpServers[0].URL != saved.URL {
 			t.Fatalf("%s %s changed the stored server: %+v", method, path, store.mcpServers[0])
 		}
 	}

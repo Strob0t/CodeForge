@@ -96,6 +96,31 @@ func TestServerDef_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "url is required for streamable_http transport",
 		},
+		// KI-100: the url is connected to over HTTP; the error never quotes it.
+		{
+			name:    "url without scheme",
+			def:     ServerDef{Name: "s", Transport: TransportSSE, URL: "mcp.example:3001/sse"},
+			wantErr: true, errMsg: "url must be an http or https URL with a host",
+		},
+		{
+			name:    "file url",
+			def:     ServerDef{Name: "s", Transport: TransportStreamableHTTP, URL: "file:///etc/passwd"},
+			wantErr: true, errMsg: "url must be an http or https URL with a host",
+		},
+		{
+			name:    "url without host",
+			def:     ServerDef{Name: "s", Transport: TransportSSE, URL: "http:///sse"},
+			wantErr: true, errMsg: "url must be an http or https URL with a host",
+		},
+		{
+			name:    "unparsable url",
+			def:     ServerDef{Name: "s", Transport: TransportSSE, URL: "https://user:p%zzsecret@mcp.example/sse"},
+			wantErr: true, errMsg: "url must be an http or https URL with a host",
+		},
+		{
+			name: "https url with userinfo",
+			def:  ServerDef{Name: "s", Transport: TransportSSE, URL: "HTTPS://user:pw@mcp.example:8443/sse"},
+		},
 		{
 			name: "stdio with all fields set",
 			def: ServerDef{

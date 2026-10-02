@@ -29,6 +29,9 @@ func (s *MCPService) CreateDB(ctx context.Context, srv *mcp.ServerDef) (*mcp.Ser
 	if err := srv.Validate(); err != nil {
 		return nil, err
 	}
+	if err := s.checkServerURL(ctx, srv); err != nil {
+		return nil, err
+	}
 	// A new server has no stored value a redacted one could stand for.
 	if err := srv.KeepRedacted(nil); err != nil {
 		return nil, err
@@ -69,6 +72,9 @@ func (s *MCPService) UpdateDB(ctx context.Context, srv *mcp.ServerDef) error {
 		return fmt.Errorf("mcp service: database store not configured")
 	}
 	if err := srv.Validate(); err != nil {
+		return err
+	}
+	if err := s.checkServerURL(ctx, srv); err != nil {
 		return err
 	}
 	if err := s.keepStoredSecrets(ctx, srv); err != nil {

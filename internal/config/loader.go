@@ -17,6 +17,7 @@ import (
 
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
@@ -305,6 +306,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.MCP.Enabled, "CODEFORGE_MCP_ENABLED", strconv.ParseBool)
 	setString(&cfg.MCP.ServersDir, "CODEFORGE_MCP_SERVERS_DIR")
 	setTyped(&cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT", strconv.Atoi)
+	setStringSlice(&cfg.MCP.AllowedPrivateHosts, "CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS")
 
 	// Agent
 	setString(&cfg.Agent.DefaultModel, "CODEFORGE_AGENT_DEFAULT_MODEL")
@@ -512,6 +514,9 @@ func validate(cfg *Config) error {
 	}
 	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
 		return err
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.MCP.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("mcp.allowed_private_hosts: %w", err)
 	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.

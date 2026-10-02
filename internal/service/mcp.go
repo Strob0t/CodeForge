@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -29,15 +31,30 @@ type MCPService struct {
 	serversDir string
 	db         database.Store
 	limits     *config.Limits
+
+	// outbound decides which addresses sse and streamable_http servers may
+	// use (KI-100); allowedPrivateHosts is its allowlist, as configured.
+	outbound            *netutil.OutboundPolicy
+	allowedPrivateHosts []string
 }
 
 // NewMCPService creates an MCPService. If cfg.ServersDir is set, definitions
 // are loaded from that directory on creation.
 func NewMCPService(cfg *config.MCP, limits *config.Limits) *MCPService {
+	allowed := slices.Clone(cfg.AllowedPrivateHosts)
+	outbound, err := netutil.NewOutboundPolicy(allowed)
+	if err != nil {
+		// config.Load refuses such a list; without it, no private address is allowed.
+		slog.Error("invalid mcp.allowed_private_hosts: every private address is refused", "error", err)
+		allowed = nil
+		outbound, _ = netutil.NewOutboundPolicy(nil)
+	}
 	s := &MCPService{
-		servers:    make(map[string]mcp.ServerDef),
-		serversDir: cfg.ServersDir,
-		limits:     limits,
+		servers:             make(map[string]mcp.ServerDef),
+		serversDir:          cfg.ServersDir,
+		limits:              limits,
+		outbound:            outbound,
+		allowedPrivateHosts: allowed,
 	}
 
 	if cfg.ServersDir != "" {

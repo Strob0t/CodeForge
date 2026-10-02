@@ -502,6 +502,11 @@ type MCP struct {
 	ServersDir string `yaml:"servers_dir"`      // Directory with MCP server YAML definitions
 	ServerPort int    `yaml:"server_port"`      // Port for the built-in MCP server (default: 3001)
 	APIKey     string `yaml:"api_key" json:"-"` // API key for MCP server authentication (empty = unauthenticated)
+	// AllowedPrivateHosts are the host names, IP addresses and CIDR prefixes
+	// whose private addresses (RFC 1918, ULA, CGNAT) sse and streamable_http
+	// MCP servers may use (KI-100; default none). Loopback, link-local and
+	// metadata addresses stay refused. Only the platform operator sets it.
+	AllowedPrivateHosts []string `yaml:"allowed_private_hosts"`
 }
 
 // LSP holds Language Server Protocol integration configuration.

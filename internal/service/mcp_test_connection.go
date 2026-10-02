@@ -35,13 +35,17 @@ type MCPTestTool struct {
 // TestConnection performs a real MCP handshake against the given sse or
 // streamable_http server definition. It creates a client, calls Initialize and
 // ListTools, then closes the connection. The whole operation is bounded by the
-// configured timeout. A stdio definition is refused (ErrStdioTestInCore).
+// configured timeout. A stdio definition is refused (ErrStdioTestInCore), and
+// so is a url the outbound policy refuses (KI-100), before anything connects.
 func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*MCPTestResult, error) {
 	if err := def.Validate(); err != nil {
 		return nil, err
 	}
 	if def.Transport == mcp.TransportStdio {
 		return nil, ErrStdioTestInCore
+	}
+	if err := s.checkServerURL(ctx, def); err != nil {
+		return nil, err
 	}
 	// An edited saved server may carry the redacted values it was read with.
 	if err := s.keepStoredSecrets(ctx, def); err != nil {
@@ -100,21 +104,22 @@ func (s *MCPService) TestConnection(ctx context.Context, def *mcp.ServerDef) (*M
 }
 
 // createClient builds an mcp-go Client for a remote server definition. It
-// never starts a process: stdio servers run only in the worker.
+// never starts a process: stdio servers run only in the worker. Its HTTP
+// client checks every address it connects to (mcpHTTPClient).
 func (s *MCPService) createClient(def *mcp.ServerDef) (mcpclient.MCPClient, error) {
 	switch def.Transport {
 	case mcp.TransportStdio:
 		return nil, ErrStdioTestInCore
 
 	case mcp.TransportSSE:
-		var opts []transport.ClientOption
+		opts := []transport.ClientOption{transport.WithHTTPClient(s.mcpHTTPClient())}
 		if len(def.Headers) > 0 {
 			opts = append(opts, transport.WithHeaders(def.Headers))
 		}
 		return mcpclient.NewSSEMCPClient(def.URL, opts...)
 
 	case mcp.TransportStreamableHTTP:
-		var opts []transport.StreamableHTTPCOption
+		opts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(s.mcpHTTPClient())}
 		if len(def.Headers) > 0 {
 			opts = append(opts, transport.WithHTTPHeaders(def.Headers))
 		}
