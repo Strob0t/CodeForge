@@ -6,7 +6,7 @@
 > **Current work (2026-10-01):** the [Known Issues](#known-issues) are being fixed milestone by milestone
 > ([fix plan](known-issues-fix-plan.md)): S0 to S6 are done except [KI-25](#known-issues) (real sub-agents);
 > [KI-71](#known-issues) (agent tools run as a separate tool user, NATS authentication) is fixed; the follow-up
-> Known Issues KI-83 to KI-103 found by the fix reviews are open.
+> Known Issues KI-83 to KI-103 found by the fix reviews are open and scheduled as S7 in the fix plan.
 > The 2026-03-28 agent pipeline TODOs live in `docs/plans/2026-03-28-agent-improvement-todos.md` (all checked off).
 
 ### How to Use This File

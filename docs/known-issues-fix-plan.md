@@ -29,6 +29,7 @@
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, ~~KI-47~~, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | ~~KI-15~~, ~~KI-16~~, ~~KI-17~~, KI-25 (part), ~~KI-33~~, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, ~~KI-55~~, ~~KI-56~~, ~~KI-57~~, ~~KI-58~~, ~~KI-60~~, ~~KI-62~~ | L |
+| **S7** | Review follow-ups (KI-83 to KI-103) | KI-83, KI-84, KI-85, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, KI-95, KI-97, KI-98, KI-100, KI-101 (KI-25, KI-88, KI-96, KI-99, KI-102, KI-103: see below) | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -137,6 +138,27 @@ exactly once. S4 makes the production compose start; S5 and S6 are independent o
 | **KI-58** | **Done (2026-09-30).** `create_skill` uses the run's tenant ID |
 | **KI-60** | **Done (2026-10-01).** The tiered cache is removed (ports, adapters, `cache.*` config, ristretto dependency) |
 | **KI-62** | **Done (2026-10-01).** Stalled runs are re-planned up to `runtime.stall_max_retries` times |
+
+## S7 - Review Follow-ups (planned 2026-10-02)
+
+The follow-ups found by the S1 to S6 and KI-71 reviews, grouped so each group is one agent round (fix, full
+verification, security review, code review, fix round, docs). Security and tenancy first:
+
+| Group | Known Issues | Theme |
+|---|---|---|
+| **S7-A** | KI-100, KI-101, KI-97 | MCP: SSRF protection for the connection test, tenant filter on tool upserts, redaction of URL userinfo and secret-looking arguments |
+| **S7-B** | KI-95 | Worker readers (repo map, retrieval, GraphRAG collectors, file tools) never follow a symlink out of the workspace |
+| **S7-C** | KI-85, KI-84 | Inbound webhooks and Slack interactions resolve the tenant of the target instead of the default tenant; GitLab PM token |
+| **S7-D** | KI-83 | LSP language servers no longer run with the Go Core's environment and rights (design in a plan first) |
+| **S7-E** | KI-89, KI-90, KI-91 | Data lifecycle: channel rows without a users row, retention for claim and completion records, quarantine expiry |
+| **S7-F** | KI-86, KI-87, KI-94 | Runtime leftovers: single-replica assumption guarded or documented, SVN password off the command line, review pipeline and stall re-plan leftovers |
+| **S7-G** | KI-92, KI-93, KI-98 | Frontend: War Room arrows, privacy page links, MCP header editor and admin-only actions |
+
+Not scheduled in S7, because each needs a design decision by the project owner first: KI-25 (real sub-agents),
+KI-88 (submodule support), KI-96 (per-tenant tool UIDs or the sandbox, KI-13). KI-99 is a residual risk
+(documented), KI-102 is a release checklist item and KI-103 is measured; they stay open as notes.
+
+---
 
 ## Follow-up Known Issues (found while fixing, 2026-09-30)
 
