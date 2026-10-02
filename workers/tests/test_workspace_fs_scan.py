@@ -183,8 +183,8 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_migration.py", "_replace_file", "os.rename"): (1, _TOOL_STATE),
     ("tool_migration.py", "_replace_file", "os.unlink"): (1, _TOOL_STATE),
     ("tool_migration.py", "detect_rollback", "os.rename"): (1, _TOOL_STATE),
-    ("tool_migration.py", "processes_of", "os.listdir"): (1, "lists /proc"),
-    ("tool_migration.py", "processes_of", "open"): (1, "reads /proc/<pid>/status"),
+    ("tool_reaper.py", "processes_of", "os.listdir"): (1, "lists /proc"),
+    ("tool_reaper.py", "_status", "open"): (1, "reads /proc/<pid>/status"),
     ("tool_migration.py", "refused_tenant_dirs", "os.listdir"): (
         1,
         "lists the workspace root (the worker's) by its descriptor",

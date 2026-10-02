@@ -49,7 +49,7 @@ import stat
 import time
 from typing import TYPE_CHECKING
 
-from codeforge import posix_acl, tool_state, tool_walk
+from codeforge import posix_acl, tool_reaper, tool_state, tool_walk
 from codeforge.tool_identity import (
     LEGACY_TOOL_UID,
     WORKSPACE_GID,
@@ -254,31 +254,6 @@ async def acquire(lock: TenantLock, *, needs_migration: Callable[[], bool], migr
 
 
 # ---------------------------------------------------------------------------
-# Processes
-# ---------------------------------------------------------------------------
-
-
-def processes_of(uids: set[int], proc: str = "/proc") -> dict[int, int]:
-    """PID -> UID of every process in this container that runs as one of *uids* (any of its four UIDs)."""
-    found: dict[int, int] = {}
-    for name in os.listdir(proc):
-        if not name.isdigit():
-            continue
-        try:
-            with open(f"{proc}/{name}/status") as status:
-                text = status.read()
-        except OSError:
-            continue  # exited meanwhile
-        for line in text.splitlines():
-            if line.startswith("Uid:"):
-                matching = [int(value) for value in line.split()[1:] if int(value) in uids]
-                if matching:
-                    found[int(name)] = matching[0]
-                break
-    return found
-
-
-# ---------------------------------------------------------------------------
 # The worker's steps
 # ---------------------------------------------------------------------------
 
@@ -358,7 +333,10 @@ def _run_legacy_walk(tenant_id: str, tree: str, args: list[str]) -> dict[str, ob
 def migrate_tree(tree: str, tenant_id: str, uid: int, *, include_root: bool) -> None:
     """Steps 1-5 on *tree* for tool UID *uid*; the caller sets the top directory and the stamp."""
     started = time.monotonic()
-    running = processes_of({LEGACY_TOOL_UID, uid})
+    # The tenant's exclusive lock is held: no worker runs its work, what is
+    # left of its processes here are leftovers (D10).
+    tool_reaper.reap(uid)
+    running = tool_reaper.running_processes_of({LEGACY_TOOL_UID, uid})
     if running:
         raise ToolIsolationError(
             f"the workspaces of tenant {tenant_id} cannot be migrated while processes of uid "

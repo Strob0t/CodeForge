@@ -179,6 +179,7 @@ class WorkerSettings:
     tool_landlock: str
     tool_landlock_min_abi: int
     tool_read_paths: str
+    tool_cache_max_mb: int
 
     # LLM
     default_model: str
@@ -287,6 +288,8 @@ class WorkerSettings:
         self.tool_landlock = _resolve_str("CODEFORGE_TOOL_LANDLOCK", None, "")
         self.tool_landlock_min_abi = _resolve_int("CODEFORGE_TOOL_LANDLOCK_MIN_ABI", None, 2)
         self.tool_read_paths = _resolve_str("CODEFORGE_TOOL_READ_PATHS", None, "")
+        # A tenant's HOME cache (<HOME>/.cache) larger than this is removed when the tenant goes idle.
+        self.tool_cache_max_mb = _resolve_int("CODEFORGE_TOOL_CACHE_MAX_MB", None, 4096)
 
         # --- LLM ---
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")

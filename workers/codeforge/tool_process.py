@@ -180,6 +180,8 @@ class IsolationConfig:
     landlock_min_abi: int = landlock_rules.DEFAULT_MIN_ABI
     read_paths: tuple[str, ...] = ()
     production: bool = False
+    # A tenant's HOME cache larger than this is removed when the tenant goes idle (D7, D10).
+    cache_max_mb: int = 4096
 
     @property
     def required(self) -> bool:
@@ -202,6 +204,7 @@ class IsolationConfig:
             landlock_min_abi=settings.tool_landlock_min_abi,
             read_paths=landlock_rules.parse_read_paths(settings.tool_read_paths),
             production=settings.app_env.strip().lower() == "production",
+            cache_max_mb=settings.tool_cache_max_mb,
         )
 
 
@@ -407,7 +410,10 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
         launch = status.launch(
             [_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths(config)], env, "/", identity
         )
-        output = _run_probe(launch, _PROBE_TIMEOUT_SECONDS)
+        try:
+            output = _run_probe(launch, _PROBE_TIMEOUT_SECONDS)
+        finally:
+            _remove_probe_tmp(identity, status)
     except (OSError, subprocess.SubprocessError) as exc:
         return _not_ready(config, f"the isolation check could not start a tool process: {exc}")
     problems = probe_problems(output, SYSTEM_TOOL_UID, ("home", "tmp", *programs))
@@ -422,6 +428,10 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
 
 # Landlock scopes signals and abstract unix sockets from ABI 6 on.
 _ABI_SCOPES = 6
+
+
+def _remove_probe_tmp(identity: ToolIdentity, status: IsolationStatus) -> None:
+    remove_as_tool_sync([identity.tmpdir], identity, confine=identity.home, status=status)
 
 
 def _landlock_problem(config: IsolationConfig) -> str:
@@ -977,16 +987,25 @@ async def share_tool_files(root: str, identity: ToolIdentity | None = None, *, s
     _log_share(root, proc.returncode, (out or b"").decode(errors="replace"), (err or b"").decode(errors="replace"))
 
 
-def run_walker(identity: ToolIdentity, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    """Run codeforge.tool_walk with *args* as *identity* and wait for it (the migration's owner steps)."""
-    status = tool_isolation()
+def run_as_tool(
+    identity: ToolIdentity,
+    argv: Sequence[str],
+    *,
+    files: tuple[str, ...] = (),
+    timeout: float | None = None,
+    status: IsolationStatus | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run one of the worker's own commands (walker, removal, measurement) as *identity* and wait for it.
+
+    Unlike start_tool_process no sharing pass follows: these act on what
+    the identity's Landlock rules confine them to.
+    """
+    status = status or tool_isolation()
     if not status.config.required or not status.ready:
         raise ToolIsolationError(f"tool isolation is not ready: {status.reason}")
-    launch = status.launch(
-        [status.interpreter, "-I", "-S", TOOL_WALK, *args], {"PATH": _PROBE_PATH}, None, identity, files=WALKER_FILES
-    )
+    launch = status.launch(argv, {"PATH": _PROBE_PATH}, None, identity, files=files)
     try:
-        return subprocess.run(  # noqa: S603 - fixed program
+        return subprocess.run(  # noqa: S603 - fixed programs of the worker's
             launch.argv,
             env=launch.env,
             cwd=launch.cwd,
@@ -994,10 +1013,79 @@ def run_walker(identity: ToolIdentity, args: Sequence[str]) -> subprocess.Comple
             pass_fds=launch.pass_fds,
             capture_output=True,
             text=True,
+            timeout=timeout,
             check=False,
         )
     finally:
         launch.close()
+
+
+def run_walker(identity: ToolIdentity, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    """Run codeforge.tool_walk with *args* as *identity* and wait for it (the migration's owner steps)."""
+    status = tool_isolation()
+    return run_as_tool(identity, [status.interpreter, "-I", "-S", TOOL_WALK, *args], files=WALKER_FILES)
+
+
+# Removes what a tool wrote, as the tool's UID (W1): own entries first get
+# owner rights back (a tool may have made them 0000), then everything goes,
+# never across file systems; a symlink is removed, never followed.
+_REMOVE_SCRIPT = """mode="$1"; shift
+status=0
+for path in "$@"; do
+  if [ -L "$path" ]; then rm -f -- "$path" || status=1; continue; fi
+  [ -e "$path" ] || continue
+  chmod -R u+rwX -- "$path" 2>/dev/null
+  if [ "$mode" = contents ]; then
+    find "$path" -xdev -mindepth 1 -delete || status=1
+  else
+    rm -rf --one-file-system -- "$path" || status=1
+  fi
+done
+exit $status
+"""
+
+
+def _confined(identity: ToolIdentity, confine: str) -> ToolIdentity:
+    """*identity*'s UID with Landlock rules for *confine* alone (no HOME, no workspace, no extras)."""
+    return ToolIdentity(
+        tenant_id=identity.tenant_id, uid=identity.uid, home="", work_id=new_work_id(), workspace=confine
+    )
+
+
+def remove_as_tool_sync(
+    paths: Sequence[str],
+    identity: ToolIdentity,
+    *,
+    confine: str,
+    contents_only: bool = False,
+    status: IsolationStatus | None = None,
+) -> bool:
+    """Remove *paths* (or only what is inside them) as *identity*'s UID, confined to *confine* (D10, D11).
+
+    True when everything is gone; a failure is logged.
+    """
+    mode = "contents" if contents_only else "all"
+    try:
+        done = run_as_tool(
+            _confined(identity, confine), [_SHELL, "-c", _REMOVE_SCRIPT, "cf-remove", mode, *paths], status=status
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("could not remove %s as tool uid %d: %s", list(paths), identity.uid, exc)
+        return False
+    if done.returncode:
+        logger.warning(
+            "could not remove all of %s as tool uid %d: %s", list(paths), identity.uid, done.stderr.strip()[-500:]
+        )
+    return done.returncode == 0
+
+
+async def remove_as_tool(
+    paths: Sequence[str], identity: ToolIdentity, *, confine: str, contents_only: bool = False
+) -> bool:
+    """remove_as_tool_sync in a thread: the event loop goes on."""
+    return await asyncio.to_thread(
+        remove_as_tool_sync, list(paths), identity, confine=confine, contents_only=contents_only
+    )
 
 
 def share_tool_files_sync(root: str, identity: ToolIdentity | None = None, *, since: float | None = None) -> None:
@@ -1043,8 +1131,10 @@ async def tool_workspace(prefix: str, base: str | None = None) -> AsyncIterator[
     The worker makes it (``mkdtemp`` in /tmp, which only the worker can
     write) and gives it, through its descriptor, an access and default ACL
     for the identity's UID and the workspace group; while the block runs it
-    is the identity's workspace. Leaving shares what the tools created and
-    removes it. Without isolation it is a plain temporary directory.
+    is the identity's workspace. Leaving removes what the tools created as
+    the identity's UID (confined to the workspace, D11), then the worker
+    removes the directory. Without isolation it is a plain temporary
+    directory.
     """
     path = tempfile.mkdtemp(prefix=prefix, dir=base)
     status = tool_isolation()
@@ -1065,7 +1155,15 @@ async def tool_workspace(prefix: str, base: str | None = None) -> AsyncIterator[
     finally:
         try:
             if reset is not None:
-                await share_tool_files(path)
+                workspace_identity = current_identity.get() or identity
+                removed = await remove_as_tool(
+                    [path],
+                    workspace_identity,
+                    confine=path,
+                    contents_only=True,  # type: ignore[arg-type]
+                )
+                if not removed:  # what the tools left: at least the worker can remove it
+                    await share_tool_files(path)
         finally:
             if reset is not None:
                 current_identity.reset(reset)

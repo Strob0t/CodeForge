@@ -561,6 +561,44 @@ async def test_every_tenant_tool_process_shares_its_workspace_after_it_exits(
     assert [_command(a)[3] for a, _k in spawns[1:]] == [TOOL_WALK]
 
 
+def test_removal_runs_as_the_tool_user_confined_to_the_directory(
+    isolation: Callable[[IsolationStatus], None], spawns: list[Spawn]
+) -> None:
+    """D10/D11: a tree a tool wrote is removed as its tool UID, never by the worker through a path."""
+    isolation(READY)
+    home = "/home/codeforge-tools/20007"
+    assert tool_process.remove_as_tool_sync([f"{home}/tmp/w1", f"{home}/claude/w1"], IDENT, confine=home)
+    ((args, kwargs),) = spawns
+    command = _command(args)
+    assert command[:2] == ["/bin/sh", "-c"]
+    assert command[3:] == ["cf-remove", "all", f"{home}/tmp/w1", f"{home}/claude/w1"]
+    spec = kwargs["spec"]
+    assert spec["uid"] == 20007  # type: ignore[index]
+    assert spec["prepare"] == []  # type: ignore[index]
+    writable = [rule[0] for rule in spec["landlock"]["rules"] if "remove-file" in rule[1]]  # type: ignore[index]
+    assert sorted(writable) == sorted([home, "/dev/shm"])
+    assert "/ws" not in [rule[0] for rule in spec["landlock"]["rules"]]  # type: ignore[index]
+
+
+async def test_a_benchmark_workspace_is_emptied_as_the_tool_user(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+    tmp_path: Path,
+) -> None:
+    isolation(READY)
+    identity(IDENT)
+    async with tool_process.tool_workspace("cf-bench-", str(tmp_path)) as path:
+        assert current_identity.get().workspace == path  # type: ignore[union-attr]
+        acl = posix_acl.get_acl(path, posix_acl.DEFAULT)
+        assert posix_acl.Entry(posix_acl.USER, 7, 20007) in (acl or [])
+    ((args, kwargs),) = spawns
+    assert _command(args)[3:] == ["cf-remove", "contents", path]
+    assert [rule[0] for rule in kwargs["spec"]["landlock"]["rules"] if rule[2]] == [path]  # type: ignore[index]
+    assert not Path(path).exists(), "the worker removes the emptied directory"
+    assert current_identity.get() is IDENT
+
+
 async def test_tenantless_and_off_spawns_share_nothing(
     isolation: Callable[[IsolationStatus], None],
     spawns: list[Spawn],

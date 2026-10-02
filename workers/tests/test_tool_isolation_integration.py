@@ -404,3 +404,27 @@ def posix_acl_of(path: Path) -> object:
     from codeforge import posix_acl
 
     return posix_acl.get_acl(str(path), posix_acl.ACCESS)
+
+
+async def test_a_tenants_leftovers_end_with_its_last_work_item(workspace_a: str, volumes: tuple[str, str]) -> None:
+    """KI-96 D10: a setsid daemon an agent left outlives its tool call, not the tenant's work; the
+    work item's TMPDIR is removed as the tenant, the HOME's tmp when the tenant goes idle."""
+    from codeforge.subprocess_env import tool_env
+    from codeforge.tool_reaper import processes_of, running_processes_of
+
+    _, home_base = volumes
+    async with tool_tenant(TENANT_A, UID_A, workspace_a) as identity:
+        assert identity is not None
+        proc = await start_tool_shell(
+            'setsid sleep 300 </dev/null >/dev/null 2>&1 & echo started > "$TMPDIR/marker"',
+            env=tool_env(),
+            cwd=workspace_a,
+        )
+        assert await proc.wait() == 0
+        assert processes_of({UID_A}), "the daemon runs after its tool call"
+        tmpdir = Path(identity.tmpdir)
+        assert (tmpdir / "marker").exists()
+    # Killed; a zombie until its parent collects it (the worker does when it is PID 1 of its container).
+    assert running_processes_of({UID_A}) == {}, "no process of the tenant is left running"
+    assert not tmpdir.exists()
+    assert list(Path(home_base, str(UID_A), "tmp").iterdir()) == []

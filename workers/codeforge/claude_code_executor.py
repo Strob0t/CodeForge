@@ -45,10 +45,12 @@ from codeforge.pricing import resolve_cost
 from codeforge.runtime import arguments_preview
 from codeforge.subprocess_env import tool_env
 from codeforge.subprocess_utils import terminate_process_group
-from codeforge.tool_identity import ToolIdentity, current_identity, system_identity, use_identity
+from codeforge.tool_identity import ToolIdentity, ToolIsolationError, current_identity, system_work, use_identity
 from codeforge.tool_process import base_interpreter, grant_tool_access, start_tool_process, tool_isolation
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from codeforge.runtime import RuntimeClient
 
 logger = logging.getLogger(__name__)
@@ -552,10 +554,10 @@ async def _check_cli(cli: str) -> None:
     The checks belong to no tenant: with tool isolation they run as the
     system tool user (no workspace access, KI-96).
     """
-    identity = _check_identity()
-    with use_identity(identity):
-        env = tool_env(passthrough=_CLAUDE_CLI_ENV if identity is None else _CLAUDE_CLI_CREDENTIALS)
-    returncode, output = await _run_check(cli, ["--help"], env, identity)
+    async with _check_identity() as identity:
+        with use_identity(identity):
+            env = tool_env(passthrough=_CLAUDE_CLI_ENV if identity is None else _CLAUDE_CLI_CREDENTIALS)
+        returncode, output = await _run_check(cli, ["--help"], env, identity)
     if returncode != 0:
         raise ClaudeCodeCLIError(f"Claude Code CLI {cli!r} --help failed (exit {returncode}): {output[:500]}")
     missing = _missing_cli_options(output)
@@ -564,13 +566,13 @@ async def _check_cli(cli: str) -> None:
     await _check_hidden_options(cli)
 
 
-def _check_identity() -> ToolIdentity | None:
-    """The system tool identity for the CLI checks with isolation; None without."""
-    if not _isolated():
-        return None
+@contextlib.asynccontextmanager
+async def _check_identity() -> AsyncIterator[ToolIdentity | None]:
+    """The system tool identity for a CLI check with isolation (its TMPDIR removed after); None without."""
     try:
-        return system_identity()
-    except OSError as exc:
+        async with system_work() as identity:
+            yield identity
+    except ToolIsolationError as exc:
         raise ClaudeCodeCLIError(f"cannot check the Claude Code CLI: {exc}") from exc
 
 
@@ -585,12 +587,12 @@ async def _check_hidden_options(cli: str) -> None:
     the launch helper creates for the system tool user (the worker makes
     nothing a tool can write, W1); without, a temporary directory.
     """
-    identity = _check_identity()
-    if identity is None:
-        with tempfile.TemporaryDirectory(prefix="cf-cc-check-") as home:
-            output = await _check_hidden_options_in(cli, home, None)
-    else:
-        output = await _check_hidden_options_in(cli, identity.tmpdir, identity)
+    async with _check_identity() as identity:
+        if identity is None:
+            with tempfile.TemporaryDirectory(prefix="cf-cc-check-") as home:
+                output = await _check_hidden_options_in(cli, home, None)
+        else:
+            output = await _check_hidden_options_in(cli, identity.tmpdir, identity)
     for line in output.splitlines():
         if "unknown option" in line.lower():
             raise ClaudeCodeCLIError(_unsupported(cli, line.strip()))

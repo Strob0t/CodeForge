@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from codeforge import tool_identity, tool_migration, tool_process
+from codeforge import tool_identity, tool_migration, tool_process, tool_reaper
 from codeforge.consumer import TaskConsumer
 from codeforge.models import (
     ConversationRunStartMessage,
@@ -64,14 +64,22 @@ def accepted(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, str | None
         def close(self) -> None:
             pass
 
+        def try_exclusive(self) -> bool:
+            return False
+
     async def acquired(_lock: object, **_kwargs: object) -> None:
         return None
+
+    async def removed(*_args: object, **_kwargs: object) -> bool:
+        return True
 
     monkeypatch.setattr(tool_identity, "accept_identity", accept)
     monkeypatch.setattr(tool_identity, "verify_tenant_dir", lambda *_args: None)
     monkeypatch.setattr(tool_process, "share_tool_files", no_share)
     monkeypatch.setattr(tool_migration, "TenantLock", NoLock)
     monkeypatch.setattr(tool_migration, "acquire", acquired)
+    monkeypatch.setattr(tool_process, "remove_as_tool", removed)
+    monkeypatch.setattr(tool_reaper, "reap", lambda _uid, **_kw: 0)
     return calls
 
 
@@ -118,6 +126,7 @@ async def test_a_run_runs_as_the_tenants_tool_identity(
     assert accepted == [("tenant-a", 20003, "/data/workspaces/tenant-a/p1")]
     assert [(i.tenant_id, i.uid) for i in seen if i] == [("tenant-a", 20003)]
     assert current_identity.get() is None
+    assert _published(consumer, "runs.complete") == [], "leaving the identity did not fail the run"
 
 
 async def test_a_run_without_a_tool_uid_fails_and_runs_nothing(

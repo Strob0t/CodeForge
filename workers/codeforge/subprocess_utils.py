@@ -11,7 +11,7 @@ import signal
 
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
-from codeforge.tool_identity import system_identity, use_identity
+from codeforge.tool_identity import system_work, use_identity
 from codeforge.tool_process import start_tool_process, tool_isolation
 
 logger = logging.getLogger(__name__)
@@ -63,19 +63,19 @@ async def check_cli_available(
     if shutil.which(cli_path, path=tool_path) is not None:
         return True
     try:
-        identity = system_identity() if isolation.config.required else None
-        with use_identity(identity):
-            env = tool_env()
-        proc = await start_tool_process(
-            cli_path,
-            "--version",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-            identity=identity,
-        )
-        await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        return proc.returncode == 0
+        async with system_work() as identity:
+            with use_identity(identity):
+                env = tool_env()
+            proc = await start_tool_process(
+                cli_path,
+                "--version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+                identity=identity,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            return proc.returncode == 0
     except (OSError, TimeoutError):
         return False
 

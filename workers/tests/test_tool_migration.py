@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from codeforge import posix_acl, tool_migration, tool_state, tool_walk
+from codeforge import posix_acl, tool_migration, tool_reaper, tool_state, tool_walk
 from codeforge.posix_acl import Entry
 from codeforge.tool_identity import ToolIsolationError
 
@@ -294,17 +294,8 @@ def test_a_planted_lock_file_is_refused(root: Path, tmp_path: Path) -> None:
         tool_migration.TenantLock(str(root), "tenant-a")
 
 
-def test_processes_of_reads_proc(tmp_path: Path) -> None:
-    for pid, uid in ((101, 10002), (102, 20009), (103, 10001), (104, 20009)):
-        (tmp_path / str(pid)).mkdir()
-        (tmp_path / str(pid) / "status").write_text(f"Name:\tx\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")
-    (tmp_path / "self").mkdir()
-    (tmp_path / "105").mkdir()  # exited meanwhile: no status
-    assert tool_migration.processes_of({10002, 20009}, proc=str(tmp_path)) == {101: 10002, 102: 20009, 104: 20009}
-
-
 def test_the_current_process_is_found() -> None:
-    assert tool_migration.processes_of({UID})[os.getpid()] == UID
+    assert tool_reaper.processes_of({UID})[os.getpid()] == UID
 
 
 @pytest.mark.parametrize("tamper", ["group-bits", "old-stamp", "acl"])

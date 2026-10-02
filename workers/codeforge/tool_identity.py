@@ -24,6 +24,7 @@ as the worker, as before.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -351,6 +352,100 @@ def system_identity() -> ToolIdentity:
     return ToolIdentity(tenant_id="", uid=SYSTEM_TOOL_UID, home=home, work_id=new_work_id())
 
 
+# ---------------------------------------------------------------------------
+# End of work and idle tenants (D10)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Activity:
+    """A tenant's work in this worker: how many items run, which workspaces they used since it was idle."""
+
+    count: int = 0
+    workspaces: set[str] = field(default_factory=set)
+    # Held while the tenant's idle steps run: no work item of the tenant enters meanwhile.
+    gate: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # The HOME cache is removed at the next idle (a project of the tenant was deleted, D11).
+    clear_cache: bool = False
+
+
+_activity: dict[str, _Activity] = {}
+
+
+def mark_cache_for_removal(tenant_id: str) -> None:
+    """Remove the tenant's HOME cache at its next idle (build caches can hold a deleted project's data)."""
+    _activity.setdefault(tenant_id, _Activity()).clear_cache = True
+
+
+async def _enter(identity: ToolIdentity) -> _Activity:
+    activity = _activity.setdefault(identity.tenant_id, _Activity())
+    async with activity.gate:
+        activity.count += 1
+        if identity.workspace:
+            activity.workspaces.add(identity.workspace)
+    return activity
+
+
+async def _end_of_work(identity: ToolIdentity) -> None:
+    """Share what the work item's processes created; remove its TMPDIR and Claude Code config as its UID."""
+    from codeforge import tool_process
+
+    if identity.workspace:
+        await tool_process.share_tool_files(identity.workspace, identity)
+    await tool_process.remove_as_tool([identity.tmpdir, identity.claude_config_dir], identity, confine=identity.home)
+
+
+async def _cache_kb(identity: ToolIdentity) -> int:
+    """The size of the tenant's HOME cache in KiB, measured as its UID (0 when it has none)."""
+    from codeforge import tool_process
+
+    cache = f"{identity.home}/.cache"
+    done = await asyncio.to_thread(
+        tool_process.run_as_tool,
+        tool_process._confined(identity, identity.home),
+        ["/bin/sh", "-c", 'if [ -d "$1" ]; then du -sk --one-file-system -- "$1"; else echo 0; fi', "cf-du", cache],
+        timeout=300,
+    )
+    try:
+        return int(done.stdout.split()[0])
+    except (IndexError, ValueError):
+        logger.warning("could not measure the tool cache %s: %s", cache, done.stderr.strip()[-300:])
+        return 0
+
+
+async def _tenant_idle(identity: ToolIdentity, activity: _Activity, lock: object) -> None:
+    """The tenant's last work item in this worker ended: stop its leftovers, share, clean (D10)."""
+    from codeforge import tool_process, tool_reaper
+
+    await asyncio.to_thread(tool_reaper.reap, identity.uid)
+    # Leftovers may have created private files after their work items ended.
+    for workspace in sorted(activity.workspaces):
+        await tool_process.share_tool_files(workspace, identity.with_workspace(workspace))
+    activity.workspaces.clear()
+    # Only when no other worker works for the tenant (its exclusive lock, without waiting).
+    if not lock.try_exclusive():  # type: ignore[attr-defined]
+        return
+    home = identity.home
+    await tool_process.remove_as_tool([f"{home}/tmp"], identity, confine=home, contents_only=True)  # noqa: S108
+    limit = tool_process.tool_isolation().config.cache_max_mb
+    if activity.clear_cache or await _cache_kb(identity) > limit * 1024:
+        await tool_process.remove_as_tool([f"{home}/.cache"], identity, confine=home)
+    activity.clear_cache = False
+
+
+async def _leave(identity: ToolIdentity, activity: _Activity, lock: object) -> None:
+    activity.count -= 1
+    if activity.count:
+        return
+    async with activity.gate:
+        if activity.count:
+            return  # a new work item entered meanwhile
+        try:
+            await _tenant_idle(identity, activity, lock)
+        except (OSError, ValueError) as exc:
+            logger.warning("the idle steps of tool uid %d failed: %s", identity.uid, exc)
+
+
 @contextlib.asynccontextmanager
 async def tool_tenant(
     tenant_id: str, tool_uid: int, workspace: str | None, *, claude_config: bool = False
@@ -362,10 +457,14 @@ async def tool_tenant(
     accept). The work item holds the tenant's shared lock while it runs; a
     tree from before the upgrade is migrated first, under the exclusive lock
     (codeforge.tool_migration). On exit the end-of-work steps run as the
-    tenant (the sharing pass of its workspace) before the identity is left.
+    tenant (the sharing pass of its workspace, the removal of its TMPDIR and
+    Claude Code config) before the identity is left; when it was the
+    tenant's last work item in this worker, the tenant's leftover processes
+    are killed, its workspaces shared again and its HOME's tmp cleaned
+    (D10). Background processes an agent starts end then.
     """
     from codeforge import tool_migration
-    from codeforge.tool_process import share_tool_files, tool_isolation
+    from codeforge.tool_process import tool_isolation
 
     status = tool_isolation()
     if not status.config.required:
@@ -389,17 +488,37 @@ async def tool_tenant(
             raise
         except OSError as exc:
             raise ToolIsolationError(f"tool work of tenant {tenant_id} (tool uid {tool_uid}): {exc}") from exc
-        reset = current_identity.set(identity)
+        activity = await _enter(identity)
         try:
-            yield identity
-        finally:
+            reset = current_identity.set(identity)
             try:
-                if identity.workspace:
-                    await share_tool_files(identity.workspace)
+                yield identity
             finally:
-                current_identity.reset(reset)
+                try:
+                    await _end_of_work(identity)
+                finally:
+                    current_identity.reset(reset)
+        finally:
+            await _leave(identity, activity, lock)
     finally:
         lock.close()
+
+
+@contextlib.asynccontextmanager
+async def system_work() -> AsyncIterator[ToolIdentity | None]:
+    """The system tool identity for tenantless checks (None with isolation off); its TMPDIR is removed after."""
+    from codeforge import tool_process
+
+    if not tool_process.tool_isolation().config.required:
+        yield None
+        return
+    identity = system_identity()
+    try:
+        yield identity
+    finally:
+        await tool_process.remove_as_tool(
+            [identity.tmpdir, identity.claude_config_dir], identity, confine=identity.home
+        )
 
 
 @contextlib.contextmanager

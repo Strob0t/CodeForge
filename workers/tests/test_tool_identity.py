@@ -11,11 +11,12 @@ from __future__ import annotations
 import asyncio
 import errno
 import re
+import threading
 from pathlib import Path
 
 import pytest
 
-from codeforge import posix_acl, tool_identity, tool_migration, tool_process, tool_state
+from codeforge import posix_acl, tool_identity, tool_migration, tool_process, tool_reaper, tool_state
 from codeforge.tool_identity import (
     LEGACY_TOOL_UID,
     SYSTEM_TOOL_UID,
@@ -118,6 +119,51 @@ def volumes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path
     )
     monkeypatch.setattr(tool_identity, "_homes", {})
     return root, homes
+
+
+class _EndOfWork:
+    """Records the end-of-work and idle steps instead of launching them."""
+
+    def __init__(self) -> None:
+        self.steps: list[tuple[str, ...]] = []
+        self.exclusive = True
+        self.cache_kb = 0
+        self.reaping: asyncio.Event | None = None
+
+    async def share(self, path: str, identity: ToolIdentity | None = None, **_kw: object) -> None:
+        self.steps.append(("share", path))
+
+    async def remove(
+        self, paths: list[str], identity: ToolIdentity, *, confine: str, contents_only: bool = False
+    ) -> bool:
+        self.steps.append(("remove", *paths, f"confine={confine}", f"contents={contents_only}"))
+        return True
+
+    def reap(self, uid: int, **_kw: object) -> int:
+        self.steps.append(("reap", str(uid)))
+        return 0
+
+    async def cache_kb_of(self, _identity: ToolIdentity) -> int:
+        return self.cache_kb
+
+
+@pytest.fixture
+def end_of_work(monkeypatch: pytest.MonkeyPatch) -> _EndOfWork:
+    fake = _EndOfWork()
+    monkeypatch.setattr(tool_process, "share_tool_files", fake.share)
+    monkeypatch.setattr(tool_process, "remove_as_tool", fake.remove)
+    monkeypatch.setattr(tool_reaper, "reap", fake.reap)
+    monkeypatch.setattr(tool_identity, "_cache_kb", fake.cache_kb_of)
+    monkeypatch.setattr(tool_identity, "_activity", {})
+    original = tool_migration.TenantLock.try_exclusive
+    monkeypatch.setattr(tool_migration.TenantLock, "try_exclusive", lambda lock: fake.exclusive and original(lock))
+    return fake
+
+
+def _stamped(root: Path, tenant: str = "tenant-a") -> Path:
+    workspace = _tenant(root, tenant)
+    tool_migration.write_stamp(str(root), "tenants", tenant, UID, (root / tenant).stat())
+    return workspace
 
 
 def _tenant(root: Path, tenant: str, uid: int = UID) -> Path:
@@ -242,7 +288,9 @@ async def test_tool_tenant_when_not_ready_refuses(monkeypatch: pytest.MonkeyPatc
             pytest.fail("entered")
 
 
-async def test_tool_tenant_migrates_a_tree_first(volumes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tool_tenant_migrates_a_tree_first(
+    volumes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, end_of_work: _EndOfWork
+) -> None:
     root, _ = volumes
     workspace = _tenant(root, "tenant-a", uid=UID + 1)
     migrated: list[tuple[str, str, ToolIdentity | None]] = []
@@ -269,14 +317,14 @@ async def test_tool_tenant_migrates_a_tree_first(volumes: tuple[Path, Path], mon
 
 
 async def test_tool_tenant_sets_the_identity_and_shares_on_exit(
-    volumes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    volumes: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, end_of_work: _EndOfWork
 ) -> None:
     root, _ = volumes
     workspace = _tenant(root, "tenant-a")
     tool_migration.write_stamp(str(root), "tenants", "tenant-a", UID, (root / "tenant-a").stat())
     shared: list[tuple[str, ToolIdentity | None]] = []
 
-    async def share(path: str, identity: ToolIdentity | None = None) -> None:
+    async def share(path: str, identity: ToolIdentity | None = None, **_kw: object) -> None:
         shared.append((path, current_identity.get()))
 
     monkeypatch.setattr(tool_process, "share_tool_files", share)
@@ -291,8 +339,109 @@ async def test_tool_tenant_sets_the_identity_and_shares_on_exit(
         assert await asyncio.create_task(in_a_task()) is identity
         assert shared == []
     assert current_identity.get() is None
-    # The sharing pass ran as the tenant, before the identity was left.
-    assert shared == [(str(workspace), identity)]
+    # The sharing pass ran as the tenant, before the identity was left (then again at the idle).
+    assert shared[0] == (str(workspace), identity)
+
+
+async def test_the_end_of_a_work_item_shares_and_removes_its_temporary_directories(
+    volumes: tuple[Path, Path], end_of_work: _EndOfWork
+) -> None:
+    root, homes = volumes
+    workspace = _stamped(root)
+    async with tool_tenant("tenant-a", UID, str(workspace)) as identity:
+        assert identity is not None
+    home = f"{homes}/{UID}"
+    assert end_of_work.steps[:2] == [
+        ("share", str(workspace)),
+        ("remove", identity.tmpdir, identity.claude_config_dir, f"confine={home}", "contents=False"),
+    ]
+
+
+async def test_when_the_tenant_goes_idle_its_leftovers_are_stopped_once(
+    volumes: tuple[Path, Path], end_of_work: _EndOfWork
+) -> None:
+    """D10: reap, share every workspace used since the last idle, clean the HOME's tmp."""
+    root, homes = volumes
+    first = _stamped(root)
+    second = root / "tenant-a" / "p2"
+    second.mkdir()
+    home = f"{homes}/{UID}"
+    async with tool_tenant("tenant-a", UID, str(first)):
+        async with tool_tenant("tenant-a", UID, str(second)):
+            pass
+        assert ("reap", str(UID)) not in end_of_work.steps, "the tenant still has work"
+    idle = end_of_work.steps[end_of_work.steps.index(("reap", str(UID))) :]
+    assert idle == [
+        ("reap", str(UID)),
+        ("share", str(first)),
+        ("share", str(second)),
+        ("remove", f"{home}/tmp", f"confine={home}", "contents=True"),
+    ]
+    # The next idle shares only what was used since.
+    end_of_work.steps.clear()
+    async with tool_tenant("tenant-a", UID, None):
+        pass
+    assert ("share", str(first)) not in end_of_work.steps
+
+
+async def test_another_workers_work_keeps_the_home_tmp(volumes: tuple[Path, Path], end_of_work: _EndOfWork) -> None:
+    root, homes = volumes
+    workspace = _stamped(root)
+    end_of_work.exclusive = False
+    async with tool_tenant("tenant-a", UID, str(workspace)):
+        pass
+    assert ("reap", str(UID)) in end_of_work.steps
+    assert not [step for step in end_of_work.steps if step[0] == "remove" and step[1] == f"{homes}/{UID}/tmp"]
+
+
+async def test_a_cache_over_the_cap_is_removed(
+    volumes: tuple[Path, Path], end_of_work: _EndOfWork, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, homes = volumes
+    workspace = _stamped(root)
+    config = IsolationConfig(mode="required", workspace_root=str(root), home_base=str(homes), cache_max_mb=1)
+    monkeypatch.setattr(tool_process, "_status", IsolationStatus(config=config, ready=True, launcher="/x"))
+    end_of_work.cache_kb = 2048
+    async with tool_tenant("tenant-a", UID, str(workspace)):
+        pass
+    home = f"{homes}/{UID}"
+    assert end_of_work.steps[-1] == ("remove", f"{home}/.cache", f"confine={home}", "contents=False")
+
+
+async def test_a_new_work_item_waits_while_the_tenant_is_reaped(
+    volumes: tuple[Path, Path], end_of_work: _EndOfWork, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S9: no launch of the tenant starts while its processes are killed."""
+    root, _ = volumes
+    workspace = _stamped(root)
+    reaping, release = threading.Event(), threading.Event()
+    order: list[str] = []
+
+    def slow_reap(uid: int, **_kw: object) -> int:
+        order.append("reap start")
+        reaping.set()
+        release.wait(5)
+        order.append("reap end")
+        return 0
+
+    monkeypatch.setattr(tool_reaper, "reap", slow_reap)
+
+    async def first() -> None:
+        async with tool_tenant("tenant-a", UID, str(workspace)):
+            pass
+
+    async def second() -> None:
+        await asyncio.to_thread(reaping.wait, 5)
+        async with tool_tenant("tenant-a", UID, str(workspace)):
+            order.append("second entered")
+
+    task = asyncio.gather(first(), second())
+    await asyncio.to_thread(reaping.wait, 5)
+    await asyncio.sleep(0.2)
+    assert "second entered" not in order
+    release.set()
+    await asyncio.wait_for(task, 10)
+    assert order.index("reap end") < order.index("second entered")
 
 
 async def test_tool_tenant_refuses_before_entering(volumes: tuple[Path, Path]) -> None:
