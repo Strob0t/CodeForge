@@ -170,6 +170,10 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_exec.py", "open_nofollow", "os.open"): (2, _HELPER),
     ("tool_exec.py", "prepare", "os.mkdir"): (1, _HELPER),
     ("tool_exec.py", "prepare", "os.open"): (1, _HELPER),
+    ("tool_exec.py", "apply_landlock", "os.open"): (
+        1,
+        "the launch helper's own /proc/<pid> (O_PATH), pinned for the command's Landlock rule",
+    ),
     ("tool_walk.py", "open_root", "os.open"): (2, _WALK),
     ("tool_walk.py", "open_checked", "os.open"): (1, _WALK),
     ("tool_walk.py", "_open_subdir", "os.open"): (1, _WALK),

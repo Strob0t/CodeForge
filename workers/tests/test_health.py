@@ -253,6 +253,30 @@ async def test_main_serves_health_while_the_consumer_runs(fake_main: int) -> Non
         await asyncio.to_thread(_get, fake_main, "/health")
 
 
+async def test_main_is_not_ready_while_tool_isolation_is_not(fake_main: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KI-96 D12: a worker whose tool processes cannot be isolated is not ready, and says why."""
+    import codeforge.consumer as consumer_module
+    from codeforge.tool_process import IsolationConfig, IsolationStatus
+
+    config = IsolationConfig(mode="required", workspace_root="/w")
+    broken = IsolationStatus(config=config, ready=False, reason="Landlock ABI 1 is below the required 2")
+    monkeypatch.setattr(consumer_module, "setup_tool_isolation", lambda _settings: broken)
+    monkeypatch.setattr(consumer_module, "tool_isolation", lambda: broken)
+    main_task = asyncio.create_task(consumer_module.main())
+    while not _FakeConsumer.instances:
+        await asyncio.sleep(0.01)
+    consumer = _FakeConsumer.instances[0]
+    await asyncio.wait_for(consumer.started.wait(), timeout=5)
+    consumer.ready = True
+
+    assert await asyncio.to_thread(_get, fake_main, "/health/ready") == (
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        {"status": "tool isolation not ready: Landlock ABI 1 is below the required 2"},
+    )
+    consumer.release.set()
+    await asyncio.wait_for(main_task, timeout=5)
+
+
 async def test_main_exits_non_zero_when_the_consumer_crashes(fake_main: int, monkeypatch: pytest.MonkeyPatch) -> None:
     """E.g. NATS unreachable at startup: the worker shuts down cleanly, closes the endpoint and exits 1."""
     import codeforge.consumer as consumer_module

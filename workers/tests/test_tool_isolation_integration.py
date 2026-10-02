@@ -216,11 +216,12 @@ for line in sys.stdin:
 
 
 @pytest.mark.skipif(not Path("/usr/bin/python3").exists(), reason="needs /usr/bin/python3 for the server")
-async def test_mcp_stdio_server_runs_as_the_tenants_tool_user(shared_tmp: Path, workspace_a: str) -> None:
+async def test_mcp_stdio_server_runs_as_the_tenants_tool_user(workspace_a: str) -> None:
     from codeforge.mcp_models import MCPServerDef
     from codeforge.mcp_workbench import McpServerConnection
 
-    script = shared_tmp / "whoami_server.py"
+    # In the workspace: Landlock lets tools read nothing in /tmp.
+    script = Path(workspace_a) / "whoami_server.py"
     script.write_text(_MCP_SERVER)
     script.chmod(0o644)
     async with tool_tenant(TENANT_A, UID_A, workspace_a):
@@ -354,7 +355,7 @@ async def test_a_tree_from_before_the_upgrade_is_migrated_once(volumes: tuple[st
     async with tool_tenant(TENANT_A, UID_A, str(project_a)):
         proc = await start_tool_shell(
             "cat private/notes .git/config theirs >/dev/null && echo a >> private/notes && echo a >> theirs "
-            "&& echo a >> .git/config && touch private/new && ls / >/dev/null",
+            "&& echo a >> .git/config && touch private/new",
             env={"PATH": "/usr/bin:/bin"},
             cwd=str(project_a),
             stdout=asyncio.subprocess.PIPE,

@@ -801,8 +801,9 @@ class ClaudeCodeExecutor:
                 identity = current_identity.get()
                 if _isolated() and identity is not None:
                     # A config directory of its own (made by the launch helper as
-                    # the tenant), no auto memory; the run directory readable.
-                    identity = identity.with_paths(read=(policy.directory,), claude_config=True)
+                    # the tenant), no auto memory; the run directory and the hook
+                    # readable (Landlock).
+                    identity = identity.with_paths(read=(policy.directory, policy_hook.__file__), claude_config=True)
                     extra["CLAUDE_CONFIG_DIR"] = identity.claude_config_dir
                     extra["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
                 with use_identity(identity):

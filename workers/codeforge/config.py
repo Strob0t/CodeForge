@@ -176,6 +176,9 @@ class WorkerSettings:
     workspace_gid: int
     tool_home_base: str
     tool_path: str
+    tool_landlock: str
+    tool_landlock_min_abi: int
+    tool_read_paths: str
 
     # LLM
     default_model: str
@@ -278,6 +281,12 @@ class WorkerSettings:
         self.workspace_gid = _resolve_int("CODEFORGE_WORKSPACE_GID", None, 10010)
         self.tool_home_base = _resolve_str("CODEFORGE_TOOL_HOME_BASE", None, DEFAULT_HOME_BASE)
         self.tool_path = _resolve_str("CODEFORGE_TOOL_PATH", None, DEFAULT_TOOL_PATH)
+        # Landlock per tool call (KI-96 D6): unset follows CODEFORGE_TOOL_ISOLATION;
+        # "off" is refused with APP_ENV=production. Read paths: operator
+        # toolchains tools may read and run (colon-separated, validated).
+        self.tool_landlock = _resolve_str("CODEFORGE_TOOL_LANDLOCK", None, "")
+        self.tool_landlock_min_abi = _resolve_int("CODEFORGE_TOOL_LANDLOCK_MIN_ABI", None, 2)
+        self.tool_read_paths = _resolve_str("CODEFORGE_TOOL_READ_PATHS", None, "")
 
         # --- LLM ---
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")

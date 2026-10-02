@@ -17,6 +17,13 @@ Every path is opened one component at a time from "/" without following a
 symlink: the tool user may have planted one in its HOME or workspace, and the
 helper must never act anywhere else.
 
+Before that it confines itself, and so the command, with Landlock (D6): the
+spec's ``landlock`` names the paths the command may use and how (the
+workspace and the tenant's HOME fully, the system read-only, ...); the
+helper opens every rule path itself, as the tool user and without following
+a symlink, and with ABI 6 or later also scopes signals and abstract unix
+sockets to the command's own domain. ``"off"`` (development only) skips it.
+
 Any failure prints ``cf-tool-exec: <reason>`` and exits 125 without running
 the command. Standard library only: it runs with ``-I -S`` (no site, no user
 paths, no PYTHON* variables) and imports nothing of CodeForge.
@@ -24,9 +31,11 @@ paths, no PYTHON* variables) and imports nothing of CodeForge.
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import stat
+import struct
 import sys
 
 EXIT_REFUSED = 125
@@ -221,10 +230,161 @@ def change_directory(cwd: str | None) -> None:
         os.close(fd)
 
 
-def apply_landlock(spec: dict[str, object]) -> None:
-    landlock = spec["landlock"]
-    if landlock != LANDLOCK_OFF:
+# Landlock (linux/landlock.h); the system call numbers are the same on every architecture.
+SYS_LANDLOCK_CREATE_RULESET = 444
+SYS_LANDLOCK_ADD_RULE = 445
+SYS_LANDLOCK_RESTRICT_SELF = 446
+_CREATE_RULESET_VERSION = 1
+_RULE_PATH_BENEATH = 1
+FS_RIGHTS = {
+    "execute": 1 << 0,
+    "write-file": 1 << 1,
+    "read-file": 1 << 2,
+    "read-dir": 1 << 3,
+    "remove-dir": 1 << 4,
+    "remove-file": 1 << 5,
+    "make-char": 1 << 6,
+    "make-dir": 1 << 7,
+    "make-reg": 1 << 8,
+    "make-sock": 1 << 9,
+    "make-fifo": 1 << 10,
+    "make-block": 1 << 11,
+    "make-sym": 1 << 12,
+    "refer": 1 << 13,  # ABI 2
+    "truncate": 1 << 14,  # ABI 3
+    "ioctl-dev": 1 << 15,  # ABI 5
+}
+# What a rule on a file (not a directory) may allow.
+_FILE_RIGHTS = (
+    FS_RIGHTS["execute"] | FS_RIGHTS["write-file"] | FS_RIGHTS["read-file"] | FS_RIGHTS["truncate"]
+) | FS_RIGHTS["ioctl-dev"]
+_SCOPE_ABSTRACT_UNIX_SOCKET = 1 << 0
+_SCOPE_SIGNAL = 1 << 1
+_LANDLOCK_FIELDS = ("rules", "scope", "min_abi", "proc_self")
+
+
+def _syscall(number: int, *args: object) -> int:
+    libc = ctypes.CDLL(None, use_errno=True)
+    result = libc.syscall(number, *args)
+    if result < 0:
+        errno = ctypes.get_errno()
+        raise OSError(errno, os.strerror(errno))
+    return int(result)
+
+
+def landlock_abi() -> int:
+    """The kernel's Landlock ABI version; 0 without Landlock (not built, not enabled, or filtered)."""
+    try:
+        return _syscall(SYS_LANDLOCK_CREATE_RULESET, None, ctypes.c_size_t(0), ctypes.c_uint32(_CREATE_RULESET_VERSION))
+    except OSError:
+        return 0
+
+
+def handled_access(abi: int) -> int:
+    """Every filesystem right ABI *abi* knows: all of them are handled, so all are denied unless a rule allows."""
+    if abi >= 5:
+        return (1 << 16) - 1
+    if abi >= 3:
+        return (1 << 15) - 1
+    if abi == 2:
+        return (1 << 14) - 1
+    return (1 << 13) - 1
+
+
+def ruleset_attr(abi: int, handled: int, scoped: int) -> bytes:
+    """struct landlock_ruleset_attr as ABI *abi* knows it: 8, 16 (network) or 24 (scopes) bytes."""
+    attr = struct.pack("<Q", handled)
+    if abi >= 4:
+        attr += struct.pack("<Q", 0)  # no network rights handled (KI-110)
+    if abi >= 6:
+        attr += struct.pack("<Q", scoped)
+    return attr
+
+
+def _check_landlock(landlock: object) -> dict[str, object]:
+    if not isinstance(landlock, dict) or sorted(landlock) != sorted(_LANDLOCK_FIELDS):
         raise LaunchRefusedError(f"unknown landlock setting {landlock!r}")
+    rules = landlock["rules"]
+    if not isinstance(rules, list):
+        raise LaunchRefusedError("the landlock rules are not a list")
+    for rule in rules:
+        if (
+            not isinstance(rule, list)
+            or len(rule) != 3
+            or not isinstance(rule[0], str)
+            or not rule[0].startswith("/")
+            or not isinstance(rule[1], list)
+            or any(right not in FS_RIGHTS for right in rule[1])
+            or not isinstance(rule[2], bool)
+        ):
+            raise LaunchRefusedError(f"malformed landlock rule {rule!r}")
+    if type(landlock["min_abi"]) is not int or not isinstance(landlock["scope"], bool):
+        raise LaunchRefusedError("malformed landlock setting")
+    if not isinstance(landlock["proc_self"], bool):
+        raise LaunchRefusedError("malformed landlock setting")
+    return landlock
+
+
+def _add_rule(ruleset: int, allowed: int, fd: int) -> None:
+    attr = ctypes.create_string_buffer(struct.pack("<Qi", allowed, fd), 12)
+    _syscall(SYS_LANDLOCK_ADD_RULE, ctypes.c_int(ruleset), ctypes.c_int(_RULE_PATH_BENEATH), attr, ctypes.c_uint32(0))
+
+
+def _add_path_rules(ruleset: int, rules: list[list[object]], handled: int) -> None:
+    for path, rights, required in rules:
+        try:
+            fd = open_nofollow(path, directory=False)  # type: ignore[arg-type]
+        except LaunchRefusedError:
+            if required:
+                raise
+            continue  # an optional system path this container lacks (/dev/tty, ...) or links elsewhere
+        try:
+            allowed = 0
+            for right in rights:  # type: ignore[attr-defined]
+                allowed |= FS_RIGHTS[right]
+            if not stat.S_ISDIR(os.fstat(fd).st_mode):
+                allowed &= _FILE_RIGHTS
+            if allowed & handled:
+                _add_rule(ruleset, allowed & handled, fd)
+        finally:
+            os.close(fd)
+
+
+def apply_landlock(spec: dict[str, object]) -> None:
+    """Confine this process (and so the command) to the spec's Landlock rules; "off" does nothing."""
+    if spec["landlock"] == LANDLOCK_OFF:
+        return
+    landlock = _check_landlock(spec["landlock"])
+    abi = landlock_abi()
+    if abi == 0:
+        raise LaunchRefusedError("no Landlock in this kernel (or it is filtered): tool processes cannot be confined")
+    min_abi: int = landlock["min_abi"]  # type: ignore[assignment]
+    if abi < min_abi:
+        raise LaunchRefusedError(f"Landlock ABI {abi} is below the required {min_abi}")
+    handled = handled_access(abi)
+    scoped = _SCOPE_SIGNAL | _SCOPE_ABSTRACT_UNIX_SOCKET if landlock["scope"] and abi >= 6 else 0
+    attr = ruleset_attr(abi, handled, scoped)
+    try:
+        ruleset = _syscall(
+            SYS_LANDLOCK_CREATE_RULESET, ctypes.create_string_buffer(attr, len(attr)), ctypes.c_size_t(len(attr)), 0
+        )
+    except OSError as exc:
+        raise LaunchRefusedError(f"cannot create a Landlock ruleset: {exc.strerror}") from exc
+    try:
+        try:
+            _add_path_rules(ruleset, landlock["rules"], handled)  # type: ignore[arg-type]
+            if landlock["proc_self"]:
+                # The command's own /proc entry. The descriptor stays open across
+                # the exec: it pins the dentry, a rule on an evicted one would
+                # stop matching (E6).
+                fd = os.open(f"/proc/{os.getpid()}", os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
+                os.set_inheritable(fd, True)
+                _add_rule(ruleset, FS_RIGHTS["read-file"] | FS_RIGHTS["read-dir"], fd)
+            _syscall(SYS_LANDLOCK_RESTRICT_SELF, ctypes.c_int(ruleset), ctypes.c_uint32(0))
+        except OSError as exc:
+            raise LaunchRefusedError(f"cannot apply the Landlock rules: {exc.strerror or exc}") from exc
+    finally:
+        os.close(ruleset)
 
 
 def run(argv: list[str]) -> None:

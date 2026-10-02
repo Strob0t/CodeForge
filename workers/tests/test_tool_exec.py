@@ -287,3 +287,179 @@ def test_the_helper_refuses_credentials_it_does_not_have(tmp_path: Path) -> None
     assert done.returncode == EXIT_REFUSED
     assert "uid" in done.stderr
     assert not marker.exists()
+
+
+# ---------------------------------------------------------------------------
+# Landlock (KI-96 D6)
+# ---------------------------------------------------------------------------
+
+
+def _landlock(**overrides: object) -> dict[str, object]:
+    value: dict[str, object] = {"rules": [], "scope": True, "min_abi": 2, "proc_self": False}
+    value.update(overrides)
+    return value
+
+
+@pytest.mark.parametrize(("abi", "bits"), [(1, 13), (2, 14), (3, 15), (4, 15), (5, 16), (6, 16), (7, 16)])
+def test_the_handled_rights_are_every_right_the_abi_knows(abi: int, bits: int) -> None:
+    assert tool_exec.handled_access(abi) == (1 << bits) - 1
+
+
+@pytest.mark.parametrize(("abi", "size"), [(1, 8), (2, 8), (3, 8), (4, 16), (5, 16), (6, 24), (7, 24)])
+def test_the_ruleset_attribute_grows_with_the_abi(abi: int, size: int) -> None:
+    attr = tool_exec.ruleset_attr(abi, tool_exec.handled_access(abi), 3)
+    assert len(attr) == size
+    assert int.from_bytes(attr[:8], "little") == tool_exec.handled_access(abi)
+    if abi >= 6:
+        assert int.from_bytes(attr[16:24], "little") == 3
+
+
+@pytest.mark.parametrize("missing", ["rules", "scope", "min_abi", "proc_self"])
+def test_every_landlock_field_is_mandatory(missing: str) -> None:
+    value = _landlock()
+    del value[missing]
+    with pytest.raises(LaunchRefusedError, match="landlock"):
+        tool_exec.apply_landlock(_spec(landlock=value))
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        [["/usr", ["fly"], True]],
+        [["/usr", "read-file", True]],
+        [["usr", ["read-file"], True]],
+        [["/usr", ["read-file"]]],
+        ["/usr"],
+    ],
+)
+def test_malformed_rules_are_refused(rules: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tool_exec, "landlock_abi", lambda: 7)
+    with pytest.raises(LaunchRefusedError, match="rule"):
+        tool_exec.apply_landlock(_spec(landlock=_landlock(rules=rules)))
+
+
+@pytest.mark.parametrize(("abi", "reason"), [(0, "no Landlock"), (1, "ABI 1")])
+def test_a_kernel_below_the_minimum_abi_runs_nothing(abi: int, reason: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tool_exec, "landlock_abi", lambda: abi)
+    with pytest.raises(LaunchRefusedError, match=reason):
+        tool_exec.apply_landlock(_spec(landlock=_landlock()))
+
+
+class _FakeLandlock:
+    """Records the Landlock system calls instead of making them."""
+
+    def __init__(self) -> None:
+        self.rules: list[tuple[int, int]] = []  # (allowed, inode of the rule's descriptor)
+        self.attr = b""
+        self.restricted = False
+
+    def syscall(self, number: int, *args: object) -> int:
+        if number == tool_exec.SYS_LANDLOCK_CREATE_RULESET:
+            self.attr = bytes(args[0])  # type: ignore[call-overload]
+            return os.open("/", os.O_PATH | os.O_CLOEXEC)
+        if number == tool_exec.SYS_LANDLOCK_ADD_RULE:
+            raw = bytes(args[2])  # type: ignore[call-overload]
+            allowed = int.from_bytes(raw[:8], "little")
+            fd = int.from_bytes(raw[8:12], "little", signed=True)
+            self.rules.append((allowed, os.fstat(fd).st_ino))
+            return 0
+        if number == tool_exec.SYS_LANDLOCK_RESTRICT_SELF:
+            self.restricted = True
+            return 0
+        raise AssertionError(number)
+
+
+@pytest.fixture
+def fake_landlock(monkeypatch: pytest.MonkeyPatch) -> _FakeLandlock:
+    fake = _FakeLandlock()
+    monkeypatch.setattr(tool_exec, "landlock_abi", lambda: 7)
+    monkeypatch.setattr(tool_exec, "_syscall", fake.syscall)
+    return fake
+
+
+def test_rules_are_masked_to_the_entry_type(tmp_path: Path, fake_landlock: _FakeLandlock) -> None:
+    directory = tmp_path / "d"
+    directory.mkdir()
+    file = tmp_path / "f"
+    file.write_text("x")
+    rules = [
+        [str(directory), ["read-file", "read-dir", "execute"], True],
+        [str(file), ["read-file", "read-dir", "execute", "make-dir"], True],
+        [str(tmp_path / "missing"), ["read-file"], False],
+    ]
+    tool_exec.apply_landlock(_spec(landlock=_landlock(rules=rules, scope=True)))
+    rights = tool_exec.FS_RIGHTS
+    assert fake_landlock.rules == [
+        (rights["read-file"] | rights["read-dir"] | rights["execute"], directory.stat().st_ino),
+        (rights["read-file"] | rights["execute"], file.stat().st_ino),
+    ]
+    assert fake_landlock.restricted
+    # Signals and abstract sockets are scoped (ABI 6+).
+    assert int.from_bytes(fake_landlock.attr[16:24], "little") == 3
+
+
+def test_a_required_rule_path_must_exist_without_a_symlink(tmp_path: Path, fake_landlock: _FakeLandlock) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "link").symlink_to(real)
+    for path in (f"{tmp_path}/link/sub", str(tmp_path / "link"), str(tmp_path / "missing")):
+        with pytest.raises(LaunchRefusedError):
+            tool_exec.apply_landlock(_spec(landlock=_landlock(rules=[[path, ["read-file"], True]])))
+    assert not fake_landlock.restricted
+
+
+def test_the_exec_targets_own_proc_entry_is_pinned_and_allowed(fake_landlock: _FakeLandlock) -> None:
+    before = set(os.listdir("/proc/self/fd"))
+    tool_exec.apply_landlock(_spec(landlock=_landlock(proc_self=True)))
+    rights = tool_exec.FS_RIGHTS
+    (allowed, inode) = fake_landlock.rules[-1]
+    assert allowed == rights["read-file"] | rights["read-dir"]
+    assert inode == os.stat(f"/proc/{os.getpid()}").st_ino
+    # The descriptor stays open across the exec: it pins the dentry for the command.
+    kept = {int(fd) for fd in set(os.listdir("/proc/self/fd")) - before}
+    kept = {fd for fd in kept if os.path.exists(f"/proc/self/fd/{fd}")}
+    assert len(kept) == 1
+    fd = kept.pop()
+    assert os.get_inheritable(fd)
+    os.close(fd)
+
+
+_CONFINED = """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("tool_exec", sys.argv[1])
+tool_exec = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tool_exec)
+tool_exec.apply_landlock({"landlock": json.loads(sys.argv[2])})
+for path in sys.argv[3:]:
+    try:
+        with open(path) as f:
+            f.read()
+        print(path, "read")
+    except OSError as exc:
+        print(path, exc.strerror)
+"""
+
+
+@pytest.mark.skipif(tool_exec.landlock_abi() < 2, reason="needs Landlock ABI 2 or later")
+def test_a_real_ruleset_confines_the_process(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    (allowed / "f").write_text("x")
+    (tmp_path / "denied").write_text("x")
+    rules = [["/usr", ["execute", "read-file", "read-dir"], True], [str(allowed), ["read-file", "read-dir"], True]]
+    if not sys.base_prefix.startswith("/usr/"):
+        rules.append([sys.base_prefix, ["execute", "read-file", "read-dir"], True])
+    value = {"rules": rules, "scope": True, "min_abi": 2, "proc_self": False}
+    done = subprocess.run(  # noqa: S603 - the test's own interpreter
+        [sys.executable, "-I", "-S", "-c", _CONFINED, TOOL_EXEC, json.dumps(value),
+         str(allowed / "f"), str(tmp_path / "denied"), "/etc/hostname"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )  # fmt: skip
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == [
+        f"{allowed / 'f'} read",
+        f"{tmp_path / 'denied'} Permission denied",
+        "/etc/hostname Permission denied",
+    ]

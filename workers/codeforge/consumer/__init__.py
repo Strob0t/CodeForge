@@ -84,6 +84,7 @@ from codeforge.tool_process import (
     IsolationConfig,
     IsolationStatus,
     configure_tool_isolation,
+    tool_isolation,
 )
 from codeforge.tracing import tracing_manager
 from codeforge.tracing.propagation import TracingJetStreamContext
@@ -539,12 +540,49 @@ def setup_tool_isolation(settings: WorkerSettings) -> IsolationStatus:
             workspace_root=config.workspace_root,
             home_base=config.home_base,
             tool_path=config.tool_path,
+            landlock=config.landlock,
+            landlock_abi=status.landlock_abi,
+            scoped=status.landlock_abi >= 6,
         )
+        _log_landlock_gaps(config, status)
     else:
-        logger.error("tool isolation required but not available: every tool call fails", reason=status.reason)
+        logger.error(
+            "tool isolation required but not available: every tool call fails and the worker is not ready",
+            reason=status.reason,
+        )
     if lock_secrets_dir():
         logger.info("secrets directory locked after reading the secrets", path=str(SECRETS_DIR))
     return status
+
+
+def _log_landlock_gaps(config: IsolationConfig, status: IsolationStatus) -> None:
+    """What the kernel's Landlock ABI leaves open, once at startup."""
+    if not config.confined:
+        logger.warning(
+            "Landlock is off (CODEFORGE_TOOL_LANDLOCK=off): tool command lines and /proc are readable across "
+            "tenants; for development only"
+        )
+        return
+    if status.landlock_abi < 3:
+        logger.warning(
+            "Landlock ABI below 3 does not handle truncate: tools can truncate files of their tenant's other "
+            "projects (other tenants stay separated by file permissions)",
+            landlock_abi=status.landlock_abi,
+        )
+    if status.landlock_abi < 6:
+        logger.warning(
+            "Landlock ABI below 6 has no scopes: abstract unix sockets and signals between a tenant's runs are "
+            "not separated",
+            landlock_abi=status.landlock_abi,
+        )
+
+
+def isolation_problem() -> str:
+    """Why tool processes cannot start ("" when they can or isolation is off): the worker is then not ready."""
+    status = tool_isolation()
+    if not status.config.required or status.ready:
+        return ""
+    return f"tool isolation not ready: {status.reason}"
 
 
 async def main() -> None:
@@ -574,9 +612,10 @@ async def main() -> None:
     try:
         health = start_health_server(
             settings.health_port,
-            lambda: consumer.ready,
+            # A worker whose tool processes cannot be isolated is not ready (KI-96 D12).
+            lambda: consumer.ready and not isolation_problem(),
             # Not ready before the consumer starts: starting.
-            describe=lambda: "not ready" if started.is_set() else "starting",
+            describe=lambda: isolation_problem() or ("not ready" if started.is_set() else "starting"),
         )
     except (OSError, OverflowError) as exc:
         logger.error("health server failed to start", port=settings.health_port, error=str(exc))

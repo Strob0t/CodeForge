@@ -21,13 +21,14 @@ import random
 import stat
 import string
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from codeforge import posix_acl, tool_identity, tool_process
+from codeforge import landlock, posix_acl, tool_identity, tool_process
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_identity import ToolIdentity, current_identity
 from codeforge.tool_process import (
@@ -191,6 +192,9 @@ def test_isolation_config_from_settings(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("CODEFORGE_TOOL_HOME_BASE", "/home/tools")
     monkeypatch.setenv("CODEFORGE_TOOL_PATH", "/opt/bin:/usr/bin")
     monkeypatch.setenv("CODEFORGE_WORKSPACE_GID", "20010")
+    for name in ("CODEFORGE_TOOL_LANDLOCK", "CODEFORGE_TOOL_LANDLOCK_MIN_ABI", "CODEFORGE_TOOL_READ_PATHS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("APP_ENV", "development")
     config = IsolationConfig.from_settings(WorkerSettings())
     assert config == IsolationConfig(
         mode="required",
@@ -198,7 +202,22 @@ def test_isolation_config_from_settings(monkeypatch: pytest.MonkeyPatch) -> None
         home_base="/home/tools",
         tool_path="/opt/bin:/usr/bin",
         workspace_gid=20010,
+        landlock="required",  # follows isolation
+        landlock_min_abi=2,
     )
+
+    monkeypatch.setenv("CODEFORGE_TOOL_LANDLOCK", "off")
+    monkeypatch.setenv("CODEFORGE_TOOL_LANDLOCK_MIN_ABI", "6")
+    monkeypatch.setenv("CODEFORGE_TOOL_READ_PATHS", "/opt:/app/.venv")
+    monkeypatch.setenv("APP_ENV", "production")
+    config = IsolationConfig.from_settings(WorkerSettings())
+    assert (config.landlock, config.landlock_min_abi, config.read_paths, config.production) == (
+        "off",
+        6,
+        ("/opt", "/app/.venv"),
+        True,
+    )
+    assert not config.confined
 
 
 def test_isolation_defaults_to_off(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,17 +267,48 @@ async def test_required_starts_the_command_as_the_tenants_tool_user(
     assert kwargs["env"] == LAUNCHER_ENV
     # The worker never changes into a directory a tool can write: the helper does.
     assert kwargs["cwd"] == "/"
-    assert kwargs["spec"] == {
+    spec = dict(kwargs["spec"])  # type: ignore[call-overload]
+    confinement = spec.pop("landlock")
+    assert spec == {
         "uid": 20007,
         "gid": 20007,
         "groups": [],
         "umask": 0o007,
         "env": {"PATH": "/bin"},
-        "landlock": "off",
         "prepare": ["tmp/tok1"],
         "home": "/home/codeforge-tools/20007",
         "cwd": "/ws",
     }
+    # Confined by Landlock to its workspace, its HOME and the system (KI-96 D6).
+    assert confinement == landlock.spec_value("required", IDENT, min_abi=2, interpreter_prefix=sys.base_prefix)
+
+
+async def test_landlock_off_is_written_as_off(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    config = IsolationConfig(mode="required", workspace_root="/data/workspaces", landlock="off")
+    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
+    identity(IDENT)
+    await start_tool_process("true", env={})
+    assert spawns[0][1]["spec"]["landlock"] == "off"  # type: ignore[index]
+
+
+async def test_operator_read_paths_and_the_walker_files_are_readable(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    config = IsolationConfig(mode="required", workspace_root="/data/workspaces", read_paths=("/opt",))
+    isolation(IsolationStatus(config=config, ready=True, launcher=LAUNCHER, interpreter=INTERPRETER))
+    identity(IDENT)
+    proc = await start_tool_process("true", env={}, cwd="/ws")
+    await proc.wait()
+    command, walker = (kwargs["spec"]["landlock"]["rules"] for _a, kwargs in spawns)  # type: ignore[index]
+    assert ["/opt", ["execute", "read-file", "read-dir"], True] in command
+    walk_files = {rule[0] for rule in walker if rule[1] == ["read-file"] and rule[2]}
+    assert walk_files == {TOOL_WALK, str(Path(TOOL_WALK).with_name("posix_acl.py"))}
 
 
 async def test_an_explicit_identity_overrides_the_current_one(
@@ -646,8 +696,29 @@ NoNewPrivs:\t1
 """
 
 
+_PROBE_OK = _STATUS_OK + "cf-ok home\ncf-ok tmp\ncf-ok python3\ncf-ok git\n"
+_EXPECTED = ("home", "tmp", "python3", "git")
+
+
 def test_probe_of_an_isolated_tool_process_passes() -> None:
     assert probe_problems(_STATUS_OK, 19999) == []
+    assert probe_problems(_PROBE_OK, 19999, _EXPECTED) == []
+
+
+@pytest.mark.parametrize("missing", _EXPECTED)
+def test_probe_finds_what_a_tool_cannot_do(missing: str) -> None:
+    """E15: a tool PATH whose python3 cannot run under Landlock (the worker's venv) fails the check."""
+    problems = probe_problems(_PROBE_OK.replace(f"cf-ok {missing}\n", ""), 19999, _EXPECTED)
+    assert any(missing in p for p in problems), problems
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["cf-readable /proc/1/cmdline", "cf-readable /dev/shm", "cf-readable /var/lib/codeforge/landlock-canary",
+     "cf-writable /tmp/cf-probe-x"],
+)  # fmt: skip
+def test_probe_finds_what_landlock_let_through(line: str) -> None:
+    assert probe_problems(_PROBE_OK + line + "\n", 19999, _EXPECTED)
 
 
 @pytest.mark.parametrize(
@@ -724,12 +795,56 @@ def test_check_required_without_launcher_is_not_ready(monkeypatch: pytest.Monkey
 
 @pytest.fixture
 def checkable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A worker that could isolate: launcher, capabilities, volumes, the system HOME."""
+    """A worker that could isolate: launcher, capabilities, volumes, the system HOME, Landlock ABI 7."""
     monkeypatch.setattr(tool_process.shutil, "which", lambda *_a, **_k: LAUNCHER)
     monkeypatch.setattr(tool_process, "_is_root", lambda: False)
     monkeypatch.setattr(tool_process, "_own_status", lambda: _WORKER_STATUS.format(amb="00000000000000e0"))
     monkeypatch.setattr(tool_process, "volume_problems", lambda _config: [])
     monkeypatch.setattr(tool_identity, "tenant_home", lambda base, uid: f"{base}/{uid}")
+    monkeypatch.setattr(landlock, "kernel_abi", lambda: 7)
+    monkeypatch.setattr(tool_process, "_scope_problem", lambda _status, _identity: "")
+    monkeypatch.setattr(tool_process, "_run_probe", lambda launch, _timeout: launch.close() or _PROBE_OK)
+
+
+@pytest.mark.parametrize(
+    ("config", "reason"),
+    [
+        (IsolationConfig(mode="required", workspace_root="/w", landlock="off", production=True), "APP_ENV=production"),
+        (IsolationConfig(mode="required", workspace_root="/w", landlock_min_abi=8), "ABI 7"),
+        (IsolationConfig(mode="required", workspace_root="/w", read_paths=("/run/secrets",)), "READ_PATHS"),
+    ],
+)
+def test_landlock_settings_that_make_isolation_not_ready(config: IsolationConfig, reason: str, checkable: None) -> None:
+    status = check_tool_isolation(config)
+    assert not status.ready
+    assert reason in status.reason
+
+
+def test_landlock_off_outside_production_is_ready(checkable: None) -> None:
+    status = check_tool_isolation(IsolationConfig(mode="required", workspace_root="/w", landlock="off"))
+    assert status.ready, status.reason
+    assert status.landlock_abi == 0
+
+
+def test_a_kernel_without_scopes_is_ready_without_the_scope_check(
+    checkable: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(landlock, "kernel_abi", lambda: 5)
+
+    def no_scope_check(_status: object, _identity: object) -> str:
+        raise AssertionError("ABI 5 has no scopes")
+
+    monkeypatch.setattr(tool_process, "_scope_problem", no_scope_check)
+    status = check_tool_isolation(CONFIG)
+    assert status.ready, status.reason
+    assert status.landlock_abi == 5
+
+
+def test_an_unscoped_signal_makes_isolation_not_ready(checkable: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tool_process, "_scope_problem", lambda _s, _i: "a tool process can signal another domain")
+    status = check_tool_isolation(CONFIG)
+    assert not status.ready
+    assert "signal" in status.reason
 
 
 def test_check_required_without_capabilities_is_not_ready(checkable: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -754,20 +869,27 @@ def test_check_required_runs_the_probe_as_the_system_tool_user(
     def fake_probe(launch: tool_process.Launch, _timeout: float) -> str:
         probes.append((launch.argv, read_spec({"pass_fds": launch.pass_fds})))
         launch.close()
-        return _STATUS_OK
+        return _PROBE_OK
 
     monkeypatch.setattr(tool_process, "_run_probe", fake_probe)
     status = check_tool_isolation(CONFIG)
     assert status.ready, status.reason
+    assert status.landlock_abi == 7
     argv, spec = probes[0]
     assert argv[: len(_prefix(19999))] == _prefix(19999)
-    assert f"/proc/{os.getpid()}/environ" in argv
+    # It must not reach the worker's environment and command line, /dev/shm's listing.
+    for path in (f"/proc/{os.getpid()}/environ", f"/proc/{os.getpid()}/cmdline", "/dev/shm"):
+        assert path in argv
     assert spec is not None
     assert spec["uid"] == 19999
     assert spec["groups"] == []
     assert spec["home"] == "/home/codeforge-tools/19999"
+    assert isinstance(spec["landlock"], dict)
+    # The real tool environment: the tool PATH and the identity's HOME.
+    assert spec["env"]["PATH"].startswith(TOOL_PATH)  # type: ignore[index]
+    assert spec["env"]["CF_PROBE_TMP"].startswith("/tmp/")  # type: ignore[index]
 
-    monkeypatch.setattr(tool_process, "_run_probe", lambda *_a: _STATUS_OK.replace("NoNewPrivs:\t1", "NoNewPrivs:\t0"))
+    monkeypatch.setattr(tool_process, "_run_probe", lambda *_a: _PROBE_OK.replace("NoNewPrivs:\t1", "NoNewPrivs:\t0"))
     status = check_tool_isolation(CONFIG)
     assert not status.ready
     assert "no_new_privs" in status.reason

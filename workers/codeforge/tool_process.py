@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from codeforge import landlock as landlock_rules
 from codeforge import posix_acl
 from codeforge.tool_identity import (
     DEFAULT_HOME_BASE,
@@ -100,13 +101,31 @@ _LAUNCHER = "setpriv"
 TOOL_EXEC = str(Path(__file__).resolve().with_name("tool_exec.py"))
 # The sharing pass, run as the tenant's tool UID (KI-96 D8).
 TOOL_WALK = str(Path(__file__).resolve().with_name("tool_walk.py"))
+# What the walker reads as a program (Landlock read rules of its launches).
+WALKER_FILES = (TOOL_WALK, str(Path(TOOL_WALK).with_name("posix_acl.py")))
 _SHELL = "/bin/sh"
 _PROBE_TIMEOUT_SECONDS = 10.0
 _PROBE_PATH = "/usr/local/bin:/usr/bin:/bin"
 _READABLE_MARKER = "cf-readable "
+_WRITABLE_MARKER = "cf-writable "
+_OK_MARKER = "cf-ok "
+# The programs the probe runs with the real tool environment when the tool
+# PATH has them: a PATH whose python3 cannot run under Landlock (the worker's
+# venv, E15) fails the check instead of every tool call.
+_PROBE_PROGRAMS = {"python3": "python3 -c pass", "git": "git --version"}
 # Run as the system tool user by the isolation check: the process status of
-# the tool process (cat inherits its credentials), then every path it can read.
-_PROBE_SCRIPT = f"""cat /proc/self/status
+# the tool process (the shell's own: Landlock lets only the exec target read
+# its /proc entry), what it must be able to do, then every path it can read
+# (and must not).
+_PROBE_SCRIPT = f"""cat /proc/$$/status
+touch "$HOME/.cf-probe" && rm -f "$HOME/.cf-probe" && echo "{_OK_MARKER}home"
+touch "$TMPDIR/.cf-probe" && rm -f "$TMPDIR/.cf-probe" && echo "{_OK_MARKER}tmp"
+for program in $CF_PROBE_PROGRAMS; do
+  case "$program" in
+    python3) python3 -c pass >/dev/null 2>&1 && echo "{_OK_MARKER}python3" ;;
+    git) git --version >/dev/null 2>&1 && echo "{_OK_MARKER}git" ;;
+  esac
+done
 for path in "$@"; do
   if [ -d "$path" ]; then
     ls -- "$path" >/dev/null 2>&1 && echo "{_READABLE_MARKER}$path"
@@ -114,6 +133,10 @@ for path in "$@"; do
     echo "{_READABLE_MARKER}$path"
   fi
 done
+if [ -n "$CF_PROBE_TMP" ] && touch "$CF_PROBE_TMP" 2>/dev/null; then
+  rm -f "$CF_PROBE_TMP"
+  echo "{_WRITABLE_MARKER}$CF_PROBE_TMP"
+fi
 exit 0
 """
 
@@ -152,19 +175,33 @@ class IsolationConfig:
     home_base: str = DEFAULT_HOME_BASE
     tool_path: str = DEFAULT_TOOL_PATH
     workspace_gid: int = WORKSPACE_GID
+    # Landlock per tool call (codeforge.landlock): "required" or "off".
+    landlock: str = landlock_rules.LANDLOCK_REQUIRED
+    landlock_min_abi: int = landlock_rules.DEFAULT_MIN_ABI
+    read_paths: tuple[str, ...] = ()
+    production: bool = False
 
     @property
     def required(self) -> bool:
         return self.mode == ISOLATION_REQUIRED
 
+    @property
+    def confined(self) -> bool:
+        return self.required and self.landlock != landlock_rules.LANDLOCK_OFF
+
     @classmethod
     def from_settings(cls, settings: WorkerSettings) -> IsolationConfig:
+        mode = parse_isolation_mode(settings.tool_isolation)
         return cls(
-            mode=parse_isolation_mode(settings.tool_isolation),
+            mode=mode,
             workspace_root=os.path.normpath(settings.workspace_root) if settings.workspace_root else "",
             home_base=settings.tool_home_base,
             tool_path=settings.tool_path,
             workspace_gid=settings.workspace_gid,
+            landlock=landlock_rules.parse_mode(settings.tool_landlock, mode),
+            landlock_min_abi=settings.tool_landlock_min_abi,
+            read_paths=landlock_rules.parse_read_paths(settings.tool_read_paths),
+            production=settings.app_env.strip().lower() == "production",
         )
 
 
@@ -224,6 +261,8 @@ class IsolationStatus:
     reason: str = ""
     launcher: str = ""
     interpreter: str = ""
+    # The kernel's Landlock ABI tool processes are confined with (0: not confined).
+    landlock_abi: int = 0
 
     def launch_prefix(self, identity: ToolIdentity) -> list[str]:
         """The setpriv command line that runs the command after it as *identity* (tenant UIDs: in no group)."""
@@ -239,26 +278,43 @@ class IsolationStatus:
             "--",
         ]
 
-    def spec(self, env: Mapping[str, str], cwd: str | None, identity: ToolIdentity) -> dict[str, object]:
-        """The launch spec the helper reads: who it must run as, the environment, where, what to prepare."""
+    def spec(
+        self, env: Mapping[str, str], cwd: str | None, identity: ToolIdentity, files: tuple[str, ...] = ()
+    ) -> dict[str, object]:
+        """The launch spec the helper reads: who it must run as, the environment, where, what to prepare,
+        what Landlock lets it use (*files*: programs it reads, as the walker)."""
         return {
             "uid": identity.uid,
             "gid": identity.gid,
             "groups": list(identity.groups),
             "umask": TOOL_UMASK,
             "env": {name: value for name, value in env.items() if name and "=" not in name},
-            "landlock": "off",
+            "landlock": landlock_rules.spec_value(
+                self.config.landlock,
+                identity,
+                min_abi=self.config.landlock_min_abi,
+                interpreter_prefix=sys.base_prefix,
+                read_paths=self.config.read_paths,
+                files=files,
+            ),
             "prepare": identity.prepare(),
             "home": identity.home or None,
             "cwd": os.path.normpath(cwd) if cwd is not None else None,
         }
 
-    def launch(self, argv: Sequence[str], env: Mapping[str, str], cwd: str | None, identity: ToolIdentity) -> Launch:
+    def launch(
+        self,
+        argv: Sequence[str],
+        env: Mapping[str, str],
+        cwd: str | None,
+        identity: ToolIdentity,
+        files: tuple[str, ...] = (),
+    ) -> Launch:
         """Run *argv* as *identity* with exactly the environment *env* in *cwd*.
 
         Nothing of *env* is an argument: it is in the spec on the memfd.
         """
-        fd = write_spec(self.spec(env, cwd, identity))
+        fd = write_spec(self.spec(env, cwd, identity, files))
         argv = [*self.launch_prefix(identity), self.interpreter, "-I", "-S", TOOL_EXEC, str(fd), *argv]
         return Launch(
             argv=argv,
@@ -307,13 +363,20 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
 
     Required isolation checks the volumes (the workspace root is the
     worker's with mode 2771, its state directory, the HOME base volume, POSIX
-    ACL support on both) and starts a tool process as the system tool user:
-    it must run as uid and gid 19999 without any group or capability, with
-    no_new_privs and umask 007, and must not be able to read the worker's
-    environment or secret files.
+    ACL support on both), the Landlock settings and the kernel's ABI, and
+    starts a tool process as the system tool user, confined as every tool
+    process is: it must run as uid and gid 19999 without any group or
+    capability, with no_new_privs and umask 007, write its HOME and TMPDIR,
+    run the tool PATH's python3 and git, and must not be able to read the
+    worker's environment, command line or secret files, list /dev/shm, read
+    the canary or create a file in /tmp. With ABI 6 or later a second tool
+    process must not be able to signal the first one.
     """
     if not config.required:
         return IsolationStatus(config=config, ready=True)
+    problem = _landlock_problem(config)
+    if problem:
+        return _not_ready(config, problem)
     launcher = shutil.which(_LAUNCHER, path=_PROBE_PATH)
     if launcher is None:
         return _not_ready(config, "setpriv (util-linux) is not installed")
@@ -326,9 +389,11 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
     problems = volume_problems(config)
     if problems:
         return _not_ready(config, "; ".join(problems))
-    status = IsolationStatus(config=config, ready=True, launcher=launcher, interpreter=interpreter)
+    abi = landlock_rules.kernel_abi() if config.confined else 0
+    status = IsolationStatus(config=config, ready=True, launcher=launcher, interpreter=interpreter, landlock_abi=abi)
+    programs = tuple(name for name in _PROBE_PROGRAMS if shutil.which(name, path=config.tool_path))
     try:
-        from codeforge.tool_identity import tenant_home
+        from codeforge.tool_identity import identity_env, tenant_home
 
         identity = ToolIdentity(
             tenant_id="",
@@ -336,16 +401,76 @@ def check_tool_isolation(config: IsolationConfig) -> IsolationStatus:
             home=tenant_home(config.home_base, SYSTEM_TOOL_UID),
             work_id=new_work_id(),
         )
+        env = {**identity_env(identity, config.tool_path), "CF_PROBE_PROGRAMS": " ".join(programs)}
+        if config.confined:
+            env["CF_PROBE_TMP"] = f"/tmp/cf-probe-{new_work_id()}"  # noqa: S108 - must not be creatable
         launch = status.launch(
-            [_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths()], _LAUNCHER_ENV, "/", identity
+            [_SHELL, "-c", _PROBE_SCRIPT, "cf-isolation-check", *_probe_paths(config)], env, "/", identity
         )
         output = _run_probe(launch, _PROBE_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError) as exc:
         return _not_ready(config, f"the isolation check could not start a tool process: {exc}")
-    problems = probe_problems(output, SYSTEM_TOOL_UID)
+    problems = probe_problems(output, SYSTEM_TOOL_UID, ("home", "tmp", *programs))
     if problems:
         return _not_ready(config, "a tool process " + "; ".join(problems))
+    if abi >= _ABI_SCOPES:
+        problem = _scope_problem(status, identity)
+        if problem:
+            return _not_ready(config, problem)
     return status
+
+
+# Landlock scopes signals and abstract unix sockets from ABI 6 on.
+_ABI_SCOPES = 6
+
+
+def _landlock_problem(config: IsolationConfig) -> str:
+    """Why the Landlock settings or the kernel keep tool processes from being confined; "" if they do not."""
+    if not config.confined:
+        if config.production:
+            return (
+                "CODEFORGE_TOOL_LANDLOCK=off is not allowed with APP_ENV=production: tool command lines and "
+                "/proc would be readable across tenants"
+            )
+        return ""
+    abi = landlock_rules.kernel_abi()
+    if abi < config.landlock_min_abi:
+        found = f"Landlock ABI {abi}" if abi else "no Landlock (kernel, lsm= list or a seccomp profile)"
+        return (
+            f"{found} found, CODEFORGE_TOOL_LANDLOCK_MIN_ABI is {config.landlock_min_abi}: use a kernel with "
+            "Landlock enabled (5.19 or later) and Docker 23 or later"
+        )
+    problems = landlock_rules.read_path_problems(config.read_paths)
+    return "; ".join(problems)
+
+
+def _scope_problem(status: IsolationStatus, identity: ToolIdentity) -> str:
+    """With scopes, a tool process must not signal another one of its UID (a sibling Landlock domain)."""
+    sleeper_launch = status.launch(["sleep", "30"], {"PATH": _PROBE_PATH}, "/", identity)
+    try:
+        sleeper = subprocess.Popen(  # noqa: S603 - fixed launcher and program
+            sleeper_launch.argv,
+            env=sleeper_launch.env,
+            cwd=sleeper_launch.cwd,
+            umask=TOOL_UMASK,
+            pass_fds=sleeper_launch.pass_fds,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    finally:
+        sleeper_launch.close()
+    try:
+        script = f"if kill -0 {sleeper.pid} 2>/dev/null; then echo allowed; else echo denied; fi"
+        output = _run_probe(status.launch([_SHELL, "-c", script], {"PATH": _PROBE_PATH}, "/", identity), 10.0)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"the isolation check could not start a tool process: {exc}"
+    finally:
+        sleeper.kill()  # the worker's own child, started above
+        sleeper.wait()
+    if output.strip() != "denied":
+        return "a tool process can signal a tool process of another Landlock domain: signals are not scoped"
+    return ""
 
 
 def volume_problems(config: IsolationConfig) -> list[str]:
@@ -429,11 +554,17 @@ def worker_capability_problems(status_text: str, *, root: bool = False) -> list[
     return problems
 
 
-def _probe_paths() -> list[str]:
-    """What a tool process must not read: the worker's environment and secret files."""
+def _probe_paths(config: IsolationConfig) -> list[str]:
+    """What a tool process must not read: the worker's environment and secret files; when
+    confined also the worker's command line (readable for every UID by DAC), the /dev/shm
+    listing and the canary."""
     from codeforge.secrets import SECRETS_DIR
 
     paths = [f"/proc/{os.getpid()}/environ"]
+    if config.confined:
+        paths += [f"/proc/{os.getpid()}/cmdline", "/dev/shm"]  # noqa: S108 - must not be listable
+        if os.path.exists(landlock_rules.CANARY):
+            paths.append(landlock_rules.CANARY)
     if SECRETS_DIR.is_dir():
         paths.append(str(SECRETS_DIR))
         with contextlib.suppress(OSError):  # the worker cannot list it either (locked)
@@ -462,9 +593,16 @@ def _run_probe(launch: Launch, timeout: float) -> str:
     return completed.stdout
 
 
-def probe_problems(output: str, uid: int) -> list[str]:
-    """What is wrong with a tool process of *uid*, from the output of the isolation check's probe."""
-    readable = [line[len(_READABLE_MARKER) :] for line in output.splitlines() if line.startswith(_READABLE_MARKER)]
+def probe_problems(output: str, uid: int, expected: Sequence[str] = ()) -> list[str]:
+    """What is wrong with a tool process of *uid*, from the output of the isolation check's probe.
+
+    *expected* names what it must have managed (``cf-ok <name>``: its HOME,
+    its TMPDIR, the tool PATH's programs).
+    """
+    lines = output.splitlines()
+    readable = [line[len(_READABLE_MARKER) :] for line in lines if line.startswith(_READABLE_MARKER)]
+    writable = [line[len(_WRITABLE_MARKER) :] for line in lines if line.startswith(_WRITABLE_MARKER)]
+    done = {line[len(_OK_MARKER) :].strip() for line in lines if line.startswith(_OK_MARKER)}
     fields = _status_fields(output)
     if "Uid" not in fields or "Gid" not in fields:
         return ["reported no process status"]
@@ -484,7 +622,17 @@ def probe_problems(output: str, uid: int) -> list[str]:
     if "Umask" in fields and int(fields["Umask"], 8) != TOOL_UMASK:
         problems.append(f"runs with umask {fields['Umask']}, expected {TOOL_UMASK:04o}")
     problems.extend(f"can read {path}" for path in readable)
+    problems.extend(f"can create {path}" for path in writable)
+    problems.extend(_PROBE_FAILURES.get(name, f"cannot {name}") for name in expected if name not in done)
     return problems
+
+
+_PROBE_FAILURES = {
+    "home": "cannot write its home directory (HOME)",
+    "tmp": "cannot write its tmp directory (TMPDIR)",
+    "python3": "cannot run python3 from the tool PATH (CODEFORGE_TOOL_PATH; a venv interpreter cannot run confined)",
+    "git": "cannot run git from the tool PATH (CODEFORGE_TOOL_PATH)",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -782,7 +930,7 @@ def _share_launch(root: str, identity: ToolIdentity | None, since: float | None)
     argv = [status.interpreter, "-I", "-S", TOOL_WALK, "share", root]
     if since is not None:
         argv += ["--since", repr(since)]
-    return status.launch(argv, {"PATH": _PROBE_PATH}, None, identity)
+    return status.launch(argv, {"PATH": _PROBE_PATH}, None, identity.with_workspace(root), files=WALKER_FILES)
 
 
 def _log_share(root: str, returncode: int | None, out: str, err: str) -> None:
@@ -834,7 +982,9 @@ def run_walker(identity: ToolIdentity, args: Sequence[str]) -> subprocess.Comple
     status = tool_isolation()
     if not status.config.required or not status.ready:
         raise ToolIsolationError(f"tool isolation is not ready: {status.reason}")
-    launch = status.launch([status.interpreter, "-I", "-S", TOOL_WALK, *args], {"PATH": _PROBE_PATH}, None, identity)
+    launch = status.launch(
+        [status.interpreter, "-I", "-S", TOOL_WALK, *args], {"PATH": _PROBE_PATH}, None, identity, files=WALKER_FILES
+    )
     try:
         return subprocess.run(  # noqa: S603 - fixed program
             launch.argv,

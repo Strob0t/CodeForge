@@ -26,7 +26,13 @@ _RM_ROOT_RE = re.compile(rf"rm -(?:rf|fr) /(?:[/.*]*|(?:{_SYSTEM_DIRS})/?\*?)(?=
 
 DEFINITION = ToolDefinition(
     name="bash",
-    description="Execute a bash command and return stdout and stderr. Runs in the workspace directory.",
+    description=(
+        "Execute a bash command and return stdout and stderr. Runs in the workspace directory. "
+        "On isolated deployments the command is sandboxed: it can write only the workspace and its HOME "
+        "(TMPDIR is below HOME, /tmp is not usable) and cannot see other processes, so ps, pgrep, pkill, top, "
+        "df and ss do not work; stop your own background jobs with kill <pid> or kill %1. Background processes "
+        "end when the work item ends."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -51,6 +57,7 @@ DEFINITION = ToolDefinition(
         "Running interactive commands that wait for input (use non-interactive flags)",
         "Forgetting timeout for long-running commands — set timeout explicitly",
         "Using bash for file reading/searching when read_file or search_files would be better",
+        "Writing to /tmp or calling ps/pkill on an isolated deployment (use $TMPDIR and kill <pid>)",
     ],
     examples=[
         ToolExample(
