@@ -8,8 +8,9 @@ import (
 	"time"
 )
 
-// KI-85: a delivery ID is remembered for webhook.delivery_retention, so a
-// redelivered or replayed event is handled once.
+// KI-85: a delivery (body and delivery ID) is remembered for
+// webhook.delivery_retention, so a redelivery or replay within it is handled
+// once.
 func TestWebhook_DeliveryRetention(t *testing.T) {
 	if got := Defaults().Webhook.DeliveryRetention; got != 7*24*time.Hour {
 		t.Fatalf("default delivery_retention = %s, want 168h", got)

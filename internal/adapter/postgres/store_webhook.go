@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -124,33 +125,55 @@ func (s *Store) DeleteWebhookEndpoint(ctx context.Context, projectID, id string)
 	return execExpectOne(tag, err, "delete webhook %s", id)
 }
 
-// ClaimWebhookDelivery records a delivery ID for a webhook of the caller's
-// tenant and reports whether it is new. The webhook's claims older than
-// retention are pruned first, which bounds the table by what the webhook
-// receives within the retention.
-func (s *Store) ClaimWebhookDelivery(ctx context.Context, webhookID, deliveryID string, retention time.Duration) (bool, error) {
+// ClaimWebhookDelivery records the keys of a delivery for a webhook of the
+// caller's tenant and reports whether none of them was claimed before. All
+// or none: when one key was claimed, nothing is recorded. The webhook's
+// claims older than retention are pruned first, which bounds the table by
+// what the webhook receives within the retention.
+func (s *Store) ClaimWebhookDelivery(ctx context.Context, webhookID string, keys []string, retention time.Duration) (claimed bool, err error) {
+	keys = slices.Compact(slices.Sorted(slices.Values(keys)))
+	if len(keys) == 0 {
+		return true, nil
+	}
 	tid := tenantFromCtx(ctx)
-	if _, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("claim delivery of webhook %s: %w", webhookID, err)
+	}
+	defer func() {
+		if !claimed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx,
 		`DELETE FROM webhook_deliveries WHERE webhook_id = $1 AND tenant_id = $2 AND received_at < now() - $3::interval`,
 		webhookID, tid, retention); err != nil {
 		return false, fmt.Errorf("prune deliveries of webhook %s: %w", webhookID, err)
 	}
-	tag, err := s.pool.Exec(ctx,
-		`INSERT INTO webhook_deliveries (webhook_id, delivery_id, tenant_id) VALUES ($1, $2, $3)
-		 ON CONFLICT (webhook_id, delivery_id) DO NOTHING`,
-		webhookID, deliveryID, tid)
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO webhook_deliveries (webhook_id, delivery_key, tenant_id)
+		 SELECT $1, k, $3 FROM unnest($2::text[]) AS k
+		 ON CONFLICT (webhook_id, delivery_key) DO NOTHING`,
+		webhookID, keys, tid)
 	if err != nil {
-		return false, fmt.Errorf("claim delivery %s of webhook %s: %w", deliveryID, webhookID, err)
+		return false, fmt.Errorf("claim delivery of webhook %s: %w", webhookID, err)
 	}
-	return tag.RowsAffected() == 1, nil
+	if tag.RowsAffected() != int64(len(keys)) {
+		return false, nil // claimed before: the rollback drops the new keys
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("claim delivery of webhook %s: %w", webhookID, err)
+	}
+	return true, nil
 }
 
-// ReleaseWebhookDelivery forgets a delivery claim of the caller's tenant.
-func (s *Store) ReleaseWebhookDelivery(ctx context.Context, webhookID, deliveryID string) error {
+// ReleaseWebhookDelivery forgets the keys of a delivery of a webhook of the
+// caller's tenant.
+func (s *Store) ReleaseWebhookDelivery(ctx context.Context, webhookID string, keys []string) error {
 	if _, err := s.pool.Exec(ctx,
-		`DELETE FROM webhook_deliveries WHERE webhook_id = $1 AND delivery_id = $2 AND tenant_id = $3`,
-		webhookID, deliveryID, tenantFromCtx(ctx)); err != nil {
-		return fmt.Errorf("release delivery %s of webhook %s: %w", deliveryID, webhookID, err)
+		`DELETE FROM webhook_deliveries WHERE webhook_id = $1 AND delivery_key = ANY($2::text[]) AND tenant_id = $3`,
+		webhookID, keys, tenantFromCtx(ctx)); err != nil {
+		return fmt.Errorf("release delivery of webhook %s: %w", webhookID, err)
 	}
 	return nil
 }

@@ -20,16 +20,19 @@ CREATE TABLE webhook_endpoints (
 
 CREATE INDEX idx_webhook_endpoints_tenant_project ON webhook_endpoints(tenant_id, project_id);
 
--- The delivery IDs a webhook handled (X-GitHub-Delivery, X-Gitlab-Event-UUID,
--- X-Plane-Delivery), so a redelivered or replayed event is handled once.
--- Claims older than webhook.delivery_retention are pruned when the webhook
--- receives its next delivery.
+-- The deliveries a webhook handled, each by two keys: the SHA-256 of its body
+-- ("body:<hex>") and its delivery ID ("id:<X-GitHub-Delivery,
+-- X-Gitlab-Event-UUID or X-Plane-Delivery>"). A provider's redelivery shares
+-- both, a replay of a signed delivery its body (the signature covers only the
+-- body, not the delivery-ID header), so either is handled once within
+-- webhook.delivery_retention. Claims older than that are pruned when the
+-- webhook receives its next delivery.
 CREATE TABLE webhook_deliveries (
-    webhook_id  UUID        NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
-    delivery_id TEXT        NOT NULL,
-    tenant_id   UUID        NOT NULL,
-    received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (webhook_id, delivery_id)
+    webhook_id   UUID        NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
+    delivery_key TEXT        NOT NULL,
+    tenant_id    UUID        NOT NULL,
+    received_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (webhook_id, delivery_key)
 );
 
 CREATE INDEX idx_webhook_deliveries_received ON webhook_deliveries(webhook_id, received_at);

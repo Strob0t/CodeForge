@@ -223,8 +223,9 @@ func (s *WebhookService) Delete(ctx context.Context, projectID, id string) error
 // Receive handles a delivery to the webhook id, addressed as kind and
 // provider. It authenticates the delivery with the webhook's own secret
 // (ErrWebhookUnauthorized otherwise), handles it in the webhook's tenant
-// for the webhook's project, and handles a delivery ID once. ctx's tenant,
-// whatever set it, is replaced by the webhook's.
+// for the webhook's project, and handles a delivery once within the
+// retention (deliveryKeys). ctx's tenant, whatever set it, is replaced by
+// the webhook's.
 func (s *WebhookService) Receive(ctx context.Context, kind webhook.Kind, provider, id string, d *webhook.Delivery) (*webhook.InboundResult, error) {
 	e, err := s.authenticate(ctx, kind, provider, id, d)
 	if err != nil {
@@ -236,30 +237,51 @@ func (s *WebhookService) Receive(ctx context.Context, kind webhook.Kind, provide
 		return nil, fmt.Errorf("webhook %s: project %s: %w", e.ID, e.ProjectID, err)
 	}
 
-	deliveryID := storedDeliveryID(d.DeliveryID)
-	if deliveryID != "" {
-		claimed, err := s.store.ClaimWebhookDelivery(ctx, e.ID, deliveryID, s.retention)
-		if err != nil {
-			return nil, err
-		}
-		if !claimed {
-			slog.InfoContext(ctx, "webhook delivery handled before", "webhook_id", e.ID, "delivery_id", deliveryID)
-			return &webhook.InboundResult{Status: webhook.InboundDuplicate, Event: d.Event}, nil
-		}
+	keys := deliveryKeys(d)
+	claimed, err := s.store.ClaimWebhookDelivery(ctx, e.ID, keys, s.retention)
+	if err != nil {
+		return nil, err
+	}
+	if !claimed {
+		slog.InfoContext(ctx, "webhook delivery handled before", "webhook_id", e.ID, "delivery_id", d.DeliveryID)
+		return &webhook.InboundResult{Status: webhook.InboundDuplicate, Event: d.Event}, nil
 	}
 
 	res, err := s.dispatch(ctx, e, proj, d)
 	if errors.Is(err, webhook.ErrRepositoryMismatch) {
+		// Not handled either: once the project's repository URL is
+		// corrected, the provider's redelivery is.
+		s.release(ctx, e.ID, keys)
 		return &webhook.InboundResult{Status: webhook.InboundIgnored, Event: d.Event, Reason: "the event is for another repository than the webhook's project"}, nil
 	}
-	if err != nil && deliveryID != "" {
+	if err != nil {
 		// A failed delivery is forgotten, so the provider's redelivery
-		// (same delivery ID) is handled.
-		if relErr := s.store.ReleaseWebhookDelivery(ctx, e.ID, deliveryID); relErr != nil {
-			slog.ErrorContext(ctx, "webhook delivery claim not released", "webhook_id", e.ID, "delivery_id", deliveryID, "error", relErr)
-		}
+		// is handled.
+		s.release(ctx, e.ID, keys)
 	}
 	return res, err
+}
+
+// release forgets the claim of a delivery that was not handled.
+func (s *WebhookService) release(ctx context.Context, webhookID string, keys []string) {
+	if err := s.store.ReleaseWebhookDelivery(ctx, webhookID, keys); err != nil {
+		slog.ErrorContext(ctx, "webhook delivery claim not released", "webhook_id", webhookID, "error", err)
+	}
+}
+
+// deliveryKeys are what a delivery claims, so it is handled once within the
+// retention: the SHA-256 of its body and, when the provider sent one, its
+// delivery ID. A provider's redelivery shares both. A replay of a signed
+// delivery shares the body whatever its headers say: GitHub and Plane sign
+// only the body, so the delivery-ID and event headers are the sender's
+// choice. The prefixes keep a delivery ID from posing as a body.
+func deliveryKeys(d *webhook.Delivery) []string {
+	sum := sha256.Sum256(d.Body)
+	keys := []string{"body:" + hex.EncodeToString(sum[:])}
+	if d.DeliveryID != "" {
+		keys = append(keys, "id:"+storedDeliveryID(d.DeliveryID))
+	}
+	return keys
 }
 
 // storedDeliveryID is the form a delivery ID is stored in: as sent when it

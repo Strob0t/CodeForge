@@ -177,7 +177,8 @@ const (
 	// InboundIgnored: an event type the webhook does not handle, or an event
 	// for another repository.
 	InboundIgnored InboundStatus = "ignored"
-	// InboundDuplicate: the delivery ID was handled before.
+	// InboundDuplicate: the delivery (its body or its delivery ID) was
+	// handled before.
 	InboundDuplicate InboundStatus = "duplicate"
 )
 

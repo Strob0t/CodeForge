@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -159,7 +160,7 @@ func (s *webhookFakeStore) DeleteWebhookEndpoint(ctx context.Context, projectID,
 	return nil
 }
 
-func (s *webhookFakeStore) ClaimWebhookDelivery(_ context.Context, webhookID, deliveryID string, retention time.Duration) (bool, error) {
+func (s *webhookFakeStore) ClaimWebhookDelivery(_ context.Context, webhookID string, keys []string, retention time.Duration) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, at := range s.deliveries {
@@ -167,18 +168,23 @@ func (s *webhookFakeStore) ClaimWebhookDelivery(_ context.Context, webhookID, de
 			delete(s.deliveries, key)
 		}
 	}
-	key := webhookID + "|" + deliveryID
-	if _, ok := s.deliveries[key]; ok {
-		return false, nil
+	for _, k := range keys {
+		if _, ok := s.deliveries[webhookID+"|"+k]; ok {
+			return false, nil
+		}
 	}
-	s.deliveries[key] = time.Now()
+	for _, k := range keys {
+		s.deliveries[webhookID+"|"+k] = time.Now()
+	}
 	return true, nil
 }
 
-func (s *webhookFakeStore) ReleaseWebhookDelivery(_ context.Context, webhookID, deliveryID string) error {
+func (s *webhookFakeStore) ReleaseWebhookDelivery(_ context.Context, webhookID string, keys []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.deliveries, webhookID+"|"+deliveryID)
+	for _, k := range keys {
+		delete(s.deliveries, webhookID+"|"+k)
+	}
 	return nil
 }
 
@@ -448,7 +454,8 @@ func TestWebhooks_EventsAWebhookDoesNotHandleAreIgnored(t *testing.T) {
 	env := newWebhookEnv(t)
 	vcs := env.register(t, tenantA, "proj-a", webhook.CreateRequest{Kind: webhook.KindVCS, Provider: "github"})
 	for _, ev := range []string{"ping", "issues", ""} {
-		res, err := env.svc.Receive(context.Background(), webhook.KindVCS, "github", vcs.ID, signedGitHub(vcs.Secret, ev, "", `{}`))
+		body := `{"zen":"` + ev + `"}` // one body per event: a body is one delivery
+		res, err := env.svc.Receive(context.Background(), webhook.KindVCS, "github", vcs.ID, signedGitHub(vcs.Secret, ev, "", body))
 		if err != nil || res.Status != webhook.InboundIgnored || res.Event != ev {
 			t.Fatalf("event %q = %+v, %v; want ignored", ev, res, err)
 		}
@@ -506,25 +513,42 @@ func TestWebhooks_RotatePlaneSecret(t *testing.T) {
 	env.syncer.waitCall(t)
 }
 
-// A redelivered or replayed event (same delivery ID) is handled once; a
-// delivery that failed can be redelivered; without a delivery ID every
-// delivery is handled.
+// A delivery is handled once within the retention: a provider's redelivery
+// (same delivery ID) and a replay of a signed delivery (same body, whatever
+// delivery-ID header it carries - the signature covers only the body) are
+// duplicates. A delivery that failed can be redelivered.
 func TestWebhooks_ReplayIsDeduplicated(t *testing.T) {
 	env := newWebhookEnv(t)
 	pm := env.register(t, tenantA, "proj-a", webhook.CreateRequest{Kind: webhook.KindPM, Provider: "github", APIToken: "t"})
+	issue := func(number int) string {
+		return `{"action":"opened","issue":{"number":` + strconv.Itoa(number) + `},"repository":{"full_name":"acme/app"}}`
+	}
+	receive := func(d *webhook.Delivery) (*webhook.InboundResult, error) {
+		return env.svc.Receive(context.Background(), webhook.KindPM, "github", pm.ID, d)
+	}
 
-	first := signedGitHub(pm.Secret, "issues", "delivery-1", githubIssueEvent)
-	if res, err := env.svc.Receive(context.Background(), webhook.KindPM, "github", pm.ID, first); err != nil || res.Status != webhook.InboundAccepted {
+	first := signedGitHub(pm.Secret, "issues", "delivery-1", issue(1))
+	if res, err := receive(first); err != nil || res.Status != webhook.InboundAccepted {
 		t.Fatalf("first delivery = %+v, %v", res, err)
 	}
 	env.syncer.waitCall(t)
-	res, err := env.svc.Receive(context.Background(), webhook.KindPM, "github", pm.ID, first)
-	if err != nil || res.Status != webhook.InboundDuplicate {
-		t.Fatalf("replay = %+v, %v; want duplicate", res, err)
+	for name, replay := range map[string]*webhook.Delivery{
+		"redelivery (same delivery ID)":             first,
+		"same delivery ID, changed body":            signedGitHub(pm.Secret, "issues", "delivery-1", issue(2)),
+		"replay with a fresh delivery ID":           signedGitHub(pm.Secret, "issues", uuid.NewString(), issue(1)),
+		"replay without a delivery ID":              signedGitHub(pm.Secret, "issues", "", issue(1)),
+		"replay under another event type":           signedGitHub(pm.Secret, "push", "", issue(1)),
+		"replay with an over-long delivery ID":      signedGitHub(pm.Secret, "issues", strings.Repeat("x", 500), issue(1)),
+		"replay with a delivery ID of a body claim": signedGitHub(pm.Secret, "issues", "body:"+strings.Repeat("0", 64), issue(1)),
+	} {
+		res, err := receive(replay)
+		if err != nil || res.Status != webhook.InboundDuplicate {
+			t.Errorf("%s = %+v, %v; want duplicate", name, res, err)
+		}
 	}
 	env.syncer.assertNoSync(t)
 
-	// The same delivery ID on another webhook is another delivery.
+	// The same delivery ID and body on another webhook is another delivery.
 	vcs := env.register(t, tenantA, "proj-a", webhook.CreateRequest{Kind: webhook.KindVCS, Provider: "github"})
 	if res, err := env.svc.Receive(context.Background(), webhook.KindVCS, "github", vcs.ID, signedGitHub(vcs.Secret, "push", "delivery-1", githubPush)); err != nil || res.Status != webhook.InboundProcessed {
 		t.Fatalf("same delivery ID on another webhook = %+v, %v", res, err)
@@ -532,21 +556,47 @@ func TestWebhooks_ReplayIsDeduplicated(t *testing.T) {
 
 	// A delivery that fails is released: its redelivery runs.
 	broken := signedGitHub(pm.Secret, "issues", "delivery-2", `{"repository":`)
-	if _, err := env.svc.Receive(context.Background(), webhook.KindPM, "github", pm.ID, broken); !errors.Is(err, domain.ErrValidation) {
+	if _, err := receive(broken); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("broken payload = %v, want ErrValidation", err)
 	}
-	fixed := signedGitHub(pm.Secret, "issues", "delivery-2", githubIssueEvent)
-	if res, err := env.svc.Receive(context.Background(), webhook.KindPM, "github", pm.ID, fixed); err != nil || res.Status != webhook.InboundAccepted {
+	if res, err := receive(broken); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("redelivered broken payload = %+v, %v, want ErrValidation again", res, err)
+	}
+	if res, err := receive(signedGitHub(pm.Secret, "issues", "delivery-2", issue(3))); err != nil || res.Status != webhook.InboundAccepted {
 		t.Fatalf("redelivery after a failure = %+v, %v", res, err)
 	}
 	env.syncer.waitCall(t)
 
-	// Without a delivery ID nothing is deduplicated.
-	for range 2 {
-		if res, err := env.svc.Receive(context.Background(), webhook.KindPM, "github", pm.ID, signedGitHub(pm.Secret, "issues", "", githubIssueEvent)); err != nil || res.Status != webhook.InboundAccepted {
-			t.Fatalf("delivery without an ID = %+v, %v", res, err)
-		}
-		env.syncer.waitCall(t)
+	// Without a delivery ID a delivery is still handled once.
+	if res, err := receive(signedGitHub(pm.Secret, "issues", "", issue(4))); err != nil || res.Status != webhook.InboundAccepted {
+		t.Fatalf("delivery without an ID = %+v, %v", res, err)
+	}
+	env.syncer.waitCall(t)
+	if res, err := receive(signedGitHub(pm.Secret, "issues", "", issue(4))); err != nil || res.Status != webhook.InboundDuplicate {
+		t.Fatalf("its replay = %+v, %v; want duplicate", res, err)
+	}
+	env.syncer.assertNoSync(t)
+}
+
+// An event that names another repository is ignored and not remembered:
+// once the project's repository URL is corrected, the provider's
+// redelivery of that event is handled.
+func TestWebhooks_IgnoredMismatchIsHandledAfterTheRepositoryIsCorrected(t *testing.T) {
+	env := newWebhookEnv(t)
+	env.store.addProject(tenantA, &project.Project{ID: "proj-old", RepoURL: "https://github.com/acme/app-old.git"})
+	vcs := env.register(t, tenantA, "proj-old", webhook.CreateRequest{Kind: webhook.KindVCS, Provider: "github"})
+	push := signedGitHub(vcs.Secret, "push", "delivery-1", githubPush)
+	if res, err := env.svc.Receive(context.Background(), webhook.KindVCS, "github", vcs.ID, push); err != nil || res.Status != webhook.InboundIgnored {
+		t.Fatalf("push for another repository = %+v, %v; want ignored", res, err)
+	}
+
+	env.store.addProject(tenantA, &project.Project{ID: "proj-old", RepoURL: "https://github.com/acme/app.git"})
+	res, err := env.svc.Receive(context.Background(), webhook.KindVCS, "github", vcs.ID, push)
+	if err != nil || res.Status != webhook.InboundProcessed {
+		t.Fatalf("redelivery after the repository URL was corrected = %+v, %v; want processed", res, err)
+	}
+	if pushes := env.hub.tenantsOf(event.EventVCSPush); len(pushes) != 1 {
+		t.Fatalf("push events %v, want one", pushes)
 	}
 }
 

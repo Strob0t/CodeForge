@@ -114,7 +114,7 @@ func TestStore_WebhookEndpoints_DeletedWithTheProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ClaimWebhookDelivery(ctx, e.ID, "d-1", time.Hour); err != nil {
+	if _, err := store.ClaimWebhookDelivery(ctx, e.ID, []string{"id:d-1"}, time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteProject(ctx, p.ID); err != nil {
@@ -125,9 +125,10 @@ func TestStore_WebhookEndpoints_DeletedWithTheProject(t *testing.T) {
 	}
 }
 
-// KI-85 (D6): a delivery ID is claimed once per webhook; a released claim
-// (failed handling) can be claimed again; claims older than the retention
-// are pruned.
+// KI-85 (D6): a delivery claims its keys (body hash, delivery ID) once per
+// webhook, all or none: a claim that meets one claimed key records nothing.
+// A released claim (failed handling) can be claimed again; claims older than
+// the retention are pruned.
 func TestStore_WebhookDeliveries(t *testing.T) {
 	store := setupStore(t)
 	ctx := ctxWithTenant(t, createTestTenant(t, store))
@@ -142,44 +143,57 @@ func TestStore_WebhookDeliveries(t *testing.T) {
 	}
 	gh, gl := newEndpoint("github"), newEndpoint("gitlab")
 
-	claim := func(webhookID, deliveryID string, retention time.Duration) bool {
+	claim := func(webhookID string, retention time.Duration, keys ...string) bool {
 		t.Helper()
-		ok, err := store.ClaimWebhookDelivery(ctx, webhookID, deliveryID, retention)
+		ok, err := store.ClaimWebhookDelivery(ctx, webhookID, keys, retention)
 		if err != nil {
-			t.Fatalf("ClaimWebhookDelivery(%s): %v", deliveryID, err)
+			t.Fatalf("ClaimWebhookDelivery(%v): %v", keys, err)
 		}
 		return ok
 	}
-	if !claim(gh, "d-1", time.Hour) {
+	if !claim(gh, time.Hour, "body:1", "id:d-1") {
 		t.Fatal("first claim refused")
 	}
-	if claim(gh, "d-1", time.Hour) {
+	if claim(gh, time.Hour, "body:1", "id:d-1") {
 		t.Fatal("second claim of the same delivery succeeded")
 	}
-	if !claim(gl, "d-1", time.Hour) {
-		t.Fatal("the same delivery ID on another webhook was refused")
+	if claim(gh, time.Hour, "body:1", "id:d-9") {
+		t.Fatal("a claim with a claimed body succeeded")
 	}
-	if err := store.ReleaseWebhookDelivery(ctx, gh, "d-1"); err != nil {
+	if claim(gh, time.Hour, "body:9", "id:d-1") {
+		t.Fatal("a claim with a claimed delivery ID succeeded")
+	}
+	// The refused claims recorded none of their keys.
+	if !claim(gh, time.Hour, "id:d-9", "body:9", "body:9") {
+		t.Fatal("a key of a refused claim was recorded")
+	}
+	if !claim(gl, time.Hour, "body:1", "id:d-1") {
+		t.Fatal("the same delivery on another webhook was refused")
+	}
+	if !claim(gl, time.Hour) {
+		t.Fatal("a claim without keys was refused")
+	}
+	if err := store.ReleaseWebhookDelivery(ctx, gh, []string{"body:1", "id:d-1"}); err != nil {
 		t.Fatalf("ReleaseWebhookDelivery: %v", err)
 	}
-	if !claim(gh, "d-1", time.Hour) {
+	if !claim(gh, time.Hour, "body:1", "id:d-1") {
 		t.Fatal("a released delivery could not be claimed again")
 	}
 	// Pruning: a claim older than the retention is gone after the next
 	// claim on that webhook.
 	time.Sleep(20 * time.Millisecond)
-	if !claim(gh, "d-2", 10*time.Millisecond) {
+	if !claim(gh, 10*time.Millisecond, "id:d-2") {
 		t.Fatal("claim d-2 refused")
 	}
-	if !claim(gh, "d-1", time.Hour) {
+	if !claim(gh, time.Hour, "body:1", "id:d-1") {
 		t.Fatal("an expired delivery was not pruned")
 	}
 	// Other tenants cannot release a webhook's claims.
 	other := ctxWithTenant(t, createTestTenant(t, store))
-	if err := store.ReleaseWebhookDelivery(other, gh, "d-1"); err != nil {
+	if err := store.ReleaseWebhookDelivery(other, gh, []string{"body:1", "id:d-1"}); err != nil {
 		t.Fatalf("ReleaseWebhookDelivery in another tenant: %v", err)
 	}
-	if claim(gh, "d-1", time.Hour) {
+	if claim(gh, time.Hour, "id:d-1") {
 		t.Fatal("another tenant released the webhook's claim")
 	}
 }

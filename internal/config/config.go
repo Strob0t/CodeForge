@@ -152,8 +152,9 @@ type Auth struct {
 // per project (POST /api/v1/projects/{id}/webhooks) with their own secrets
 // (KI-85).
 type Webhook struct {
-	// DeliveryRetention is how long a webhook remembers a delivery ID, so a
-	// redelivered or replayed event is handled once (default 168h).
+	// DeliveryRetention is how long a webhook remembers a delivery (its body
+	// and delivery ID): within it, a provider's redelivery and a replay of a
+	// signed delivery under any delivery ID are handled once (default 168h).
 	DeliveryRetention time.Duration `yaml:"delivery_retention"`
 
 	// Removed with KI-85 (the global webhook routes they verified are

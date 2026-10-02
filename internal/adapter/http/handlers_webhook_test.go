@@ -59,11 +59,11 @@ func (emptyWebhookStore) DeleteWebhookEndpoint(context.Context, string, string) 
 	return domain.ErrNotFound
 }
 
-func (emptyWebhookStore) ClaimWebhookDelivery(context.Context, string, string, time.Duration) (bool, error) {
+func (emptyWebhookStore) ClaimWebhookDelivery(context.Context, string, []string, time.Duration) (bool, error) {
 	return true, nil
 }
 
-func (emptyWebhookStore) ReleaseWebhookDelivery(context.Context, string, string) error { return nil }
+func (emptyWebhookStore) ReleaseWebhookDelivery(context.Context, string, []string) error { return nil }
 
 // countingSyncer counts the roadmap syncs webhooks start.
 type countingSyncer struct {

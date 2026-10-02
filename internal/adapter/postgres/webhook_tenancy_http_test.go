@@ -111,7 +111,11 @@ func TestWebhooks_PerTenantOnPostgres(t *testing.T) {
 		t.Fatalf("tenant B rotates A's webhook: status %d", w.Code)
 	}
 
-	const issueEvent = `{"action":"opened","issue":{"number":1},"repository":{"full_name":"acme/app","html_url":"https://github.com/acme/app"}}`
+	// One body per delivery, as GitHub sends them: a redelivery repeats its
+	// delivery's body.
+	issueEvent := func(deliveryID string) string {
+		return `{"action":"opened","issue":{"number":1,"node_id":"` + deliveryID + `"},"repository":{"full_name":"acme/app","html_url":"https://github.com/acme/app"}}`
+	}
 	deliverBody := func(url, secret, deliveryID, tenantHeader, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		mac := hmac.New(sha256.New, []byte(secret))
@@ -129,7 +133,7 @@ func TestWebhooks_PerTenantOnPostgres(t *testing.T) {
 	}
 	deliver := func(url, secret, deliveryID, tenantHeader string) *httptest.ResponseRecorder {
 		t.Helper()
-		return deliverBody(url, secret, deliveryID, tenantHeader, issueEvent)
+		return deliverBody(url, secret, deliveryID, tenantHeader, issueEvent(deliveryID))
 	}
 
 	// Signed for A, naming tenant B in the header: acts in A.
@@ -139,9 +143,13 @@ func TestWebhooks_PerTenantOnPostgres(t *testing.T) {
 	if got := syncer.waitFor(t, 1); len(got) != 1 || got[0] != projA.ID+"@"+tenantA {
 		t.Fatalf("syncs %v, want project A in tenant A", got)
 	}
-	// Replayed: handled once.
+	// Redelivered, or replayed under a fresh delivery ID (the signature
+	// covers only the body): handled once.
 	if w := deliver(regA.URL, regA.Secret, "d-1", ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "duplicate") {
-		t.Fatalf("replay: status %d: %s", w.Code, w.Body.String())
+		t.Fatalf("redelivery: status %d: %s", w.Code, w.Body.String())
+	}
+	if w := deliverBody(regA.URL, regA.Secret, uuid.NewString(), "", issueEvent("d-1")); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "duplicate") {
+		t.Fatalf("replay with a fresh delivery ID: status %d: %s", w.Code, w.Body.String())
 	}
 	// Signed for A, sent to B's webhook: refused like an unknown webhook.
 	wrong := deliver(regB.URL, regA.Secret, "d-2", "")

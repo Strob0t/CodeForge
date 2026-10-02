@@ -26,11 +26,12 @@ type WebhookStore interface {
 	// SetWebhookAPIToken replaces a webhook's API token (nil removes it).
 	SetWebhookAPIToken(ctx context.Context, projectID, id string, encryptedToken []byte) error
 	DeleteWebhookEndpoint(ctx context.Context, projectID, id string) error
-	// ClaimWebhookDelivery records that a webhook handles a delivery ID; it
-	// reports false when the delivery was claimed before. Claims older than
-	// retention are pruned.
-	ClaimWebhookDelivery(ctx context.Context, webhookID, deliveryID string, retention time.Duration) (bool, error)
-	// ReleaseWebhookDelivery forgets a claim whose handling failed, so the
-	// provider's redelivery is handled.
-	ReleaseWebhookDelivery(ctx context.Context, webhookID, deliveryID string) error
+	// ClaimWebhookDelivery records that a webhook handles a delivery, named
+	// by its keys (its body hash and delivery ID). All or none: it reports
+	// false, and records nothing, when one of the keys was claimed before.
+	// Claims older than retention are pruned.
+	ClaimWebhookDelivery(ctx context.Context, webhookID string, keys []string, retention time.Duration) (bool, error)
+	// ReleaseWebhookDelivery forgets the keys of a delivery that was not
+	// handled, so the provider's redelivery is.
+	ReleaseWebhookDelivery(ctx context.Context, webhookID string, keys []string) error
 }
