@@ -57,6 +57,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -97,6 +98,8 @@ TOOL_UMASK = TENANT_TOOL_UMASK
 _LAUNCHER = "setpriv"
 # The launcher's second half; runs as the tool user with the base interpreter.
 TOOL_EXEC = str(Path(__file__).resolve().with_name("tool_exec.py"))
+# The sharing pass, run as the tenant's tool UID (KI-96 D8).
+TOOL_WALK = str(Path(__file__).resolve().with_name("tool_walk.py"))
 _SHELL = "/bin/sh"
 _PROBE_TIMEOUT_SECONDS = 10.0
 _PROBE_PATH = "/usr/local/bin:/usr/bin:/bin"
@@ -548,6 +551,7 @@ async def start_tool_process(
     identity = identity or current_identity.get()
     launch = _launch([program, *args], env, cwd, identity)
     isolated = launch.umask is not None
+    started = time.time()
     pipes = _OpenPipes(stdin, stdout, stderr) if isolated else None
     optional = {"stdin": stdin, "stdout": stdout, "stderr": stderr, "limit": limit, "umask": launch.umask}
     if pipes is not None:
@@ -572,8 +576,8 @@ async def start_tool_process(
             pipes.close_child_ends()
     if pipes is not None:
         await pipes.attach(proc, limit)
-    if isolated and cwd is not None and identity is not None:
-        _share_after_exit(proc, cwd, identity)
+    if isolated and identity is not None and identity.workspace:
+        _share_after_exit(proc, identity, started)
     return proc
 
 
@@ -689,11 +693,12 @@ def _communicate_on(
     return communicate
 
 
-def _share_after_exit(proc: asyncio.subprocess.Process, root: str, identity: ToolIdentity) -> None:
-    """Make waiting for *proc* (wait(), communicate()) also share what it created under *root*.
+def _share_after_exit(proc: asyncio.subprocess.Process, identity: ToolIdentity, started: float) -> None:
+    """Make waiting for *proc* (wait(), communicate()) also share what it changed in its workspace.
 
     The callers continue only once the files are shared, before the Go
-    Core checkpoints or delivers the workspace.
+    Core checkpoints or delivers the workspace. Only entries changed since
+    the process started are checked.
     """
     wait = proc.wait
     shared = False
@@ -703,7 +708,7 @@ def _share_after_exit(proc: asyncio.subprocess.Process, root: str, identity: Too
         code = await wait()
         if not shared:
             shared = True
-            await share_tool_files(root, identity)
+            await share_tool_files(identity.workspace or "", identity, since=started)
         return code
 
     proc.wait = wait_then_share  # type: ignore[method-assign]
@@ -744,6 +749,7 @@ def run_tool_process(
     """Run *args* for an agent and wait for it (subprocess.run, text output captured)."""
     identity = identity or current_identity.get()
     launch = _launch(args, env, cwd, identity)
+    started = time.time()
     options: dict[str, object] = {"cwd": launch.cwd, "env": launch.env, "timeout": timeout}
     if launch.umask is not None:
         options["umask"] = launch.umask
@@ -753,8 +759,8 @@ def run_tool_process(
         return subprocess.run(launch.argv, capture_output=True, text=True, check=False, **options)  # type: ignore[call-overload]  # noqa: S603 - the program is the caller's (no shell)
     finally:
         launch.close()
-        if launch.umask is not None and cwd is not None:
-            share_tool_files_sync(cwd, identity)
+        if launch.umask is not None and identity is not None and identity.workspace:
+            share_tool_files_sync(identity.workspace, identity, since=started)
 
 
 # ---------------------------------------------------------------------------
@@ -762,44 +768,42 @@ def run_tool_process(
 # ---------------------------------------------------------------------------
 
 
-def _share_command(root: str, uid: int) -> list[str]:
-    """One walk of *root* as tool UID *uid* (never across file systems, never following a symlink).
-
-    Its own files and directories become group-readable and -writable,
-    directories also searchable. Below a tenant directory's default ACL the
-    group bits are the ACL mask, so the inherited ``g:10010`` entry grants
-    the Go Core and the worker access again.
-    """
-    owner = str(uid)
-    return [
-        "find", "-P", root, "-xdev",
-        "(", "-user", owner, "-type", "d", "!", "-perm", "-0070", "-exec", "chmod", "g+rwx", "{}", "+", ")",
-        ",",
-        "(", "-user", owner, "-type", "f", "!", "-perm", "-0060", "-exec", "chmod", "g+rw", "{}", "+", ")",
-    ]  # fmt: skip
-
-
-def _share_launch(root: str, identity: ToolIdentity | None) -> Launch | None:
+def _share_launch(root: str, identity: ToolIdentity | None, since: float | None) -> Launch | None:
     status = tool_isolation()
-    if not status.config.required or not status.ready:
+    if not status.config.required or not status.ready or not root:
         return None
     identity = identity or current_identity.get()
     if identity is None or identity.is_system:
         return None
-    return status.launch(_share_command(root, identity.uid), {"PATH": _PROBE_PATH}, None, identity)
+    argv = [status.interpreter, "-I", "-S", TOOL_WALK, "share", root]
+    if since is not None:
+        argv += ["--since", repr(since)]
+    return status.launch(argv, {"PATH": _PROBE_PATH}, None, identity)
 
 
-async def share_tool_files(root: str, identity: ToolIdentity | None = None) -> None:
-    """Share what the tool identity created under *root* with the workspace group (KI-71 review, KI-96).
+def _log_share(root: str, returncode: int | None, out: str, err: str) -> None:
+    if returncode == 0:
+        logger.debug("shared tool files under %s: %s", root, out.strip())
+    elif returncode == 1:
+        logger.warning("could not share every tool file under %s: %s", root, out.strip()[-1000:])
+    else:
+        logger.warning("could not share the tool files under %s (exit %s): %s", root, returncode, err.strip()[-500:])
+
+
+async def share_tool_files(root: str, identity: ToolIdentity | None = None, *, since: float | None = None) -> None:
+    """Share what the tool identity created under *root* with the workspace group (KI-71 review, KI-96 D8).
 
     Agents create files with owner-only modes (mkdtemp, mkdir -m 0700,
-    umask 077) that the worker and the Go Core could neither read nor
-    delete: project deletion (GDPR erasure), git add of checkpoints and
-    delivery, and benchmark cleanups failed. The pass runs as the tenant's
-    tool UID, which owns them; it changes nothing of anybody else's. A pass
-    that could not share everything is logged.
+    umask 077), strip ACL entries or default ACLs; the worker and the Go
+    Core could then neither read nor delete them: project deletion (GDPR
+    erasure), checkpoints and delivery, and benchmark cleanups failed. The
+    pass (codeforge.tool_walk) runs as the tenant's tool UID, which owns
+    them, and changes nothing of anybody else's. With *since* only entries
+    changed after that time are checked (after one tool call); without it
+    every entry (the end of a work item). A pass that could not share
+    everything is logged.
     """
-    launch = _share_launch(root, identity)
+    launch = _share_launch(root, identity, since)
     if launch is None:
         return
     try:
@@ -809,22 +813,21 @@ async def share_tool_files(root: str, identity: ToolIdentity | None = None) -> N
             cwd=launch.cwd,
             umask=launch.umask,
             pass_fds=launch.pass_fds,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        _, err = await proc.communicate()
+        out, err = await proc.communicate()
     except OSError as exc:
         logger.warning("could not share the tool files under %s: %s", root, exc)
         return
     finally:
         launch.close()
-    if proc.returncode:
-        logger.warning("could not share every tool file under %s: %s", root, err.decode(errors="replace")[-500:])
+    _log_share(root, proc.returncode, (out or b"").decode(errors="replace"), (err or b"").decode(errors="replace"))
 
 
-def share_tool_files_sync(root: str, identity: ToolIdentity | None = None) -> None:
+def share_tool_files_sync(root: str, identity: ToolIdentity | None = None, *, since: float | None = None) -> None:
     """share_tool_files for synchronous callers."""
-    launch = _share_launch(root, identity)
+    launch = _share_launch(root, identity, since)
     if launch is None:
         return
     try:
@@ -843,8 +846,7 @@ def share_tool_files_sync(root: str, identity: ToolIdentity | None = None) -> No
         return
     finally:
         launch.close()
-    if done.returncode:
-        logger.warning("could not share every tool file under %s: %s", root, done.stderr[-500:])
+    _log_share(root, done.returncode, done.stdout or "", done.stderr or "")
 
 
 def workspace_acl(uid: int) -> list[posix_acl.Entry]:

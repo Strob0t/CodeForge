@@ -277,3 +277,29 @@ async def test_files_the_tool_user_keeps_private_are_shared_with_the_workspace_g
     assert removed.returncode == 0, removed.stderr
     # A symlink is never followed: the file it points to keeps its mode.
     assert os.stat(outside).st_mode & 0o777 == 0o600
+
+
+# A tool locks the workspace group out under the default ACLs (KI-96 E1, E17):
+# mode 0000, a stripped access ACL, a directory without its default ACL.
+_LOCKOUT = """
+import os
+os.mkdir("locked"); open("locked/f", "w").write("x"); os.chmod("locked/f", 0); os.chmod("locked", 0)
+open("stripped", "w").write("x"); os.removexattr("stripped", "system.posix_acl_access"); os.chmod("stripped", 0o600)
+os.mkdir("nodefault"); os.removexattr("nodefault", "system.posix_acl_default"); os.chmod("nodefault", 0o700)
+open("nodefault/g", "w").write("x"); os.chmod("nodefault/g", 0o600)
+"""
+
+
+@pytest.mark.skipif(not Path("/usr/bin/python3").exists(), reason="needs /usr/bin/python3 for the tool")
+async def test_the_sharing_pass_undoes_an_acl_lockout(workspace_a: str) -> None:
+    async with tool_tenant(TENANT_A, UID_A, workspace_a):
+        proc = await start_tool_process(
+            "/usr/bin/python3", "-c", _LOCKOUT, env={"PATH": "/usr/bin:/bin"}, cwd=workspace_a
+        )
+        assert await proc.wait() == 0
+        # The pass after the call already opened them again.
+        read = _as_worker(["cat", "locked/f", "stripped", "nodefault/g"], workspace_a)
+        assert read.returncode == 0, read.stderr
+
+    removed = _as_worker(["rm", "-rf", "locked", "stripped", "nodefault"], workspace_a)
+    assert removed.returncode == 0, removed.stderr

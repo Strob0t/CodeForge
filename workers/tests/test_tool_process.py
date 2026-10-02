@@ -21,6 +21,7 @@ import random
 import stat
 import string
 import subprocess
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,6 +33,7 @@ from codeforge.tool_identity import ToolIdentity, current_identity
 from codeforge.tool_process import (
     TOOL_EXEC,
     TOOL_UMASK,
+    TOOL_WALK,
     IsolationConfig,
     IsolationStatus,
     ToolIsolationError,
@@ -347,10 +349,13 @@ async def test_the_launcher_never_gets_the_tools_environment(
     env = {"LD_PRELOAD": "/data/workspaces/t/p/evil.so", "GCONV_PATH": "/x", "PATH": "/bin", "": "x", "A=B": "y"}
     await start_tool_process("true", env=env)
     run_tool_process(["true"], env=env)
+    commands = [(args, kwargs) for args, kwargs in spawns if _command(args)[3:4] != [TOOL_WALK]]
+    assert len(commands) == 2
     for args, kwargs in spawns:
         assert kwargs["env"] == LAUNCHER_ENV
-        assert _command(args) == ["true"]
         assert not [a for a in args if "evil.so" in str(a) or "PATH=" in str(a)]
+    for args, kwargs in commands:
+        assert _command(args) == ["true"]
         # The command still gets its environment; invalid names are dropped.
         assert kwargs["spec"]["env"] == {  # type: ignore[index]
             "LD_PRELOAD": "/data/workspaces/t/p/evil.so",
@@ -413,7 +418,9 @@ async def test_isolated_stdio_pipes_are_open_to_the_tool_user(
     identity(IDENT)
     seen: dict[str, object] = {}
 
-    async def fake_exec(*_args: object, **kwargs: object) -> _FakeProc:
+    async def fake_exec(*args: object, **kwargs: object) -> _FakeProc:
+        if TOOL_WALK in args:  # the sharing pass after the exit
+            return _FakeProc()
         for name in ("stdin", "stdout", "stderr"):
             fd = kwargs[name]
             assert isinstance(fd, int)
@@ -471,10 +478,56 @@ def test_sync_run_as_the_tool_user(
     assert kwargs["timeout"] == 5
     assert kwargs["cwd"] == "/"
     assert kwargs["spec"]["cwd"] == "/ws"  # type: ignore[index]
-    # Then the sharing pass, as the same tool user.
+    # Then the sharing pass of what changed since, as the same tool user.
     share_args, share_kwargs = spawns[1]
-    assert _command(share_args)[:3] == ["find", "-P", "/ws"]
+    walk = _command(share_args)
+    assert walk[:6] == [INTERPRETER, "-I", "-S", TOOL_WALK, "share", "/ws"]
+    assert walk[6] == "--since"
+    assert abs(float(walk[7]) - time.time()) < 60  # type: ignore[arg-type]
     assert share_kwargs["spec"]["uid"] == 20007  # type: ignore[index]
+
+
+async def test_every_tenant_tool_process_shares_its_workspace_after_it_exits(
+    isolation: Callable[[IsolationStatus], None],
+    identity: Callable[[ToolIdentity | None], None],
+    spawns: list[Spawn],
+) -> None:
+    """Whatever its working directory: a process can write anywhere in its workspace (KI-96 D8)."""
+    isolation(READY)
+    identity(IDENT)
+    before = time.time()
+    proc = await start_tool_process("true", env={}, cwd="/ws/sub")
+    assert len(spawns) == 1, "the pass runs once the caller waited for the process"
+    await proc.wait()
+    await proc.wait()  # once
+    walks = [_command(a) for a, _k in spawns[1:]]
+    assert len(walks) == 1
+    assert walks[0][:6] == [INTERPRETER, "-I", "-S", TOOL_WALK, "share", "/ws"]
+    assert float(walks[0][7]) >= before - 1  # type: ignore[arg-type]
+
+    spawns.clear()
+    proc = await start_tool_process("true", env={})  # no working directory
+    await proc.wait()
+    assert [_command(a)[3] for a, _k in spawns[1:]] == [TOOL_WALK]
+
+
+async def test_tenantless_and_off_spawns_share_nothing(
+    isolation: Callable[[IsolationStatus], None],
+    spawns: list[Spawn],
+) -> None:
+    isolation(READY)
+    system = ToolIdentity(tenant_id="", uid=19999, home="/home/codeforge-tools/19999", work_id="sys")
+    proc = await start_tool_process("true", env={}, identity=system)
+    await proc.wait()
+    no_workspace = ToolIdentity(tenant_id="t", uid=20007, home="/h", work_id="w")
+    proc = await start_tool_process("true", env={}, identity=no_workspace)
+    await proc.wait()
+    assert len(spawns) == 2
+    isolation(IsolationStatus(config=OFF, ready=True))
+    spawns.clear()
+    proc = await start_tool_process("true", env={}, cwd="/ws")
+    await proc.wait()
+    assert len(spawns) == 1
 
 
 async def test_required_without_isolation_fails_and_starts_nothing(
@@ -1090,7 +1143,7 @@ async def test_mcp_stdio_server_runs_as_the_tenants_tool_user(
         ):
             pass
     (args, kwargs), *sharing = spawns
-    assert all(_command(a)[:2] == ["find", "-P"] for a, _k in sharing), sharing
+    assert all(_command(a)[3] == TOOL_WALK for a, _k in sharing), sharing
     assert _command(args) == ["npx", "-y", "@modelcontextprotocol/server-github"]
     # The server's token is in the spec on the memfd, never an argument (KI-96).
     assert not [a for a in args if "ghp_x" in str(a)]

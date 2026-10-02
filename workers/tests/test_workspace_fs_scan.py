@@ -96,6 +96,10 @@ _TOOL_STATE = (
     "the worker's own directories (state directory, tenant directories, tool HOMEs): relative to a "
     "directory descriptor, O_NOFOLLOW, owner checked (KI-96 rule W1)"
 )
+_WALK = (
+    "the sharing pass, run as the tenant's tool UID through the launcher: relative to directory "
+    "descriptors, O_PATH | O_NOFOLLOW with an inode recheck, never across file systems (KI-96 D8)"
+)
 _HELPER = (
     "the launch helper, already the tool user: the per-work directories below the tool's own HOME, "
     "relative to its descriptor, never through a symlink"
@@ -162,6 +166,11 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_exec.py", "open_nofollow", "os.open"): (2, _HELPER),
     ("tool_exec.py", "prepare", "os.mkdir"): (1, _HELPER),
     ("tool_exec.py", "prepare", "os.open"): (1, _HELPER),
+    ("tool_walk.py", "open_root", "os.open"): (2, _WALK),
+    ("tool_walk.py", "open_checked", "os.open"): (1, _WALK),
+    ("tool_walk.py", "_open_subdir", "os.open"): (1, _WALK),
+    ("tool_walk.py", "share", "os.open"): (1, _WALK),
+    ("tool_walk.py", "share", "os.listdir"): (1, _WALK),
     ("tool_state.py", "open_root", "os.open"): (1, "the workspace root itself (the worker's), as a descriptor"),
     ("tool_state.py", "open_dir_at", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "_ensure_private_dir", "os.mkdir"): (1, _TOOL_STATE),
