@@ -1,16 +1,18 @@
 package middleware
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -24,75 +26,166 @@ type AuditStore interface {
 // The admin identity is read from the request context (set by Auth middleware).
 // The entry names the resource of the {id} URL parameter.
 func AuditLog(store AuditStore, action, resource string) func(http.Handler) http.Handler {
-	return AuditLogID(store, action, resource, URLParamID("id"))
-}
-
-// URLParamID names the audited resource by a URL parameter.
-func URLParamID(param string) func(*http.Request) string {
-	return func(r *http.Request) string { return chi.URLParam(r, param) }
-}
-
-// auditBodyPeekLimit is how much of a request body BodyFieldID reads to find
-// the resource ID; the handler still reads the whole body.
-const auditBodyPeekLimit = 64 << 10
-
-// BodyFieldID names the audited resource by a string field of the JSON
-// request body ("" when the body is larger than 64 KiB, not JSON, or the
-// field is no string). The handler reads the body unchanged.
-func BodyFieldID(field string) func(*http.Request) string {
-	return func(r *http.Request) string {
-		if r.Body == nil {
-			return ""
-		}
-		peeked, err := io.ReadAll(io.LimitReader(r.Body, auditBodyPeekLimit+1))
-		r.Body = readCloser{Reader: io.MultiReader(bytes.NewReader(peeked), r.Body), Closer: r.Body}
-		if err != nil || len(peeked) > auditBodyPeekLimit {
-			return ""
-		}
-		var fields map[string]json.RawMessage
-		var id string
-		if json.Unmarshal(peeked, &fields) != nil || json.Unmarshal(fields[field], &id) != nil {
-			return ""
-		}
-		return id
-	}
-}
-
-type readCloser struct {
-	io.Reader
-	io.Closer
-}
-
-// AuditLogID is AuditLog naming the audited resource by resourceID.
-func AuditLogID(store AuditStore, action, resource string, resourceID func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			u := UserFromContext(r.Context())
-			if u != nil {
-				resourceID := resourceID(r)
-				ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-				if ip == "" {
-					ip = r.RemoteAddr
-				}
-				email := u.Email
-				entry := &database.AuditEntry{
-					AdminID:    u.ID,
-					AdminEmail: &email,
-					Action:     action,
-					Resource:   resource,
-					ResourceID: resourceID,
-					IPAddress:  ip,
-				}
+			if u := UserFromContext(r.Context()); u != nil {
+				entry := newAuditEntry(u, action, resource, r)
+				entry.ResourceID = chi.URLParam(r, "id")
 				if err := store.InsertAuditEntry(r.Context(), entry); err != nil {
-					slog.Error("audit log write failed",
-						"action", action,
-						"resource", resource,
-						"admin_id", u.ID,
-						"error", err,
-					)
+					logAuditFailure(r.Context(), entry, err)
 				}
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ErrAuditUnavailable is returned by RecordAudit when the entry could not be
+// written; the caller must not make the change.
+var ErrAuditUnavailable = errors.New("audit log unavailable")
+
+type auditRecorderKey struct{}
+
+// auditRecorder is the audit entry of one request whose handler names the
+// audited resource itself (RecordAudit).
+type auditRecorder struct {
+	store    AuditStore
+	entry    *database.AuditEntry
+	known    map[string]string // details known before decoding (AuditContext)
+	recorded bool
+}
+
+// AuditLogByHandler returns audit middleware for actions whose handler names
+// the audited resource from what it decoded and acts on (RecordAudit), never
+// from a second reading of the request: a requester could make that differ
+// (trailing data, case-insensitive duplicate keys, padding). A request the
+// handler refused before recording is audited after it, with its status.
+func AuditLogByHandler(store AuditStore, action, resource string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := UserFromContext(r.Context())
+			if u == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			rec := &auditRecorder{store: store, entry: newAuditEntry(u, action, resource, r)}
+			sw := &statusWriter{ResponseWriter: w}
+			next.ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), auditRecorderKey{}, rec)))
+			if rec.recorded {
+				return
+			}
+			rec.entry.Details = auditDetails(rec.known, map[string]string{"status": strconv.Itoa(sw.status())})
+			if err := store.InsertAuditEntry(r.Context(), rec.entry); err != nil {
+				logAuditFailure(r.Context(), rec.entry, err)
+			}
+		})
+	}
+}
+
+// AuditContext gives the request's audit entry details known before the
+// handler decodes anything (e.g. the project of the URL); they are recorded
+// with the entry whether or not the handler gets to RecordAudit.
+func AuditContext(ctx context.Context, details map[string]string) {
+	if rec, ok := ctx.Value(auditRecorderKey{}).(*auditRecorder); ok {
+		rec.known = details
+	}
+}
+
+// RecordAudit writes the request's audit entry for resourceID with details
+// (AuditLogByHandler). Call it with the values the handler decoded and acts
+// on, after validating them and before changing anything: an error
+// (ErrAuditUnavailable) means no entry was written, and the change must not
+// be made. A request without an audit store does nothing.
+func RecordAudit(ctx context.Context, resourceID string, details map[string]string) error {
+	rec, ok := ctx.Value(auditRecorderKey{}).(*auditRecorder)
+	if !ok {
+		return nil
+	}
+	rec.recorded = true
+	rec.entry.ResourceID = auditText(resourceID)
+	rec.entry.Details = auditDetails(rec.known, details)
+	if err := rec.store.InsertAuditEntry(ctx, rec.entry); err != nil {
+		logAuditFailure(ctx, rec.entry, err)
+		return errors.Join(ErrAuditUnavailable, err)
+	}
+	return nil
+}
+
+func newAuditEntry(u *user.User, action, resource string, r *http.Request) *database.AuditEntry {
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	email := u.Email
+	return &database.AuditEntry{
+		AdminID:    u.ID,
+		AdminEmail: &email,
+		Action:     action,
+		Resource:   resource,
+		IPAddress:  ip,
+	}
+}
+
+// auditText makes a requester's value storable: PostgreSQL text holds no NUL
+// byte and no invalid UTF-8, and an entry that cannot be inserted is lost.
+func auditText(s string) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "�"), "\x00", "�")
+}
+
+// auditDetails encodes the merged details as JSON with storable values
+// (JSONB holds no \u0000 either).
+func auditDetails(parts ...map[string]string) []byte {
+	safe := map[string]string{}
+	for _, details := range parts {
+		for k, v := range details {
+			safe[auditText(k)] = auditText(v)
+		}
+	}
+	if len(safe) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(safe)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// logAuditFailure keeps a lost entry in the log, with everything it held.
+func logAuditFailure(ctx context.Context, e *database.AuditEntry, err error) {
+	slog.ErrorContext(ctx, "audit log write failed",
+		"action", e.Action,
+		"resource", e.Resource,
+		"resource_id", e.ResourceID,
+		"details", string(e.Details),
+		"admin_id", e.AdminID,
+		"error", err,
+	)
+}
+
+// statusWriter records the status of a response.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *statusWriter) status() int {
+	if w.code == 0 {
+		return http.StatusOK
+	}
+	return w.code
 }

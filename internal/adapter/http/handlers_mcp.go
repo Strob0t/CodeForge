@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
 // --- MCP Server Handlers (Phase 15C) ---
@@ -150,14 +151,21 @@ type assignMCPRequest struct {
 }
 
 // AssignMCPServerToProject handles POST /api/v1/projects/{id}/mcp-servers
+// It is audited (KI-71 review) as an action on the server it decoded, with
+// the project; an assignment whose entry cannot be written is refused.
 func (h *Handlers) AssignMCPServerToProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
+	middleware.AuditContext(r.Context(), map[string]string{"project_id": projectID})
 	req, ok := readJSON[assignMCPRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
 	if req.ServerID == "" {
 		writeError(w, http.StatusBadRequest, "server_id is required")
+		return
+	}
+	if err := middleware.RecordAudit(r.Context(), req.ServerID, nil); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "the audit log is unavailable; nothing was changed")
 		return
 	}
 	if err := h.MCP.AssignToProject(r.Context(), projectID, req.ServerID); err != nil {
@@ -168,9 +176,15 @@ func (h *Handlers) AssignMCPServerToProject(w http.ResponseWriter, r *http.Reque
 }
 
 // UnassignMCPServerFromProject handles DELETE /api/v1/projects/{id}/mcp-servers/{serverId}
+// It is audited like AssignMCPServerToProject.
 func (h *Handlers) UnassignMCPServerFromProject(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 	serverID := chi.URLParam(r, "serverId")
+	middleware.AuditContext(r.Context(), map[string]string{"project_id": projectID})
+	if err := middleware.RecordAudit(r.Context(), serverID, nil); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "the audit log is unavailable; nothing was changed")
+		return
+	}
 	if err := h.MCP.UnassignFromProject(r.Context(), projectID, serverID); err != nil {
 		writeDomainError(w, err, "unassign mcp server from project")
 		return

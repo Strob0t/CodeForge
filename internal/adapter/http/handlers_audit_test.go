@@ -3,6 +3,7 @@ package http_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/mcp"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -24,12 +27,20 @@ import (
 
 // auditStoreMock implements the auditDB interface (middleware.AuditStore + auditLogReader).
 type auditStoreMock struct {
-	entries  []database.AuditEntry
-	listErr  error
-	inserted []database.AuditEntry
+	entries   []database.AuditEntry
+	listErr   error
+	inserted  []database.AuditEntry
+	insertErr error
 }
 
+// InsertAuditEntry refuses what PostgreSQL refuses: a NUL byte in a text column.
 func (m *auditStoreMock) InsertAuditEntry(_ context.Context, e *database.AuditEntry) error {
+	if m.insertErr != nil {
+		return m.insertErr
+	}
+	if strings.ContainsRune(e.ResourceID, 0) || strings.Contains(string(e.Details), `\u0000`) {
+		return errors.New("ERROR: invalid byte sequence for encoding \"UTF8\": 0x00 (SQLSTATE 22021)")
+	}
 	m.inserted = append(m.inserted, *e)
 	return nil
 }
@@ -42,7 +53,11 @@ func (m *auditStoreMock) ListAuditEntries(_ context.Context, _ string, _, _ int)
 // configurable user injected into the request context. When ctxUser is nil the
 // default admin is used (matching the convention in other handler tests).
 func newAuditTestRouter(auditStore *auditStoreMock, ctxUser *user.User) chi.Router {
-	store := &mockStore{}
+	return newAuditTestRouterWithStore(auditStore, ctxUser, &mockStore{})
+}
+
+// newAuditTestRouterWithStore is newAuditTestRouter on *store*.
+func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User, store *mockStore) chi.Router {
 	queue := &mockQueue{}
 	bc := &mockBroadcaster{}
 	es := &mockEventStore{}
@@ -347,26 +362,127 @@ func TestAuditLogs_WithActionFilter(t *testing.T) {
 	}
 }
 
+// mcpAssignmentStore has project p1 and the MCP servers s1 and decoy.
+func mcpAssignmentStore() *mockStore {
+	return &mockStore{
+		projects: []project.Project{{ID: "p1", Name: "p"}},
+		mcpServers: []mcp.ServerDef{
+			{ID: "s1", Name: "s1", Transport: mcp.TransportSSE, URL: "http://s1.example/sse"},
+			{ID: "decoy", Name: "decoy", Transport: mcp.TransportSSE, URL: "http://decoy.example/sse"},
+		},
+	}
+}
+
+func auditLines(entries []database.AuditEntry) []string {
+	var lines []string
+	for i := range entries {
+		e := &entries[i]
+		lines = append(lines, e.Action+" "+e.Resource+" "+e.ResourceID+" "+string(e.Details))
+	}
+	return lines
+}
+
 // KI-71 review: assigning an MCP server to a project, or removing it, is
-// audited as an action on that server: the entry names the server, not the
-// project of the URL.
-func TestAudit_MCPServerAssignmentsNameTheServer(t *testing.T) {
-	auditStore := &auditStoreMock{}
-	r := newAuditTestRouter(auditStore, nil)
-
-	for _, req := range []*http.Request{
-		httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/mcp-servers", strings.NewReader(`{"server_id":"s1"}`)),
-		httptest.NewRequest(http.MethodDelete, "/api/v1/projects/p1/mcp-servers/s2", http.NoBody),
+// audited as an action on that server, with its project. The entry names
+// what the handler decoded and acts on, never a second reading of the body
+// the requester could make differ from it.
+func TestAudit_MCPServerAssignmentsRecordWhatIsAssigned(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"plain", `{"server_id":"s1"}`},
+		{"trailing data after the object", `{"server_id":"s1"} {"server_id":"decoy"}`},
+		{"case-insensitive duplicate key", `{"server_id":"decoy","SERVER_ID":"s1"}`},
+		{"padding over 64 KiB", `{"pad":"` + strings.Repeat("x", 70_000) + `","server_id":"s1"}`},
 	} {
-		req.Header.Set("Content-Type", "application/json")
-		r.ServeHTTP(httptest.NewRecorder(), req)
-	}
+		t.Run(tc.name, func(t *testing.T) {
+			auditStore := &auditStoreMock{}
+			store := mcpAssignmentStore()
+			r := newAuditTestRouterWithStore(auditStore, nil, store)
 
-	var got []string
-	for _, e := range auditStore.inserted {
-		got = append(got, e.Action+" "+e.Resource+" "+e.ResourceID)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/mcp-servers", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			if len(store.mcpProjectLinks) != 1 || store.mcpProjectLinks[0].ServerID != "s1" {
+				t.Fatalf("links = %+v, want p1 -> s1", store.mcpProjectLinks)
+			}
+			want := []string{`assign mcp_server s1 {"project_id":"p1"}`}
+			if got := auditLines(auditStore.inserted); strings.Join(got, "|") != strings.Join(want, "|") {
+				t.Fatalf("audit entries = %q, want %q", got, want)
+			}
+		})
 	}
-	if want := []string{"assign mcp_server s1", "unassign mcp_server s2"}; strings.Join(got, ",") != strings.Join(want, ",") {
+}
+
+func TestAudit_MCPServerUnassignRecordsServerAndProject(t *testing.T) {
+	auditStore := &auditStoreMock{}
+	store := mcpAssignmentStore()
+	store.mcpProjectLinks = append(store.mcpProjectLinks, struct{ ProjectID, ServerID string }{"p1", "s1"})
+	r := newAuditTestRouterWithStore(auditStore, nil, store)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/v1/projects/p1/mcp-servers/s1", http.NoBody))
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	want := []string{`unassign mcp_server s1 {"project_id":"p1"}`}
+	if got := auditLines(auditStore.inserted); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("audit entries = %q, want %q", got, want)
+	}
+}
+
+// A NUL byte in a decoy value made the insert fail (PostgreSQL text), so no
+// entry was written: the stored values are made storable.
+func TestAudit_MCPServerAssignmentWithANulByteIsRecorded(t *testing.T) {
+	auditStore := &auditStoreMock{}
+	r := newAuditTestRouterWithStore(auditStore, nil, mcpAssignmentStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/mcp-servers", strings.NewReader(`{"server_id":"s1\u0000decoy"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	if len(auditStore.inserted) != 1 || auditStore.inserted[0].ResourceID != "s1\uFFFDdecoy" {
+		t.Fatalf("audit entries = %q, want one for the server with the NUL replaced", auditLines(auditStore.inserted))
+	}
+}
+
+// The entry is written before the change; an assignment whose entry cannot
+// be written is refused, so no assignment goes unaudited.
+func TestAudit_MCPServerAssignmentIsRefusedWithoutItsAuditEntry(t *testing.T) {
+	auditStore := &auditStoreMock{insertErr: errors.New("audit_log unavailable")}
+	store := mcpAssignmentStore()
+	store.mcpProjectLinks = append(store.mcpProjectLinks, struct{ ProjectID, ServerID string }{"p1", "decoy"})
+	r := newAuditTestRouterWithStore(auditStore, nil, store)
+
+	assign := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/mcp-servers", strings.NewReader(`{"server_id":"s1"}`))
+	assign.Header.Set("Content-Type", "application/json")
+	for _, req := range []*http.Request{assign, httptest.NewRequest(http.MethodDelete, "/api/v1/projects/p1/mcp-servers/decoy", http.NoBody)} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s %s: status %d, want 503: %s", req.Method, req.URL.Path, w.Code, w.Body.String())
+		}
+	}
+	if len(store.mcpProjectLinks) != 1 || store.mcpProjectLinks[0].ServerID != "decoy" {
+		t.Fatalf("links = %+v, want only the existing p1 -> decoy", store.mcpProjectLinks)
+	}
+}
+
+// A request refused before anything changed is still audited, with its status.
+func TestAudit_MCPServerAssignmentRefusedEarlyIsRecorded(t *testing.T) {
+	auditStore := &auditStoreMock{}
+	r := newAuditTestRouterWithStore(auditStore, nil, mcpAssignmentStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/mcp-servers", strings.NewReader(`not json`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	want := []string{`assign mcp_server  {"project_id":"p1","status":"400"}`}
+	if got := auditLines(auditStore.inserted); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("audit entries = %q, want %q", got, want)
 	}
 }

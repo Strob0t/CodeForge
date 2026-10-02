@@ -3,6 +3,7 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/go-chi/chi/v5"
 
@@ -40,9 +41,16 @@ func WithAuditStore(s auditDB) RouteOption {
 }
 
 // auditFunc is the type for the audit middleware factory used across mount
-// functions. The entry names the resource of the {id} URL parameter, or of
-// resourceID when given (middleware.URLParamID, middleware.BodyFieldID).
-type auditFunc func(action, resource string, resourceID ...func(*http.Request) string) func(http.Handler) http.Handler
+// functions. The entry names the resource of the {id} URL parameter; with
+// auditByHandler the handler names it (middleware.RecordAudit).
+type auditFunc func(action, resource string, opts ...auditOption) func(http.Handler) http.Handler
+
+// auditOption changes how an audit entry is made.
+type auditOption int
+
+// auditByHandler: the handler names the audited resource from what it
+// decoded and acts on (middleware.AuditLogByHandler).
+const auditByHandler auditOption = 1
 
 // MountRoutes registers all API routes on the given chi router.
 //
@@ -80,12 +88,12 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 
 	// audit returns AuditLog middleware when an audit store is configured,
 	// or a pass-through no-op otherwise.
-	audit := auditFunc(func(action, resource string, resourceID ...func(*http.Request) string) func(http.Handler) http.Handler {
+	audit := auditFunc(func(action, resource string, opts ...auditOption) func(http.Handler) http.Handler {
 		if ro.auditStore == nil {
 			return func(next http.Handler) http.Handler { return next }
 		}
-		if len(resourceID) > 0 {
-			return middleware.AuditLogID(ro.auditStore, action, resource, resourceID[0])
+		if slices.Contains(opts, auditByHandler) {
+			return middleware.AuditLogByHandler(ro.auditStore, action, resource)
 		}
 		return middleware.AuditLog(ro.auditStore, action, resource)
 	})
@@ -720,10 +728,11 @@ func mountDevToolRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.With(adminOnly).Post("/mcp/servers/{id}/test", h.TestMCPServer)
 	r.Get("/mcp/servers/{id}/tools", h.ListMCPServerTools)
 	r.Get("/projects/{id}/mcp-servers", h.ListProjectMCPServers)
-	// Audited as actions on the server (its ID is in the body or the URL).
-	r.With(adminOnly, audit("assign", "mcp_server", middleware.BodyFieldID("server_id"))).
+	// Audited as actions on the server, with the project; the handlers name
+	// what they decoded and refuse the change when no entry can be written.
+	r.With(adminOnly, audit("assign", "mcp_server", auditByHandler)).
 		Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
-	r.With(adminOnly, audit("unassign", "mcp_server", middleware.URLParamID("serverId"))).
+	r.With(adminOnly, audit("unassign", "mcp_server", auditByHandler)).
 		Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
 }
 
