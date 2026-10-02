@@ -204,8 +204,10 @@ func (s *MCPService) RunServerPayloads(ctx context.Context, projectID, modeID st
 }
 
 // LoadFromDirectory reads all .yaml/.yml files from a directory and registers
-// each as a server definition. A missing directory returns nil (not an error),
-// matching the pattern in policy/loader.go.
+// each as a server definition. A file that cannot be read, parsed or
+// registered is logged at error level with its name and reason and skipped;
+// the others still load. A missing directory returns nil (not an error),
+// matching the pattern in policy/loader.go; an unreadable one is an error.
 func (s *MCPService) LoadFromDirectory(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -225,20 +227,26 @@ func (s *MCPService) LoadFromDirectory(dir string) error {
 		}
 
 		path := filepath.Join(dir, entry.Name())
-		data, readErr := os.ReadFile(path) //nolint:gosec // G304: path built from trusted dir
-		if readErr != nil {
-			return fmt.Errorf("read mcp server file %s: %w", path, readErr)
-		}
-
-		var def mcp.ServerDef
-		if unmarshalErr := yaml.Unmarshal(data, &def); unmarshalErr != nil {
-			return fmt.Errorf("parse mcp server file %s: %w", path, unmarshalErr)
-		}
-
-		if regErr := s.Register(def); regErr != nil {
-			return fmt.Errorf("register mcp server from %s: %w", path, regErr)
+		if err := s.loadFile(path); err != nil {
+			slog.Error("skipping mcp server definition", "file", path, "error", err)
 		}
 	}
 
+	return nil
+}
+
+// loadFile registers the server definition of one YAML file.
+func (s *MCPService) loadFile(path string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path built from the operator's servers_dir
+	if err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+	var def mcp.ServerDef
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		return fmt.Errorf("parse: %w", err)
+	}
+	if err := s.Register(def); err != nil {
+		return fmt.Errorf("register: %w", err)
+	}
 	return nil
 }
