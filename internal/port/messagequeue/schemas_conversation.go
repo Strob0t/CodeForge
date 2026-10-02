@@ -93,6 +93,9 @@ type ConversationRunStartPayload struct {
 	// conversation ID as run ID); the worker echoes it on every tool call so
 	// that calls of a stopped run are rejected after the next run started.
 	TurnID string `json:"turn_id,omitempty"`
+	// ToolUID is the tenant's tool UID: the worker runs the turn's tool
+	// processes as it (KI-96; 0/omitted with workspace.tool_acls off).
+	ToolUID int `json:"tool_uid,omitempty"`
 	// ApprovalTimeoutSeconds is how long Go waits for a HITL decision on a
 	// tool call of an agentic run; the worker waits for policy responses
 	// longer than that (0 = the worker's default).
@@ -153,6 +156,8 @@ type WorkspaceTestRequestPayload struct {
 	// TestFile is a file name matching test_<word>.py in the workspace root.
 	TestFile       string `json:"test_file"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
+	// ToolUID is the tenant's tool UID: the test runs as it (KI-96).
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // WorkspaceTestResultPayload is the schema for conversation.test.result.

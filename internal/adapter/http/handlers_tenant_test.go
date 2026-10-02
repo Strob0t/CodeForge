@@ -2,14 +2,19 @@ package http_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/service"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -29,6 +34,37 @@ func tenantRequest(t *testing.T, method, path, body string, u *user.User, store 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+type exhaustedToolUIDs struct{}
+
+func (exhaustedToolUIDs) AllocateToolUID(context.Context, string) (int, error) {
+	return 0, fmt.Errorf("allocate: %w", tenant.ErrToolUIDRangeExhausted)
+}
+func (exhaustedToolUIDs) AdvanceToolUIDSequence(context.Context, int) (bool, error) {
+	return false, nil
+}
+
+// TestStartRunWithoutToolUIDsIs503: with every tool UID taken, tool work of
+// a tenant without one is refused as unavailable (KI-96), and no run exists.
+func TestStartRunWithoutToolUIDsIs503(t *testing.T) {
+	store := newExecModeRunStore(nil)
+	r := newTestRouterWithLLM(store, service.NewPolicyService("headless-safe-sandbox", nil), "http://localhost:4000",
+		func(h *cfhttp.Handlers) { h.Runtime.SetToolUIDs(service.NewToolUIDService(exhaustedToolUIDs{}, true)) })
+	body := `{"task_id":"task-1","agent_id":"agent-1","project_id":"proj-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 (body %s)", w.Code, w.Body.String())
+	}
+	if msg := decodeErrorMessage(t, w); !strings.Contains(msg, "tool UID range exhausted") {
+		t.Fatalf("error = %q", msg)
+	}
+	if len(store.runs) != 0 {
+		t.Fatalf("runs created: %d", len(store.runs))
+	}
 }
 
 // TestCreateTenantIsPlatformAdminOnly: tool UIDs are a deployment-wide

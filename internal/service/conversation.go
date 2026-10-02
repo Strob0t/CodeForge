@@ -21,6 +21,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // conversationPromptData carries project context into the system prompt template.
@@ -72,6 +73,7 @@ type convStore interface {
 
 // ConversationService manages conversations and LLM interactions.
 type ConversationService struct {
+	toolUIDSource
 	db              convStore
 	hub             broadcast.Broadcaster
 	queue           messagequeue.Queue
@@ -323,6 +325,12 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
 	}
+	// The worker refuses a run start without the tenant's tool UID when it
+	// isolates tenants (KI-96), also for a chat without tools.
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("tool uid: %w", err)
+	}
 
 	turnID, finishRun, err := s.beginRun(ctx, conversationID)
 	if err != nil {
@@ -379,6 +387,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		TenantID:           outgoingTenant(ctx, "conversation.run.start"),
 		TurnID:             turnID,
 		ToolOutputMaxChars: s.toolOutputMaxChars(),
+		ToolUID:            toolUID,
 	}
 
 	data, err := json.Marshal(payload)

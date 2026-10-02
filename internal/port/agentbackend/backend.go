@@ -24,6 +24,9 @@ type Execution struct {
 	// HeartbeatSeconds is how often a worker executing the task reports it
 	// alive (0 = the worker's default).
 	HeartbeatSeconds int
+	// ToolUID is the task tenant's tool UID the backend CLI runs as (KI-96;
+	// 0 with workspace.tool_acls off).
+	ToolUID int
 }
 
 // Backend is the port interface for interacting with a coding agent backend.

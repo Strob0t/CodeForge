@@ -26,11 +26,13 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	cfmetrics "github.com/Strob0t/CodeForge/internal/port/metrics"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // RuntimeService orchestrates the step-by-step execution protocol between
 // Go (control plane) and Python (execution plane).
 type RuntimeService struct {
+	toolUIDSource
 	store         database.Store
 	queue         messagequeue.Queue
 	hub           broadcast.Broadcaster
@@ -447,6 +449,14 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		deliverMode = run.DeliverMode(s.runtimeCfg.DefaultDeliverMode)
 	}
 
+	// The run's tool processes run as its tenant's tool UID (KI-96): computed
+	// in Go from the run's tenant (for handoff runs the claimed tenant), before
+	// the run exists, so a full UID range creates no run.
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("tool uid: %w", err)
+	}
+
 	// Create run in DB.
 	r := &run.Run{
 		TaskID:        req.TaskID,
@@ -496,6 +506,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	// Build and publish NATS payload.
 	payload := s.buildRunPayload(ctx, r, proj, t, ag, profileName, &profile, resolvedMode, modeID, deliverMode)
+	payload.ToolUID = toolUID
 
 	// Quarantine gate: check if message should be held for review.
 	if s.quarantine != nil {

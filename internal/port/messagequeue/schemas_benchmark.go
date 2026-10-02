@@ -44,6 +44,9 @@ type BenchmarkRunRequestPayload struct {
 	RolloutStrategy    string          `json:"rollout_strategy,omitempty"`
 	ProviderName       string          `json:"provider_name,omitempty"`
 	ProviderConfig     json.RawMessage `json:"provider_config,omitempty"`
+	// ToolUID is the tenant's tool UID: the benchmark's tool processes run
+	// as it (KI-96; 0/omitted with workspace.tool_acls off).
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // BenchmarkSummary holds aggregate statistics computed by the Python worker.

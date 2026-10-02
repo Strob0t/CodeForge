@@ -194,10 +194,12 @@ func run() error {
 	hub := ws.NewHub(cfg.Server.CORSOrigin, wsTickets)
 	store := postgres.NewStore(pool)
 	eventStore := postgres.NewEventStore(pool)
+	toolUIDSvc := service.NewToolUIDService(store, toolACLsRequired(cfg))
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
 	projectSvc.SetAdoptRoots(cfg.Workspace.AdoptRoots)
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
+	agentSvc.SetToolUIDs(toolUIDSvc)
 	agentSvc.SetEventStore(eventStore)
 	agentSvc.SetRuntimeConfig(&cfg.Runtime)
 
@@ -232,6 +234,7 @@ func run() error {
 	// --- Runtime Service (Phase 4B + 4C) ---
 	runtimeSvc := service.NewRuntimeService(store, queue, hub, eventStore, policySvc, &cfg.Runtime)
 	runtimeSvc.SetQuarantineService(quarantineSvc)
+	runtimeSvc.SetToolUIDs(toolUIDSvc)
 	runtimeSvc.SetMetrics(metrics)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
 	runtimeSvc.SetDeliverService(deliverSvc)
@@ -661,6 +664,7 @@ func run() error {
 	conversationModel := cfg.LiteLLM.ConversationModel
 	convMsgSvc := service.NewConversationMessageService(store, queue, hub)
 	conversationSvc := service.NewConversationService(store, hub, conversationModel, modeSvc)
+	conversationSvc.SetToolUIDs(toolUIDSvc)
 	conversationSvc.SetMessageService(convMsgSvc)
 	conversationSvc.SetMetrics(metrics)
 	conversationSvc.SetQueue(queue)
@@ -727,6 +731,7 @@ func run() error {
 
 	// --- Auto-Agent Service ---
 	autoAgentSvc := service.NewAutoAgentService(store, hub, queue, conversationSvc)
+	autoAgentSvc.SetToolUIDs(toolUIDSvc)
 	// Its post-verification tests run in the worker (KI-81).
 	autoAgentTestCancel, err := autoAgentSvc.StartTestResultSubscriber(ctx)
 	if err != nil {
@@ -831,6 +836,7 @@ func run() error {
 
 	benchmarkSuiteSvc := service.NewBenchmarkSuiteService(store, cfg.Benchmark.DatasetsDir)
 	benchmarkRunMgr := service.NewBenchmarkRunManager(store, benchmarkSuiteSvc)
+	benchmarkRunMgr.SetToolUIDs(toolUIDSvc)
 	benchmarkResultAgg := service.NewBenchmarkResultAggregator(store)
 	benchmarkWatchdog := service.NewBenchmarkWatchdog(store)
 	benchmarkSvc := service.NewBenchmarkService(benchmarkSuiteSvc, benchmarkRunMgr, benchmarkResultAgg, benchmarkWatchdog)

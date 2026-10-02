@@ -62,6 +62,11 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 		TimeoutSeconds:   int(math.Ceil(s.runtimeCfg.QualityGateTimeout.Seconds())),
 		HeartbeatSeconds: int(gateHeartbeatInterval / time.Second),
 	}
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, gateReq.TenantID)
+	if err != nil {
+		return s.failQualityGate(ctx, gated, gate, gateVerdict{reason: "tool uid: " + err.Error()}, nil)
+	}
+	gateReq.ToolUID = toolUID
 	if err := s.publishJSON(ctx, messagequeue.SubjectQualityGateRequest, gateReq); err != nil {
 		slog.Error("quality gate request not published, failing the gate", "run_id", r.ID, "error", err)
 		return s.failQualityGate(ctx, gated, gate, gateVerdict{reason: "request not published: " + err.Error()}, nil)

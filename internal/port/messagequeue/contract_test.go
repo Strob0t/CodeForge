@@ -180,6 +180,7 @@ func sampleGraphSearchHitPayload() mq.GraphSearchHitPayload {
 func sampleConversationRunStartPayload() mq.ConversationRunStartPayload {
 	return mq.ConversationRunStartPayload{
 		RunID:                  "550e8400-e29b-41d4-a716-446655440001",
+		ToolUID:                20000,
 		ConversationID:         "550e8400-e29b-41d4-a716-446655440002",
 		SessionID:              "550e8400-e29b-41d4-a716-446655440003",
 		ProjectID:              "550e8400-e29b-41d4-a716-446655440004",
@@ -214,6 +215,7 @@ func sampleRunStartPayload() mq.RunStartPayload {
 		ProjectID:              "550e8400-e29b-41d4-a716-446655440004",
 		AgentID:                "550e8400-e29b-41d4-a716-446655440042",
 		TenantID:               "00000000-0000-0000-0000-000000000000",
+		ToolUID:                20000,
 		Prompt:                 "Fix the null pointer in handler.go",
 		PolicyProfile:          "headless-safe-sandbox",
 		ExecMode:               "mount",
@@ -238,6 +240,7 @@ func sampleTaskAgentPayload() mq.TaskAgentPayload {
 		TaskID:           "550e8400-e29b-41d4-a716-446655440041",
 		ProjectID:        "550e8400-e29b-41d4-a716-446655440004",
 		TenantID:         "00000000-0000-0000-0000-000000000000",
+		ToolUID:          20000,
 		AgentID:          "550e8400-e29b-41d4-a716-446655440042",
 		Title:            "Fix bug",
 		Prompt:           "Fix the null pointer in handler.go",
@@ -252,6 +255,7 @@ func sampleWorkspaceTestRequestPayload() mq.WorkspaceTestRequestPayload {
 	return mq.WorkspaceTestRequestPayload{
 		RequestID:      "550e8400-e29b-41d4-a716-446655440050",
 		TenantID:       "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:        20000,
 		ProjectID:      "550e8400-e29b-41d4-a716-446655440001",
 		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
 		WorkspacePath:  "/workspaces/project",
@@ -294,6 +298,7 @@ func sampleBenchmarkRunRequestPayload() mq.BenchmarkRunRequestPayload {
 	return mq.BenchmarkRunRequestPayload{
 		RunID:              "550e8400-e29b-41d4-a716-446655440005",
 		TenantID:           "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:            20000,
 		DatasetPath:        "/datasets/basic-coding",
 		Model:              "mistral/mistral-large-latest",
 		Metrics:            []string{"correctness", "style", "efficiency"},
@@ -595,6 +600,7 @@ func sampleQualityGateRequestPayload() mq.QualityGateRequestPayload {
 		RunID:            "550e8400-e29b-41d4-a716-446655440040",
 		ProjectID:        "550e8400-e29b-41d4-a716-446655440001",
 		TenantID:         "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:          20000,
 		WorkspacePath:    "/workspaces/project",
 		RunTests:         true,
 		RunLint:          true,
@@ -760,15 +766,15 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 
 	// Common field expectations per subject.
 	expectedKeys := map[string][]string{
-		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id", "approval_timeout_seconds"},
-		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend", "approval_timeout_seconds", "tool_output_max_chars"},
-		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path"},
+		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id", "approval_timeout_seconds", "tool_uid"},
+		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend", "approval_timeout_seconds", "tool_output_max_chars", "tool_uid"},
+		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path", "tool_uid"},
 		mq.SubjectTaskResult:                  {"task_id", "project_id", "tenant_id", "dispatch_id", "status", "cost_usd"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
-		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds"},
+		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds", "tool_uid"},
 		mq.SubjectConversationTestResult:      {"request_id", "tenant_id", "conversation_id", "passed", "output"},
-		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model"},
+		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model", "tool_uid"},
 		mq.SubjectBenchmarkRunResult:          {"run_id", "status", "results", "summary"},
 		mq.SubjectBenchmarkTaskStarted:        {"run_id", "task_id", "task_name", "index", "total"},
 		mq.SubjectBenchmarkTaskProgress:       {"run_id", "task_id", "completed_tasks", "total_tasks"},
@@ -796,7 +802,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectContextRerankRequest: {"request_id", "project_id", "query"},
 		mq.SubjectContextRerankResult:  {"request_id", "entries"},
 		// Quality gates
-		mq.SubjectQualityGateRequest: {"run_id", "project_id", "tenant_id", "workspace_path", "run_tests", "run_lint", "test_command", "lint_command", "timeout_seconds", "heartbeat_seconds"},
+		mq.SubjectQualityGateRequest: {"run_id", "project_id", "tenant_id", "workspace_path", "run_tests", "run_lint", "test_command", "lint_command", "timeout_seconds", "heartbeat_seconds", "tool_uid"},
 		mq.SubjectQualityGateResult:  {"run_id", "tenant_id", "tests_passed", "lint_passed", "test_output", "lint_output"},
 	}
 

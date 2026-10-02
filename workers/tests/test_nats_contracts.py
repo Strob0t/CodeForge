@@ -220,3 +220,24 @@ def test_python_required_fields_in_go_fixture(
             missing.append(f"{field_name} (json: {json_key})")
 
     assert not missing, f"Required Python fields missing from Go fixture for '{subject}': {missing}"
+
+
+# KI-96: the payloads that start tool processes carry the tenant's tool UID.
+_TOOL_START_SUBJECTS = [
+    "runs.start",
+    "conversation.run.start",
+    "tasks.agent",
+    "runs.qualitygate.request",
+    "conversation.test.request",
+    "benchmark.run.request",
+]
+
+
+@pytest.mark.parametrize("subject", _TOOL_START_SUBJECTS)
+def test_tool_uid_reaches_the_worker(subject: str) -> None:
+    raw = json.loads(_fixture_path(subject).read_text())
+    model = SUBJECT_MODEL_MAP[subject].model_validate(raw)
+    assert model.tool_uid == 20000  # type: ignore[attr-defined]
+    raw.pop("tool_uid")
+    # Without it (workspace.tool_acls off, or an older Go Core) the field is 0.
+    assert SUBJECT_MODEL_MAP[subject].model_validate(raw).tool_uid == 0  # type: ignore[attr-defined]

@@ -65,6 +65,17 @@ func (s *ToolUIDService) ToolUIDFor(ctx context.Context, tenantID string) (int, 
 	return uid, nil
 }
 
+// toolUIDSource gives a service that publishes payloads starting tool
+// processes the tenants' tool UIDs (embedded; nil: tool ACLs off).
+type toolUIDSource struct {
+	toolUIDs *ToolUIDService
+}
+
+// SetToolUIDs sets the tool UID service (KI-96).
+func (s *toolUIDSource) SetToolUIDs(svc *ToolUIDService) {
+	s.toolUIDs = svc
+}
+
 // PayloadToolUID is the tool_uid of a payload that starts tool processes for
 // tenantID (the payload's own tenant_id, so the two always match): 0 (the
 // field is omitted) while tool ACLs are off.

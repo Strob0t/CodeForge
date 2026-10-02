@@ -24,6 +24,7 @@ import (
 
 // AgentService handles agent lifecycle and task dispatch.
 type AgentService struct {
+	toolUIDSource
 	store      database.Store
 	queue      messagequeue.Queue
 	hub        broadcast.Broadcaster
@@ -124,8 +125,14 @@ func (s *AgentService) Dispatch(ctx context.Context, agentID, taskID string) err
 	// Dispatch to backend (async via NATS). The worker echoes the tenant in
 	// its output and result messages, which scopes their WebSocket events.
 	t.TenantID = outgoingTenant(ctx, "tasks.agent")
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, t.TenantID)
+	if err != nil {
+		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))
+		logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, taskID, task.StatusPending), "UpdateTaskStatus", slog.String("task_id", taskID))
+		return fmt.Errorf("tool uid: %w", err)
+	}
 	if _, err := backend.Execute(ctx, &agentbackend.Execution{
-		Task: t, WorkspacePath: proj.WorkspacePath, HeartbeatSeconds: heartbeatSeconds(s.runtimeCfg),
+		Task: t, WorkspacePath: proj.WorkspacePath, HeartbeatSeconds: heartbeatSeconds(s.runtimeCfg), ToolUID: toolUID,
 	}); err != nil {
 		// Revert agent status on failure
 		logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, agentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", agentID))

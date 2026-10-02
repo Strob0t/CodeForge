@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 )
 
 // ---------------------------------------------------------------------------
@@ -147,6 +148,10 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 	case errors.Is(err, domain.ErrValidation):
 		msg := strings.TrimPrefix(err.Error(), domain.ErrValidation.Error()+": ")
 		writeError(w, http.StatusBadRequest, msg)
+	case errors.Is(err, tenant.ErrToolUIDRangeExhausted):
+		// Every tool UID of the deployment is taken (KI-96): no new tenant can run tools.
+		slog.Error("tool work refused: the tool UID range is exhausted", "error", err.Error())
+		writeError(w, http.StatusServiceUnavailable, tenant.ErrToolUIDRangeExhausted.Error())
 	case strings.Contains(err.Error(), "invalid input syntax"):
 		writeError(w, http.StatusBadRequest, "invalid identifier format")
 	case strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "SQLSTATE 23505"):

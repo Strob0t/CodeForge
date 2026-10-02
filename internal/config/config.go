@@ -377,6 +377,33 @@ type Workspace struct {
 	// local repositories from; everyone else only adopts inside their
 	// tenant's directory of Root. Default: none.
 	AdoptRoots []string `yaml:"adopt_roots"`
+	// ToolACLs selects per-tenant tool identities (KI-96, ADR-018): with
+	// "required" (the Core image, docker-compose.prod.yml) the Core gives
+	// every tenant directory POSIX ACLs for the tenant's tool UID and sends
+	// the UID (tool_uid) on every payload that starts tool processes; "off"
+	// (the default: development, macOS, WSL2 drvfs) keeps plain directories
+	// and sends none. Any other value counts as "required".
+	ToolACLs string `yaml:"tool_acls"`
+}
+
+// Values of workspace.tool_acls.
+const (
+	ToolACLsOff      = "off"
+	ToolACLsRequired = "required"
+)
+
+// ToolACLsRequired reports whether workspace.tool_acls selects per-tenant
+// tool identities, and whether the value was one of the known ones (an
+// unknown value fails closed: required).
+func (w *Workspace) ToolACLsRequired() (required, known bool) {
+	switch strings.ToLower(strings.TrimSpace(w.ToolACLs)) {
+	case "", ToolACLsOff:
+		return false, true
+	case ToolACLsRequired:
+		return true, true
+	default:
+		return true, false
+	}
 }
 
 // Server holds HTTP server configuration.

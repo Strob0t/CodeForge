@@ -25,6 +25,9 @@ type TaskAgentPayload struct {
 	// DispatchID identifies this dispatch of the task; the worker names it
 	// on its heartbeats, which count for this dispatch only.
 	DispatchID string `json:"dispatch_id,omitempty"`
+	// ToolUID is the tenant's tool UID: the backend CLI runs as it (KI-96;
+	// 0/omitted with workspace.tool_acls off).
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // NewTaskAgentPayload builds the tasks.agent.{backend} payload of an execution.
@@ -41,6 +44,7 @@ func NewTaskAgentPayload(e *agentbackend.Execution, backend string) TaskAgentPay
 		WorkspacePath:    e.WorkspacePath,
 		HeartbeatSeconds: e.HeartbeatSeconds,
 		DispatchID:       t.DispatchID,
+		ToolUID:          e.ToolUID,
 	}
 }
 
@@ -124,6 +128,10 @@ type RunStartPayload struct {
 	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker truncates
 	// tool results to it (0 = the worker's default).
 	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
+	// ToolUID is the tenant's tool UID: the worker runs the run's tool
+	// processes as it (KI-96; 0/omitted with workspace.tool_acls off). Go
+	// computes it from the run's tenant, for handoff runs too.
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // TerminationPayload carries the termination limits for a run.
@@ -240,6 +248,8 @@ type QualityGateRequestPayload struct {
 	// (runs.heartbeat, phase quality_gate); the stuck-work watchdog takes a
 	// gate that stopped reporting for lost.
 	HeartbeatSeconds int `json:"heartbeat_seconds"`
+	// ToolUID is the tenant's tool UID: the gate commands run as it (KI-96).
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // QualityGateResultPayload is published with the outcome of a quality gate execution.

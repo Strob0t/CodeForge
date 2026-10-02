@@ -22,6 +22,7 @@ import (
 
 // BenchmarkRunManager handles benchmark run lifecycle (create, start, list, update, delete).
 type BenchmarkRunManager struct {
+	toolUIDSource
 	store      database.Store
 	queue      messagequeue.Queue
 	routingSvc *RoutingService
@@ -102,6 +103,12 @@ func (m *BenchmarkRunManager) CreateRun(ctx context.Context, req *benchmark.Crea
 // StartRun creates a benchmark run in the database and publishes it to NATS
 // for Python worker execution. Falls back to CreateRun (DB-only) if queue is nil.
 func (m *BenchmarkRunManager) StartRun(ctx context.Context, req *benchmark.CreateRunRequest) (*benchmark.Run, error) {
+	// The benchmark's tool processes run as the tenant's tool UID (KI-96).
+	tenantID := outgoingTenant(ctx, "benchmark.run.request")
+	toolUID, err := m.toolUIDs.PayloadToolUID(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("tool uid: %w", err)
+	}
 	run, err := m.CreateRun(ctx, req)
 	if err != nil {
 		return nil, err
@@ -136,7 +143,8 @@ func (m *BenchmarkRunManager) StartRun(ctx context.Context, req *benchmark.Creat
 
 	payload := messagequeue.BenchmarkRunRequestPayload{
 		RunID:              run.ID,
-		TenantID:           outgoingTenant(ctx, "benchmark.run.request"),
+		TenantID:           tenantID,
+		ToolUID:            toolUID,
 		DatasetPath:        datasetPath,
 		Model:              run.Model,
 		Metrics:            run.Metrics,

@@ -30,6 +30,7 @@ import (
 // AutoAgentService manages the lifecycle of auto-agent runs that iterate
 // over pending roadmap features and process them via the conversation loop.
 type AutoAgentService struct {
+	toolUIDSource
 	db            database.Store
 	hub           broadcast.Broadcaster
 	queue         messagequeue.Queue
@@ -486,14 +487,20 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, conv
 		return testResult{}, fmt.Errorf("test file not found or is directory: %s", testFile)
 	}
 
+	tenantID := tenantctx.FromContext(ctx)
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantID)
+	if err != nil {
+		return testResult{}, fmt.Errorf("tool uid: %w", err)
+	}
 	res, err := s.requestWorkspaceTest(ctx, &messagequeue.WorkspaceTestRequestPayload{
 		RequestID:      uuid.New().String(),
-		TenantID:       tenantctx.FromContext(ctx),
+		TenantID:       tenantID,
 		ProjectID:      projectID,
 		ConversationID: conversationID,
 		WorkspacePath:  proj.WorkspacePath,
 		TestFile:       testFile,
 		TimeoutSeconds: int(s.testTimeout.Seconds() + 0.999),
+		ToolUID:        toolUID,
 	})
 	if err != nil {
 		return testResult{}, err

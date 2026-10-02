@@ -5,5 +5,6 @@
   "conversation_id": "550e8400-e29b-41d4-a716-446655440051",
   "workspace_path": "/workspaces/project",
   "test_file": "test_feature.py",
-  "timeout_seconds": 300
+  "timeout_seconds": 300,
+  "tool_uid": 20000
 }

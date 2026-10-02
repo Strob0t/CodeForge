@@ -84,5 +84,6 @@
   "backend": "aider",
   "approval_timeout_seconds": 60,
   "heartbeat_seconds": 30,
-  "tool_output_max_chars": 20000
+  "tool_output_max_chars": 20000,
+  "tool_uid": 20000
 }

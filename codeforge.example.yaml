@@ -47,6 +47,17 @@ rate:
 git:
   max_concurrent: 5
 
+# Project workspaces (<root>/<tenant>/<project>)
+workspace:
+  root: "data/workspaces"
+  # Per-tenant tool identities (KI-96, ADR-018): "required" gives every
+  # tenant directory POSIX ACLs for the tenant's tool UID and sends the UID
+  # (tool_uid) with every tool start; the worker with
+  # CODEFORGE_TOOL_ISOLATION=required refuses tool work without it. "off"
+  # (default: development, macOS, WSL2) keeps plain directories. Any other
+  # value counts as "required". Env: CODEFORGE_WORKSPACE_TOOL_ACLS.
+  tool_acls: "off"
+
 # Policy engine for agent permissions and safety
 # Available presets: plan-readonly, headless-safe-sandbox,
 #   headless-permissive-sandbox, trusted-mount-autonomous

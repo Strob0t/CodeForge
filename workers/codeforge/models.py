@@ -44,6 +44,9 @@ class TaskMessage(BaseModel):
     # This dispatch of the task; named on its heartbeats, which the Go Core
     # counts for this dispatch only ("" in tasks published without one).
     dispatch_id: str = ""
+    # The tenant's tool UID the backend CLI runs as (KI-96); 0: none (the
+    # Go Core runs with workspace.tool_acls off).
+    tool_uid: int = Field(default=0, ge=0)
 
 
 class TaskResult(BaseModel):
@@ -141,6 +144,8 @@ class RunStartMessage(BaseModel):
     heartbeat_seconds: int = 0
     # agent.tool_output_max_chars from Go; 0 = the worker's default.
     tool_output_max_chars: int = 0
+    # The tenant's tool UID the run's tool processes run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
 
     @field_validator("config", mode="before")
     @classmethod
@@ -201,6 +206,8 @@ class QualityGateRequest(BaseModel):
     # How often to report the running gate (runs.heartbeat, phase
     # quality_gate); 0 = the worker's default.
     heartbeat_seconds: int = Field(default=0, ge=0)
+    # The tenant's tool UID the gate commands run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
 
 
 class WorkspaceTestRequest(BaseModel):
@@ -214,6 +221,8 @@ class WorkspaceTestRequest(BaseModel):
     # A file name matching test_<word>.py in the workspace root.
     test_file: str
     timeout_seconds: int = Field(default=0, ge=0)
+    # The tenant's tool UID the test runs as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
 
 
 class WorkspaceTestResult(BaseModel):
@@ -558,6 +567,8 @@ class ConversationRunStartMessage(BaseModel):
     tool_output_max_chars: int = 0
     # Identifies this run of the conversation; echoed on every tool call.
     turn_id: str = ""
+    # The tenant's tool UID the turn's tool processes run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
     # Go's HITL approval timeout; tool call decisions are awaited longer
     # (0 = the worker's default).
     approval_timeout_seconds: int = 0
@@ -633,6 +644,8 @@ class BenchmarkRunRequest(BaseModel):
     rollout_strategy: str = "best"
     provider_name: str = ""
     provider_config: dict[str, Any] = Field(default_factory=dict)
+    # The tenant's tool UID the benchmark's tool processes run as (KI-96); 0: none.
+    tool_uid: int = Field(default=0, ge=0)
 
 
 class BenchmarkTaskResult(BaseModel):

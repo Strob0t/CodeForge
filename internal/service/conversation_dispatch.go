@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // defaultConversationMode is the mode of an agentic conversation turn when
@@ -226,6 +227,11 @@ func (s *ConversationService) dispatchAgenticRun(
 	if _, err := resolveExecMode("", proj); err != nil {
 		return err
 	}
+	// The turn's tool processes run as the tenant's tool UID (KI-96).
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
+	if err != nil {
+		return fmt.Errorf("tool uid: %w", err)
+	}
 
 	turnID, finishRun, err := s.beginRun(ctx, conversationID)
 	if err != nil {
@@ -331,6 +337,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		SummarizeThreshold: s.summarizeThreshold(),
 		ToolOutputMaxChars: s.toolOutputMaxChars(),
 		TurnID:             turnID,
+		ToolUID:            toolUID,
 	}
 	// The worker waits for policy responses longer than Go waits for a HITL
 	// approval of one of this run's tool calls (KI-21).

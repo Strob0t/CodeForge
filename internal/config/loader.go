@@ -215,6 +215,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
 	setString(&cfg.Workspace.PipelineDir, "CODEFORGE_WORKSPACE_PIPELINE_DIR")
 	setStringSlice(&cfg.Workspace.AdoptRoots, "CODEFORGE_WORKSPACE_ADOPT_ROOTS")
+	setString(&cfg.Workspace.ToolACLs, "CODEFORGE_WORKSPACE_TOOL_ACLS")
 	setString(&cfg.Knowledge.ContentRoot, "CODEFORGE_KNOWLEDGE_CONTENT_ROOT")
 	setTyped(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD", strconv.Atoi)
 	setTyped(&cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES", strconv.Atoi)

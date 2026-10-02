@@ -8,5 +8,6 @@
   "backend": "aider",
   "workspace_path": "/data/workspaces/my-project",
   "heartbeat_seconds": 30,
-  "dispatch_id": "550e8400-e29b-41d4-a716-446655440043"
+  "dispatch_id": "550e8400-e29b-41d4-a716-446655440043",
+  "tool_uid": 20000
 }
