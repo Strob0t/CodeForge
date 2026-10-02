@@ -236,3 +236,42 @@ func TestResetToolUIDSequence(t *testing.T) {
 		t.Fatal("cleared set UIDs")
 	}
 }
+
+// TestListAdoptedWorkspaces lists, across tenants, the projects whose
+// workspace lies outside the workspace root (the startup check of adopted
+// workspaces, KI-96).
+func TestListAdoptedWorkspaces(t *testing.T) {
+	store, pool := toolUIDDatabase(t)
+	ctx := context.Background()
+	a := insertTenant(t, pool, "a", time.Now())
+	b := insertTenant(t, pool, "b", time.Now())
+	for _, row := range []struct{ tenant, path string }{
+		{a, "/data/workspaces/" + a + "/p1"},
+		{a, "/srv/adopted/one"},
+		{b, "/srv/adopted/two"},
+		{b, ""},
+		{b, "/data/workspaces"},
+		{b, "/data/workspaces-elsewhere/x"},
+	} {
+		if _, err := pool.Exec(ctx, `INSERT INTO projects (name, tenant_id, workspace_path) VALUES ('p', $1, $2)`, row.tenant, row.path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := store.ListAdoptedWorkspaces(ctx, "/data/workspaces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{}
+	for _, p := range got {
+		paths[p.WorkspacePath] = p.TenantID
+	}
+	want := map[string]string{"/srv/adopted/one": a, "/srv/adopted/two": b, "/data/workspaces-elsewhere/x": b}
+	if len(paths) != len(want) {
+		t.Fatalf("adopted = %v, want %v", paths, want)
+	}
+	for path, tenantID := range want {
+		if paths[path] != tenantID {
+			t.Fatalf("adopted = %v, want %v", paths, want)
+		}
+	}
+}

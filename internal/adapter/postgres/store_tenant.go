@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 )
 
@@ -130,4 +131,26 @@ func (s *Store) AdvanceToolUIDSequence(ctx context.Context, atLeast int) (bool, 
 		return false, fmt.Errorf("advance tool uid sequence to %d: %w", atLeast, err)
 	}
 	return true, nil
+}
+
+// ListAdoptedWorkspaces lists the projects whose workspace lies outside the
+// workspace root (adopted by a platform admin).
+//
+// INTENTIONALLY CROSS-TENANT: at startup with workspace.tool_acls: required
+// the Go Core checks every adopted workspace for its tenant's tool UID
+// (KI-96); the rows carry their tenant_id and each is handled in its own
+// tenant.
+func (s *Store) ListAdoptedWorkspaces(ctx context.Context, root string) ([]project.Project, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, tenant_id, workspace_path FROM projects
+		 WHERE workspace_path <> '' AND workspace_path <> $1 AND left(workspace_path, length($1) + 1) <> $1 || '/'
+		 ORDER BY tenant_id, id`, root)
+	if err != nil {
+		return nil, fmt.Errorf("list adopted workspaces: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (project.Project, error) {
+		var p project.Project
+		err := r.Scan(&p.ID, &p.TenantID, &p.WorkspacePath)
+		return p, err
+	})
 }

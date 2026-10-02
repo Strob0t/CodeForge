@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
+	"github.com/Strob0t/CodeForge/internal/workspaceacl"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
@@ -34,7 +35,7 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 		return nil, err
 	}
 
-	gp, err := resolveGitProvider(p)
+	gp, err := s.gitProvider(p)
 	if err != nil {
 		return nil, fmt.Errorf("create git provider: %w", err)
 	}
@@ -44,6 +45,11 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 		opts = append(opts, gitprovider.WithBranch(branch))
 	}
 
+	// The tenant directory exists with its ACLs before git could create it
+	// with plain modes (KI-96).
+	if err := s.ensureTenantDir(ctx, tenantID); err != nil {
+		return nil, err
+	}
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
 	if err := gp.Clone(ctx, p.RepoURL, destPath, opts...); err != nil {
 		return nil, fmt.Errorf("clone: %w", err)
@@ -105,6 +111,9 @@ func (s *ProjectService) Adopt(ctx context.Context, id, path string, platformAdm
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
+	if err := s.adoptToolACLs(ctx, realPath); err != nil {
+		return nil, err
+	}
 
 	p.WorkspacePath = realPath
 	if err := s.store.UpdateProject(ctx, p); err != nil {
@@ -112,6 +121,67 @@ func (s *ProjectService) Adopt(ctx context.Context, id, path string, platformAdm
 	}
 
 	return p, nil
+}
+
+// gitProvider is the project's git provider (tests replace the resolver).
+func (s *ProjectService) gitProvider(p *project.Project) (gitprovider.Provider, error) {
+	if s.resolveProvider != nil {
+		return s.resolveProvider(p)
+	}
+	return resolveGitProvider(p)
+}
+
+// WorkspaceRoot is the absolute workspace root (<root>/<tenant>/<project>).
+func (s *ProjectService) WorkspaceRoot() string {
+	return s.workspaceRoot
+}
+
+// ensureTenantDir gives the tenant directory its ACLs for the tenant's tool
+// UID (allocated now if it has none) when workspace.tool_acls is required
+// (KI-96); with off nothing happens and MkdirAll or git create it.
+func (s *ProjectService) ensureTenantDir(ctx context.Context, tenantID string) error {
+	if !s.toolUIDs.Required() {
+		return nil
+	}
+	uid, err := s.toolUIDs.ToolUIDFor(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("tool uid: %w", err)
+	}
+	if err := workspaceacl.EnsureTenantDir(s.workspaceRoot, tenantID, uid); err != nil {
+		return fmt.Errorf("tenant directory of tenant %s (tool uid %d): %w", tenantID, uid, err)
+	}
+	return nil
+}
+
+// adoptToolACLs prepares an adopted workspace for the tenant's tool UID
+// (KI-96): inside the tenant area its tenant directory gets its ACLs; an
+// adopted directory outside the workspace root gets the ACLs of a project
+// when the Go Core owns it, and is refused otherwise, with the command an
+// operator runs. Its content is migrated by the worker.
+func (s *ProjectService) adoptToolACLs(ctx context.Context, realPath string) error {
+	if !s.toolUIDs.Required() {
+		return nil
+	}
+	tenantID := tenantctx.FromContext(ctx)
+	if s.underWorkspaceRoot(realPath) {
+		return s.ensureTenantDir(ctx, tenantID)
+	}
+	uid, err := s.toolUIDs.ToolUIDFor(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("tool uid: %w", err)
+	}
+	if err := workspaceacl.SetProjectACLs(realPath, uid); err != nil {
+		return fmt.Errorf("adopt: %s needs ACLs for the tenant's tool uid %d (%s); as an operator run: %s: %w",
+			realPath, uid, err.Error(), AdoptedWorkspaceCommand(realPath, uid), domain.ErrValidation)
+	}
+	return nil
+}
+
+// AdoptedWorkspaceCommand is the setfacl command that opens an adopted
+// workspace to a tenant's tool UID and the workspace group (KI-96).
+func AdoptedWorkspaceCommand(dir string, toolUID int) string {
+	return fmt.Sprintf("setfacl -R -m u:%d:rwX -m d:u:%d:rwX -m g:%d:rwX -m d:g:%d:rwX %s",
+		toolUID, toolUID, workspaceacl.WorkspaceGID, workspaceacl.WorkspaceGID, dir)
 }
 
 // tenantArea is the caller's tenant directory of the workspace root.
@@ -202,6 +272,9 @@ func (s *ProjectService) InitWorkspace(ctx context.Context, id, tenantID string)
 		return nil, fmt.Errorf("project %s already has a workspace at %s", id, p.WorkspacePath)
 	}
 
+	if err := s.ensureTenantDir(ctx, tenantID); err != nil {
+		return nil, err
+	}
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
 	if err := os.MkdirAll(destPath, project.WorkspaceDirPerm); err != nil { //nolint:gosec // G301: shared with the worker's tool user (KI-71)
 		return nil, fmt.Errorf("create workspace directory: %w", err)

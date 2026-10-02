@@ -2,11 +2,20 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
+	"github.com/Strob0t/CodeForge/internal/workspaceacl"
 )
 
 // toolUIDStore is what ToolUIDService needs of the store.
@@ -63,6 +72,94 @@ func (s *ToolUIDService) ToolUIDFor(ctx context.Context, tenantID string) (int, 
 	s.cache[tenantID] = uid
 	s.mu.Unlock()
 	return uid, nil
+}
+
+// adoptedWorkspaceLister lists the adopted workspaces of every tenant (the
+// startup check of PrepareAtStartup).
+type adoptedWorkspaceLister interface {
+	ListAdoptedWorkspaces(ctx context.Context, root string) ([]project.Project, error)
+}
+
+// toolUIDBindingsDir holds the worker's record of which tenant each tool UID
+// belongs to (<root>/.codeforge/uids/<uid>, KI-96 D2/D3): it survives a
+// database restore.
+const toolUIDBindingsDir = ".codeforge/uids"
+
+// PrepareAtStartup runs the Go Core's startup steps for per-tenant tool
+// identities (KI-96) when they are required: it fails on a platform without
+// POSIX ACLs, moves the UID sequence past every UID the workspaces volume
+// binds (a database restored to an older point would otherwise hand a bound
+// UID to a new tenant), and prepares or reports every adopted workspace.
+func (s *ToolUIDService) PrepareAtStartup(ctx context.Context, root string, adopted adoptedWorkspaceLister) error {
+	if !s.Required() {
+		return nil
+	}
+	if !workspaceacl.Supported {
+		return errors.New("workspace.tool_acls: required needs POSIX ACLs (Linux)")
+	}
+	highest, err := highestBoundToolUID(root)
+	if err != nil {
+		return err
+	}
+	moved, err := s.store.AdvanceToolUIDSequence(ctx, highest)
+	if err != nil {
+		return err
+	}
+	if moved {
+		slog.Warn("the tool UID sequence was behind the UIDs the workspaces volume binds (a database restore?): advanced",
+			"highest_bound_uid", highest)
+	}
+	if adopted != nil {
+		s.checkAdoptedWorkspaces(ctx, root, adopted)
+	}
+	return nil
+}
+
+// highestBoundToolUID is the highest tool UID the workspaces volume binds (0: none).
+func highestBoundToolUID(root string) (int, error) {
+	entries, err := os.ReadDir(filepath.Join(root, toolUIDBindingsDir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read the tool uid bindings: %w", err)
+	}
+	highest := 0
+	for _, e := range entries {
+		uid, err := strconv.Atoi(e.Name())
+		if err != nil || !tenant.IsToolUID(uid) {
+			continue
+		}
+		highest = max(highest, uid)
+	}
+	return highest, nil
+}
+
+// checkAdoptedWorkspaces gives every adopted workspace the Core owns the ACLs
+// of a project for its tenant's tool UID, and logs the operator's command
+// for the others (the worker refuses their tool work until then).
+func (s *ToolUIDService) checkAdoptedWorkspaces(ctx context.Context, root string, adopted adoptedWorkspaceLister) {
+	projects, err := adopted.ListAdoptedWorkspaces(ctx, root)
+	if err != nil {
+		slog.Error("cannot list the adopted workspaces for their tool UIDs", "error", err)
+		return
+	}
+	for i := range projects {
+		p := &projects[i]
+		tctx := tenantctx.WithTenant(ctx, p.TenantID)
+		uid, err := s.ToolUIDFor(tctx, p.TenantID)
+		if err != nil {
+			slog.Error("adopted workspace without a tool UID", "project_id", p.ID, "tenant_id", p.TenantID, "error", err)
+			continue
+		}
+		if err := workspaceacl.SetProjectACLs(p.WorkspacePath, uid); err != nil {
+			slog.Warn("adopted workspace needs ACLs for its tenant's tool UID: run the command as an operator",
+				"project_id", p.ID, "tenant_id", p.TenantID, "tool_uid", uid, "path", p.WorkspacePath,
+				"reason", err.Error(), "command", AdoptedWorkspaceCommand(p.WorkspacePath, uid))
+			continue
+		}
+		slog.Info("adopted workspace opened to its tenant's tool UID", "project_id", p.ID, "tenant_id", p.TenantID, "tool_uid", uid)
+	}
 }
 
 // toolUIDSource gives a service that publishes payloads starting tool

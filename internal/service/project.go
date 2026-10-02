@@ -51,6 +51,7 @@ type projectStore interface {
 
 // ProjectService handles project business logic.
 type ProjectService struct {
+	toolUIDSource
 	store           projectStore
 	workspaceRoot   string
 	adoptRoots      []string // resolved workspace.adopt_roots (admins adopt/clone from there)
@@ -60,6 +61,8 @@ type ProjectService struct {
 	retrieval       RetrievalIndexer
 	graph           GraphBuilder
 	reviewTriggerer ReviewTriggerer
+	// resolveProvider replaces resolveGitProvider in tests (nil: the registry).
+	resolveProvider func(*project.Project) (gitprovider.Provider, error)
 }
 
 // NewProjectService creates a new ProjectService.

@@ -197,6 +197,10 @@ func run() error {
 	toolUIDSvc := service.NewToolUIDService(store, toolACLsRequired(cfg))
 	projectSvc := service.NewProjectService(store, cfg.Workspace.Root)
 	projectSvc.SetAdoptRoots(cfg.Workspace.AdoptRoots)
+	projectSvc.SetToolUIDs(toolUIDSvc)
+	if err := toolUIDSvc.PrepareAtStartup(ctx, projectSvc.WorkspaceRoot(), store); err != nil {
+		return fmt.Errorf("per-tenant tool identities: %w", err)
+	}
 	taskSvc := service.NewTaskService(store, queue)
 	agentSvc := service.NewAgentService(store, queue, hub)
 	agentSvc.SetToolUIDs(toolUIDSvc)
