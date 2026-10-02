@@ -218,7 +218,7 @@ func (p *OutboundPolicy) DialContext(ctx context.Context, network, address strin
 	}
 	var dialErr error
 	for _, addr := range addrs {
-		conn, err := p.dial(ctx, network, net.JoinHostPort(addr.String(), port))
+		conn, err := p.dial(ctx, network, net.JoinHostPort(addr.Unmap().String(), port))
 		if err == nil {
 			return conn, nil
 		}
