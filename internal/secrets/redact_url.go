@@ -17,17 +17,13 @@ const redactedUserinfo = "[REDACTED]"
 // a token-only userinfo. The values of credential query parameters
 // (IsCredentialName: key, api_key, token, X-Amz-Signature, ...) are replaced
 // with [REDACTED] as well. It runs in linear time.
+//
+// A value that already is [REDACTED] stays, so redacting twice changes
+// nothing. A single URL value (not free text) goes through RedactURLField.
 func RedactURL(s string) string {
-	return RedactURLWith(s, redactedUserinfo)
-}
-
-// RedactURLWith is RedactURL with marker in place of [REDACTED] (the MCP API
-// shows "***", which a URL parser accepts in userinfo and query values). A
-// value that already is marker stays, so redacting twice changes nothing.
-func RedactURLWith(s, marker string) string {
 	// Query values first: a redacted userinfo ("[REDACTED]@") would end the
 	// URL for the query scan at its bracket.
-	return redactUserinfo(redactQueryCredentials(s, marker), marker)
+	return redactUserinfo(redactQueryCredentials(s, redactedUserinfo), redactedUserinfo)
 }
 
 // redactUserinfo replaces the userinfo of every URL in s (see RedactURL).

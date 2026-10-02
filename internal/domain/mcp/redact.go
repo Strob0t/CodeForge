@@ -20,13 +20,13 @@ import (
 const RedactedValue = "***"
 
 // Redacted returns a copy of s whose secrets are RedactedValue: set env and
-// header values, the url's userinfo and credential query values
-// (secrets.RedactURLWith) and credential argument values (see
+// header values, the url's userinfo and credential query and fragment
+// values (secrets.RedactURLField) and credential argument values (see
 // credentialArg). Empty values stay empty;
 // keys, flags and the other fields stay.
 func (s *ServerDef) Redacted() ServerDef {
 	out := *s
-	out.URL = secrets.RedactURLWith(s.URL, RedactedValue)
+	out.URL = secrets.RedactURLField(s.URL, RedactedValue)
 	out.Args = slices.Clone(s.Args)
 	for i := range out.Args {
 		if prefix, value, ok := credentialArg(s.Args, i); ok && value != "" {

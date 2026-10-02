@@ -105,7 +105,7 @@ func TestServerDef_RedactedURLAndArgs(t *testing.T) {
 		wantURL  string
 		wantArgs []string
 	}{
-		// The url is redacted by secrets.RedactURLWith (KI-97 review): the whole
+		// The url is redacted by secrets.RedactURLField (KI-97 review): the whole
 		// userinfo (a token-only user too) and credential query values.
 		{name: "password", url: "https://user:s3cret@mcp.example/sse?x=1", wantURL: "https://***@mcp.example/sse?x=1"},
 		{name: "encoded password with @ and :", url: "https://user:p%40ss:w@mcp.example:8443/", wantURL: "https://***@mcp.example:8443/"},
@@ -113,8 +113,14 @@ func TestServerDef_RedactedURLAndArgs(t *testing.T) {
 		{name: "credential query parameters", url: "https://mcp.example/sse?api_key=sk-1&x=1&accessToken=a", wantURL: "https://mcp.example/sse?api_key=***&x=1&accessToken=***"},
 		{name: "other query parameters stay", url: "https://mcp.example/sse?max_tokens=5&key=", wantURL: "https://mcp.example/sse?max_tokens=5&key="},
 		{name: "no userinfo", url: "http://mcp.example/sse", wantURL: "http://mcp.example/sse"},
-		// RedactURL errs on the side of redacting: an @ in the path ends the "userinfo".
-		{name: "@ in the path", url: "http://mcp.example/a@b", wantURL: "http://***@b"},
+		// KI-97 security review: the url is one value, split as net/url does
+		// (secrets.RedactURLField): quotes, brackets and spaces are part of the
+		// userinfo or query value, and an @ after the authority never moves
+		// the host that is shown.
+		{name: "parentheses in the password", url: "https://svc:p(w)d@mcp.example/sse", wantURL: "https://***@mcp.example/sse"},
+		{name: "parentheses in a query value", url: "https://mcp.example/sse?api_key=sk-ab(cd)ef", wantURL: "https://mcp.example/sse?api_key=***"},
+		{name: "@ in the path", url: "http://mcp.example/a@b", wantURL: "http://mcp.example/a@b"},
+		{name: "@ in the query", url: "https://evil.example/x?r=a@trusted.corp", wantURL: "https://evil.example/x?r=a@trusted.corp"},
 		{name: "unparsable url", url: "https://user:p%zz@mcp.example/", wantURL: "https://***@mcp.example/"},
 		{
 			name:     "flag=value forms",
