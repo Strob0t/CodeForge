@@ -359,9 +359,13 @@ def system_identity() -> ToolIdentity:
 
 @dataclass
 class _Activity:
-    """A tenant's work in this worker: how many items run, which workspaces they used since it was idle."""
+    """A tenant's work in this worker: how many items run, how many are in their end-of-work steps,
+    which workspaces they used since it was idle."""
 
     count: int = 0
+    # Items in their end-of-work steps: those helpers run as the tenant's UID, so the tenant is not
+    # idle (its processes are not reaped) before they are done.
+    ending: int = 0
     workspaces: set[str] = field(default_factory=set)
     # Held while the tenant's idle steps run: no work item of the tenant enters meanwhile.
     gate: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -420,20 +424,23 @@ async def _cache_kb(identity: ToolIdentity) -> int:
         return 0
 
 
-async def _tenant_idle(identity: ToolIdentity, activity: _Activity, lock: object) -> None:
-    """The tenant's last work item in this worker ends: stop its leftovers, end the work item, share, clean (D10).
+async def _tenant_idle(identity: ToolIdentity, activity: _Activity, lock: object, *, end_of_work: bool) -> None:
+    """The tenant has no work item left in this worker: stop its leftovers, share, clean (D10).
 
-    The leftovers go first: until then a process of the tenant's UID could
-    stop the end-of-work helpers, which run as that UID.
+    With *end_of_work* the ending work item's own end-of-work steps run
+    right after the leftovers are stopped: until then a process of the
+    tenant's UID could stop those helpers, which run as that UID.
     """
     from codeforge import tool_process, tool_reaper
 
     try:
         await asyncio.to_thread(tool_reaper.reap, identity.uid)
     finally:
-        await _end_of_work(identity)
-    # Leftovers may have created private files after their work items ended.
-    for workspace in sorted(activity.workspaces - {identity.workspace}):
+        if end_of_work:
+            await _end_of_work(identity)
+    # Leftovers may have created private files after their work items' sharing passes.
+    shared = {identity.workspace} if end_of_work else set()
+    for workspace in sorted(activity.workspaces - shared):
         await tool_process.share_tool_files(workspace, identity.with_workspace(workspace))
     activity.workspaces.clear()
     # Only when no other worker works for the tenant (its exclusive lock, without waiting).
@@ -448,17 +455,38 @@ async def _tenant_idle(identity: ToolIdentity, activity: _Activity, lock: object
 
 
 async def _leave(identity: ToolIdentity, activity: _Activity, lock: object) -> None:
-    """End the work item (D10): the end-of-work steps, and the idle steps when it was the tenant's last one here."""
+    """End the work item (D10): its end-of-work steps, and the idle steps once no work item of the
+    tenant runs or ends in this worker.
+
+    The reap kills every process of the tenant's UID, the end-of-work
+    helpers of an item still ending too (their TMPDIR and Claude Code config
+    would stay). So the tenant's last running item reaps first and then runs
+    its own steps only when no other item is ending; otherwise it runs its
+    own steps, and the item that ends last runs the idle steps.
+    """
     activity.count -= 1
-    if not activity.count:
-        async with activity.gate:
-            if not activity.count:  # no new work item entered meanwhile
-                try:
-                    await _tenant_idle(identity, activity, lock)
-                except (OSError, ValueError) as exc:
-                    logger.warning("the idle steps of tool uid %d failed: %s", identity.uid, exc)
-                return
-    await _end_of_work(identity)
+    if await _idle_steps(identity, activity, lock, end_of_work=True):
+        return
+    activity.ending += 1
+    try:
+        await _end_of_work(identity)
+    finally:
+        activity.ending -= 1
+    await _idle_steps(identity, activity, lock, end_of_work=False)
+
+
+async def _idle_steps(identity: ToolIdentity, activity: _Activity, lock: object, *, end_of_work: bool) -> bool:
+    """Run the tenant's idle steps if no work item of it runs or ends here; whether they ran."""
+    if activity.count or activity.ending:
+        return False
+    async with activity.gate:
+        if activity.count or activity.ending:  # a work item entered meanwhile
+            return False
+        try:
+            await _tenant_idle(identity, activity, lock, end_of_work=end_of_work)
+        except (OSError, ValueError) as exc:
+            logger.warning("the idle steps of tool uid %d failed: %s", identity.uid, exc)
+    return True
 
 
 @contextlib.asynccontextmanager
@@ -476,8 +504,10 @@ async def tool_tenant(
     Claude Code config) before the identity is left; when it was the
     tenant's last work item in this worker, the tenant's leftover processes
     are killed first, and after those steps its other workspaces are shared
-    again and its HOME's tmp cleaned (D10). Background processes an agent
-    starts end then.
+    again and its HOME's tmp cleaned (D10). While another work item of the
+    tenant is still in its end-of-work steps, nothing is killed: the item
+    that ends last runs the idle steps. Background processes an agent starts
+    end then.
     """
     from codeforge import tool_migration
     from codeforge.tool_process import tool_isolation

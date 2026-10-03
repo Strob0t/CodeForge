@@ -9,7 +9,8 @@ another user) gets no signal, and the signal reaches exactly the process
 that was checked. The worker holds CAP_KILL for this.
 
 Killed orphans the worker inherited (it is PID 1 of its container) are
-reaped; zombies of other parents are not waited for.
+reaped; zombies of other parents are not waited for, nor are the worker's
+own helpers, which their subprocess.Popen collects.
 """
 
 from __future__ import annotations
@@ -18,13 +19,41 @@ import contextlib
 import logging
 import os
 import signal
+import threading
 import time
+from typing import TYPE_CHECKING
 
 from codeforge.tool_identity import TOOL_UID_MAX, TOOL_UID_MIN
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 logger = logging.getLogger(__name__)
 
 _POLL_SECONDS = 0.05
+
+# The worker's helpers that run now (its own commands as a tool UID,
+# codeforge.tool_process): their Popen collects them. Had the reaper
+# collected one it killed, Popen would report exit status 0 for it.
+_helpers: set[int] = set()
+_helpers_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def starting_helper() -> Iterator[Callable[[int], None]]:
+    """Start a helper in this block and pass its PID to the function it yields.
+
+    The reaper collects under the same lock: it cannot collect the helper
+    before the helper is known.
+    """
+    with _helpers_lock:
+        yield _helpers.add
+
+
+def helper_collected(pid: int) -> None:
+    """The helper *pid* was collected by its Popen."""
+    with _helpers_lock:
+        _helpers.discard(pid)
 
 
 def _status(proc: str, pid: int) -> dict[str, str]:
@@ -74,9 +103,12 @@ def _close(fd: int) -> None:
 
 
 def _reap_zombie(pid: int) -> None:
-    """Collect a killed orphan the worker inherited (PID 1 of the container)."""
-    with contextlib.suppress(ChildProcessError, OSError):
-        os.waitpid(pid, os.WNOHANG)
+    """Collect a killed orphan the worker inherited (PID 1 of the container), never one of its helpers."""
+    with _helpers_lock:
+        if pid in _helpers:
+            return
+        with contextlib.suppress(ChildProcessError, OSError):
+            os.waitpid(pid, os.WNOHANG)
 
 
 def _kill(pid: int, uid: int, proc: str) -> bool:

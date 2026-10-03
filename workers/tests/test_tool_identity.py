@@ -410,6 +410,65 @@ async def test_when_the_tenant_goes_idle_its_leftovers_are_stopped_once(
     assert ("share", str(first)) not in end_of_work.steps
 
 
+async def test_a_work_item_still_ending_keeps_its_helpers_when_the_last_one_ends(
+    volumes: tuple[Path, Path], end_of_work: _EndOfWork, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: the first work item ends while the second still runs, so it is not the last;
+    its end-of-work helpers run as the tenant's UID. The second ends meanwhile: the tenant is not
+    idle until the first's helpers are done, so nobody reaps them (their TMPDIR and Claude Code
+    config would stay). The idle steps run once, after both, and share both workspaces."""
+    root, homes = volumes
+    first = _stamped(root)
+    second = root / "tenant-a" / "p2"
+    second.mkdir()
+    home = f"{homes}/{UID}"
+    running: set[str] = set()
+    reaped_while: list[set[str]] = []
+    first_ending = asyncio.Event()
+
+    async def share(path: str, identity: ToolIdentity | None = None, **_kw: object) -> None:
+        end_of_work.steps.append(("share", path))
+        if path == str(first) and not first_ending.is_set():
+            first_ending.set()
+            running.add("the first item's sharing pass")
+            await asyncio.sleep(0.3)  # the helper runs as the tenant's UID
+            running.discard("the first item's sharing pass")
+
+    def reap(uid: int, **_kw: object) -> int:
+        end_of_work.steps.append(("reap", str(uid)))
+        reaped_while.append(set(running))
+        return 0
+
+    monkeypatch.setattr(tool_process, "share_tool_files", share)
+    monkeypatch.setattr(tool_reaper, "reap", reap)
+
+    async def first_item() -> ToolIdentity:
+        async with tool_tenant("tenant-a", UID, str(first)) as identity:
+            assert identity is not None
+            return identity
+
+    second_item = tool_tenant("tenant-a", UID, str(second))
+    assert await second_item.__aenter__() is not None
+    first_task = asyncio.create_task(first_item())
+    await asyncio.wait_for(first_ending.wait(), 5)
+    await second_item.__aexit__(None, None, None)
+    identity = await asyncio.wait_for(first_task, 5)
+
+    assert reaped_while == [set()], "the tenant's leftovers were reaped while a work item still ended"
+    assert ("remove", identity.tmpdir, identity.claude_config_dir, f"confine={home}", "contents=False") in (
+        end_of_work.steps
+    )
+    idle = end_of_work.steps[end_of_work.steps.index(("reap", str(UID))) :]
+    assert idle == [
+        ("reap", str(UID)),
+        ("share", str(first)),
+        ("share", str(second)),
+        ("remove", f"{home}/tmp", f"confine={home}", "contents=True"),
+    ]
+    assert tool_identity._activity["tenant-a"].count == 0
+    assert tool_identity._activity["tenant-a"].ending == 0
+
+
 async def test_another_workers_work_keeps_the_home_tmp(volumes: tuple[Path, Path], end_of_work: _EndOfWork) -> None:
     root, homes = volumes
     workspace = _stamped(root)

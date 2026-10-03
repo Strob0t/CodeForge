@@ -10,6 +10,7 @@ pidfd calls: no real process is ever signalled.
 
 from __future__ import annotations
 
+import os
 import signal
 from typing import TYPE_CHECKING
 
@@ -128,3 +129,32 @@ def test_only_tool_uids_are_reaped() -> None:
     for uid in (0, 10001, 10002, 19999, 30000):
         with pytest.raises(ValueError, match="tool uid"):
             tool_reaper.reap(uid, proc="/nonexistent", timeout=0.1)
+
+
+def test_a_killed_helper_of_the_worker_is_left_to_its_own_waiter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: the worker is PID 1 of its container and collects the killed orphans it
+    inherited. One of its own helpers (subprocess.Popen, running as the tool UID) is never collected
+    by the reaper: Popen would then report the killed helper as exit status 0."""
+    fake = _FakePidfd(tmp_path)
+
+    def dies_as_a_zombie_of_the_worker(fd: int, sig: int) -> None:
+        fake.signalled.append((fd - 1000, sig))
+        _process(tmp_path, fd - 1000, UID, state="Z (zombie)", ppid=os.getpid())
+
+    collected: list[int] = []
+    monkeypatch.setattr(tool_reaper.os, "pidfd_open", fake.pidfd_open)
+    monkeypatch.setattr(tool_reaper.signal, "pidfd_send_signal", dies_as_a_zombie_of_the_worker)
+    monkeypatch.setattr(tool_reaper, "_close", fake.close)
+    monkeypatch.setattr(tool_reaper.os, "waitpid", lambda pid, _options: collected.append(pid) or (pid, 9))
+    _process(tmp_path, 601, UID)  # a helper of the worker
+    _process(tmp_path, 602, UID)  # a leftover the worker inherited
+    with tool_reaper.starting_helper() as started:
+        started(601)
+    try:
+        assert tool_reaper.reap(UID, proc=str(tmp_path), timeout=0.5) == 2
+    finally:
+        tool_reaper.helper_collected(601)
+    assert sorted(pid for pid, _ in fake.signalled) == [601, 602]
+    assert set(collected) == {602}

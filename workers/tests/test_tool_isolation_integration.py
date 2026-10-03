@@ -12,9 +12,11 @@ secrets directory).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -462,6 +464,95 @@ async def test_a_deleted_workspace_with_the_go_cores_private_patches_is_removed(
 
     await delete_workspace(TENANT_A, UID_A, workspace_a)
     assert not os.path.exists(workspace_a)
+
+
+async def _wait_for_helper(uid: int, needle: str, timeout: float = 10.0) -> None:
+    """Until a process of *uid* runs whose command line contains *needle*."""
+    from codeforge.tool_reaper import running_processes_of
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for pid in running_processes_of({uid}):
+            with contextlib.suppress(OSError):
+                if needle.encode() in Path(f"/proc/{pid}/cmdline").read_bytes():
+                    return
+        await asyncio.sleep(0.02)
+    pytest.fail(f"no process of uid {uid} with {needle} in its command line")
+
+
+async def test_the_tenants_last_work_item_does_not_kill_the_helpers_of_one_still_ending(
+    workspace_a: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: two overlapping work items of one tenant. The first ends while the second still
+    runs; its TMPDIR and Claude Code config are removed as the tenant's UID. The second ends
+    meanwhile as the tenant's last running item: its idle steps must not kill the first's helpers,
+    or those directories stay (nothing else ever removes the Claude Code config)."""
+    from codeforge import tool_process
+    from codeforge.subprocess_env import tool_env
+    from codeforge.tool_identity import ToolIdentity
+    from codeforge.tool_reaper import running_processes_of
+
+    # Removing a whole directory (a TMPDIR, a Claude Code config) takes two seconds here.
+    slow_removal = tool_process._REMOVE_SCRIPT.replace("status=0\n", 'status=0\n[ "$mode" = all ] && sleep 2\n', 1)
+    monkeypatch.setattr(tool_process, "_REMOVE_SCRIPT", slow_removal)
+    entered: list[ToolIdentity] = []
+
+    async def first_item() -> None:
+        async with tool_tenant(TENANT_A, UID_A, workspace_a, claude_config=True) as identity:
+            assert identity is not None
+            entered.append(identity)
+            proc = await start_tool_shell('echo x > "$TMPDIR/marker"', env=tool_env(), cwd=workspace_a)
+            assert await proc.wait() == 0
+            assert os.path.isdir(identity.claude_config_dir)
+
+    second = tool_tenant(TENANT_A, UID_A, workspace_a)
+    await second.__aenter__()
+    first = asyncio.create_task(first_item())
+    try:
+        await asyncio.wait_for(_wait_for_helper(UID_A, "cf-remove"), 20)  # the first item's removal runs
+    finally:
+        await asyncio.wait_for(second.__aexit__(None, None, None), 60)
+        await asyncio.wait_for(first, 60)
+    identity = entered[0]
+    assert not os.path.exists(identity.tmpdir), "the first item's removal was killed"
+    assert not os.path.exists(identity.claude_config_dir), "the first item's removal was killed"
+    assert running_processes_of({UID_A}) == {}
+
+
+async def test_a_helper_the_reaper_kills_is_reported_as_killed(
+    workspace_a: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: the reaper collects the killed orphans the worker inherits (PID 1 of its
+    container) while it waits for the tool UID's last processes. Had it collected one of the
+    worker's helpers, subprocess would report exit status 0 for it: a killed removal would count as
+    done. Here a process of another user keeps the helper's output open for two seconds (its Popen
+    waits that long), and a process of the tool UID appears after the reaper's scan (a leftover that
+    forks), so the reaper waits and looks at the killed helper again."""
+    from codeforge import tool_process, tool_reaper
+
+    marker = f"cf-helper-{os.getpid()}-{time.monotonic_ns()}"
+    as_tool = f'exec setpriv --reuid={UID_A} --regid={UID_A} --clear-groups -- sh -c "sleep 30; exit 0" {marker}'
+    launch = tool_process.Launch(argv=["sh", "-c", f"sleep 2 & {as_tool}"], env={"PATH": "/usr/bin:/bin"}, cwd="/")
+    forked: list[subprocess.Popen[bytes]] = []
+    kill = tool_reaper._kill
+
+    def kill_while_a_leftover_forks(pid: int, uid: int, proc: str) -> bool:
+        killed = kill(pid, uid, proc)
+        if not forked:
+            setpriv = ["setpriv", f"--reuid={UID_A}", f"--regid={UID_A}", "--clear-groups", "--"]
+            forked.append(subprocess.Popen([*setpriv, "sleep", "0.5"]))  # noqa: S603
+        return killed
+
+    monkeypatch.setattr(tool_reaper, "_kill", kill_while_a_leftover_forks)
+    helper = asyncio.create_task(asyncio.to_thread(tool_process._run_helper, launch, 60))
+    try:
+        await asyncio.wait_for(_wait_for_helper(UID_A, marker), 20)
+        assert await asyncio.to_thread(tool_reaper.reap, UID_A) >= 1
+        done = await asyncio.wait_for(helper, 20)
+    finally:
+        for process in forked:
+            process.wait(10)
+    assert done.returncode == -signal.SIGKILL
 
 
 def _as_tool(uid: int, args: list[str]) -> subprocess.CompletedProcess[str]:

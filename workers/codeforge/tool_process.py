@@ -64,7 +64,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from codeforge import landlock as landlock_rules
-from codeforge import posix_acl
+from codeforge import posix_acl, tool_reaper
 from codeforge.tool_identity import (
     DEFAULT_HOME_BASE,
     DEFAULT_TOOL_PATH,
@@ -1000,23 +1000,35 @@ def _run_helper(launch: Launch, timeout: float) -> subprocess.CompletedProcess[s
 
     It runs in a session of its own. When it has not ended in time (another
     process of its UID stopped it, or it is slow) its whole process group is
-    killed: the result has return code -SIGKILL and says why on stderr.
+    killed: the result has return code -SIGKILL and says why on stderr. The
+    reaper, which may kill it too, leaves collecting it to its Popen, so a
+    killed helper is never reported as exit status 0.
     """
     try:
-        proc = subprocess.Popen(  # noqa: S603 - fixed programs of the worker's
-            launch.argv,
-            env=launch.env,
-            cwd=launch.cwd,
-            umask=TOOL_UMASK if launch.umask is None else launch.umask,
-            pass_fds=launch.pass_fds,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
+        with tool_reaper.starting_helper() as started:
+            proc = subprocess.Popen(  # noqa: S603 - fixed programs of the worker's
+                launch.argv,
+                env=launch.env,
+                cwd=launch.cwd,
+                umask=TOOL_UMASK if launch.umask is None else launch.umask,
+                pass_fds=launch.pass_fds,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            started(proc.pid)
     finally:
         launch.close()
+    try:
+        return _wait_for_helper(proc, launch, timeout)
+    finally:
+        tool_reaper.helper_collected(proc.pid)
+
+
+def _wait_for_helper(proc: subprocess.Popen[str], launch: Launch, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Wait for the started helper *proc* of *launch* (see _run_helper) and collect it."""
     with proc:
         try:
             out, err = proc.communicate(timeout=timeout)
