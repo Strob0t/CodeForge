@@ -282,7 +282,7 @@ def _copy_over(dir_fd: int, name: str, listed: os.stat_result) -> None:
         created = True
         try:
             while chunk := os.read(src, 1 << 20):
-                os.write(dst, chunk)
+                tool_state.write_all(dst, chunk)
             os.fchmod(dst, mode)
         finally:
             os.close(dst)

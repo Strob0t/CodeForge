@@ -171,16 +171,32 @@ def read_small(dir_fd: int, name: str, limit: int) -> bytes | None:
         os.close(fd)
 
 
+def write_all(fd: int, data: bytes) -> None:
+    """Write all of *data* to *fd* (a write to a full volume can be short)."""
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]
+
+
 def write_new(dir_fd: int, name: str, data: bytes) -> bool:
-    """Create *name* with *data* (O_EXCL); False when it already exists."""
+    """Create *name* with *data* (O_EXCL); False when it already exists.
+
+    A file it could not write completely (a full or failing volume) is
+    removed again, and the error raised.
+    """
     try:
         fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
     except FileExistsError:
         return False
     try:
-        os.write(fd, data)
-    finally:
-        os.close(fd)
+        try:
+            write_all(fd, data)
+        finally:
+            os.close(fd)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(name, dir_fd=dir_fd)
+        raise
     return True
 
 

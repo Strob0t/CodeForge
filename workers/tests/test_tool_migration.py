@@ -31,6 +31,7 @@ import pytest
 from codeforge import posix_acl, tool_migration, tool_process, tool_reaper, tool_state, tool_walk
 from codeforge.posix_acl import Entry
 from codeforge.tool_identity import ToolIsolationError
+from tests.failing_writes import FailingWrites
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -267,6 +268,33 @@ def test_a_tenant_stamp_names_the_uid_and_the_directory(root: Path) -> None:
     tenant.rename(root / "moved")
     (root / "tenant-a").mkdir()
     assert not tool_migration.stamp_ok(str(root), "tenants", "tenant-a", TOOL_UID, (root / "tenant-a").stat())
+
+
+@pytest.mark.parametrize("fail_after", [0, 1])
+def test_a_stamp_that_cannot_be_written_leaves_no_temporary_file(
+    fail_after: int, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: a write that failed after the O_EXCL create (ENOSPC, EIO) left the random
+    .<name>.<hex>.tmp file in the state directory."""
+    tenant = root / "tenant-a"
+    tenant.mkdir()
+    FailingWrites(root, max_bytes=4, fail_after=fail_after).install(monkeypatch)
+    with pytest.raises(OSError, match="No space"):
+        tool_migration.write_stamp(str(root), "tenants", "tenant-a", TOOL_UID, tenant.stat())
+    assert list((root / ".codeforge" / "tenants").iterdir()) == []
+
+
+def test_an_unshared_copy_written_short_is_complete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tree = tmp_path / "tenant"
+    tree.mkdir()
+    theirs = tmp_path / "other"
+    theirs.write_bytes(b"0123456789" * 10)
+    os.link(theirs, tree / "planted")
+    FailingWrites(tree, max_bytes=7).install(monkeypatch)
+
+    assert tool_migration.unshare_links(str(tree)) == 1
+    assert (tree / "planted").read_bytes() == b"0123456789" * 10
+    assert theirs.stat().st_nlink == 1
 
 
 @pytest.mark.parametrize("forgery", ["symlink", "fifo", "oversize", "foreign"])

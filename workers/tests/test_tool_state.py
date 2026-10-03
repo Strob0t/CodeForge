@@ -16,6 +16,7 @@ import pytest
 from codeforge import posix_acl, tool_state
 from codeforge.tool_identity import ToolIsolationError
 from codeforge.tool_state import TenantDir
+from tests.failing_writes import FailingWrites
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -124,6 +125,57 @@ def test_a_uid_bound_to_another_tenant_is_refused(root: Path) -> None:
     tool_state.bind_tool_uid(str(root), UID, "tenant-a")
     with pytest.raises(ToolIsolationError, match="bound to tenant tenant-a"):
         tool_state.bind_tool_uid(str(root), UID, "tenant-b")
+    assert tool_state.bound_tenant(str(root), UID) == "tenant-a"
+
+
+def _open_fds() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+@pytest.mark.parametrize(("failing", "error"), [("at once", errno.ENOSPC), ("after a short write", errno.EIO)])
+def test_a_new_file_that_cannot_be_written_is_removed(
+    failing: str, error: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: a write that fails after the O_EXCL create (a full or failing volume) left the
+    file behind, empty or cut short."""
+    directory = tmp_path / "state"
+    directory.mkdir()
+    fail_after = 0 if failing == "at once" else 1
+    FailingWrites(directory, max_bytes=1, fail_after=fail_after, error=error).install(monkeypatch)
+    dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        before = _open_fds()
+        with pytest.raises(OSError) as raised:
+            tool_state.write_new(dir_fd, "name", b"tenant-a")
+        assert raised.value.errno == error
+        assert _open_fds() == before
+    finally:
+        os.close(dir_fd)
+    assert list(directory.iterdir()) == []
+
+
+def test_a_new_file_written_short_is_written_completely(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    directory = tmp_path / "state"
+    directory.mkdir()
+    writes = FailingWrites(directory, max_bytes=3).install(monkeypatch)
+    dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert tool_state.write_new(dir_fd, "name", b"tenant-a")
+    finally:
+        os.close(dir_fd)
+    assert (directory / "name").read_bytes() == b"tenant-a"
+    assert writes.calls == 3
+
+
+def test_a_binding_that_could_not_be_written_leaves_the_uid_free(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty binding left by a failed write would bind the UID to tenant '' for good."""
+    tool_state.ensure_state_dirs(str(root))
+    with monkeypatch.context() as patched:
+        FailingWrites(root, fail_after=0).install(patched)
+        with pytest.raises(OSError, match="No space"):
+            tool_state.bind_tool_uid(str(root), UID, "tenant-a")
+    assert tool_state.bound_tenant(str(root), UID) is None
+    tool_state.bind_tool_uid(str(root), UID, "tenant-a")
     assert tool_state.bound_tenant(str(root), UID) == "tenant-a"
 
 

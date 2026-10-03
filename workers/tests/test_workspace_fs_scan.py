@@ -211,6 +211,7 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_state.py", "_ensure_private_dir", "os.mkdir"): (1, _TOOL_STATE),
     ("tool_state.py", "read_small", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "write_new", "os.open"): (1, _TOOL_STATE),
+    ("tool_state.py", "write_new", "os.unlink"): (1, _TOOL_STATE),
     ("tool_state.py", "check_tenant_dir", "os.open"): (1, _TOOL_STATE),
     ("tool_state.py", "adopted_workspace_ready", "os.open"): (
         1,
