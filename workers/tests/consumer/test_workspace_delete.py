@@ -12,13 +12,15 @@ Delivered at least once: a workspace that is already gone counts as removed.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
+import shutil
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codeforge import tool_identity, tool_process, workspace_deletion
+from codeforge import tool_identity, tool_process, tool_state, workspace_deletion
 from codeforge.consumer import TaskConsumer
 from codeforge.models import WorkspaceDeleteRequest, WorkspaceDeleteResult
 from codeforge.nats_subjects import SUBJECT_WORKSPACE_DELETE_REQUEST, SUBJECT_WORKSPACE_DELETE_RESULT
@@ -105,10 +107,76 @@ async def test_a_workspace_that_is_gone_counts_as_removed(root: Path, steps: _St
     assert steps.steps == []
 
 
-async def test_a_failed_removal_keeps_the_directory_and_fails(root: Path, steps: _Steps) -> None:
+def _core_patch_dir(workspace: Path) -> Path:
+    """What the Go Core's writePatch leaves in a workspace: .git/codeforge/patches 0700, the patch 0600.
+
+    Under the tenant directory's default ACL these modes make the mask ---: the tool UID can neither
+    enter nor remove them, only their owner (the Go Core's UID, which is the worker's).
+    """
+    patches = workspace / ".git" / "codeforge" / "patches"
+    patches.mkdir(parents=True)
+    for directory in (patches.parent, patches):
+        directory.chmod(0o700)
+    patch = patches / "run-1.patch"
+    patch.write_text("diff --git a/f b/f\n")
+    patch.chmod(0o600)
+    return patch
+
+
+async def test_the_go_cores_private_entries_are_removed_by_the_worker(
+    root: Path, steps: _Steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: the tool UID's removal cannot reach the Go Core's private patch directory (its
+    find fails, it reports failure); the worker removes its own entries by descriptor."""
+    workspace = root / TENANT / "p1"
+    patch = _core_patch_dir(workspace)
+
+    async def tool_removes_what_it_can(
+        paths: list[str], _identity: object, *, confine: str, contents_only: bool = False
+    ) -> bool:
+        steps.steps.append(("remove", *paths, confine, str(contents_only)))
+        shutil.rmtree(workspace / "sub")
+        return False  # find: '.git/codeforge': Permission denied
+
+    monkeypatch.setattr(workspace_deletion, "remove_as_tool", tool_removes_what_it_can)
+    await workspace_deletion.delete_workspace(TENANT, UID, str(workspace))
+    assert not workspace.exists()
+    assert not patch.exists()
+    assert (root / TENANT).is_dir()
+
+
+async def test_the_worker_removes_only_its_own_entries_and_never_follows_a_symlink(
+    root: Path, steps: _Steps, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = root / TENANT / "p1"
+    _core_patch_dir(workspace)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep").write_text("not the workspace's")
+    (workspace / ".git" / "codeforge" / "to-outside").symlink_to(outside)
+    (workspace / "dir-link").symlink_to(outside, target_is_directory=True)
+
+    async def tool_removes_nothing(
+        paths: list[str], _identity: object, *, confine: str, contents_only: bool = False
+    ) -> bool:
+        return False
+
+    monkeypatch.setattr(workspace_deletion, "remove_as_tool", tool_removes_nothing)
+    await workspace_deletion.delete_workspace(TENANT, UID, str(workspace))
+    assert not workspace.exists()
+    assert (outside / "keep").read_text() == "not the workspace's"
+
+
+async def test_a_failed_removal_keeps_the_directory_and_fails(
+    root: Path, steps: _Steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What neither the tool UID nor the worker could remove stays, and the deletion fails (retried)."""
     steps.remove_ok = False
-    with pytest.raises(OSError):
+    # The files are the test's; as far as the worker's own pass is concerned they are another user's.
+    monkeypatch.setattr(tool_state, "worker_uid", lambda: 4242)
+    with pytest.raises(OSError, match=rf"removal as tool uid {UID} failed.*sub/f") as raised:
         await workspace_deletion.delete_workspace(TENANT, UID, str(root / TENANT / "p1"))
+    assert raised.value.errno == errno.ENOTEMPTY
     assert (root / TENANT / "p1" / "sub" / "f").exists()
 
 

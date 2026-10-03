@@ -438,6 +438,37 @@ async def test_a_tenants_leftovers_end_with_its_last_work_item(workspace_a: str,
     assert list(Path(home_base, str(UID_A), "tmp").iterdir()) == []
 
 
+async def test_a_deleted_workspace_with_the_go_cores_private_patches_is_removed(workspace_a: str) -> None:
+    """KI-96 review (D11): the Go Core's writePatch makes .git/codeforge/patches 0700 and the patch
+    0600; under the default ACL the mask is ---, so the tenant's removal cannot reach them. The
+    worker (the Go Core's UID; root here) removes its own entries after it, by descriptor."""
+    from codeforge.workspace_deletion import delete_workspace
+
+    async with tool_tenant(TENANT_A, UID_A, workspace_a):
+        proc = await start_tool_shell(
+            "git init -q . && mkdir -m 0700 private && echo x > private/f",
+            env={"PATH": "/usr/bin:/bin"},
+            cwd=workspace_a,
+        )
+        assert await proc.wait() == 0
+    patches = Path(workspace_a) / ".git" / "codeforge" / "patches"
+    os.mkdir(patches.parent, 0o700)
+    os.mkdir(patches, 0o700)
+    fd = os.open(patches / "run-1.patch", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.write(fd, b"diff\n")
+    os.close(fd)
+    denied = _as_tool(UID_A, ["ls", str(patches)])
+    assert denied.returncode != 0, "the tool UID must not reach the Go Core's private directory"
+
+    await delete_workspace(TENANT_A, UID_A, workspace_a)
+    assert not os.path.exists(workspace_a)
+
+
+def _as_tool(uid: int, args: list[str]) -> subprocess.CompletedProcess[str]:
+    setpriv = ["setpriv", f"--reuid={uid}", f"--regid={uid}", "--clear-groups", "--"]
+    return subprocess.run([*setpriv, *args], cwd="/", capture_output=True, text=True, check=False)  # noqa: S603
+
+
 # A tenant's leftover process that stops every process of its UID whose
 # command line names the test's directory: the worker's helpers that run as
 # the tenant (the sharing pass, the TMPDIR removal). Below Landlock ABI 6

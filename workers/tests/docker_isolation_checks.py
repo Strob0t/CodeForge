@@ -53,7 +53,7 @@ from pathlib import Path
 from codeforge import posix_acl, tool_migration, tool_state
 from codeforge.config import get_settings
 from codeforge.subprocess_env import tool_env
-from codeforge.tool_identity import ToolIsolationError, accept_identity, tool_tenant, use_identity
+from codeforge.tool_identity import ToolIdentity, ToolIsolationError, accept_identity, tool_tenant, use_identity
 from codeforge.tool_process import IsolationConfig, configure_tool_isolation, start_tool_process
 from codeforge.workspace_deletion import delete_workspace
 from tests.tool_isolation_check import TENANTS, make_tenant_dir
@@ -501,12 +501,32 @@ async def _scale_migrate() -> int:
 # ---------------------------------------------------------------------------
 
 _LOCKOUT = (
+    "git init -q {ws} && "
     "mkdir -m 0700 -p {ws}/priv/inner && echo x > {ws}/priv/inner/f && "
     "python3 -c 'import tempfile; tempfile.mkdtemp(dir=\"{ws}\")' && "
     "echo s > {ws}/stripped && setfacl -x g:10010 {ws}/stripped && setfacl -m g::--- {ws}/stripped && "
     "mkdir {ws}/locked && echo l > {ws}/locked/f && chmod 0 {ws}/locked/f {ws}/locked && "
     "ln -s {other} {ws}/link-to-b && echo locked-out"
 )
+
+
+def _core_patch(workspace: str) -> str:
+    """As the worker (uid 10001, the Go Core's): what writePatch makes in the workspace's .git."""
+    patches = f"{workspace}/.git/codeforge/patches"
+    os.mkdir(os.path.dirname(patches), 0o700)
+    os.mkdir(patches, 0o700)
+    patch = f"{patches}/run-1.patch"
+    fd = os.open(patch, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, b"diff --git a/f b/f\n")
+    finally:
+        os.close(fd)
+    return patch
+
+
+async def _tool_ls(identity: ToolIdentity, directory: str) -> tuple[int, str]:
+    with use_identity(identity):
+        return await _sh(f"ls {directory} 2>&1", None)
 
 
 async def _deletion() -> int:
@@ -536,6 +556,13 @@ async def _deletion() -> int:
         problems.append("the worker could remove the locked-out tree itself (expected EACCES, E16)")
     except PermissionError as exc:
         report["the worker removes it itself"] = str(exc)
+    # What the Go Core's writePatch leaves (same UID as the worker): .git/codeforge/patches 0700 and
+    # the patch 0600. Under the default ACL the mask is ---: the tenant's removal cannot reach them.
+    patch = _core_patch(workspace)
+    code, out = await _tool_ls(identity, os.path.dirname(patch))
+    report["the tenant lists the Go Core's patches"] = f"exit {code}: {out}"
+    if code == 0:
+        problems.append(f"the tenant can list the Go Core's private patch directory: {out!r}")
     await delete_workspace(TENANT_A, UID_A, workspace)
     report["workspace exists after the deletion"] = os.path.exists(workspace)
     if os.path.exists(workspace):
