@@ -1,7 +1,9 @@
-import { createSignal, For, onCleanup } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup } from "solid-js";
 
 import type { HandoffStatusEvent } from "~/api/types";
 import { useWebSocket } from "~/components/WebSocketProvider";
+
+import { payloadString } from "./liveEvents";
 
 function isHandoffStatusEvent(p: unknown): p is HandoffStatusEvent {
   return (
@@ -18,6 +20,8 @@ interface Arrow {
   sourceId: string;
   targetId: string;
   status: string;
+  /** The target's run of an initiated handoff; the arrow stays until it ends. */
+  runId?: string;
   /** Changes with every status, so a removal timer removes only the arrow it was set for. */
   version: number;
 }
@@ -30,24 +34,53 @@ const SETTLED_STATUSES: ReadonlySet<string> = new Set([
   "a2a_delegated",
 ]);
 
+/** run.status statuses that end a run; an initiated handoff settles with its run. */
+const RUN_END_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "timeout",
+]);
+
+const SETTLE_MS = 10_000;
+
 export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
-  const { onMessage } = useWebSocket();
+  const { onMessage, connected } = useWebSocket();
   const [arrows, setArrows] = createSignal<Arrow[]>([]);
   const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
   let version = 0;
 
-  const cleanup = onMessage((msg) => {
-    if (msg.type !== "handoff.status") return;
-    if (!isHandoffStatusEvent(msg.payload)) return;
-    const p = msg.payload;
+  /**
+   * The arrow goes after 10 s, unless a later status changed it meanwhile (a
+   * held handoff that was approved, a new handoff between the same agents).
+   */
+  function settle(arrowVersion: number): void {
+    const timerId = setTimeout(() => {
+      pendingTimers.delete(timerId);
+      setArrows((prev) => prev.filter((a) => a.version !== arrowVersion));
+    }, SETTLE_MS);
+    pendingTimers.add(timerId);
+  }
+
+  /** Settles the arrows of the initiated handoffs whose run matches. */
+  function settleFollowed(matches: (runId: string) => boolean): void {
+    for (const a of arrows()) {
+      if (a.status === "initiated" && a.runId && matches(a.runId)) settle(a.version);
+    }
+  }
+
+  function followHandoff(p: HandoffStatusEvent): void {
     const v = ++version;
+    const runId = p.status === "initiated" && p.run_id ? p.run_id : undefined;
 
     setArrows((prev) => {
       const existing = prev.find(
         (a) => a.sourceId === p.source_agent_id && a.targetId === p.target_agent_id,
       );
       if (existing) {
-        return prev.map((a) => (a.id === existing.id ? { ...a, status: p.status, version: v } : a));
+        return prev.map((a) =>
+          a.id === existing.id ? { ...a, status: p.status, runId, version: v } : a,
+        );
       }
       return [
         ...prev,
@@ -56,21 +89,38 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
           sourceId: p.source_agent_id,
           targetId: p.target_agent_id,
           status: p.status,
+          runId,
           version: v,
         },
       ];
     });
 
-    // A settled handoff's arrow goes after 10 s, unless a later status (a
-    // held handoff that was approved) changed it meanwhile.
-    if (SETTLED_STATUSES.has(p.status)) {
-      const timerId = setTimeout(() => {
-        pendingTimers.delete(timerId);
-        setArrows((prev) => prev.filter((a) => a.version !== v));
-      }, 10000);
-      pendingTimers.add(timerId);
+    // An initiated handoff is followed while the target's run works (KI-92);
+    // one that names no run has nothing to follow and settles like the others.
+    if (SETTLED_STATUSES.has(p.status) || (p.status === "initiated" && !runId)) settle(v);
+  }
+
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const cleanup = onMessage((msg) => {
+    if (msg.type === "run.status") {
+      const runId = payloadString(msg.payload, "run_id");
+      const status = payloadString(msg.payload, "status");
+      if (runId && status && RUN_END_STATUSES.has(status)) settleFollowed((id) => id === runId);
+      return;
     }
+    if (msg.type !== "handoff.status") return;
+    if (!isHandoffStatusEvent(msg.payload)) return;
+    followHandoff(msg.payload);
   });
+
+  // While the socket was down a followed run may have ended unseen: after a
+  // reconnect its arrow settles instead of staying for the rest of the session.
+  createEffect(
+    on(connected, (isConnected, wasConnected) => {
+      if (isConnected && wasConnected === false) settleFollowed(() => true);
+    }),
+  );
+
   onCleanup(() => {
     cleanup();
     for (const id of pendingTimers) clearTimeout(id);
