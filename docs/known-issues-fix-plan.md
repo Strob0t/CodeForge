@@ -164,6 +164,21 @@ S7-C follow-ups, also not yet scheduled. KI-110 (network and local IPC between t
 Code's Bash inherits the platform's Claude credentials), KI-112 (tenant erasure and tool UID reclaim) and KI-113 (orphaned
 tool processes stay zombies) are the S7-H follow-ups, not yet scheduled.
 
+## S8 - Audit and local-model follow-ups (planned 2026-10-03)
+
+Known Issues KI-114 to KI-130, from the owner decisions, the README claim audit and the README screenshot run with a
+local model. Order: what breaks a core pillar or a fresh installation first. S7-E, S7-F and S7-G run in the same round
+as S8-A and S8-B.
+
+| Group | Known Issues | Scope |
+|---|---|---|
+| **S8-A** | KI-125 (high), KI-127, KI-130 | Local models run agents with tools: tool capability from model metadata or an operator override, model resolved before the capability check, parallel streamed tool calls kept apart, the Ollama route through its OpenAI-compatible endpoint, no flood of public models without keys; streamed token usage; embedding model by env var and a BM25 fallback; file icons without the network |
+| **S8-B** | KI-126, KI-128 | A failed command keeps its output (bounded); Bash rules accept plain leading variable assignments and stay fail closed for loader and shell variables and expansions |
+| **S8-C** | KI-116, KI-117, KI-118, KI-124 | A fresh deployment works: published images, `gh`/`svn` replaced by REST APIs or shipped (owner decision S1 for PRs), backend CLIs and the worker's egress, the dev container |
+| **S8-D** | KI-119, KI-120 | First-admin setup bound to a one-time token; tenant choice at login and a tenant screen (needs a design) |
+| **S8-E** | KI-129, KI-109 | UI defects from the screenshot run; webhook management screen |
+| later | KI-104, KI-108, KI-110 to KI-115, KI-121 (backend part), KI-122, KI-123 | Outbound-policy leftovers, stage 3 network isolation, Claude credentials, tenant erasure, zombies, model check, approval window, Copilot, config leftovers |
+
 ---
 
 ## Follow-up Known Issues (found while fixing, 2026-09-30)
