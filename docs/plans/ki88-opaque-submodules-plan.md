@@ -954,6 +954,15 @@ There is no feature flag: zero-config, one obvious way. The rollback is revertin
 
 ### Open questions
 
+**Owner decisions (2026-10-03)** on the questions below:
+
+- 1, gh: pull requests are created through the provider's REST API with the provider token, and gh is removed from the Go Core. This replaces the gh steps of D6 and commit 6.
+- 2, created nested repositories: delivery is refused as D6 decides, with a message naming the `.git` to remove.
+- 3, backend CLI tasks: `read_only_paths` only as data in their prompt; the delivery check stays the enforcement.
+- 4, submodule initialisation in the worker: a planned follow-up feature after KI-88 (`docs/todo.md`), not part of this plan.
+- 8, git pool: no per-tenant share.
+- 9, `.git` in tracked directories: not reported.
+
 1. **gh with `--head`.** Does the pinned gh version still call `git status --porcelain` from `pr create --head`? The source read for this plan is ambiguous. If a test with the real gh in the image shows it does not, gh can be allowed. The alternative is to create PRs through the GitHub REST API with the provider token, which removes gh from the Go Core entirely.
 2. **Created nested repositories in commit modes.** This revision decides to refuse commit, branch and PR delivery when the run created a nested repository (D6). Should a project setting allow delivery with a warning instead? It would add a code path.
 3. **Backend CLI tasks** (`tasks.agent.*`, `TaskAgentPayload`). They are not policy-checked per call and have no checkpoints. Should they get `read_only_paths` as data in their prompt only?

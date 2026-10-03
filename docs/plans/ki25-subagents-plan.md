@@ -476,6 +476,8 @@ All limits are enforced in Go and stored on the row or derived from rows. They a
 
 **The deadline includes HITL waits.** The default 900 s is well above the 60 s approval timeout.
 
+**Owner decision (2026-10-03), cost caps:** the per-sub-agent cap and the cap for all sub-agents of a root are shares of the root's policy-profile budget (`MaxCost`; proposed 20 % and 50 %). The dollar defaults above ($1.00 and $5.00) apply only when the profile sets no budget, for example with local models. The count, step, wall-clock and size limits stay as in the table (section 19, decision 2).
+
 ## 9. Cost, counted once
 
 **Runs path:**
@@ -961,6 +963,21 @@ Every step follows TDD: RED planning, failing tests, minimal code, refactor. Eve
 | timeout / cancellation | deadline, result wait, cascade |
 
 ## 19. Open questions and owner decisions
+
+**Owner decisions (2026-10-03)** on the questions below:
+
+- 1, depth: default 2, hard maximum 3 (`max_depth`), as proposed.
+- 2, caps: the two cost caps are shares of the root's policy-profile budget, with the dollar defaults only when the profile has no budget (section 8). Count, step and wall-clock limits as proposed.
+- 3, transcripts: persisted, as a per-tenant setting. The default keeps them with the parent conversation's retention and includes them in GDPR export and erasure (ADR-009).
+- 4, project instructions: only the project's custom-instructions section.
+- 5, MCP tools: excluded in v1; later a separate MCP session per sub-agent.
+- 6, model check: LLM permission requests will carry the model and Go checks it against the allowed tier. This is a separate Known Issue (KI-114) for all runs, not part of this plan.
+- 7, Claude Code backend: `claudecode/*` conversations do not get the native Agent tool.
+- 8, worktrees: v1 keeps one writer chain per root; worktree isolation comes after KI-88.
+- 9, background sub-agents and resume: not in v1.
+- 10: filed as KI-115.
+- 13, timers: still open (the owner asked for a closer explanation).
+- 14, sub-agent types: v1 uses the built-in modes and the project's `.codeforge/modes/`; tenant-scoped API modes come later.
 
 1. **Depth default.** 2 is proposed (hard maximum 3); Claude Code's default is 3. Set it to 1 to switch nesting off at first.
 2. **Default caps and budgets in section 8**, especially the $1 per sub-agent and $5 per root.

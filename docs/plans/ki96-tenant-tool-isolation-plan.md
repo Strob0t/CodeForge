@@ -1336,6 +1336,18 @@ It runs on the **built worker image**, with the production service definition: `
 
 ## Open questions
 
+**Owner decisions (2026-10-03)** on the questions below:
+
+- 2, range and passwd: the fixed range 20000-29999 with static passwd entries stays.
+- 3, minimum Landlock ABI: 2 stays the production minimum. Below ABI 6 the worker logs a warning and reports it in `/health`, and a setting can require ABI 6 (follow-up in `docs/todo.md`).
+- 4, old files: no re-owning; ACL access is enough.
+- 7, `/proc` access: no switch.
+- 8, HOME layout: one HOME per tenant with the 4 GB cache cap stays.
+- 10, sharing pass: the walk per call stays; it is measured on large repositories (KI-103) before a targeted pass is considered.
+- 11, tenant caches: cleared at every project deletion.
+- 12, UID reclaim: a documented operator procedure until tenant deletion exists (KI-112).
+- 5, 6 and 9: still open (the owner asked for a closer explanation).
+
 1. **ADR number.** The KI-25 plan (`ki25-subagents-plan.md:5`) and the KI-88 plan (`ki88-opaque-submodules-plan.md:10`) both name ADR-018. The ADR that lands first takes 018, and the plans need renumbering. **Resolved (2026-10-03):** KI-96 landed first and takes ADR-018; the KI-25 plan now names ADR-019 (`019-subagents.md`) and the KI-88 plan ADR-020 (`020-opaque-nested-repositories.md`).
 2. **Range and passwd.** Should 20000-29999 stay fixed, with a sequence, a CHECK constraint and passwd entries generated at image build? And should the passwd entries stay static? They cost 1.1 to 3.2 ms per process start (E20). Alternatives are an indexed NSS backend (libnss-db) or libnss-extrausers with a worker-maintained file holding only the active tenants.
 3. **Minimum Landlock ABI in production.** The default is 2. Should production demand 3 (truncate handled) or 6 (kernel 6.12+, so that abstract sockets and same-tenant signals are always scoped)?
