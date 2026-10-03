@@ -929,6 +929,11 @@ def _build_stream_payload(
         "messages": messages,
         "temperature": temperature,
         "stream": True,
+        # Without it OpenAI-compatible backends (Ollama, LM Studio, ...) send
+        # no token counts in a stream (KI-127). LiteLLM computes the usage
+        # chunk itself for providers without the option, and drop_params
+        # drops it for a backend that rejects it.
+        "stream_options": {"include_usage": True},
     }
     if tools:
         payload["tools"] = tools
@@ -951,6 +956,7 @@ class _StreamAccumulator:
     """Accumulates SSE stream chunks for chat completion responses."""
 
     __slots__ = (
+        "_call_by_index",
         "_in_think",
         "content_parts",
         "cost",
@@ -962,7 +968,10 @@ class _StreamAccumulator:
 
     def __init__(self) -> None:
         self.content_parts: list[str] = []
+        # Tool calls by their number in the stream (0, 1, ...), and the call
+        # each provider index currently continues.
         self.tc_accum: dict[int, dict[str, str]] = {}
+        self._call_by_index: dict[int, int] = {}
         self.finish_reason = "stop"
         self.tokens_in = 0
         self.tokens_out = 0
@@ -1002,6 +1011,12 @@ class _StreamAccumulator:
         except json.JSONDecodeError:
             return
 
+        # OpenAI sends the include_usage chunk with an empty choices list.
+        usage = chunk.get("usage")
+        if isinstance(usage, dict):
+            self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
+            self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+
         choices = chunk.get("choices", [])
         if not choices:
             return
@@ -1017,23 +1032,41 @@ class _StreamAccumulator:
             if visible:
                 on_chunk(visible)
 
-        for tc_delta in delta.get("tool_calls", []):
-            idx = tc_delta.get("index", 0)
-            if idx not in self.tc_accum:
-                self.tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
-            acc = self.tc_accum[idx]
-            if "id" in tc_delta:
-                acc["id"] = tc_delta["id"]
-            func = tc_delta.get("function", {})
-            if "name" in func:
-                acc["name"] = func["name"]
-            if "arguments" in func:
-                acc["arguments"] += func["arguments"]
+        for tc_delta in delta.get("tool_calls") or []:
+            func = tc_delta.get("function") or {}
+            call_id = tc_delta.get("id") or ""
+            name = func.get("name") or ""
+            acc = self._tool_call_for(tc_delta.get("index", 0), call_id, name)
+            if call_id:
+                acc["id"] = call_id
+            if name:
+                acc["name"] = name
+            arguments = func.get("arguments")
+            if isinstance(arguments, dict):
+                arguments = json.dumps(arguments)
+            if isinstance(arguments, str):
+                acc["arguments"] += arguments
 
-        usage = chunk.get("usage")
-        if isinstance(usage, dict):
-            self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
-            self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+    def _tool_call_for(self, index: int, call_id: str, name: str) -> dict[str, str]:
+        """Return the call a tool-call delta continues, or a new one.
+
+        Deltas are matched by index, but a delta whose index belongs to an
+        earlier call starts a new call when it carries another id, or no id
+        and a name while that call has one (a call's name comes only in its
+        first delta). LiteLLM's ollama_chat provider numbers every call 0
+        when Ollama streams them in separate chunks (KI-125).
+        """
+        number = self._call_by_index.get(index)
+        if number is not None:
+            current = self.tc_accum[number]
+            other_id = bool(call_id and current["id"] and call_id != current["id"])
+            new_name = bool(not call_id and name and current["name"])
+            if not (other_id or new_name):
+                return current
+        number = len(self.tc_accum)
+        self.tc_accum[number] = {"id": "", "name": "", "arguments": ""}
+        self._call_by_index[index] = number
+        return self.tc_accum[number]
 
     def build_tool_calls(self, on_tool_call: Callable[[ToolCallPart], None] | None) -> list[ToolCallPart]:
         """Build final ToolCallPart list from accumulated deltas."""
