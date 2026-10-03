@@ -261,6 +261,7 @@ _FILE_RIGHTS = (
 _SCOPE_ABSTRACT_UNIX_SOCKET = 1 << 0
 _SCOPE_SIGNAL = 1 << 1
 _LANDLOCK_FIELDS = ("rules", "scope", "min_abi", "proc_self")
+_PR_SET_NO_NEW_PRIVS = 38
 
 
 def _syscall(number: int, *args: object) -> int:
@@ -270,6 +271,16 @@ def _syscall(number: int, *args: object) -> int:
         errno = ctypes.get_errno()
         raise OSError(errno, os.strerror(errno))
     return int(result)
+
+
+def _set_no_new_privs() -> None:
+    # landlock_restrict_self needs no_new_privs (or CAP_SYS_ADMIN). The
+    # launcher's setpriv --no-new-privs already set it; setting it here keeps
+    # the helper independent of how it was started.
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(_PR_SET_NO_NEW_PRIVS, ctypes.c_ulong(1), ctypes.c_ulong(0), ctypes.c_ulong(0), ctypes.c_ulong(0)):
+        errno = ctypes.get_errno()
+        raise OSError(errno, os.strerror(errno))
 
 
 def landlock_abi() -> int:
@@ -380,6 +391,7 @@ def apply_landlock(spec: dict[str, object]) -> None:
                 fd = os.open(f"/proc/{os.getpid()}", os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW)
                 os.set_inheritable(fd, True)
                 _add_rule(ruleset, FS_RIGHTS["read-file"] | FS_RIGHTS["read-dir"], fd)
+            _set_no_new_privs()
             _syscall(SYS_LANDLOCK_RESTRICT_SELF, ctypes.c_int(ruleset), ctypes.c_uint32(0))
         except OSError as exc:
             raise LaunchRefusedError(f"cannot apply the Landlock rules: {exc.strerror or exc}") from exc

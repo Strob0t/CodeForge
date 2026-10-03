@@ -730,7 +730,9 @@ async def test_a_benchmark_workspace_is_emptied_as_the_tool_user(
         assert posix_acl.Entry(posix_acl.USER, 7, 20007) in (acl or [])
     ((args, kwargs),) = spawns
     assert _command(args)[3:] == ["cf-remove", "contents", path]
-    assert [rule[0] for rule in kwargs["spec"]["landlock"]["rules"] if rule[2]] == [path]  # type: ignore[index]
+    rules = kwargs["spec"]["landlock"]["rules"]  # type: ignore[index]
+    # Only the workspace is writable; a CI interpreter outside /usr adds a read-only rule.
+    assert [rule[0] for rule in rules if rule[2] and "write-file" in rule[1]] == [path]
     assert not Path(path).exists(), "the worker removes the emptied directory"
     assert current_identity.get() is IDENT
 

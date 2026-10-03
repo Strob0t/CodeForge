@@ -23,6 +23,7 @@ import pytest
 
 from codeforge import posix_acl, tool_walk
 from codeforge.posix_acl import Entry
+from tests.isolation_requirements import require
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -81,6 +82,7 @@ def test_owner_only_modes_are_opened_to_the_workspace_group(workspace: Path) -> 
 
 
 def test_a_stripped_or_masked_group_entry_is_restored(workspace: Path) -> None:
+    require(os.geteuid() == 0, "the test needs root to give entries other owners")
     stripped = workspace / "stripped"
     stripped.write_text("x")
     posix_acl.remove_acl(str(stripped), posix_acl.ACCESS)  # setfacl -b
@@ -157,6 +159,7 @@ def test_a_symlinked_root_is_refused(workspace: Path, tmp_path: Path) -> None:
 
 
 def test_entries_of_other_owners_are_left_alone(workspace: Path) -> None:
+    require(os.geteuid() == 0, "the test needs root to give entries other owners")
     foreign = workspace / "foreign"
     foreign.write_text("x")
     os.chown(foreign, 12345, -1)
