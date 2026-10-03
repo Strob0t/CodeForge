@@ -30,8 +30,8 @@ DEFINITION = ToolDefinition(
         "Execute a bash command and return stdout and stderr. Runs in the workspace directory. "
         "On isolated deployments the command is sandboxed: it can write only the workspace and its HOME "
         "(TMPDIR is below HOME, /tmp is not usable) and cannot see other processes, so ps, pgrep, pkill, top, "
-        "df and ss do not work; stop your own background jobs with kill <pid> or kill %1. Background processes "
-        "end when the work item ends."
+        "df and ss do not work; stop your own background jobs with kill <pid> or kill %1. Do not rely on "
+        "background processes outliving the current task: they may be stopped when it ends."
     ),
     parameters={
         "type": "object",
