@@ -93,6 +93,10 @@ func TestParseShellCommand(t *testing.T) {
 		{"xargs options", "xargs -0 -n 1 -P4 gofmt -l", [][]string{{"gofmt", "-l"}}, false},
 		{"xargs default echo", "xargs", [][]string{{"echo"}}, false},
 		{"xargs curl", "echo x | xargs curl", [][]string{{"echo", "x"}, {"curl"}}, false},
+		// env runs its command with the assignments checked like leading
+		// ones (KI-128; command_env_test.go has the full table).
+		{"env wrapper", "env curl x", [][]string{{"curl", "x"}}, false},
+		{"env assignment wrapper", "env A=1 go test", [][]string{{"go", "test"}}, false},
 		{"interpreter version", "python3 --version", [][]string{{"python3", "--version"}}, false},
 		{"node version", "node --version && node -v", [][]string{{"node", "--version"}, {"node", "-v"}}, false},
 
@@ -134,8 +138,6 @@ func TestParseShellCommand(t *testing.T) {
 		{"ruby -v reads stdin", "ruby -v", nil, true},
 		{"php -r", "php -r 'x'", nil, true},
 		{"lua -e", "lua -e 'os.execute(1)'", nil, true},
-		{"env wrapper", "env curl x", nil, true},
-		{"env assignment wrapper", "env A=1 go test", nil, true},
 		{"sudo wrapper", "sudo curl x", nil, true},
 		{"exec wrapper", "exec curl x", nil, true},
 		{"timeout without command", "timeout", nil, true},
@@ -384,7 +386,8 @@ func TestCommandExecutables(t *testing.T) {
 		{"cd frontend && npm test", []string{"cd", "npm"}, true},
 		{"go test ./... && go vet ./... | tee log", []string{"go", "tee"}, true},
 		{"timeout 60 go test ./...", []string{"go"}, true},
-		{"FOO=1 npm test", nil, false},
+		{"FOO=1 npm test", []string{"npm"}, true},
+		{"LD_PRELOAD=x npm test", nil, false},
 		{"go test ./... && curl $(x)", nil, false},
 		{"", nil, false},
 		{"   ", nil, false},

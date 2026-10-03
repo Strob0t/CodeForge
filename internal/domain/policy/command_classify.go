@@ -24,7 +24,7 @@ var opaqueExecutables = map[string]bool{
 	"export": true, "declare": true, "typeset": true, "local": true, "readonly": true,
 	"read": true, "mapfile": true, "readarray": true, "getopts": true,
 	// Wrappers whose wrapped command or environment is not analysed.
-	"env": true, "builtin": true, "exec": true, "stdbuf": true, "setsid": true,
+	"builtin": true, "exec": true, "stdbuf": true, "setsid": true,
 	"sudo": true, "doas": true, "su": true, "watch": true, "strace": true,
 	"chroot": true, "unshare": true, "flock": true, "parallel": true,
 	// Package runners that download and run programs.
@@ -71,9 +71,10 @@ func interpreterFor(name string) (interpreter, bool) {
 	return it, ok
 }
 
-// classifySimpleCommand strips leading keywords, unwraps wrappers and the
-// executable path from the words of one simple command. It reports opaque
-// when the executable is not a literal word, variables are assigned, or the
+// classifySimpleCommand strips leading keywords and variable assignments,
+// unwraps wrappers and the executable path from the words of one simple
+// command. It reports opaque when the executable is not a literal word, an
+// assignment is not accepted (leadingAssignments) or has no command, or the
 // command runs code that the word list does not show.
 func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque bool) {
 	i := 0
@@ -84,16 +85,22 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 	if len(words) == 0 {
 		return nil, false
 	}
-	// A variable assignment changes what later commands do (PATH, LD_*,
-	// GIT_*, BASH_ENV, ...), whether it prefixes a command or stands alone.
-	if isAssignment(words[0]) {
+	// Assignments before a command set its environment (KI-128). Without a
+	// command they set shell variables for the rest of the command line,
+	// which acts on the shell itself and on every later command.
+	n, accepted := leadingAssignments(words, dynamic)
+	if !accepted || n == len(words) {
 		return nil, true
 	}
+	words, dynamic = words[n:], dynamic[n:]
 
 	unknownArgs := false // arguments are appended at run time (xargs)
 	for {
 		exe := words[0]
-		if dynamic[0] || !isLiteralWord(exe) {
+		// An assignment after a wrapper is one after the time keyword, but
+		// the name of the program that nice, timeout and the others run:
+		// fail closed rather than guess which.
+		if dynamic[0] || !isLiteralWord(exe) || isAssignment(exe) {
 			return nil, true
 		}
 		unwrap, isWrapper := wrappers[path.Base(exe)]
@@ -111,6 +118,9 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 			}
 		}
 		if 1+start == len(words) {
+			if path.Base(exe) == "env" {
+				break // env without a command prints the environment
+			}
 			return nil, false // wrapper without a command runs nothing
 		}
 		words, dynamic = words[1+start:], dynamic[1+start:]
@@ -182,6 +192,7 @@ var wrappers = map[string]func(args []string) (start int, ok bool){
 	"nice":    unwrapNice,
 	"timeout": unwrapTimeout,
 	"xargs":   unwrapXargs,
+	"env":     unwrapEnv,
 }
 
 // isCommandLookup reports whether `command -v`/`-V` only looks a name up.

@@ -77,6 +77,12 @@ type shellParser struct {
 	wordQuoted bool // part of the current word was quoted or escaped
 	// Unquoted glob and brace characters seen in the current word.
 	sawStar, sawOpenBracket, sawCloseBracket, sawOpenBrace, sawCloseBrace bool
+	// For words shaped like NAME=value: an unquoted = was seen, a quote or
+	// escape came before it (bash then takes the word for a command name),
+	// and an unquoted ~ followed an unquoted = or : (tilde expansion).
+	// lastPlain is the last byte added by addPlain, 0 after any other.
+	sawEquals, nameQuoted, assignTilde bool
+	lastPlain                          byte
 
 	next     wordRole
 	heredocs []heredoc // delimiters read on the current line
@@ -96,12 +102,32 @@ type shellParser struct {
 func (p *shellParser) add(c byte) {
 	p.word.WriteByte(c)
 	p.inWord = true
+	p.lastPlain = 0
+}
+
+// addPlain adds an unquoted byte without a special meaning to the word.
+func (p *shellParser) addPlain(c byte) {
+	switch {
+	case c == '=':
+		p.sawEquals = true
+	case c == '~' && (p.lastPlain == '=' || p.lastPlain == ':'):
+		p.assignTilde = true
+	}
+	p.add(c)
+	p.lastPlain = c
+}
+
+// quoted records that a quote or escape starts in the current word.
+func (p *shellParser) quoted() {
+	p.inWord, p.wordQuoted = true, true
+	p.nameQuoted = p.nameQuoted || !p.sawEquals
 }
 
 func (p *shellParser) resetWord() {
 	p.word.Reset()
 	p.inWord, p.wordDyn, p.wordQuoted = false, false, false
 	p.sawStar, p.sawOpenBracket, p.sawCloseBracket, p.sawOpenBrace, p.sawCloseBrace = false, false, false, false, false
+	p.sawEquals, p.nameQuoted, p.assignTilde, p.lastPlain = false, false, false, 0
 }
 
 func (p *shellParser) endWord() {
@@ -110,6 +136,9 @@ func (p *shellParser) endWord() {
 	}
 	w, quoted := p.word.String(), p.wordQuoted
 	dyn := p.wordDyn || p.sawStar || (p.sawOpenBracket && p.sawCloseBracket) || (p.sawOpenBrace && p.sawCloseBrace)
+	// An assignment's value is not a plain literal after tilde expansion,
+	// and a quoted name makes the word no assignment for bash (KI-128).
+	notPlainAssignment := isAssignment(w) && (p.assignTilde || p.nameQuoted)
 	p.resetWord()
 	role := p.next
 	p.next = roleArg
@@ -122,7 +151,7 @@ func (p *shellParser) endWord() {
 		p.heredocs = append(p.heredocs, heredoc{delim: w, quoted: quoted, strip: role == roleHeredocStrip})
 	default:
 		p.words = append(p.words, w)
-		p.dynamic = append(p.dynamic, dyn)
+		p.dynamic = append(p.dynamic, dyn || notPlainAssignment)
 	}
 }
 
@@ -206,10 +235,10 @@ func (p *shellParser) run() {
 		switch c {
 		case '\'':
 			state = single
-			p.inWord, p.wordQuoted = true, true
+			p.quoted()
 		case '"':
 			state = double
-			p.inWord, p.wordQuoted = true, true
+			p.quoted()
 		case '$':
 			// $'...' is ANSI-C quoting; its escapes are not decoded, so the
 			// word counts as unknown.
@@ -217,15 +246,15 @@ func (p *shellParser) run() {
 			p.add(c)
 			if next == '\'' {
 				state = ansiC
-				p.wordQuoted = true
+				p.quoted()
 				i++
 			}
 		case '\\':
 			if next != 0 {
 				i++
 				if next != '\n' {
+					p.quoted()
 					p.add(next)
-					p.wordQuoted = true
 				}
 			}
 		case '#':
@@ -289,7 +318,7 @@ func (p *shellParser) run() {
 			p.sawCloseBrace = p.sawCloseBrace || c == '}'
 			p.add(c)
 		default:
-			p.add(c)
+			p.addPlain(c)
 		}
 	}
 	if state != unquoted || len(p.heredocs) > 0 {
@@ -452,6 +481,12 @@ var runsInCurrentShell = map[string]bool{
 func (p *shellParser) trackDirectoryChange(words []string, dynamic []bool) {
 	i := 0
 	for i < len(words) && (leadingKeywords[words[i]] || isAssignment(words[i])) {
+		// A refused assignment may change where cd goes (CDPATH, HOME,
+		// OLDPWD), alone or before cd.
+		if isAssignment(words[i]) && (dynamic[i] || !acceptedAssignment(words[i])) {
+			p.dirUnknown = true
+			return
+		}
 		i++
 	}
 	// time and command run a builtin in the current shell.
@@ -464,8 +499,9 @@ func (p *shellParser) trackDirectoryChange(words []string, dynamic []bool) {
 	if i == len(words) {
 		return
 	}
+	// After time an assignment prefixes a builtin such as cd.
 	name := words[i]
-	if dynamic[i] || !isLiteralWord(name) || runsInCurrentShell[name] {
+	if dynamic[i] || !isLiteralWord(name) || runsInCurrentShell[name] || isAssignment(name) {
 		p.dirUnknown = true
 		return
 	}

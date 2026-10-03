@@ -109,7 +109,9 @@ func TestAllowAlwaysRule(t *testing.T) {
 		{"bash", "/usr/bin/git log | head -5 && git diff", "Bash", []string{"git", "head"}, false},
 		{"bash", "timeout 60 go test ./...", "Bash", []string{"go"}, false},
 		{"command:execute", "make lint", "Bash", []string{"make"}, false},
-		{"Bash", "FOO=1 npm test", "", nil, true},
+		// Accepted leading assignments are checked on every call (KI-128).
+		{"Bash", "FOO=1 npm test", "Bash", []string{"npm"}, false},
+		{"Bash", "LD_PRELOAD=x npm test", "", nil, true},
 		{"bash", "go test ./... && $(curl x)", "", nil, true},
 		{"write_file", `{"file_path": "x"}`, "Write", nil, false},
 		{"mcp__github__create_issue", "", "mcp__github__create_issue", nil, false},
