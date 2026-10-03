@@ -123,6 +123,9 @@ jobs:
           CODEFORGE_ISOLATION_TESTS: required
         run: |
           echo "kernel $(uname -r); LSMs: $(cat /sys/kernel/security/lsm 2>/dev/null || echo unknown)"
+          # The tool users run the launch helper from this checkout; the
+          # runner's HOME (0750) would hide it from them.
+          chmod o+x "$HOME" "$HOME/work"
           sudo -E "$(poetry env info -p)/bin/python" -m pytest -v -p no:cacheprovider \
             workers/tests/test_tool_isolation_integration.py workers/tests/test_tool_exec.py \
             workers/tests/test_landlock.py
