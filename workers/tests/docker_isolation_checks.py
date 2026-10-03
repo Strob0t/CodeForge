@@ -16,8 +16,10 @@ Commands (each prints one ``CF-REPORT <json>`` line, exits 1 on a problem):
 - ``battery``: what agents run, as tenant A's tool user under Landlock:
   the system python3 and pip (never the worker's venv), a venv, git with
   the default identity, ptys, /dev/shm locks, /dev/stderr, scripts and
-  binaries run from TMPDIR and HOME; node/npm/npx, go test and java when
-  the image has them (the battery image).
+  binaries run from TMPDIR and HOME, pytest, ``python -m pytest`` and ruff
+  (also through the quality gate's executor: the default gate commands of
+  Python projects and the auto-agent's workspace test); node/npm/npx, go
+  test and java when the image has them (the battery image).
 - ``refused-call``: a tool call when isolation is not ready starts nothing.
 - ``migration``: a tree the KI-71 worker left (files of 10002, hard links
   into another tenant's tree, planted ACL entries) is migrated (D9); a
@@ -241,6 +243,27 @@ BATTERY: dict[str, tuple[str, str]] = {
         'echo "$JAVA_TOOL_OPTIONS $TMUX_TMPDIR"',
         "-Djava.io.tmpdir=/home/codeforge-tools/",
     ),
+    # The default gate commands of Python projects (pytest, ruff check .) and the auto-agent's
+    # workspace test (python -m pytest <file>): the system interpreter must have them.
+    "pytest from the tool PATH": (
+        "printf 'def test_x():\\n    assert True\\n' > test_cf_a.py && pytest -q test_cf_a.py",
+        "1 passed",
+    ),
+    "python -m pytest": (
+        "printf 'def test_y():\\n    assert True\\n' > test_cf_b.py && python -m pytest -q test_cf_b.py",
+        "1 passed",
+    ),
+    "ruff from the tool PATH": ("printf 'x = 1\\n' > cf_ruff.py && ruff check cf_ruff.py", "All checks passed!"),
+}
+
+# The quality gate's own path (QualityGateExecutor.run_command, as the gates and the auto-agent's
+# workspace test call it): command -> (whether it must pass, what its output must contain).
+GATE_COMMANDS: dict[str, tuple[bool, str]] = {
+    "pytest": (True, "1 passed"),
+    "python -m pytest test_gate.py -v --tb=short": (True, "1 passed"),
+    "ruff check .": (True, "All checks passed!"),
+    # A failing test is a failed check because the test failed, not because pytest could not run.
+    "pytest -q gate_fails.py": (False, "1 failed"),
 }
 
 # Toolchains of the battery image: (needed binary, command, expected output).
@@ -297,8 +320,30 @@ async def _battery() -> int:
             report[name] = f"exit {code}: {out[-300:]}"
             if code != 0 or expected not in out:
                 problems.append(f"{name}: exit {code} {out[-300:]!r}")
+        problems += await _gate_commands(f"{workspace}/gates-{identity.work_id}", report)
     report["toolchains"] = [name for name in TOOLCHAINS if report[name] != "absent"]
     return _emit(report, problems)
+
+
+async def _gate_commands(project: str, report: Report) -> list[str]:
+    """GATE_COMMANDS through QualityGateExecutor in a Python project with a pytest configuration."""
+    import structlog
+
+    from codeforge.qualitygate import QualityGateExecutor
+
+    await _sh(
+        f"mkdir {project} && cd {project} && printf '[pytest]\\n' > pytest.ini && "
+        "printf 'def test_ok():\\n    assert True\\n' > test_gate.py && "
+        "printf 'def test_no():\\n    assert False\\n' > gate_fails.py",
+        None,
+    )
+    executor, log, problems = QualityGateExecutor(timeout_seconds=120), structlog.get_logger(), []
+    for command, (must_pass, expected) in GATE_COMMANDS.items():
+        passed, output = await executor.run_command(command, project, log)
+        report[f"gate: {command}"] = f"passed={passed}: {output.strip()[-300:]}"
+        if passed is not must_pass or expected not in output:
+            problems.append(f"gate command {command!r}: passed={passed}, expected {must_pass}: {output[-300:]!r}")
+    return problems
 
 
 # ---------------------------------------------------------------------------

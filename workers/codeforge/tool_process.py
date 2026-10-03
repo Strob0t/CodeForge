@@ -112,8 +112,10 @@ _WRITABLE_MARKER = "cf-writable "
 _OK_MARKER = "cf-ok "
 # The programs the probe runs with the real tool environment when the tool
 # PATH has them: a PATH whose python3 cannot run under Landlock (the worker's
-# venv, E15) fails the check instead of every tool call.
-_PROBE_PROGRAMS = {"python3": "python3 -c pass", "git": "git --version"}
+# venv, E15) fails the check instead of every tool call. pytest is the default
+# test gate of Python projects (the worker image installs it for the system
+# interpreter, workers/tool-requirements.txt).
+_PROBE_PROGRAMS = {"python3": "python3 -c pass", "git": "git --version", "pytest": "pytest --version"}
 # Run as the system tool user by the isolation check: the process status of
 # the tool process (the shell's own: Landlock lets only the exec target read
 # its /proc entry), what it must be able to do, then every path it can read
@@ -125,6 +127,7 @@ for program in $CF_PROBE_PROGRAMS; do
   case "$program" in
     python3) python3 -c pass >/dev/null 2>&1 && echo "{_OK_MARKER}python3" ;;
     git) git --version >/dev/null 2>&1 && echo "{_OK_MARKER}git" ;;
+    pytest) pytest --version >/dev/null 2>&1 && echo "{_OK_MARKER}pytest" ;;
   esac
 done
 for path in "$@"; do
@@ -643,6 +646,7 @@ _PROBE_FAILURES = {
     "tmp": "cannot write its tmp directory (TMPDIR)",
     "python3": "cannot run python3 from the tool PATH (CODEFORGE_TOOL_PATH; a venv interpreter cannot run confined)",
     "git": "cannot run git from the tool PATH (CODEFORGE_TOOL_PATH)",
+    "pytest": "cannot run pytest from the tool PATH (CODEFORGE_TOOL_PATH; a venv's pytest cannot run confined)",
 }
 
 

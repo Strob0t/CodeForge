@@ -32,13 +32,21 @@ LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
 # acl: setfacl/getfacl for operators and scripts/check-host.sh (the worker
-# itself sets ACLs through xattrs, codeforge.posix_acl). The stock image has
-# no .pyc files and the read-only root keeps Python from writing them: the
-# launch helper of every tool process (codeforge/tool_exec.py, run with -I -S)
-# imports ctypes and json, about 80 ms per launch uncompiled, 24 ms compiled.
-RUN apt-get update && \
+# itself sets ACLs through xattrs, codeforge.posix_acl). Tool processes run
+# the system interpreter, never the worker's venv (a venv interpreter cannot
+# run under Landlock): the Python tools they need (workers/tool-requirements.txt:
+# pytest and ruff for the default quality gates of Python projects and the
+# auto-agent's workspace test) go into it, pinned with hashes to poetry.lock.
+# The stock image has no .pyc files and the read-only root keeps Python from
+# writing them: the launch helper of every tool process
+# (codeforge/tool_exec.py, run with -I -S) imports ctypes and json, about
+# 80 ms per launch uncompiled, 24 ms compiled.
+RUN --mount=type=bind,source=workers/tool-requirements.txt,target=/tmp/tool-requirements.txt \
+    apt-get update && \
     apt-get install -y --no-install-recommends git acl && \
     rm -rf /var/lib/apt/lists/* && \
+    python -m pip install --no-cache-dir --root-user-action=ignore --disable-pip-version-check \
+        --require-hashes --only-binary=:all: -r /tmp/tool-requirements.txt && \
     python -m compileall -q /usr/local/lib/python3.12
 
 # Users (KI-71, KI-96 / ADR-018): the worker runs as codeforge (10001, the

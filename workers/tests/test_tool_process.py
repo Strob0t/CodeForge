@@ -870,8 +870,40 @@ NoNewPrivs:\t1
 """
 
 
-_PROBE_OK = _STATUS_OK + "cf-ok home\ncf-ok tmp\ncf-ok python3\ncf-ok git\n"
-_EXPECTED = ("home", "tmp", "python3", "git")
+_PROBE_OK = _STATUS_OK + "cf-ok home\ncf-ok tmp\ncf-ok python3\ncf-ok git\ncf-ok pytest\n"
+_EXPECTED = ("home", "tmp", "python3", "git", "pytest")
+
+
+@pytest.mark.parametrize(("program", "works"), [("pytest", True), ("pytest", False), ("git", True)])
+def test_the_probe_script_runs_the_tool_paths_programs(program: str, works: bool, tmp_path: Path) -> None:
+    """KI-96 review: pytest is the default test gate of Python projects. When the tool PATH has it,
+    the probe runs it as the tool user, confined, as it runs python3 and git."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / program
+    fake.write_text(f"#!/bin/sh\nexit {0 if works else 1}\n")
+    fake.chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path), "TMPDIR": str(tmp_path)}
+    done = subprocess.run(  # noqa: S603 - the probe's own script
+        ["/bin/sh", "-c", tool_process._PROBE_SCRIPT, "cf-isolation-check"],
+        env={**env, "CF_PROBE_PROGRAMS": program},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (f"cf-ok {program}" in done.stdout.splitlines()) is works, done.stdout
+    assert program in tool_process._PROBE_PROGRAMS
+
+
+def test_a_tool_path_pytest_that_cannot_run_makes_isolation_not_ready(
+    checkable: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        tool_process, "_run_probe", lambda launch, _t: launch.close() or _PROBE_OK.replace("cf-ok pytest\n", "")
+    )
+    status = check_tool_isolation(IsolationConfig(mode="required", workspace_root="/w"))
+    assert not status.ready
+    assert "cannot run pytest from the tool PATH" in status.reason
 
 
 def test_probe_of_an_isolated_tool_process_passes() -> None:
