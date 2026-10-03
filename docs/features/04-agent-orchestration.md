@@ -27,11 +27,12 @@ All Go backends implement the `agentbackend.Backend` interface with capability d
 
 With `CODEFORGE_CLAUDECODE_ENABLED=true` the router can pick `claudecode/default` for conversations in the configured complexity tiers (runs never use it). `workers/codeforge/claude_code_executor.py` runs the Claude Code CLI in the conversation's workspace, and every tool call is decided by the Go policy (KI-72):
 
-- **Hook and socket:** a PreToolUse hook (matcher `*`, `workers/codeforge/claude_code_policy_hook.py`, stdlib only, run as `<python> -I <hook> || exit 2`) sends each call to a per-run unix socket (private 0700 directory under `/tmp`, random token) served by the executor, which asks Go via `runs.toolcall.request`; mode tool lists, path and command rules and HITL apply. Any error blocks the call.
+- **Hook and socket:** a PreToolUse hook (matcher `*`, `workers/codeforge/claude_code_policy_hook.py`, stdlib only, run as `<python> -I <hook> || exit 2`; with tool isolation on the base interpreter with `-I -S` as the tenant's tool user) sends each call to a per-run unix socket (private 0700 directory under `/tmp`, random token) served by the executor, which asks Go via `runs.toolcall.request`; mode tool lists, path and command rules and HITL apply. Any error blocks the call.
 - **Tools:** only tools the Go policy maps to canonical names are offered (`--tools Read,Write,Edit,MultiEdit,NotebookEdit,Bash,Grep,Glob,LS,Monitor`; `Monitor` counts as `Bash`); any other tool name is denied before Go is asked. WebFetch and WebSearch are not offered: presets restrict network access through Bash command rules, which a fetch tool would bypass.
 - **Paths:** the same mapping as the agent loop (`workers/codeforge/policy_args.py`): paths relative to the real (symlink-resolved) workspace, a path outside stays absolute and is denied; glob patterns are checked where they can reach.
 - **Isolation from the repository:** `--setting-sources ""` (no user, project or local settings, hooks or permission rules), `--strict-mcp-config` with no MCP servers, `--permission-mode dontAsk` (only hook-allowed calls run), never `bypassPermissions`; the prompt goes to stdin and the system prompt to a 0600 file (`--system-prompt-file`).
 - **Supervision:** the CLI runs in its own process group; timeout (`CODEFORGE_CLAUDECODE_TIMEOUT`, run time without approval waits) and cancel (Stop in the chat, polled every 0.5 s) stop the whole group; output is streamed and usage counted even when a turn ends early. A failed turn falls back to the next model only if it changed nothing (`fallback_safe`).
+- **Tenant isolation (KI-96):** with `CODEFORGE_TOOL_ISOLATION=required` the CLI, its hook and its Bash commands run as the tenant's tool user under Landlock, with a per-run `CLAUDE_CONFIG_DIR` below the tenant's HOME and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`; an operator's `CLAUDE_CONFIG_DIR` is not passed (use `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`). The CLI's Bash inherits those credentials ([KI-111](../todo.md#known-issues)).
 - **Capability check:** before a run, `<cli> --help` must list every flag used, and a probe checks the hidden `--system-prompt-file` / `--max-turns`; only a passing check is cached (per binary path and mtime). An unsupported CLI fails the run and is hidden from routing. Tested with Claude Code 2.1.x.
 
 ### Backend Routing Architecture
@@ -346,7 +347,7 @@ Agents connect to external MCP servers during runs to use their tools.
 
 - **McpWorkbench**: Multi-server container (connect/disconnect, tool discovery, tool call bridging)
 - **McpToolRecommender**: BM25-based ranking of relevant tools for task prompts
-- **Transport**: stdio, SSE and Streamable HTTP via Python `mcp` SDK; stdio servers start through `tool_process.tool_stdio_client` as the tool user (uid 10002, no capabilities; declared env without the worker's credentials and code-loading variables), never in the Go Core (KI-71, [ADR-017](../architecture/adr/017-tool-isolation-and-nats-authentication.md))
+- **Transport**: stdio, SSE and Streamable HTTP via Python `mcp` SDK; stdio servers start through `tool_process.tool_stdio_client` as the tenant's tool user (uid 20000-29999, no capabilities, Landlock, cwd the run's workspace; declared env without the worker's credentials and code-loading variables, handed over on a memfd), never in the Go Core (KI-71, KI-96, [ADR-017](../architecture/adr/017-tool-isolation-and-nats-authentication.md), [ADR-018](../architecture/adr/018-per-tenant-tool-identities-and-landlock.md))
 - **Code**: `workers/codeforge/mcp_workbench.py`, `workers/codeforge/mcp_models.py`
 
 #### MCP Server Registry
@@ -390,6 +391,8 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 | `search_conversations` | -- | Search past conversation messages by keyword |
 | `search_skills` | -- | In-loop BM25 skill discovery |
 | `create_skill` | -- | Propose a reusable skill draft |
+
+**Tool processes on isolated deployments (KI-96, [ADR-018](../architecture/adr/018-per-tenant-tool-identities-and-landlock.md)).** With `CODEFORGE_TOOL_ISOLATION=required` (production) every process a tool starts runs as the tenant's tool user under Landlock: it can write only the run's workspace and the tenant's HOME (TMPDIR is a per-work directory below HOME; `/tmp` is not usable), and it sees only its own `/proc` entry, so `ps`, `pgrep`, `pkill`, `top`, psutil, `df`, `mount`, `ss`, `netstat` and `/proc/self` reads in child processes do not work (the JVM's container detection falls back to host values; `JAVA_TOOL_OPTIONS` and `TMUX_TMPDIR` point the JVM and tmux at TMPDIR). Agents stop their own background jobs with `kill <pid>` or `kill %1`. A background process (a dev server, a watcher) lives at most until the tenant has no work left in that worker: conversation turns are separate work items, so it usually ends with its turn. The Bash tool's description tells the LLM so.
 
 Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`, `build_default_registry()`); `handoff_to`, `propose_goal` and `propose_roadmap` are added per run (`spawn_subagent` is not registered until Go starts sub-agents, KI-25; `handoff_to` is offered whenever it is registered). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
 

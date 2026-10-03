@@ -294,7 +294,8 @@ CodeForge/
 │   ├── verify-features.sh          # Feature verification matrix (CI verify job)
 │   ├── worker-healthcheck.py       # Worker container healthcheck (GET /health/ready)
 │   ├── worker-entrypoint.sh        # Worker image entrypoint: runs the worker as uid 10001 with ambient SETUID/SETGID/KILL (KI-71)
-│   ├── check-tool-isolation.sh     # Checks tool isolation in a container with the production settings (KI-71)
+│   ├── check-tool-isolation.sh     # Checks tool isolation of two tenants in the worker image with the production settings (KI-71, KI-96)
+│   ├── check-host.sh               # Preflight of a host for per-tenant tool isolation before an upgrade (KI-96)
 │   └── setup-branch-protection.sh  # GitHub branch protection for main
 ├── configs/
 │   ├── model_pricing.yaml    # Fallback LLM pricing table
@@ -503,13 +504,15 @@ cd frontend && npx playwright test --config=playwright.llm.config.ts
 
 88 tests across 11 spec files covering: prerequisites (6), model management (7), simple conversation (11), agentic conversation (10), streaming AG-UI (10), multi-provider (5), routing (10), cost tracking (12), MCP tools (10), benchmarks (4), cleanup (3). Helper module: `frontend/e2e/llm/llm-helpers.ts`.
 
-#### Tests That Need Root or a nats-server Binary (KI-71)
+#### Tests That Need Root, Docker or a nats-server Binary (KI-71, KI-96)
 
 A few tests skip with a reason unless their prerequisite is present, and CI provides both:
 
-- `workers/tests/test_tool_isolation_integration.py` starts real `setpriv` tool processes and needs root.
+- `workers/tests/test_tool_isolation_integration.py`, `test_tool_exec.py` and `test_landlock.py` have tests that start real `setpriv` tool processes as tenant tool UIDs under Landlock; they need root (CI runs them with `sudo -E`), setpriv, POSIX ACLs on `/tmp` and Landlock.
+- `CODEFORGE_ISOLATION_TESTS=required` turns every such skip (no root, setpriv, ACLs, Landlock or Docker) into a failure; CI sets it on the isolation steps.
 - `workers/tests/test_nats_permissions.py`, `workers/tests/test_deployment_isolation.py` (`nats-server -t` on the generated config) and `internal/adapter/nats/auth_test.go` start a real `nats-server` with `configs/nats/nats-server.conf`. They need the binary: `NATS_SERVER_BIN=/path/to/nats-server` or `nats-server` on `PATH` (CI copies it from `nats:2.15-alpine`: `docker create --name nats-bin nats:2.15-alpine && docker cp nats-bin:/usr/local/bin/nats-server ./nats-server`). Use nats-server 2.11 or newer; the notification read-back needs batched direct get.
-- `./scripts/check-tool-isolation.sh [image]` runs the isolation check in a container with the production worker settings (default image `python:3.12-slim`; needs Docker).
+- `./scripts/check-tool-isolation.sh [image]` runs the isolation check of two tenants in the built worker image with the production worker settings (default image `$WORKER_IMAGE`, else the image `docker-compose.prod.yml` runs; needs Docker).
+- `workers/tests/test_tenant_isolation_docker.py` (marked `docker`) runs the tenant-isolation suite on the built image with the production service definition: `CODEFORGE_TEST_WORKER_IMAGE` (the worker image), `CODEFORGE_TEST_BATTERY_IMAGE` (an image built from `workers/tests/docker/Dockerfile.battery` with node, go and a JDK), `CODEFORGE_TEST_MIGRATION_ENTRIES` (default 100000; CI uses 1000000) and `CODEFORGE_TEST_EVIDENCE_DIR` (keeps every report as JSON).
 
 #### Integration Tests
 
@@ -644,6 +647,7 @@ Example:
 | `workspace.root` | `CODEFORGE_WORKSPACE_ROOT` | `data/workspaces` | Workspace root directory |
 | `workspace.pipeline_dir` | `CODEFORGE_WORKSPACE_PIPELINE_DIR` | `` | Pipeline config directory |
 | `workspace.adopt_roots` | `CODEFORGE_WORKSPACE_ADOPT_ROOTS` | `` | Comma-separated absolute directories (not `/`) whose subdirectories platform admins may adopt as a workspace (`local_path`); a project's stored local `repo_url` may be cloned from them too. Without it everyone adopts only inside their tenant's directory `<workspace.root>/<tenant_id>/`; an adopt root never opens another tenant's area of the workspace root |
+| `workspace.tool_acls` | `CODEFORGE_WORKSPACE_TOOL_ACLS` | `off` (`required` in the Core image and `docker-compose.prod.yml`) | Per-tenant tool identities (KI-96, ADR-018): with `required` the Core allocates each tenant's tool UID lazily (`tenants.tool_uid`; 503 when the range 20000-29999 is exhausted), creates tenant directories with POSIX ACLs for it before any clone or init, sends `tool_uid` on every payload that starts tool processes, advances the UID sequence over the bindings on the workspaces volume at startup, and deletes project workspaces through the worker (409 while the project has active work). Linux only; it must match the worker's `CODEFORGE_TOOL_ISOLATION=required`. An unknown value counts as `required` (logged as an error); `off` with `APP_ENV=production` logs a warning |
 | `runtime.stall_threshold` | `CODEFORGE_STALL_THRESHOLD` | `5` | Stall detection threshold (repeated actions) |
 | `runtime.stall_max_retries` | `CODEFORGE_STALL_MAX_RETRIES` | `2` | New runs a plan step gets after runs that stalled (re-planning); `0` = none, negative is rejected |
 | `runtime.quality_gate_timeout` | `CODEFORGE_QG_TIMEOUT` | `60s` | Timeout per gate command (sent to the worker, which kills the command's process group); must be at least 1s |
@@ -722,15 +726,19 @@ Example:
 | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `LITELLM_MASTER_KEY` | `sk-codeforge-dev` | LiteLLM API key (dev default, matches the compose LiteLLM default; a warning is logged). Read from `LITELLM_MASTER_KEY_FILE` when that is set |
 | `DATABASE_URL_FILE`, `NATS_URL_FILE`, `LITELLM_MASTER_KEY_FILE`, `CODEFORGE_INTERNAL_KEY_FILE` | unset | Path of a secret file for the setting without the suffix (production: `/run/secrets/<name>`). Setting both forms is a startup error; an empty or missing file is an error; the files are read once, then the worker locks its secrets directory (KI-71) |
-| `CODEFORGE_TOOL_ISOLATION` | `off` (`required` in the worker image and in `docker-compose.prod.yml`) | `required`: agent tool processes start only as the tool user and every tool call fails with `ToolIsolationError` when that is not possible; `off`: they run as the worker user (development, tests). An unknown value counts as `required` |
-| `CODEFORGE_TOOL_UID` / `CODEFORGE_TOOL_GID` | `10002` / `10002` | uid and gid of the tool user; must differ from the worker's and be unprivileged |
-| `CODEFORGE_WORKSPACE_GID` | `10010` | Workspace group (`codeforge-ws`): the tool user's only supplementary group, shared with the worker and the Go Core |
-| `CODEFORGE_TOOL_HOME` | `/home/codeforge-tool` | `HOME` of tool processes (a tmpfs in production) |
-| `CODEFORGE_WORKSPACE_ROOT` | unset | The Go Core's workspace root (same variable, `/data/workspaces` in production). With isolation required the worker opens workspaces created before it to the workspace group once per upgrade (stamp file `.codeforge-workspace-sharing`) |
+| `CODEFORGE_TOOL_ISOLATION` | `off` (`required` in the worker image and in `docker-compose.prod.yml`) | `required`: agent tool processes start only as their tenant's tool user (`tool_uid` of the payload, 20000-29999) under Landlock, and every tool call fails with `ToolIsolationError` and `/health/ready` answers 503 when that is not possible; payloads without `tool_uid` are refused; `off`: they run as the worker user (development, tests). An unknown value counts as `required` |
+| `CODEFORGE_TOOL_HOME_BASE` | `/home/codeforge-tools` | Base of the tenants' HOMEs (`<base>/<uid>`; production: the `tool_homes` volume, which must support POSIX ACLs and must not be mounted `noexec`) |
+| `CODEFORGE_TOOL_PATH` | `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin` | `PATH` of tool processes (the HOME's `.local/bin`, `go/bin`, `.cargo/bin` and `.npm-global/bin` follow); never the worker's venv. In the worker image its interpreter has pytest and ruff from `workers/tool-requirements.txt`; add toolchain bin directories here |
+| `CODEFORGE_TOOL_LANDLOCK` | unset (follows `CODEFORGE_TOOL_ISOLATION`) | `required` or `off`; an unknown value counts as `required`; `off` is refused with `APP_ENV=production` (the worker is not ready) and logs a warning elsewhere: without Landlock tool command lines are readable across tenants |
+| `CODEFORGE_TOOL_LANDLOCK_MIN_ABI` | `2` | Lowest Landlock ABI the worker accepts (ABI 2: no truncate handling; scopes for signals and abstract sockets need ABI 6, otherwise a warning is logged) |
+| `CODEFORGE_TOOL_READ_PATHS` | unset | Colon-separated operator directories tool processes may read and execute (for example `/opt`, or `/app/.venv` for backend CLIs installed there); each must be absolute, exist and contain no symlink; `/`, `/proc`, `/sys`, `/run`, `/tmp`, `/data`, `/home`, `/var/lib/codeforge`, their ancestors and anything below `/run`, `/proc`, `/data`, `/home/codeforge-tools` or `/var/lib/codeforge` are refused (the worker is then not ready) |
+| `CODEFORGE_TOOL_CACHE_MAX_MB` | `4096` | When a tenant has no work left in the worker, its `<HOME>/.cache` is removed as the tenant if it is larger than this |
+| `CODEFORGE_WORKSPACE_GID` | `10010` | Workspace group (`codeforge-ws`) of the worker and the Go Core; tool processes are not in it (KI-96) |
+| `CODEFORGE_WORKSPACE_ROOT` | unset | The Go Core's workspace root (same variable, `/data/workspaces` in production); required with isolation. At startup the worker sets it to 2771, prepares its state directory `<root>/.codeforge` (UID bindings, migration stamps, locks) and detects a rollback; each tenant's tree from before KI-96 is migrated at its first work item |
 | `CODEFORGE_KNOWLEDGE_CONTENT_ROOT` | `data/knowledge` | Knowledge content root (same setting as the Core's `knowledge.content_root`): the worker indexes knowledge bases only below `<root>/<tenant_id>/` and refuses anything else (KI-105) |
 | `CODEFORGE_WORKER_LOG_LEVEL` | `info` | Worker log level (falls back to `logging.level` in codeforge.yaml) |
 | `CODEFORGE_WORKER_LOG_SERVICE` | `codeforge-worker` | Worker service name |
-| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker HTTP health server: `GET /health` (liveness) and `GET /health/ready` (NATS connected, every consumer loop alive, notification consumers restored, not stopping; `503 {"status":"starting"}` while the workspaces are shared at startup, `503 {"status":"not ready"}` otherwise); `0` picks a free port; a port that cannot be bound makes the worker exit 1 before connecting to NATS. Two workers on one host need different ports |
+| `CODEFORGE_WORKER_HEALTH_PORT` | `8081` | Worker HTTP health server: `GET /health` (liveness) and `GET /health/ready` (NATS connected, every consumer loop alive, notification consumers restored, not stopping; `503 {"status":"tool isolation not ready: <reason>"}` while tool isolation is required but not ready, `503 {"status":"starting"}` before the consumer starts, `503 {"status":"not ready"}` otherwise); `0` picks a free port; a port that cannot be bound makes the worker exit 1 before connecting to NATS. Two workers on one host need different ports |
 | `CODEFORGE_AIDER_PATH` | `aider` | Path to Aider CLI binary |
 | `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
 | `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
@@ -854,6 +862,15 @@ Reserved/planned subjects: the `CODEFORGE` stream already captures `mcp.>`, but 
 | `benchmark.run.request` | Go -> Python | Start benchmark run (dataset, model, metrics) |
 | `benchmark.run.result` | Python -> Go | Benchmark run results (scores, costs, duration) |
 
+#### Workspace Deletion (KI-96)
+
+| Subject | Direction | Purpose |
+|---------|-----------|---------|
+| `workspace.delete.request` | Go -> Python | Remove a deleted project's workspace as the tenant's tool UID (`deletion_id`, `tenant_id`, `tool_uid`, `project_id`, `workspace_path`); at least once, durable `codeforge-py-workspace-delete-request`, a missing workspace counts as removed; the Core republishes pending deletions every 10 minutes and treats `workspace.delete.request.dlq` as a failed attempt |
+| `workspace.delete.result` | Python -> Go | Outcome (`deletion_id`, `ok`, `error`); the Core marks the `workspace_deletions` row done or records the error |
+
+Only with `workspace.tool_acls: required`; otherwise the Go Core removes the workspace itself.
+
 ### Logging
 
 CodeForge uses structured JSON logging across all services with Docker-native log management.
@@ -927,7 +944,7 @@ CodeForge ships with multi-stage Dockerfiles for all three services.
 # Go Core (multi-stage: golang:1.25-alpine -> alpine:3.21)
 docker build -t codeforge-core .
 
-# Python Worker (python:3.12-slim, poetry; starts as root, the entrypoint runs the worker as uid 10001, tool processes as uid 10002)
+# Python Worker (python:3.12-slim, poetry; starts as root, the entrypoint runs the worker as uid 10001, tool processes as the tenants' tool users 20000-29999)
 docker build -t codeforge-worker -f Dockerfile.worker .
 
 # Frontend (node:22-alpine build -> nginxinc/nginx-unprivileged:1.27-alpine serve on port 8080)
@@ -949,7 +966,7 @@ docker compose -f docker-compose.prod.yml down
 
 Production compose differences from dev include named volumes for data persistence, health checks on all services, `restart: unless-stopped` for auto-recovery, tuned PostgreSQL (256MB shared_buffers, optimized WAL settings), and no dev-only services (docs-mcp, playwright).
 
-Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path) plus the read-only `knowledge` volume (`/data/knowledge`, mounted in core and worker: knowledge-base content in `<tenant_id>/` subdirectories that the operator fills, KI-105), tmpfs `/tmp` for core and worker, the core running as UID/GID 10001 and the worker starting as root with only `SETUID`, `SETGID` and `KILL` and running as UID 10001 while agent tool processes run as UID 10002 (see [Tool Isolation and NATS Authentication](#tool-isolation-and-nats-authentication)), NATS pinned to `nats:2.15-alpine` with authenticated users, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
+Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certificate from `generate-secrets.sh`, copied to a tmpfs by an entrypoint wrapper; clients use `sslmode=require`), the core with a read-only root filesystem plus volumes `core_data` (`/data`, holds `data/policies`, `data/initial_admin_password`) and `workspaces` (`/data/workspaces`, shared with the worker at the same path) plus the read-only `knowledge` volume (`/data/knowledge`, mounted in core and worker: knowledge-base content in `<tenant_id>/` subdirectories that the operator fills, KI-105), tmpfs `/tmp` for core and worker, the core running as UID/GID 10001 and the worker starting as root with only `SETUID`, `SETGID` and `KILL` and running as UID 10001 while agent tool processes run as their tenant's tool UID (20000-29999) with HOMEs on the `tool_homes` volume (`/home/codeforge-tools`) and the worker's `/tmp` at mode 1771 (see [Tool Isolation and NATS Authentication](#tool-isolation-and-nats-authentication)), NATS pinned to `nats:2.15-alpine` with authenticated users, LiteLLM `v1.103.1` on the `internal` and `egress` networks with `host.docker.internal` mapped to the host gateway (local model servers). All credentials come from Docker secret files, see [Secret Management](#secret-management). Zero-downtime deployments: see [Blue-green deployment](#blue-green-deployment).
 
 #### Blue-green deployment
 
@@ -985,7 +1002,7 @@ DRY_RUN=1 ./scripts/deploy-blue-green.sh  # print the plan; compose commands run
 
 #### CI/CD
 
-CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build, `go vet -tags=integration`, unit tests with `-race`, `integration`-tagged tests against PostgreSQL + NATS, golangci-lint v2.11.4; Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`); frontend lint, format check, type check (`npm run typecheck`), unit tests (`npm run test`, vitest) and build; Lighthouse CI, contract tests and security scanning (govulncheck, npm audit, pip-audit and gitleaks; `.gitleaks.toml` allowlists exact synthetic test-fixture values, never paths); smoke tests and feature verification run only on pushes to `staging`/`main`.
+CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build, `go vet -tags=integration`, unit tests with `-race`, `integration`-tagged tests against PostgreSQL + NATS, golangci-lint v2.11.4; Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`); frontend lint, format check, type check (`npm run typecheck`), unit tests (`npm run test`, vitest) and build; Lighthouse CI, contract tests and security scanning (govulncheck, npm audit, pip-audit and gitleaks; `.gitleaks.toml` allowlists exact synthetic test-fixture values, never paths); smoke tests and feature verification run only on pushes to `staging`/`main`. The Python job also runs the tool isolation tests as root (`sudo -E`, `CODEFORGE_ISOLATION_TESTS=required`), and the job `tenant-isolation-docker` builds the worker and battery images, prints the kernel, LSMs and Landlock ABI, runs `scripts/check-tool-isolation.sh` and the Docker suite (1,000,000 migration entries) and uploads the evidence (KI-96).
 
 GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`. Each build job records the pushed image by digest and the Grype scan job scans exactly those references.
 
@@ -1122,16 +1139,18 @@ See `docs/SECURITY.md` for the full secret management policy.
 
 ### Tool Isolation and NATS Authentication
 
-Design and rationale: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md); the security model:
+Design and rationale: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md) and, for per-tenant tool
+users and Landlock, [ADR-018](architecture/adr/018-per-tenant-tool-identities-and-landlock.md); the security model:
 [SECURITY.md](SECURITY.md#agent-tool-isolation); the process and UID model:
 [architecture.md](architecture.md#process-and-uid-model).
 
 **Production.** The worker container starts as root with `cap_drop: ALL`, `cap_add: SETUID, SETGID, KILL` and
 `no-new-privileges`; `scripts/worker-entrypoint.sh` runs the worker as uid 10001 (group `codeforge-ws` 10010) with those
-capabilities as ambient capabilities. Agent tool processes run as uid/gid 10002 (`codeforge-tool`) with group 10010,
-no capabilities and umask 002, started only through `workers/codeforge/tool_process.py`. The worker mounts `/run/secrets` as a
-tmpfs (`uid=10001,mode=0700`) with the secret files inside and `/home/codeforge-tool` as a tmpfs (`HOME` of the tool
-user); the workspaces volume is `10001:10010`, mode 2775. The NATS server loads `configs/nats/nats-server.conf`
+capabilities as ambient capabilities. Agent tool processes run as uid/gid T, the tenant's tool UID (20000-29999), with
+no supplementary group, no capabilities, umask 007 and Landlock, started only through `workers/codeforge/tool_process.py`.
+The worker mounts `/run/secrets` as a tmpfs (`uid=10001,mode=0700`) with the secret files inside, the `tool_homes` volume at
+`/home/codeforge-tools` (the tenants' HOMEs) and `/tmp` as a tmpfs with `uid=10001,gid=10010,mode=1771`; the workspaces
+volume is `10001:10010` with the root at mode 2771; the core runs with `CODEFORGE_WORKSPACE_TOOL_ACLS=required`. The NATS server loads `configs/nats/nats-server.conf`
 (Compose `configs:`) and the secret `nats-passwords.conf`; the core connects with `nats-core-url`, the worker with
 `nats-worker-url` (both mounted as `/run/secrets/nats-url`, also in the blue-green overlay).
 
@@ -1152,10 +1171,20 @@ workspace root the worker does not own is not walked: the log names the fix (`ch
 <root>`). `CLAUDE_CONFIG_DIR` and adopted workspaces outside `/data/workspaces` must be accessible to group 10010. Platforms
 that forbid root containers cannot start tool processes: every tool call fails with `ToolIsolationError`.
 
-**Checking it.** The worker logs "tool isolation required: agent tool processes run as the tool user" (or the error and
-its reason) once at startup. `./scripts/check-tool-isolation.sh` runs the same check in a container with the production
-settings and prints a tool process's credentials (Uid and Gid 10002, Groups 10010, `CapEff`/`CapAmb` 0, `NoNewPrivs` 1,
-Umask 0002) and that it cannot read `/proc/1/environ` or `/run/secrets`.
+**Python tools for tool processes.** Tool processes never use the worker's venv. `workers/tool-requirements.txt` lists
+pytest (with its dependencies) and ruff, hash-pinned to poetry.lock; `Dockerfile.worker` installs it into the image's system
+interpreter. When poetry.lock changes, `workers/tests/test_tool_requirements.py` fails and prints the file's new content.
+Further tools for agents go on `CODEFORGE_TOOL_PATH` (and, outside `/usr`, `CODEFORGE_TOOL_READ_PATHS`).
+
+**Checking it.** The worker logs "tool isolation required: every tenant's tool processes run as the tenant's tool UID"
+(with the Landlock mode and ABI), or the error and its reason, once at startup. `./scripts/check-tool-isolation.sh` runs
+the check of two tenants in the worker image with the production settings and prints each tool process's credentials (Uid
+and Gid T, Groups empty, `CapEff`/`CapAmb` 0, `NoNewPrivs` 1, Umask 0007), what it can reach of the worker, the other
+tenant and its own tenant's other project, and whether a command line carries its environment. The full suite:
+
+```bash
+CODEFORGE_TEST_WORKER_IMAGE=<image> poetry run pytest workers/tests/test_tenant_isolation_docker.py
+```
 
 **Development.** Isolation is `off` and the dev compose runs NATS without authentication; nothing changes for
 `go run`, `poetry run` or the devcontainer. To try isolation locally run the worker image with the production settings
@@ -1167,7 +1196,56 @@ Umask 0002) and that it cannot read `/proc/1/environ` or `/run/secrets`.
 | `nats-core-pass`, `nats-worker-pass` (secrets) | Passwords of the two NATS users |
 | `nats-core-url`, `nats-worker-url`, `nats-passwords.conf` (derived) | URLs with credentials for the core and the worker; the password file the NATS config includes |
 | `scripts/worker-entrypoint.sh` | Image entrypoint of the worker |
-| `scripts/check-tool-isolation.sh` | Container check of the isolation |
+| `scripts/check-tool-isolation.sh` | Container check of the isolation (two tenants) |
+| `scripts/check-host.sh` | Host preflight before the KI-96 upgrade |
+| `workers/tool-requirements.txt` | Python tools (pytest, ruff) of the tool PATH in the worker image |
+
+#### Upgrading to per-tenant tool users (KI-96)
+
+```bash
+tar --acls --xattrs -C <workspaces volume path> -czf workspaces-backup.tgz .   # or a filesystem snapshot
+WORKER_IMAGE=<new worker image> ./scripts/check-host.sh                        # must print "result: OK"
+docker compose -f docker-compose.prod.yml stop worker                          # every replica; no old worker may run again
+docker compose -f docker-compose.prod.yml up -d core                           # migrations 120, 121
+docker compose -f docker-compose.prod.yml up -d worker
+```
+
+- **Back up first** with a tool that keeps POSIX ACLs and xattrs. A restore without ACLs fails closed: each tenant
+  migrates again at its next work item.
+- **Preflight.** `scripts/check-host.sh` runs `codeforge.host_check` in the new worker image with the production service
+  definition against the real `workspaces` and `tool_homes` volumes (extra compose files go before `run`, for example
+  `-f docker-compose.blue-green.yml`). It prints the host's kernel, LSM list and Docker version, the Landlock ABI (ENOSYS:
+  no Landlock or a seccomp profile that blocks it; EOPNOTSUPP: not in the `lsm=` list), POSIX ACLs, file systems and mount
+  options of both volumes, the mode of `/tmp` and the worker's isolation check, and exits non-zero on any failure. It
+  prepares the volumes as the new worker's start does (root 2771, `.codeforge`); a running old worker keeps working.
+- **Stop every worker** (all replicas of `--scale worker=N`) before the new Core starts: an old worker runs tools as 10002
+  in group 10010, which can reach every tenant tree, and takes no tenant lock. `deploy-blue-green.sh` handles only the
+  core and frontend colors, so the worker steps are manual there.
+- **The Core** applies migrations 120 (`tenants.tool_uid`) and 121 (`workspace_deletions`), advances the UID sequence over
+  the bindings on the volume, and logs every adopted workspace outside the root it cannot open itself, with the tenant, its
+  tool UID and the command (`setfacl -R -m u:<T>:rwX -m d:u:<T>:rwX -m g:10010:rwX -m d:g:10010:rwX <dir>`); platform
+  admins see `tool_uid` in `GET /api/v1/tenants`.
+- **The new worker** answers `/health/ready` with 503 and the reason until isolation is ready. Each tenant's tree migrates
+  at its first work item (in a thread; a log line gives counts and time, about 0.7 s per 100,000 entries with warm caches).
+- **Host requirements** (otherwise the worker stays 503 and runs no tool):
+
+| Requirement | Works | Does not work -> remedy |
+|---|---|---|
+| Landlock ABI >= 2, and `landlock` in the LSM list | Debian 12 (6.1, ABI 2, no truncate handling), Amazon Linux 2023 (6.1, ABI 2), Ubuntu 22.04 HWE and 24.04 (6.8, ABI 4), Debian 13 (6.12, ABI 6), GitHub ubuntu-24.04 runners (ABI 7) | Ubuntu 22.04 GA (5.15, ABI 1): HWE kernel. Kernels without Landlock in `lsm=`: enable it. There is no production mode without Landlock. |
+| Docker's seccomp profile allows `landlock_*` | Docker 23.0 or later (20.10 with the backport) | Older engines return ENOSYS: upgrade Docker |
+| POSIX ACLs on `workspaces` and `tool_homes` | ext4, xfs, btrfs; ZFS with `acltype=posixacl` | ZFS default (`acltype=off`), NFSv4, CIFS, ramfs: use a local file system or set `acltype=posixacl` |
+| `tool_homes` not mounted `noexec` | a named local volume | a tmpfs (Docker's tmpfs is `noexec`) |
+| All workers on one host | `flock` across containers on one volume | workers on several hosts sharing storage |
+
+- **Visible changes.** Tenant creation (`POST /api/v1/tenants`) is for platform admins only. Deleting a project answers
+  409 while it has active work, and the worker removes the workspace asynchronously. A tenant's first workspace or tool work answers 503
+  when all 10,000 tool UIDs are taken. Tools cannot use `ps`, `pkill`, `df`, `ss`, `/proc/self` in child processes or
+  `/tmp`; background processes end when the tenant's work in that worker ends. Files from before the upgrade stay owned by
+  10002 until replaced. With isolation required an operator's `CLAUDE_CONFIG_DIR` no longer reaches Claude Code (use
+  `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`).
+- **Rollback.** Stop the new workers, then start the old images; old tools keep working through the `g:10010` entries.
+  Do not run the down migrations of 120 and 121 unless the workspaces are reset too. A later re-upgrade detects the
+  rollback and migrates every tenant again.
 
 ### Inbound Webhooks (KI-85)
 

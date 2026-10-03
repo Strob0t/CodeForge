@@ -2,13 +2,15 @@
 
 > **Status:** accepted (implemented as KI-71 of the [fix plan](../../known-issues-fix-plan.md), four review rounds and a
 > security-review round); decision 9 amended 2026-10-02 (S7-A: outbound policy, redaction, tenant-scoped tool upserts); note of
-> 2026-10-02 (S7-B: symlink-safe in-process workspace access, KI-95)
+> 2026-10-02 (S7-B: symlink-safe in-process workspace access, KI-95); decisions 1, 2, 4 and 10 amended by
+> [ADR-018](018-per-tenant-tool-identities-and-landlock.md) (2026-10-03, S7-H: per-tenant tool UIDs and Landlock, KI-96)
 > **Date:** 2026-10-01
 > **Deciders:** Project owner (lead decisions of the KI-71 milestone: a separate tool user, a shared workspace group,
 > a fail-closed isolation mode, one authenticated NATS user per service)
 > **Relates to:** [ADR-006](006-agent-execution-approach-c.md) (the worker runs what an LLM chose),
 > [ADR-015](015-policy-deny-lists-and-tool-names.md) (policy decisions are Go's), refines
-> [ADR-016](016-nats-delivery-semantics.md) (notification consumers)
+> [ADR-016](016-nats-delivery-semantics.md) (notification consumers); amended by
+> [ADR-018](018-per-tenant-tool-identities-and-landlock.md) (per-tenant tool identities and Landlock)
 
 ### Context
 
@@ -249,6 +251,16 @@ one helper per language, never a plain path: `internal/workspacefs` (Go, on `os.
   and the agents' own tools); tenant directories are group-writable, so a tool user can rename or replace other
   workspaces (KI-96); Go escape detection relies on `os.Root`'s unexported error text (a test pins it).
 
+**Amended by [ADR-018](018-per-tenant-tool-identities-and-landlock.md) (2026-10-03, S7-H: KI-96).** Decision 1 (one tool
+user 10002 and `env -i` on argv) is replaced by a tool UID per tenant (20000-29999, `tenants.tool_uid`), no supplementary
+group, a launch spec on a memfd (the environment never on argv: the KI-71 launcher exposed it in `/proc/<pid>/cmdline`)
+and Landlock per tool call. Decision 2 (fail closed) now also answers `/health/ready` with 503 and the reason, and
+Landlock is mandatory in production. Decision 4 (workspaces shared through a group) is replaced by POSIX ACLs per tenant
+UID on 2770 tenant directories, a 2771 root and an fd-based sharing pass run as the tenant; the tool user is no longer in
+group 10010. Decision 10 (health states): the startup walk is gone, and `/health/ready` reports why isolation is not
+ready. The secrets, NATS and MCP decisions are unchanged. The S7-B residual above (group-writable tenant directories,
+KI-96) is closed by ADR-018.
+
 ### Consequences
 
 #### Positive
@@ -329,6 +341,7 @@ one helper per language, never a plain path: `internal/workspacefs` (Go, on `os.
 - [ADR-006: Approach C](006-agent-execution-approach-c.md), [ADR-011: Trust and quarantine](011-trust-quarantine-system.md),
   [ADR-015: Policy deny lists](015-policy-deny-lists-and-tool-names.md), [ADR-016: NATS delivery semantics](016-nats-delivery-semantics.md)
 - [Known Issues KI-71 and the follow-ups KI-95 to KI-107](../../todo.md#known-issues), [fix plan](../../known-issues-fix-plan.md)
+- [ADR-018: Per-tenant tool identities and Landlock](018-per-tenant-tool-identities-and-landlock.md) (amends decisions 1, 2, 4 and 10)
 - [SECURITY.md](../../SECURITY.md), [architecture.md, process and UID model](../../architecture.md#process-and-uid-model), [dev-setup.md](../../dev-setup.md#tool-isolation-and-nats-authentication)
 - `workers/codeforge/tool_process.py`, `workers/codeforge/notifications.py`, `scripts/worker-entrypoint.sh`,
   `scripts/check-tool-isolation.sh`, `configs/nats/nats-server.conf`

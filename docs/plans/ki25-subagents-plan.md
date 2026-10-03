@@ -2,7 +2,7 @@
 
 > **Status:** proposed, 2026-10-02. Branch `claude/busy-dijkstra-q0oxi9`, base `64190e90`. Implementation should wait until the owner has decided the points in section 19.
 > **Known Issue:** [KI-25](../todo.md#known-issues) `spawn_subagent` starts nothing (medium). S6 fixed part of it: the tool is no longer offered (D-S3).
-> **Architecture:** ADR-006 (Approach C) applied to sub-agents. A new ADR-018 is written in step 1 of section 16. Also relevant: ADR-011 (trust), ADR-015 (canonical tool names, deny lists), ADR-016 (delivery), ADR-017 (NATS permissions).
+> **Architecture:** ADR-006 (Approach C) applied to sub-agents. A new ADR-019 is written in step 1 of section 16. Also relevant: ADR-011 (trust), ADR-015 (canonical tool names, deny lists), ADR-016 (delivery), ADR-017 (NATS permissions).
 > **Inputs:** the KI-25 scout report, the Claude Code sub-agent research and its cross-check against code.claude.com (fetched 2026-10-02), and the security and correctness reviews of the earlier stage. Section 20 maps every review finding to the section that answers it.
 
 ---
@@ -737,7 +737,7 @@ DROP TABLE IF EXISTS subagent_runs;
 
 Every step follows TDD: RED planning, failing tests, minimal code, refactor. Every step is one atomic commit that includes its documentation and its `docs/todo.md` entry.
 
-1. **`docs`:** ADR-018 (Context -> Decision -> Consequences -> Alternatives), this plan, and the `docs/todo.md` KI-25 status.
+1. **`docs`:** ADR-019 (Context -> Decision -> Consequences -> Alternatives), this plan, and the `docs/todo.md` KI-25 status.
 2. **`feat(policy)`:**
    - Go: canonical `Agent` and its aliases in Go and Python; `Agent` in `builtinTools`; `WithModeChain`;
    - modes: `Mode.Subagent` and `MaxTurns` with validation; the `explore` and `general` built-ins plus their prompt YAML; `Agent` in the Tools lists named in 4.2; the preset rules from 4.1;
@@ -820,7 +820,7 @@ Every step follows TDD: RED planning, failing tests, minimal code, refactor. Eve
 
 **Config and docs**
 - `configs/nats/nats-server.conf`, `codeforge.example.yaml`
-- `docs/architecture/adr/018-subagents.md`
+- `docs/architecture/adr/019-subagents.md`
 - `AGENTS.md`, `docs/architecture.md`, `docs/features/04-*.md`, `docs/features/07-*.md`
 - `docs/todo.md`, `docs/known-issues-fix-plan.md`, `docs/api/openapi.yaml`, `docs/dev-setup.md`, `docs/data-retention.md`
 

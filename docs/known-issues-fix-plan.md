@@ -1,7 +1,7 @@
 # Known Issues - Fix Plan
 
-> **Status:** In progress (2026-10-02). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-109 are open except **S7-A (KI-97, KI-100, KI-101), S7-B (KI-95, KI-105, KI-106, KI-107) and S7-C (KI-84, KI-85), done 2026-10-02**.
-> **Scope:** the verified defects KI-1 to KI-109 in [todo.md - Known Issues](todo.md#known-issues), found by the
+> **Status:** In progress (2026-10-03). Progress: **S0 done** (KI-1, KI-2, KI-3); **S1 done** (KI-4 to KI-14); **S2 done** (KI-18 to KI-24, KI-30 to KI-32); **S3 done** (KI-26 to KI-29); **S4 done** (KI-34 to KI-36, KI-43 to KI-51, KI-59, KI-61); **S5 done** (KI-39 to KI-42); **S6 done except KI-25 (real sub-agents)** (KI-71, tool process isolation and NATS authentication, is done: [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)); the follow-up Known Issues KI-83 to KI-113 are open except **S7-A (KI-97, KI-100, KI-101), S7-B (KI-95, KI-105, KI-106, KI-107) and S7-C (KI-84, KI-85), done 2026-10-02, and S7-H (KI-96, per-tenant tool UIDs and Landlock: [ADR-018](architecture/adr/018-per-tenant-tool-identities-and-landlock.md)), done 2026-10-03**.
+> **Scope:** the verified defects KI-1 to KI-113 in [todo.md - Known Issues](todo.md#known-issues), found by the
 > docs/code reconciliation of 2026-09-29 on `staging`.
 > **Goal:** CI that catches regressions, policy and security layers that actually enforce what the docs and ADRs
 > promise, and a run pipeline that completes end to end - without changing the vision or the architecture.
@@ -29,7 +29,7 @@
 | **S4** | Operations and deployment | ~~KI-34~~, ~~KI-35~~, ~~KI-36~~, ~~KI-43~~, ~~KI-44~~, ~~KI-45~~, ~~KI-46~~, ~~KI-47~~, ~~KI-48~~, ~~KI-49~~, ~~KI-50~~, ~~KI-51~~, ~~KI-59~~, ~~KI-61~~ | M |
 | **S5** | Frontend correctness | ~~KI-39~~, ~~KI-40~~, ~~KI-41~~, ~~KI-42~~ | M |
 | **S6** | Trust, compliance, unwired features | ~~KI-15~~, ~~KI-16~~, ~~KI-17~~, KI-25 (part), ~~KI-33~~, ~~KI-37~~, ~~KI-38~~, ~~KI-52~~, ~~KI-53~~, ~~KI-54~~, ~~KI-55~~, ~~KI-56~~, ~~KI-57~~, ~~KI-58~~, ~~KI-60~~, ~~KI-62~~ | L |
-| **S7** | Review follow-ups (KI-83 to KI-109) | KI-83, ~~KI-84~~, ~~KI-85~~, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, ~~KI-95~~, ~~KI-97~~, KI-98, ~~KI-100~~, ~~KI-101~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~, KI-108, KI-109 (S7-A, S7-B and S7-C done; KI-25, KI-88, KI-96, KI-99, KI-102, KI-103, KI-104: see below) | L |
+| **S7** | Review follow-ups (KI-83 to KI-113) | KI-83, ~~KI-84~~, ~~KI-85~~, KI-86, KI-87, KI-89, KI-90, KI-91, KI-92, KI-93, KI-94, ~~KI-95~~, ~~KI-96~~, ~~KI-97~~, KI-98, ~~KI-100~~, ~~KI-101~~, ~~KI-105~~, ~~KI-106~~, ~~KI-107~~, KI-108, KI-109 (S7-A, S7-B, S7-C and S7-H done; KI-25, KI-88, KI-99, KI-102, KI-103, KI-104, KI-110 to KI-113: see below) | L |
 
 Order rationale: S0 first because every later fix needs trustworthy tests. S1 next because KI-4/KI-5 make every
 policy preset ineffective (permissive presets allow `curl` and `.env` edits, `plan-readonly` cannot run at all) -
@@ -153,13 +153,16 @@ verification, security review, code review, fix round, docs). Security and tenan
 | **S7-E** | KI-89, KI-90, KI-91 | Data lifecycle: channel rows without a users row, retention for claim and completion records, quarantine expiry |
 | **S7-F** | KI-86, KI-87, KI-94 | Runtime leftovers: single-replica assumption guarded or documented, SVN password off the command line, review pipeline and stall re-plan leftovers |
 | **S7-G** | KI-92, KI-93, KI-98 | Frontend: War Room arrows, privacy page links, MCP header editor and admin-only actions |
+| **S7-H** | ~~KI-96~~ | **Done (2026-10-03, one review round: four findings fixed; [plan](plans/ki96-tenant-tool-isolation-plan.md), [ADR-018](architecture/adr/018-per-tenant-tool-identities-and-landlock.md)).** Owner decision of 2026-10-02: every tool process runs as its tenant's tool UID (20000-29999, allocated lazily, migration 120) with no supplementary group, tenant directories carry POSIX ACLs (`workspace.tool_acls: required`), Landlock confines every tool call (mandatory in production), the tool environment travels on a memfd, tenant HOMEs live on the `tool_homes` volume, trees from before the upgrade are migrated per tenant without new capabilities, and project workspaces are deleted through the worker (migration 121); stage 3 (network) is KI-110 |
 
 Not scheduled in S7, because each needs a design decision by the project owner first: KI-25 (real sub-agents),
-KI-88 (submodule support), KI-96 (per-tenant tool UIDs or the sandbox, KI-13). KI-99 is a residual risk
+KI-88 (submodule support); KI-96 (per-tenant tool UIDs) was decided on 2026-10-02 and done as S7-H. KI-99 is a residual risk
 (documented), KI-102 is a release checklist item and KI-103 is measured; they stay open as notes. KI-104 (the
 S7-A leftovers: other callers of the old SSRF filter, 6to4/Teredo, query tokens in other URLs) is open and not yet
 scheduled. KI-108 (PM providers outside GitLab have no outbound policy) and KI-109 (no UI for webhook management) are the
-S7-C follow-ups, also not yet scheduled.
+S7-C follow-ups, also not yet scheduled. KI-110 (network and local IPC between tenants, stage 3 of S7-H), KI-111 (Claude
+Code's Bash inherits the platform's Claude credentials), KI-112 (tenant erasure and tool UID reclaim) and KI-113 (orphaned
+tool processes stay zombies) are the S7-H follow-ups, not yet scheduled.
 
 ---
 
@@ -203,7 +206,7 @@ scheduled as follows:
 | **KI-93** | Privacy page links to a Settings > Privacy export/delete screen that does not exist | S6 follow-up, open |
 | **KI-94** | Review pipeline and stall re-plan leftovers (edits during the refactorer, agent reservation, debate sub-plan cancel, partial approval, quoted paths, stall prompt, shared stall budget) | S6 follow-up, open |
 | **KI-95** | In-process worker readers (repo map, retrieval, GraphRAG collectors, file tools) follow symlinks out of the workspace | KI-71 follow-up, **done 2026-10-02** (S7-B: `internal/workspacefs` and `codeforge.workspace_fs` for the Core and the worker; the Core had no check at all) |
-| **KI-96** | All tenants share the tool uid 10002 | KI-71 follow-up, open (per-tenant UIDs or the sandbox, KI-13) |
+| **KI-96** | All tenants share the tool uid 10002 | KI-71 follow-up, **done 2026-10-03** (S7-H: a tool UID per tenant with POSIX ACLs, Landlock per tool call, the environment on a memfd, deletion through the worker; [ADR-018](architecture/adr/018-per-tenant-tool-identities-and-landlock.md)) |
 | **KI-97** | MCP args and URL userinfo are not redacted | KI-71 follow-up, **done 2026-10-02** (S7-A: URL and credential arguments redacted, keep rule by whole-value comparison, no URL secrets in errors and logs) |
 | **KI-98** | MCP UI: header editor, "stored, unchanged" hint, admin actions shown to non-admins | KI-71 follow-up, open |
 | **KI-99** | NATS does not permission-check deliveries to a known plain subscription (residual) | KI-71 follow-up, open |
@@ -217,6 +220,10 @@ scheduled as follows:
 | **KI-107** | Benchmark dataset paths read any file (dev mode) | S7-B review, **done 2026-10-02** (S7-B: names or paths inside `benchmark.datasets_dir`) |
 | **KI-108** | PM providers outside GitLab (Plane, Gitea/Forgejo/Codeberg) use plain HTTP clients: blind SSRF through a manual sync's `base_url`, response bodies in errors, no size limit | S7-C review, open |
 | **KI-109** | No UI for webhook management (per-project webhooks are API only) | S7-C follow-up, open |
+| **KI-110** | Tool processes share the network and local IPC across tenants (loopback TCP, internal services, abstract sockets below Landlock ABI 6, SysV and POSIX IPC, `/dev/shm`) | S7-H follow-up (stage 3), open |
+| **KI-111** | Claude Code runs expose the platform's Claude credentials to agent commands (to verify) | S7-H review, open |
+| **KI-112** | No tenant erasure; tool UIDs of deleted tenants are never reclaimed | S7-H review, open |
+| **KI-113** | Orphaned tool processes stay zombies (the worker is PID 1) | S7-H follow-up, open |
 
 ## Decisions
 

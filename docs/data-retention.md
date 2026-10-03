@@ -51,6 +51,18 @@ expired OAuth states of abandoned GitHub connect flows. Delivery bookkeeping row
 The webhook delivery claims (`webhook_deliveries`, body hash and delivery ID only, KI-85) are not purged by the job either: a webhook prunes claims older than
 `webhook.delivery_retention` (default 168h) when it receives its next delivery, and they are removed with the webhook.
 
+## Project Workspaces and Tool Caches (KI-96)
+
+With per-tenant tool users (`workspace.tool_acls: required`, production) a deleted project's workspace is removed
+asynchronously by the worker as the tenant's tool UID: the project row and a `workspace_deletions` record are written in
+one transaction, the Go Core publishes `workspace.delete.request` and republishes pending deletions every 10 minutes until
+the worker reports the workspace removed. Pending deletions are visible in `workspace_deletions` and in the logs; there is
+no erasure report of them yet. A project with active work cannot be deleted (409). After a deletion the tenant's build
+caches (`<HOME>/.cache` on the `tool_homes` volume) are removed when the tenant next has no work in that worker, because
+they can hold data derived from the project; otherwise a tenant's cache is removed at that point only when it exceeds
+`CODEFORGE_TOOL_CACHE_MAX_MB` (default 4096). Tenants cannot be deleted yet, so their HOMEs and tool UIDs stay
+([KI-112](todo.md#known-issues)). With `workspace.tool_acls: off` (development) the Go Core removes the workspace itself.
+
 ## User Rights
 
 - **Data Export:** `POST /api/v1/users/{id}/export` -- returns all user data as JSON

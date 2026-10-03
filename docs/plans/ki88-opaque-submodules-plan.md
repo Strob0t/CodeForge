@@ -7,7 +7,7 @@
   - more Bash forms (Security and policy);
   - the prompt note sent as untrusted data (D11).
 - **Relates to:** KI-77 (hardened workspace git), KI-82 (config allowlist), KI-71 / [ADR-017](../architecture/adr/017-tool-isolation-and-nats-authentication.md) (tool user), [ADR-006](../architecture/adr/006-agent-execution-approach-c.md) (Go owns state and policy), [ADR-011](../architecture/adr/011-trust-quarantine-system.md) (trust levels), [ADR-015](../architecture/adr/015-policy-deny-lists-and-tool-names.md) (deny semantics), [ADR-016](../architecture/adr/016-nats-delivery-semantics.md) (delivery rules).
-- **New ADR:** ADR-018 "Opaque nested repositories". It amends ADR-015 with one deny rule that applies whatever the profile says.
+- **New ADR:** ADR-020 "Opaque nested repositories". It amends ADR-015 with one deny rule that applies whatever the profile says.
 - **Evidence:** the scout map `scratchpad/research/scout88.md` and the review repros. Claims marked **[V]** were checked with git 2.43.0 in a scratch repository. Line numbers refer to HEAD `64190e90`.
 
 ---
@@ -567,7 +567,7 @@ What stays exactly as KI-77 left it: the sanitised environment, the override lis
 
 ### Read-only paths as a deny rule independent of the profile
 
-This amends ADR-015 and is recorded in ADR-018.
+This amends ADR-015 and is recorded in ADR-020.
 
 **New option.** `internal/domain/policy/readonly.go`:
 
@@ -749,7 +749,7 @@ They are **not** a Go safety issue, because Go never enters, and they are **neve
 - `docs/todo.md:163` (KI-88 fixed, with the new residual Known Issues), `:64,:67`;
 - `docs/known-issues-fix-plan.md:32,158,197`;
 - `docs/architecture.md:358`;
-- `docs/architecture/adr/018-opaque-nested-repositories.md` (new) and a note in ADR-015;
+- `docs/architecture/adr/020-opaque-nested-repositories.md` (new) and a note in ADR-015;
 - `AGENTS.md:118` ("Workspaces are untrusted": opaque nested repositories, git command deadlines) and the ADR table;
 - `docs/dev-setup.md:147` (plus the new config keys and env variables), `docs/testing/e2e-setup.md:65`;
 - `docs/features/01-project-dashboard.md` (submodule status), `docs/features/04-agent-orchestration.md` (read-only paths, delivery and review warnings);
@@ -934,7 +934,7 @@ Small, atomic, and each one green. The order guarantees that submodule workspace
 7. `feat(nats): read_only_paths on runs.start and conversation.run.start`: Go, Python, fixtures, the data element.
 8. `feat(frontend): submodules in project status, delivery and review warnings`.
 9. `ci: workspace git marker and FIFO tests on the Go Core's alpine git`.
-10. Docs by the lead: ADR-018, AGENTS.md, todo and Known Issues, architecture, dev setup, the plan.
+10. Docs by the lead: ADR-020, AGENTS.md, todo and Known Issues, architecture, dev setup, the plan.
 
 There is no feature flag: zero-config, one obvious way. The rollback is reverting commit 6, which restores the refusal. Commits 1-5 stay valid on their own.
 

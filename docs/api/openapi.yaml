@@ -566,6 +566,12 @@ paths:
     delete:
       tags: [Projects]
       summary: Delete project (admin only)
+      description: |
+        With per-tenant tool users (`workspace.tool_acls: required`, production; KI-96) the project row is
+        deleted together with a `workspace_deletions` record, and the worker removes the workspace afterwards
+        as the tenant's tool UID (asynchronously, retried until done). The request is refused with 409 while
+        the project has a run that has not ended, a conversation with an active turn, or a queued or running
+        task. With `workspace.tool_acls: off` the Go Core removes the workspace itself.
       operationId: deleteProject
       security:
         - bearerAuth: []
@@ -573,11 +579,23 @@ paths:
         - $ref: "#/components/parameters/ProjectID"
       responses:
         "204":
-          description: Project deleted
+          description: Project deleted (the workspace is removed by the worker when tool ACLs are required)
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: The project has active work (runs, conversation turns or tasks); stop it first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: The tenant has no tool UID yet and the tool UID range is exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # -----------------------------------------------
   # Project files (workspace file API) and stack detection

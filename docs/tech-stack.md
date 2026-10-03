@@ -68,7 +68,7 @@
 #### Docker Production
 
 - `Dockerfile` — Go Core multi-stage build (golang:1.25-alpine to alpine:3.21)
-- `Dockerfile.worker` — Python Workers (python:3.12-slim, poetry; the container starts as root with only `SETUID`/`SETGID`/`KILL` and its entrypoint runs the worker as uid 10001; agent tool processes run as uid 10002 through `setpriv` from util-linux, already part of the base image, no new dependency; ADR-017)
+- `Dockerfile.worker` — Python Workers (python:3.12-slim, poetry; the container starts as root with only `SETUID`/`SETGID`/`KILL` and its entrypoint runs the worker as uid 10001; agent tool processes run as their tenant's tool UID (20000-29999) through `setpriv` from util-linux, already part of the base image, and the launch helper `codeforge/tool_exec.py` (stdlib only, Landlock through `ctypes`); ADR-017, ADR-018. KI-96 adds the Debian `acl` package (`setfacl`/`getfacl` for operators and `scripts/check-host.sh`; the worker itself sets ACLs through xattrs), precompiles the stdlib (`compileall`, about 24 ms per tool launch instead of 80 ms on the read-only root), and installs pytest and ruff into the system interpreter for tool processes (`workers/tool-requirements.txt`))
 - `Dockerfile.frontend` — Frontend (node:22-alpine build to nginxinc/nginx-unprivileged:1.27-alpine serve)
 - `docker-compose.prod.yml` — 6 services (core, worker, frontend, postgres, nats, litellm); Docker secret files, PostgreSQL TLS, read-only core with `core_data`/`workspaces` volumes
 - `.github/workflows/docker-build.yml` — CI with 3 parallel image builds to ghcr.io; the Grype scan scans the pushed images by digest
@@ -102,6 +102,7 @@
 - Worker Pool (`golang.org/x/sync/semaphore`) — bounded concurrency for git operations
 - Git Operations (`os/exec` wrapper around `git` CLI) — zero deps, 100% feature coverage, native performance; every call in an agent-writable workspace goes through the hardened `internal/git` package (sanitised environment, config allowlist, nested repositories refused)
 - YAML (`gopkg.in/yaml.v3`) — config and policy loaders
+- Linux syscalls (`golang.org/x/sys/unix`, already in the module graph, a direct dependency since KI-96) — POSIX ACL xattrs of the tenant directories (`internal/workspaceacl`, Linux only)
 - UUIDs (`github.com/google/uuid`)
 - Password hashing (`golang.org/x/crypto/bcrypt`) and admin CLI TTY input (`golang.org/x/term`)
 - gRPC (`google.golang.org/grpc` v1.83.1) — transport for the OTLP exporters
@@ -128,6 +129,7 @@
 - opentelemetry-api + opentelemetry-sdk + opentelemetry-exporter-otlp-proto-grpc — always installed; tracing is enabled at runtime via `otel.enabled` / `CODEFORGE_OTEL_ENABLED` (agent execution tracing, tool selection and goal decomposition metrics; metrics are not exported yet, KI-36)
 - Optional extras: `claude-code-sdk` (extra `claudecode`, Claude Code executor), `datasets` (extra `hf`, HuggingFace benchmark datasets)
 - Dev group: pytest 9.1, pytest-asyncio ^1, pre-commit ^4, ruff 0.15.1
+- Worker image: pytest and ruff (the poetry.lock versions, 9.1.1 and 0.15.1) are also installed into the system interpreter for agent tool processes (`workers/tool-requirements.txt`, `pip --require-hashes`): the default gate commands of Python projects and the auto-agent's workspace test. No new dependency.
 - Transitive versions with security fixes (`poetry.lock`): cryptography 50, pyjwt 2.15, starlette 1.7, python-multipart 0.0.32, requests 2.34, urllib3 2.8, aiohttp 3.14
 
 #### MCP & A2A SDKs

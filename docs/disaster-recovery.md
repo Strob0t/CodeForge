@@ -336,6 +336,24 @@ publishes ports. Adapt the runbook as follows:
   to "deploy" the color that is already active, and a color that does not become healthy is stopped again while the
   active one keeps serving.
 
+### 7.2 Workspaces Volume and Tool UIDs (KI-96)
+
+With per-tenant tool users (`workspace.tool_acls: required`, [ADR-018](architecture/adr/018-per-tenant-tool-identities-and-landlock.md))
+the workspaces volume carries POSIX ACLs and the worker's state directory `<root>/.codeforge` (the binding of each tool
+UID to its tenant, migration stamps, locks).
+
+- **Back up with ACLs.** Use a tool that keeps POSIX ACLs and xattrs (`tar --acls --xattrs`, or a filesystem snapshot).
+  A restore without ACLs fails closed: the migration stamps no longer match, and each tenant's tree is migrated again
+  at its next work item. Files a tool created private (0600) are healed only by that migration.
+- **Restore the database and the workspaces volume to the same point.** `tenants.tool_uid` and the bindings in
+  `<root>/.codeforge/uids/` must agree. If the database is older than the volume, the Core advances the UID sequence
+  past every bound UID at startup (logged as a warning), so no bound UID is handed to a new tenant, and the worker
+  refuses work whose UID is bound to another tenant (the log names both tenants). Remove tenant directories whose
+  tenant no longer exists in the restored database.
+- **`tool_homes` is not backed up.** It holds the tenants' HOMEs (caches, tool config, per-work TMPDIRs); the worker
+  recreates each HOME on first use. A fresh volume gets its owner and mode (10001:10001, 0711) from the image.
+- **Order.** Stop every worker before restoring the workspaces volume, and start the Core before the workers.
+
 ## 8. Backup Verification
 
 Run monthly to ensure backups are restorable.
@@ -389,4 +407,5 @@ Run monthly to ensure backups are restorable.
 | codeforge_postgres_data | codeforge-postgres | Database files | Yes (pg_dump + pg_basebackup) |
 | codeforge_nats_data | codeforge-nats | JetStream state | No (auto-recreated) |
 | codeforge_litellm_config | codeforge-litellm | litellm-config.yaml | No (in version control) |
-| codeforge_workspaces | codeforge-core | Cloned repositories | Optional (re-clone from VCS) |
+| codeforge_workspaces | codeforge-core, codeforge-worker | Cloned repositories, worker state `.codeforge` (tool UID bindings) | Optional (re-clone from VCS); keep POSIX ACLs and restore it to the database's point (section 7.2) |
+| codeforge_tool_homes | codeforge-worker | Tenants' HOMEs (caches, tool config, TMPDIRs; KI-96) | No (recreated on use) |
