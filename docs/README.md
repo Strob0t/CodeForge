@@ -10,7 +10,7 @@
 | [../AGENTS.md](../AGENTS.md) | Instructions for coding agents: workflow, rules, architecture summary (AGENTS.md convention, replaces CLAUDE.md) |
 | [todo.md](todo.md) | Active TODO tracker — what needs to be done next |
 | [todo.md#known-issues](todo.md#known-issues) | Known Issues (KI-n) — verified defects in the current code |
-| [known-issues-fix-plan.md](known-issues-fix-plan.md) | Milestone plan (S0-S6) and decisions for fixing the Known Issues |
+| [known-issues-fix-plan.md](known-issues-fix-plan.md) | Milestone plan (S0-S7) and decisions for fixing the Known Issues |
 | [project-status.md](project-status.md) | Phase tracking, milestones, completed work |
 | [architecture.md](architecture.md) | System architecture, patterns, design details |
 | [tech-stack.md](tech-stack.md) | Languages, tools, dependencies, infrastructure |
@@ -81,6 +81,37 @@ Each of the four core pillars has its own feature spec (01-04); 05-07 cover cros
 | [prompts/](prompts/) | Claude Code audit/discovery prompts and their reports |
 | [prompts/stub-finder.md](prompts/stub-finder.md) | Claude Code prompt for stub discovery |
 
+### Directory Layout
+
+```text
+docs/
+├── README.md                # Index (this file)
+├── todo.md                  # Central TODO (single source of truth, incl. Known Issues)
+├── known-issues-fix-plan.md # Milestone plan (S0-S7) for fixing the Known Issues
+├── architecture.md          # System architecture
+├── dev-setup.md             # Setup guide, configuration, ports, env vars, versioning
+├── project-status.md        # Phase tracking
+├── tech-stack.md            # Dependencies
+├── SECURITY.md              # Security policy, secret management, tool isolation
+├── data-retention.md        # GDPR data retention policy
+├── privacy-policy.md        # Privacy & LLM data processing notice
+├── disaster-recovery.md     # Backup/restore runbook
+├── features/                # Feature specs (01-07)
+├── api/                     # OpenAPI spec (openapi.yaml)
+├── security/                # Breach notification procedure, data classification
+├── specs/                   # Design specs (*-design.md)
+├── plans/                   # Implementation plans (*-plan.md)
+├── testing/                 # Test plans + reports, E2E setup (e2e-setup.md)
+├── audits/                  # Schema, UX, code audits
+├── architecture/            # ADRs 001-018 (adr/, new ones from _template.md), project-reference.md
+├── research/                # Market research
+└── prompts/                 # Claude Code audit/discovery prompts
+```
+
 ### Documentation Rules
 
-See [AGENTS.md](../AGENTS.md) section "Workflow" for rules about when to update which documentation files, how to track TODOs, and how to create feature specs and ADRs.
+See [AGENTS.md](../AGENTS.md) section "Workflow" for rules about when to update which documentation files and how to track TODOs. Structure:
+
+- **Feature docs:** one per core pillar in `features/` (01-04; 05-07 cover cross-cutting features), sub-features as sections, each with overview, design, API and TODOs; the feature TODOs are cross-referenced in [todo.md](todo.md).
+- **ADRs:** `architecture/adr/NNN-<title>.md` from [the template](architecture/adr/_template.md): Context -> Decision -> Consequences -> Alternatives; a later change to a decision is added as a dated update note, and the ADR is listed in `AGENTS.md`.
+- **Plans and specs:** a larger refactor starts with a brief plan in `plans/` (problem, design, affected files, tests); design specs go to `specs/`.

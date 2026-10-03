@@ -21,7 +21,7 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 
 All Go backends implement the `agentbackend.Backend` interface with capability declarations. All Python backends implement the `BackendExecutor` protocol (see below).
 
-> **Current status:** Aider, Goose, OpenCode, Plandex and SWE-agent are CLI wrappers (each CLI must be installed); OpenHands is an HTTP API client that talks to a running OpenHands server. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. The Python consumer routes tasks to the correct backend based on the NATS subject name. Gaps: `tasks.cancel` does not stop a running backend process, and backend tasks always receive an empty `workspace_path` (see [Known Issues](../todo.md#known-issues) KI-22, KI-23).
+> **Current status:** Aider, Goose, OpenCode, Plandex and SWE-agent are CLI wrappers (each CLI must be installed); OpenHands is an HTTP API client that talks to a running OpenHands server. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. The Python consumer routes tasks to the correct backend based on the NATS subject name. `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`, `dispatch_id`, `heartbeat_seconds`); every backend CLI runs in its own process group (as the tenant's tool user), which `tasks.cancel` stops, and the result then has status `cancelled` (KI-22, KI-23 fixed). Dispatch IDs, heartbeats and result costs: [ADR-016](../architecture/adr/016-nats-delivery-semantics.md).
 
 #### Claude Code (`claudecode/*` routing target)
 
@@ -94,7 +94,7 @@ class BackendExecutor(Protocol):
 | Mount | Low (direct file access) | High | Trusted agents, local dev |
 | Hybrid | Medium (controlled access) | Medium | Review workflows, CI-like |
 
-> **Implementation status (2026-09-30):** Mount is the default (`POST /api/v1/runs` without `exec_mode`, else the project config `execution_mode`). The sandbox code (`internal/service/sandbox.go`) creates per-run containers, but the worker runs tools locally (`bash -c` in `workers/codeforge/tools/bash.py`), so runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`.
+> **Implementation status (2026-09-30):** Mount is the default (`POST /api/v1/runs` without `exec_mode`, else the project config key `execution_mode`, which accepts only `mount` until sandbox isolation exists). The sandbox code (`internal/service/sandbox.go`) creates per-run containers, but the worker runs tools locally (`bash -c` in `workers/codeforge/tools/bash.py`), so runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`.
 
 ### Agent Workflow
 
@@ -141,7 +141,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 
 YAML-configurable agent specializations. 24 built-in mode presets including architect, coder, reviewer, debugger, tester, documenter, refactorer, security, moderator, proponent, devops, api_tester, benchmarker, frontend, backend_architect, lsp_engineer, orchestrator, evaluator, workflow_optimizer, infra_maintainer, prototyper, goal_researcher, boundary_analyzer, and contract_reviewer. Users can define custom modes in `.codeforge/modes/`. Modes support composition through pipelines and DAG workflows.
 
-> **Implementation status (2026-09-30):** Mode `Tools` / `DeniedTools` use canonical names and are enforced by the Go policy evaluation on the run and conversation paths: a tool in `DeniedTools` is denied, and a built-in tool missing from a non-empty `Tools` list is denied, so read-only modes (architect, reviewer, security) cannot write or run bash. The worker still offers those tools to the LLM; calls are refused at execution time ([Known Issues](../todo.md#known-issues) KI-69).
+> **Implementation status (2026-09-30):** Mode `Tools` / `DeniedTools` use canonical names and are enforced by the Go policy evaluation on the run and conversation paths: a tool in `DeniedTools` is denied, and a built-in tool missing from a non-empty `Tools` list is denied, so read-only modes (architect, reviewer, security) cannot write or run bash. Tool lists are defined inline in each Mode struct, not as separate YAML tool-bundle files. Since KI-69 the worker offers the LLM only the tools its mode allows (`ToolRegistry.restrict_to_mode`, the same rule as `policy.WithModeTools`, kept equal to Go by a test); the Go check stays the enforcement.
 
 ### Worker Modules
 
@@ -220,11 +220,11 @@ The policy layer governs agent permissions, quality gates, and termination condi
 - Domain: `internal/domain/policy/` -- PolicyProfile, PermissionRule, ToolSpecifier, QualityGate, TerminationCondition.
 - Presets (5): plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous, supervised-ask-all.
 - Service: `internal/service/policy.go` -- first-match-wins rule evaluation, CRUD (SaveProfile, DeleteProfile), `EvaluateWithReason` (decision, scope, matched rule, reason).
-- Run-level policy override: `policy_profile` on `POST /api/v1/runs` (falls back to the service default); `ResolveProfile` (run -> project -> service default) is used when dispatching agentic conversations.
+- Profile resolution (KI-69): a run uses the request's profile (`policy_profile` on `POST /api/v1/runs`), then the project's (`policy_profile`, then config `policy_preset`), then the service default (`RuntimeService.StartRun`); a conversation uses the project's profile, then the preset of the mode's autonomy, then the default (`conversationPolicyProfile`, see Autonomy Spectrum). An unknown profile is refused (run start 400) or denies every call.
 - **Loader**: `internal/domain/policy/loader.go` -- YAML file loading + SaveToFile for custom profiles.
 - REST API: GET/POST /policies, POST /policies/allow-always (admin), GET/DELETE /policies/{name}, POST /policies/{name}/evaluate.
 
-> **Implementation status (2026-09-30):** The policy defects KI-4 to KI-10 are fixed ([ADR-015](../architecture/adr/015-policy-deny-lists-and-tool-names.md)). Open: policy profiles are not tenant-scoped (KI-68) and smaller follow-ups (KI-69). See [Known Issues](../todo.md#known-issues).
+> **Implementation status (2026-09-30):** The policy defects KI-4 to KI-10 are fixed ([ADR-015](../architecture/adr/015-policy-deny-lists-and-tool-names.md)), and so are KI-68 and KI-69 (S6): custom profiles are tenant-scoped (`<policy.custom_dir>/<tenant_id>/`, default `data/policies`; presets are global and read-only), the worker offers only the tools a mode allows, and Bash redirection targets are checked against `path_deny`. See [Known Issues](../todo.md#known-issues).
 
 #### Frontend (PolicyPanel)
 
@@ -377,6 +377,8 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 3. **Python Worker** receives the job and starts the agent loop (calls LLM with tool definitions, streams text via AG-UI WebSocket events, executes each `tool_calls` response with per-call policy enforcement, appends tool results and feeds back to the LLM, repeats until the LLM responds without tool calls or termination limits are hit)
 4. **Go Core** receives the completion, stores all tool messages and the final reply, and broadcasts `agui.run_finished`
 
+One run per conversation: a message sent while a run is active gets 409. Every dispatch has a `turn_id` (on `conversation.run.start`, `runs.toolcall.request` and `conversation.run.complete`), so the tool calls of a stopped run are denied ([architecture.md](../architecture.md#agentic-conversation-loop-phase-17), [ADR-016](../architecture/adr/016-nats-delivery-semantics.md)). Runs (`runs.start`) use the same agent loop and loop setup in the run's project workspace (`build_loop_config`, `resolve_model_and_fallbacks` in `workers/codeforge/loop_config.py`; no skill tools, no Claude Code models), with heartbeats and a Go decision on every LLM and tool call.
+
 #### Built-in Tools
 
 | Tool name (LLM function + policy `tool`) | Preset rule name (not mapped) | Description |
@@ -427,7 +429,7 @@ agent:
   max_context_tokens: 128000    # Only reported to the frontend (GET /api/v1/agent-config)
   max_loop_iterations: 50
   agentic_by_default: true
-  tool_output_max_chars: 10000  # Sent with conversation.run.start; the worker truncates tool output in the history
+  tool_output_max_chars: 10000  # Sent with runs.start and conversation.run.start; the worker truncates tool output in the history
   context_enabled: true         # Enable proactive context injection for conversations (default: true)
   context_budget: 2048          # Base token budget for conversation context (adaptive: decays with history length)
   context_prompt_reserve: 512   # Tokens reserved for prompt overhead
@@ -479,9 +481,11 @@ Context injection is **enabled by default** (`context_enabled: true`). The conve
 | File | Purpose |
 |------|---------|
 | `workers/codeforge/agent_loop.py` | Core agentic loop executor |
+| `workers/codeforge/loop_config.py` | Loop setup shared by conversations and runs (`build_loop_config`, `resolve_model_and_fallbacks`) |
 | `workers/codeforge/history.py` | Conversation history manager |
 | `workers/codeforge/tools/` | Built-in tool registry (10 default tools + per-run `handoff_to` / `propose_goal` / `propose_roadmap` / `spawn_subagent`) |
-| `internal/service/conversation_dispatch.go`, `internal/service/conversation_agent.go` | Agentic dispatch and completion handler |
+| `internal/service/conversation.go`, `internal/service/conversation_dispatch.go`, `internal/service/conversation_agent.go` | Conversation service (one active run, turns), agentic dispatch and completion handler |
+| `internal/service/runtime_execution.go`, `internal/service/runtime_lifecycle.go` | Tool-call requests of runs and conversations (policy decision, checkpoints, HITL); stopping and ending runs (termination limits, rollback, delivery) |
 | `internal/service/runtime_approval.go` | HITL approval (waitForApproval, ResolveApproval) |
 | `internal/adapter/http/handlers_conversation.go` | HTTP handlers (approval endpoint) |
 | `frontend/src/features/project/ChatPanel.tsx` | Chat UI with agentic enhancements |
@@ -502,8 +506,8 @@ Three-pillar evaluation stack running in the Python worker:
 #### Workflow
 
 1. User creates a benchmark run via `/benchmarks` page (selects dataset, model, metrics)
-2. Go Core stores run in `benchmark_runs` table and publishes `benchmark.run.request` to NATS
-3. Python worker loads YAML dataset, executes tasks against LLM, evaluates with selected metrics
+2. Go Core stores run in `benchmark_runs` table and publishes `benchmark.run.request` to NATS. The frontend sends a dataset name; the Go Core resolves it to the absolute path of the file inside `benchmark.datasets_dir` (`(*BenchmarkRunManager).resolveDatasetPath()` in `internal/service/benchmark_run.go`, through os.Root) and publishes that path, so the worker receives an absolute path. Without a datasets directory, or when the dataset is missing but a suite provider can load the tasks, the name is passed on unchanged.
+3. Python worker loads YAML dataset (only below its own `benchmark.datasets_dir`, KI-107), executes tasks against LLM, evaluates with selected metrics
 4. Results published back via `benchmark.run.result`, stored in `benchmark_results` table
 5. Frontend displays per-task scores, summary, and supports run-to-run comparison
 

@@ -510,6 +510,7 @@ A few tests skip with a reason unless their prerequisite is present, and CI prov
 
 - `workers/tests/test_tool_isolation_integration.py`, `test_tool_exec.py` and `test_landlock.py` have tests that start real `setpriv` tool processes as tenant tool UIDs under Landlock; they need root (CI runs them with `sudo -E`), setpriv, POSIX ACLs on `/tmp` and Landlock.
 - `CODEFORGE_ISOLATION_TESTS=required` turns every such skip (no root, setpriv, ACLs, Landlock or Docker) into a failure; CI sets it on the isolation steps.
+- These root tests use fixed tenant tool UIDs (`TENANTS` in `workers/tests/tool_isolation_check.py`), and ending a tenant's last work item kills every process of its tool UID (the leftover reaper). Never run two such test runs on one host at the same time: each would kill the other's tool processes.
 - `workers/tests/test_nats_permissions.py`, `workers/tests/test_deployment_isolation.py` (`nats-server -t` on the generated config) and `internal/adapter/nats/auth_test.go` start a real `nats-server` with `configs/nats/nats-server.conf`. They need the binary: `NATS_SERVER_BIN=/path/to/nats-server` or `nats-server` on `PATH` (CI copies it from `nats:2.15-alpine`: `docker create --name nats-bin nats:2.15-alpine && docker cp nats-bin:/usr/local/bin/nats-server ./nats-server`). Use nats-server 2.11 or newer; the notification read-back needs batched direct get.
 - `./scripts/check-tool-isolation.sh [image]` runs the isolation check of two tenants in the built worker image with the production worker settings (default image `$WORKER_IMAGE`, else the image `docker-compose.prod.yml` runs; needs Docker).
 - `workers/tests/test_tenant_isolation_docker.py` (marked `docker`) runs the tenant-isolation suite on the built image with the production service definition: `CODEFORGE_TEST_WORKER_IMAGE` (the worker image), `CODEFORGE_TEST_BATTERY_IMAGE` (an image built from `workers/tests/docker/Dockerfile.battery` with node, go and a JDK), `CODEFORGE_TEST_MIGRATION_ENTRIES` (default 100000; CI uses 1000000) and `CODEFORGE_TEST_EVIDENCE_DIR` (keeps every report as JSON).
@@ -1005,6 +1006,19 @@ DRY_RUN=1 ./scripts/deploy-blue-green.sh  # print the plan; compose commands run
 CI (`.github/workflows/ci.yml`) runs on pushes to `main`/`staging` and on pull requests to `main` and `staging`: Go build, `go vet -tags=integration`, unit tests with `-race`, `integration`-tagged tests against PostgreSQL + NATS, golangci-lint v2.11.4; Python (`poetry run ruff check .`, `poetry run ruff format --check .` with the Poetry-pinned ruff 0.15.1, `poetry run pytest`); frontend lint, format check, type check (`npm run typecheck`), unit tests (`npm run test`, vitest) and build; Lighthouse CI, contract tests and security scanning (govulncheck, npm audit, pip-audit and gitleaks; `.gitleaks.toml` allowlists exact synthetic test-fixture values, never paths); smoke tests and feature verification run only on pushes to `staging`/`main`. The Python job also runs the tool isolation tests as root (`sudo -E`, `CODEFORGE_ISOLATION_TESTS=required`), and the job `tenant-isolation-docker` builds the worker and battery images, prints the kernel, LSMs and Landlock ABI, runs `scripts/check-tool-isolation.sh` and the Docker suite (1,000,000 migration entries) and uploads the evidence (KI-96).
 
 GitHub Actions automatically builds and pushes Docker images to `ghcr.io` on push to `main`/`staging` and on version tags. See `.github/workflows/docker-build.yml`. Each build job records the pushed image by digest and the Grype scan job scans exactly those references.
+
+#### Versioning and Release
+
+The root `VERSION` file (a semver string, currently `0.8.0`) is the single source of the version. To change it, edit `VERSION` and run `./scripts/sync-version.sh`, which copies it into `pyproject.toml`, `frontend/package.json` and the root entries of `frontend/package-lock.json`; every layer then picks it up. Releases are merged to `main` only on an explicit request of the project owner.
+
+| Layer | Mechanism | Key file |
+|---|---|---|
+| Go | `internal/version` reads `VERSION` at startup (working directory, then up to two parents; `dev` if none); a build overrides it with `-ldflags "-X .../internal/version.Version=... -X .../internal/version.GitSHA=..."` | `internal/version/version.go` |
+| Python | `_read_version()` reads `VERSION` from the project root, then the working directory (`dev` if none) | `workers/codeforge/__init__.py` |
+| Frontend | Vite reads `../VERSION` at build time and defines `__APP_VERSION__` | `frontend/vite.config.ts` |
+| Docker | `docker-build.yml` reads `VERSION` and passes `APP_VERSION` and `GIT_SHA` as build args; the Go image sets them via ldflags, the worker and frontend images copy `VERSION`; all three carry the OCI labels `org.opencontainers.image.version` and `.revision` | `Dockerfile`, `Dockerfile.worker`, `Dockerfile.frontend`, `.github/workflows/docker-build.yml` |
+
+Image tags (`ghcr.io/<owner>/codeforge-core`, `-worker`, `-frontend`): a push to `main` or `staging` tags the branch name, the short commit SHA and the `VERSION` value (e.g. `codeforge-core:0.8.0`); a `v*` tag pushes the short SHA and the semver tags `<major>.<minor>.<patch>` and `<major>.<minor>`.
 
 ### Environment Variables
 
@@ -1896,6 +1910,8 @@ model_list:
   - model_name: "ollama/*"       # Local Ollama models
   - model_name: "mistral/*"      # All Mistral AI models
 ```
+
+Each entry reads its provider key or base URL from the environment (`api_key: "os.environ/OPENAI_API_KEY"`, `api_base: "os.environ/OLLAMA_API_BASE"`); keys are never written into the file. A model the router or a mode picks works only when its provider entry exists and its variable holds a valid key, so check both when adding or switching a model. LiteLLM itself authenticates callers with `LITELLM_MASTER_KEY` (always an environment variable or `LITELLM_MASTER_KEY_FILE`, never hardcoded; the development LiteLLM container and the worker default to `sk-codeforge-dev`, see [Environment Variables](#environment-variables)).
 
 When routing is disabled (`CODEFORGE_ROUTING_ENABLED=false`), the system falls back to scenario-based tag routing.
 

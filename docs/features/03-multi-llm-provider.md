@@ -36,6 +36,10 @@ CodeForge does not build its own LLM abstraction layer. LiteLLM Proxy handles 12
 | Copilot Token Exchange | Go Core | GitHub OAuth to Copilot bearer token. `POST /api/v1/copilot/exchange` is a platform-admin connection check that returns only status and expiry; the token never leaves the server. |
 | **Subscription Connect** | Go Core | OAuth device flow for Claude Max + GitHub Copilot. Produces API keys stored in `.env` (shared by all tenants): connect/disconnect are platform-admin only. |
 
+### Shared Models and Platform Admins
+
+All tenants share one LiteLLM proxy, its models and the subscription credentials, so only a **platform admin** may change them: a user with the admin role in the default (bootstrap) tenant (`user.User.IsPlatformAdmin()` in `internal/domain/user/user.go`; the user JSON carries the derived `is_platform_admin` flag for the frontend). Routes guarded by `middleware.RequirePlatformAdmin` (`internal/middleware/rbac.go`): `POST /api/v1/llm/models` and `DELETE /api/v1/llm/models/{id}` (KI-75), `POST /api/v1/copilot/exchange` (`internal/adapter/copilot/client.go`; returns status and expiry, never the token), `POST /api/v1/auth/providers/{provider}/connect` and `DELETE .../disconnect`, and tenant creation. Every user may list the models: `GET /api/v1/llm/models` strips credential parameters (names per `secrets.IsCredentialName`, URL userinfo and credential query values) before answering (`redactCredentials` in `internal/adapter/http/handlers_llm.go`).
+
 ### Scenario-Based Routing
 
 Requests without a scenario tag route to **all models** (no tag filtering). Specific scenarios restrict routing to tagged models only.

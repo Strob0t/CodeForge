@@ -167,7 +167,7 @@
 - Custom WebSocket wrapper (~280 LOC, `frontend/src/api/websocket.ts`) — auto-reconnect with a fresh token after a fixed 1 s delay, no heartbeat (no external WebSocket library)
 - Native `fetch` API — thin wrapper (~200 LOC), no axios/ky
 - SolidJS built-in state management (signals, stores, context) — no external state library
-- `vscode-icons-js` — file/folder icons (VS Code icon set, tree-shakeable)
+- Icons: Unicode characters and inline SVG components (`frontend/src/ui/icons/`), no icon library; `vscode-icons-js` only for file/folder icons (VS Code icon set, tree-shakeable)
 - `@unovis/ts` + `@unovis/solid` ^1.7.1 — dashboard charts
 - `solid-monaco` — code editor
 - `@tanstack/solid-virtual` — virtualized lists (benchmark live feed)

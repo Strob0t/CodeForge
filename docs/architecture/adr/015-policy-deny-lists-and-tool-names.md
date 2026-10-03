@@ -56,12 +56,14 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   unknown wrapper options. Safe wrappers (`time`, `timeout`, `nice`, `nohup`, `command`, `xargs`) are unwrapped;
   interpreters called only with `--version`/`-V`/`--help` are not inline code.
 - `trust_minimum` on an allow rule requires a trust annotation that meets it; deny and ask rules apply to everyone.
-- Mode tool lists are enforced through `policy.WithModeTools`; the worker reports the turn's mode as `mode_id`.
+- Mode tool lists are enforced through `policy.WithModeTools`; the worker reports the turn's mode as `mode_id`. Since KI-69 the worker also offers the LLM only the tools its mode allows (`ToolRegistry.restrict_to_mode`, same rule, kept equal to Go by a test); the Go check stays the enforcement.
+- Request payload: `runs.toolcall.request` carries `tool` (the worker's or backend's own name), `command`, `path`, `mode_id` and, for conversation runs, `turn_id`; these and the trust annotation are what the policy evaluates. `arguments_preview` (truncated JSON of the arguments) is display-only for a human approver and never evaluated. `agui.permission_request` carries the deciding `profile`, which Allow-Always extends.
+- Profile resolution (KI-69): a run uses the request's profile, then the project's (`policy_profile`, then config `policy_preset`), then the default; a conversation uses the project's profile, then the preset of its mode's autonomy, then the default.
 - Allow-Always adds `{tool, allow}` (Bash: `command_allow` with every executable of the approved command) to a
   per-project clone `{profile}-custom-{projectID}` of the profile that decided the call; the clone replaces its base
   only for that project and never changes the project's profile selection. Profiles persist atomically to the file
   that defines them in `policy.custom_dir` (default `data/policies`).
-- Claude Code (KI-72): its tool calls reach the policy through a PreToolUse hook and a per-run socket in the worker;
+- Claude Code (KI-72): `claudecode/*` runs (`workers/codeforge/claude_code_executor.py`) load no repository, user or local settings and no MCP servers (`--setting-sources ""`, `--strict-mcp-config`, never `bypassPermissions`); its tool calls reach the policy through a PreToolUse hook and a per-run socket in the worker;
   `Monitor` (background shell command) is an alias of `Bash`; the CLI is offered only tools with a canonical name
   and any other name is denied before evaluation. Worker and Claude Code send paths through one mapping
   (`workers/codeforge/policy_args.py`): relative to the real workspace, absolute when outside it.
