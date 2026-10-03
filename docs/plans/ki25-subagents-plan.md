@@ -467,14 +467,14 @@ All limits are enforced in Go and stored on the row or derived from rows. They a
 | Cost per sub-agent | $1.00 | `max_cost` | `row.max_cost` | Go on every result; worker loop `max_cost` |
 | Cost of all sub-agents of a root | $5.00 | `max_cost_per_root` | sum of rows | Go at spawn and on every result |
 | Root budget (runs path) | profile `MaxCost` | policy profile | `runs.cost_usd` | Existing termination checks; sub-agent usage is part of the root's |
-| Wall clock per sub-agent | 900 s, capped by the root's remaining time | `timeout_seconds` | `row.deadline_at` | Worker `wait_for`; Go on every call; watchdog |
+| Wall clock per sub-agent | 3600 s (owner decision 2026-10-03, was 900 s), capped by the root's remaining time; approval waits do not count | `timeout_seconds` | `row.deadline_at` | Worker `wait_for`; Go on every call; watchdog |
 | Report size | 10,000 characters | `max_result_chars` | - | Go at completion |
 | Prompt size | 32,000 characters | - | `row.prompt` | Go at spawn |
 | Writers per root | one active chain | - | `row.writes` | Worker ordering; Go at spawn (5.4) |
 
 **Refusals are immediate and visible to the model**, for example: "Permission denied: sub-agent limit reached: 4 sub-agents of this run are running". Nothing is queued. A parent therefore never waits for a slot that another waiting parent holds.
 
-**The deadline includes HITL waits.** The default 900 s is well above the 60 s approval timeout.
+**The deadline excludes HITL waits (owner decision 2026-10-03).** The clock pauses while a sub-agent waits for a human approval: Go moves `deadline_at` on by the length of each wait when the decision (or the approval timeout) arrives, and the worker's `wait_for` and the watchdog use the moved deadline. Each wait is still bounded by the approval timeout (60 s by default), so a sub-agent lives at most its timeout plus its approval waits. The default is 3600 s rather than 900 s because weaker models and models on local hardware need longer; profiles can set it.
 
 **Owner decision (2026-10-03), cost caps:** the per-sub-agent cap and the cap for all sub-agents of a root are shares of the root's policy-profile budget (`MaxCost`; proposed 20 % and 50 %). The dollar defaults above ($1.00 and $5.00) apply only when the profile sets no budget, for example with local models. The count, step, wall-clock and size limits stay as in the table (section 19, decision 2).
 
@@ -976,7 +976,7 @@ Every step follows TDD: RED planning, failing tests, minimal code, refactor. Eve
 - 8, worktrees: v1 keeps one writer chain per root; worktree isolation comes after KI-88.
 - 9, background sub-agents and resume: not in v1.
 - 10: filed as KI-115.
-- 13, timers: still open (the owner asked for a closer explanation).
+- 13, timers: approval waits do not count against a sub-agent's deadline (the clock pauses, section 8), and the default wall clock is 3600 s instead of 900 s, for weaker and local models.
 - 14, sub-agent types: v1 uses the built-in modes and the project's `.codeforge/modes/`; tenant-scoped API modes come later.
 
 1. **Depth default.** 2 is proposed (hard maximum 3); Claude Code's default is 3. Set it to 1 to switch nesting off at first.

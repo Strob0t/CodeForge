@@ -1346,7 +1346,9 @@ It runs on the **built worker image**, with the production service definition: `
 - 10, sharing pass: the walk per call stays; it is measured on large repositories (KI-103) before a targeted pass is considered.
 - 11, tenant caches: cleared at every project deletion.
 - 12, UID reclaim: a documented operator procedure until tenant deletion exists (KI-112).
-- 5, 6 and 9: still open (the owner asked for a closer explanation).
+- 5, operator `CLAUDE_CONFIG_DIR`: not passed through in production, as implemented; operators use `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) or `ANTHROPIC_API_KEY`. Per-tenant Claude credentials are a follow-up together with KI-111.
+- 6, hosts below ABI 2: no production mode, as implemented; such hosts install a newer kernel (Ubuntu 22.04: the HWE kernel).
+- 9, background processes: scoped per conversation or run. A tool process belongs to the work that started it and lives while that conversation or run is active, with an idle timeout, instead of ending when the tenant is idle; a subreaper per conversation also collects orphans (KI-113). A follow-up with its own plan; until then the tenant-idle reaping stays.
 
 1. **ADR number.** The KI-25 plan (`ki25-subagents-plan.md:5`) and the KI-88 plan (`ki88-opaque-submodules-plan.md:10`) both name ADR-018. The ADR that lands first takes 018, and the plans need renumbering. **Resolved (2026-10-03):** KI-96 landed first and takes ADR-018; the KI-25 plan now names ADR-019 (`019-subagents.md`) and the KI-88 plan ADR-020 (`020-opaque-nested-repositories.md`).
 2. **Range and passwd.** Should 20000-29999 stay fixed, with a sequence, a CHECK constraint and passwd entries generated at image build? And should the passwd entries stay static? They cost 1.1 to 3.2 ms per process start (E20). Alternatives are an indexed NSS backend (libnss-db) or libnss-extrausers with a worker-maintained file holding only the active tenants.
