@@ -346,27 +346,52 @@ async def test_tool_tenant_sets_the_identity_and_shares_on_exit(
 async def test_the_end_of_a_work_item_shares_and_removes_its_temporary_directories(
     volumes: tuple[Path, Path], end_of_work: _EndOfWork
 ) -> None:
+    """Not the tenant's last work item in this worker: its own end-of-work steps, none of the idle ones."""
+    root, homes = volumes
+    workspace = _stamped(root)
+    async with tool_tenant("tenant-a", UID, str(workspace)):
+        async with tool_tenant("tenant-a", UID, str(workspace)) as identity:
+            assert identity is not None
+        inner = list(end_of_work.steps)
+    home = f"{homes}/{UID}"
+    assert inner == [
+        ("share", str(workspace)),
+        ("remove", identity.tmpdir, identity.claude_config_dir, f"confine={home}", "contents=False"),
+    ]
+
+
+async def test_the_tenants_last_work_item_stops_its_leftovers_before_its_end_of_work(
+    volumes: tuple[Path, Path], end_of_work: _EndOfWork
+) -> None:
+    """KI-96 review: a leftover process of the tenant's UID can stop the end-of-work helpers, which
+    run as that UID (Landlock scopes signals only from ABI 6 on). When no other work item of the
+    tenant runs in this worker, the leftovers are killed first; then the end-of-work steps, then
+    the idle cleaning."""
     root, homes = volumes
     workspace = _stamped(root)
     async with tool_tenant("tenant-a", UID, str(workspace)) as identity:
         assert identity is not None
     home = f"{homes}/{UID}"
-    assert end_of_work.steps[:2] == [
+    assert end_of_work.steps == [
+        ("reap", str(UID)),
         ("share", str(workspace)),
         ("remove", identity.tmpdir, identity.claude_config_dir, f"confine={home}", "contents=False"),
+        ("remove", f"{home}/tmp", f"confine={home}", "contents=True"),
     ]
 
 
 async def test_when_the_tenant_goes_idle_its_leftovers_are_stopped_once(
     volumes: tuple[Path, Path], end_of_work: _EndOfWork
 ) -> None:
-    """D10: reap, share every workspace used since the last idle, clean the HOME's tmp."""
+    """D10: reap, the last work item's own end, share every other workspace used since the last idle,
+    clean the HOME's tmp."""
     root, homes = volumes
     first = _stamped(root)
     second = root / "tenant-a" / "p2"
     second.mkdir()
     home = f"{homes}/{UID}"
-    async with tool_tenant("tenant-a", UID, str(first)):
+    async with tool_tenant("tenant-a", UID, str(first)) as outer:
+        assert outer is not None
         async with tool_tenant("tenant-a", UID, str(second)):
             pass
         assert ("reap", str(UID)) not in end_of_work.steps, "the tenant still has work"
@@ -374,6 +399,7 @@ async def test_when_the_tenant_goes_idle_its_leftovers_are_stopped_once(
     assert idle == [
         ("reap", str(UID)),
         ("share", str(first)),
+        ("remove", outer.tmpdir, outer.claude_config_dir, f"confine={home}", "contents=False"),
         ("share", str(second)),
         ("remove", f"{home}/tmp", f"confine={home}", "contents=True"),
     ]

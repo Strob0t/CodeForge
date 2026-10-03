@@ -52,6 +52,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -963,28 +964,82 @@ async def share_tool_files(root: str, identity: ToolIdentity | None = None, *, s
     them, and changes nothing of anybody else's. With *since* only entries
     changed after that time are checked (after one tool call); without it
     every entry (the end of a work item). A pass that could not share
-    everything is logged.
+    everything, or did not end in time, is logged. It runs in a thread: the
+    event loop goes on.
     """
-    launch = _share_launch(root, identity, since)
-    if launch is None:
-        return
+    await asyncio.to_thread(share_tool_files_sync, root, identity, since=since)
+
+
+# How long the worker waits for one of its own commands that runs as a tool
+# UID: the sharing pass, a removal, measuring a cache (KI-96 D8, D10, D11).
+# The worker awaits them while the next message of the subject waits, and a
+# process of the same UID can stop them (Landlock scopes signals to a domain
+# only from ABI 6 on). One that does not end in time is killed with its
+# process group, and the step counts as failed.
+HELPER_TIMEOUT_SECONDS = 600.0
+# The migration's owner-run walks cover a whole tenant tree (D9).
+MIGRATION_WALK_TIMEOUT_SECONDS = 3600.0
+# How long the output of a killed helper is still read.
+_KILLED_OUTPUT_SECONDS = 5.0
+
+
+def _kill_group(proc: subprocess.Popen[str]) -> None:
+    """Kill the helper's process group (its own session): the worker's child, not waited for yet,
+    so the group's ID is still its PID."""
+    if proc.returncode is None and proc.pid > 1:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+
+
+def _run_helper(launch: Launch, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run *launch*, one of the worker's own commands as a tool UID, for at most *timeout* seconds.
+
+    It runs in a session of its own. When it has not ended in time (another
+    process of its UID stopped it, or it is slow) its whole process group is
+    killed: the result has return code -SIGKILL and says why on stderr.
+    """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *launch.argv,
+        proc = subprocess.Popen(  # noqa: S603 - fixed programs of the worker's
+            launch.argv,
             env=launch.env,
             cwd=launch.cwd,
-            umask=launch.umask,
+            umask=TOOL_UMASK if launch.umask is None else launch.umask,
             pass_fds=launch.pass_fds,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
         )
-        out, err = await proc.communicate()
-    except OSError as exc:
-        logger.warning("could not share the tool files under %s: %s", root, exc)
-        return
     finally:
         launch.close()
-    _log_share(root, proc.returncode, (out or b"").decode(errors="replace"), (err or b"").decode(errors="replace"))
+    with proc:
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_group(proc)
+            try:
+                out, err = proc.communicate(timeout=_KILLED_OUTPUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                out, err = "", ""
+            proc.wait()
+            reason = f"timed out after {timeout:g} s (stopped by another process of its user?): killed"
+            logger.warning("the worker's command %s %s", _helper_name(launch.argv), reason)
+            return subprocess.CompletedProcess(launch.argv, -signal.SIGKILL, out or "", f"{err or ''}\n{reason}")
+        except BaseException:
+            _kill_group(proc)
+            raise
+    return subprocess.CompletedProcess(launch.argv, proc.returncode, out, err)
+
+
+def _helper_name(argv: Sequence[str]) -> str:
+    """What a helper is, for the log: the walker's mode or the removal, not its paths."""
+    for index, arg in enumerate(argv):
+        if arg == TOOL_WALK:
+            return " ".join(["tool_walk.py", *argv[index + 1 : index + 2]])
+        if arg in ("cf-remove", "cf-du"):
+            return arg
+    return os.path.basename(str(argv[-1])) if argv else "?"
 
 
 def run_as_tool(
@@ -997,33 +1052,25 @@ def run_as_tool(
 ) -> subprocess.CompletedProcess[str]:
     """Run one of the worker's own commands (walker, removal, measurement) as *identity* and wait for it.
 
-    Unlike start_tool_process no sharing pass follows: these act on what
-    the identity's Landlock rules confine them to.
+    At most *timeout* seconds (HELPER_TIMEOUT_SECONDS by default; then it
+    is killed, see _run_helper). Unlike start_tool_process no sharing pass
+    follows: these act on what the identity's Landlock rules confine them to.
     """
     status = status or tool_isolation()
     if not status.config.required or not status.ready:
         raise ToolIsolationError(f"tool isolation is not ready: {status.reason}")
     launch = status.launch(argv, {"PATH": _PROBE_PATH}, None, identity, files=files)
-    try:
-        return subprocess.run(  # noqa: S603 - fixed programs of the worker's
-            launch.argv,
-            env=launch.env,
-            cwd=launch.cwd,
-            umask=launch.umask,
-            pass_fds=launch.pass_fds,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    finally:
-        launch.close()
+    return _run_helper(launch, HELPER_TIMEOUT_SECONDS if timeout is None else timeout)
 
 
-def run_walker(identity: ToolIdentity, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+def run_walker(
+    identity: ToolIdentity, args: Sequence[str], *, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run codeforge.tool_walk with *args* as *identity* and wait for it (the migration's owner steps)."""
     status = tool_isolation()
-    return run_as_tool(identity, [status.interpreter, "-I", "-S", TOOL_WALK, *args], files=WALKER_FILES)
+    return run_as_tool(
+        identity, [status.interpreter, "-I", "-S", TOOL_WALK, *args], files=WALKER_FILES, timeout=timeout
+    )
 
 
 # Removes what a tool wrote, as the tool's UID (W1): own entries first get
@@ -1094,21 +1141,10 @@ def share_tool_files_sync(root: str, identity: ToolIdentity | None = None, *, si
     if launch is None:
         return
     try:
-        done = subprocess.run(  # noqa: S603 - fixed program
-            launch.argv,
-            env=launch.env,
-            cwd=launch.cwd,
-            umask=launch.umask,
-            pass_fds=launch.pass_fds,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        done = _run_helper(launch, HELPER_TIMEOUT_SECONDS)
     except OSError as exc:
         logger.warning("could not share the tool files under %s: %s", root, exc)
         return
-    finally:
-        launch.close()
     _log_share(root, done.returncode, done.stdout or "", done.stderr or "")
 
 

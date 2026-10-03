@@ -20,13 +20,15 @@ import asyncio
 import errno
 import fcntl
 import os
+import signal
 import stat
+import subprocess
 import threading
 from typing import TYPE_CHECKING
 
 import pytest
 
-from codeforge import posix_acl, tool_migration, tool_reaper, tool_state, tool_walk
+from codeforge import posix_acl, tool_migration, tool_process, tool_reaper, tool_state, tool_walk
 from codeforge.posix_acl import Entry
 from codeforge.tool_identity import ToolIsolationError
 
@@ -366,3 +368,38 @@ async def test_a_migration_another_work_item_finished_is_not_repeated(root: Path
     finally:
         first.close()
         second.close()
+
+
+# ---------------------------------------------------------------------------
+# The owner-run walks end in bounded time (KI-96 review)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("returncode", [-signal.SIGKILL, -signal.SIGTERM, 2, 3])
+def test_a_killed_or_failed_migration_walk_fails_the_migration(
+    returncode: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A walk that was killed (it timed out) left the tree half done: the migration must not go on."""
+    calls: list[float | None] = []
+
+    def walker(_identity: object, args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        calls.append(timeout)
+        return subprocess.CompletedProcess(args, returncode, "", "timed out after 3600 s: killed")
+
+    monkeypatch.setattr(tool_process, "run_walker", walker)
+    with pytest.raises(ToolIsolationError, match="legacy-open"):
+        tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
+    # A whole tenant tree: the long bound, not the per-call helpers' one.
+    assert calls == [tool_process.MIGRATION_WALK_TIMEOUT_SECONDS]
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_a_walk_that_ran_through_lets_the_migration_go_on(returncode: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exit 1: some entries could not be checked (logged); the walk itself ran through."""
+
+    def walker(_identity: object, args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, returncode, '{"checked": 1}', "")
+
+    monkeypatch.setattr(tool_process, "run_walker", walker)
+    done = tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
+    assert done["exit"] == returncode

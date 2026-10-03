@@ -387,7 +387,12 @@ async def _enter(identity: ToolIdentity) -> _Activity:
 
 
 async def _end_of_work(identity: ToolIdentity) -> None:
-    """Share what the work item's processes created; remove its TMPDIR and Claude Code config as its UID."""
+    """Share what the work item's processes created; remove its TMPDIR and Claude Code config as its UID.
+
+    These helpers run as the tenant's UID and end in bounded time
+    (tool_process.HELPER_TIMEOUT_SECONDS): a leftover process of the tenant
+    may stop them (signals are scoped to a Landlock domain only from ABI 6 on).
+    """
     from codeforge import tool_process
 
     if identity.workspace:
@@ -396,7 +401,7 @@ async def _end_of_work(identity: ToolIdentity) -> None:
 
 
 async def _cache_kb(identity: ToolIdentity) -> int:
-    """The size of the tenant's HOME cache in KiB, measured as its UID (0 when it has none)."""
+    """The size of the tenant's HOME cache in KiB, measured as its UID (0 when it has none or that failed)."""
     from codeforge import tool_process
 
     cache = f"{identity.home}/.cache"
@@ -407,6 +412,8 @@ async def _cache_kb(identity: ToolIdentity) -> int:
         timeout=300,
     )
     try:
+        if done.returncode != 0:
+            raise ValueError(done.returncode)
         return int(done.stdout.split()[0])
     except (IndexError, ValueError):
         logger.warning("could not measure the tool cache %s: %s", cache, done.stderr.strip()[-300:])
@@ -414,12 +421,19 @@ async def _cache_kb(identity: ToolIdentity) -> int:
 
 
 async def _tenant_idle(identity: ToolIdentity, activity: _Activity, lock: object) -> None:
-    """The tenant's last work item in this worker ended: stop its leftovers, share, clean (D10)."""
+    """The tenant's last work item in this worker ends: stop its leftovers, end the work item, share, clean (D10).
+
+    The leftovers go first: until then a process of the tenant's UID could
+    stop the end-of-work helpers, which run as that UID.
+    """
     from codeforge import tool_process, tool_reaper
 
-    await asyncio.to_thread(tool_reaper.reap, identity.uid)
+    try:
+        await asyncio.to_thread(tool_reaper.reap, identity.uid)
+    finally:
+        await _end_of_work(identity)
     # Leftovers may have created private files after their work items ended.
-    for workspace in sorted(activity.workspaces):
+    for workspace in sorted(activity.workspaces - {identity.workspace}):
         await tool_process.share_tool_files(workspace, identity.with_workspace(workspace))
     activity.workspaces.clear()
     # Only when no other worker works for the tenant (its exclusive lock, without waiting).
@@ -434,16 +448,17 @@ async def _tenant_idle(identity: ToolIdentity, activity: _Activity, lock: object
 
 
 async def _leave(identity: ToolIdentity, activity: _Activity, lock: object) -> None:
+    """End the work item (D10): the end-of-work steps, and the idle steps when it was the tenant's last one here."""
     activity.count -= 1
-    if activity.count:
-        return
-    async with activity.gate:
-        if activity.count:
-            return  # a new work item entered meanwhile
-        try:
-            await _tenant_idle(identity, activity, lock)
-        except (OSError, ValueError) as exc:
-            logger.warning("the idle steps of tool uid %d failed: %s", identity.uid, exc)
+    if not activity.count:
+        async with activity.gate:
+            if not activity.count:  # no new work item entered meanwhile
+                try:
+                    await _tenant_idle(identity, activity, lock)
+                except (OSError, ValueError) as exc:
+                    logger.warning("the idle steps of tool uid %d failed: %s", identity.uid, exc)
+                return
+    await _end_of_work(identity)
 
 
 @contextlib.asynccontextmanager
@@ -460,8 +475,9 @@ async def tool_tenant(
     tenant (the sharing pass of its workspace, the removal of its TMPDIR and
     Claude Code config) before the identity is left; when it was the
     tenant's last work item in this worker, the tenant's leftover processes
-    are killed, its workspaces shared again and its HOME's tmp cleaned
-    (D10). Background processes an agent starts end then.
+    are killed first, and after those steps its other workspaces are shared
+    again and its HOME's tmp cleaned (D10). Background processes an agent
+    starts end then.
     """
     from codeforge import tool_migration
     from codeforge.tool_process import tool_isolation
@@ -489,17 +505,14 @@ async def tool_tenant(
         except OSError as exc:
             raise ToolIsolationError(f"tool work of tenant {tenant_id} (tool uid {tool_uid}): {exc}") from exc
         activity = await _enter(identity)
+        reset = current_identity.set(identity)
         try:
-            reset = current_identity.set(identity)
-            try:
-                yield identity
-            finally:
-                try:
-                    await _end_of_work(identity)
-                finally:
-                    current_identity.reset(reset)
+            yield identity
         finally:
-            await _leave(identity, activity, lock)
+            try:
+                await _leave(identity, activity, lock)
+            finally:
+                current_identity.reset(reset)
     finally:
         lock.close()
 

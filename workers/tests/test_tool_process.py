@@ -18,10 +18,12 @@ import errno
 import json
 import os
 import random
+import signal
 import stat
 import string
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,6 +39,7 @@ from codeforge.tool_process import (
     TOOL_WALK,
     IsolationConfig,
     IsolationStatus,
+    Launch,
     ToolIsolationError,
     check_tool_isolation,
     grant_tool_access,
@@ -50,7 +53,7 @@ from codeforge.tool_process import (
 from tests.test_subprocess_env import SPAWN_SITES, _FakeProc
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterator, Mapping
+    from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 
 WORKERS_DIR = Path(__file__).resolve().parents[1]
 SOURCE_DIR = WORKERS_DIR / "codeforge"
@@ -139,10 +142,30 @@ def identity() -> Iterator[Callable[[ToolIdentity | None], None]]:
 Spawn = tuple[tuple[object, ...], dict[str, object]]
 
 
+class _FakePopen:
+    """A helper process that ends at once with no output; it has no real PID (pid -1: never signalled)."""
+
+    def __init__(self, calls: list[Spawn], args: object, **kwargs: object) -> None:
+        calls.append((tuple(args) if isinstance(args, list) else (args,), {**kwargs, "spec": read_spec(kwargs)}))
+        self.args, self.pid, self.returncode = args, -1, 0
+
+    def communicate(self, input: str | None = None, timeout: float | None = None) -> tuple[str, str]:  # noqa: A002
+        return "", ""
+
+    def wait(self, timeout: float | None = None) -> int:
+        return 0
+
+    def __enter__(self) -> _FakePopen:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
 @pytest.fixture
 def spawns(monkeypatch: pytest.MonkeyPatch) -> list[Spawn]:
-    """Record every asyncio and subprocess.run spawn (argv and keyword arguments, plus the
-    launch spec it passes as ``spec``)."""
+    """Record every asyncio, subprocess.run and subprocess.Popen spawn (argv and keyword arguments,
+    plus the launch spec it passes as ``spec``)."""
     calls: list[Spawn] = []
 
     async def fake_exec(*args: object, **kwargs: object) -> _FakeProc:
@@ -156,6 +179,7 @@ def spawns(monkeypatch: pytest.MonkeyPatch) -> list[Spawn]:
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
     monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_exec)
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: _FakePopen(calls, args, **kwargs))
     return calls
 
 
@@ -578,6 +602,118 @@ def test_removal_runs_as_the_tool_user_confined_to_the_directory(
     writable = [rule[0] for rule in spec["landlock"]["rules"] if "remove-file" in rule[1]]  # type: ignore[index]
     assert sorted(writable) == sorted([home, "/dev/shm"])
     assert "/ws" not in [rule[0] for rule in spec["landlock"]["rules"]]  # type: ignore[index]
+
+
+# ---------------------------------------------------------------------------
+# The worker's own commands as a tool UID end in bounded time (KI-96 review)
+# ---------------------------------------------------------------------------
+
+# A helper a process of its UID stopped (below Landlock ABI 6 a tenant's
+# leftover process may signal it), with a child in its process group.
+_STOPPED_HELPER = 'sleep 30 & echo "$!" > "$0"; kill -STOP $$; echo resumed'
+
+
+@pytest.fixture
+def stopped_helpers(
+    isolation: Callable[[IsolationStatus], None], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Path:
+    """Every command the worker runs as a tool UID gets stopped (real processes, without the launcher).
+
+    Returns the file the helper writes its child's PID to.
+    """
+    isolation(READY)
+    monkeypatch.setattr(tool_process, "HELPER_TIMEOUT_SECONDS", 1.0)
+    pidfile = tmp_path / "child.pid"
+
+    def launch(
+        _self: IsolationStatus,
+        _argv: Sequence[str],
+        _env: Mapping[str, str],
+        _cwd: str | None,
+        _identity: ToolIdentity,
+        files: tuple[str, ...] = (),
+    ) -> Launch:
+        return Launch(
+            argv=["/bin/sh", "-c", _STOPPED_HELPER, str(pidfile)],
+            env={"PATH": "/usr/bin:/bin"},
+            cwd="/",
+            umask=TOOL_UMASK,
+        )
+
+    monkeypatch.setattr(IsolationStatus, "launch", launch)
+    return pidfile
+
+
+def _within[T](seconds: float, call: Callable[[], T]) -> T:
+    """*call*'s result; the test fails when it has not returned after *seconds* (it waits forever)."""
+    results: list[T] = []
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            results.append(call())
+        except BaseException as exc:  # handed to the test below
+            errors.append(exc)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        pytest.fail(f"still waiting for a stopped helper after {seconds} s")
+    if errors:
+        raise errors[0]
+    return results[0]
+
+
+def _child_gone(pidfile: Path, seconds: float = 5.0) -> bool:
+    """Whether the stopped helper's child (in its process group) was killed with it: gone or a zombie."""
+    deadline = time.monotonic() + seconds
+    while not pidfile.exists() or not pidfile.read_text().strip():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    pid = pidfile.read_text().strip()
+    while True:
+        try:
+            if Path(f"/proc/{pid}/cmdline").read_bytes() != b"sleep\x0030\x00":
+                return True  # the PID is another process's now
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except OSError:
+            return True
+        if state in ("Z", "X"):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
+def test_a_removal_a_process_of_its_uid_stopped_ends_after_the_timeout(stopped_helpers: Path) -> None:
+    """The worker awaits it while its subject's next message waits: it must not wait forever."""
+    started = time.monotonic()
+    assert not _within(15, lambda: tool_process.remove_as_tool_sync(["/h/tmp/x"], IDENT, confine="/h"))
+    assert time.monotonic() - started < 10
+    assert _child_gone(stopped_helpers), "the helper's whole process group is killed"
+
+
+async def test_a_sharing_pass_a_process_of_its_uid_stopped_ends_after_the_timeout(stopped_helpers: Path) -> None:
+    started = time.monotonic()
+    await asyncio.wait_for(tool_process.share_tool_files("/ws", IDENT), 15)
+    assert time.monotonic() - started < 10
+    assert _child_gone(stopped_helpers)
+
+
+def test_a_synchronous_sharing_pass_a_process_of_its_uid_stopped_ends_after_the_timeout(
+    stopped_helpers: Path,
+) -> None:
+    _within(15, lambda: tool_process.share_tool_files_sync("/ws", IDENT))
+    assert _child_gone(stopped_helpers)
+
+
+def test_a_stopped_walker_is_reported_as_killed(stopped_helpers: Path) -> None:
+    done = _within(15, lambda: tool_process.run_walker(IDENT, ["share", "/ws"]))
+    assert done.returncode == -signal.SIGKILL
+    assert "timed out" in done.stderr
+    assert _child_gone(stopped_helpers)
 
 
 async def test_a_benchmark_workspace_is_emptied_as_the_tool_user(

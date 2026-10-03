@@ -12,11 +12,14 @@ secrets directory).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -433,3 +436,83 @@ async def test_a_tenants_leftovers_end_with_its_last_work_item(workspace_a: str,
     assert running_processes_of({UID_A}) == {}, "no process of the tenant is left running"
     assert not tmpdir.exists()
     assert list(Path(home_base, str(UID_A), "tmp").iterdir()) == []
+
+
+# A tenant's leftover process that stops every process of its UID whose
+# command line names the test's directory: the worker's helpers that run as
+# the tenant (the sharing pass, the TMPDIR removal). Below Landlock ABI 6
+# signals between a tenant's Landlock domains are not scoped; here Landlock
+# is off, which has the same effect. The needle comes from the environment
+# (it is on no command line of the stopper or its parent); it gives up after
+# a minute in case the test fails before the reaper kills it.
+_STOPPER = """
+import os, signal, time
+needle, me, deadline = os.environ["CF_NEEDLE"].encode(), os.getpid(), time.monotonic() + 60
+while time.monotonic() < deadline:
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit() or int(pid) == me:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                if needle in f.read():
+                    os.kill(int(pid), signal.SIGSTOP)
+        except OSError:
+            pass
+"""
+
+
+def _stopped_processes(needle: str) -> list[int]:
+    """PIDs of stopped processes whose command line contains *needle*."""
+    found = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except OSError:
+            continue
+        if needle.encode() in cmdline and state in ("T", "t"):
+            found.append(int(pid))
+    return found
+
+
+async def test_a_leftover_process_that_stops_the_end_of_work_helpers_cannot_hold_up_the_work_item(
+    shared_tmp: Path, volumes: tuple[str, str], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """KI-96 review: the worker awaits its helpers that run as the tenant's UID while the next
+    message of its subject waits. A helper a leftover process of the tenant stopped is killed after
+    the timeout and the work item ends; the tenant's last work item kills the leftovers first."""
+    from codeforge import tool_process
+    from codeforge.subprocess_env import tool_env
+    from codeforge.tool_reaper import running_processes_of
+
+    root, home_base = volumes
+    monkeypatch.setattr(tool_process, "HELPER_TIMEOUT_SECONDS", 2.0)
+    status = configure_tool_isolation(replace(isolation_config(root, home_base), landlock="off"))
+    assert status.ready, status.reason
+    workspace = make_tenant_dir(root, TENANT_A, UID_A)
+    needle = str(shared_tmp)
+    caplog.set_level(logging.WARNING, logger="codeforge.tool_process")
+    async with tool_tenant(TENANT_A, UID_A, workspace):  # the tenant keeps work here: no reaping in between
+        inner = tool_tenant(TENANT_A, UID_A, workspace)
+        await inner.__aenter__()
+        try:
+            proc = await start_tool_shell(
+                'setsid python3 -c "$CF_STOPPER" </dev/null >/dev/null 2>&1 &',
+                env={**tool_env(), "CF_STOPPER": _STOPPER, "CF_NEEDLE": needle},
+                cwd=workspace,
+            )
+            assert await proc.wait() == 0
+            await asyncio.sleep(0.5)  # the stopper scans /proc
+        finally:
+            caplog.clear()
+            started = time.monotonic()
+            await asyncio.wait_for(inner.__aexit__(None, None, None), 60)
+        assert time.monotonic() - started < 20, "the end of the work item waited for its stopped helpers"
+        assert "timed out" in caplog.text, "the stopper stopped a helper, which was killed"
+        assert _stopped_processes(needle) == [], "the stopped helpers were killed"
+        caplog.clear()
+    # The tenant's last work item: the stopper was killed before its end-of-work helpers ran.
+    assert "timed out" not in caplog.text
+    assert running_processes_of({UID_A}) == {}
