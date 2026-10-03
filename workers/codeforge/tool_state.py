@@ -25,6 +25,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import os
+import secrets
 import stat
 from dataclasses import dataclass
 from enum import Enum
@@ -400,17 +401,25 @@ def verify_home(base: str, uid: int, expected: tuple[int, int]) -> None:
         os.close(base_fd)
 
 
+def temporary_name(prefix: str) -> str:
+    """A name for a temporary entry on a volume worker replicas share.
+
+    Not the PID: every replica is PID 1 of its container, and one would
+    take over or remove another's entry.
+    """
+    return f"{prefix}{secrets.token_hex(8)}"
+
+
 def acl_support_problem(directory: str) -> str:
     """Set and read back a default ACL on a new directory below *directory*; "" when that works."""
     try:
         parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     except OSError as exc:
         return f"{directory} cannot be opened ({exc.strerror})"
-    name = f".cf-acl-check-{os.getpid()}"
+    name = temporary_name(".cf-acl-check-")
     try:
         try:
-            with contextlib.suppress(FileExistsError):
-                os.mkdir(name, 0o700, dir_fd=parent)
+            os.mkdir(name, 0o700, dir_fd=parent)
         except OSError as exc:
             return (
                 f"the worker cannot create a directory in {directory} ({exc.strerror}): it must be a writable "

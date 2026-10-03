@@ -33,7 +33,7 @@ A worker that rolled back to the KI-71 image walks the whole root at its
 start and opens the worker's state to the workspace group. The root stamp
 (``.codeforge-workspace-sharing``: "3") and the state directory's own
 check detect that at the next start: the state goes aside
-(``.codeforge.rollback-<time>``) and every tenant migrates again.
+(``.codeforge.rollback-<time>-<random>``) and every tenant migrates again.
 """
 
 from __future__ import annotations
@@ -100,13 +100,19 @@ def stamp_ok(root: str, kind: str, name: str, uid: int, info: os.stat_result) ->
 
 
 def _replace_file(dir_fd: int, name: str, data: bytes) -> None:
-    """Write *name* in *dir_fd* atomically: a new file renamed over it."""
-    tmp = f".{name}.{os.getpid()}.tmp"
-    with contextlib.suppress(FileNotFoundError):
-        os.unlink(tmp, dir_fd=dir_fd)
+    """Write *name* in *dir_fd* atomically: a new file renamed over it.
+
+    The temporary name is random: worker replicas write the same stamps.
+    """
+    tmp = tool_state.temporary_name(f".{name}.") + ".tmp"
     if not tool_state.write_new(dir_fd, tmp, data):
         raise ToolIsolationError(f"cannot write {name}: {tmp} exists")
-    os.rename(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    try:
+        os.rename(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp, dir_fd=dir_fd)
+        raise
 
 
 def write_stamp(root: str, kind: str, name: str, uid: int, info: os.stat_result) -> None:
@@ -136,7 +142,7 @@ def detect_rollback(root: str) -> bool:
     An older worker (KI-71) wrote root stamp "2" and opened the state
     directory to the workspace group, where legacy tools could change it.
     Then the state (UID bindings, migration stamps) is not trusted: it moves
-    to ``.codeforge.rollback-<time>`` and every tenant migrates again.
+    to ``.codeforge.rollback-<time>-<random>`` and every tenant migrates again.
     """
     root_fd = tool_state.open_root(root)
     try:
@@ -155,14 +161,18 @@ def detect_rollback(root: str) -> bool:
             if not problem and _root_stamp(root_fd) != ROOT_STAMP_VERSION:
                 problem = f"the root stamp is {_root_stamp(root_fd)!r}, not {ROOT_STAMP_VERSION!r}"
         if problem:
-            aside = f"{tool_state.STATE_DIR}.rollback-{int(time.time())}"
-            os.rename(tool_state.STATE_DIR, aside, src_dir_fd=root_fd, dst_dir_fd=root_fd)
+            # Random as well as dated: worker replicas that start together may both get here.
+            aside = tool_state.temporary_name(f"{tool_state.STATE_DIR}.rollback-{int(time.time())}-")
+            try:
+                os.rename(tool_state.STATE_DIR, aside, src_dir_fd=root_fd, dst_dir_fd=root_fd)
+                moved_to = f"{root}/{aside}"
+            except FileNotFoundError:
+                moved_to = "a directory another worker chose"
             logger.warning(
-                "an older worker ran on the workspaces volume (%s): its state moved to %s/%s; every tenant's "
+                "an older worker ran on the workspaces volume (%s): its state moved to %s; every tenant's "
                 "workspaces are migrated again at their next work item",
                 problem,
-                root,
-                aside,
+                moved_to,
             )
         _replace_file(root_fd, ROOT_STAMP, (ROOT_STAMP_VERSION + "\n").encode())
         return bool(problem)
@@ -261,13 +271,15 @@ async def acquire(lock: TenantLock, *, needs_migration: Callable[[], bool], migr
 def _copy_over(dir_fd: int, name: str, listed: os.stat_result) -> None:
     """Replace *name* by a copy of its content (a new inode of the worker's), never through a symlink."""
     src = os.open(name, os.O_RDONLY | os.O_NONBLOCK | _FILE_FLAGS, dir_fd=dir_fd)
-    tmp = f".cf-unshare-{listed.st_ino}-{os.getpid()}"
+    tmp = tool_state.temporary_name(f".cf-unshare-{listed.st_ino}-")
+    created = False
     try:
         info = os.fstat(src)
         if (info.st_dev, info.st_ino) != (listed.st_dev, listed.st_ino) or not stat.S_ISREG(info.st_mode):
             raise OSError(errno.ESTALE, "replaced meanwhile")
         mode = stat.S_IMODE(info.st_mode) & 0o777
         dst = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _FILE_FLAGS, 0o600, dir_fd=dir_fd)
+        created = True
         try:
             while chunk := os.read(src, 1 << 20):
                 os.write(dst, chunk)
@@ -276,8 +288,9 @@ def _copy_over(dir_fd: int, name: str, listed: os.stat_result) -> None:
             os.close(dst)
         os.rename(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
     except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp, dir_fd=dir_fd)
+        if created:  # never an entry this copy did not make
+            with contextlib.suppress(OSError):
+                os.unlink(tmp, dir_fd=dir_fd)
         raise
     finally:
         os.close(src)

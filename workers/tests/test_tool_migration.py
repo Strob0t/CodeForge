@@ -222,6 +222,25 @@ def test_unshare_copies_inodes_linked_from_outside(tmp_path: Path) -> None:
     assert not [p for p in (tree / "p").iterdir() if p.name.startswith(".cf-unshare")]
 
 
+def test_the_copy_leaves_an_entry_of_the_same_temporary_name_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: a temporary name made of the inode and the PID (1 in every container) could be
+    taken; the copy then failed and its cleanup removed the other entry."""
+    monkeypatch.setattr(tool_migration.os, "getpid", lambda: 1)
+    tree = tmp_path / "tenant"
+    tree.mkdir()
+    theirs = tmp_path / "other"
+    theirs.write_text("theirs")
+    os.link(theirs, tree / "planted")
+    taken = tree / f".cf-unshare-{theirs.stat().st_ino}-1"
+    taken.write_text("not the copy's")
+
+    assert tool_migration.unshare_links(str(tree)) == 1
+    assert taken.read_text() == "not the copy's"
+    assert theirs.stat().st_nlink == 1
+
+
 # ---------------------------------------------------------------------------
 # Stamps, locks, processes, rollback
 # ---------------------------------------------------------------------------
@@ -298,6 +317,59 @@ def test_a_planted_lock_file_is_refused(root: Path, tmp_path: Path) -> None:
 
 def test_the_current_process_is_found() -> None:
     assert tool_reaper.processes_of({UID})[os.getpid()] == UID
+
+
+def test_two_workers_that_detect_a_rollback_at_once_both_go_on(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """KI-96 review: replicas start together. The second one must neither fail on the name the first
+    one used in the same second, nor because the first one already moved the state aside."""
+    (root / tool_migration.ROOT_STAMP).write_text("2\n")
+    monkeypatch.setattr(tool_migration.time, "time", lambda: 1700000000.0)
+    taken = root / ".codeforge.rollback-1700000000"
+    taken.mkdir()
+    (taken / "kept").write_text("the first worker's\n")
+    assert tool_migration.detect_rollback(str(root))
+    assert (taken / "kept").read_text() == "the first worker's\n"
+    assert len([p for p in root.iterdir() if p.name.startswith(".codeforge.rollback-")]) == 2
+
+    tool_state.ensure_state_dirs(str(root))
+    (root / tool_migration.ROOT_STAMP).write_text("2\n")
+    real_rename = os.rename
+
+    def first_worker_was_faster(src: str, dst: str, **kwargs: int) -> None:
+        if src == tool_state.STATE_DIR:
+            real_rename(root / src, root / ".codeforge.rollback-other")
+        real_rename(src, dst, **kwargs)
+
+    monkeypatch.setattr(tool_migration.os, "rename", first_worker_was_faster)
+    assert tool_migration.detect_rollback(str(root))
+    assert (root / tool_migration.ROOT_STAMP).read_text().strip() == tool_migration.ROOT_STAMP_VERSION
+
+
+@pytest.mark.parametrize("write", ["root stamp", "rollback check", "tenant stamp"])
+def test_a_stamp_leaves_another_workers_temporary_file_alone(
+    write: str, root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: every worker replica is PID 1 of its container. A temporary name made of the PID
+    let one replica unlink another's file between its write and its rename (rename ENOENT), or find
+    it there ("exists"), at startup: the replica stayed not ready."""
+    tool_migration.write_root_stamp(str(root))  # this worker's own earlier start
+    monkeypatch.setattr(tool_migration.os, "getpid", lambda: 1)
+    tenant = root / "tenant-a"
+    tenant.mkdir()
+    if write == "tenant stamp":
+        directory, name = root / ".codeforge" / "tenants", "tenant-a"
+    else:
+        directory, name = root, tool_migration.ROOT_STAMP
+    others = directory / f".{name}.1.tmp"
+    others.write_text("another worker's\n")
+    if write == "root stamp":
+        tool_migration.write_root_stamp(str(root))
+    elif write == "rollback check":
+        assert not tool_migration.detect_rollback(str(root))
+    else:
+        tool_migration.write_stamp(str(root), "tenants", "tenant-a", TOOL_UID, tenant.stat())
+    assert others.read_text() == "another worker's\n"
+    assert sorted(p.name for p in directory.iterdir() if p.name.endswith(".tmp")) == [others.name]
 
 
 @pytest.mark.parametrize("tamper", ["group-bits", "old-stamp", "acl"])

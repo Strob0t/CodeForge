@@ -295,6 +295,20 @@ def test_acl_support(tmp_path: Path) -> None:
     assert "cannot be opened" in tool_state.acl_support_problem(str(tmp_path / "missing"))
 
 
+def test_the_acl_check_leaves_another_workers_check_directory_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-96 review: worker replicas share the volumes and each is PID 1 of its container. A check
+    named by the PID took over and removed another replica's directory mid-check, which then
+    reported no POSIX ACLs (ENOENT) and stayed not ready."""
+    monkeypatch.setattr(tool_state.os, "getpid", lambda: 1)
+    others = tmp_path / ".cf-acl-check-1"
+    others.mkdir(mode=0o700)  # another replica between its mkdir and its ACL check
+    assert tool_state.acl_support_problem(str(tmp_path)) == ""
+    assert others.is_dir()
+    assert sorted(os.listdir(tmp_path)) == [".cf-acl-check-1"]
+
+
 def _no_acls(*_args: object) -> object:
     raise OSError(errno.EOPNOTSUPP, os.strerror(errno.EOPNOTSUPP))
 
