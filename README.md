@@ -27,7 +27,7 @@ AI coding agents are good at writing code and bad at knowing when to stop. CodeF
 - **You approve what matters.** Five autonomy levels per mode, from "ask for everything" to headless. Approval cards appear live in the chat, with approve, deny and allow-always.
 - **Limits that hold.** Budgets per run, maximum steps, stall detection, test and lint gates with rollback, path blocklists and branch isolation.
 - **Everything is recorded.** Trajectories, costs per run and project, an audit trail with replay.
-- **Agents cannot reach each other.** Every tenant's tool processes run under their own Linux user and under Landlock; agents only touch their own workspace.
+- **Agents stay apart.** Every tenant's tool processes run under their own Linux user and under Landlock; agents only touch their own workspace.
 
 Around that core, CodeForge brings four things together in one self-hosted Docker stack:
 
@@ -141,7 +141,7 @@ Then open `http://<your-host>/setup` and create the first admin.
 > [!IMPORTANT]
 > The setup page is open until the first user exists, so whoever reaches it first becomes admin. Create the admin before you expose the host to a network you do not trust ([KI-119](docs/todo.md#known-issues)).
 
-**Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list; no API key is needed.
+**Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list; no API key is needed. For agent tool calls with Ollama see the [FAQ](#faq).
 
 Upgrading an existing installation, backups and the full list of settings: [Dev Setup](docs/dev-setup.md), [Disaster Recovery](docs/disaster-recovery.md).
 
@@ -169,6 +169,8 @@ The order matters: the Core creates the NATS stream the worker waits for. Log in
 
 ![Projects dashboard](docs/assets/screenshots/dashboard.png)
 
+![A project with its files, the file the agent changed and the chat](docs/assets/screenshots/project.png)
+
 - Add repositories by URL or adopt a local folder; branches, status and stack detection per project.
 - Code search for agents and for you: BM25 and embeddings, a GraphRAG code graph and a repo map, built automatically when a project is added.
 - A finished run's changes are delivered as you choose: left in the workspace, as a patch, a local commit, a pushed branch or a pull request.
@@ -183,7 +185,7 @@ The order matters: the Core creates the NATS stream the worker waits for. Log in
 
 ### Agents, modes and tools
 
-![An agent conversation with tool calls](docs/assets/screenshots/agent-chat.png)
+![Built-in agent modes with their tools, denied actions and autonomy level](docs/assets/screenshots/modes.png)
 
 - Chat with an agent inside a project: streaming answers, tool calls with their output, diffs to review, slash commands (`/mode`, `/model`, `/cost`, `/diff`, `/rewind`, ...).
 - **24 built-in modes** with their own prompt, tools and autonomy, plus custom modes per project (`.codeforge/modes/`).
@@ -211,7 +213,7 @@ The order matters: the Core creates the NATS stream the worker waits for. Log in
 ### More
 
 - Audit trail with trajectory replay, checkpoints, fork and rewind of runs.
-- Knowledge bases and prompt templates per scope; MCP server management per tenant.
+- Knowledge bases and prompt templates per scope; MCP server management per tenant (stdio, SSE and streamable HTTP).
 - Optional, off by default: an MCP server of CodeForge itself, A2A agent federation, LSP code intelligence, OpenTelemetry tracing.
 - In development mode: a benchmark system (LLM judge, functional tests, SWE-bench, HumanEval and more) with DPO and RLVR export.
 
@@ -226,7 +228,7 @@ Aider, OpenHands, Goose and Claude Code are **agents**: they read code, call a m
 ## FAQ
 
 **Can I run CodeForge without any cloud model?**
-Yes. Point it at Ollama or LM Studio and use only local models. In production the worker has no internet access of its own; models are reached only through the LiteLLM container. Small local models work, but are slower and weaker at multi-step tool use than large ones.
+Yes. Point it at Ollama or LM Studio and use only local models; in production the worker has no internet access of its own and reaches models only through the LiteLLM container. One caveat today: for agent tool calls, Ollama has to be reached through its OpenAI-compatible endpoint, and the model must be one CodeForge recognises as tool-capable ([KI-125](docs/todo.md#known-issues)). The screenshots in this README were made that way, with `qwen3:4b-instruct` on four CPU cores and no API key; larger models are faster and better at multi-step work.
 
 **What does it cost?**
 CodeForge is free software (AGPL-3.0). You pay only your model providers; local models cost nothing. Every run's cost is tracked, and budgets in the policy profile stop a run that would exceed them.
