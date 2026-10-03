@@ -8,21 +8,21 @@ import "strings"
 //  2. Model name pattern matching -- known model families have known strengths.
 //  3. MaxTokens -- larger context windows as tiebreaker.
 //
-// Returns an empty string if the list is empty.
+// Wildcard routes ("groq/*") are skipped: they name no model a request can
+// use. Returns an empty string if no model is left.
 func SelectStrongestModel(models []DiscoveredModel) string {
-	if len(models) == 0 {
-		return ""
-	}
-
-	bestIdx := 0
-	bestScore := modelScore(&models[0])
-	for i := 1; i < len(models); i++ {
-		if s := modelScore(&models[i]); s > bestScore {
-			bestIdx = i
+	best := ""
+	bestScore := 0.0
+	for i := range models {
+		if strings.Contains(models[i].ModelName, "*") {
+			continue
+		}
+		if s := modelScore(&models[i]); best == "" || s > bestScore {
+			best = models[i].ModelName
 			bestScore = s
 		}
 	}
-	return models[bestIdx].ModelName
+	return best
 }
 
 // modelScore assigns a quality score to a discovered model.

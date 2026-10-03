@@ -100,6 +100,7 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal models: %w", err)
 	}
+	result.Data = collapseCatalogueRoutes(result.Data)
 	for i := range result.Data {
 		// Infer vision capability from metadata or model name.
 		result.Data[i].SupportsVision = inferVisionSupport(
@@ -117,6 +118,74 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 func deploymentID(info map[string]any) string {
 	id, _ := info["id"].(string)
 	return id
+}
+
+// collapseCatalogueRoutes lists a cloud wildcard route as one row instead of
+// every model LiteLLM expands it to (KI-125). LiteLLM expands routes such as
+// groq/* from its built-in model catalogue whether or not the provider's key
+// is set, and /model/info strips the keys, so the Core cannot tell which
+// routes are usable: with no keys the shipped routes listed about 600 models
+// nobody can call. The route row ("groq/*") keeps the route usable for a
+// model typed by name and for the worker's router, which expands provider
+// routes to its own model choice. A route with an api_base (Ollama, LM
+// Studio, OpenAI-compatible services) keeps its rows: LiteLLM lists those
+// models from the server itself. The rows of one route share the route's
+// deployment ID (model_info.id).
+func collapseCatalogueRoutes(rows []Model) []Model {
+	patterns := make(map[string]string, len(rows))
+	counts := make(map[string]int, len(rows))
+	for i := range rows {
+		id := deploymentID(rows[i].ModelInfo)
+		if id == "" {
+			continue
+		}
+		counts[id]++
+		prefix, _, _ := strings.Cut(rows[i].ModelName, "/")
+		if seen, ok := patterns[id]; !ok {
+			patterns[id] = prefix + "/*"
+		} else if seen != prefix+"/*" {
+			patterns[id] = "*"
+		}
+	}
+
+	out := make([]Model, 0, len(rows))
+	listed := make(map[string]bool, len(counts))
+	for i := range rows {
+		id := deploymentID(rows[i].ModelInfo)
+		if id == "" || counts[id] < 2 || hasAPIBase(rows[i].Params) {
+			out = append(out, rows[i])
+			continue
+		}
+		if listed[id] {
+			continue
+		}
+		listed[id] = true
+		out = append(out, routeRow(&rows[i], id, patterns[id]))
+	}
+	return out
+}
+
+// routeRow is the row of a collapsed wildcard route: the route's parameters
+// (tags, timeout, ...) with the pattern as model, and only the deployment ID
+// as model info (an expanded row's pricing and limits belong to one model).
+func routeRow(row *Model, id, pattern string) Model {
+	params := make(map[string]any, len(row.Params))
+	for k, v := range row.Params {
+		params[k] = v
+	}
+	params["model"] = pattern
+	return Model{
+		ModelName: pattern,
+		Provider:  row.Provider,
+		ModelID:   id,
+		ModelInfo: map[string]any{"id": id},
+		Params:    params,
+	}
+}
+
+func hasAPIBase(params map[string]any) bool {
+	base, _ := params["api_base"].(string)
+	return base != ""
 }
 
 // AddModel adds a new model configuration to LiteLLM.
@@ -176,16 +245,12 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 	}
 
 	var infoResult struct {
-		Data []struct {
-			ModelName string         `json:"model_name"`
-			ModelID   string         `json:"model_id"`
-			ModelInfo map[string]any `json:"model_info"`
-			Params    map[string]any `json:"litellm_params"`
-		} `json:"data"`
+		Data []Model `json:"data"`
 	}
 	if err := json.Unmarshal(infoResp, &infoResult); err != nil {
 		return nil, fmt.Errorf("unmarshal model info: %w", err)
 	}
+	infoResult.Data = collapseCatalogueRoutes(infoResult.Data)
 
 	// Also fetch the OpenAI-compatible /v1/models list for ID cross-reference.
 	modelsResp, err := c.doRequest(ctx, http.MethodGet, "/v1/models", nil)
@@ -209,7 +274,8 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 	}
 
 	discovered := make([]DiscoveredModel, 0, len(infoResult.Data))
-	for _, m := range infoResult.Data {
+	for i := range infoResult.Data {
+		m := &infoResult.Data[i]
 		modelID := m.ModelID
 		if modelID == "" {
 			modelID = deploymentID(m.ModelInfo)

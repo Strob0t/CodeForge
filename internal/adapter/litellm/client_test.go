@@ -476,6 +476,21 @@ func TestSelectStrongestModel(t *testing.T) {
 			},
 			want: "groq/llama-4-maverick",
 		},
+		{
+			// A wildcard route (KI-125) names no model a request can use.
+			name: "route patterns are never chosen",
+			models: []litellm.DiscoveredModel{
+				{ModelName: "openai/*"},
+				{ModelName: "ollama/qwen3:4b-instruct"},
+				{ModelName: "anthropic/*", OutputCostPer: 7.5e-5},
+			},
+			want: "ollama/qwen3:4b-instruct",
+		},
+		{
+			name:   "only route patterns",
+			models: []litellm.DiscoveredModel{{ModelName: "groq/*"}, {ModelName: "lm_studio/*"}},
+			want:   "",
+		},
 	}
 
 	for _, tt := range tests {

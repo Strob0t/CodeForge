@@ -183,6 +183,9 @@ services:
       CHUTES_API_KEY: ${CHUTES_API_KEY:-}
       AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
       LM_STUDIO_API_BASE: ${LM_STUDIO_API_BASE:-http://host.docker.internal:1234/v1}
+      # ollama/* goes to Ollama's OpenAI-compatible /v1 endpoint (KI-125);
+      # OLLAMA_API_BASE lets LiteLLM read a model's capabilities from Ollama.
+      OLLAMA_OPENAI_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/v1
       OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     volumes:
       - ./litellm:/app/data:ro

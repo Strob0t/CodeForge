@@ -191,6 +191,9 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
       DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge
+      # ollama/* goes to Ollama's OpenAI-compatible /v1 endpoint (KI-125);
+      # OLLAMA_API_BASE lets LiteLLM read a model's capabilities from Ollama.
+      OLLAMA_OPENAI_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}/v1
       OLLAMA_API_BASE: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
