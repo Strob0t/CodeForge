@@ -112,3 +112,52 @@ func TestChannelMessages_EmptyContentIs400(t *testing.T) {
 		t.Fatalf("status = %d, want 400 (%s)", w.Code, w.Body.String())
 	}
 }
+
+// channelCreateStore records the channel the handler asks the store to create.
+type channelCreateStore struct {
+	*mockStore
+	got *channel.Channel
+}
+
+func (s *channelCreateStore) CreateChannel(_ context.Context, ch *channel.Channel) (*channel.Channel, error) {
+	cp := *ch
+	s.got = &cp
+	cp.ID = "c-1"
+	return &cp, nil
+}
+
+// KI-89: a channel's creator is the authenticated caller; created_by in the
+// request body was stored as given, so a client could name another user (or
+// an unknown ID, which failed on the foreign key with a 500). Without a
+// caller there is no creator to record.
+func TestCreateChannel_CreatorIsTheAuthenticatedUser(t *testing.T) {
+	body := `{"name":"ops","type":"bot","created_by":"other-user"}`
+	for _, tc := range []struct {
+		name   string
+		caller *user.User
+		code   int
+		want   string
+	}{
+		{name: "user", caller: &user.User{ID: "u-1", Name: "Alice", Role: user.RoleEditor}, code: http.StatusCreated, want: "u-1"},
+		{name: "no user", code: http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &channelCreateStore{mockStore: &mockStore{}}
+			h := &cfhttp.Handlers{
+				Channels: service.NewChannelService(store, &mockBroadcaster{}),
+				Limits:   &config.Limits{MaxRequestBodySize: 1 << 20},
+			}
+			w := httptest.NewRecorder()
+			h.CreateChannel(w, channelRequest(t, http.MethodPost, "/api/v1/channels", body, nil, tc.caller))
+			if w.Code != tc.code {
+				t.Fatalf("status = %d, want %d (%s)", w.Code, tc.code, w.Body.String())
+			}
+			switch {
+			case tc.want == "" && store.got != nil:
+				t.Errorf("channel stored without a user: %+v", store.got)
+			case tc.want != "" && (store.got == nil || store.got.CreatedBy != tc.want):
+				t.Errorf("stored channel = %+v, want created_by %q", store.got, tc.want)
+			}
+		})
+	}
+}

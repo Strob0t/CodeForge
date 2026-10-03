@@ -57,9 +57,11 @@ type Channel struct {
 	Description string      `json:"description"`
 	// HasWebhookKey reports whether a webhook key was generated; the key
 	// itself is shown once and only its hash is stored.
-	HasWebhookKey bool      `json:"has_webhook_key"`
-	CreatedBy     string    `json:"created_by,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	HasWebhookKey bool `json:"has_webhook_key"`
+	// CreatedBy is the user who created the channel; empty when the creator
+	// has no account row (auth disabled, internal service key) or was erased.
+	CreatedBy string    `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 	// UnreadCount is the number of top-level messages of others after the
 	// calling user's read position (only set when channels are listed for a user).
 	UnreadCount int `json:"unread_count"`
@@ -79,8 +81,12 @@ const ErasedSenderName = "Deleted user"
 
 // Message represents a message in a channel.
 type Message struct {
-	ID         string     `json:"id"`
-	ChannelID  string     `json:"channel_id"`
+	ID        string `json:"id"`
+	ChannelID string `json:"channel_id"`
+	// SenderID is the user who posted the message. It is empty for agents,
+	// bots and webhooks, for an erased user and for a caller without an
+	// account row (auth disabled, internal service key; KI-89): SenderType
+	// and SenderName tell who sent it.
 	SenderID   string     `json:"sender_id,omitempty"`
 	SenderType SenderType `json:"sender_type"`
 	SenderName string     `json:"sender_name"`

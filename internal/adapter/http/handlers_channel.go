@@ -26,12 +26,19 @@ func (h *Handlers) ListChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSONList(w, http.StatusOK, channels)
 }
 
-// CreateChannel handles POST /api/v1/channels
+// CreateChannel handles POST /api/v1/channels. The creator is the calling
+// user; created_by in the request body is ignored (KI-89).
 func (h *Handlers) CreateChannel(w http.ResponseWriter, r *http.Request) {
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	req, ok := readJSON[channel.Channel](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
+	req.CreatedBy = u.ID
 	ch, err := h.Channels.Create(r.Context(), &req)
 	if err != nil {
 		writeDomainError(w, err, "create channel")
