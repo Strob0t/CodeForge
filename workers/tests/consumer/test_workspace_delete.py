@@ -14,7 +14,9 @@ from __future__ import annotations
 import contextlib
 import errno
 import json
+import os
 import shutil
+import time
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -178,6 +180,140 @@ async def test_a_failed_removal_keeps_the_directory_and_fails(
         await workspace_deletion.delete_workspace(TENANT, UID, str(root / TENANT / "p1"))
     assert raised.value.errno == errno.ENOTEMPTY
     assert (root / TENANT / "p1" / "sub" / "f").exists()
+
+
+# ---------------------------------------------------------------------------
+# The worker's own pass is bounded: a live process of the tenant (in another
+# worker) can keep changing the tree while it walks it.
+# ---------------------------------------------------------------------------
+
+
+async def _tool_removes_nothing(
+    paths: list[str], _identity: object, *, confine: str, contents_only: bool = False
+) -> bool:
+    return False
+
+
+class _Grower:
+    """A live process of the tenant: every directory the walk opens gets *per_dir* new subdirectories
+    before it is listed, until *cap* were made. Records the open descriptors' peak."""
+
+    def __init__(self, per_dir: int, cap: int) -> None:
+        self.per_dir, self.cap = per_dir, cap
+        self.made = 0
+        self.peak_fds = 0
+        self._open = workspace_deletion._open_listed_dir
+
+    def open_listed_dir(self, dir_fd: int, name: str, listed: os.stat_result, dev: int) -> int | None:
+        fd = self._open(dir_fd, name, listed, dev)
+        if fd is not None:
+            for index in range(self.per_dir):
+                if self.made < self.cap:
+                    os.mkdir(f"n{index}", dir_fd=fd)
+                    self.made += 1
+            self.peak_fds = max(self.peak_fds, _open_fds())
+        return fd
+
+
+def _open_fds() -> int:
+    return len(os.listdir("/proc/self/fd"))
+
+
+async def test_a_chain_below_the_depth_limit_is_left_and_the_walk_holds_few_descriptors(
+    root: Path, steps: _Steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chain the tenant keeps extending below the walk: the walk enters at most the depth limit's
+    levels (two descriptors each: the directory and its listing), names the rest, and the deletion fails."""
+    workspace = root / TENANT / "p1"
+    shutil.rmtree(workspace / "sub")
+    (workspace / "chain").mkdir()
+    grower = _Grower(per_dir=1, cap=1000)
+    monkeypatch.setattr(workspace_deletion, "remove_as_tool", _tool_removes_nothing)
+    monkeypatch.setattr(workspace_deletion, "_open_listed_dir", grower.open_listed_dir)
+    before = _open_fds()
+    with pytest.raises(OSError, match=r"deeper than 128 levels") as raised:
+        await workspace_deletion.delete_workspace(TENANT, UID, str(workspace))
+    assert raised.value.errno == errno.ENOTEMPTY
+    assert grower.made <= 129
+    assert grower.peak_fds <= before + 2 * 129 + 4
+    assert _open_fds() == before
+    assert workspace.is_dir()
+
+
+async def test_a_tree_that_keeps_growing_stops_the_walk_at_its_entry_budget(
+    root: Path, steps: _Steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = root / TENANT / "p1"
+    grower = _Grower(per_dir=3, cap=20000)
+    monkeypatch.setattr(workspace_deletion, "remove_as_tool", _tool_removes_nothing)
+    monkeypatch.setattr(workspace_deletion, "_open_listed_dir", grower.open_listed_dir)
+    monkeypatch.setattr(
+        workspace_deletion, "OWN_ENTRY_LIMITS", workspace_deletion.WalkLimits(seconds=60, entries=200, depth=128)
+    )
+    with pytest.raises(OSError, match=r"stopped after 200 entries") as raised:
+        await workspace_deletion.delete_workspace(TENANT, UID, str(workspace))
+    assert raised.value.errno == errno.ENOTEMPTY
+    assert grower.made <= 3 * 201
+    assert workspace.is_dir()
+
+
+async def test_an_endless_listing_stops_the_walk_at_its_deadline(
+    root: Path, steps: _Steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Entries that keep coming (each gone again when the walk looks at it): the deadline ends the walk."""
+    workspace = root / TENANT / "p1"
+    real_scandir = os.scandir
+    listed = 0
+
+    class _Endless:
+        def __init__(self, fd: int) -> None:
+            self._listing = real_scandir(fd)
+
+        def __iter__(self) -> _Endless:
+            return self
+
+        def __next__(self) -> MagicMock:
+            nonlocal listed
+            listed += 1
+            time.sleep(0.001)
+            entry = MagicMock()
+            entry.name = f"gone-{listed}"
+            return entry
+
+        def close(self) -> None:
+            self._listing.close()
+
+    monkeypatch.setattr(workspace_deletion.os, "scandir", _Endless)
+    monkeypatch.setattr(workspace_deletion, "remove_as_tool", _tool_removes_nothing)
+    monkeypatch.setattr(
+        workspace_deletion, "OWN_ENTRY_LIMITS", workspace_deletion.WalkLimits(seconds=0.5, entries=10**9, depth=128)
+    )
+    before = _open_fds()
+    started = time.monotonic()
+    with pytest.raises(OSError, match=r"stopped after 0.5 s") as raised:
+        await workspace_deletion.delete_workspace(TENANT, UID, str(workspace))
+    assert time.monotonic() - started < 5
+    assert raised.value.errno == errno.ENOTEMPTY
+    assert listed > 10
+    assert _open_fds() == before
+
+
+async def test_the_handler_reports_a_bounded_walk_as_a_failed_deletion(
+    root: Path, steps: _Steps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Go Core records the error and publishes the deletion again (every 10 minutes) until it is done."""
+    shutil.rmtree(root / TENANT / "p1" / "sub")
+    (root / TENANT / "p1" / "chain").mkdir()
+    monkeypatch.setattr(workspace_deletion, "remove_as_tool", _tool_removes_nothing)
+    monkeypatch.setattr(workspace_deletion, "_open_listed_dir", _Grower(per_dir=1, cap=1000).open_listed_dir)
+    request = WorkspaceDeleteRequest(
+        deletion_id="d3", tenant_id=TENANT, tool_uid=UID, project_id="p1", workspace_path=str(root / TENANT / "p1")
+    )
+    result, msg = await _handle(request)
+    assert not result.ok
+    assert "was not removed completely" in result.error
+    assert "deeper than 128 levels" in result.error
+    msg.ack.assert_awaited_once()
 
 
 @pytest.mark.parametrize(

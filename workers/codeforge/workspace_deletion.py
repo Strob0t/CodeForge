@@ -14,7 +14,8 @@ publishes workspace.delete.request; the worker then
 3. removes its own entries the tool UID cannot reach: the Go Core (the
    same UID as the worker) keeps some private, such as the patches of
    ``.git/codeforge/patches`` (0700, the patch 0600: under the default ACL
-   the mask leaves the tool UID nothing),
+   the mask leaves the tool UID nothing); a bounded walk (WalkLimits), since
+   a live process of the tenant in another worker can still change the tree,
 4. removes the empty directory relative to the tenant directory's
    descriptor (never by a path a tool could change) and has the tenant's
    HOME cache removed at its idle (build caches can hold the project's
@@ -30,11 +31,16 @@ import contextlib
 import errno
 import os
 import stat
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from codeforge import tool_state
 from codeforge.tool_identity import ToolIsolationError, mark_cache_for_removal, tool_tenant
 from codeforge.tool_process import remove_as_tool, share_tool_files, tool_isolation
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 # How many entries that could not be removed an error names.
@@ -56,91 +62,146 @@ def _project_name(root: str, tenant_id: str, workspace: str) -> str:
     return name
 
 
-def remove_own_entries(parent_fd: int, name: str) -> list[str]:
+@dataclass(frozen=True)
+class WalkLimits:
+    """How far remove_own_entries goes.
+
+    It walks, in the worker's process, a tree that a live process of the
+    tenant (in another worker) can still change, while the subject's next
+    deletion waits: it stops after *seconds* or *entries* and enters at most
+    *depth* levels, each holding two descriptors (the directory and its
+    listing). The worker's own entries are at most three levels deep.
+    """
+
+    seconds: float = 60.0
+    entries: int = 100_000
+    depth: int = 128
+
+
+OWN_ENTRY_LIMITS = WalkLimits()
+
+
+@dataclass
+class Leftovers:
+    """What remove_own_entries left (at most _MAX_LEFT entries named), and why it stopped early ("" if not)."""
+
+    entries: list[str] = field(default_factory=list)
+    stopped: str = ""
+
+    def note(self, entry: str) -> None:
+        if len(self.entries) < _MAX_LEFT:
+            self.entries.append(entry)
+
+
+def remove_own_entries(parent_fd: int, name: str, limits: WalkLimits = OWN_ENTRY_LIMITS) -> Leftovers:
     """Remove the worker's own entries below the directory *name* in *parent_fd*, and every directory
-    that is empty then (not *name* itself); what is left, at most _MAX_LEFT entries.
+    that is empty then (not *name* itself); what is left.
 
     Runs after the tool UID's removal: what is left is out of the tool
     UID's reach. Every directory is opened relative to its parent's
     descriptor without following a symlink, on the same file system, and
-    must be the listed one; every entry is removed by name in its directory,
-    a symlink as itself. Entries of other users stay (their removal as the
-    tool UID failed).
+    must be the listed one; its listing is read as a stream; every entry is
+    removed by name in its directory, a symlink as itself. Entries of other
+    users stay (their removal as the tool UID failed), and so do directories
+    deeper than *limits* allows. The walk stops when it is not done in time
+    or has seen too many entries.
     """
-    left: list[str] = []
-    top = tool_state.open_dir_at(parent_fd, name)
+    left = Leftovers()
+    deadline = time.monotonic() + limits.seconds
+    seen = 0
     stack: list[_Dir] = []
     try:
+        top = tool_state.open_dir_at(parent_fd, name)
+        stack.append(_walked(top, name))
         dev = os.fstat(top).st_dev
-        stack.append(_Dir(top, name, os.listdir(top)))
         while stack:
             current = stack[-1]
-            if current.names:
-                child = _remove_next(current, dev, left)
-                if child is not None:
-                    stack.append(child)
+            entry = next(current.listing, None)
+            if entry is None:
+                stack.pop()
+                current.close()
+                if stack:
+                    _remove_emptied(stack[-1].fd, current.path, left)
                 continue
-            stack.pop()
-            os.close(current.fd)
-            if stack:
-                _remove_emptied(stack[-1].fd, current.path, left)
+            seen += 1
+            if seen > limits.entries:
+                left.stopped = f"stopped after {limits.entries} entries"
+                break
+            if time.monotonic() > deadline:
+                left.stopped = f"stopped after {limits.seconds:g} s"
+                break
+            child = _remove_next(current, entry.name, dev, left, depth=len(stack), limits=limits)
+            if child is not None:
+                stack.append(child)
     finally:
         for directory in stack:
-            os.close(directory.fd)
+            directory.close()
     return left
 
 
 @dataclass
 class _Dir:
-    """A directory of remove_own_entries' walk: its descriptor, its path for messages, what is still to do."""
+    """A directory of remove_own_entries' walk: its descriptor, its path for messages, its listing."""
 
     fd: int
     path: str
-    names: list[str]
+    listing: Iterator[os.DirEntry[str]]
+
+    def close(self) -> None:
+        try:
+            self.listing.close()  # type: ignore[attr-defined]
+        finally:
+            os.close(self.fd)
 
 
-def _note(left: list[str], entry: str) -> None:
-    if len(left) < _MAX_LEFT:
-        left.append(entry)
+def _walked(fd: int, path: str) -> _Dir:
+    """The directory *fd* with its listing, a stream (never a whole listing in memory); *fd* is closed on failure."""
+    try:
+        return _Dir(fd, path, os.scandir(fd))
+    except BaseException:
+        os.close(fd)
+        raise
 
 
-def _remove_next(current: _Dir, dev: int, left: list[str]) -> _Dir | None:
-    """Remove the next entry of *current* if it is the worker's; a directory is returned to walk into."""
-    name = current.names.pop()
+def _remove_next(current: _Dir, name: str, dev: int, left: Leftovers, *, depth: int, limits: WalkLimits) -> _Dir | None:
+    """Remove the entry *name* of *current* (*depth* levels down) if it is the worker's; a directory is
+    returned to walk into."""
     path = f"{current.path}/{name}"
     try:
         info = os.stat(name, dir_fd=current.fd, follow_symlinks=False)
     except FileNotFoundError:
         return None
     if stat.S_ISDIR(info.st_mode):
+        if depth > limits.depth:
+            left.note(f"{path} (deeper than {limits.depth} levels)")
+            return None
         fd = _open_listed_dir(current.fd, name, info, dev)
         if fd is None:
-            _note(left, f"{path} (replaced, or on another file system)")
+            left.note(f"{path} (replaced, or on another file system)")
             return None
         try:
-            return _Dir(fd, path, os.listdir(fd))
+            return _walked(fd, path)
         except OSError as exc:
-            os.close(fd)
-            _note(left, f"{path} ({exc.strerror})")
+            left.note(f"{path} ({exc.strerror})")
             return None
     if info.st_uid != tool_state.worker_uid():
-        _note(left, f"{path} (uid {info.st_uid})")
+        left.note(f"{path} (uid {info.st_uid})")
         return None
     try:
         os.unlink(name, dir_fd=current.fd)
     except OSError as exc:
         if exc.errno != errno.ENOENT:
-            _note(left, f"{path} ({exc.strerror})")
+            left.note(f"{path} ({exc.strerror})")
     return None
 
 
-def _remove_emptied(parent_fd: int, path: str, left: list[str]) -> None:
+def _remove_emptied(parent_fd: int, path: str, left: Leftovers) -> None:
     """Remove the walked directory *path* from its parent once it is empty (of any owner)."""
     try:
         os.rmdir(os.path.basename(path), dir_fd=parent_fd)
     except OSError as exc:
         if exc.errno != errno.ENOTEMPTY:  # what is inside was noted already
-            _note(left, f"{path} ({exc.strerror})")
+            left.note(f"{path} ({exc.strerror})")
 
 
 def _open_listed_dir(dir_fd: int, name: str, listed: os.stat_result, dev: int) -> int | None:
@@ -191,16 +252,20 @@ async def delete_workspace(tenant_id: str, tool_uid: int, workspace: str) -> Non
             await share_tool_files(path, identity)
             removed = await remove_as_tool([path], identity, confine=path, contents_only=True)  # type: ignore[arg-type]
             mark_cache_for_removal(tenant_id)
-        left = await asyncio.to_thread(remove_own_entries, tenant_fd, name)
+        left = await asyncio.to_thread(remove_own_entries, tenant_fd, name, OWN_ENTRY_LIMITS)
         try:
             os.rmdir(name, dir_fd=tenant_fd)
         except OSError as exc:
             if exc.errno != errno.ENOTEMPTY:
                 raise
             failed = "" if removed else f"the removal as tool uid {tool_uid} failed; "
+            stopped = ""
+            if left.stopped:
+                stopped = f"the worker's own pass {left.stopped} (does a process still add entries?); "
             raise OSError(
                 errno.ENOTEMPTY,
-                f"workspace {workspace} was not removed completely: {failed}left: {', '.join(left) or 'unknown'}",
+                f"workspace {workspace} was not removed completely: {failed}{stopped}"
+                f"left: {', '.join(left.entries) or 'unknown'}",
             ) from exc
     finally:
         with contextlib.suppress(OSError):

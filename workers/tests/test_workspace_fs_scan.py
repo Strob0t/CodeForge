@@ -235,8 +235,7 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
         "the deleted project's workspace, emptied as the tenant's tool UID, by name relative to the tenant "
         "directory's descriptor (KI-96 D11)",
     ),
-    ("workspace_deletion.py", "remove_own_entries", "os.listdir"): (1, _OWN_LEFTOVERS),
-    ("workspace_deletion.py", "_remove_next", "os.listdir"): (1, _OWN_LEFTOVERS),
+    ("workspace_deletion.py", "_walked", "os.scandir"): (1, _OWN_LEFTOVERS),
     ("workspace_deletion.py", "_remove_next", "os.unlink"): (1, _OWN_LEFTOVERS),
     ("workspace_deletion.py", "_remove_emptied", "os.rmdir"): (1, _OWN_LEFTOVERS),
     ("workspace_deletion.py", "_open_listed_dir", "os.open"): (1, _OWN_LEFTOVERS),
