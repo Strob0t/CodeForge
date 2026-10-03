@@ -108,6 +108,11 @@ _HELPER = (
     "the launch helper, already the tool user: the per-work directories below the tool's own HOME, "
     "relative to its descriptor, never through a symlink"
 )
+_OWN_LEFTOVERS = (
+    "a deleted project's workspace after its removal as the tenant's tool UID, as the worker: relative to "
+    "directory descriptors opened with O_NOFOLLOW and rechecked to be the listed inode on the same file "
+    "system; only the worker's own non-directories are unlinked, emptied directories removed (KI-96 D11)"
+)
 _PRIVATE_DIR = "the run's private socket directory (mkdtemp, 0750), not a workspace"
 _RESULTS = "benchmark result files (operator path)"
 
@@ -230,6 +235,11 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
         "the deleted project's workspace, emptied as the tenant's tool UID, by name relative to the tenant "
         "directory's descriptor (KI-96 D11)",
     ),
+    ("workspace_deletion.py", "remove_own_entries", "os.listdir"): (1, _OWN_LEFTOVERS),
+    ("workspace_deletion.py", "_remove_next", "os.listdir"): (1, _OWN_LEFTOVERS),
+    ("workspace_deletion.py", "_remove_next", "os.unlink"): (1, _OWN_LEFTOVERS),
+    ("workspace_deletion.py", "_remove_emptied", "os.rmdir"): (1, _OWN_LEFTOVERS),
+    ("workspace_deletion.py", "_open_listed_dir", "os.open"): (1, _OWN_LEFTOVERS),
 }
 
 
