@@ -468,9 +468,9 @@ Writes into these paths are refused (git submodules, KI-88). The list may be inc
 
 The character set excludes `"`, `\`, `<` and `>`, so the JSON array cannot close the element. The worker does not enforce anything. Go decides every call (ADR-006/015), and a second enforcement point working from a dispatch-time snapshot could only disagree with Go.
 
-### D12. Database (migration 113)
+### D12. Database (migration 123)
 
-`internal/adapter/postgres/migrations/113_run_opaque_paths.sql`:
+`internal/adapter/postgres/migrations/123_run_opaque_paths.sql`:
 
 ```sql
 -- +goose Up
@@ -725,7 +725,7 @@ They are **not** a Go safety issue, because Go never enters, and they are **neve
 - `database/store_run_opaque.go` (new).
 
 **internal/adapter**
-- `postgres/migrations/113_run_opaque_paths.sql`;
+- `postgres/migrations/123_run_opaque_paths.sql`;
 - `postgres/store_run_opaque.go` plus an integration test;
 - `gitlocal/provider.go` and `github/provider.go`: branch validation and `--end-of-options` for `checkout` and `reset --hard`;
 - `http/handlers_project.go:334-352`: 400 for an invalid branch;
@@ -929,7 +929,7 @@ Small, atomic, and each one green. The order guarantees that submodule workspace
 2. `feat(git): AddAll pins gitlinks and never enters nested repositories (KI-88)`: `AddAll` (pin and probe), `FindNested`, `RunInput`, the marker and FIFO tests, `addWorktree` switched over. Still refused at OpenRepo.
 3. `feat(policy): read-only paths (KI-88)`: domain and tests only, including combined directories, segment reach and git directory forms.
 4. `feat(core): read-only submodule paths in tool-call policy (KI-88)`: runtime wiring, the cache, the re-check after the checkpoint, the tool-call checkpoint deadline.
-5. `feat(db): run_opaque_paths (migration 113)`, plus the base record, the re-seed from the tip, the end-of-run report with the final listing, and the delivery and rollback warnings.
+5. `feat(db): run_opaque_paths (migration 123)`, plus the base record, the re-seed from the tip, the end-of-run report with the final listing, and the delivery and rollback warnings.
 6. `feat(core): accept submodules and nested repositories as opaque (KI-88)`: the OpenRepo flip, the walk removed, the tree caches, delivery pinning and the created-repository refusal, review pinning and `Impact.Warnings`, the gh refusal, the `.gitmodules` delivery rule, flipped tests, Status and Setup submodules.
 7. `feat(nats): read_only_paths on runs.start and conversation.run.start`: Go, Python, fixtures, the data element.
 8. `feat(frontend): submodules in project status, delivery and review warnings`.
