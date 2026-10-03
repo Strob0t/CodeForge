@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
+from codeforge.loop_config import ModelCapability
 from codeforge.models import (
     ConversationMessagePayload,
     ConversationRunStartMessage,
@@ -68,7 +69,10 @@ async def test_history_truncates_tool_results_at_the_configured_limit() -> None:
     )
     with (
         patch("codeforge.consumer._conversation.build_system_prompt", AsyncMock(return_value=("prompt", []))),
-        patch("codeforge.consumer._conversation.resolve_context_limit", AsyncMock(return_value=128_000)),
+        patch(
+            "codeforge.consumer._conversation.resolve_model_capability",
+            AsyncMock(return_value=ModelCapability(CapabilityLevel.FULL, 128_000)),
+        ),
         patch("codeforge.consumer._conversation.wire_skill_tools"),
         patch("codeforge.consumer._conversation.register_handoff_tool"),
         patch("codeforge.consumer._conversation.register_propose_goal_tool"),

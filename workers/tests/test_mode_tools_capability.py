@@ -49,6 +49,7 @@ def test_worker_names_in_mode_tools_still_work() -> None:
 def _loop_config(mode_tools: frozenset[str]) -> object:
     cfg, _ = build_loop_config(
         primary_model="openai/gpt-4o",
+        capability_level=CapabilityLevel.FULL,
         routing=RoutingResult(model="openai/gpt-4o"),
         tool_names=NAMES,
         fallback_models=[],

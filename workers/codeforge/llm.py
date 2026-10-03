@@ -327,42 +327,43 @@ def resolve_model_with_routing(
     return RoutingResult(model="", temperature=scenario_cfg.temperature, tags=tags)
 
 
-async def query_model_context_window(
-    client: httpx.AsyncClient,
-    model: str,
-    api_key: str = "",
-) -> int | None:
-    """Query the actual context window size for a model from the LiteLLM proxy.
+@dataclass(frozen=True)
+class ModelMetadata:
+    """What LiteLLM's ``/model/info`` reports for a model; None where it reports nothing."""
 
-    Returns max_input_tokens if available, None if unknown.
-    Uses the /model/info endpoint (same as benchmark consumer).
+    max_input_tokens: int | None = None
+    supports_function_calling: bool | None = None
+
+
+# How long a LiteLLMClient reuses the /model/info table.
+MODEL_INFO_TTL_SECONDS = 60.0
+
+
+def _model_info_table(data: object) -> dict[str, ModelMetadata]:
+    """Map the model names of a ``/model/info`` response to their metadata.
+
+    A row is found by its public name and by its LiteLLM model; the first row
+    of a name wins. Values of the wrong type count as unreported.
     """
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    try:
-        resp = await client.get("/model/info", headers=headers, timeout=5.0)
-        if resp.status_code != 200:
-            return None
-        data = resp.json().get("data", [])
-        for entry in data:
-            if not isinstance(entry, dict):
-                continue
-            info = entry.get("model_info", {})
-            model_name = entry.get("model_name", "")
-            litellm_model = entry.get("litellm_params", {}).get("model", "")
-            if model in (model_name, litellm_model):
-                max_input = info.get("max_input_tokens") or info.get("max_tokens")
-                if max_input and isinstance(max_input, (int, float)):
-                    return int(max_input)
-        return None
-    except (httpx.TimeoutException, httpx.ConnectError) as exc:
-        logger.debug("model info endpoint unreachable for %s: %s", model, exc)
-        return None
-    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("model info response malformed for %s: %s", model, exc)
-        return None
-    except httpx.HTTPStatusError as exc:
-        logger.debug("model info endpoint returned %d for %s", exc.response.status_code, model)
-        return None
+    rows = data.get("data", []) if isinstance(data, dict) else []
+    table: dict[str, ModelMetadata] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        info = row.get("model_info")
+        info = info if isinstance(info, dict) else {}
+        window = info.get("max_input_tokens") or info.get("max_tokens")
+        fc = info.get("supports_function_calling")
+        metadata = ModelMetadata(
+            max_input_tokens=int(window) if isinstance(window, (int, float)) and not isinstance(window, bool) else None,
+            supports_function_calling=fc if isinstance(fc, bool) else None,
+        )
+        params = row.get("litellm_params")
+        litellm_model = params.get("model") if isinstance(params, dict) else None
+        for name in (row.get("model_name"), litellm_model):
+            if isinstance(name, str) and name:
+                table.setdefault(name, metadata)
+    return table
 
 
 def load_routing_config() -> object | None:
@@ -477,6 +478,7 @@ class LiteLLMClient:
                 pool=self._config.connect_timeout,
             ),
         )
+        self._model_info: tuple[float, dict[str, ModelMetadata]] | None = None
 
     # -- retry / resilience helpers -----------------------------------------
 
@@ -896,6 +898,23 @@ class LiteLLMClient:
             raise LLMError(resp.status_code, model, resp.text)
         data = resp.json()
         return data["data"][0]["embedding"]
+
+    async def model_metadata(self, model: str) -> ModelMetadata:
+        """Return what LiteLLM's ``/model/info`` reports for *model* (KI-125).
+
+        The table is fetched once per MODEL_INFO_TTL_SECONDS; a failed fetch
+        is not cached and yields empty metadata.
+        """
+        now = time.monotonic()
+        if self._model_info is None or now - self._model_info[0] > MODEL_INFO_TTL_SECONDS:
+            try:
+                resp = await self._client.get("/model/info", timeout=5.0)
+                resp.raise_for_status()
+                self._model_info = (now, _model_info_table(resp.json()))
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("LiteLLM model info unavailable for %s: %s", model, exc)
+                return ModelMetadata()
+        return self._model_info[1].get(model, ModelMetadata())
 
     async def health(self) -> bool:
         """Check if the LiteLLM Proxy is healthy."""

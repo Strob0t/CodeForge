@@ -28,6 +28,13 @@ litellm:
   # Scenario-based routing is handled by LiteLLM's tag-based routing.
   # Configure model tags in litellm/config.yaml under litellm_params.tags.
   # Supported scenarios: default, background, think, longContext, review, plan
+  # Worker: tool capability per model (shell-style globs, first match wins;
+  # full, api_with_tools or pure_completion). It overrides LiteLLM's
+  # supports_function_calling and the name patterns. Env:
+  # CODEFORGE_MODEL_CAPABILITIES="ollama/*=api_with_tools,lm_studio/*=api_with_tools"
+  # model_capabilities:
+  #   "ollama/phi3*": pure_completion
+  #   "ollama/*": api_with_tools
 
 logging:
   level: "info"    # debug, info, warn, error

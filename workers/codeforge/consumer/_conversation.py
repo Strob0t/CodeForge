@@ -23,7 +23,7 @@ from codeforge.consumer._conversation_skill_integration import (
 )
 from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
-from codeforge.loop_config import build_loop_config
+from codeforge.loop_config import build_loop_config, resolve_model_capability
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
@@ -217,54 +217,6 @@ async def _prefetch_docs(
     return entries
 
 
-# Fallback limits when model info is unavailable (conservative defaults).
-_FALLBACK_CONTEXT_LIMITS: dict[str, int] = {
-    "full": 120_000,
-    "api_with_tools": 32_000,
-    "pure_completion": 16_000,
-}
-
-
-async def resolve_context_limit(
-    llm_client: object,
-    model: str,
-    capability_level: str,
-    api_key: str = "",
-) -> int:
-    """Resolve the effective context token limit for a model.
-
-    Queries the model's actual context window from LiteLLM, then applies
-    a safety margin (85% to leave room for output tokens). Falls back to
-    tier-based defaults if the model info is unavailable.
-    """
-    from codeforge.llm import query_model_context_window
-
-    fallback = _FALLBACK_CONTEXT_LIMITS.get(capability_level, 16_000)
-
-    # Access the underlying httpx client from LiteLLMClient.
-    http_client = getattr(llm_client, "_client", None)
-    if http_client is None:
-        logger.info("using fallback context limit (no http client)", model=model, limit=fallback)
-        return fallback
-
-    actual_window = await query_model_context_window(http_client, model, api_key)
-
-    if actual_window is not None:
-        # Use 85% of actual window to leave room for output tokens.
-        effective = int(actual_window * 0.85)
-        logger.info(
-            "resolved context limit from model info",
-            model=model,
-            actual=actual_window,
-            effective=effective,
-        )
-        # Don't exceed tier default even if model claims more.
-        return min(effective, fallback)
-
-    logger.info("using fallback context limit", model=model, capability=capability_level, limit=fallback)
-    return fallback
-
-
 class ConversationHandlerMixin:
     """Handles conversation.run.start messages -- agentic loop with tool calling."""
 
@@ -300,18 +252,10 @@ class ConversationHandlerMixin:
     ) -> list[dict[str, str]]:
         """Build the message list from system prompt, history, context, and session info."""
         from codeforge.history import ConversationHistoryManager, HistoryConfig
-        from codeforge.tools.capability import classify_model
 
-        # Resolve context limit early so it can inform prompt construction
-        # (e.g. compact tool guide for small-context models).
-        _cap_level = classify_model(run_msg.model)
-        _context_cap = await resolve_context_limit(
-            self._llm,
-            run_msg.model,
-            str(_cap_level),
-            api_key=getattr(self, "_litellm_key", ""),
-        )
-        log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
+        # The capability selects the tool guide and the context limit sizes
+        # the history (and picks a compact guide for small-context models).
+        capability = await resolve_model_capability(self._llm, run_msg.model)
 
         system_prompt, loaded_skills = await build_system_prompt(
             run_msg,
@@ -319,7 +263,7 @@ class ConversationHandlerMixin:
             log,
             self._db_url,
             self._llm,
-            context_limit=_context_cap,
+            capability=capability,
         )
 
         wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url, tenant_id=run_msg.tenant_id)
@@ -342,7 +286,7 @@ class ConversationHandlerMixin:
             summarizer = ConversationSummarizer(llm=self._llm, threshold=run_msg.summarize_threshold)
             run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
-        history_cfg = HistoryConfig(max_context_tokens=_context_cap)
+        history_cfg = HistoryConfig(max_context_tokens=capability.context_limit)
         if run_msg.tool_output_max_chars > 0:
             history_cfg.tool_output_max_chars = run_msg.tool_output_max_chars
 
@@ -701,8 +645,10 @@ class ConversationHandlerMixin:
             runtime=runtime,
             workspace_path=run_msg.workspace_path,
         )
+        capability = await resolve_model_capability(self._llm, primary_model)
         loop_cfg, complexity_hint = build_loop_config(
             primary_model=primary_model,
+            capability_level=capability.level,
             routing=routing,
             tool_names=registry.tool_names,
             fallback_models=fallback_models,

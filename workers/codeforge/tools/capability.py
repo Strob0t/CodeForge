@@ -8,11 +8,11 @@ Three capability levels determine how much tool-use guidance a model needs:
 
 from __future__ import annotations
 
-import logging
 import re
 from enum import StrEnum
+from fnmatch import fnmatchcase
 
-logger = logging.getLogger(__name__)
+from codeforge.config import get_settings
 
 # Models known to have strong, reliable tool-calling behaviour.
 _FULL_CAPABILITY_PATTERNS: list[re.Pattern[str]] = [
@@ -36,8 +36,8 @@ _API_WITH_TOOLS_PATTERNS: list[re.Pattern[str]] = [
 # Models that typically lack function-calling support entirely.
 # NOTE: ollama/ and lm_studio/ are local provider prefixes.
 # Some local models (e.g. Qwen2.5-Coder) DO support function calling.
-# The classify_model() logic only applies these patterns when litellm
-# has NOT confirmed FC support (supports_fc is not True).
+# classify_model() applies these patterns only without an override or
+# metadata for the model.
 _PURE_COMPLETION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"ollama/", re.IGNORECASE),
     re.compile(r"lm[-_]studio/", re.IGNORECASE),
@@ -107,44 +107,57 @@ TOOLS_BY_CAPABILITY: dict[CapabilityLevel, frozenset[str]] = {
 ALWAYS_OFFERED_TOOLS: frozenset[str] = frozenset({"handoff_to"})
 
 
-def classify_model(model: str) -> CapabilityLevel:
-    """Classify a model's tool-use capability level.
+def configured_capability(model: str) -> CapabilityLevel | None:
+    """Return the operator's capability for *model* (first matching pattern), or None.
 
-    Uses litellm.supports_function_calling() as the primary check when
-    available, then falls back to model name pattern matching.
+    Set by ``litellm.model_capabilities`` / ``CODEFORGE_MODEL_CAPABILITIES``;
+    the patterns are case-sensitive shell-style globs on the model name.
+    """
+    for pattern, level in get_settings().model_capabilities:
+        if fnmatchcase(model, pattern):
+            return CapabilityLevel(level)
+    return None
+
+
+def classify_model(model: str, *, supports_function_calling: bool | None = None) -> CapabilityLevel:
+    """Classify a model's tool-use capability level (KI-125).
+
+    In order: the operator's override (``configured_capability``), the
+    model's metadata (*supports_function_calling*, from LiteLLM's
+    ``/model/info``; None when it reports nothing), then the name patterns.
+    The override comes first so that a model the operator marks as
+    tool-capable gets tools even where the metadata says otherwise.
     """
     if not model:
         return CapabilityLevel.PURE_COMPLETION
 
-    # Try litellm check if available (it's a sidecar, not always importable).
-    supports_fc = _check_litellm_function_calling(model)
+    configured = configured_capability(model)
+    if configured is not None:
+        return configured
 
-    if supports_fc is False:
+    if supports_function_calling is False:
         return CapabilityLevel.PURE_COMPLETION
+    if supports_function_calling is True:
+        if any(pat.search(model) for pat in _FULL_CAPABILITY_PATTERNS):
+            return CapabilityLevel.FULL
+        return CapabilityLevel.API_WITH_TOOLS
 
-    # Check explicit pure-completion patterns first (most restrictive).
-    # Even if litellm says it supports FC, local model prefixes (ollama/)
-    # override because they rarely support tools reliably — UNLESS the
-    # model name matches a known FC-capable local model.
+    # No metadata: local model prefixes (ollama/, lm_studio/) and families
+    # that rarely support tools count as pure completion, unless the name
+    # matches a known FC-capable local model.
     for pat in _PURE_COMPLETION_PATTERNS:
-        if pat.search(model) and supports_fc is not True:
+        if pat.search(model):
             if any(fc_pat.search(model) for fc_pat in _LOCAL_FC_CAPABLE_PATTERNS):
                 return CapabilityLevel.API_WITH_TOOLS
             return CapabilityLevel.PURE_COMPLETION
 
-    # Check full capability patterns.
     for pat in _FULL_CAPABILITY_PATTERNS:
         if pat.search(model):
             return CapabilityLevel.FULL
 
-    # Check API-with-tools patterns.
     for pat in _API_WITH_TOOLS_PATTERNS:
         if pat.search(model):
             return CapabilityLevel.API_WITH_TOOLS
-
-    # If litellm confirmed function calling, assume api_with_tools.
-    if supports_fc is True:
-        return CapabilityLevel.API_WITH_TOOLS
 
     # OpenAI-compatible proxies (e.g. openai/container for LM Studio)
     # typically support function calling via the /v1/chat/completions
@@ -153,16 +166,5 @@ def classify_model(model: str) -> CapabilityLevel:
     if model.startswith("openai/"):
         return CapabilityLevel.API_WITH_TOOLS
 
-    # Unknown model without litellm confirmation — be conservative.
+    # Unknown model without metadata: be conservative.
     return CapabilityLevel.PURE_COMPLETION
-
-
-def _check_litellm_function_calling(model: str) -> bool | None:
-    """Check litellm.supports_function_calling if available. Returns None if not importable."""
-    try:
-        import litellm
-
-        return bool(litellm.supports_function_calling(model=model))
-    except (ImportError, Exception):
-        logger.debug("litellm not available for function-calling check, using pattern matching")
-        return None

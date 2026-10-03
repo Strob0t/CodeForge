@@ -8,8 +8,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from codeforge.tools.capability import CapabilityLevel
+
 if TYPE_CHECKING:
     from codeforge.llm import LiteLLMClient
+    from codeforge.loop_config import ModelCapability
 
 logger = structlog.get_logger()
 
@@ -50,20 +53,19 @@ _COMPACT_GUIDE_THRESHOLD = int(os.getenv("CODEFORGE_COMPACT_GUIDE_THRESHOLD", "3
 def inject_tool_guide(
     system_prompt: str,
     registry: object,
-    model: str,
+    level: CapabilityLevel,
     log: structlog.stdlib.BoundLogger,
     *,
     context_limit: int = 0,
 ) -> str:
     """Augment system prompt with adaptive tool-usage guide for weaker models.
 
-    When *context_limit* is set and falls below the compact threshold,
-    a shorter guide is emitted to conserve the context budget.
+    *level* is the model's capability (``resolve_model_capability``). When
+    *context_limit* is set and falls below the compact threshold, a shorter
+    guide is emitted to conserve the context budget.
     """
-    from codeforge.tools.capability import CapabilityLevel, classify_model
     from codeforge.tools.tool_guide import build_tool_usage_guide
 
-    level = classify_model(model)
     if level == CapabilityLevel.FULL:
         return system_prompt
 
@@ -192,12 +194,12 @@ async def build_system_prompt(
     db_url: str,
     llm: LiteLLMClient,
     *,
-    context_limit: int = 0,
+    capability: ModelCapability,
 ) -> tuple[str, list]:
     """Assemble the full system prompt with microagents, skills, and tool guide.
 
-    *context_limit* is forwarded to `inject_tool_guide` so it can switch to
-    a compact guide when the model's context window is small.
+    The model's *capability* selects the tool guide; its context limit lets
+    `inject_tool_guide` switch to a compact guide for a small context window.
 
     Returns (system_prompt, loaded_skills).
     """
@@ -234,5 +236,5 @@ async def build_system_prompt(
         llm,
     )
 
-    prompt = inject_tool_guide(system_prompt, registry, run_msg.model, log, context_limit=context_limit)
+    prompt = inject_tool_guide(system_prompt, registry, capability.level, log, context_limit=capability.context_limit)
     return prompt, loaded_skills

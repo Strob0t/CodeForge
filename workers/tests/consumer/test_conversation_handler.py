@@ -17,15 +17,19 @@ import pytest
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
+from codeforge.loop_config import ModelCapability
 from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
     ConversationRunStartMessage,
     ModeConfig,
 )
+from codeforge.tools.capability import CapabilityLevel
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+_CAPABILITY = ModelCapability(level=CapabilityLevel.FULL, context_limit=120_000)
 
 
 def _make_valid_run_start(
@@ -98,7 +102,7 @@ async def _run_with_patched_dependencies(
         patch("codeforge.tools.build_default_registry") as mock_registry_fn,
         patch("codeforge.history.ConversationHistoryManager") as mock_history_cls,
         patch("codeforge.history.HistoryConfig"),
-        patch("codeforge.tools.capability.classify_model") as mock_classify,
+        patch("codeforge.consumer._conversation.resolve_model_capability", AsyncMock(return_value=_CAPABILITY)),
         patch("asyncio.to_thread") as mock_to_thread,
     ):
         runtime_instance = AsyncMock()
@@ -109,10 +113,6 @@ async def _run_with_patched_dependencies(
         history_instance = MagicMock()
         history_instance.build_messages.return_value = [{"role": "system", "content": "prompt"}]
         mock_history_cls.return_value = history_instance
-
-        from codeforge.tools.capability import CapabilityLevel
-
-        mock_classify.return_value = CapabilityLevel.FULL
 
         mock_routing_result = MagicMock()
         mock_routing_result.model = "openai/gpt-4o"
@@ -536,7 +536,9 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            prompt, _skills = await build_system_prompt(
+                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
+            )
 
         assert isinstance(prompt, str)
         assert len(prompt) > 0
@@ -562,7 +564,9 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            prompt, _ = await build_system_prompt(
+                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
+            )
 
         assert "Microagent Instructions" in prompt
         assert "Do X carefully" in prompt
@@ -589,7 +593,9 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            prompt, _ = await build_system_prompt(
+                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
+            )
 
         assert "System Reminders" in prompt
         assert "Remember to commit" in prompt
@@ -616,7 +622,9 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            _, skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", MagicMock())
+            _, skills = await build_system_prompt(
+                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
+            )
 
         assert skills == fake_skills
         assert len(skills) == 2

@@ -28,10 +28,13 @@ async def resolve_model_and_fallbacks(
 ) -> tuple[str, RoutingResult, list[str]]:
     """Resolve the primary model via routing and build its fallback chain.
 
-    An explicit model wins over the routed one. Returns (primary_model,
-    routing_result, fallback_models).
+    An explicit model wins over the routed one; without either (routing off,
+    no model in the config) the default model is resolved here, so that the
+    run's tool capability is that of the model it calls (KI-125). Returns
+    (primary_model, routing_result, fallback_models).
     """
     from codeforge.llm import resolve_model_with_routing
+    from codeforge.model_resolver import resolve_model
 
     router = await get_hybrid_router(litellm_url, litellm_key)
     routing = await asyncio.to_thread(
@@ -46,6 +49,9 @@ async def resolve_model_and_fallbacks(
         log.info("explicit model overrides routing", explicit=explicit_model, routed=routing.model)
     elif not explicit_model and routing.model:
         log.info("routing selected model", model=routing.model, scenario=scenario)
+    if not primary_model:
+        primary_model = await asyncio.to_thread(resolve_model)
+        log.info("default model selected", model=primary_model)
 
     fallback_models = await build_fallback_chain(
         router,

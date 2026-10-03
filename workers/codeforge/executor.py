@@ -9,12 +9,11 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.agent_loop import AgentLoopExecutor
-from codeforge.loop_config import build_loop_config
+from codeforge.loop_config import build_loop_config, resolve_model_capability
 from codeforge.mcp_workbench import McpWorkbench
 from codeforge.models import ModeConfig, TaskMessage, TaskResult, TaskStatus
 from codeforge.pricing import resolve_cost
 from codeforge.tools import build_default_registry
-from codeforge.tools.capability import classify_model
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
@@ -162,7 +161,6 @@ class AgentExecutor:
         # The run path shares the conversation path's routing, loop setup and
         # tool guide; imported here because the consumer package imports this
         # module.
-        from codeforge.consumer._conversation import resolve_context_limit
         from codeforge.consumer._conversation_prompt_builder import inject_tool_guide
         from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
 
@@ -195,13 +193,14 @@ class AgentExecutor:
             base_prompt = (
                 mode.prompt_prefix if mode and mode.prompt_prefix else f"You are working on task: {task.title}"
             )
-            context_limit = await resolve_context_limit(
-                self._llm, primary_model, str(classify_model(primary_model)), api_key=self._litellm_key
+            capability = await resolve_model_capability(self._llm, primary_model)
+            system_prompt = inject_tool_guide(
+                base_prompt, registry, capability.level, log, context_limit=capability.context_limit
             )
-            system_prompt = inject_tool_guide(base_prompt, registry, primary_model, log, context_limit=context_limit)
 
             config, complexity_hint = build_loop_config(
                 primary_model=primary_model,
+                capability_level=capability.level,
                 routing=routing,
                 tool_names=registry.tool_names,
                 fallback_models=fallback_models,

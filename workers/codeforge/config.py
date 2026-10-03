@@ -140,6 +140,42 @@ def _resolve_float(env_key: str, yaml_value: object, default: float) -> float:
     return default
 
 
+MODEL_CAPABILITIES_ENV = "CODEFORGE_MODEL_CAPABILITIES"
+# The levels of codeforge.tools.capability.CapabilityLevel (not imported here: that package imports this module).
+_CAPABILITY_LEVELS = frozenset({"full", "api_with_tools", "pure_completion"})
+
+
+def _resolve_model_capabilities(yaml_value: object) -> tuple[tuple[str, str], ...]:
+    """Resolve the operator's tool-capability overrides: env var > YAML > none.
+
+    The env var holds ``pattern=level`` entries separated by commas, the YAML
+    key (``litellm.model_capabilities``) a mapping of pattern to level.
+    Patterns are shell-style globs on the model name; the first match wins.
+    An entry without a pattern or with an unknown level is refused.
+    """
+    env = os.environ.get(MODEL_CAPABILITIES_ENV, "")
+    entries: list[tuple[str, str]] = []
+    if env.strip():
+        for item in env.split(","):
+            if not item.strip():
+                continue
+            pattern, sep, level = item.partition("=")
+            if not sep:
+                msg = f"{MODEL_CAPABILITIES_ENV}: entry {item.strip()!r} is not pattern=level"
+                raise ValueError(msg)
+            entries.append((pattern.strip(), level.strip()))
+    elif isinstance(yaml_value, dict):
+        entries = [(str(pattern).strip(), str(level).strip()) for pattern, level in yaml_value.items()]
+    for pattern, level in entries:
+        if not pattern or level not in _CAPABILITY_LEVELS:
+            msg = (
+                f"{MODEL_CAPABILITIES_ENV} / litellm.model_capabilities: entry {pattern!r}={level!r} needs a "
+                f"pattern and one of the levels {', '.join(sorted(_CAPABILITY_LEVELS))}"
+            )
+            raise ValueError(msg)
+    return tuple(entries)
+
+
 def resolve_backend_path(explicit: str | None, env_var: str, default: str) -> str:
     """Resolve a backend CLI/URL path using explicit value, env var, or default."""
     if explicit:
@@ -183,6 +219,7 @@ class WorkerSettings:
 
     # LLM
     default_model: str
+    model_capabilities: tuple[tuple[str, str], ...]
 
     # Consumer
     consumer_max_errors: int
@@ -293,6 +330,8 @@ class WorkerSettings:
 
         # --- LLM ---
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")
+        # Tool capability per model, above LiteLLM's metadata and the name patterns (KI-125).
+        self.model_capabilities = _resolve_model_capabilities(litellm_cfg.get("model_capabilities"))
 
         # --- Consumer ---
         consumer_cfg: dict = yaml_cfg.get("consumer", {}) if isinstance(yaml_cfg.get("consumer"), dict) else {}

@@ -14,6 +14,7 @@ from codeforge.llm import RoutingResult, ToolCallPart
 from codeforge.loop_config import build_loop_config
 from codeforge.models import RunStartMessage
 from codeforge.tool_executor import ToolExecutor
+from codeforge.tools.capability import CapabilityLevel
 
 
 def test_tool_results_appended_in_the_loop_are_truncated() -> None:
@@ -38,6 +39,7 @@ def test_short_results_and_the_default_limit() -> None:
 def test_build_loop_config_carries_the_limit() -> None:
     cfg, _ = build_loop_config(
         primary_model="openai/gpt-4o",
+        capability_level=CapabilityLevel.FULL,
         routing=RoutingResult(model="openai/gpt-4o"),
         tool_names=["bash"],
         fallback_models=[],
