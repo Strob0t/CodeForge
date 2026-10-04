@@ -23,15 +23,23 @@ const retentionConversationBatch = 100
 // user agents of old consent records. The policy is one configuration for the
 // whole instance, so a sweep covers all tenants. Agent events and benchmark
 // results are not purged: their retention needs a decision about trajectories.
+// It also removes the bookkeeping that makes deliveries idempotent once it can
+// no longer matter (KI-90): done handoff claims and webhook delivery claims
+// past their dedup window.
 type RetentionService struct {
 	store  database.RetentionStore
 	config config.Retention
-	now    func() time.Time
+	// webhookDeliveries is the dedup window of the inbound webhooks
+	// (webhook.delivery_retention): their delivery claims expire after it.
+	webhookDeliveries time.Duration
+	now               func() time.Time
 }
 
-// NewRetentionService creates a retention service with the given store and policy.
-func NewRetentionService(store database.RetentionStore, cfg config.Retention) *RetentionService {
-	return &RetentionService{store: store, config: cfg, now: time.Now}
+// NewRetentionService creates a retention service with the given store and
+// policy; webhookDeliveries is the webhooks' dedup window
+// (webhook.delivery_retention).
+func NewRetentionService(store database.RetentionStore, cfg config.Retention, webhookDeliveries time.Duration) *RetentionService {
+	return &RetentionService{store: store, config: cfg, webhookDeliveries: webhookDeliveries, now: time.Now}
 }
 
 // retentionCategory is one kind of data with its retention period.
@@ -54,6 +62,8 @@ func (s *RetentionService) categories(purge database.RetentionPurger) []retentio
 		{"audit_entries", "deleted", s.config.AuditEntries, retentionBatchSize, purge.DeleteExpiredAuditEntries},
 		{"audit_ip_addresses", "anonymized", s.config.AuditIPAddresses, retentionBatchSize, purge.AnonymizeExpiredIPAddresses},
 		{"consent_ip_addresses", "anonymized", s.config.ConsentIPAddresses, retentionBatchSize, purge.AnonymizeExpiredConsentIPAddresses},
+		{"handoff_claims", "deleted", s.config.HandoffClaims, retentionBatchSize, purge.DeleteExpiredHandoffClaims},
+		{"webhook_deliveries", "deleted", s.webhookDeliveries, retentionBatchSize, purge.DeleteExpiredWebhookDeliveries},
 	}
 }
 
@@ -173,6 +183,8 @@ func (s *RetentionService) Start(ctx context.Context) (stop func()) {
 		"audit_entries", s.config.AuditEntries,
 		"audit_ip_addresses", s.config.AuditIPAddresses,
 		"consent_ip_addresses", s.config.ConsentIPAddresses,
+		"handoff_claims", s.config.HandoffClaims,
+		"webhook_deliveries", s.webhookDeliveries,
 	)
 	return startPeriodic(ctx, s.config.Interval, true, s.RunCleanup)
 }

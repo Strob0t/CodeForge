@@ -28,6 +28,12 @@ type RetentionPurger interface {
 	DeleteExpiredAuditEntries(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	AnonymizeExpiredIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	AnonymizeExpiredConsentIPAddresses(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	// DeleteExpiredHandoffClaims deletes handoff claims whose stage was done
+	// (carried out or refused) before the cutoff; claims never done stay.
+	DeleteExpiredHandoffClaims(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	// DeleteExpiredWebhookDeliveries deletes webhook delivery claims
+	// received before the cutoff (past their dedup window).
+	DeleteExpiredWebhookDeliveries(ctx context.Context, before time.Time, batchSize int) (int64, error)
 	// DeleteExpiredOAuthStates deletes the OAuth states of abandoned flows
 	// (past their own expiry; a system step of every sweep).
 	DeleteExpiredOAuthStates(ctx context.Context) (int64, error)

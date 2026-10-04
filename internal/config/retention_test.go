@@ -27,6 +27,9 @@ func TestRetentionDefaultsMatchPolicy(t *testing.T) {
 		{"audit_entries (7 years)", r.AuditEntries, 7 * 365 * day},
 		{"audit_ip_addresses (180 days)", r.AuditIPAddresses, 180 * day},
 		{"consent_ip_addresses (180 days)", r.ConsentIPAddresses, 180 * day},
+		// KI-90: past the NATS stream's 30-day max age, so a done claim
+		// never meets a redelivery of its message.
+		{"handoff_claims (30 days)", r.HandoffClaims, 30 * day},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {
@@ -41,6 +44,7 @@ func TestRetentionEnv(t *testing.T) {
 	t.Setenv("CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES", "2160h")
 	t.Setenv("CODEFORGE_RETENTION_CONSENT_IP_ADDRESSES", "720h")
 	t.Setenv("CODEFORGE_RETENTION_SESSIONS", "0s")
+	t.Setenv("CODEFORGE_RETENTION_HANDOFF_CLAIMS", "2160h")
 	loadEnv(&cfg)
 	if cfg.Retention.Interval != 12*time.Hour {
 		t.Errorf("interval = %v, want 12h", cfg.Retention.Interval)
@@ -53,6 +57,9 @@ func TestRetentionEnv(t *testing.T) {
 	}
 	if cfg.Retention.Sessions != 0 {
 		t.Errorf("sessions = %v, want 0 (category disabled)", cfg.Retention.Sessions)
+	}
+	if cfg.Retention.HandoffClaims != 90*day {
+		t.Errorf("handoff_claims = %v, want 2160h", cfg.Retention.HandoffClaims)
 	}
 }
 
@@ -94,6 +101,8 @@ func TestValidate_Retention(t *testing.T) {
 		{"audit IPs below one day", func(r *Retention) { r.AuditIPAddresses = time.Nanosecond }, "retention.audit_ip_addresses"},
 		{"consent IPs below one day", func(r *Retention) { r.ConsentIPAddresses = 12 * time.Hour }, "retention.consent_ip_addresses"},
 		{"consent IPs kept", func(r *Retention) { r.ConsentIPAddresses = 0 }, ""},
+		{"handoff claims below one day", func(r *Retention) { r.HandoffClaims = time.Hour }, "retention.handoff_claims"},
+		{"handoff claims kept", func(r *Retention) { r.HandoffClaims = 0 }, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1196,7 +1196,7 @@ func run() error {
 	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
 	// Its own daily ticker: the stuck-work watchdog ticks every
 	// stale_check_interval and reports what it ends as stuck work.
-	stopRetention := service.NewRetentionService(store, cfg.Retention).Start(ctx)
+	stopRetention := service.NewRetentionService(store, cfg.Retention, cfg.Webhook.DeliveryRetention).Start(ctx)
 
 	<-done
 

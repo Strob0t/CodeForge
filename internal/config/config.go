@@ -66,6 +66,11 @@ type Retention struct {
 	AuditEntries       time.Duration `yaml:"audit_entries"`        // Max age of audit log entries (default: 61320h, 7 years)
 	AuditIPAddresses   time.Duration `yaml:"audit_ip_addresses"`   // Max age of IP addresses in audit entries (default: 180 days)
 	ConsentIPAddresses time.Duration `yaml:"consent_ip_addresses"` // Max age of IP addresses + user agents in consent records (default: 180 days)
+	// HandoffClaims is how long a handoff stage's claim is kept once the
+	// stage was done (KI-90). A redelivered handoff message finds its claim
+	// within this period; the default outlasts the NATS stream's 30-day
+	// max age, after which no message of the stage can come back.
+	HandoffClaims time.Duration `yaml:"handoff_claims"` // Max age of done handoff claims (default: 720h, 30 days)
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).
@@ -829,6 +834,7 @@ func Defaults() Config {
 			AuditEntries:       7 * 365 * 24 * time.Hour, // 7 years (SOC 2)
 			AuditIPAddresses:   180 * 24 * time.Hour,     // 180 days (CNIL)
 			ConsentIPAddresses: 180 * 24 * time.Hour,     // 180 days, like audit IP addresses
+			HandoffClaims:      30 * 24 * time.Hour,      // 30 days, the NATS stream's max age
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,

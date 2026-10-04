@@ -21,10 +21,16 @@ import (
 // category, works off a backlog in bounded batches, keeps going when one
 // category fails, and runs on a ticker that stops with the server.
 
-// retentionCategories in sweep order.
+// retentionCategories in sweep order. KI-90: done handoff claims and
+// webhook delivery claims past their dedup window are purged as well.
 var retentionCategories = []string{
 	"sessions", "conversations", "runs", "audit_entries", "audit_ip_addresses", "consent_ip_addresses",
+	"handoff_claims", "webhook_deliveries",
 }
+
+// testWebhookDeliveryWindow is webhook.delivery_retention in the tests: the
+// dedup window after which a webhook's delivery claims are purged.
+const testWebhookDeliveryWindow = 7 * 24 * time.Hour
 
 type retentionCall struct {
 	category     string
@@ -157,6 +163,14 @@ func (f *fakeRetentionStore) AnonymizeExpiredConsentIPAddresses(ctx context.Cont
 	return f.record(ctx, retentionCall{category: "consent_ip_addresses", before: before, batchSize: batchSize})
 }
 
+func (f *fakeRetentionStore) DeleteExpiredHandoffClaims(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	return f.record(ctx, retentionCall{category: "handoff_claims", before: before, batchSize: batchSize})
+}
+
+func (f *fakeRetentionStore) DeleteExpiredWebhookDeliveries(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	return f.record(ctx, retentionCall{category: "webhook_deliveries", before: before, batchSize: batchSize})
+}
+
 func (f *fakeRetentionStore) callsOf(category string) []retentionCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -179,11 +193,12 @@ func testRetentionPolicy() config.Retention {
 		AuditEntries:       7 * 365 * day,
 		AuditIPAddresses:   180 * day,
 		ConsentIPAddresses: 90 * day,
+		HandoffClaims:      45 * day,
 	}
 }
 
 func newTestRetentionService(store *fakeRetentionStore, policy config.Retention, now time.Time) *RetentionService {
-	svc := NewRetentionService(store, policy)
+	svc := NewRetentionService(store, policy, testWebhookDeliveryWindow)
 	svc.now = func() time.Time { return now }
 	return svc
 }
@@ -211,6 +226,8 @@ func TestRetention_CutoffPerCategory(t *testing.T) {
 		"audit_entries":        time.Date(2019, 9, 30, 12, 0, 0, 0, time.UTC),
 		"audit_ip_addresses":   now.Add(-policy.AuditIPAddresses),
 		"consent_ip_addresses": now.Add(-policy.ConsentIPAddresses),
+		"handoff_claims":       now.Add(-policy.HandoffClaims),
+		"webhook_deliveries":   now.Add(-testWebhookDeliveryWindow),
 	}
 	for _, category := range retentionCategories {
 		calls := store.callsOf(category)
@@ -290,6 +307,7 @@ func TestRetention_ZeroPeriodKeepsCategory(t *testing.T) {
 		{"audit_entries", func(p *config.Retention) { p.AuditEntries = 0 }, []string{"audit_entries"}},
 		{"audit_ip_addresses", func(p *config.Retention) { p.AuditIPAddresses = 0 }, []string{"audit_ip_addresses"}},
 		{"consent_ip_addresses", func(p *config.Retention) { p.ConsentIPAddresses = 0 }, []string{"consent_ip_addresses"}},
+		{"handoff_claims", func(p *config.Retention) { p.HandoffClaims = 0 }, []string{"handoff_claims"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.setting, func(t *testing.T) {
@@ -317,11 +335,14 @@ func TestRetention_WorksOffBacklogInBatches(t *testing.T) {
 		"runs":                 {retentionBatchSize - 1},
 		"audit_ip_addresses":   {retentionBatchSize, retentionBatchSize, retentionBatchSize, 1},
 		"consent_ip_addresses": {retentionBatchSize, 5},
+		"handoff_claims":       {retentionBatchSize, 2},
+		"webhook_deliveries":   {retentionBatchSize, retentionBatchSize, 0},
 	}}
 	newTestRetentionService(store, testRetentionPolicy(), time.Now()).RunCleanup(context.Background())
 
 	for category, want := range map[string]int{
 		"sessions": 3, "conversations": 2, "runs": 1, "audit_entries": 1, "audit_ip_addresses": 4, "consent_ip_addresses": 2,
+		"handoff_claims": 2, "webhook_deliveries": 3,
 	} {
 		if got := len(store.callsOf(category)); got != want {
 			t.Errorf("%s: %d batches, want %d", category, got, want)
@@ -444,7 +465,7 @@ func TestRetention_StartSweepsAtOnceAndOnEveryTick(t *testing.T) {
 	}}
 	policy := testRetentionPolicy()
 	policy.Interval = 20 * time.Millisecond
-	stop := NewRetentionService(store, policy).Start(context.Background())
+	stop := NewRetentionService(store, policy, testWebhookDeliveryWindow).Start(context.Background())
 	defer stop()
 
 	for i := range 3 {
@@ -471,7 +492,7 @@ func TestRetention_StopWaitsForRunningSweep(t *testing.T) {
 		mu.Unlock()
 		return ctx.Err()
 	}}
-	stop := NewRetentionService(store, testRetentionPolicy()).Start(context.Background()) // interval: one day
+	stop := NewRetentionService(store, testRetentionPolicy(), testWebhookDeliveryWindow).Start(context.Background()) // interval: one day
 
 	select {
 	case <-started:
@@ -495,7 +516,7 @@ func TestRetention_ZeroIntervalDisablesJob(t *testing.T) {
 		store := &fakeRetentionStore{}
 		policy := testRetentionPolicy()
 		policy.Interval = interval
-		stop := NewRetentionService(store, policy).Start(context.Background())
+		stop := NewRetentionService(store, policy, testWebhookDeliveryWindow).Start(context.Background())
 		stop()
 		if len(store.calls) != 0 {
 			t.Fatalf("interval %v: %d store calls, want none", interval, len(store.calls))

@@ -29,7 +29,9 @@ import (
 // statement repeats the age predicate on the rows it deletes - PostgreSQL
 // re-evaluates it on the newest version of a row written concurrently (READ
 // COMMITTED), and a row that became active again is left alone. Audit entries
-// and consent records age by their creation, which never changes.
+// and consent records age by their creation, which never changes; handoff
+// claims by the time their stage was done and webhook delivery claims by the
+// time they were received (KI-90).
 
 // retentionLockKey is the advisory lock that lets one Go Core replica (or one
 // blue-green color) sweep at a time.
@@ -232,6 +234,42 @@ func (p retentionPurger) AnonymizeExpiredConsentIPAddresses(ctx context.Context,
 		before, batchSize)
 	if err != nil {
 		return 0, fmt.Errorf("anonymize expired consent ip addresses: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteExpiredHandoffClaims deletes up to batchSize handoff claims whose
+// stage was done (carried out or refused) before the cutoff and returns how
+// many it deleted (KI-90). A claim never done is kept, however old: a
+// redelivery of its message may still take it over and reuse its task (a
+// released claim's claimed_at is -infinity).
+//
+// INTENTIONALLY CROSS-TENANT: instance-wide retention job (see file comment).
+func (p retentionPurger) DeleteExpiredHandoffClaims(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	tag, err := p.conn.Exec(ctx,
+		`DELETE FROM handoff_claims WHERE (tenant_id, handoff_id, stage) IN (
+		   SELECT tenant_id, handoff_id, stage FROM handoff_claims WHERE done_at < $1 LIMIT $2
+		 ) AND done_at < $1`, before, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired handoff claims: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteExpiredWebhookDeliveries deletes up to batchSize webhook delivery
+// claims received before the cutoff - the caller passes the end of their
+// dedup window (webhook.delivery_retention) - and returns how many it
+// deleted (KI-90). A webhook prunes its own claims on its next delivery; this
+// covers the webhooks that receive none.
+//
+// INTENTIONALLY CROSS-TENANT: instance-wide retention job (see file comment).
+func (p retentionPurger) DeleteExpiredWebhookDeliveries(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+	tag, err := p.conn.Exec(ctx,
+		`DELETE FROM webhook_deliveries WHERE (webhook_id, delivery_key) IN (
+		   SELECT webhook_id, delivery_key FROM webhook_deliveries WHERE received_at < $1 LIMIT $2
+		 ) AND received_at < $1`, before, batchSize)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired webhook deliveries: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
