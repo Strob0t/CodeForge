@@ -71,7 +71,8 @@ class ProjectIndex:
     project_id: str
     chunks: list[CodeChunk]
     bm25: bm25s.BM25
-    embeddings: np.ndarray
+    # None: the embedding model was unavailable, the index is BM25-only (KI-130).
+    embeddings: np.ndarray | None
     file_count: int
     chunk_count: int
     embedding_model: str
@@ -370,6 +371,8 @@ class HybridRetriever:
         self._litellm_url = litellm_url.rstrip("/")
         self._litellm_key = litellm_key
         self._client: httpx.AsyncClient | None = None
+        # Embedding models found unavailable: reported once, not on every index build.
+        self._unavailable_embedding_models: set[str] = set()
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -421,6 +424,7 @@ class HybridRetriever:
             can_incremental = (
                 prior is not None
                 and prior.embedding_model == embedding_model
+                and prior.embeddings is not None  # a BM25-only index is rebuilt in full
                 and prior.file_hashes  # non-empty hash map
             )
 
@@ -477,8 +481,7 @@ class HybridRetriever:
         corpus = [c.content for c in chunks]
         bm25 = await asyncio.to_thread(_build_bm25, corpus)
 
-        # Embed all chunks
-        embeddings = await self._embed_texts(corpus, embedding_model)
+        embeddings = await self._embed_or_none(corpus, embedding_model, log)
 
         index = ProjectIndex(
             project_id=project_id,
@@ -569,11 +572,16 @@ class HybridRetriever:
                 chunk_count=len(file_chunks),
             )
 
-        # Embed only new/changed chunks.
+        # Embed only new/changed chunks; without the embedding model the
+        # index becomes BM25-only.
+        embeddings_available = True
         if new_chunks:
             new_corpus = [c.content for c in new_chunks]
-            new_embeddings = await self._embed_texts(new_corpus, embedding_model)
-            embedding_rows.append(new_embeddings)
+            new_embeddings = await self._embed_or_none(new_corpus, embedding_model, log)
+            if new_embeddings is None:
+                embeddings_available = False
+            else:
+                embedding_rows.append(new_embeddings)
             chunks.extend(new_chunks)
 
         if not chunks:
@@ -589,9 +597,11 @@ class HybridRetriever:
 
         # Concatenate embeddings and rebuild BM25 (always full) off the event
         # loop: both scale with the repository.
-        all_embeddings = (
-            await asyncio.to_thread(np.concatenate, embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
-        )
+        all_embeddings: np.ndarray | None = None
+        if embeddings_available:
+            all_embeddings = (
+                await asyncio.to_thread(np.concatenate, embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
+            )
         corpus = [c.content for c in chunks]
         bm25 = await asyncio.to_thread(_build_bm25, corpus)
 
@@ -657,12 +667,13 @@ class HybridRetriever:
         # bm25_results shape: (1, k) -- indices into chunks
         bm25_ranking: list[int] = [int(idx) for idx in bm25_results[0]]
 
-        # Semantic retrieval
-        if query_embedding is None:
-            query_embedding = (await self._embed_texts([query], index.embedding_model))[0]
-        query_vec = query_embedding
-        cosine_scores = self._cosine_similarity(query_vec, index.embeddings)
-        semantic_ranking: list[int] = list(np.argsort(-cosine_scores))
+        # Semantic retrieval (none for a BM25-only index)
+        semantic_ranking: list[int] = []
+        if index.embeddings is not None:
+            if query_embedding is None:
+                query_embedding = (await self._embed_texts([query], index.embedding_model))[0]
+            cosine_scores = self._cosine_similarity(query_embedding, index.embeddings)
+            semantic_ranking = list(np.argsort(-cosine_scores))
 
         # RRF fusion
         fused = self._rrf_fuse(bm25_ranking, semantic_ranking)
@@ -720,6 +731,30 @@ class HybridRetriever:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _embed_or_none(
+        self, texts: list[str], model: str, log: structlog.stdlib.BoundLogger
+    ) -> np.ndarray | None:
+        """Embed *texts*, or return None when the embedding model cannot be used (KI-130).
+
+        Without an embedding provider (no key for the default cloud model, a
+        local-only installation) the index is BM25-only; that is reported once
+        per model, not on every index build.
+        """
+        try:
+            embeddings = await self._embed_texts(texts, model)
+        except httpx.HTTPError as exc:
+            if model not in self._unavailable_embedding_models:
+                self._unavailable_embedding_models.add(model)
+                log.warning(
+                    "embedding model unavailable, retrieval indexes are BM25 only "
+                    "(set orchestrator.default_embedding_model / CODEFORGE_ORCH_EMBEDDING_MODEL)",
+                    embedding_model=model,
+                    error=str(exc),
+                )
+            return None
+        self._unavailable_embedding_models.discard(model)
+        return embeddings
 
     async def _embed_texts(self, texts: list[str], model: str = "text-embedding-3-small") -> np.ndarray:
         """Batch-embed texts via the LiteLLM /v1/embeddings endpoint."""
@@ -902,7 +937,7 @@ class RetrievalSubAgent:
         # Batch-embed all queries in one call if index exists.
         embeddings: list[np.ndarray | None] = [None] * len(queries)
         index = self._retriever._indexes.get(project_id)
-        if index is not None:
+        if index is not None and index.embeddings is not None:
             try:
                 all_vecs = await self._retriever._embed_texts(queries, index.embedding_model)
                 embeddings = list(all_vecs)

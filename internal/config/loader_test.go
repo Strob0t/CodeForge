@@ -489,6 +489,16 @@ func TestReviewRouterEnvOverride(t *testing.T) {
 	}
 }
 
+// A local-only installation sets its embedding model without YAML (KI-130).
+func TestEmbeddingModelEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_ORCH_EMBEDDING_MODEL", "ollama/nomic-embed-text")
+	loadEnv(&cfg)
+	if cfg.Orchestrator.DefaultEmbeddingModel != "ollama/nomic-embed-text" {
+		t.Errorf("default_embedding_model = %q, want the env value", cfg.Orchestrator.DefaultEmbeddingModel)
+	}
+}
+
 func TestParseFlagsInvalid(t *testing.T) {
 	_, err := ParseFlags([]string{"--unknown-flag"})
 	if err == nil {
