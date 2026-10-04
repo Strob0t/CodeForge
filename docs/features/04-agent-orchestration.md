@@ -313,7 +313,7 @@ sequenceDiagram
 
 ### Completed (Phase 5 -- Multi-Agent Orchestration)
 
-- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (a failed or cancelled step ends sequential/parallel plans as failed and skips blocked dependents; a step whose run stalled gets a new run up to `runtime.stall_max_retries` times, KI-62).
+- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (a failed or cancelled step ends sequential/parallel plans as failed and skips blocked dependents; a step whose run stalled gets a new run up to `runtime.stall_max_retries` times, counted per step, and the new run's prompt names the stall, KI-62, KI-94; an agent works on one plan at a time: starting a plan whose agent works on another running plan of the project answers 409, debate sub-plans use their step's agent; cancelling a plan cancels its debates).
 - [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection.
 - [x] Agent teams: internal team assembly by the orchestrator/task planner (`PoolManagerService`, `internal/service/pool_manager.go`); the team CRUD REST API and Teams page were removed (only `/teams/{teamId}/shared-context` remains). A team ends with its plan (completed, failed or cancelled; the watchdog check "ended teams" covers plans that ended while the Go Core was down, KI-33).
 - [x] Context optimizer: token budget management, workspace scanning, context packing.

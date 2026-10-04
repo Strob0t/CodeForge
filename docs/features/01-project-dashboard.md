@@ -16,7 +16,7 @@ Management of multiple repositories across different SCM platforms. Users can ad
 | GitHub (API) | `adapter/github/` | Token-auth clone, ListRepos (REST), status/pull/branches/checkout via git CLI. Push, PRs, Issues are declared as capabilities but not implemented |
 | GitLab | `adapter/gitlab/` | Issue CRUD via REST API v4 (clone goes through the local git provider). Planned: MR, Webhooks, CI |
 | Git (local) | `adapter/gitlocal/` | Clone, Status, Pull, ListBranches, Checkout. Planned: Diff, Commit |
-| SVN | `adapter/svn/` | Checkout, Status, Update, ListBranches, Switch. Planned: Diff, Commit |
+| SVN | `adapter/svn/` | Checkout, Status, Update, ListBranches, Switch (svn 1.10+; the password goes to svn on stdin, KI-87). Planned: Diff, Commit |
 | Gitea/Forgejo | `adapter/gitea/` | Issue CRUD via Gitea REST API. Planned: PRs |
 | Codeberg | `adapter/gitea/` (variant) | Forgejo instance, same adapter as Gitea/Forgejo |
 

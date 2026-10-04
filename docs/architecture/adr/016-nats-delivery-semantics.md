@@ -205,6 +205,13 @@ replay, recreation without replay, legacy durable upgrade, two instances with ha
 retry exhaustion, DLQ). Worker tests use real `nats.aio.msg.Msg` objects with a recording client
 (`workers/tests/jetstream_fakes.py`).
 
+**10. Results reach the replica that waits (KI-86, 2026-10-04).** A shared durable consumer hands a result to any
+Go Core replica, but the caller waits in the memory of one. A waiter therefore serves its key on core NATS
+(`core.relay.<sha256(key)>`, request-reply outside the stream, `messagequeue.Relay`) while it waits; a replica with no
+local waiter requests the key, and "no responders" means nobody waits. This covers syncWaiter results, HITL
+decisions and approval lookups (keys contain the tenant), and the auto-agent's waits. Only the `core` user may use
+`core.relay.>`.
+
 The constants live in `internal/adapter/nats/nats.go` and `workers/codeforge/nats_subjects.py`; the worker's
 consumer provisioning, delivery count and heartbeat in `workers/codeforge/consumer/_delivery.py`.
 

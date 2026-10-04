@@ -975,6 +975,9 @@ Production layout (since 2026-09-30): PostgreSQL 18 with TLS (self-signed certif
 `docker-compose.blue-green.yml` is an overlay of `docker-compose.prod.yml` that runs two colors of the core and the
 frontend behind Traefik (the only service that publishes ports, 80 and 443). The colors are Compose profiles
 (`blue`, `green`), so a plain `up -d` starts neither.
+During a switch both cores hand worker results and HITL decisions to the core that waits for them (core NATS
+`core.relay.*`, KI-86): approvals, approval pages and auto-agent waits work on either color. WebSocket events and the
+auto-agent registry stay per core (KI-139).
 
 ```bash
 export ACME_EMAIL=ops@example.com          # Let's Encrypt account email (required)

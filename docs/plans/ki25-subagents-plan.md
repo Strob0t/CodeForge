@@ -624,9 +624,9 @@ type SubagentResultPayload struct { // runs.subagent.result
 - **Round trips in both directions:** `contract_test.go` and `workers/tests/test_nats_contracts.py`.
 - **Permissions:** `workers/tests/test_nats_permissions.py` (needs `NATS_SERVER_BIN`) and `internal/adapter/nats/auth_test.go`.
 
-## 13. Data model (migration 122)
+## 13. Data model (migration NNN, the next free number when it lands)
 
-`internal/adapter/postgres/migrations/122_subagent_runs.sql`:
+`internal/adapter/postgres/migrations/NNN_subagent_runs.sql`:
 
 ```sql
 -- +goose Up
@@ -744,7 +744,7 @@ Every step follows TDD: RED planning, failing tests, minimal code, refactor. Eve
    - Go: canonical `Agent` and its aliases in Go and Python; `Agent` in `builtinTools`; `WithModeChain`;
    - modes: `Mode.Subagent` and `MaxTurns` with validation; the `explore` and `general` built-ins plus their prompt YAML; `Agent` in the Tools lists named in 4.2; the preset rules from 4.1;
    - HTTP: refusal of `subagent` on API modes.
-3. **`feat(store)`:** migration 122, `SubagentStore` and the store mocks; the turn mode stored at dispatch; conversation calls checked against it (6.4).
+3. **`feat(store)`:** migration NNN, `SubagentStore` and the store mocks; the turn mode stored at dispatch; conversation calls checked against it (6.4).
 4. **`feat(nats)`:**
    - payload fields and the new subjects;
    - `nats-server.conf`;
@@ -796,7 +796,7 @@ Every step follows TDD: RED planning, failing tests, minimal code, refactor. Eve
 - `internal/domain/feedback/`
 - `internal/port/messagequeue/`: `queue.go`, `schemas_run.go`, `schemas_conversation.go`, `contract_test.go`, `testdata/contracts/*`
 - `internal/port/database/` (`SubagentStore`)
-- `internal/adapter/postgres/`: `store_subagent.go`, `store_conversation.go`, `migrations/122_subagent_runs.sql`
+- `internal/adapter/postgres/`: `store_subagent.go`, `store_conversation.go`, `migrations/NNN_subagent_runs.sql`
 - `internal/adapter/nats/auth_test.go`
 - `internal/service/`:
   - new: `subagent.go`
@@ -889,7 +889,7 @@ Every step follows TDD: RED planning, failing tests, minimal code, refactor. Eve
 
 ### Go integration tests (`-tags=integration`, PostgreSQL + NATS)
 
-- Migration 122 up and down.
+- Migration NNN up and down.
 - Store queries with tenant scoping.
 - The unique spawn key.
 - Full round trip: spawn -> sub-agent calls -> `runs.subagent.complete` -> `runs.subagent.result`.
