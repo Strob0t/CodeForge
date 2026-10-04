@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -442,6 +443,11 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 	if err := requireProject("task", t.ID, t.ProjectID, req.ProjectID); err != nil {
 		return nil, err
+	}
+	if req.PromptNote != "" {
+		noted := *t
+		noted.Prompt = strings.TrimRight(t.Prompt, "\n") + "\n\n" + req.PromptNote
+		t = &noted
 	}
 
 	deliverMode := req.DeliverMode

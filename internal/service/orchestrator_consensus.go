@@ -104,6 +104,7 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 		ModeID:        step.ModeID,
 		PolicyProfile: step.PolicyProfile,
 		DeliverMode:   run.DeliverMode(step.DeliverMode),
+		PromptNote:    s.stallNote(ctx, step),
 	}
 
 	r, err := s.runtime.StartRun(ctx, req)
@@ -122,6 +123,26 @@ func (s *OrchestratorService) startStep(ctx context.Context, p *plan.ExecutionPl
 	})
 	slog.Info("plan step started", "plan_id", p.ID, "step_id", stepID, "run_id", r.ID)
 	return true
+}
+
+// maxStallReasonBytes bounds the stall reason a re-planned run is told.
+const maxStallReasonBytes = 1000
+
+// stallNote is the note for the run that starts a step again after its last
+// run stalled (KI-94): the step keeps the ID of its last run while it waits
+// to start again, so the note survives a restart and is the same on every
+// replica. "" when the step has no earlier run or it did not stall.
+func (s *OrchestratorService) stallNote(ctx context.Context, step *plan.Step) string {
+	if step.RunID == "" {
+		return ""
+	}
+	prev, err := s.store.GetRun(ctx, step.RunID)
+	if err != nil || !prev.Stalled() {
+		return ""
+	}
+	return "Note: the previous attempt at this task was stopped because it stalled (" +
+		truncateUTF8(prev.Error, maxStallReasonBytes) +
+		"). Do not repeat what it did; take a different approach."
 }
 
 // reviewDecisionTimeout bounds the review router's LLM call; a step whose
@@ -558,7 +579,7 @@ func (s *OrchestratorService) appendPlanEvent(ctx context.Context, evtType event
 // its plan runs. This is decided under the scheduling lock, so concurrent
 // re-plans of the same run start one new run, and a step whose completion was
 // not processed yet (still running) is refused. The new run gets the step's
-// task prompt; stall context is not added to it yet. If the new run cannot be
+// task prompt, and the stall when the ended run stalled (stallNote). If the new run cannot be
 // started, the step ends failed and the plan is decided again.
 func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) error {
 	r, err := s.store.GetRun(ctx, runID)
@@ -610,8 +631,8 @@ func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) erro
 // failing it (MagenticOne stall re-planning, KI-62), at most
 // runtime.stall_max_retries times per step, and reports whether it did. The
 // step's earlier stalls are the stalled runs of its task since the plan was
-// created. The new run gets the step's task prompt; the stall is not added to
-// it. The caller holds s.mu and has not ended the step.
+// created. The new run gets the step's task prompt and the stall
+// (stallNote). The caller holds s.mu and has not ended the step.
 func (s *OrchestratorService) replanStalledLocked(ctx context.Context, step *plan.Step, r *run.Run) bool {
 	if !r.Stalled() || s.runtime == nil || s.runtime.runtimeCfg.StallMaxRetries <= 0 {
 		return false

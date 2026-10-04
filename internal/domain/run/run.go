@@ -135,4 +135,8 @@ type StartRequest struct {
 	PolicyProfile string      `json:"policy_profile,omitempty"`
 	ExecMode      ExecMode    `json:"exec_mode,omitempty"`
 	DeliverMode   DeliverMode `json:"deliver_mode,omitempty"`
+	// PromptNote is appended to the task prompt of this run only: the
+	// orchestrator tells a re-planned run why the earlier one stalled
+	// (KI-94). Never read from a request body.
+	PromptNote string `json:"-"`
 }

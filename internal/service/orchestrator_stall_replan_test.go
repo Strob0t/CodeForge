@@ -2,13 +2,16 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -17,15 +20,71 @@ import (
 // per step.
 
 func newStallReplanSetup(stallMaxRetries int) (*orchMockStore, *service.OrchestratorService) {
+	store, orchSvc, _ := newStallReplanSetupWithQueue(stallMaxRetries)
+	return store, orchSvc
+}
+
+func newStallReplanSetupWithQueue(stallMaxRetries int) (*orchMockStore, *service.OrchestratorService, *runtimeMockQueue) {
 	store := newOrchStore()
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
-	runtimeSvc := service.NewRuntimeService(store, &runtimeMockQueue{}, bc, es,
+	queue := &runtimeMockQueue{}
+	runtimeSvc := service.NewRuntimeService(store, queue, bc, es,
 		service.NewPolicyService("headless-safe-sandbox", nil), &config.Runtime{StallThreshold: 5, StallMaxRetries: stallMaxRetries})
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc,
 		&config.Orchestrator{MaxParallel: 4, PingPongMaxRounds: 3})
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
-	return store, orchSvc
+	return store, orchSvc, queue
+}
+
+// lastRunStartPrompt returns the prompt of the last runs.start published.
+func lastRunStartPrompt(t *testing.T, queue *runtimeMockQueue) string {
+	t.Helper()
+	msg, ok := queue.lastMessage(messagequeue.SubjectRunStart)
+	if !ok {
+		t.Fatal("no runs.start published")
+	}
+	var payload messagequeue.RunStartPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload.Prompt
+}
+
+// KI-94: the run that re-plans a stalled step is told that the earlier
+// attempt stalled and why, so it does not repeat it; a step's first run gets
+// the task prompt alone, and notes of earlier stalls do not pile up.
+func TestStallReplan_NewRunIsToldOfTheStall(t *testing.T) {
+	const stall = "stall detected: repeated read_file of main.go"
+	store, orchSvc, queue := newStallReplanSetupWithQueue(2)
+	store.tasks[0].Prompt = "Fix the parser."
+	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}})
+
+	if got := lastRunStartPrompt(t, queue); got != "Fix the parser." {
+		t.Fatalf("first run prompt = %q, want the task prompt alone", got)
+	}
+
+	endFirstRun(t, store, orchSvc, p.ID, run.StatusFailed, stall)
+	got := lastRunStartPrompt(t, queue)
+	if !strings.HasPrefix(got, "Fix the parser.") || !strings.Contains(got, stall) || !strings.Contains(got, "different approach") {
+		t.Fatalf("re-planned run prompt = %q, want the task prompt, the stall and a hint to change the approach", got)
+	}
+
+	endFirstRun(t, store, orchSvc, p.ID, run.StatusFailed, run.StallDetectedError)
+	got = lastRunStartPrompt(t, queue)
+	if !strings.Contains(got, run.StallDetectedError) || strings.Contains(got, stall) || strings.Count(got, "different approach") != 1 {
+		t.Fatalf("second re-plan prompt = %q, want only the latest stall", got)
+	}
+}
+
+func TestStallReplan_LongStallReasonIsBounded(t *testing.T) {
+	store, orchSvc, queue := newStallReplanSetupWithQueue(1)
+	p := createPlan(t, orchSvc, plan.ProtocolSequential, 0, []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}})
+	endFirstRun(t, store, orchSvc, p.ID, run.StatusFailed, run.StallMarker+" "+strings.Repeat("ä", 5000))
+	got := lastRunStartPrompt(t, queue)
+	if len(got) > 2000 || !strings.Contains(got, "different approach") {
+		t.Fatalf("re-planned run prompt has %d bytes, want a hint with the stall reason cut", len(got))
+	}
 }
 
 // endFirstRun ends the run of the plan's first step with status and error,
