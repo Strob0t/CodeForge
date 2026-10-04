@@ -413,7 +413,7 @@ The `ConversationHistoryManager` assembles messages within a per-model token bud
 When the policy layer returns `DecisionAsk` for a tool call:
 
 1. Runtime broadcasts `agui.permission_request` via WebSocket (includes tool name, command, path)
-2. Frontend displays an inline approval card with Allow/Deny buttons and a countdown to the request's `expires_at` (the event carries `timeout_seconds` and `expires_at`). After a reload the chat reads `GET /api/v1/conversations/{id}/run` (running turn, streamed text, pending approvals) and restores the turn and its approval cards (KI-148)
+2. Frontend displays an inline approval card with Allow/Deny buttons. A permission request carries `timeout_seconds` and `expires_at`; the card's countdown is display only and never decides on its own: it starts from `timeout_seconds`, or from `remaining_seconds` when `GET /api/v1/conversations/{id}/run` restores the running turn and its approvals after a reload (KI-148). The Core alone denies a call when the approval timeout passes
 3. User decision sent via `POST /api/v1/runs/{id}/approve/{callId}` with `{"decision": "allow"|"deny"}`
 4. If approved, tool executes normally; if denied or timeout (default 60s), a "Permission denied" result is returned to the LLM
 
