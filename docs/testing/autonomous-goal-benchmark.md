@@ -125,8 +125,27 @@ copy in the system temp directory (or `--work-dir`) and removes it unless `--kee
 
 | Date | Model | Hardware | Autonomous | Acceptance | Total | Wall time | Cost | Report |
 |---|---|---|---|---|---|---|---|---|
-| - | `ollama/qwen3:4b-instruct` | 4 CPU cores | planned | | | | | |
+| 2026-10-04 | `ollama/qwen3:4b-instruct` (Ollama 0.35.1, `num_ctx` 16384) | 4 CPU cores | yes so far (0 interventions; dev mode, no isolation) | not graded (unfinished, no package) | - | more than 2 h 08 min (planning 27.5 min), stopped by a budget block and a container restart | $0 | [run 1](#run-1-2026-10-04) |
 | - | a cloud model (owner provides the key as an environment secret) | - | planned | | | | | |
 
 The lessons from each run go into [live-e2e-findings.md](live-e2e-findings.md), and the bugs into
 [docs/todo.md](../todo.md#known-issues).
+
+### Run 1 (2026-10-04)
+
+Unfinished and not graded: the session stopped at 10:36 UTC (usage budget) and the container restarted later.
+- **Setup:** a fresh repository with only `README.md`; the documented project config; the SPEC text as the goal. The
+  auto-agent cannot be set to autonomy level 4: it always uses the coder mode (level 3); the
+  `trusted-mount-autonomous` preset needed no approvals.
+- **Plan** (27.5 min, 170k tokens in, 2k out, 17 `propose_roadmap` calls): 6 milestones, 11 features, without a
+  packaging or CLI step, file discovery, sorting, exit codes or test lines. Applied unchanged (the roadmap container
+  had to be created first, KI-157).
+- **Execution** (from 08:55, last state at 10:35: 7 of 11 features marked done, none failed): about 49 tool calls
+  (glob 13, read 11, list 5, bash 5, search 5, write 3, `propose_*` 7); the workspace held only a target classifier and
+  its test, with no `pyproject.toml`, package, CLI or pytest run. About 701k tokens in and 7k out.
+- **Failure mode:** intent without action ("I will now proceed...") and calls to the planning tools during
+  implementation, each followed by the end of the turn, which the auto-agent counted as done without verification.
+  Causes: a weak model plus CodeForge gaps: no verification (KI-152), planning tools in implementation turns
+  (KI-153), a planner without scaffold and test steps, and cold prefill for every feature (KI-160).
+- **Next run:** after KI-152 and KI-153, with `scripts/live-e2e/` on a private database, and isolation on if the host
+  allows it.

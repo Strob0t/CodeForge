@@ -289,6 +289,7 @@ CodeForge/
 │   ├── generate-secrets.sh         # Generate production secret files
 │   ├── validate-env.sh             # Pre-deploy env var check
 │   ├── deploy-blue-green.sh        # Blue-green deployment
+│   ├── live-e2e/                   # Live end-to-end stack (Core, worker, LiteLLM, frontend with a local model; README inside)
 │   ├── run-agent-eval.sh           # Agent evaluation scenarios
 │   ├── sync-version.sh             # Propagate VERSION to package manifests
 │   ├── verify-features.sh          # Feature verification matrix (CI verify job)

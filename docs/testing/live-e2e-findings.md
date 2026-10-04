@@ -88,3 +88,61 @@ Stack: <branch/commit>, <mode>, <model and hardware>, <isolation on/off>
    returned only its exit code (KI-126); it guessed the cause. Feeding errors back (KI-126), tighter task splitting
    from the roadmap, and automatic test runs after edits are platform features that raise the floor for weak
    models. That fits "any model" better than requiring a strong one.
+
+## Session 2 - 2026-10-04 - fixes of S8/S7, roadmap, agent chat, benchmark run 1
+
+**Stack:** branch `claude/busy-dijkstra-q0oxi9` at `6c25472d`, development mode, tool isolation off, Ollama
+`qwen3:4b-instruct` on 4 CPU cores (`num_ctx` 16384), no API key. Started with the new `scripts/live-e2e/`.
+
+### Journeys
+1. Fresh start: login, password change, the model list and the AI page.
+2. A project from a public repository: clone, setup, index, search.
+3. Roadmap: AI proposals, approving milestones, the "Sync with PM" preview.
+4. Agent chat with tools under a deny-list profile: a code change plus tests.
+5. Settings > Privacy and the MCP page.
+6. Benchmark run 1 (see [autonomous-goal-benchmark.md](autonomous-goal-benchmark.md)).
+
+### What worked
+- The Ollama model is listed first and keyless cloud routes collapse to one row each (S8-A confirmed).
+- `POST /projects/{id}/setup` clones, detects the stack, creates a vision goal and roadmap, and builds the repo map
+  and code graph.
+- Roadmap proposal cards, the PM sync form's validation and its "token is never stored" note.
+- Policy: `PYTHONPATH=src python -m pytest` allowed under the deny-list profile and denied by the safe preset, as
+  documented (KI-128); a failed command's output reached the model (KI-126), which installed pytest and reran
+  (4 passed). Write approvals with a live countdown.
+- The data export (no secrets) and the MCP page's redaction and link-local refusal.
+
+### What broke (-> KI)
+- Conversation messages of one turn share a timestamp, so tool results come back before their calls and the next
+  turn's history is out of order (KI-147, high).
+- A reload loses the running turn and its pending approval, which then times out (KI-148, high).
+- Validation and not-found errors answer 500: short password, bad PM reference, unknown consent purpose (KI-149).
+- Without an embedding key the index ends in `error`, not BM25-only, and `/search` gives no hint (KI-150).
+- `propose_roadmap` has no allow rule in any preset and runs into the 60 s approval timeout (KI-151).
+- The github-issues PM preview fails without `gh` (KI-117).
+- The auto-agent marks a feature done whenever its run ends (KI-152); implementation turns are offered the planning
+  tools (KI-153).
+- Smaller: context window mismatch (KI-154), the admin password reset on every start (KI-155), dead settings
+  (KI-156), roadmap card approval 404 without a roadmap (KI-157), `CODEFORGE_TOOL_PATH` ignored with isolation off
+  (KI-158), the chat stays "running" (KI-159), no cacheable prompt prefix (KI-160). Tool cards still appear only after
+  a reload and the dashboard still shows 0 tokens (KI-129).
+
+### Friction
+- The first turn of every conversation spends 2.5 to 4.5 minutes on prompt prefill on CPU.
+- Each roadmap proposal costs an approval plus a card click; approving a card starts a new chat turn.
+- The AI page does not mark the default model, shows the model card's 262,144-token context instead of the server's
+  16,384, and offers Delete on config routes. A VCS onboarding modal covers it.
+- The agent chat run took 16.5 minutes (81k tokens in, 1k out); the model ignored "the test must fail first" and once
+  replaced a whole file through `write_file`; the approval card showed no diff.
+
+### Product and vision notes (for discussion)
+1. **Verification is the platform's job.** The auto-agent believes the model. Running the project's test and lint
+   commands and a change check after every feature, and feeding failures back, would turn "the model says done" into
+   "done" (KI-152). This is the strongest lever for weak models.
+2. **Tool hygiene per phase.** Planning tools in implementation turns pull small models back into planning
+   (KI-153); a "continue" nudge when a model announces an action without calling a tool would help too.
+3. **Deterministic scaffolding.** Plans should start with a scaffold step (package, CLI entry, test layout) and carry
+   acceptance tests per step; the planner left both out.
+4. **Speed on local hardware.** A stable, cacheable prompt prefix and a compact prompt for small models cut minutes of
+   prefill per conversation (KI-160); the context should follow the server (KI-154).
+5. **Reviewable changes.** Edits instead of whole-file writes for existing files, and diffs in approval cards.

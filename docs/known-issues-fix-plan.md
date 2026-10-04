@@ -186,6 +186,8 @@ and GDPR work. Order:
 
 | Group | Known Issues | Scope |
 |---|---|---|
+| **S9-0** | KI-147, KI-148, KI-151, KI-149 | Live session 2 blockers first: message order, a reload keeps the running turn and its approval, `propose_roadmap` allowed, 500s that are client errors |
+| **S9-V** | KI-152, KI-153, KI-150, KI-157 | Make autonomous runs real: verify each feature with the project's test and lint commands, planning tools only in planning turns, BM25 index without a key, roadmap created on first approval |
 | **S9-A** | KI-119, KI-143, KI-131, KI-124 | A safe first start: one-time setup token; token epoch per user; scenario tags on every cloud route; a dev container that starts a working stack |
 | **S9-B** | KI-116, KI-117, KI-118 | A deployment that works out of the box: release tags with the version pinned in compose; GitHub PM over REST and `svn` in the Core image; backend CLIs in the standard worker image with a documented egress path |
 | **S9-C** | new feature, KI-125 follow-up | Pure-completion models use tools through a text tool protocol parsed by the worker, with grammar-constrained output where the server supports it (Ollama `format`, JSON schema); plan: [text-tool-protocol-plan.md](plans/text-tool-protocol-plan.md) |
