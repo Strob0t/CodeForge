@@ -38,6 +38,7 @@ no task (sessions shared with a task are only detached).
 | `cost_records`          | `CODEFORGE_RETENTION_COST_RECORDS`        | `8760h`          |
 | `audit_entries`         | `CODEFORGE_RETENTION_AUDIT_ENTRIES`       | `61320h`         |
 | `audit_ip_addresses`    | `CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES`  | `4320h`          |
+| `handoff_claims`        | `CODEFORGE_RETENTION_HANDOFF_CLAIMS`      | `720h`           |
 
 A period of 0 keeps that category forever; negative periods and periods under 24h are rejected at startup
 (this catches unit mistakes such as `30m` meant as months).
@@ -46,10 +47,12 @@ A period of whole 365-day years counts calendar years (a period of 1 year on 15 
 15 March 2026). On 29 February that date does not exist that many years back; the cutoff is then 28 February
 of that year, so data is kept a day longer, never shorter than configured. Only one replica sweeps at a time
 (the sweep runs on a PostgreSQL advisory-lock connection). Besides the categories above, every sweep deletes
-expired OAuth states of abandoned GitHub connect flows. Delivery bookkeeping rows (`handoff_claims`,
-`task_result_costs`, `conversation_turn_completions`) are not purged by the job yet (KI-90).
-The webhook delivery claims (`webhook_deliveries`, body hash and delivery ID only, KI-85) are not purged by the job either: a webhook prunes claims older than
-`webhook.delivery_retention` (default 168h) when it receives its next delivery, and they are removed with the webhook.
+expired OAuth states of abandoned GitHub connect flows. Every sweep also deletes handoff claims whose stage was done longer ago than `retention.handoff_claims` (the default
+outlasts the NATS stream's 30-day max age; claims never done are kept: a redelivery may still take them over) and
+webhook delivery claims (`webhook_deliveries`, body hash and delivery ID only, KI-85) older than
+`webhook.delivery_retention` (default 168h, their dedup window; a webhook also prunes its own claims on its next
+delivery), across tenants in batches (KI-90). `conversation_turn_completions` are deleted with their conversation and
+`task_result_costs` with their task.
 
 ## Project Workspaces and Tool Caches (KI-96)
 

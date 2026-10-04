@@ -695,6 +695,7 @@ Example:
 | `retention.cost_records` | `CODEFORGE_RETENTION_COST_RECORDS` | `8760h` | Delete runs (LLM cost records) idle longer than this |
 | `retention.audit_entries` | `CODEFORGE_RETENTION_AUDIT_ENTRIES` | `61320h` | Delete audit log entries older than this (7 years) |
 | `retention.audit_ip_addresses` | `CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES` | `4320h` | Remove IP addresses from audit entries older than this (180 days); periods under 24h are rejected |
+| `retention.handoff_claims` | `CODEFORGE_RETENTION_HANDOFF_CLAIMS` | `720h` | Delete handoff claims whose stage was done longer ago than this (claims never done are kept); `0` keeps them, periods under 24h are rejected ([data-retention.md](data-retention.md)) |
 | `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
 | `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated A2A API keys, each `<key>` (default tenant) or `<tenant-uuid>:<key>` (that tenant; UUID in any case). Parsed only when A2A is enabled; a malformed tenant prefix, an empty key or a repeated key stops startup; without keys every `/a2a` request gets 401 |
 | `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
