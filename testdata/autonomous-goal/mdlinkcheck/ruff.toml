@@ -1,0 +1,7 @@
+# The benchmark's acceptance suite and grader follow the repository's ruff rules, plus the usual
+# exceptions for test code that runs a command-line tool.
+extend = "../../../pyproject.toml"
+
+[lint.extend-per-file-ignores]
+# Tests assert, and they start the tool under test as a subprocess.
+"acceptance/*.py" = ["S101", "S603"]
