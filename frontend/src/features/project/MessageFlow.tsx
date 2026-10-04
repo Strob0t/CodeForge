@@ -44,6 +44,9 @@ const RUN_END_STATUSES: ReadonlySet<string> = new Set([
 
 const SETTLE_MS = 10_000;
 
+/** How many ended runs the War Room remembers (for handoffs announced after their run ended). */
+const ENDED_RUNS_KEPT = 200;
+
 export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
   const { onMessage, connected } = useWebSocket();
   const [arrows, setArrows] = createSignal<Arrow[]>([]);
@@ -96,8 +99,23 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
     });
 
     // An initiated handoff is followed while the target's run works (KI-92);
-    // one that names no run has nothing to follow and settles like the others.
-    if (SETTLED_STATUSES.has(p.status) || (p.status === "initiated" && !runId)) settle(v);
+    // one that names no run, or whose run already ended, settles like the others.
+    const nothingToFollow = !runId || endedRuns.has(runId);
+    if (SETTLED_STATUSES.has(p.status) || (p.status === "initiated" && nothingToFollow)) {
+      settle(v);
+    }
+  }
+
+  // The runs that ended recently: a run can end before its handoff's
+  // initiated status arrives. Bounded; a Set keeps the insertion order.
+  const endedRuns = new Set<string>();
+  function rememberEnded(runId: string): void {
+    endedRuns.delete(runId);
+    endedRuns.add(runId);
+    if (endedRuns.size > ENDED_RUNS_KEPT) {
+      const oldest = endedRuns.values().next().value;
+      if (oldest !== undefined) endedRuns.delete(oldest);
+    }
   }
 
   // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
@@ -105,7 +123,10 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
     if (msg.type === "run.status") {
       const runId = payloadString(msg.payload, "run_id");
       const status = payloadString(msg.payload, "status");
-      if (runId && status && RUN_END_STATUSES.has(status)) settleFollowed((id) => id === runId);
+      if (runId && status && RUN_END_STATUSES.has(status)) {
+        rememberEnded(runId);
+        settleFollowed((id) => id === runId);
+      }
       return;
     }
     if (msg.type !== "handoff.status") return;

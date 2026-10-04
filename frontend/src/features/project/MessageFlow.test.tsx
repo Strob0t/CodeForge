@@ -182,6 +182,31 @@ describe("MessageFlow", () => {
     expect(arrows(root)).toEqual([]);
   });
 
+  // S7-G review: a run that ended before its handoff's initiated status
+  // arrived left an arrow that nothing removed.
+  it("settles a handoff whose run ended before the handoff was announced", () => {
+    const { container: root } = render(() => <MessageFlow containerRef={container} />);
+
+    ws.runStatus("run-1", "failed");
+    ws.emit(handoff("initiated"));
+    expect(arrows(root)).toEqual(["var(--cf-accent)"]);
+
+    vi.advanceTimersByTime(10_000);
+    expect(arrows(root)).toEqual([]);
+  });
+
+  it("remembers the last 200 ended runs only", () => {
+    const { container: root } = render(() => <MessageFlow containerRef={container} />);
+
+    ws.runStatus("run-1", "completed");
+    for (let i = 0; i < 200; i++) ws.runStatus(`other-${i}`, "completed");
+    ws.emit(handoff("initiated"));
+    vi.advanceTimersByTime(10_000);
+
+    // run-1 is forgotten: its arrow is followed until a run end or reconnect.
+    expect(arrows(root)).toEqual(["var(--cf-accent)"]);
+  });
+
   it("removes no arrow after it is unmounted", () => {
     const { container: root, unmount } = render(() => <MessageFlow containerRef={container} />);
 
