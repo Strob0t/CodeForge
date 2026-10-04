@@ -323,7 +323,9 @@ func (s *AutoAgentService) runAndWait(ctx context.Context, conversationID, promp
 	}
 	defer waiter.Close()
 
-	if err := s.conversations.SendMessageAgentic(ctx, conversationID, &conversation.SendMessageRequest{Content: prompt}); err != nil {
+	// A feature turn implements: no planning tools (KI-153).
+	req := &conversation.SendMessageRequest{Content: prompt, ImplementationTurn: true}
+	if err := s.conversations.SendMessageAgentic(ctx, conversationID, req); err != nil {
 		return fmt.Errorf("send agentic message: %w", err)
 	}
 	if err := s.waitForCompletion(ctx, conversationID, waiter, aa); err != nil {

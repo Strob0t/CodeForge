@@ -283,8 +283,12 @@ class ConversationHandlerMixin:
             project_id=run_msg.project_id,
             approval_timeout_seconds=run_msg.approval_timeout_seconds,
         )
-        register_propose_goal_tool(registry, runtime)
-        register_propose_roadmap_tool(registry, runtime)
+        # The planning tools only in planning turns: in an implementation
+        # turn (the auto-agent's feature turns) a weak model called them
+        # instead of writing code (KI-153).
+        if not run_msg.implementation_turn:
+            register_propose_goal_tool(registry, runtime)
+            register_propose_roadmap_tool(registry, runtime)
         # spawn_subagent is not registered until Go starts sub-agents and
         # returns their results (KI-25, see register_spawn_subagent_tool).
 
@@ -684,6 +688,7 @@ class ConversationHandlerMixin:
             provider_api_key=run_msg.provider_api_key,
             plan_act_enabled=run_msg.plan_act_enabled,
             tool_output_max_chars=run_msg.tool_output_max_chars,
+            implementation_turn=run_msg.implementation_turn,
         )
         if complexity_hint:
             messages.append({"role": "system", "content": complexity_hint})

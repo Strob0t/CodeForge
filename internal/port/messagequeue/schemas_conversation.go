@@ -93,6 +93,11 @@ type ConversationRunStartPayload struct {
 	// conversation ID as run ID); the worker echoes it on every tool call so
 	// that calls of a stopped run are rejected after the next run started.
 	TurnID string `json:"turn_id,omitempty"`
+	// ImplementationTurn marks a turn that implements a feature (the
+	// auto-agent's): the worker offers no planning tools (propose_goal,
+	// propose_roadmap) and nudges an announced action without a tool call
+	// once (KI-153).
+	ImplementationTurn bool `json:"implementation_turn,omitempty"`
 	// ToolUID is the tenant's tool UID: the worker runs the turn's tool
 	// processes as it (KI-96; 0/omitted with workspace.tool_acls off).
 	ToolUID int `json:"tool_uid,omitempty"`

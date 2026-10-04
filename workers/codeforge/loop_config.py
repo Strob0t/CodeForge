@@ -74,6 +74,7 @@ def build_loop_config(
     provider_api_key: str = "",
     plan_act_enabled: bool = False,
     tool_output_max_chars: int = 0,
+    implementation_turn: bool = False,
 ) -> tuple[LoopConfig, str | None]:
     """Build the LoopConfig of a run with complexity-aware adjustments.
 
@@ -82,9 +83,13 @@ def build_loop_config(
     (``resolve_model_capability``), selects the tools for the prompt and applies
     local-model sampling parameters. Returns ``(config, complexity_hint)``;
     the hint is a system message for weak local models on complex tasks, or
-    None.
+    None. An *implementation_turn* (runs.start, the auto-agent's feature
+    turns) is not offered the planning tools, and an announced action without
+    a tool call gets one "continue" nudge (KI-153).
     """
-    selected_tools = ToolRouter(all_tool_names=tool_names).select(user_prompt) if user_prompt else None
+    # Implementation turns are not offered the planning tools (KI-153).
+    router = ToolRouter(all_tool_names=tool_names)
+    selected_tools = router.select(user_prompt, planning=not implementation_turn) if user_prompt else None
     if selected_tools is not None:
         logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
 
@@ -111,6 +116,7 @@ def build_loop_config(
         extra_body={"top_k": 20, "repetition_penalty": 1.05} if is_local else None,
         selected_tools=selected_tools,
         tool_output_max_chars=tool_output_max_chars,
+        implementation_turn=implementation_turn,
     )
 
     complexity = routing.complexity_tier or "unknown"

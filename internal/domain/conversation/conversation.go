@@ -82,4 +82,7 @@ type SendMessageRequest struct {
 	Model   string         `json:"model,omitempty"` // Explicit model override (bypasses resolveModel cascade).
 	Images  []MessageImage `json:"images,omitempty"`
 	UserID  string         `json:"-"` // Set by handler, not from API body.
+	// ImplementationTurn is set by the auto-agent for its feature turns
+	// (KI-153), never from the API body.
+	ImplementationTurn bool `json:"-"`
 }

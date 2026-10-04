@@ -1,7 +1,8 @@
 """Pre-selects relevant tools based on user message keywords.
 
 No LLM call needed. Uses keyword matching against tool names and descriptions.
-Base tools (read/write/edit/bash/search/glob/listdir) always included.
+Base tools (read/write/edit/bash/search/glob/listdir) always included, the
+planning tools (propose_goal, propose_roadmap) in planning turns only.
 MCP read-only tools included when docs-related keywords match.
 """
 
@@ -32,11 +33,13 @@ class ToolRouter:
             "search_files",
             "glob_files",
             "list_directory",
-            "propose_goal",
-            "propose_roadmap",
             "transition_to_act",
         }
     )
+
+    # Planning tools, offered in planning turns only (KI-153): in an
+    # implementation turn a weak model called them instead of writing code.
+    PLANNING_TOOLS: ClassVar[frozenset[str]] = frozenset({"propose_goal", "propose_roadmap"})
 
     # Keywords that trigger inclusion of documentation/search MCP tools.
     DOCS_KEYWORDS: ClassVar[frozenset[str]] = frozenset(
@@ -81,17 +84,19 @@ class ToolRouter:
     def __init__(self, all_tool_names: list[str]) -> None:
         self._all_tools = all_tool_names
 
-    def select(self, user_message: str, max_tools: int = 12) -> list[str]:
+    def select(self, user_message: str, max_tools: int = 12, *, planning: bool = False) -> list[str]:
         """Select relevant tools for the given user message.
 
-        Always includes BASE_TOOLS (intersected with available tools).
+        Always includes BASE_TOOLS, and PLANNING_TOOLS when *planning*
+        (intersected with available tools).
         Adds MCP read-only tools when docs-related keywords are detected.
         Adds keyword-triggered tools based on message content.
 
         Returns a sorted, deduplicated list capped at *max_tools*.
         """
         available = set(self._all_tools)
-        base: set[str] = set(self.BASE_TOOLS & available)
+        always = self.BASE_TOOLS | self.PLANNING_TOOLS if planning else self.BASE_TOOLS
+        base: set[str] = set(always & available)
 
         if not user_message:
             return sorted(base)

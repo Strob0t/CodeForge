@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -134,6 +135,28 @@ class LoopConfig:
     # agent.tool_output_max_chars: tool results added in the loop are
     # truncated to it (0 = DEFAULT_TOOL_OUTPUT_MAX_CHARS).
     tool_output_max_chars: int = 0
+    # A turn that implements (runs.start, the auto-agent's feature turns):
+    # an announced action without a tool call is nudged once (KI-153).
+    implementation_turn: bool = False
+
+
+# An announced next step in the last part of a reply ("I will now ...",
+# "Let me ...") - intent without action, which weak models end turns with.
+_ANNOUNCED_ACTION = re.compile(
+    r"\b(?:i will|i'll|i am going to|i'm going to|i shall|let me|let's|next,? i)\s+(?!know\b)\w+",
+    re.IGNORECASE,
+)
+# How much of the reply's end is searched for an announcement.
+_ANNOUNCEMENT_TAIL_CHARS = 400
+
+CONTINUE_NUDGE = (
+    "Continue: call the tool now instead of announcing it. If the work is already done, say so in one sentence."
+)
+
+
+def announces_action(content: str) -> bool:
+    """Whether a reply without tool calls ends with an announced action."""
+    return bool(_ANNOUNCED_ACTION.search(content.strip()[-_ANNOUNCEMENT_TAIL_CHARS:]))
 
 
 @dataclass
@@ -153,6 +176,7 @@ class _LoopState:
     files_read: set[str] = field(default_factory=set)
     writes_since_verify: int = 0
     tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS
+    nudged: bool = False  # the turn got its "continue" nudge (KI-153)
 
 
 # ---------------------------------------------------------------------------
@@ -752,6 +776,14 @@ class AgentLoopExecutor:
                     }
                 )
                 logger.warning("no tool calls on first iteration, re-prompting agent to use tools")
+                return IterationContinue()
+            if cfg.implementation_turn and not state.nudged and announces_action(response.content):
+                state.nudged = True
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": CONTINUE_NUDGE})
+                logger.warning(
+                    "announced action without a tool call at iteration %d, nudging the agent once", iteration
+                )
                 return IterationContinue()
             state.final_content = response.content
             return IterationStop()

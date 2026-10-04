@@ -209,6 +209,7 @@ class AgentExecutor:
                 max_cost=runtime.termination.max_cost,
                 mode_tools=frozenset(mode.tools) if mode else frozenset(),
                 tool_output_max_chars=tool_output_max_chars,
+                implementation_turn=True,  # a run implements its task (KI-153)
             )
             messages: list[dict[str, object]] = [
                 {"role": "system", "content": system_prompt},

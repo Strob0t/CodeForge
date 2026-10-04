@@ -607,6 +607,9 @@ class ConversationRunStartMessage(BaseModel):
     tool_output_max_chars: ToolOutputMaxChars = 0
     # Identifies this run of the conversation; echoed on every tool call.
     turn_id: str = ""
+    # A turn that implements a feature (the auto-agent's): no planning tools,
+    # and an announced action without a tool call is nudged once (KI-153).
+    implementation_turn: bool = False
     # The tenant's tool UID the turn's tool processes run as (KI-96); 0: none.
     tool_uid: int = Field(default=0, ge=0)
     # Go's HITL approval timeout; tool call decisions are awaited longer

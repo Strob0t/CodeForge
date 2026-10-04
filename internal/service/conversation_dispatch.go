@@ -187,6 +187,8 @@ type agenticOpts struct {
 	rolloutCount   int
 	recordMetrics  bool
 	agentName      string // WS broadcast agent name ("agent" default, or modeID)
+	// implementationTurn: the turn implements a feature (KI-153).
+	implementationTurn bool
 }
 
 // WithModel overrides the default model resolution for the agentic run.
@@ -332,6 +334,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		SummarizeThreshold: s.summarizeThreshold(),
 		ToolOutputMaxChars: s.toolOutputMaxChars(),
 		TurnID:             turnID,
+		ImplementationTurn: opts.implementationTurn,
 		ToolUID:            toolUID,
 	}
 	// The worker waits for policy responses longer than Go waits for a HITL
@@ -429,6 +432,8 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 		rolloutCount:   rolloutCount,
 		recordMetrics:  true,
 		agentName:      "agent",
+
+		implementationTurn: req.ImplementationTurn,
 	})
 }
 
