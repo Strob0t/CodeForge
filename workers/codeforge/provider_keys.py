@@ -66,3 +66,25 @@ def parse_keyed_providers(env_value: str, yaml_value: object) -> frozenset[str]:
         msg = f"{_SETTING}: unknown provider(s) {', '.join(unknown)} (known: {', '.join(sorted(PROVIDER_KEY_MAP))})"
         raise ValueError(msg)
     return frozenset(keyed)
+
+
+def model_provider(model: str) -> str:
+    """Return the provider of a LiteLLM model name: its prefix ("openai/gpt-4o" -> "openai").
+
+    "" for a name without a provider prefix. The Go Core resolves a user's
+    own key by the same prefix (ResolveProviderAPIKey), and the key filter
+    groups models by it.
+    """
+    provider, sep, _ = model.partition("/")
+    return provider if sep else ""
+
+
+def fallbacks_for_key(model: str, fallbacks: list[str]) -> list[str]:
+    """Return the fallbacks a run with a user's own key may switch to.
+
+    The key belongs to the provider of *model*, the model the Go Core resolved
+    it for; it must never be sent to another provider. So only the fallbacks
+    of that provider remain, none when *model* has no provider prefix.
+    """
+    provider = model_provider(model)
+    return [m for m in fallbacks if provider and model_provider(m) == provider]

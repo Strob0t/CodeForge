@@ -27,6 +27,7 @@ from codeforge.loop_config import build_loop_config, resolve_model_capability
 from codeforge.model_resolver import NoModelAvailableError
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
+from codeforge.provider_keys import fallbacks_for_key, model_provider
 from codeforge.runtime import RuntimeClient, heartbeat_interval
 from codeforge.tool_identity import ToolIsolationError, tool_tenant
 from codeforge.workspace_fs import WorkspaceRoot
@@ -584,6 +585,19 @@ class ConversationHandlerMixin:
         fallback_models: list[str],
     ) -> AgentLoopResult:
         """Dispatch to simple chat, Claude Code, or LiteLLM agentic loop."""
+        if run_msg.provider_api_key:
+            # The user's own key belongs to the provider of the run's model
+            # (the Go Core resolved it for that model) and is sent with every
+            # call: fall back only to models of that provider.
+            same_provider = fallbacks_for_key(run_msg.model, fallback_models)
+            if skipped := [m for m in fallback_models if m not in same_provider]:
+                logger.warning(
+                    "fallback models of another provider skipped: the run uses the user's own key",
+                    run_id=run_msg.run_id,
+                    provider=model_provider(run_msg.model),
+                    skipped=skipped,
+                )
+            fallback_models = same_provider
         if not run_msg.agentic:
             pool = getattr(self, "_experience_pool", None)
             cached = await answer_from_experience(pool, run_msg, runtime, primary_model)

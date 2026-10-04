@@ -42,6 +42,7 @@ from codeforge.models import (
 )
 from codeforge.policy_args import canonical_tool
 from codeforge.pricing import resolve_cost
+from codeforge.provider_keys import fallbacks_for_key, model_provider
 from codeforge.quality_tracking import (
     IterationQualityTracker,
     compute_rollout_score,
@@ -315,9 +316,22 @@ class AgentLoopExecutor:
         state: _LoopState,
         rate_tracker: RateLimitTracker | None = None,
     ) -> str | None:
-        """Return the next untried fallback model, or None if exhausted."""
+        """Return the next untried fallback model, or None if exhausted.
+
+        With a user's own key (``cfg.provider_api_key``) only models of the
+        provider of the current model (the key's provider) qualify: the key
+        is sent with every call and must never reach another provider.
+        """
+        same_provider = fallbacks_for_key(cfg.model, cfg.fallback_models) if cfg.provider_api_key else None
         for m in cfg.fallback_models:
             if m in state.failed_models:
+                continue
+            if same_provider is not None and m not in same_provider:
+                logger.warning(
+                    "skipping fallback model %s of another provider: the run uses the user's own key for %r",
+                    m,
+                    model_provider(cfg.model),
+                )
                 continue
             if not AgentLoopExecutor._validate_model_name(m):
                 logger.warning("skipping fallback model with invalid format: %r", m)
