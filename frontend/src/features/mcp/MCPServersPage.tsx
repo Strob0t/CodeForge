@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createResource, createSignal, For, type JSX, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type {
@@ -8,6 +8,7 @@ import type {
   MCPTestResult,
   TestMCPServerRequest,
 } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
 import { useToast } from "~/components/Toast";
 import { MCP_TRANSPORTS } from "~/config/domain-constants";
 import { useAsyncAction, useCRUDForm } from "~/hooks";
@@ -33,9 +34,16 @@ import {
 import type { TableColumn } from "~/ui/composites/Table";
 import { ServerPlugIcon } from "~/ui/icons/EmptyStateIcons";
 
+import { carriesRedacted, keepsStoredSecrets, type MCPEndpoint, REDACTED } from "./mcpSecrets";
+
 // ---------------------------------------------------------------------------
 // MCP Servers Page
 // ---------------------------------------------------------------------------
+
+interface KeyValueRow {
+  key: string;
+  value: string;
+}
 
 interface MCPFormState {
   name: string;
@@ -44,23 +52,61 @@ interface MCPFormState {
   command: string;
   args: string;
   url: string;
-  env: { key: string; value: string }[];
-  // Not editable here: an edited server keeps its headers ("***" as read)
-  // while it keeps the endpoint they were stored for (the Go Core sends stored
-  // values to no other one); with another endpoint they are dropped.
-  headers: Record<string, string>;
-  headersFor: string;
+  env: KeyValueRow[];
+  /** HTTP headers (sse and streamable_http only). */
+  headers: KeyValueRow[];
+  /** The endpoint the edited server was read with; null for a new server. */
+  read: MCPEndpoint | null;
   enabled: boolean;
-}
-
-function endpoint(transport: string, url: string): string {
-  return `${transport} ${url.trim()}`;
 }
 
 /** The Go Core tests only sse and streamable_http servers; stdio servers run in
  * the worker, as the tool user, and start with the first run that uses them. */
 function testableInTheCore(transport: MCPServer["transport"]): boolean {
   return transport !== "stdio";
+}
+
+function isRemote(transport: MCPServer["transport"]): boolean {
+  return transport === "sse" || transport === "streamable_http";
+}
+
+/** The endpoint the form sends: what buildRequest puts into the request. */
+function formEndpoint(state: MCPFormState): MCPEndpoint {
+  const stdio = state.transport === "stdio";
+  return {
+    transport: state.transport,
+    url: isRemote(state.transport) ? state.url.trim() : "",
+    command: stdio ? state.command.trim() : "",
+    args: stdio
+      ? state.args
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [],
+  };
+}
+
+function readEndpoint(server: MCPServer): MCPEndpoint {
+  return {
+    transport: server.transport,
+    url: server.url ?? "",
+    command: server.command ?? "",
+    args: server.args ?? [],
+  };
+}
+
+function toRows(values: Record<string, string> | undefined): KeyValueRow[] {
+  return Object.entries(values ?? {}).map(([key, value]) => ({ key, value }));
+}
+
+/** Rows with a name; undefined when there is none. */
+function toRecord(rows: KeyValueRow[]): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    const k = row.key.trim();
+    if (k) out[k] = row.value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 const FORM_DEFAULTS: MCPFormState = {
@@ -71,8 +117,8 @@ const FORM_DEFAULTS: MCPFormState = {
   args: "",
   url: "",
   env: [],
-  headers: {},
-  headersFor: "",
+  headers: [],
+  read: null,
   enabled: true,
 };
 
@@ -82,6 +128,10 @@ export default function MCPServersPage() {
   });
   const { t } = useI18n();
   const { show: toast } = useToast();
+  const { hasRole } = useAuth();
+  // The tenant's admins manage MCP servers; the Go Core refuses everyone else
+  // (403), so the UI offers them no action.
+  const isAdmin = (): boolean => hasRole("admin");
   const [servers, { refetch }] = createResource(() => api.mcp.listServers());
 
   // Pre-save test state
@@ -135,7 +185,6 @@ export default function MCPServersPage() {
   }
 
   function handleEdit(server: MCPServer): void {
-    const envEntries = Object.entries(server.env ?? {}).map(([key, value]) => ({ key, value }));
     crud.startEdit(server.id, {
       name: server.name,
       desc: server.description,
@@ -143,68 +192,43 @@ export default function MCPServersPage() {
       command: server.command,
       args: (server.args ?? []).join("\n"),
       url: server.url,
-      env: envEntries,
-      headers: server.headers ?? {},
-      headersFor: endpoint(server.transport, server.url),
+      env: toRows(server.env),
+      headers: toRows(server.headers),
+      read: readEndpoint(server),
       enabled: server.enabled,
     });
   }
 
-  function addEnvRow(): void {
-    crud.form.setState("env", [...crud.form.state.env, { key: "", value: "" }]);
-  }
-
-  function removeEnvRow(index: number): void {
-    crud.form.setState(
-      "env",
-      crud.form.state.env.filter((_, i) => i !== index),
-    );
-  }
-
-  function updateEnvRow(index: number, field: "key" | "value", val: string): void {
-    crud.form.setState(
-      "env",
-      crud.form.state.env.map((row, i) => (i === index ? { ...row, [field]: val } : row)),
-    );
-  }
+  /** Whether the "***" values the form sends keep their stored values. */
+  const keepsStored = (): boolean =>
+    keepsStoredSecrets(crud.form.state.read, formEndpoint(crud.form.state));
 
   function buildRequest(): CreateMCPServerRequest | null {
-    const name = crud.form.state.name.trim();
+    const state = crud.form.state;
+    const name = state.name.trim();
     if (!name) {
       toast("error", t("mcp.toast.nameRequired"));
       return null;
     }
-    const envObj: Record<string, string> = {};
-    for (const row of crud.form.state.env) {
-      const k = row.key.trim();
-      if (k) envObj[k] = row.value;
+    const target = formEndpoint(state);
+    const env = toRecord(state.env);
+    const headers = isRemote(state.transport) ? toRecord(state.headers) : undefined;
+    const values = [...Object.values(env ?? {}), ...Object.values(headers ?? {})];
+    // The Go Core would refuse it; the form marks what to enter again.
+    if (carriesRedacted(target, values) && !keepsStored()) {
+      toast("error", t("mcp.toast.storedNotKept"));
+      return null;
     }
     return {
       name,
-      description: crud.form.state.desc.trim() || undefined,
-      transport: crud.form.state.transport,
-      command:
-        crud.form.state.transport === "stdio"
-          ? crud.form.state.command.trim() || undefined
-          : undefined,
-      args:
-        crud.form.state.transport === "stdio"
-          ? crud.form.state.args
-              .split("\n")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : undefined,
-      url:
-        crud.form.state.transport === "sse" || crud.form.state.transport === "streamable_http"
-          ? crud.form.state.url.trim() || undefined
-          : undefined,
-      env: Object.keys(envObj).length > 0 ? envObj : undefined,
-      headers:
-        endpoint(crud.form.state.transport, crud.form.state.url) === crud.form.state.headersFor &&
-        Object.keys(crud.form.state.headers).length > 0
-          ? { ...crud.form.state.headers }
-          : undefined,
-      enabled: crud.form.state.enabled,
+      description: state.desc.trim() || undefined,
+      transport: state.transport,
+      command: state.transport === "stdio" ? target.command || undefined : undefined,
+      args: state.transport === "stdio" ? [...target.args] : undefined,
+      url: isRemote(state.transport) ? target.url || undefined : undefined,
+      env,
+      headers,
+      enabled: state.enabled,
     };
   }
 
@@ -320,40 +344,52 @@ export default function MCPServersPage() {
         </Badge>
       ),
     },
-    {
-      key: "actions",
-      header: t("mcp.table.actions"),
-      render: (server) => (
-        <MCPServerActions
-          server={server}
-          onEdit={handleEdit}
-          onDelete={(s) => crud.del.requestConfirm(s)}
-          onRefetch={refetch}
-        />
-      ),
-    },
   ];
+
+  const actionsColumn: TableColumn<MCPServer> = {
+    key: "actions",
+    header: t("mcp.table.actions"),
+    render: (server) => (
+      <MCPServerActions
+        server={server}
+        onEdit={handleEdit}
+        onDelete={(s) => crud.del.requestConfirm(s)}
+        onRefetch={refetch}
+      />
+    ),
+  };
+
+  const columns = (): TableColumn<MCPServer>[] =>
+    isAdmin() ? [...serverColumns, actionsColumn] : serverColumns;
 
   return (
     <PageLayout
       title={t("mcp.title")}
       description={t("mcp.description")}
       action={
-        <Button
-          variant={crud.showForm() ? "secondary" : "primary"}
-          onClick={() => {
-            if (crud.showForm()) {
-              handleCancelForm();
-            } else {
-              crud.startCreate();
-            }
-          }}
-        >
-          {crud.showForm() ? t("common.cancel") : t("mcp.addServer")}
-        </Button>
+        <Show when={isAdmin()}>
+          <Button
+            variant={crud.showForm() ? "secondary" : "primary"}
+            onClick={() => {
+              if (crud.showForm()) {
+                handleCancelForm();
+              } else {
+                crud.startCreate();
+              }
+            }}
+          >
+            {crud.showForm() ? t("common.cancel") : t("mcp.addServer")}
+          </Button>
+        </Show>
       }
     >
       <ErrorBanner error={error} onDismiss={clearError} />
+
+      <Show when={!isAdmin()}>
+        <Alert variant="info" class="mb-4">
+          {t("mcp.adminOnly")}
+        </Alert>
+      </Show>
 
       {/* Add / Edit Form */}
       <Show when={crud.showForm()}>
@@ -434,16 +470,14 @@ export default function MCPServersPage() {
                       mono
                       placeholder={t("mcp.form.argsPlaceholder")}
                     />
+                    <Show when={crud.form.state.args.includes(REDACTED)}>
+                      <StoredHint keeps={keepsStored()} />
+                    </Show>
                   </FormField>
                 </Show>
 
                 {/* URL (sse / streamable_http) */}
-                <Show
-                  when={
-                    crud.form.state.transport === "sse" ||
-                    crud.form.state.transport === "streamable_http"
-                  }
-                >
+                <Show when={isRemote(crud.form.state.transport)}>
                   <FormField label={t("mcp.form.url")} id="mcp-url" class="sm:col-span-2">
                     <Input
                       id="mcp-url"
@@ -453,50 +487,50 @@ export default function MCPServersPage() {
                       mono
                       placeholder={t("mcp.form.urlPlaceholder")}
                     />
+                    <Show when={crud.form.state.url.includes(REDACTED)}>
+                      <StoredHint keeps={keepsStored()} />
+                    </Show>
                   </FormField>
                 </Show>
 
-                {/* Environment Variables */}
-                <div class="sm:col-span-2">
-                  <div class="mb-2 flex items-center justify-between">
-                    <span class="text-sm font-medium text-cf-text-secondary">
-                      {t("mcp.form.env")}
-                    </span>
-                    <Button variant="ghost" size="sm" onClick={addEnvRow}>
-                      {t("mcp.form.addEnv")}
-                    </Button>
-                  </div>
-                  <For each={crud.form.state.env}>
-                    {(row, index) => (
-                      <div class="mb-2 flex gap-2">
-                        <Input
-                          type="text"
-                          value={row.key}
-                          onInput={(e) => updateEnvRow(index(), "key", e.currentTarget.value)}
-                          mono
-                          placeholder={t("mcp.form.envKey")}
-                          aria-label={`${t("mcp.form.envKey")} ${index() + 1}`}
-                        />
-                        <Input
-                          type="text"
-                          value={row.value}
-                          onInput={(e) => updateEnvRow(index(), "value", e.currentTarget.value)}
-                          mono
-                          placeholder={t("mcp.form.envValue")}
-                          aria-label={`${t("mcp.form.envValue")} ${index() + 1}`}
-                        />
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => removeEnvRow(index())}
-                          aria-label={`Remove variable ${index() + 1}`}
-                        >
-                          {t("common.delete")}
-                        </Button>
-                      </div>
-                    )}
-                  </For>
-                </div>
+                <KeyValueEditor
+                  title={t("mcp.form.env")}
+                  addLabel={t("mcp.form.addEnv")}
+                  keyLabel={t("mcp.form.envKey")}
+                  valueLabel={t("mcp.form.envValue")}
+                  removeLabel={(n) => t("mcp.form.removeEnv", { n })}
+                  rows={crud.form.state.env}
+                  keepsStored={keepsStored()}
+                  onAdd={() =>
+                    crud.form.setState("env", (rows) => [...rows, { key: "", value: "" }])
+                  }
+                  onRemove={(index) =>
+                    crud.form.setState("env", (rows) => rows.filter((_, i) => i !== index))
+                  }
+                  onChange={(index, part, value) => crud.form.setState("env", index, part, value)}
+                />
+
+                {/* HTTP headers: sent with every request to an sse or streamable_http server */}
+                <Show when={isRemote(crud.form.state.transport)}>
+                  <KeyValueEditor
+                    title={t("mcp.form.headers")}
+                    addLabel={t("mcp.form.addHeader")}
+                    keyLabel={t("mcp.form.headerKey")}
+                    valueLabel={t("mcp.form.headerValue")}
+                    removeLabel={(n) => t("mcp.form.removeHeader", { n })}
+                    rows={crud.form.state.headers}
+                    keepsStored={keepsStored()}
+                    onAdd={() =>
+                      crud.form.setState("headers", (rows) => [...rows, { key: "", value: "" }])
+                    }
+                    onRemove={(index) =>
+                      crud.form.setState("headers", (rows) => rows.filter((_, i) => i !== index))
+                    }
+                    onChange={(index, part, value) =>
+                      crud.form.setState("headers", index, part, value)
+                    }
+                  />
+                </Show>
 
                 {/* Enabled toggle */}
                 <div class="flex items-center gap-3 sm:col-span-2">
@@ -582,7 +616,7 @@ export default function MCPServersPage() {
             />
           }
         >
-          <Table<MCPServer> columns={serverColumns} data={servers() ?? []} rowKey={(s) => s.id} />
+          <Table<MCPServer> columns={columns()} data={servers() ?? []} rowKey={(s) => s.id} />
 
           {/* Expandable tools sections below the table */}
           <For each={servers() ?? []}>{(server) => <MCPServerToolsPanel server={server} />}</For>
@@ -613,6 +647,80 @@ export default function MCPServersPage() {
         onCancel={handleTestFailCancel}
       />
     </PageLayout>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stored secrets ("***") and the key/value editor for env and headers
+// ---------------------------------------------------------------------------
+
+/** Says whether a "***" keeps its stored value or must be entered again. */
+function StoredHint(props: { keeps: boolean }): JSX.Element {
+  const { t } = useI18n();
+  return (
+    <p class={`mt-1 text-xs ${props.keeps ? "text-cf-text-muted" : "text-cf-danger-fg"}`}>
+      {props.keeps ? t("mcp.form.storedUnchanged") : t("mcp.form.storedNotKept")}
+    </p>
+  );
+}
+
+function KeyValueEditor(props: {
+  title: string;
+  addLabel: string;
+  keyLabel: string;
+  valueLabel: string;
+  removeLabel: (n: number) => string;
+  rows: KeyValueRow[];
+  keepsStored: boolean;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onChange: (index: number, part: keyof KeyValueRow, value: string) => void;
+}): JSX.Element {
+  const { t } = useI18n();
+  return (
+    <div class="sm:col-span-2">
+      <div class="mb-2 flex items-center justify-between">
+        <span class="text-sm font-medium text-cf-text-secondary">{props.title}</span>
+        <Button variant="ghost" size="sm" onClick={() => props.onAdd()}>
+          {props.addLabel}
+        </Button>
+      </div>
+      <For each={props.rows}>
+        {(row, index) => (
+          <div class="mb-2">
+            <div class="flex gap-2">
+              <Input
+                type="text"
+                value={row.key}
+                onInput={(e) => props.onChange(index(), "key", e.currentTarget.value)}
+                mono
+                placeholder={props.keyLabel}
+                aria-label={`${props.keyLabel} ${index() + 1}`}
+              />
+              <Input
+                type="text"
+                value={row.value}
+                onInput={(e) => props.onChange(index(), "value", e.currentTarget.value)}
+                mono
+                placeholder={props.valueLabel}
+                aria-label={`${props.valueLabel} ${index() + 1}`}
+              />
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => props.onRemove(index())}
+                aria-label={props.removeLabel(index() + 1)}
+              >
+                {t("common.delete")}
+              </Button>
+            </div>
+            <Show when={row.value === REDACTED}>
+              <StoredHint keeps={props.keepsStored} />
+            </Show>
+          </div>
+        )}
+      </For>
+    </div>
   );
 }
 

@@ -696,6 +696,8 @@ const en = {
   "detail.roadmap.collapse": "Collapse Roadmap",
   "detail.roadmap.expand": "Expand Roadmap",
   "detail.settings.costSummary": "Cost Summary",
+  "detail.settings.mcpAdminOnly": "Only admins assign MCP servers to a project.",
+  "detail.settings.mcpNoneAssigned": "No MCP server is assigned to this project.",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",
@@ -1255,6 +1257,18 @@ const en = {
   "mcp.form.envKey": "Key",
   "mcp.form.envValue": "Value",
   "mcp.form.addEnv": "Add Variable",
+  "mcp.form.removeEnv": "Remove variable {{n}}",
+  "mcp.form.headers": "HTTP Headers",
+  "mcp.form.headerKey": "Header name",
+  "mcp.form.headerValue": "Header value",
+  "mcp.form.addHeader": "Add Header",
+  "mcp.form.removeHeader": "Remove header {{n}}",
+  "mcp.form.storedUnchanged": "Stored, unchanged: *** keeps the saved value.",
+  "mcp.form.storedNotKept":
+    "Enter it again: a stored value is kept only while transport, URL, command and arguments are unchanged.",
+  "mcp.toast.storedNotKept":
+    "Stored secrets (***) are kept only while transport, URL, command and arguments are unchanged. Enter them again.",
+  "mcp.adminOnly": "Only admins of your organization add, change, test and assign MCP servers.",
   "mcp.form.enabled": "Enabled",
   "mcp.form.create": "Create Server",
   "mcp.form.update": "Update Server",

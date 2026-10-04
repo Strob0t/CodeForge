@@ -691,6 +691,8 @@ const de: Translations = {
   "detail.roadmap.collapse": "Roadmap einklappen",
   "detail.roadmap.expand": "Roadmap ausklappen",
   "detail.settings.costSummary": "Kostenübersicht",
+  "detail.settings.mcpAdminOnly": "Nur Administratoren weisen einem Projekt MCP-Server zu.",
+  "detail.settings.mcpNoneAssigned": "Diesem Projekt ist kein MCP-Server zugewiesen.",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live-Ausgabe",
@@ -1262,6 +1264,19 @@ const de: Translations = {
   "mcp.form.envKey": "Schluessel",
   "mcp.form.envValue": "Wert",
   "mcp.form.addEnv": "Variable hinzufuegen",
+  "mcp.form.removeEnv": "Variable {{n}} entfernen",
+  "mcp.form.headers": "HTTP-Header",
+  "mcp.form.headerKey": "Header-Name",
+  "mcp.form.headerValue": "Header-Wert",
+  "mcp.form.addHeader": "Header hinzufügen",
+  "mcp.form.removeHeader": "Header {{n}} entfernen",
+  "mcp.form.storedUnchanged": "Gespeichert, unverändert: *** behält den gespeicherten Wert.",
+  "mcp.form.storedNotKept":
+    "Bitte erneut eingeben: Ein gespeicherter Wert bleibt nur erhalten, solange Transport, URL, Befehl und Argumente unverändert sind.",
+  "mcp.toast.storedNotKept":
+    "Gespeicherte Geheimnisse (***) bleiben nur erhalten, solange Transport, URL, Befehl und Argumente unverändert sind. Bitte erneut eingeben.",
+  "mcp.adminOnly":
+    "Nur Administratoren Ihrer Organisation legen MCP-Server an, ändern, testen und weisen sie zu.",
   "mcp.form.enabled": "Aktiviert",
   "mcp.form.create": "Server erstellen",
   "mcp.form.update": "Server aktualisieren",

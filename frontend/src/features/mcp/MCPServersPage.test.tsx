@@ -43,6 +43,15 @@ const mcp = vi.hoisted(() => ({
 
 vi.mock("~/api/client", () => ({ api: { mcp } }));
 
+/** The signed-in user's role (the auth context); the Go Core stays the authority. */
+const auth = vi.hoisted(() => ({ role: "admin" as "admin" | "editor" | "viewer" }));
+
+vi.mock("~/components/AuthProvider", () => ({
+  useAuth: () => ({
+    hasRole: (...roles: string[]) => roles.includes(auth.role),
+  }),
+}));
+
 import { ConfirmProvider } from "~/components/ConfirmProvider";
 import { ToastProvider } from "~/components/Toast";
 import { I18nProvider } from "~/i18n";
@@ -87,6 +96,7 @@ function renderPage(): void {
 describe("MCP server connection tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    auth.role = "admin";
     mcp.servers = [remote, local];
     mcp.listServers.mockImplementation(() => Promise.resolve(mcp.servers));
     mcp.createServer.mockResolvedValue(remote);
@@ -104,24 +114,11 @@ describe("MCP server connection tests", () => {
     expect(mcp.testConnection).toHaveBeenCalledWith(
       expect.objectContaining({ id: "s-remote", env: { API_TOKEN: "***" } }),
     );
-    // Sent back as read: the Go Core keeps the stored values (the form has no
-    // header editor, so the headers would otherwise be dropped).
+    // Sent back as read: the Go Core keeps the stored values.
     expect(mcp.updateServer).toHaveBeenCalledWith(
       "s-remote",
       expect.objectContaining({ env: { API_TOKEN: "***" }, headers: { Authorization: "***" } }),
     );
-  });
-
-  it("drops the stored headers when the endpoint changes", async () => {
-    renderPage();
-    fireEvent.click(await screen.findByLabelText("Edit server remote"));
-    fireEvent.input(await screen.findByLabelText(/^Server URL/), {
-      target: { value: "http://other.example/sse" },
-    });
-    fireEvent.click(screen.getByText("Update Server"));
-
-    await waitFor(() => expect(mcp.updateServer).toHaveBeenCalled());
-    expect(mcp.updateServer.mock.calls[0][1]).not.toHaveProperty("headers", expect.anything());
   });
 
   it("tests a new server without an id", async () => {
@@ -177,6 +174,7 @@ describe("MCP server connection tests", () => {
 describe("MCP server arguments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    auth.role = "admin";
     mcp.servers = [
       { ...local, args: ["-y", "mcp-github", "--token=***", "--api-key", "***"] },
       { ...remote, url: "https://***@mcp.example/sse" },
@@ -228,5 +226,205 @@ describe("MCP server arguments", () => {
       "s-remote",
       expect.objectContaining({ url: "https://***@mcp.example/sse" }),
     );
+  });
+
+  it("asks for the url's secret again when the url changes", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server remote"));
+    fireEvent.input(await screen.findByLabelText(/^Server URL/), {
+      target: { value: "https://***@other.example/sse" },
+    });
+    fireEvent.click(screen.getByText("Update Server"));
+
+    expect((await screen.findAllByText(STORED_NOT_KEPT)).length).toBeGreaterThan(0);
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+});
+
+const STORED_UNCHANGED = "Stored, unchanged: *** keeps the saved value.";
+const STORED_NOT_KEPT =
+  "Enter it again: a stored value is kept only while transport, URL, command and arguments are unchanged.";
+
+// KI-98: the form had no header editor (an edit sent the headers back as read
+// and dropped them silently when the endpoint changed) and no hint for "***".
+// The Go Core keeps the value a "***" stands for only while transport, url,
+// command and args are the ones it was read with (mcp.ServerDef.KeepRedacted).
+describe("MCP header editor", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    auth.role = "admin";
+    mcp.servers = [remote, local];
+    mcp.listServers.mockImplementation(() => Promise.resolve(mcp.servers));
+    mcp.createServer.mockResolvedValue(remote);
+    mcp.updateServer.mockResolvedValue(remote);
+    mcp.testConnection.mockResolvedValue({ success: true, tools: [] });
+  });
+
+  async function editRemote(): Promise<void> {
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server remote"));
+    await screen.findByLabelText("Header name 1");
+  }
+
+  it("shows the stored headers with a stored, unchanged hint", async () => {
+    await editRemote();
+
+    expect((screen.getByLabelText("Header name 1") as HTMLInputElement).value).toBe(
+      "Authorization",
+    );
+    expect((screen.getByLabelText("Header value 1") as HTMLInputElement).value).toBe("***");
+    // One hint for the header, one for the env variable.
+    expect(screen.getAllByText(STORED_UNCHANGED)).toHaveLength(2);
+  });
+
+  it("asks for the stored values again when the url changes, and saves nothing", async () => {
+    await editRemote();
+    fireEvent.input(screen.getByLabelText(/^Server URL/), {
+      target: { value: "http://other.example/sse" },
+    });
+
+    expect(screen.getAllByText(STORED_NOT_KEPT)).toHaveLength(2);
+    expect(screen.queryByText(STORED_UNCHANGED)).toBeNull();
+
+    fireEvent.click(screen.getByText("Update Server"));
+    await screen.findByText(
+      "Stored secrets (***) are kept only while transport, URL, command and arguments are unchanged. Enter them again.",
+    );
+    expect(mcp.testConnection).not.toHaveBeenCalled();
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
+  it("saves with a changed url once the values are entered again", async () => {
+    await editRemote();
+    fireEvent.input(screen.getByLabelText(/^Server URL/), {
+      target: { value: "http://other.example/sse" },
+    });
+    fireEvent.input(screen.getByLabelText("Header value 1"), {
+      target: { value: "Bearer new" },
+    });
+    fireEvent.click(screen.getByLabelText("Remove variable 1"));
+    fireEvent.click(screen.getByText("Update Server"));
+
+    await waitFor(() => expect(mcp.updateServer).toHaveBeenCalled());
+    const req = mcp.updateServer.mock.calls[0][1];
+    expect(req).toMatchObject({
+      url: "http://other.example/sse",
+      headers: { Authorization: "Bearer new" },
+    });
+    expect(req).not.toHaveProperty("env", expect.anything());
+  });
+
+  it("refuses to keep stored values when the transport changes", async () => {
+    await editRemote();
+    fireEvent.change(screen.getByLabelText("Transport"), {
+      target: { value: "streamable_http" },
+    });
+    fireEvent.click(screen.getByText("Update Server"));
+
+    expect((await screen.findAllByText(STORED_NOT_KEPT)).length).toBeGreaterThan(0);
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
+  it("refuses to keep a stored env value when a stdio server's arguments change", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server local"));
+    fireEvent.input(await screen.findByLabelText(/^Arguments/), {
+      target: { value: "--verbose" },
+    });
+
+    expect(screen.getAllByText(STORED_NOT_KEPT)).toHaveLength(1);
+    fireEvent.click(screen.getByText("Update Server"));
+    await screen.findByText(/Stored secrets \(\*\*\*\) are kept only/);
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
+  it("creates a server with the headers entered", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Add Server"));
+    fireEvent.input(screen.getByLabelText(/^Name/), { target: { value: "new" } });
+    fireEvent.change(screen.getByLabelText("Transport"), { target: { value: "sse" } });
+    fireEvent.input(await screen.findByLabelText(/^Server URL/), {
+      target: { value: "https://new.example/sse" },
+    });
+    fireEvent.click(screen.getByText("Add Header"));
+    fireEvent.input(screen.getByLabelText("Header name 1"), {
+      target: { value: "X-Api-Key" },
+    });
+    fireEvent.input(screen.getByLabelText("Header value 1"), { target: { value: "k-1" } });
+    // A row without a name is not sent.
+    fireEvent.click(screen.getByText("Add Header"));
+    fireEvent.click(screen.getByText("Create Server"));
+
+    await waitFor(() => expect(mcp.createServer).toHaveBeenCalled());
+    expect(mcp.createServer.mock.calls[0][0]).toMatchObject({ headers: { "X-Api-Key": "k-1" } });
+  });
+
+  it("refuses *** for a new server, which has no stored value", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Add Server"));
+    fireEvent.input(screen.getByLabelText(/^Name/), { target: { value: "new" } });
+    fireEvent.click(screen.getByText("Add Variable"));
+    fireEvent.input(screen.getByLabelText("Key 1"), { target: { value: "TOKEN" } });
+    fireEvent.input(screen.getByLabelText("Value 1"), { target: { value: "***" } });
+
+    expect(screen.getByText(STORED_NOT_KEPT)).toBeDefined();
+    fireEvent.click(screen.getByText("Create Server"));
+    await screen.findByText(/Stored secrets \(\*\*\*\) are kept only/);
+    expect(mcp.createServer).not.toHaveBeenCalled();
+  });
+
+  it("offers headers only for sse and streamable_http servers", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByText("Add Server"));
+
+    expect(screen.queryByText("Add Header")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Transport"), { target: { value: "sse" } });
+    expect(await screen.findByText("Add Header")).toBeDefined();
+  });
+});
+
+// KI-98: viewers and editors saw the create, edit, delete and test actions,
+// which the Go Core refuses them (403). They are hidden now; the server
+// stays the authority.
+describe("MCP admin actions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mcp.servers = [remote, local];
+    mcp.listServers.mockImplementation(() => Promise.resolve(mcp.servers));
+  });
+
+  it.each(["viewer", "editor"] as const)("hides the admin actions from a %s", async (role) => {
+    auth.role = role;
+    renderPage();
+    await screen.findByText("remote");
+
+    expect(screen.queryByText("Add Server")).toBeNull();
+    expect(screen.queryByLabelText("Edit server remote")).toBeNull();
+    expect(screen.queryByLabelText("Delete server remote")).toBeNull();
+    expect(screen.queryByLabelText("Test connection for remote")).toBeNull();
+    expect(screen.queryByText("Actions")).toBeNull();
+    expect(
+      screen.getByText(
+        "Only admins of your organization add, change, test and assign MCP servers.",
+      ),
+    ).toBeDefined();
+    // Reading the tools stays open to everyone.
+    expect(screen.getByLabelText("Show tools for remote")).toBeDefined();
+  });
+
+  it("shows the admin actions to an admin", async () => {
+    auth.role = "admin";
+    renderPage();
+    await screen.findByText("remote");
+
+    expect(screen.getByText("Add Server")).toBeDefined();
+    expect(screen.getByLabelText("Edit server remote")).toBeDefined();
+    expect(screen.getByLabelText("Delete server remote")).toBeDefined();
+    expect(screen.getByLabelText("Test connection for remote")).toBeDefined();
+    expect(
+      screen.queryByText(
+        "Only admins of your organization add, change, test and assign MCP servers.",
+      ),
+    ).toBeNull();
   });
 });

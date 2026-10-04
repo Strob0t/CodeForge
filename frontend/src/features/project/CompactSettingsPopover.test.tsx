@@ -46,6 +46,15 @@ vi.mock("~/api/client", () => ({
   },
 }));
 
+/** The signed-in user's role (the auth context); the Go Core stays the authority. */
+const auth = vi.hoisted(() => ({ role: "admin" as "admin" | "editor" | "viewer" }));
+
+vi.mock("~/components/AuthProvider", () => ({
+  useAuth: () => ({
+    hasRole: (...roles: string[]) => roles.includes(auth.role),
+  }),
+}));
+
 vi.mock("../costs/CostDashboardPage", () => ({
   ProjectCostSection: () => <div>cost section</div>,
 }));
@@ -83,6 +92,7 @@ function renderPopover(): void {
 
 describe("CompactSettingsPopover", () => {
   beforeEach(() => {
+    auth.role = "admin";
     apiMock.listServers
       .mockReset()
       .mockResolvedValue([server("s-1", "docs"), server("s-2", "git")]);
@@ -117,5 +127,29 @@ describe("CompactSettingsPopover", () => {
     fireEvent.click(docs);
     await waitFor(() => expect(apiMock.unassignFromProject).toHaveBeenCalledWith("p-1", "s-1"));
     expect(apiMock.updateProject).not.toHaveBeenCalled();
+  });
+
+  // KI-98: assigning is for the tenant's admins (the Go Core answers 403 to
+  // everyone else); viewers and editors see the assigned servers only.
+  it.each(["viewer", "editor"] as const)(
+    "shows a %s the assigned servers without the assign action",
+    async (role) => {
+      auth.role = role;
+      renderPopover();
+
+      expect(await screen.findByText("docs")).toBeDefined();
+      expect(screen.queryByText("git")).toBeNull();
+      expect(screen.queryByRole("checkbox")).toBeNull();
+      expect(screen.getByText("Only admins assign MCP servers to a project.")).toBeDefined();
+      expect(apiMock.assignToProject).not.toHaveBeenCalled();
+    },
+  );
+
+  it("tells a viewer when no server is assigned", async () => {
+    auth.role = "viewer";
+    apiMock.listProjectServers.mockResolvedValue([]);
+    renderPopover();
+
+    expect(await screen.findByText("No MCP server is assigned to this project.")).toBeDefined();
   });
 });
