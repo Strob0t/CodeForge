@@ -2,16 +2,31 @@
 -- KI-147: one turn's messages are inserted in a single batch and share one
 -- created_at (the transaction start), so ordering by created_at put tool
 -- results before their calls. seq records the insert order. Existing rows are
--- numbered by created_at and, for equal timestamps, by heap position, which
--- for rows written in one batch is the best record of their insert order left
--- (id is random).
+-- numbered by created_at; rows of one conversation with equal created_at (one
+-- batch) by heap position, the best record of their insert order left (id is
+-- random), except that a tool result goes directly after the assistant
+-- message of the same batch whose tool_calls hold its call ID (heap position
+-- alone can put a result before its call).
 ALTER TABLE conversation_messages ADD COLUMN seq BIGINT;
 
 UPDATE conversation_messages m
 SET seq = o.rn
 FROM (
-    SELECT id, row_number() OVER (ORDER BY created_at, ctid) AS rn
-    FROM conversation_messages
+    SELECT r.id, row_number() OVER (
+        ORDER BY r.created_at, r.conversation_id,
+                 COALESCE(call.ctid, r.ctid), call.ctid IS NOT NULL, r.ctid
+    ) AS rn
+    FROM conversation_messages r
+    LEFT JOIN LATERAL (
+        SELECT a.ctid
+        FROM conversation_messages a
+        WHERE r.role = 'tool' AND r.tool_call_id <> ''
+          AND a.conversation_id = r.conversation_id AND a.created_at = r.created_at
+          AND a.role = 'assistant'
+          AND a.tool_calls @> jsonb_build_array(jsonb_build_object('id', r.tool_call_id))
+        ORDER BY a.ctid
+        LIMIT 1
+    ) call ON true
 ) o
 WHERE m.id = o.id;
 
