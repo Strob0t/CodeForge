@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
@@ -46,6 +47,33 @@ func TestHandleCreatePlan(t *testing.T) {
 	}
 	if p.Name != "test-plan" {
 		t.Fatalf("expected name 'test-plan', got %q", p.Name)
+	}
+}
+
+// Plan names starting with "debate:" are reserved for the orchestrator's
+// debate sub-plans, which a cancelled plan cancels by name (S7-F review).
+func TestHandleCreatePlan_DebateNameIsReserved(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	createProject(t, r, "plan-project")
+	createTask(t, r, "test-id", "plan-task")
+	store.agents = append(store.agents, agent.Agent{ID: "agent-1", ProjectID: "test-id", Name: "test-agent"})
+
+	body, _ := json.Marshal(plan.CreatePlanRequest{
+		Name:     "debate:11111111-2222-3333-4444-555555555555:x",
+		Protocol: plan.ProtocolSequential,
+		Steps:    []plan.CreateStepRequest{{TaskID: "task-id", AgentID: "agent-1"}},
+	})
+	req := httptest.NewRequest("POST", "/api/v1/projects/test-id/plans", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if msg := decodeErrorMessage(t, w); !strings.Contains(msg, "debate:") {
+		t.Fatalf("error = %q, want it to name the reserved prefix", msg)
 	}
 }
 

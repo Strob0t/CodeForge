@@ -155,6 +155,17 @@ func (s *OrchestratorService) unlock() {
 
 // CreatePlan validates and persists a new execution plan.
 func (s *OrchestratorService) CreatePlan(ctx context.Context, req *plan.CreatePlanRequest) (*plan.ExecutionPlan, error) {
+	// Cancelling a plan cancels the plans named like its debates
+	// (cancelDebatesOf): only startDebate gives a plan such a name.
+	if strings.HasPrefix(req.Name, debatePlanNamePrefix) {
+		return nil, fmt.Errorf("%w: plan names starting with %q are reserved for debate sub-plans", domain.ErrValidation, debatePlanNamePrefix)
+	}
+	return s.createPlan(ctx, req)
+}
+
+// createPlan validates and stores a plan; CreatePlan for every caller but
+// startDebate.
+func (s *OrchestratorService) createPlan(ctx context.Context, req *plan.CreatePlanRequest) (*plan.ExecutionPlan, error) {
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validate plan: %w", err)
 	}

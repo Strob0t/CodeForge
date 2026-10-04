@@ -293,11 +293,15 @@ func (s *OrchestratorService) evaluateStepReview(ctx context.Context, planID, pr
 	return routed
 }
 
+// debatePlanNamePrefix starts the names of the debate sub-plans and of no
+// other plan: CreatePlan refuses it, only startDebate uses it.
+const debatePlanNamePrefix = "debate:"
+
 // debatePlanPrefix starts the name of every debate sub-plan of a step of
 // plan parentID ("debate:<plan>:<step>"); cancelling the plan finds its
 // debates by it.
 func debatePlanPrefix(parentID string) string {
-	return "debate:" + parentID + ":"
+	return debatePlanNamePrefix + parentID + ":"
 }
 
 // startDebate creates a ping_pong sub-plan (proponent + moderator) for a step
@@ -326,7 +330,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 		},
 	}
 
-	debatePlan, err := s.CreatePlan(ctx, debateReq)
+	debatePlan, err := s.createPlan(ctx, debateReq)
 	if err != nil {
 		slog.Error("create debate sub-plan", "step_id", step.ID, "error", err)
 		return false // the step runs without a debate

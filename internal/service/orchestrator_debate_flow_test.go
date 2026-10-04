@@ -2,11 +2,13 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
@@ -348,5 +350,38 @@ func TestDebate_EndAfterTheParentWasCancelled(t *testing.T) {
 
 	if got := planState(t, store, p.ID).Steps[0]; got.Status != plan.StepStatusCancelled {
 		t.Fatalf("parent step = %s after its debate ended, want it cancelled", got.Status)
+	}
+}
+
+// S7-F review: cancelling a plan cancels the plans named like its debates
+// ("debate:<plan>:"), so a plan created through CreatePlan may not take such
+// a name; the debates the orchestrator creates keep theirs.
+func TestCreatePlan_DebateNamesAreReserved(t *testing.T) {
+	store, orchSvc, _ := newDebateSetup(true)
+	ctx := context.Background()
+	steps := []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}}
+	parent, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{Name: "parent", ProjectID: "proj-1", Protocol: plan.ProtocolSequential, Steps: steps})
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+
+	for _, name := range []string{"debate:" + parent.ID + ":mine", "debate:", "debate:x"} {
+		_, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{Name: name, ProjectID: "proj-1", Protocol: plan.ProtocolSequential, Steps: steps})
+		if !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("CreatePlan(%q) error = %v, want a validation error", name, err)
+		}
+	}
+	for _, name := range []string{"Debate: pros and cons", "my debate:x", " debate"} {
+		if _, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{Name: name, ProjectID: "proj-1", Protocol: plan.ProtocolSequential, Steps: steps}); err != nil {
+			t.Errorf("CreatePlan(%q): %v", name, err)
+		}
+	}
+
+	// The orchestrator's own debate of the parent's step is still created.
+	if _, err := orchSvc.StartPlan(ctx, parent.ID); err != nil {
+		t.Fatalf("StartPlan: %v", err)
+	}
+	if debate := debatePlanOf(t, store, parent.ID); !strings.HasPrefix(debate.Name, "debate:"+parent.ID+":") {
+		t.Fatalf("debate plan name = %q", debate.Name)
 	}
 }
