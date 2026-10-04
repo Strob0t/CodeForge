@@ -711,6 +711,9 @@ const de: Translations = {
   "detail.roadmap.collapse": "Roadmap einklappen",
   "detail.roadmap.expand": "Roadmap ausklappen",
   "detail.settings.costSummary": "Kostenübersicht",
+  "detail.chat.linkedElsewhere":
+    "Die verlinkte Unterhaltung gehört zu einem anderen Projekt und wurde nicht geöffnet.",
+  "detail.chat.linkedFailed": "Die verlinkte Unterhaltung konnte nicht geöffnet werden.",
   "detail.settings.mcpAdminOnly": "Nur Administratoren weisen einem Projekt MCP-Server zu.",
   "detail.settings.mcpNoneAssigned": "Diesem Projekt ist kein MCP-Server zugewiesen.",
 

@@ -716,6 +716,9 @@ const en = {
   "detail.roadmap.collapse": "Collapse Roadmap",
   "detail.roadmap.expand": "Expand Roadmap",
   "detail.settings.costSummary": "Cost Summary",
+  "detail.chat.linkedElsewhere":
+    "The linked conversation belongs to another project and was not opened.",
+  "detail.chat.linkedFailed": "The linked conversation could not be opened.",
   "detail.settings.mcpAdminOnly": "Only admins assign MCP servers to a project.",
   "detail.settings.mcpNoneAssigned": "No MCP server is assigned to this project.",
 
