@@ -100,6 +100,10 @@ func MountRoutes(r chi.Router, h *Handlers, opts ...RouteOption) {
 	mountWebhookRoutes(r, h)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		// No answer may stay in a browser or proxy cache (GET /me/export holds
+		// a user's personal data).
+		r.Use(middleware.NoStore)
+
 		// Version
 		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
