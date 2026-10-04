@@ -11,23 +11,22 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 )
 
-// CreateChannel creates a channel in the caller's tenant. Its creator is
-// linked only when it has a row in users: a caller without one (the default
-// user while auth is disabled, the internal service key user) has no user to
-// reference, and the channel is created without a creator instead of failing
-// on the foreign key (KI-89).
+// CreateChannel creates a channel in the caller's tenant. A creator that is
+// one of the synthetic identities without a users row (the default user while
+// auth is disabled, the internal service key user) is not recorded (KI-89);
+// a user whose row is gone gets user.ErrAccountGone (see accountRef).
 func (s *Store) CreateChannel(ctx context.Context, ch *channel.Channel) (*channel.Channel, error) {
 	tid := tenantFromCtx(ctx)
 	var created channel.Channel
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO channels (tenant_id, project_id, name, type, description, created_by)
-		 VALUES ($1, $2, $3, $4, $5, (SELECT u.id FROM users u WHERE u.id = $6::uuid))
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at`,
-		tid, nullIfEmpty(ch.ProjectID), ch.Name, ch.Type, ch.Description, nullIfEmpty(ch.CreatedBy),
+		tid, nullIfEmpty(ch.ProjectID), ch.Name, ch.Type, ch.Description, accountRef(ch.CreatedBy),
 	).Scan(&created.ID, &created.TenantID, &created.ProjectID, &created.Name,
 		&created.Type, &created.Description, &created.CreatedBy, &created.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("create channel: %w", err)
+		return nil, fmt.Errorf("create channel: %w", accountGone(err, "channels_created_by_fkey"))
 	}
 	return &created, nil
 }
@@ -178,25 +177,26 @@ func (s *Store) DeleteChannel(ctx context.Context, id string) error {
 // CreateChannelMessage stores a message in a channel of the caller's tenant;
 // the message takes the channel's tenant. A channel of another tenant is not
 // found, and so is a thread parent that is not a message of the same channel.
-// The sender's kind and name are always kept; its user ID only when it has a
-// row in users (like CreateChannel's creator, KI-89).
+// The sender's kind and name are always kept, and its user ID unless it is
+// one of the synthetic identities without a users row; a user whose row is
+// gone gets user.ErrAccountGone (like CreateChannel's creator, KI-89).
 func (s *Store) CreateChannelMessage(ctx context.Context, msg *channel.Message) (*channel.Message, error) {
 	var created channel.Message
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO channel_messages (channel_id, tenant_id, sender_id, sender_type, sender_name, content, metadata, parent_id)
-		 SELECT c.id, c.tenant_id, (SELECT u.id FROM users u WHERE u.id = $2::uuid), $3, $4, $5,
-		        COALESCE($6::jsonb, '{}'::jsonb), $7::uuid
+		 SELECT c.id, c.tenant_id, $2::uuid, $3, $4, $5, COALESCE($6::jsonb, '{}'::jsonb), $7::uuid
 		 FROM channels c WHERE c.id = $1 AND c.tenant_id = $8
 		   AND ($7::uuid IS NULL OR EXISTS (
 		     SELECT 1 FROM channel_messages p WHERE p.id = $7::uuid AND p.channel_id = c.id))
 		 RETURNING id, channel_id, COALESCE(sender_id::text,''), sender_type, sender_name, content, COALESCE(metadata,'{}'), COALESCE(parent_id::text,''), created_at`,
-		msg.ChannelID, nullIfEmpty(msg.SenderID), msg.SenderType, msg.SenderName,
+		msg.ChannelID, accountRef(msg.SenderID), msg.SenderType, msg.SenderName,
 		msg.Content, nullIfEmpty(msg.Metadata), nullIfEmpty(msg.ParentID), tenantFromCtx(ctx),
 	).Scan(&created.ID, &created.ChannelID, &created.SenderID, &created.SenderType,
 		&created.SenderName, &created.Content, &created.Metadata,
 		&created.ParentID, &created.CreatedAt)
 	if err != nil {
-		return nil, notFoundWrap(err, "create channel message in channel %s", msg.ChannelID)
+		return nil, notFoundWrap(accountGone(err, "channel_messages_sender_id_fkey"),
+			"create channel message in channel %s", msg.ChannelID)
 	}
 	return &created, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
@@ -31,6 +32,32 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// sqlStateForeignKeyViolation is PostgreSQL's foreign_key_violation.
+const sqlStateForeignKeyViolation = "23503"
+
+// accountRef is the users row a write references for the calling user: none
+// for a write without a user or by one of the synthetic identities without a
+// row (user.IsAccountless), else the user's ID. A user whose row is gone -
+// erased or deleted while its access token is still valid - then fails the
+// foreign key instead of being recorded by name only, which the GDPR erasure
+// could not find (KI-89 review); see accountGone.
+func accountRef(userID string) *string {
+	if user.IsAccountless(userID) {
+		return nil
+	}
+	return nullIfEmpty(userID)
+}
+
+// accountGone maps err to user.ErrAccountGone when it is the violation of
+// constraint, a foreign key to users that accountRef filled.
+func accountGone(err error, constraint string) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == sqlStateForeignKeyViolation && pgErr.ConstraintName == constraint {
+		return user.ErrAccountGone
+	}
+	return err
 }
 
 // nullTime converts a zero time to nil for nullable DB columns.

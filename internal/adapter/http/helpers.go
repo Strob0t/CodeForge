@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/tenant"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 )
 
 // ---------------------------------------------------------------------------
@@ -146,6 +147,10 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		writeError(w, http.StatusNotFound, fallbackMsg)
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, "resource was modified by another request")
+	case errors.Is(err, user.ErrAccountGone):
+		// The caller's token outlived its account (deleted or erased): the
+		// request has no user to act as, so it is not authenticated.
+		writeError(w, http.StatusUnauthorized, "authentication required")
 	case errors.Is(err, project.ErrProjectBusy):
 		writeError(w, http.StatusConflict, project.ErrProjectBusy.Error())
 	case errors.Is(err, domain.ErrValidation):

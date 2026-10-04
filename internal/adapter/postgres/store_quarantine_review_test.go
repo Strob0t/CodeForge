@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -87,10 +88,7 @@ func TestGDPRErasure_QuarantineReviews(t *testing.T) {
 
 // accountlessUserIDs are request identities without a row in users: the
 // default user while auth is disabled and the internal service key user.
-var accountlessUserIDs = []string{
-	"00000000-0000-0000-0000-000000000000",
-	"00000000-0000-0000-0000-000000000001",
-}
+var accountlessUserIDs = []string{user.AuthDisabledUserID, user.InternalServiceUserID}
 
 // S6-H review 1: reviewed_by_user_id references users, and a reviewer without
 // an account (auth disabled, internal service key) has no row. The review is
@@ -111,5 +109,37 @@ func TestStore_UpdateQuarantineStatus_AccountlessReviewer(t *testing.T) {
 					got.Status, got.ReviewedByID, got.ReviewedBy, got.ReviewNote)
 			}
 		})
+	}
+}
+
+// KI-89 review (GDPR), the reviewer like a channel message's sender: a real
+// reviewer whose row is gone (erased or deleted, with an access token that
+// is still valid) must not be recorded by name only, which the erasure of
+// that user (by reviewed_by_user_id) could not find. The review is refused
+// and the message stays pending.
+func TestStore_UpdateQuarantineStatus_DeletedReviewer(t *testing.T) {
+	store := setupStore(t)
+	tenant := createTestTenant(t, store)
+	ctx := ctxWithTenant(t, tenant)
+	goneID := createChannelTestUser(t, store, tenant)
+	if err := store.DeleteUser(ctx, goneID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	now := time.Now().UTC()
+	msg := &quarantine.Message{
+		ProjectID: "proj-quarantine", Subject: "runs.start", Payload: []byte(`{}`),
+		RiskFactors: []string{"path_traversal"}, Status: quarantine.StatusPending,
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+	}
+	if err := store.QuarantineMessage(ctx, msg); err != nil {
+		t.Fatalf("QuarantineMessage: %v", err)
+	}
+	review := &quarantine.Review{ReviewerID: goneID, ReviewerName: "Real Name", Note: "ok"}
+	if err := store.UpdateQuarantineStatus(ctx, msg.ID, quarantine.StatusApproved, review); !errors.Is(err, user.ErrAccountGone) {
+		t.Fatalf("UpdateQuarantineStatus by a deleted reviewer = %v, want ErrAccountGone", err)
+	}
+	got, err := store.GetQuarantinedMessage(ctx, msg.ID)
+	if err != nil || got.Status != quarantine.StatusPending || got.ReviewedBy != "" {
+		t.Fatalf("message = %+v, %v; want still pending, no reviewer", got, err)
 	}
 }

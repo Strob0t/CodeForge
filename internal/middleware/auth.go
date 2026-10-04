@@ -82,7 +82,7 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 					slog.Warn("authentication is disabled - all requests are treated as admin")
 				})
 				defaultUser := &user.User{
-					ID:       "00000000-0000-0000-0000-000000000000",
+					ID:       user.AuthDisabledUserID,
 					Email:    "admin@localhost",
 					Name:     "Admin",
 					Role:     user.RoleAdmin,
@@ -158,7 +158,7 @@ func validateAPIKey(ctx context.Context, authSvc *service.AuthService, internalK
 	if internalKeyVal != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(internalKeyVal)) == 1 {
 		slog.Debug("internal service key authenticated")
 		return &user.User{
-			ID:       "00000000-0000-0000-0000-000000000001",
+			ID:       user.InternalServiceUserID,
 			Email:    "service@internal",
 			Name:     "Internal Service",
 			Role:     user.RoleAdmin,

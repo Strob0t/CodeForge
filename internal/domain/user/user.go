@@ -36,6 +36,28 @@ const MaxFailedAttempts = 5
 // MaxFailedAttempts.
 const LockoutDuration = 15 * time.Minute
 
+// The synthetic request identities without a row in users: every request
+// acts as AuthDisabledUserID while authentication is disabled, and the
+// internal service key (CODEFORGE_INTERNAL_KEY) acts as
+// InternalServiceUserID.
+const (
+	AuthDisabledUserID    = "00000000-0000-0000-0000-000000000000"
+	InternalServiceUserID = "00000000-0000-0000-0000-000000000001"
+)
+
+// IsAccountless reports whether id is one of the synthetic identities that
+// have no users row; any other user ID names an account, which may have been
+// deleted or erased since its access token was issued.
+func IsAccountless(id string) bool {
+	return id == AuthDisabledUserID || id == InternalServiceUserID
+}
+
+// ErrAccountGone reports that a request's user has no account (any more):
+// the row was deleted or erased while an access token issued for it is still
+// valid. Nothing is recorded under the user's ID or name (GDPR erasure finds
+// a user's records by ID).
+var ErrAccountGone = errors.New("the user account does not exist")
+
 // User represents a registered user within a tenant.
 type User struct {
 	ID                 string    `json:"id"`

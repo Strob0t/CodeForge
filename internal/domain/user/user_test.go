@@ -83,3 +83,20 @@ func TestCreateAPIKeyRequest_Validate(t *testing.T) {
 		}
 	})
 }
+
+// KI-89 review: only the two synthetic identities count as accountless; any
+// other ID names an account (which may be gone).
+func TestIsAccountless(t *testing.T) {
+	for id, want := range map[string]bool{
+		AuthDisabledUserID:                     true,
+		InternalServiceUserID:                  true,
+		"00000000-0000-0000-0000-000000000002": false,
+		"3f2b9c1e-7d4a-4e8b-9a6f-1c2d3e4f5a6b": false,
+		"":                                     false,
+		" " + AuthDisabledUserID:               false,
+	} {
+		if got := IsAccountless(id); got != want {
+			t.Errorf("IsAccountless(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
