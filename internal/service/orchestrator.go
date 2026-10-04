@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -197,11 +198,53 @@ func (s *OrchestratorService) CreatePlan(ctx context.Context, req *plan.CreatePl
 	return p, nil
 }
 
-// StartPlan transitions the plan to running and triggers the first scheduling round.
+// StartPlan transitions the plan to running and triggers the first
+// scheduling round. A plan whose agent works on another running plan does
+// not start (domain.ErrConflict): an agent works on one plan at a time
+// (KI-94; the review pipeline picks a free agent the same way). A debate
+// sub-plan uses its parent step's agent and starts through startPlanLocked.
 func (s *OrchestratorService) StartPlan(ctx context.Context, planID string) (*plan.ExecutionPlan, error) {
 	s.mu.Lock()
 	defer s.unlock()
+	if err := s.requireFreeAgentsLocked(ctx, planID); err != nil {
+		return nil, err
+	}
 	return s.startPlanLocked(ctx, planID)
+}
+
+// requireFreeAgentsLocked fails with domain.ErrConflict when an agent of the
+// plan is assigned to a step of another running plan of its project. Plans
+// start under s.mu, so two plans of this process do not both pass. The
+// caller holds s.mu.
+func (s *OrchestratorService) requireFreeAgentsLocked(ctx context.Context, planID string) error {
+	p, err := s.store.GetPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+	agents := make(map[string]bool, len(p.Steps))
+	for i := range p.Steps {
+		agents[p.Steps[i].AgentID] = true
+	}
+	plans, err := s.store.ListPlansByProject(ctx, p.ProjectID)
+	if err != nil {
+		return fmt.Errorf("list plans: %w", err)
+	}
+	for i := range plans {
+		if plans[i].ID == p.ID || plans[i].Status != plan.StatusRunning {
+			continue
+		}
+		other, err := s.store.GetPlan(ctx, plans[i].ID)
+		if err != nil {
+			return fmt.Errorf("get plan %s: %w", plans[i].ID, err)
+		}
+		for j := range other.Steps {
+			if agents[other.Steps[j].AgentID] {
+				return fmt.Errorf("%w: agent %s works on plan %s, which is running; start this plan when it ended or use another agent",
+					domain.ErrConflict, other.Steps[j].AgentID, other.ID)
+			}
+		}
+	}
+	return nil
 }
 
 // startPlanLocked is StartPlan; the caller holds s.mu.

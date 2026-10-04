@@ -241,18 +241,19 @@ func TestReviewRouter_LLMCallDoesNotHoldTheSchedulingLock(t *testing.T) {
 	router := newBlockingReviewLLM()
 	store, orchSvc, _ := newDebateSetupWithLLM(true, router)
 	ctx := context.Background()
-	newPlan := func(name string) *plan.ExecutionPlan {
+	// Each plan has its own agent: an agent works on one plan at a time (KI-94).
+	newPlan := func(name, agentID string) *plan.ExecutionPlan {
 		t.Helper()
 		p, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{
 			Name: name, ProjectID: "proj-1", Protocol: plan.ProtocolSequential,
-			Steps: []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}},
+			Steps: []plan.CreateStepRequest{{TaskID: "t1", AgentID: agentID}},
 		})
 		if err != nil {
 			t.Fatalf("CreatePlan: %v", err)
 		}
 		return p
 	}
-	first, second := newPlan("first"), newPlan("second")
+	first, second := newPlan("first", "a1"), newPlan("second", "a2")
 
 	within(t, "StartPlan while the review router's LLM call runs", func() {
 		if _, err := orchSvc.StartPlan(ctx, first.ID); err != nil {
