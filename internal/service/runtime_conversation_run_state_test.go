@@ -98,6 +98,11 @@ func TestConversationRunState_RestoresRunningTurn(t *testing.T) {
 	if pa.ExpiresAt.Before(before.Add(29*time.Second)) || pa.ExpiresAt.After(time.Now().Add(30*time.Second)) {
 		t.Fatalf("expires_at %v, want about 30 s after the request", pa.ExpiresAt)
 	}
+	// The seconds left are counted on the Core's clock: the browser's clock
+	// may be off, so the restored card counts down from this value.
+	if pa.RemainingSeconds < 29 || pa.RemainingSeconds > 30 {
+		t.Fatalf("remaining_seconds %d, want 29..30", pa.RemainingSeconds)
+	}
 
 	// The live event carries the same deadline, so the card's countdown
 	// matches the Core's timeout instead of a fixed 60 s.

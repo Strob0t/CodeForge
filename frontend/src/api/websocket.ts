@@ -132,8 +132,13 @@ export interface AGUIPermissionRequest {
   arguments_preview?: string;
   /** The Core's approval timeout. */
   timeout_seconds?: number;
-  /** When the Core denies the call unanswered (RFC 3339), KI-148. */
+  /** When the Core denies the call unanswered (RFC 3339, the Core's clock). */
   expires_at?: string;
+  /**
+   * Seconds left until then, counted on the Core's clock; only in
+   * GET /conversations/{id}/run (KI-148). The card counts down from it.
+   */
+  remaining_seconds?: number;
 }
 export interface AGUIActionSuggestion {
   run_id: string;

@@ -17,8 +17,8 @@ export interface PermissionRequestCardProps {
   /** Truncated JSON of the tool arguments (display only). */
   argumentsPreview?: string;
   timeoutSeconds?: number;
-  /** When the Core denies the call unanswered (RFC 3339): the countdown's end (KI-148). */
-  expiresAt?: string;
+  /** Seconds left of a card restored after a reload, counted by the Core (KI-148). */
+  remainingSeconds?: number;
   onResolved?: (decision: "allow" | "deny") => void;
 }
 
@@ -26,26 +26,21 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
   const { t } = useI18n();
   const { show: toast } = useToast();
   const timeout = () => props.timeoutSeconds ?? 60;
-  // Seconds to the Core's deadline; without one, the timeout from mount.
-  const secondsToDeadline = (): number | undefined => {
-    const deadline = props.expiresAt ? Date.parse(props.expiresAt) : Number.NaN;
-    return Number.isNaN(deadline)
-      ? undefined
-      : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-  };
-  const [remaining, setRemaining] = createSignal(secondsToDeadline() ?? timeout());
+  // The countdown is display only: the Core denies the call when its
+  // timeout passes, on its own clock. It runs from the seconds the Core
+  // reported (a restored card) or the timeout, measured from when the card
+  // appeared; the browser's clock is never compared with the Core's.
+  // eslint-disable-next-line solid/reactivity -- the starting value, read once
+  const startSeconds = props.remainingSeconds ?? timeout();
+  const shownAt = performance.now(); // monotonic: clock changes do not count
+  const [remaining, setRemaining] = createSignal(startSeconds);
   const [resolved, setResolved] = createSignal<"allow" | "deny" | null>(null);
   const [loading, setLoading] = createSignal(false);
 
   const timer = setInterval(() => {
-    setRemaining((r) => {
-      const next = secondsToDeadline() ?? r - 1;
-      if (next <= 0) {
-        void handleDecision("deny");
-        return 0;
-      }
-      return next;
-    });
+    const left = Math.max(0, startSeconds - Math.floor((performance.now() - shownAt) / 1000));
+    setRemaining(left);
+    if (left === 0) clearInterval(timer);
   }, 1000);
 
   onCleanup(() => clearInterval(timer));
