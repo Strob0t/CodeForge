@@ -152,8 +152,15 @@ def _resolve_model_capabilities(yaml_value: object) -> tuple[tuple[str, str], ..
     The env var holds ``pattern=level`` entries separated by commas, the YAML
     key (``litellm.model_capabilities``) a mapping of pattern to level.
     Patterns are shell-style globs on the model name; the first match wins.
-    An entry without a pattern or with an unknown level is refused.
+    An entry without a pattern or with an unknown level is refused, and so is
+    a YAML value that is not a mapping (also when the env var wins): a list
+    or a string would otherwise be ignored without a word.
     """
+    if yaml_value is not None and not isinstance(yaml_value, dict):
+        msg = (
+            f"litellm.model_capabilities: expected a mapping of model pattern to level, got {type(yaml_value).__name__}"
+        )
+        raise ValueError(msg)
     env = os.environ.get(MODEL_CAPABILITIES_ENV, "")
     entries: list[tuple[str, str]] = []
     if env.strip():

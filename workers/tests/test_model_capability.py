@@ -128,6 +128,42 @@ def test_env_override_wins_over_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.parametrize(
+    "yaml_value",
+    [
+        pytest.param('\n    - "ollama/*=api_with_tools"', id="list"),
+        pytest.param(' "ollama/*=api_with_tools"', id="string"),
+        pytest.param(" 3", id="number"),
+    ],
+)
+@pytest.mark.parametrize("env", ["", "ollama/*=full"], ids=["yaml-only", "env-set"])
+def test_wrongly_typed_yaml_override_stops_startup(
+    yaml_value: str, env: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A list or a string was ignored without a word (KI-125 review): the operator's override did nothing."""
+    config = tmp_path / "codeforge.yaml"
+    config.write_text(f"litellm:\n  model_capabilities:{yaml_value}\n")
+    monkeypatch.setenv("CODEFORGE_CONFIG_FILE", str(config))
+    monkeypatch.setenv("CODEFORGE_MODEL_CAPABILITIES", env)
+    load_yaml_config.cache_clear()
+    try:
+        with pytest.raises(ValueError, match=r"litellm\.model_capabilities"):
+            get_settings()
+    finally:
+        load_yaml_config.cache_clear()
+
+
+def test_empty_yaml_override_is_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = tmp_path / "codeforge.yaml"
+    config.write_text("litellm:\n  model_capabilities:\n")
+    monkeypatch.setenv("CODEFORGE_CONFIG_FILE", str(config))
+    load_yaml_config.cache_clear()
+    try:
+        assert get_settings().model_capabilities == ()
+    finally:
+        load_yaml_config.cache_clear()
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         pytest.param("", (), id="unset"),
