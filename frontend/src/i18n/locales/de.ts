@@ -552,6 +552,7 @@ const de: Translations = {
   "roadmap.form.titlePlaceholder": "Roadmap-Titel",
   "roadmap.form.descriptionPlaceholder": "Beschreibung (optional)",
   "roadmap.createRoadmap": "Roadmap erstellen",
+  "roadmap.proposalApproveFailed": "Der Vorschlag konnte nicht übernommen werden.",
   "roadmap.detecting": "Erkennen\u2026",
   "roadmap.autoDetect": "Auto-Erkennung",
   "roadmap.importSpecs": "Specs importieren",

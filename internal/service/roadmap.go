@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/broadcast"
@@ -40,6 +42,33 @@ func (s *RoadmapService) Create(ctx context.Context, req roadmap.CreateRoadmapRe
 
 	s.broadcastStatus(ctx, r)
 	return r, nil
+}
+
+// EnsureForProject returns the project's roadmap, created empty when the
+// project has none yet (KI-157: local projects get none, and approving the
+// agent's first proposed milestone failed with 404).
+func (s *RoadmapService) EnsureForProject(ctx context.Context, projectID string) (*roadmap.Roadmap, error) {
+	rm, err := s.store.GetRoadmapByProject(ctx, projectID)
+	if !errors.Is(err, domain.ErrNotFound) {
+		return rm, err
+	}
+	proj, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	title := "Roadmap"
+	if proj.Name != "" {
+		title = proj.Name + " Roadmap"
+	}
+	rm, err = s.Create(ctx, roadmap.CreateRoadmapRequest{ProjectID: projectID, Title: title})
+	if err != nil {
+		// A concurrent first use created it (one roadmap per project).
+		if existing, getErr := s.store.GetRoadmapByProject(ctx, projectID); getErr == nil {
+			return existing, nil
+		}
+		return nil, err
+	}
+	return rm, nil
 }
 
 // GetByProject returns the roadmap for a project with all milestones and features.

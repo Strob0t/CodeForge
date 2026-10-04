@@ -141,22 +141,22 @@ func (h *Handlers) DetectRoadmap(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateMilestone(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	rm, err := h.Roadmap.GetByProject(r.Context(), projectID)
-	if err != nil {
-		writeDomainError(w, err, "roadmap not found")
-		return
-	}
-
 	req, ok := readJSON[roadmap.CreateMilestoneRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
 		return
 	}
-	req.RoadmapID = rm.ID
-
 	if req.Title == "" {
 		writeError(w, http.StatusBadRequest, "title is required")
 		return
 	}
+
+	// The first milestone of a project creates its roadmap (KI-157).
+	rm, err := h.Roadmap.EnsureForProject(r.Context(), projectID)
+	if err != nil {
+		writeDomainError(w, err, "project not found")
+		return
+	}
+	req.RoadmapID = rm.ID
 
 	m, err := h.Roadmap.CreateMilestone(r.Context(), req)
 	if err != nil {

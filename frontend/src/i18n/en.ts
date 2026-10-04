@@ -561,6 +561,7 @@ const en = {
   "roadmap.form.titlePlaceholder": "Roadmap title",
   "roadmap.form.descriptionPlaceholder": "Description (optional)",
   "roadmap.createRoadmap": "Create Roadmap",
+  "roadmap.proposalApproveFailed": "The proposal could not be applied.",
   "roadmap.detecting": "Detecting...",
   "roadmap.autoDetect": "Auto-Detect",
   "roadmap.importSpecs": "Import Specs",

@@ -161,6 +161,76 @@ func TestHandleCreateMilestone_Success(t *testing.T) {
 	}
 }
 
+// KI-157: approving the agent's first proposed milestone failed with 404 when
+// the project had no roadmap yet (local projects get none). The first
+// milestone creates the roadmap.
+func TestHandleCreateMilestone_CreatesTheRoadmapOnFirstUse(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	store.projects = append(store.projects, project.Project{ID: "proj-1", Name: "shop"})
+
+	for _, title := range []string{"Milestone 1", "Milestone 2"} {
+		body, _ := json.Marshal(roadmap.CreateMilestoneRequest{Title: title})
+		req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/roadmap/milestones", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("%s: expected 201, got %d: %s", title, w.Code, w.Body.String())
+		}
+	}
+
+	if len(store.roadmaps) != 1 {
+		t.Fatalf("roadmaps = %d, want 1", len(store.roadmaps))
+	}
+	rm := store.roadmaps[0]
+	if rm.ProjectID != "proj-1" || rm.Title == "" {
+		t.Fatalf("roadmap = %+v", rm)
+	}
+	for _, ms := range store.milestones {
+		if ms.RoadmapID != rm.ID {
+			t.Fatalf("milestone %q in roadmap %q, want %q", ms.Title, ms.RoadmapID, rm.ID)
+		}
+	}
+}
+
+func TestHandleCreateMilestone_UnknownProjectGetsNoRoadmap(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+
+	body, _ := json.Marshal(roadmap.CreateMilestoneRequest{Title: "Milestone 1"})
+	req := httptest.NewRequest("POST", "/api/v1/projects/missing/roadmap/milestones", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(store.roadmaps) != 0 {
+		t.Fatalf("roadmap created for an unknown project: %+v", store.roadmaps)
+	}
+}
+
+func TestHandleCreateMilestone_InvalidRequestCreatesNoRoadmap(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	store.projects = append(store.projects, project.Project{ID: "proj-1", Name: "shop"})
+
+	body, _ := json.Marshal(roadmap.CreateMilestoneRequest{})
+	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/roadmap/milestones", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(store.roadmaps) != 0 {
+		t.Fatalf("roadmap created for an invalid request: %+v", store.roadmaps)
+	}
+}
+
 func TestHandleCreateMilestone_MissingTitle(t *testing.T) {
 	store := &mockStore{}
 	r := newTestRouterWithStore(store)
