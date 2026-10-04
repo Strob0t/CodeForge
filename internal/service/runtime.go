@@ -132,8 +132,9 @@ func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) str
 // while another run is active it returns ErrConversationRunInProgress.
 // Conversation runs reuse the conversation ID as run ID; the turn tells the
 // active run's tool calls from those of a stopped run (KI-24).
-func (s *RuntimeService) BeginConversationRun(conversationID, turnID string) error {
-	if !s.state.BeginConversationRun(conversationID, turnID) {
+// ctx names the conversation's tenant: only its run output is kept.
+func (s *RuntimeService) BeginConversationRun(ctx context.Context, conversationID, turnID string) error {
+	if !s.state.BeginConversationRun(conversationID, turnID, tenantctx.FromContext(ctx)) {
 		return ErrConversationRunInProgress
 	}
 	return nil

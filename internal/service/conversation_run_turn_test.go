@@ -90,7 +90,7 @@ func TestConversationRun_DeleteForgetsTheRunState(t *testing.T) {
 	if err := env.conv.Delete(ctx, env.convID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if err := env.runtime.BeginConversationRun(env.convID, "turn-after-delete"); err != nil {
+	if err := env.runtime.BeginConversationRun(context.Background(), env.convID, "turn-after-delete"); err != nil {
 		t.Errorf("run state of the deleted conversation kept: %v", err)
 	}
 }

@@ -228,7 +228,7 @@ func TestConversationStop_ConcurrentStopsStartsAndToolCalls(t *testing.T) {
 				case 1:
 					// A run start; refused while another run is active.
 					turn := fmt.Sprintf("turn-%d-%d", w, i)
-					if env.runtime.BeginConversationRun(env.convID, turn) == nil {
+					if env.runtime.BeginConversationRun(context.Background(), env.convID, turn) == nil {
 						env.runtime.ConversationRunDispatched(env.convID, turn)
 					}
 				default:
@@ -252,7 +252,7 @@ func TestConversationStop_ConcurrentStopsStartsAndToolCalls(t *testing.T) {
 	if resp := env.toolCall(t, "call-after-last-stop"); resp.Decision != "deny" {
 		t.Fatalf("after the last stop: decision %q, want deny", resp.Decision)
 	}
-	if err := env.runtime.BeginConversationRun(env.convID, "turn-last"); err != nil {
+	if err := env.runtime.BeginConversationRun(context.Background(), env.convID, "turn-last"); err != nil {
 		t.Fatalf("last start: %v", err)
 	}
 	env.runtime.ConversationRunDispatched(env.convID, "turn-last")

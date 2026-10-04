@@ -287,6 +287,7 @@ type convRunState struct {
 	active    string // turn of the active run, "" when none
 	stopped   string // turn of the run a stop ended, until it reports its end
 	cancelled bool   // calls that are not of the active run are rejected
+	tenant    string // tenant of the active run: only its output is kept
 	streamed  []byte // text the active run streamed so far (KI-148), newest maxConversationStreamBytes
 }
 
@@ -318,15 +319,14 @@ func (m *RunStateManager) dropIdleConvRun(convID string) {
 // start is dispatched, so the run's first tool calls are recognized however
 // fast they come. It reports false, and changes nothing, while another run of
 // the conversation is active.
-func (m *RunStateManager) BeginConversationRun(convID, turnID string) bool {
+func (m *RunStateManager) BeginConversationRun(convID, turnID, tenantID string) bool {
 	m.convMu.Lock()
 	defer m.convMu.Unlock()
 	st := m.convRun(convID)
 	if st.active != "" {
 		return false
 	}
-	st.active = turnID
-	st.streamed = nil
+	st.active, st.tenant, st.streamed = turnID, tenantID, nil
 	return true
 }
 
@@ -388,13 +388,14 @@ func (m *RunStateManager) ActiveConversationRun(convID string) string {
 }
 
 // AppendConversationStream records text the conversation's active run
-// streamed; text of a conversation without an active run (task output) is
-// not kept. Beyond maxConversationStreamBytes the oldest text goes.
-func (m *RunStateManager) AppendConversationStream(convID, text string) {
+// streamed, reported for tenantID; text of a conversation without an active
+// run (task output) or of another tenant is not kept. Beyond
+// maxConversationStreamBytes the oldest text goes.
+func (m *RunStateManager) AppendConversationStream(convID, tenantID, text string) {
 	m.convMu.Lock()
 	defer m.convMu.Unlock()
 	st, ok := m.convRuns[convID]
-	if !ok || st.active == "" {
+	if !ok || st.active == "" || st.tenant != tenantID {
 		return
 	}
 	st.streamed = append(st.streamed, text...)

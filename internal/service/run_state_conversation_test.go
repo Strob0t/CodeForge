@@ -27,14 +27,17 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 		want  check
 	}{
 		{
-			name:  "a dispatched run is active",
-			steps: func(m *RunStateManager) { m.BeginConversationRun(conv, "t1"); m.ConversationRunDispatched(conv, "t1") },
-			want:  check{active: "t1", entries: 1},
+			name: "a dispatched run is active",
+			steps: func(m *RunStateManager) {
+				m.BeginConversationRun(conv, "t1", "")
+				m.ConversationRunDispatched(conv, "t1")
+			},
+			want: check{active: "t1", entries: 1},
 		},
 		{
 			name: "its completion ends it and leaves nothing",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t1")
+				m.BeginConversationRun(conv, "t1", "")
 				m.ConversationRunDispatched(conv, "t1")
 				m.EndConversationRun(conv, "t1")
 			},
@@ -43,7 +46,7 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 		{
 			name: "a completion without turn ends the active run",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t1")
+				m.BeginConversationRun(conv, "t1", "")
 				m.ConversationRunDispatched(conv, "t1")
 				m.EndConversationRun(conv, "")
 			},
@@ -52,20 +55,20 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 		{
 			name: "a completion of another turn leaves the active run",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t1")
+				m.BeginConversationRun(conv, "t1", "")
 				m.EndConversationRun(conv, "t0")
 			},
 			want: check{active: "t1", entries: 1},
 		},
 		{
 			name:  "an aborted dispatch leaves nothing",
-			steps: func(m *RunStateManager) { m.BeginConversationRun(conv, "t1"); m.AbortConversationRun(conv, "t1") },
+			steps: func(m *RunStateManager) { m.BeginConversationRun(conv, "t1", ""); m.AbortConversationRun(conv, "t1") },
 			want:  check{},
 		},
 		{
 			name: "a stop ends the active run and marks the conversation",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t1")
+				m.BeginConversationRun(conv, "t1", "")
 				m.ConversationRunDispatched(conv, "t1")
 				m.SetCancelledConversation(conv)
 			},
@@ -74,7 +77,7 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 		{
 			name: "the stopped run's completion clears the mark",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t1")
+				m.BeginConversationRun(conv, "t1", "")
 				m.ConversationRunDispatched(conv, "t1")
 				m.SetCancelledConversation(conv)
 				m.EndConversationRun(conv, "t1")
@@ -85,7 +88,7 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 			name: "the next run keeps the mark until its start is published",
 			steps: func(m *RunStateManager) {
 				m.SetCancelledConversation(conv)
-				m.BeginConversationRun(conv, "t2")
+				m.BeginConversationRun(conv, "t2", "")
 			},
 			want: check{active: "t2", cancelled: true, entries: 1},
 		},
@@ -93,7 +96,7 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 			name: "the next run's published start clears the mark",
 			steps: func(m *RunStateManager) {
 				m.SetCancelledConversation(conv)
-				m.BeginConversationRun(conv, "t2")
+				m.BeginConversationRun(conv, "t2", "")
 				m.ConversationRunDispatched(conv, "t2")
 			},
 			want: check{active: "t2", entries: 1},
@@ -101,7 +104,7 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 		{
 			name: "a stop while the next run is dispatched wins",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t2")
+				m.BeginConversationRun(conv, "t2", "")
 				m.SetCancelledConversation(conv)
 				m.ConversationRunDispatched(conv, "t2")
 			},
@@ -111,7 +114,7 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 			name: "an aborted dispatch keeps the stop's mark",
 			steps: func(m *RunStateManager) {
 				m.SetCancelledConversation(conv)
-				m.BeginConversationRun(conv, "t2")
+				m.BeginConversationRun(conv, "t2", "")
 				m.AbortConversationRun(conv, "t2")
 			},
 			want: check{cancelled: true, entries: 1},
@@ -119,9 +122,9 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 		{
 			name: "deleting the conversation forgets everything",
 			steps: func(m *RunStateManager) {
-				m.BeginConversationRun(conv, "t1")
+				m.BeginConversationRun(conv, "t1", "")
 				m.SetCancelledConversation(conv)
-				m.BeginConversationRun(conv, "t2")
+				m.BeginConversationRun(conv, "t2", "")
 				m.SetBypassedConversation(conv)
 				m.ForgetConversation(conv)
 			},
@@ -151,17 +154,17 @@ func TestRunStateManager_ConversationRuns(t *testing.T) {
 
 func TestRunStateManager_OneConversationRunAtATime(t *testing.T) {
 	m := NewRunStateManager()
-	if !m.BeginConversationRun("conv-1", "t1") {
+	if !m.BeginConversationRun("conv-1", "t1", "") {
 		t.Fatal("first run refused")
 	}
-	if m.BeginConversationRun("conv-1", "t2") {
+	if m.BeginConversationRun("conv-1", "t2", "") {
 		t.Error("second run accepted while the first is active")
 	}
-	if !m.BeginConversationRun("conv-2", "t3") {
+	if !m.BeginConversationRun("conv-2", "t3", "") {
 		t.Error("another conversation's run refused")
 	}
 	m.EndConversationRun("conv-1", "t1")
-	if !m.BeginConversationRun("conv-1", "t4") {
+	if !m.BeginConversationRun("conv-1", "t4", "") {
 		t.Error("next run refused after the first ended")
 	}
 }

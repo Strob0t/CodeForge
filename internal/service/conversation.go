@@ -151,7 +151,7 @@ var ErrConversationRunInProgress = fmt.Errorf("conversation run in progress: %w"
 func (s *ConversationService) beginRun(ctx context.Context, conversationID string) (turnID string, finish func(dispatched bool), err error) {
 	turnID = uuid.New().String()
 	if s.runTracker != nil {
-		if err := s.runTracker.BeginConversationRun(conversationID, turnID); err != nil {
+		if err := s.runTracker.BeginConversationRun(ctx, conversationID, turnID); err != nil {
 			return "", nil, err
 		}
 	}

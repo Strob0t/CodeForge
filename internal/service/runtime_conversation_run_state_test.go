@@ -31,9 +31,9 @@ func (s *runStateStore) GetConversation(ctx context.Context, id string) (*conver
 	return &c, nil
 }
 
-func runOutput(t *testing.T, svc *RuntimeService, convID, line, stream string) {
+func runOutput(t *testing.T, svc *RuntimeService, tenantID, line, stream string) {
 	t.Helper()
-	data, err := json.Marshal(messagequeue.RunOutputPayload{TaskID: convID, TenantID: "tenant-a", Line: line, Stream: stream})
+	data, err := json.Marshal(messagequeue.RunOutputPayload{TaskID: "conv-1", TenantID: tenantID, Line: line, Stream: stream})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +58,15 @@ func TestConversationRunState_RestoresRunningTurn(t *testing.T) {
 		t.Fatalf("idle conversation: %+v", idle)
 	}
 
-	if err := svc.BeginConversationRun("conv-1", "turn-1"); err != nil {
+	if err := svc.BeginConversationRun(ctxA, "conv-1", "turn-1"); err != nil {
 		t.Fatal(err)
 	}
 	svc.ConversationRunDispatched("conv-1", "turn-1")
-	runOutput(t, svc, "conv-1", "Hello ", "stdout")
-	runOutput(t, svc, "conv-1", "ignored", "stderr")
-	runOutput(t, svc, "conv-1", "world", "stdout")
+	runOutput(t, svc, "tenant-a", "Hello ", "stdout")
+	runOutput(t, svc, "tenant-a", "ignored", "stderr")
+	// Output that names another tenant is not the turn's (KI-148 review).
+	runOutput(t, svc, "tenant-b", "foreign", "stdout")
+	runOutput(t, svc, "tenant-a", "world", "stdout")
 
 	before := time.Now()
 	done := make(chan struct{})
@@ -144,7 +146,7 @@ func TestConversationRunState_RestoresRunningTurn(t *testing.T) {
 	}
 
 	// The next turn starts with nothing streamed.
-	if err := svc.BeginConversationRun("conv-1", "turn-2"); err != nil {
+	if err := svc.BeginConversationRun(ctxA, "conv-1", "turn-2"); err != nil {
 		t.Fatal(err)
 	}
 	if next, _ := svc.ConversationRunState(ctxA, "conv-1"); next.StreamedText != "" || next.TurnID != "turn-2" {
@@ -171,17 +173,19 @@ func TestConversationRunState_StoredActiveTurn(t *testing.T) {
 // character boundary.
 func TestConversationStream_OnlyActiveRunsAndBounded(t *testing.T) {
 	m := NewRunStateManager()
-	m.AppendConversationStream("task-1", "not a conversation")
+	m.AppendConversationStream("task-1", "tenant-a", "not a conversation")
 	if got := m.ConversationStream("task-1", ""); got != "" {
 		t.Fatalf("task output kept: %q", got)
 	}
 
-	m.BeginConversationRun("conv-1", "turn-1")
+	m.BeginConversationRun("conv-1", "turn-1", "tenant-a")
 	chunk := strings.Repeat("ä", 1000) // 2 bytes per rune
 	for range (maxConversationStreamBytes / len(chunk)) + 3 {
-		m.AppendConversationStream("conv-1", chunk)
+		m.AppendConversationStream("conv-1", "tenant-a", chunk)
 	}
-	m.AppendConversationStream("conv-1", "END")
+	m.AppendConversationStream("conv-1", "tenant-a", "END")
+	m.AppendConversationStream("conv-1", "", "no tenant")
+	m.AppendConversationStream("conv-1", "tenant-b", "other tenant")
 	got := m.ConversationStream("conv-1", "turn-1")
 	if len(got) > maxConversationStreamBytes || !utf8.ValidString(got) || !strings.HasSuffix(got, "END") {
 		t.Fatalf("bounded stream: %d bytes, valid %v, suffix %q", len(got), utf8.ValidString(got), got[max(0, len(got)-3):])
