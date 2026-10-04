@@ -592,6 +592,7 @@ Example:
 | `litellm.url` | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
 | `litellm.conversation_model` | `CODEFORGE_CONVERSATION_MODEL` | (auto-detect) | LLM model for chat conversations (empty = auto-select strongest) |
+| `litellm.keyed_providers` | `CODEFORGE_LITELLM_KEYED_PROVIDERS` | (empty) | Core and worker: providers whose API key LiteLLM holds, names only (comma-separated in the env var; `openai`, `anthropic`, `gemini`, `groq`, `mistral`, `openrouter`, `cerebras`, `chutes`, `aihubmix`, `deepseek`, `cohere`, `together_ai`, `fireworks_ai`, `github_copilot`). Their models are listed and can be the default model; other cloud routes show as one entry and are not routed to. A provider whose key variable is set in the process' environment counts too. An unknown name, or a YAML value that is not a list (worker), stops startup. `docker-compose.prod.yml` sets it from the key variables; set it (or export the keys) when the Core and the worker run outside compose. |
 | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` | Log level |
 | `breaker.max_failures` | `CODEFORGE_BREAKER_MAX_FAILURES` | `5` | Circuit breaker threshold |
 | `breaker.timeout` | `CODEFORGE_BREAKER_TIMEOUT` | `30s` | Circuit breaker timeout |
@@ -1078,12 +1079,13 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire (stored as `expires_at`; nothing sets the status `expired` yet, [KI-91](todo.md#known-issues)) |
 | CODEFORGE_LSP_ENABLED       | false                                    | Enable LSP integration           |
 | CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED | false                          | Enable confidence-based review routing |
-| CODEFORGE_ORCH_EMBEDDING_MODEL | text-embedding-3-small            | Embedding model for code retrieval (`orchestrator.default_embedding_model`); without a usable model, retrieval runs BM25-only and warns once |
+| CODEFORGE_ORCH_EMBEDDING_MODEL | text-embedding-3-small            | Embedding model for code retrieval (`orchestrator.default_embedding_model`); without a usable model (401, 403, 404 or a 400 for an unknown model) retrieval runs BM25-only and warns once; a rate limit, server error or timeout fails the build and keeps the existing index; the index status reports `bm25_only` |
+| CODEFORGE_LITELLM_KEYED_PROVIDERS | (empty; set by docker-compose.prod.yml) | Core and worker: providers whose key LiteLLM has, names only (`litellm.keyed_providers`); compose derives it with `${OPENAI_API_KEY:+openai,}...` (Compose v2 `${VAR:+replacement}` interpolation, checked with v5.1.1) |
 | CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD | 0.7                      | Steps below this get routed to review |
 | CODEFORGE_ORCH_REVIEW_ROUTER_MODEL |                                  | LLM model for review evaluation  |
 | CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
 | CODEFORGE_ROUTING_ENABLED   | true                                     | Enable hybrid intelligent routing |
-| CODEFORGE_MODEL_CAPABILITIES | (empty) | Worker: tool capability per model, comma-separated `pattern=level` entries (`litellm.model_capabilities` in YAML); case-sensitive shell globs, first match wins; levels `full`, `api_with_tools`, `pure_completion`; overrides LiteLLM's `supports_function_calling` and the name heuristics; an invalid entry stops the worker at startup |
+| CODEFORGE_MODEL_CAPABILITIES | (empty) | Worker: tool capability per model, comma-separated `pattern=level` entries (`litellm.model_capabilities` in YAML); case-sensitive shell globs, first match wins; levels `full`, `api_with_tools`, `pure_completion`; overrides LiteLLM's `supports_function_calling` and the name heuristics; an invalid entry stops the worker at startup; a YAML `litellm.model_capabilities` that is not a mapping stops the worker at startup |
 | CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable the experience pool (worker and Go); tenant-scoped, first turn of a simple chat only |
 | CODEFORGE_TEST_DATABASE_URL | (unset)                                  | PostgreSQL URL for the worker's database tests (experience pool, skills); they are skipped when unset |
 | CODEFORGE_A2A_BASE_URL     | `http://localhost:<CODEFORGE_PORT>`      | Public URL for AgentCard         |
