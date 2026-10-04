@@ -357,7 +357,7 @@ Persistent storage for MCP server definitions with project-level assignment.
 - **Database**: `mcp_servers`, `project_mcp_servers`, `mcp_server_tools` tables (migration 036)
 - **HTTP API**: 11 endpoints for CRUD, test connection, tools listing, project assignment ([openapi.yaml](../api/openapi.yaml))
 - **Access**: every user of a tenant reads its servers; a tenant's admins (`RoleAdmin`) create, change, delete, test and assign them. The Go Core tests only `sse` and `streamable_http` servers (a stdio test answers 400)
-- **Secrets**: env and header values are redacted to `***` in every response; an update that sends `***` keeps the stored value only while transport, URL, command and args are unchanged (`internal/domain/mcp/redact.go`)
+- **Secrets**: env and header values are redacted to `***` in every response; an update that sends `***` keeps the stored value only while transport, URL, command, args and every other env variable and header are unchanged (`internal/domain/mcp/redact.go`). The MCP page offers create, edit, delete, test and assign only to the tenant's admins; env variables and headers are key/value rows, and a `***` shows "Stored, unchanged" while the same rule holds and "Enter it again" otherwise
 - **Tenancy**: servers and `project_mcp_servers` links are tenant-scoped (migration 112); assignment audit entries name the server and are written before the change
 - **Frontend**: MCPServersPage (server list, add/edit modal, test connection, tools discovery)
 - **Code**: `internal/adapter/postgres/store_mcp.go`, `internal/adapter/http/handlers_mcp.go`, `frontend/src/features/mcp/MCPServersPage.tsx`
