@@ -4,36 +4,37 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
 // PolicyHandlers groups HTTP handlers for policy profile CRUD,
-// evaluation, and the allow-always mechanism.
+// evaluation, and the allow-always mechanism. Custom profiles belong to the
+// caller's tenant (the tenant in the request context); the built-in presets
+// are shared and read-only. Persistence of custom profiles is handled by the
+// PolicyService (see LoadPolicyDir).
 type PolicyHandlers struct {
-	Policies  *service.PolicyService
-	Projects  *service.ProjectService
-	PolicyDir string
-	Limits    *config.Limits
+	Policies *service.PolicyService
+	Projects *service.ProjectService
+	Limits   *config.Limits
 }
 
 // ListPolicyProfiles handles GET /api/v1/policies
-func (ph *PolicyHandlers) ListPolicyProfiles(w http.ResponseWriter, _ *http.Request) {
+func (ph *PolicyHandlers) ListPolicyProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{
-		"profiles": ph.Policies.ListProfiles(),
+		"profiles": ph.Policies.ListProfiles(r.Context()),
 	})
 }
 
 // GetPolicyProfile handles GET /api/v1/policies/{name}
 func (ph *PolicyHandlers) GetPolicyProfile(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	p, ok := ph.Policies.GetProfile(name)
+	p, ok := ph.Policies.GetProfile(r.Context(), name)
 	if !ok {
 		writeError(w, http.StatusNotFound, "policy profile not found")
 		return
@@ -41,7 +42,15 @@ func (ph *PolicyHandlers) GetPolicyProfile(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, p)
 }
 
-// EvaluatePolicy handles POST /api/v1/policies/{name}/evaluate
+// policyTesterWorkspace is the synthetic workspace the policy tester
+// evaluates calls in: it has no project, and without an absolute workspace
+// every Bash redirection would be denied as unplaceable. Relative paths and
+// redirection targets are placed under it, so the tester decides like a run;
+// an absolute path is placed only when it is under /workspace.
+const policyTesterWorkspace = "/workspace"
+
+// EvaluatePolicy handles POST /api/v1/policies/{name}/evaluate. The call is
+// evaluated in the synthetic workspace policyTesterWorkspace.
 func (ph *PolicyHandlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
@@ -54,7 +63,7 @@ func (ph *PolicyHandlers) EvaluatePolicy(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	result, err := ph.Policies.EvaluateWithReason(r.Context(), name, call)
+	result, err := ph.Policies.EvaluateWithReason(r.Context(), name, call, policy.WithWorkspace(policyTesterWorkspace))
 	if err != nil {
 		writeDomainError(w, err, "policy not found")
 		return
@@ -74,18 +83,17 @@ func (ph *PolicyHandlers) CreatePolicyProfile(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := ph.Policies.SaveProfile(&profile); err != nil {
+	if err := ph.Policies.SaveProfile(r.Context(), &profile); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrConflict) && policy.IsPreset(profile.Name):
+			writeError(w, http.StatusConflict, "built-in policy presets cannot be overwritten")
+			return
+		case errors.Is(err, domain.ErrConflict):
+			writeError(w, http.StatusConflict, "a policy file with this profile name already exists in the policy directory")
+			return
+		}
 		writeDomainError(w, err, "save policy profile failed")
 		return
-	}
-
-	if ph.PolicyDir != "" {
-		path := filepath.Join(ph.PolicyDir, profile.Name+".yaml")
-		if err := os.MkdirAll(ph.PolicyDir, 0o750); err != nil {
-			slog.Error("failed to create policy directory", "error", err)
-		} else if err := policy.SaveToFile(path, &profile); err != nil {
-			slog.Error("failed to persist policy profile", "name", profile.Name, "error", err)
-		}
 	}
 
 	writeJSON(w, http.StatusCreated, profile)
@@ -99,20 +107,17 @@ func (ph *PolicyHandlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := ph.Policies.DeleteProfile(name); err != nil {
-		if policy.IsPreset(name) {
+	if err := ph.Policies.DeleteProfile(r.Context(), name); err != nil {
+		switch {
+		case policy.IsPreset(name):
 			writeError(w, http.StatusForbidden, err.Error())
-		} else {
+		case errors.Is(err, domain.ErrNotFound):
 			writeError(w, http.StatusNotFound, err.Error())
+		default:
+			slog.Error("failed to delete policy profile", "name", name, "error", err)
+			writeError(w, http.StatusInternalServerError, "delete policy profile failed")
 		}
 		return
-	}
-
-	if ph.PolicyDir != "" {
-		path := filepath.Join(ph.PolicyDir, name+".yaml")
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) { //nolint:gosec // path constructed from validated PolicyDir + sanitized name
-			slog.Error("failed to remove policy file", "name", name, "error", err)
-		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -120,10 +125,12 @@ func (ph *PolicyHandlers) DeletePolicyProfile(w http.ResponseWriter, r *http.Req
 
 // AllowAlwaysPolicy handles POST /api/v1/policies/allow-always.
 // It delegates to PolicyService.AllowAlways which handles profile cloning,
-// rule construction, and filesystem persistence.
+// rule construction, and filesystem persistence. profile is the policy
+// profile named by the permission request (optional).
 func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Request) {
 	req, ok := readJSON[struct {
 		ProjectID string `json:"project_id"`
+		Profile   string `json:"profile,omitempty"`
 		Tool      string `json:"tool"`
 		Command   string `json:"command,omitempty"`
 	}](w, r, 1<<20)
@@ -139,8 +146,12 @@ func (ph *PolicyHandlers) AllowAlwaysPolicy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, ph.PolicyDir, req.ProjectID, req.Tool, req.Command)
+	result, err := ph.Policies.AllowAlways(r.Context(), ph.Projects, req.ProjectID, req.Profile, req.Tool, req.Command)
 	if err != nil {
+		if errors.Is(err, service.ErrPolicyDirNotConfigured) {
+			writeError(w, http.StatusConflict, "allow-always rules cannot be persisted: "+err.Error())
+			return
+		}
 		writeDomainError(w, err, "allow-always failed")
 		return
 	}

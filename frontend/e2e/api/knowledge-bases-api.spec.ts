@@ -31,7 +31,7 @@ test.describe("Knowledge Bases API", () => {
         description: "E2E test knowledge base",
         category: "framework",
         tags: ["e2e", "test"],
-        content_path: "/tmp/e2e-kb-test",
+        content_path: "e2e-kb-test",
       },
     });
     expect(res.status()).toBe(201);
@@ -49,7 +49,7 @@ test.describe("Knowledge Bases API", () => {
         description: "get test",
         category: "framework",
         tags: [],
-        content_path: "/tmp/e2e-kb-get",
+        content_path: "e2e-kb-get",
       },
     });
     const kb = await createRes.json();
@@ -69,7 +69,7 @@ test.describe("Knowledge Bases API", () => {
         description: "update test",
         category: "framework",
         tags: [],
-        content_path: "/tmp/e2e-kb-upd",
+        content_path: "e2e-kb-upd",
       },
     });
     const kb = await createRes.json();
@@ -93,7 +93,7 @@ test.describe("Knowledge Bases API", () => {
         description: "delete test",
         category: "framework",
         tags: [],
-        content_path: "/tmp/e2e-kb-del",
+        content_path: "e2e-kb-del",
       },
     });
     const kb = await createRes.json();
@@ -112,7 +112,7 @@ test.describe("Knowledge Bases API", () => {
         description: "index test",
         category: "framework",
         tags: [],
-        content_path: "/tmp/e2e-kb-idx",
+        content_path: "e2e-kb-idx",
       },
     });
     const kb = await createRes.json();

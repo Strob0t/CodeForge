@@ -295,3 +295,22 @@ func BenchmarkRateLimiterConcurrent(b *testing.B) {
 		}
 	})
 }
+
+func TestRateLimitKeyGroupsIPv6By64(t *testing.T) {
+	keyFor := func(remoteAddr string) string {
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req.RemoteAddr = remoteAddr
+		return rateLimitKey(req)
+	}
+	a := keyFor("[2001:db8:1:2:aaaa::1]:1000")
+	b := keyFor("[2001:db8:1:2:bbbb::2]:2000")
+	if a != b {
+		t.Errorf("addresses in one /64 got different keys: %q vs %q", a, b)
+	}
+	if other := keyFor("[2001:db8:1:3::1]:1000"); other == a {
+		t.Errorf("different /64 networks share key %q", a)
+	}
+	if v4 := keyFor("203.0.113.7:1000"); v4 != "203.0.113.7" {
+		t.Errorf("IPv4 key = %q, want 203.0.113.7", v4)
+	}
+}

@@ -8,16 +8,33 @@
 # When intelligent routing is disabled (CODEFORGE_ROUTING_ENABLED=false),
 # workers still use tag-based routing as a fallback. Tags are preserved
 # on the wildcard entries for backwards compatibility.
+#
+# With enable_tag_filtering a request's tag must be among its route's tags
+# (LiteLLM answers 401 otherwise): a route that serves agent modes carries
+# every scenario tag (llm.SCENARIO_DEFAULTS).
+#
+# Routes without a key stay configured: a user's own provider key (sent per
+# request) works through them. The Core lists a cloud route as one entry
+# ("groq/*"), not the models LiteLLM's catalogue expands it to (KI-125).
 
 model_list:
   # -- Local Models (Ollama) --
+  # Routed through Ollama's OpenAI-compatible endpoint (/v1), which streams
+  # tool calls as structured tool_calls with one index per call (KI-125).
+  # LiteLLM's ollama provider (/api/generate) streams them as JSON text, and
+  # its ollama_chat provider gives every parallel call index 0.
   # Higher timeout (600s) because local models on consumer hardware are slow.
+  # OLLAMA_OPENAI_API_BASE is OLLAMA_BASE_URL plus "/v1", set by both compose
+  # files (default: http://host.docker.internal:11434/v1).
   - model_name: "ollama/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
-      model: "ollama/*"
-      api_base: "http://host.docker.internal:11434"
+      model: "openai/*"
+      api_base: "os.environ/OLLAMA_OPENAI_API_BASE"
+      api_key: "ollama"  # Ollama ignores it; the openai provider needs a value
       timeout: 600
-      tags: ["background"]
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Local Models (LM Studio) --
   # LM Studio exposes an OpenAI-compatible API on port 1234.
@@ -26,6 +43,8 @@ model_list:
   # Set LM_STUDIO_API_BASE env var to override (e.g. "http://192.168.1.100:1234/v1").
   # Default: host.docker.internal (reachable from Docker Desktop containers).
   - model_name: "lm_studio/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "openai/*"
       api_base: "os.environ/LM_STUDIO_API_BASE"
@@ -46,24 +65,32 @@ model_list:
 
   # -- OpenAI --
   - model_name: "openai/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "openai/*"
       api_key: "os.environ/OPENAI_API_KEY"
 
   # -- Anthropic --
   - model_name: "anthropic/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "anthropic/*"
       api_key: "os.environ/ANTHROPIC_API_KEY"
 
   # -- Google Gemini --
   - model_name: "gemini/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "gemini/*"
       api_key: "os.environ/GEMINI_API_KEY"
 
   # -- Groq (fast inference) --
   - model_name: "groq/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "groq/*"
       api_key: "os.environ/GROQ_API_KEY"
@@ -71,6 +98,8 @@ model_list:
 
   # -- Mistral AI --
   - model_name: "mistral/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "mistral/*"
       api_key: "os.environ/MISTRAL_API_KEY"
@@ -78,6 +107,8 @@ model_list:
 
   # -- OpenRouter --
   - model_name: "openrouter/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "openrouter/*"
       api_key: "os.environ/OPENROUTER_API_KEY"
@@ -85,6 +116,8 @@ model_list:
 
   # -- Cerebras (fast inference) --
   - model_name: "cerebras/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "cerebras/*"
       api_key: "os.environ/CEREBRAS_API_KEY"
@@ -102,6 +135,8 @@ model_list:
 
   # -- Chutes (OpenAI-compatible) --
   - model_name: "chutes/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "openai/*"
       api_base: "https://llm.chutes.ai/v1"
@@ -109,6 +144,8 @@ model_list:
 
   # -- AihubMix (OpenAI-compatible) --
   - model_name: "aihubmix/*"
+    model_info:
+      disable_background_health_check: true
     litellm_params:
       model: "openai/*"
       api_base: "https://aihubmix.com/v1"
@@ -133,3 +170,9 @@ litellm_settings:
 general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
   database_url: "os.environ/DATABASE_URL"
+  # /health skips the routes marked disable_background_health_check (KI-130):
+  # for a wildcard route LiteLLM probes a random cheap model of the provider's
+  # catalogue (gpt-5-nano for an OpenAI-compatible local server), which fails
+  # on local servers and without a key and says nothing about the models in
+  # use. The Core and the worker call /health on every model refresh.
+  health_check_skip_disabled_background_models: true

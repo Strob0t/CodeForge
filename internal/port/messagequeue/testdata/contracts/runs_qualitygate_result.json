@@ -1,0 +1,8 @@
+{
+  "run_id": "550e8400-e29b-41d4-a716-446655440040",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
+  "tests_passed": true,
+  "lint_passed": false,
+  "test_output": "3 passed",
+  "lint_output": "E501 line too long"
+}

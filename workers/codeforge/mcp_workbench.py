@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
-import io
 import logging
+import os
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
 
-from mcp import ClientSession, StdioServerParameters, stdio_client
+import httpx
+from mcp import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 from codeforge.mcp_models import MCPServerDef, MCPTool, MCPToolCallResult
+from codeforge.mcp_outbound import OutboundPolicy, guarded_client_factory, scrub_url_secrets
+from codeforge.tool_process import tool_stdio_client
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.shared.message import SessionMessage
+
+    _Streams = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
 
 logger = logging.getLogger(__name__)
 
@@ -40,40 +48,61 @@ class McpServerConnection:
         return self._session is not None
 
     async def connect(self) -> None:
-        """Establish a connection to the MCP server."""
-        self._exit_stack = AsyncExitStack()
+        """Establish a connection to the MCP server.
 
+        A connection that fails closes what it opened (the server process,
+        its log handle) before the error is raised.
+        """
+        self._exit_stack = AsyncExitStack()
+        try:
+            await self._open(self._exit_stack)
+        except BaseException:
+            await self._exit_stack.aclose()
+            self._exit_stack = None
+            self._session = None
+            raise
+        logger.info("connected to MCP server %s (%s)", self._def.id, self._def.transport)
+
+    async def _open(self, stack: AsyncExitStack) -> None:
         if self._def.transport == "stdio":
-            params = StdioServerParameters(
-                command=self._def.command,
-                args=self._def.args,
-                env=self._def.env or None,
+            # The server runs as the tool user, like every agent tool (KI-71). Its
+            # stderr needs a real file (an io.StringIO has no file descriptor).
+            errlog = stack.enter_context(open(os.devnull, "w"))  # noqa: SIM115 - closed by the exit stack
+            read_stream, write_stream = await stack.enter_async_context(
+                tool_stdio_client(self._def.command, self._def.args, declared_env=self._def.env, errlog=errlog)
             )
-            # stdio_client is an async context manager yielding (read, write) streams
-            read_stream, write_stream = await self._exit_stack.enter_async_context(
-                stdio_client(params, errlog=io.StringIO())
-            )
-        elif self._def.transport == "sse":
-            read_stream, write_stream = await self._exit_stack.enter_async_context(
-                sse_client(
-                    url=self._def.url,
-                    headers=self._def.headers or None,
-                )
-            )
-        elif self._def.transport == "streamable_http":
-            read_stream, write_stream = await self._exit_stack.enter_async_context(
-                streamablehttp_client(
-                    url=self._def.url,
-                    headers=self._def.headers or None,
-                )
-            )
+        elif self._def.transport in ("sse", "streamable_http"):
+            read_stream, write_stream = await self._open_remote(stack)
         else:
             msg = f"unsupported transport: {self._def.transport}"
             raise ValueError(msg)
 
-        self._session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+        self._session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
         await self._session.initialize()
-        logger.info("connected to MCP server %s (%s)", self._def.id, self._def.transport)
+
+    async def _open_remote(self, stack: AsyncExitStack) -> _Streams:
+        """Open an sse or streamable_http connection (KI-100).
+
+        A url whose host is, or resolves to, a refused address fails here with
+        the reason, before anything connects; the client's transport checks
+        the address of every request again (DNS rebinding, redirects).
+        """
+        policy = OutboundPolicy(self._def.allowed_private_hosts, trusted=self._def.trusted)
+        await policy.check_url(self._def.url)
+        client_factory = guarded_client_factory(policy, use_proxy=self._def.use_proxy)
+        if self._def.transport == "sse":
+            return await stack.enter_async_context(
+                sse_client(
+                    url=self._def.url,
+                    headers=self._def.headers or None,
+                    httpx_client_factory=client_factory,
+                )
+            )
+        client = await stack.enter_async_context(client_factory(headers=self._def.headers or None))
+        read_stream, write_stream, _session_id = await stack.enter_async_context(
+            streamable_http_client(self._def.url, http_client=client)
+        )
+        return read_stream, write_stream
 
     async def disconnect(self) -> None:
         """Close the connection to the MCP server."""
@@ -150,7 +179,13 @@ class McpWorkbench:
                 await conn.connect()
                 self._connections[server_def.id] = conn
             except Exception as exc:
-                logger.exception("failed to connect to MCP server %s: %s", server_def.id, exc)
+                # No traceback: httpx errors quote the url with its secrets (KI-97 security review).
+                logger.error(
+                    "failed to connect to MCP server %s (%s): %s",
+                    server_def.id,
+                    _host_of(server_def.url),
+                    scrub_url_secrets(_describe(exc), server_def.url),
+                )
 
     async def discover_tools(self) -> list[MCPTool]:
         """Discover tools from all connected servers."""
@@ -194,6 +229,20 @@ class McpWorkbench:
             }
             for tool in self._tools
         ]
+
+
+def _describe(exc: BaseException) -> str:
+    """The class and message of exc, or of the leaves of an exception group (anyio task groups)."""
+    if isinstance(exc, BaseExceptionGroup):
+        return "; ".join(_describe(inner) for inner in exc.exceptions)
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _host_of(url: str) -> str:
+    try:
+        return httpx.URL(url).host or "-"
+    except httpx.InvalidURL:
+        return "-"
 
 
 class McpToolRecommender:

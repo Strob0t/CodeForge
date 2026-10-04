@@ -56,7 +56,7 @@ func newMetaTestSetupFull(t *testing.T, llmBody, mode string) (*orchMockStore, *
 	llmClient := litellm.NewClient(srv.URL, "")
 
 	store := &orchMockStore{}
-	store.projects = []project.Project{{ID: "p1", Name: "TestProject"}}
+	store.projects = []project.Project{{ID: "p1", Name: "TestProject", WorkspacePath: "/tmp/meta-agent-test"}}
 	store.agents = []agent.Agent{
 		{ID: "a1", ProjectID: "p1", Name: "Coder", Backend: "aider", Status: agent.StatusIdle},
 	}

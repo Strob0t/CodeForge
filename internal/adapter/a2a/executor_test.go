@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,10 +10,20 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	a2adomain "github.com/Strob0t/CodeForge/internal/domain/a2a"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
+
+const execTestTenant = "00000000-0000-0000-0000-00000000a2a0"
+
+// tenantCtx is the context of an inbound request in execTestTenant (the HTTP
+// tenant middleware sets it for every request).
+func tenantCtx() context.Context {
+	return tenantctx.WithTenant(context.Background(), execTestTenant)
+}
 
 // --- Minimal fakes for testing ---
 
@@ -106,7 +117,7 @@ func TestExecutor_Execute_PromptTooLong(t *testing.T) {
 		},
 	}
 
-	err := exec.Execute(context.Background(), reqCtx, fakeEventQueue{})
+	err := exec.Execute(tenantCtx(), reqCtx, fakeEventQueue{})
 	if err == nil {
 		t.Fatal("Execute() should return error for prompt exceeding MaxPromptLength")
 	}
@@ -139,7 +150,7 @@ func TestExecutor_Execute_PromptAtLimit(t *testing.T) {
 		},
 	}
 
-	err := exec.Execute(context.Background(), reqCtx, fakeEventQueue{})
+	err := exec.Execute(tenantCtx(), reqCtx, fakeEventQueue{})
 	if err != nil {
 		t.Fatalf("Execute() should succeed for prompt at MaxPromptLength, got: %v", err)
 	}
@@ -160,7 +171,7 @@ func TestExecutor_Cancel_TaskNotFound(t *testing.T) {
 		TaskID: "nonexistent-task",
 	}
 
-	err := exec.Cancel(context.Background(), reqCtx, fakeEventQueue{})
+	err := exec.Cancel(tenantCtx(), reqCtx, fakeEventQueue{})
 	if err == nil {
 		t.Fatal("Cancel() should return error for nonexistent task")
 	}
@@ -180,11 +191,67 @@ func TestExecutor_Cancel_StoreError(t *testing.T) {
 		TaskID: "some-task",
 	}
 
-	err := exec.Cancel(context.Background(), reqCtx, fakeEventQueue{})
+	err := exec.Cancel(tenantCtx(), reqCtx, fakeEventQueue{})
 	if err == nil {
 		t.Fatal("Cancel() should return error when store fails")
 	}
 	if !strings.Contains(err.Error(), "database connection lost") {
 		t.Errorf("error = %q, want it to wrap the store error", err.Error())
 	}
+}
+
+// Follow-up of KI-64: the executor used tenantctx.FromContext, which falls back
+// to the default tenant. An inbound task now needs the request's tenant and
+// carries it on a2a.task.created; without one nothing is created or published.
+func TestExecutor_TenantIsRequired(t *testing.T) {
+	t.Parallel()
+	reqCtx := &a2asrv.RequestContext{
+		TaskID:  "tenant-task",
+		Message: &sdka2a.Message{Role: sdka2a.MessageRoleUser, Parts: []sdka2a.Part{sdka2a.TextPart{Text: "do it"}}},
+	}
+
+	t.Run("execute without a tenant", func(t *testing.T) {
+		t.Parallel()
+		store := newFakeStore()
+		queue := &recordingQueue{}
+		err := NewExecutor(store, queue, fakeBroadcaster{}, nil).Execute(context.Background(), reqCtx, fakeEventQueue{})
+		if !errors.Is(err, domain.ErrValidation) {
+			t.Fatalf("Execute error = %v, want ErrValidation", err)
+		}
+		if len(store.tasks) != 0 || len(queue.published) != 0 {
+			t.Fatalf("created %d tasks and published %d messages without a tenant", len(store.tasks), len(queue.published))
+		}
+	})
+
+	t.Run("execute carries the tenant", func(t *testing.T) {
+		t.Parallel()
+		queue := &recordingQueue{}
+		if err := NewExecutor(newFakeStore(), queue, fakeBroadcaster{}, nil).Execute(tenantCtx(), reqCtx, fakeEventQueue{}); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		var payload messagequeue.A2ATaskCreatedPayload
+		for _, p := range queue.published {
+			if p.subject == messagequeue.SubjectA2ATaskCreated {
+				if err := json.Unmarshal(p.data, &payload); err != nil {
+					t.Fatalf("a2a.task.created payload: %v", err)
+				}
+			}
+		}
+		if payload.TenantID != execTestTenant {
+			t.Fatalf("tenant_id = %q, want %q", payload.TenantID, execTestTenant)
+		}
+	})
+
+	t.Run("cancel without a tenant", func(t *testing.T) {
+		t.Parallel()
+		store := newFakeStore()
+		store.tasks["a2a-tenant-task"] = &a2adomain.A2ATask{ID: "a2a-tenant-task", State: a2adomain.TaskStateWorking}
+		err := NewExecutor(store, fakeQueue{}, fakeBroadcaster{}, nil).Cancel(context.Background(), reqCtx, fakeEventQueue{})
+		if !errors.Is(err, domain.ErrValidation) {
+			t.Fatalf("Cancel error = %v, want ErrValidation", err)
+		}
+		if store.tasks["a2a-tenant-task"].State != a2adomain.TaskStateWorking {
+			t.Fatal("task canceled without a tenant")
+		}
+	})
 }

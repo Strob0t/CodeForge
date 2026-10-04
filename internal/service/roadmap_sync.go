@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // AIView returns an LLM-optimized representation of a project's roadmap.
@@ -129,15 +130,22 @@ func (s *RoadmapService) SyncToSpecFile(ctx context.Context, projectID string) e
 		return nil
 	}
 
-	// Fallback: full markdown render.
-	targetPath := s.findSpecFile(proj.WorkspacePath)
+	// Fallback: full markdown render, written through workspacefs (KI-95):
+	// never through a symlink that leaves the workspace.
+	ws, err := workspacefs.Open(proj.WorkspacePath)
+	if err != nil {
+		return fmt.Errorf("open workspace: %w", err)
+	}
+	defer func() { _ = ws.Close() }()
+	target := findSpecFile(ws)
 	content := renderMarkdown(rm)
 
-	if err := os.WriteFile(targetPath, []byte(content), 0o644); err != nil { //nolint:gosec // workspace path is trusted
+	// Shared with the worker's tool user (KI-71).
+	if err := ws.WriteFile(target, []byte(content), project.WorkspaceFilePerm); err != nil {
 		return fmt.Errorf("write spec file: %w", err)
 	}
 
-	slog.Info("synced roadmap to spec file", "project", projectID, "path", targetPath)
+	slog.Info("synced roadmap to spec file", "project", projectID, "path", filepath.Join(proj.WorkspacePath, target))
 	return nil
 }
 
@@ -243,18 +251,17 @@ func featureStatusToItemStatus(status roadmap.FeatureStatus) string {
 	}
 }
 
-// findSpecFile returns the path to the first existing spec file candidate,
-// or defaults to ROADMAP.md in the workspace root.
-func (s *RoadmapService) findSpecFile(workspacePath string) string {
+// findSpecFile returns the first existing spec file candidate (a regular
+// file inside the workspace), or defaults to ROADMAP.md in the workspace root.
+func findSpecFile(ws *workspacefs.Root) string {
 	for _, name := range []string{
 		"ROADMAP.md", "roadmap.md", "TODO.md", "todo.md",
 		"docs/ROADMAP.md", "docs/roadmap.md", "docs/TODO.md", "docs/todo.md",
 	} {
-		fp := filepath.Join(workspacePath, name)
-		info, statErr := os.Stat(fp)
-		if statErr == nil && !info.IsDir() {
-			return fp
+		info, statErr := ws.Stat(name)
+		if statErr == nil && info.Mode().IsRegular() {
+			return name
 		}
 	}
-	return filepath.Join(workspacePath, "ROADMAP.md")
+	return "ROADMAP.md"
 }

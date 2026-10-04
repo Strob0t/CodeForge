@@ -9,20 +9,20 @@ import (
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
-	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // runtimePolicyEvaluator is the subset of PolicyService used by RuntimeService.
 type runtimePolicyEvaluator interface {
 	DefaultProfile() string
-	GetProfile(name string) (policy.PolicyProfile, bool)
-	EvaluateWithReason(ctx context.Context, profileName string, call policy.ToolCall) (*policy.EvaluationResult, error)
+	GetProfile(ctx context.Context, name string) (policy.PolicyProfile, bool)
+	EvaluateWithReason(ctx context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (*policy.EvaluationResult, error)
 }
 
 // runtimeModeProvider is the subset of ModeService used by RuntimeService.
@@ -47,6 +47,12 @@ type runtimeCheckpointer interface {
 	RewindToFirst(ctx context.Context, runID, workspacePath string) error
 }
 
+// runtimeBacklogProbe reports how many messages of a subject its durable
+// consumers have not settled yet (not delivered, or delivered and not acked).
+type runtimeBacklogProbe interface {
+	Backlog(ctx context.Context, subject string) (int, error)
+}
+
 // runtimeSandboxManager is the subset of SandboxService used by RuntimeService.
 type runtimeSandboxManager interface {
 	Create(ctx context.Context, runID, workspacePath string, overrides ...resource.Limits) (*Sandbox, error)
@@ -59,7 +65,7 @@ type runtimeSandboxManager interface {
 
 // runtimeMCPResolver is the subset of MCPService used by RuntimeService.
 type runtimeMCPResolver interface {
-	ResolveForRun(projectID, modeID string) []mcp.ServerDef
+	RunServerPayloads(ctx context.Context, projectID, modeID string) []messagequeue.MCPServerDefPayload
 }
 
 // runtimeMicroagentMatcher is the subset of MicroagentService used by RuntimeService.

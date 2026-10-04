@@ -25,6 +25,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -195,9 +196,6 @@ func (s *testStore) BatchDeleteProjects(_ context.Context, _ []string) ([]string
 func (s *testStore) BatchGetProjects(_ context.Context, _ []string) ([]project.Project, error) {
 	return nil, nil
 }
-func (s *testStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
-	return nil, nil
-}
 
 // Agent stubs
 func (s *testStore) ListAgents(_ context.Context, _ string) ([]agent.Agent, error) { return nil, nil }
@@ -219,7 +217,7 @@ func (s *testStore) CreateTask(_ context.Context, _ task.CreateRequest) (*task.T
 	return nil, nil
 }
 func (s *testStore) UpdateTaskStatus(_ context.Context, _ string, _ task.Status) error { return nil }
-func (s *testStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
+func (s *testStore) UpdateTaskResult(_ context.Context, _ string, _ task.Status, _ task.Result, _ float64) error {
 	return nil
 }
 
@@ -234,10 +232,22 @@ func (s *testStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _
 func (s *testStore) CompleteRun(_ context.Context, _ *run.CompletionRequest) error {
 	return nil
 }
+func (s *testStore) EnterQualityGate(_ context.Context, _ *run.CompletionRequest) error {
+	return nil
+}
+func (s *testStore) CountRunStep(_ context.Context, _ string) error { return nil }
+func (s *testStore) AddRunUsage(_ context.Context, _ string, _ *run.Usage) (*run.Run, error) {
+	return &run.Run{}, nil
+}
+func (s *testStore) RaiseRunUsage(_ context.Context, _ string, _ *run.Usage) error { return nil }
 func (s *testStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
 	return nil
 }
 func (s *testStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
+func (s *testStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (s *testStore) TouchRun(_ context.Context, _ string, _ run.Status) error { return nil }
 
 // Plan stubs
 func (s *testStore) CreatePlan(_ context.Context, _ *plan.ExecutionPlan) error { return nil }
@@ -402,6 +412,12 @@ func (s *testStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*te
 func (s *testStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) { return nil, nil }
 func (s *testStore) ListTenants(_ context.Context) ([]tenant.Tenant, error)        { return nil, nil }
 func (s *testStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error        { return nil }
+func (s *testStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (s *testStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection stubs
 func (s *testStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
@@ -533,7 +549,7 @@ func (s *testStore) DeleteVCSAccount(_ context.Context, _ string) error { return
 func (s *testStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
 	return nil
 }
-func (s *testStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+func (s *testStore) ConsumeOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
 	return nil, domain.ErrNotFound
 }
 func (s *testStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
@@ -693,7 +709,7 @@ func (s *testStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarant
 func (s *testStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (s *testStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (s *testStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -705,6 +721,13 @@ func (s *testStore) UpdateAgentState(_ context.Context, _ string, _ map[string]s
 	return nil
 }
 func (s *testStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error { return nil }
+
+func (s *testStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
+	return orchestration.HandoffClaim{Claimed: true}, nil
+}
+func (s *testStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (s *testStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (s *testStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (s *testStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }
@@ -717,7 +740,25 @@ func (s *testStore) ListActiveWork(_ context.Context, _ string) ([]task.ActiveWo
 func (s *testStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
 	return nil, nil
 }
-func (s *testStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+func (s *testStore) TouchRunHeartbeat(_ context.Context, _ string) error { return nil }
+func (s *testStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (s *testStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
+func (s *testStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (s *testStore) ClaimConversationTurnCompletion(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (s *testStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
+	return nil
+}
+func (s *testStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
+	return nil, nil
+}
+func (s *testStore) TouchTaskHeartbeat(_ context.Context, _, _ string) error { return nil }
+func (s *testStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
 
@@ -806,7 +847,18 @@ func (s *testStore) CreateChannel(_ context.Context, _ *channel.Channel) (*chann
 func (s *testStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
 	return nil, nil
 }
-func (s *testStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+func (s *testStore) ListChannels(_ context.Context, _, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+
+func (s *testStore) SetChannelWebhookKeyHash(_ context.Context, _ string, _ []byte) error { return nil }
+func (s *testStore) GetChannelWebhookKeyHash(_ context.Context, _ string) (tenantID string, hash []byte, err error) {
+	return "", nil, domain.ErrNotFound
+}
+func (s *testStore) MarkChannelRead(_ context.Context, _, _, _ string) (*channel.ReadState, error) {
+	return nil, domain.ErrNotFound
+}
+func (s *testStore) ListChannelReadStates(_ context.Context, _ string) ([]channel.ReadState, error) {
 	return nil, nil
 }
 func (s *testStore) DeleteChannel(_ context.Context, _ string) error { return nil }
@@ -834,9 +886,6 @@ func (s *testStore) DeleteProjectBoundaries(_ context.Context, _ string) error {
 func (s *testStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (s *testStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (s *testStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }
@@ -846,23 +895,38 @@ func (s *testStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]d
 func (s *testStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
-func (s *testStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (s *testStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 func (s *testStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
-func (s *testStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+
+// GDPR erasure and retention stubs
+
+// WithRetentionLock reports the lock as held by another replica: no test
+// here sweeps.
+func (s *testStore) WithRetentionLock(context.Context, func(context.Context, database.RetentionPurger)) (bool, error) {
+	return false, nil
+}
+
+func (s *testStore) TouchSession(_ context.Context, _ string) error { return nil }
+
+func (s *testStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
+}
+
+func (s *testStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (s *testStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (s *testStore) UnconsumedQuarantineRelease(_ context.Context, _ string, _ []byte) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (s *testStore) ConsumeQuarantineRelease(_ context.Context, _ string) error {
+	return domain.ErrNotFound
 }
 
 // Consent stubs (GDPR)
@@ -877,5 +941,18 @@ func (s *testStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPu
 	return nil, nil
 }
 func (s *testStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
+	return nil, nil
+}
+
+func (s *testStore) QueueTask(_ context.Context, _, _, _ string) error { return nil }
+func (s *testStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
+	return nil
+}
+
+func (s *testStore) RecordTaskResult(_ context.Context, _, _ string, _ task.Status, _ task.Result, _ float64) (bool, error) {
+	return true, nil
+}
+
+func (s *testStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }

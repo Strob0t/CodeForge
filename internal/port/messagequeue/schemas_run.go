@@ -4,25 +4,83 @@ import (
 	"encoding/json"
 
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/port/agentbackend"
 )
+
+// TaskAgentPayload is the schema for tasks.agent.{backend} messages: a task
+// for an agent backend (Aider, OpenHands, ...) that the worker runs in the
+// project workspace.
+type TaskAgentPayload struct {
+	TaskID        string `json:"task_id"`
+	ProjectID     string `json:"project_id"`
+	TenantID      string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	AgentID       string `json:"agent_id,omitempty"`
+	Title         string `json:"title"`
+	Prompt        string `json:"prompt"`
+	Backend       string `json:"backend"`
+	WorkspacePath string `json:"workspace_path"`
+	// HeartbeatSeconds is how often the worker reports the task alive
+	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
+	// DispatchID identifies this dispatch of the task; the worker names it
+	// on its heartbeats, which count for this dispatch only.
+	DispatchID string `json:"dispatch_id,omitempty"`
+	// ToolUID is the tenant's tool UID: the backend CLI runs as it (KI-96;
+	// 0/omitted with workspace.tool_acls off).
+	ToolUID int `json:"tool_uid,omitempty"`
+}
+
+// NewTaskAgentPayload builds the tasks.agent.{backend} payload of an execution.
+func NewTaskAgentPayload(e *agentbackend.Execution, backend string) TaskAgentPayload {
+	t := e.Task
+	return TaskAgentPayload{
+		TaskID:           t.ID,
+		ProjectID:        t.ProjectID,
+		TenantID:         t.TenantID,
+		AgentID:          t.AgentID,
+		Title:            t.Title,
+		Prompt:           t.Prompt,
+		Backend:          backend,
+		WorkspacePath:    e.WorkspacePath,
+		HeartbeatSeconds: e.HeartbeatSeconds,
+		DispatchID:       t.DispatchID,
+		ToolUID:          e.ToolUID,
+	}
+}
 
 // TaskResultPayload is the schema for tasks.result messages.
 type TaskResultPayload struct {
-	TaskID    string   `json:"task_id"`
-	ProjectID string   `json:"project_id"`
-	Status    string   `json:"status"`
-	Output    string   `json:"output"`
-	Files     []string `json:"files"`
-	Error     string   `json:"error"`
-	TokensIn  int64    `json:"tokens_in"`
-	TokensOut int64    `json:"tokens_out"`
-	CostUSD   float64  `json:"cost_usd"`
+	TaskID    string `json:"task_id"`
+	ProjectID string `json:"project_id"`
+	TenantID  string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	// DispatchID is the dispatch the result reports (TaskAgentPayload's,
+	// echoed by the worker): only a result of the task's current dispatch
+	// ends the task. Empty from workers older than dispatch IDs.
+	DispatchID string   `json:"dispatch_id,omitempty"`
+	Status     string   `json:"status"`
+	Output     string   `json:"output"`
+	Files      []string `json:"files"`
+	Error      string   `json:"error"`
+	TokensIn   int64    `json:"tokens_in"`
+	TokensOut  int64    `json:"tokens_out"`
+	CostUSD    float64  `json:"cost_usd"`
 }
 
 // TaskCancelPayload is the schema for tasks.cancel messages.
 type TaskCancelPayload struct {
 	TaskID   string `json:"task_id"`
 	TenantID string `json:"tenant_id,omitempty"`
+}
+
+// TaskHeartbeatPayload is the schema for tasks.heartbeat messages: the worker
+// executing a task sends one every 30 s (KI-65).
+type TaskHeartbeatPayload struct {
+	TaskID   string `json:"task_id"`
+	TenantID string `json:"tenant_id,omitempty"`
+	// DispatchID is the dispatch the heartbeat is sent for ("" from a task
+	// message without one).
+	DispatchID string `json:"dispatch_id,omitempty"`
+	Timestamp  string `json:"timestamp"`
 }
 
 // --- Run protocol payloads (Phase 4B) ---
@@ -58,6 +116,22 @@ type RunStartPayload struct {
 	MCPServers        []MCPServerDefPayload `json:"mcp_servers,omitempty"`        // MCP server definitions (Phase 15A)
 	MicroagentPrompts []string              `json:"microagent_prompts,omitempty"` // Matched microagent prompts (Phase 22C)
 	Trust             *trust.Annotation     `json:"trust,omitempty"`              // Message trust annotation (Phase 23A)
+	WorkspacePath     string                `json:"workspace_path"`               // project workspace the run's tools work in
+	Backend           string                `json:"backend"`                      // the agent's backend (informational: the worker runs its own agent loop)
+	// ApprovalTimeoutSeconds is how long Go waits for a HITL decision on a
+	// tool call (config runtime.approval_timeout_seconds); the worker waits
+	// for policy responses longer than that.
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds"`
+	// HeartbeatSeconds is how often the worker reports the run alive
+	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker truncates
+	// tool results to it (0 = the worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
+	// ToolUID is the tenant's tool UID: the worker runs the run's tool
+	// processes as it (KI-96; 0/omitted with workspace.tool_acls off). Go
+	// computes it from the run's tenant, for handoff runs too.
+	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // TerminationPayload carries the termination limits for a run.
@@ -68,13 +142,25 @@ type TerminationPayload struct {
 }
 
 // ToolCallRequestPayload is the schema for runs.toolcall.request messages.
+//
+// Tool is the worker's tool name (e.g. "bash", "edit_file" or a Claude Code
+// tool name); the policy layer maps it to its canonical name. Command is the
+// shell command of a bash call and empty otherwise. Path is the file or
+// directory argument of a file tool. ModeID is the agent mode the worker was
+// started with (conversation runs); runs use the mode stored on the run.
 type ToolCallRequestPayload struct {
-	RunID   string            `json:"run_id"`
-	CallID  string            `json:"call_id"`
-	Tool    string            `json:"tool"`
-	Command string            `json:"command"`
-	Path    string            `json:"path"`
-	Trust   *trust.Annotation `json:"trust,omitempty"` // Message trust annotation (Phase 23A)
+	RunID    string            `json:"run_id"`
+	CallID   string            `json:"call_id"`
+	TenantID string            `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
+	Tool     string            `json:"tool"`
+	Command  string            `json:"command"`
+	Path     string            `json:"path"`
+	ModeID   string            `json:"mode_id,omitempty"`
+	TurnID   string            `json:"turn_id,omitempty"` // conversation runs: the turn of conversation.run.start
+	Trust    *trust.Annotation `json:"trust,omitempty"`   // Message trust annotation (Phase 23A)
+	// ArgumentsPreview is truncated JSON of the tool arguments, shown to a
+	// human approver. Display only: the policy never evaluates it.
+	ArgumentsPreview string `json:"arguments_preview,omitempty"`
 }
 
 // ToolCallResponsePayload is the schema for runs.toolcall.response messages.
@@ -91,6 +177,7 @@ type ToolCallResponsePayload struct {
 type ToolCallResultPayload struct {
 	RunID     string          `json:"run_id"`
 	CallID    string          `json:"call_id"`
+	TenantID  string          `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	Tool      string          `json:"tool"`
 	Success   bool            `json:"success"`
 	Output    string          `json:"output"`
@@ -107,6 +194,7 @@ type RunCompletePayload struct {
 	RunID     string  `json:"run_id"`
 	TaskID    string  `json:"task_id"`
 	ProjectID string  `json:"project_id"`
+	TenantID  string  `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	Status    string  `json:"status"`
 	Output    string  `json:"output"`
 	Error     string  `json:"error"`
@@ -128,10 +216,17 @@ type RunOutputPayload struct {
 
 // --- Heartbeat payload (Phase 3C) ---
 
-// RunHeartbeatPayload is the schema for runs.heartbeat messages.
+// RunHeartbeatPayload is the schema for runs.heartbeat messages: the worker
+// executing a run or a conversation run sends one every 30 s. A conversation
+// run names its turn (its run ID is the conversation ID).
 type RunHeartbeatPayload struct {
 	RunID     string `json:"run_id"`
+	TenantID  string `json:"tenant_id,omitempty"` // the run's tenant, echoed from the request
+	TurnID    string `json:"turn_id,omitempty"`
 	Timestamp string `json:"timestamp"`
+	// Phase is "quality_gate" while the worker runs the run's quality gate
+	// (the run's updated_at is refreshed); empty for the agent's run.
+	Phase string `json:"phase,omitempty"`
 }
 
 // --- Quality Gate payloads (Phase 4C) ---
@@ -140,19 +235,55 @@ type RunHeartbeatPayload struct {
 type QualityGateRequestPayload struct {
 	RunID         string `json:"run_id"`
 	ProjectID     string `json:"project_id"`
+	TenantID      string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	WorkspacePath string `json:"workspace_path"`
 	RunTests      bool   `json:"run_tests"`
 	RunLint       bool   `json:"run_lint"`
 	TestCommand   string `json:"test_command,omitempty"`
 	LintCommand   string `json:"lint_command,omitempty"`
+	// TimeoutSeconds bounds each command (runtime.quality_gate_timeout); the
+	// worker kills a command's process group when it expires.
+	TimeoutSeconds int `json:"timeout_seconds"`
+	// HeartbeatSeconds is how often the worker reports the running gate
+	// (runs.heartbeat, phase quality_gate); the stuck-work watchdog takes a
+	// gate that stopped reporting for lost.
+	HeartbeatSeconds int `json:"heartbeat_seconds"`
+	// ToolUID is the tenant's tool UID: the gate commands run as it (KI-96).
+	ToolUID int `json:"tool_uid,omitempty"`
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker bounds
+	// each check's output to it, keeping head and tail (KI-126; 0 = the
+	// worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
 }
 
 // QualityGateResultPayload is published with the outcome of a quality gate execution.
 type QualityGateResultPayload struct {
 	RunID       string `json:"run_id"`
+	TenantID    string `json:"tenant_id,omitempty"` // owning tenant: Go sets it on requests, the worker echoes it back
 	TestsPassed *bool  `json:"tests_passed,omitempty"`
 	LintPassed  *bool  `json:"lint_passed,omitempty"`
 	TestOutput  string `json:"test_output,omitempty"`
 	LintOutput  string `json:"lint_output,omitempty"`
 	Error       string `json:"error,omitempty"`
+}
+
+// HandoffRequestPayload is the schema for handoff.request messages: a
+// worker's handoff_to tool call (workers/codeforge/tools/handoff.py). The Go
+// Core checks it and starts the target agent's run (KI-15). The worker also
+// sends its workspace and approval timeout, which the Go Core takes from the
+// project and its config instead.
+type HandoffRequestPayload struct {
+	TenantID  string `json:"tenant_id"`
+	ProjectID string `json:"project_id"`
+	// HandoffID identifies the handoff (the worker generates it): the Go
+	// Core carries a handoff out once, whatever its redeliveries.
+	HandoffID     string            `json:"handoff_id,omitempty"`
+	SourceRunID   string            `json:"source_run_id"` // the conversation or run that called handoff_to
+	TargetAgentID string            `json:"target_agent_id"`
+	TargetModeID  string            `json:"target_mode_id,omitempty"`
+	Context       string            `json:"context"`
+	Artifacts     []string          `json:"artifacts,omitempty"`
+	PlanID        string            `json:"plan_id,omitempty"`
+	StepID        string            `json:"step_id,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
 }

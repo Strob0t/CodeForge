@@ -14,7 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
-// mockBroadcaster captures BroadcastEvent calls for verification.
+// mockBroadcaster captures BroadcastEvent and BroadcastGlobal calls for verification.
 type mockBroadcaster struct {
 	mu     sync.Mutex
 	events []mockEvent
@@ -23,12 +23,19 @@ type mockBroadcaster struct {
 type mockEvent struct {
 	eventType string
 	payload   any
+	global    bool // sent with BroadcastGlobal (every tenant)
 }
 
 func (m *mockBroadcaster) BroadcastEvent(_ context.Context, eventType string, payload any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.events = append(m.events, mockEvent{eventType: eventType, payload: payload})
+}
+
+func (m *mockBroadcaster) BroadcastGlobal(_ context.Context, eventType string, payload any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, mockEvent{eventType: eventType, payload: payload, global: true})
 }
 
 func (m *mockBroadcaster) lastEvent() (mockEvent, bool) {
@@ -142,6 +149,11 @@ func TestModelRegistryRefresh(t *testing.T) {
 	}
 	if evt.eventType != event.EventModelHealth {
 		t.Errorf("expected event type %q, got %q", event.EventModelHealth, evt.eventType)
+	}
+	// The shared LiteLLM proxy's health carries no tenant data: it must reach
+	// every tenant, and a background refresh has no tenant in its context.
+	if !evt.global {
+		t.Error("model health must be broadcast globally, got a tenant-scoped broadcast")
 	}
 	healthEvt, ok := evt.payload.(event.ModelHealthEvent)
 	if !ok {

@@ -6,6 +6,7 @@ import { useToast } from "~/components/Toast";
 import { useAsyncAction } from "~/hooks";
 import { useFormState } from "~/hooks/useFormState";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Badge,
   Button,
@@ -263,7 +264,7 @@ export default function RoutingStatsPage() {
           <LoadingState message={t("common.loading")} />
         </Show>
         <Show when={stats.error}>
-          <ErrorBanner error={stats.error} />
+          <ErrorBanner error={() => extractErrorMessage(stats.error, String(stats.error))} />
         </Show>
         <Show when={!stats.loading && !stats.error}>
           <Show
@@ -294,7 +295,7 @@ export default function RoutingStatsPage() {
           <LoadingState message={t("common.loading")} />
         </Show>
         <Show when={outcomes.error}>
-          <ErrorBanner error={outcomes.error} />
+          <ErrorBanner error={() => extractErrorMessage(outcomes.error, String(outcomes.error))} />
         </Show>
         <Show when={!outcomes.loading && !outcomes.error}>
           <Show

@@ -1,7 +1,13 @@
 import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { CreateMCPServerRequest, MCPServer, MCPServerTool, MCPTestResult } from "~/api/types";
+import type {
+  CreateMCPServerRequest,
+  MCPServer,
+  MCPServerTool,
+  MCPTestResult,
+  TestMCPServerRequest,
+} from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { MCP_TRANSPORTS } from "~/config/domain-constants";
 import { useAsyncAction, useCRUDForm } from "~/hooks";
@@ -39,7 +45,22 @@ interface MCPFormState {
   args: string;
   url: string;
   env: { key: string; value: string }[];
+  // Not editable here: an edited server keeps its headers ("***" as read)
+  // while it keeps the endpoint they were stored for (the Go Core sends stored
+  // values to no other one); with another endpoint they are dropped.
+  headers: Record<string, string>;
+  headersFor: string;
   enabled: boolean;
+}
+
+function endpoint(transport: string, url: string): string {
+  return `${transport} ${url.trim()}`;
+}
+
+/** The Go Core tests only sse and streamable_http servers; stdio servers run in
+ * the worker, as the tool user, and start with the first run that uses them. */
+function testableInTheCore(transport: MCPServer["transport"]): boolean {
+  return transport !== "stdio";
 }
 
 const FORM_DEFAULTS: MCPFormState = {
@@ -50,6 +71,8 @@ const FORM_DEFAULTS: MCPFormState = {
   args: "",
   url: "",
   env: [],
+  headers: {},
+  headersFor: "",
   enabled: true,
 };
 
@@ -82,13 +105,20 @@ export default function MCPServersPage() {
     clearError();
   }
 
+  /** A saved server is tested with its id: the Go Core then uses its stored
+   * env and header values for the "***" the form shows. */
+  function testRequest(req: CreateMCPServerRequest): TestMCPServerRequest {
+    const eid = crud.editingId();
+    return crud.isEditing() && eid ? { ...req, id: eid } : req;
+  }
+
   async function handleFormTest(): Promise<void> {
     const req = buildRequest();
     if (!req) return;
     setFormTesting(true);
     setFormTestResult(null);
     try {
-      const result = await api.mcp.testConnection(req);
+      const result = await api.mcp.testConnection(testRequest(req));
       setFormTestResult(result);
       if (result.success) {
         const toolCount = result.tools?.length ?? 0;
@@ -114,6 +144,8 @@ export default function MCPServersPage() {
       args: (server.args ?? []).join("\n"),
       url: server.url,
       env: envEntries,
+      headers: server.headers ?? {},
+      headersFor: endpoint(server.transport, server.url),
       enabled: server.enabled,
     });
   }
@@ -167,6 +199,11 @@ export default function MCPServersPage() {
           ? crud.form.state.url.trim() || undefined
           : undefined,
       env: Object.keys(envObj).length > 0 ? envObj : undefined,
+      headers:
+        endpoint(crud.form.state.transport, crud.form.state.url) === crud.form.state.headersFor &&
+        Object.keys(crud.form.state.headers).length > 0
+          ? { ...crud.form.state.headers }
+          : undefined,
       enabled: crud.form.state.enabled,
     };
   }
@@ -196,11 +233,15 @@ export default function MCPServersPage() {
     async () => {
       const req = buildRequest();
       if (!req) return;
+      if (!testableInTheCore(req.transport)) {
+        await saveServer(req);
+        return;
+      }
 
       // Pre-save connection test.
       let testResult: MCPTestResult | null = null;
       try {
-        testResult = await api.mcp.testConnection(req);
+        testResult = await api.mcp.testConnection(testRequest(req));
       } catch {
         testResult = { success: false, error: t("mcp.testFailed") };
       }
@@ -379,7 +420,12 @@ export default function MCPServersPage() {
                       placeholder={t("mcp.form.commandPlaceholder")}
                     />
                   </FormField>
-                  <FormField label={t("mcp.form.args")} id="mcp-args" class="sm:col-span-2">
+                  <FormField
+                    label={t("mcp.form.args")}
+                    id="mcp-args"
+                    class="sm:col-span-2"
+                    help={t("mcp.form.argsHint")}
+                  >
                     <Textarea
                       id="mcp-args"
                       value={crud.form.state.args}
@@ -483,18 +529,24 @@ export default function MCPServersPage() {
                 )}
               </Show>
 
+              <Show when={!testableInTheCore(crud.form.state.transport)}>
+                <p class="mt-3 text-sm text-cf-text-muted">{t("mcp.stdioNoTest")}</p>
+              </Show>
+
               <div class="mt-4 flex justify-end gap-2">
                 <Button variant="secondary" onClick={handleCancelForm}>
                   {t("common.cancel")}
                 </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => void handleFormTest()}
-                  disabled={formTesting() || !crud.form.state.name.trim()}
-                  loading={formTesting()}
-                >
-                  {formTesting() ? t("mcp.testing") : t("mcp.test")}
-                </Button>
+                <Show when={testableInTheCore(crud.form.state.transport)}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void handleFormTest()}
+                    disabled={formTesting() || !crud.form.state.name.trim()}
+                    loading={formTesting()}
+                  >
+                    {formTesting() ? t("mcp.testing") : t("mcp.test")}
+                  </Button>
+                </Show>
                 <Button type="submit" disabled={testingConnection()} loading={testingConnection()}>
                   {testingConnection()
                     ? t("mcp.testingConnection")
@@ -625,16 +677,18 @@ function MCPServerActions(props: {
 
   return (
     <div class="flex items-center gap-2">
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => void handleTest()}
-        disabled={testing()}
-        loading={testing()}
-        aria-label={t("mcp.testAria", { name: props.server.name })}
-      >
-        {testing() ? t("mcp.testing") : t("mcp.test")}
-      </Button>
+      <Show when={testableInTheCore(props.server.transport)}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => void handleTest()}
+          disabled={testing()}
+          loading={testing()}
+          aria-label={t("mcp.testAria", { name: props.server.name })}
+        >
+          {testing() ? t("mcp.testing") : t("mcp.test")}
+        </Button>
+      </Show>
       <Button
         variant="ghost"
         size="sm"

@@ -28,7 +28,7 @@ func (s *Store) QuarantineMessage(ctx context.Context, msg *quarantine.Message) 
 func (s *Store) GetQuarantinedMessage(ctx context.Context, id string) (*quarantine.Message, error) {
 	const q = `
 		SELECT id, tenant_id, project_id, subject, payload, trust_origin, trust_level,
-			risk_score, risk_factors, status, reviewed_by, review_note,
+			risk_score, risk_factors, status, COALESCE(reviewed_by_user_id::text, ''), reviewed_by, review_note,
 			created_at, reviewed_at, expires_at
 		FROM quarantine_messages
 		WHERE id = $1 AND tenant_id = $2`
@@ -36,7 +36,7 @@ func (s *Store) GetQuarantinedMessage(ctx context.Context, id string) (*quaranti
 	var msg quarantine.Message
 	err := s.pool.QueryRow(ctx, q, id, tenantFromCtx(ctx)).Scan(
 		&msg.ID, &msg.TenantID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
-		&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedBy, &msg.ReviewNote,
+		&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedByID, &msg.ReviewedBy, &msg.ReviewNote,
 		&msg.CreatedAt, &msg.ReviewedAt, &msg.ExpiresAt,
 	)
 	if err != nil {
@@ -55,7 +55,7 @@ func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, s
 	if status != "" {
 		q = `
 			SELECT id, tenant_id, project_id, subject, payload, trust_origin, trust_level,
-				risk_score, risk_factors, status, reviewed_by, review_note,
+				risk_score, risk_factors, status, COALESCE(reviewed_by_user_id::text, ''), reviewed_by, review_note,
 				created_at, reviewed_at, expires_at
 			FROM quarantine_messages
 			WHERE project_id = $1 AND status = $2 AND tenant_id = $3
@@ -65,7 +65,7 @@ func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, s
 	} else {
 		q = `
 			SELECT id, tenant_id, project_id, subject, payload, trust_origin, trust_level,
-				risk_score, risk_factors, status, reviewed_by, review_note,
+				risk_score, risk_factors, status, COALESCE(reviewed_by_user_id::text, ''), reviewed_by, review_note,
 				created_at, reviewed_at, expires_at
 			FROM quarantine_messages
 			WHERE project_id = $1 AND tenant_id = $2
@@ -82,21 +82,69 @@ func (s *Store) ListQuarantinedMessages(ctx context.Context, projectID string, s
 		var msg quarantine.Message
 		err := r.Scan(
 			&msg.ID, &msg.TenantID, &msg.ProjectID, &msg.Subject, &msg.Payload, &msg.TrustOrigin, &msg.TrustLevel,
-			&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedBy, &msg.ReviewNote,
+			&msg.RiskScore, &msg.RiskFactors, &msg.Status, &msg.ReviewedByID, &msg.ReviewedBy, &msg.ReviewNote,
 			&msg.CreatedAt, &msg.ReviewedAt, &msg.ExpiresAt,
 		)
 		return &msg, err
 	})
 }
 
-// UpdateQuarantineStatus sets the review status of a quarantined message.
-func (s *Store) UpdateQuarantineStatus(ctx context.Context, id string, status quarantine.Status, reviewedBy, note string) error {
+// UpdateQuarantineStatus records the review of a pending message: its status,
+// the reviewer (user ID and name at the time) and the note. The user ID is
+// kept only for a reviewer with an account row; one without (auth disabled,
+// internal service key) is recorded by name. Only a pending message changes
+// (domain.ErrConflict otherwise).
+func (s *Store) UpdateQuarantineStatus(ctx context.Context, id string, status quarantine.Status, review *quarantine.Review) error {
 	now := time.Now().UTC()
 	const q = `
 		UPDATE quarantine_messages
-		SET status = $2, reviewed_by = $3, review_note = $4, reviewed_at = $5
-		WHERE id = $1 AND tenant_id = $6`
+		SET status = $2,
+		    reviewed_by_user_id = (SELECT u.id FROM users u WHERE u.id = NULLIF($3, '')::uuid),
+		    reviewed_by = $4, review_note = $5, reviewed_at = $6
+		WHERE id = $1 AND tenant_id = $7 AND status = 'pending'`
 
-	tag, err := s.pool.Exec(ctx, q, id, string(status), reviewedBy, note, now, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update quarantine status for message %s", id)
+	tag, err := s.pool.Exec(ctx, q, id, string(status), review.ReviewerID, review.ReviewerName, review.Note, now, tenantFromCtx(ctx))
+	return s.guardedUpdateResult(ctx, tag, err, quarantineExistsSQL, "update quarantine status for message", id)
+}
+
+// UnconsumedQuarantineRelease returns the ID of an approved, unconsumed
+// quarantine message of subject in the current tenant whose payload is
+// exactly payload (the oldest approval first); domain.ErrNotFound if none.
+func (s *Store) UnconsumedQuarantineRelease(ctx context.Context, subject string, payload []byte) (string, error) {
+	const q = `
+		SELECT id FROM quarantine_messages
+		WHERE tenant_id = $1 AND subject = $2 AND status = 'approved' AND consumed_at IS NULL AND payload = $3
+		ORDER BY reviewed_at
+		LIMIT 1`
+	var id string
+	if err := s.pool.QueryRow(ctx, q, tenantFromCtx(ctx), subject, payload).Scan(&id); err != nil {
+		return "", notFoundWrap(err, "unconsumed quarantine release on %s", subject)
+	}
+	return id, nil
+}
+
+// ConsumeQuarantineRelease records that the replay of the approved message
+// id was carried out; only an approved, unconsumed message changes.
+func (s *Store) ConsumeQuarantineRelease(ctx context.Context, id string) error {
+	const q = `
+		UPDATE quarantine_messages SET consumed_at = now()
+		WHERE id = $1 AND tenant_id = $2 AND status = 'approved' AND consumed_at IS NULL`
+	tag, err := s.pool.Exec(ctx, q, id, tenantFromCtx(ctx))
+	return s.guardedUpdateResult(ctx, tag, err, quarantineExistsSQL, "consume quarantine release", id)
+}
+
+const quarantineExistsSQL = `SELECT EXISTS (SELECT 1 FROM quarantine_messages WHERE id = $1 AND tenant_id = $2)`
+
+// AnonymizeQuarantineReviewsForUser replaces the reviewer name of the user's
+// reviews in the current tenant with quarantine.ErasedReviewerName. Called
+// before the user is deleted (GDPR Art. 17); the foreign key then sets
+// reviewed_by_user_id to NULL, and the decisions stay.
+func (s *Store) AnonymizeQuarantineReviewsForUser(ctx context.Context, userID string) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE quarantine_messages SET reviewed_by = $3 WHERE reviewed_by_user_id = $1 AND tenant_id = $2`,
+		userID, tenantFromCtx(ctx), quarantine.ErasedReviewerName)
+	if err != nil {
+		return 0, fmt.Errorf("anonymize quarantine reviews for user: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }

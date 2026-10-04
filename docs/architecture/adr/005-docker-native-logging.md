@@ -75,6 +75,8 @@ docker compose logs | jq 'select(.request_id == "abc-123")'
 - Python workers extract request ID from NATS headers and bind to structlog context
 - Enables tracing a single request across Go Core, NATS, Python Worker, NATS, and back to Go Core
 
+> **Implementation status (2026-09-29):** The logging anchor is also applied to `docs-mcp` in `docker-compose.yml` and to all six services (including `core` and `worker`) in `docker-compose.prod.yml`. The Go Core `service` field is `codeforge-core`. There is no `codeforge` compose service: in dev the Go Core runs on the host, so replace `codeforge` in the examples above with an existing service such as `litellm`; in production use `docker compose -f docker-compose.prod.yml logs -f core`. Python stdlib log lines are plain text, not JSON (see [Known Issues](../../todo.md#known-issues) KI-35); `scripts/logs.sh` suggests a non-existent `docs-mcp-server` service (KI-51).
+
 ### Consequences
 
 #### Positive
@@ -90,8 +92,8 @@ docker compose logs | jq 'select(.request_id == "abc-123")'
 
 - No log aggregation UI, so debugging requires terminal and `jq`. Mitigation: acceptable for a development tool; production deployments can add Loki/Grafana.
 - No alerting on error patterns. Mitigation: agent errors surface in the WebSocket events / frontend UI.
-- Log retention is limited (30 MB per service), so long-running sessions may lose old logs. Mitigation: increase `max-size`/`max-file` in docker-compose override for production.
-- No metrics collection (request latency, error rates, etc.). Mitigation: OpenTelemetry integration planned for Phase 3+ (deferred, not removed).
+- Log retention is limited (500 MB per service: 10 files x 50 MB), so long-running sessions may lose old logs. Mitigation: increase `max-size`/`max-file` in docker-compose override for production.
+- No metrics collection in the logging stack itself. Mitigation: OpenTelemetry is implemented (Go Core `internal/adapter/otel/`, Python workers `workers/codeforge/tracing/`, Jaeger in the `dev` compose profile) and exports traces and metrics via OTLP gRPC when enabled; export gaps: KI-36.
 
 #### Neutral
 

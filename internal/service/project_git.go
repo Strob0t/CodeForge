@@ -1,18 +1,19 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/git"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
@@ -22,12 +23,26 @@ import (
 
 // resolveGitProvider creates a git provider for the given project.
 // For local projects with an empty provider field, it defaults to "local".
+// The provider gets the project config plus repo_url, the project's
+// repository URL (never the config's own value): the SVN provider contacts
+// no URL outside it (S3-F security review S4).
 func resolveGitProvider(p *project.Project) (gitprovider.Provider, error) {
 	name := p.Provider
 	if name == "" {
 		name = "local"
 	}
-	return gitprovider.New(name, p.Config)
+	return gitprovider.New(name, gitProviderConfig(p))
+}
+
+// gitProviderConfig is the project config plus repo_url, the project's
+// repository URL.
+func gitProviderConfig(p *project.Project) map[string]string {
+	cfg := maps.Clone(p.Config)
+	if cfg == nil {
+		cfg = map[string]string{}
+	}
+	cfg["repo_url"] = p.RepoURL
+	return cfg
 }
 
 // repoInfoClient is the shared HTTP client for repo info API calls.
@@ -312,18 +327,14 @@ func (s *ProjectService) ListRemoteBranches(ctx context.Context, repoURL string)
 	cmdCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "git", "ls-remote", "--heads", repoURL) //nolint:gosec // repoURL validated: parsed URL with scheme allowlist.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		slog.Warn("git ls-remote failed", "url", repoURL, "error", err, "stderr", stderr.String())
+	out, err := git.Run(cmdCtx, "", "ls-remote", "--heads", "--", repoURL)
+	if err != nil {
+		slog.Warn("git ls-remote failed", "url", repoURL, "error", err)
 		return nil, fmt.Errorf("list remote branches: git ls-remote failed: %w", err)
 	}
 
 	var branches []string
-	for _, line := range strings.Split(stdout.String(), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

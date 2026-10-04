@@ -414,7 +414,9 @@ async def test_tool_denied_continues_loop() -> None:
     """When a tool call is denied, the loop continues and LLM can still stop."""
     call_count = 0
 
-    async def _alternating_decision(tool: str, command: str = "", path: str = "") -> ToolCallDecision:
+    async def _alternating_decision(
+        tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+    ) -> ToolCallDecision:
         nonlocal call_count
         call_count += 1
         if tool == "echo":

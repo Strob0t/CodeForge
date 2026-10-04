@@ -21,6 +21,17 @@ type ConversationStore interface {
 	UpdateConversationModel(ctx context.Context, conversationID, model string) error
 	SearchConversationMessages(ctx context.Context, query string, projectIDs []string, limit int) ([]conversation.Message, error)
 
-	// Retention
-	DeleteExpiredConversations(ctx context.Context, before time.Time, batchSize int) (int64, error)
+	// Active turn (KI-65): the conversation's active run, set before its start
+	// is published and ended when it ends or is stopped (turnID "" ends any
+	// turn; EndConversationTurn reports whether it ended the active turn). A
+	// heartbeat counts only for the active turn. The list spans all tenants
+	// (watchdog use) and holds only turns that had a heartbeat.
+	BeginConversationTurn(ctx context.Context, conversationID, turnID string) error
+	EndConversationTurn(ctx context.Context, conversationID, turnID string) (bool, error)
+	// ClaimConversationTurnCompletion records that the worker's completion
+	// of turn turnID is being kept and reports whether this call claimed it:
+	// false for a repeated completion, or a conversation of another tenant.
+	ClaimConversationTurnCompletion(ctx context.Context, conversationID, turnID string) (bool, error)
+	TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error
+	ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]conversation.ActiveTurn, error)
 }

@@ -6,7 +6,11 @@ CodeForge processes the following data categories:
 - **User accounts:** Email, name, role, password hash
 - **Code and prompts:** Source code, natural language instructions
 - **Agent activity:** Tool calls, conversation history, cost records
-- **Infrastructure:** IP addresses (in audit logs), session tokens
+- **Infrastructure:** IP addresses (in audit logs, removed after 180 days), session tokens
+
+Retention periods and the automated cleanup job are described in [data-retention.md](data-retention.md).
+The evaluation library deepeval is configured so that it sends no telemetry and uploads nothing to
+Confident AI.
 
 ## LLM Provider Data Processing
 
@@ -57,6 +61,9 @@ localStorage data can be cleared via browser developer tools.
 ## Your Rights (GDPR)
 
 - **Access:** View your data via the dashboard or API
-- **Export:** `POST /api/v1/users/{id}/export`
-- **Deletion:** `DELETE /api/v1/users/{id}/data`
+- **Export:** `GET /api/v1/me/export` (yourself) or `POST /api/v1/users/{id}/export` (an admin)
+- **Deletion:** `DELETE /api/v1/me/data` (yourself) or `DELETE /api/v1/users/{id}/data` (an admin). Your account data
+  is erased immediately; database backups that still contain it roll off after about five weeks
+  ([data-retention.md](data-retention.md)). The in-app privacy page names Settings > Privacy screens for export and
+  deletion that do not exist yet; use the API until they do (KI-93)
 - **Restriction:** Configure local-only models to prevent external processing

@@ -82,6 +82,10 @@ func sampleMCPServerDefPayload() mq.MCPServerDefPayload {
 		Env:         map[string]string{"MCP_LOG_LEVEL": "debug"},
 		Headers:     map[string]string{"Authorization": "Bearer tok_sample"},
 		Enabled:     true,
+		// KI-100: sent with sse and streamable_http servers.
+		AllowedPrivateHosts: []string{"docs-mcp", "10.20.0.0/16"},
+		Trusted:             true,
+		UseProxy:            true,
 	}
 }
 
@@ -111,6 +115,8 @@ func sampleBenchmarkTaskResult() mq.BenchmarkTaskResult {
 			"llm_judge":       {"relevance": 0.9, "accuracy": 0.85},
 			"functional_test": {"pass_rate": 0.96},
 		},
+		// S6-G review, item 3: errored dimensions travel apart from the scores.
+		EvaluationErrors:     map[string]string{"trajectory_verifier_error": "verifier unavailable"},
 		FilesChanged:         []string{"/src/lru.py", "/tests/test_lru.py"},
 		FunctionalTestOutput: "25/25 tests passed",
 		RolloutID:            1,
@@ -173,27 +179,118 @@ func sampleGraphSearchHitPayload() mq.GraphSearchHitPayload {
 
 func sampleConversationRunStartPayload() mq.ConversationRunStartPayload {
 	return mq.ConversationRunStartPayload{
-		RunID:              "550e8400-e29b-41d4-a716-446655440001",
-		ConversationID:     "550e8400-e29b-41d4-a716-446655440002",
-		SessionID:          "550e8400-e29b-41d4-a716-446655440003",
-		ProjectID:          "550e8400-e29b-41d4-a716-446655440004",
-		Messages:           []mq.ConversationMessagePayload{sampleConversationMessagePayload()},
-		SystemPrompt:       "You are a helpful coding assistant.",
-		Model:              "anthropic/claude-sonnet-4-20250514",
-		PolicyProfile:      "standard",
-		WorkspacePath:      "/workspaces/my-project",
-		Mode:               sampleModePayload(),
-		Termination:        sampleTerminationPayload(),
-		Context:            []mq.ContextEntryPayload{sampleContextEntryPayload()},
-		MCPServers:         []mq.MCPServerDefPayload{sampleMCPServerDefPayload()},
-		Tools:              []string{"read_file", "write_file", "bash"},
-		MicroagentPrompts:  []string{"When working with Go, always run gofmt."},
-		Trust:              sampleTrustAnnotation(),
-		RoutingEnabled:     true,
-		Agentic:            true,
-		ProviderAPIKey:     "sk-user-key-abc123",
-		RolloutCount:       3,
-		SummarizeThreshold: 50,
+		RunID:                  "550e8400-e29b-41d4-a716-446655440001",
+		ToolUID:                20000,
+		ConversationID:         "550e8400-e29b-41d4-a716-446655440002",
+		SessionID:              "550e8400-e29b-41d4-a716-446655440003",
+		ProjectID:              "550e8400-e29b-41d4-a716-446655440004",
+		Messages:               []mq.ConversationMessagePayload{sampleConversationMessagePayload()},
+		SystemPrompt:           "You are a helpful coding assistant.",
+		Model:                  "anthropic/claude-sonnet-4-20250514",
+		PolicyProfile:          "standard",
+		WorkspacePath:          "/workspaces/my-project",
+		Mode:                   sampleModePayload(),
+		Termination:            sampleTerminationPayload(),
+		Context:                []mq.ContextEntryPayload{sampleContextEntryPayload()},
+		MCPServers:             []mq.MCPServerDefPayload{sampleMCPServerDefPayload()},
+		Tools:                  []string{"read_file", "write_file", "bash"},
+		MicroagentPrompts:      []string{"When working with Go, always run gofmt."},
+		Trust:                  sampleTrustAnnotation(),
+		RoutingEnabled:         true,
+		Agentic:                true,
+		ProviderAPIKey:         "sk-user-key-abc123",
+		RolloutCount:           3,
+		SummarizeThreshold:     50,
+		ToolOutputMaxChars:     20000,
+		TurnID:                 "550e8400-e29b-41d4-a716-446655440005",
+		ApprovalTimeoutSeconds: 60,
+		HeartbeatSeconds:       30,
+	}
+}
+
+func sampleRunStartPayload() mq.RunStartPayload {
+	return mq.RunStartPayload{
+		RunID:                  "550e8400-e29b-41d4-a716-446655440040",
+		TaskID:                 "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:              "550e8400-e29b-41d4-a716-446655440004",
+		AgentID:                "550e8400-e29b-41d4-a716-446655440042",
+		TenantID:               "00000000-0000-0000-0000-000000000000",
+		ToolUID:                20000,
+		Prompt:                 "Fix the null pointer in handler.go",
+		PolicyProfile:          "headless-safe-sandbox",
+		ExecMode:               "mount",
+		DeliverMode:            "patch",
+		Mode:                   sampleModePayload(),
+		Config:                 map[string]string{"model": "anthropic/claude-sonnet-4-20250514"},
+		Termination:            sampleTerminationPayload(),
+		Context:                []mq.ContextEntryPayload{sampleContextEntryPayload()},
+		MCPServers:             []mq.MCPServerDefPayload{sampleMCPServerDefPayload()},
+		MicroagentPrompts:      []string{"When working with Go, always run gofmt."},
+		Trust:                  sampleTrustAnnotation(),
+		WorkspacePath:          "/data/workspaces/my-project",
+		Backend:                "aider",
+		ApprovalTimeoutSeconds: 60,
+		ToolOutputMaxChars:     20000,
+		HeartbeatSeconds:       30,
+	}
+}
+
+func sampleTaskAgentPayload() mq.TaskAgentPayload {
+	return mq.TaskAgentPayload{
+		TaskID:           "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:        "550e8400-e29b-41d4-a716-446655440004",
+		TenantID:         "00000000-0000-0000-0000-000000000000",
+		ToolUID:          20000,
+		AgentID:          "550e8400-e29b-41d4-a716-446655440042",
+		Title:            "Fix bug",
+		Prompt:           "Fix the null pointer in handler.go",
+		Backend:          "aider",
+		WorkspacePath:    "/data/workspaces/my-project",
+		HeartbeatSeconds: 30,
+		DispatchID:       "550e8400-e29b-41d4-a716-446655440043",
+	}
+}
+
+func sampleWorkspaceTestRequestPayload() mq.WorkspaceTestRequestPayload {
+	return mq.WorkspaceTestRequestPayload{
+		RequestID:      "550e8400-e29b-41d4-a716-446655440050",
+		TenantID:       "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:        20000,
+		ProjectID:      "550e8400-e29b-41d4-a716-446655440001",
+		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
+		WorkspacePath:  "/workspaces/project",
+		TestFile:       "test_feature.py",
+		TimeoutSeconds: 300,
+	}
+}
+
+func sampleWorkspaceDeleteRequestPayload() mq.WorkspaceDeleteRequestPayload {
+	return mq.WorkspaceDeleteRequestPayload{
+		DeletionID:    "550e8400-e29b-41d4-a716-446655440060",
+		TenantID:      "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:       20000,
+		ProjectID:     "550e8400-e29b-41d4-a716-446655440001",
+		WorkspacePath: "/data/workspaces/550e8400-e29b-41d4-a716-446655440006/550e8400-e29b-41d4-a716-446655440001",
+	}
+}
+
+func sampleWorkspaceDeleteResultPayload() mq.WorkspaceDeleteResultPayload {
+	return mq.WorkspaceDeleteResultPayload{
+		DeletionID: "550e8400-e29b-41d4-a716-446655440060",
+		TenantID:   "550e8400-e29b-41d4-a716-446655440006",
+		OK:         false,
+		Error:      "rm: cannot remove 'x': Permission denied",
+	}
+}
+
+func sampleWorkspaceTestResultPayload() mq.WorkspaceTestResultPayload {
+	failed := false
+	return mq.WorkspaceTestResultPayload{
+		RequestID:      "550e8400-e29b-41d4-a716-446655440050",
+		TenantID:       "550e8400-e29b-41d4-a716-446655440006",
+		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
+		Passed:         &failed,
+		Output:         "1 failed, 2 passed",
 	}
 }
 
@@ -212,6 +309,7 @@ func sampleConversationRunCompletePayload() mq.ConversationRunCompletePayload {
 		StepCount:        7,
 		Model:            "anthropic/claude-sonnet-4-20250514",
 		TenantID:         "550e8400-e29b-41d4-a716-446655440099",
+		TurnID:           "550e8400-e29b-41d4-a716-446655440005",
 	}
 }
 
@@ -219,6 +317,7 @@ func sampleBenchmarkRunRequestPayload() mq.BenchmarkRunRequestPayload {
 	return mq.BenchmarkRunRequestPayload{
 		RunID:              "550e8400-e29b-41d4-a716-446655440005",
 		TenantID:           "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:            20000,
 		DatasetPath:        "/datasets/basic-coding",
 		Model:              "mistral/mistral-large-latest",
 		Metrics:            []string{"correctness", "style", "efficiency"},
@@ -313,6 +412,9 @@ func sampleRetrievalIndexRequestPayload() mq.RetrievalIndexRequestPayload {
 		WorkspacePath:  "/workspaces/my-project",
 		EmbeddingModel: "text-embedding-3-small",
 		FileExtensions: []string{".go", ".py", ".ts"},
+		// Set instead of WorkspacePath for a knowledge base (KI-105); both
+		// appear here to pin the contract.
+		KnowledgePath: "go-patterns",
 	}
 }
 
@@ -449,44 +551,9 @@ func sampleConversationCompactCompletePayload() mq.ConversationCompactCompletePa
 	}
 }
 
-func sampleReviewTriggerCompletePayload() mq.ReviewTriggerCompletePayload {
-	return mq.ReviewTriggerCompletePayload{
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		CommitSHA: "abcdef1234567890abcdef1234567890",
-		Status:    "dispatched",
-		RunID:     "550e8400-e29b-41d4-a716-446655440025",
-	}
-}
-
 // FIX-086: Additional sample factories for previously uncovered subjects.
 // The remaining subjects (tasks.*, runs.*, mcp.*, memory.*, handoff.*)
 // still need coverage — tracked in a follow-up TODO below.
-
-func sampleReviewTriggerRequestPayload() mq.ReviewTriggerRequestPayload {
-	return mq.ReviewTriggerRequestPayload{
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		CommitSHA: "abcdef1234567890abcdef1234567890",
-		Source:    "branch-merge",
-	}
-}
-
-func sampleReviewApprovalRequiredPayload() mq.ReviewApprovalRequiredPayload {
-	return mq.ReviewApprovalRequiredPayload{
-		RunID:     "550e8400-e29b-41d4-a716-446655440020",
-		ProjectID: "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:  "550e8400-e29b-41d4-a716-446655440006",
-		DiffStats: mq.ReviewDiffStats{
-			FilesChanged: 5,
-			LinesAdded:   120,
-			LinesRemoved: 30,
-			CrossLayer:   true,
-			Structural:   false,
-		},
-		ImpactLevel: "high",
-	}
-}
 
 func samplePromptEvolutionReflectPayload() mq.PromptEvolutionReflectPayload {
 	return mq.PromptEvolutionReflectPayload{
@@ -547,12 +614,58 @@ func sampleContextRerankResultPayload() mq.ContextRerankResultPayload {
 	}
 }
 
+func sampleQualityGateRequestPayload() mq.QualityGateRequestPayload {
+	return mq.QualityGateRequestPayload{
+		RunID:              "550e8400-e29b-41d4-a716-446655440040",
+		ProjectID:          "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:           "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:            20000,
+		WorkspacePath:      "/workspaces/project",
+		RunTests:           true,
+		RunLint:            true,
+		TestCommand:        "pytest",
+		LintCommand:        "ruff check .",
+		TimeoutSeconds:     60,
+		HeartbeatSeconds:   30,
+		ToolOutputMaxChars: 10000,
+	}
+}
+
+// sampleTaskResultPayload is a worker's task result; it names the dispatch
+// it reports (S2-G fix, 6).
+func sampleTaskResultPayload() mq.TaskResultPayload {
+	return mq.TaskResultPayload{
+		TaskID:     "550e8400-e29b-41d4-a716-446655440041",
+		ProjectID:  "550e8400-e29b-41d4-a716-446655440004",
+		TenantID:   "00000000-0000-0000-0000-000000000000",
+		DispatchID: "550e8400-e29b-41d4-a716-446655440043",
+		Status:     "completed",
+		Output:     "Fixed the null pointer",
+		Files:      []string{"handler.go"},
+		TokensIn:   1200,
+		TokensOut:  300,
+		CostUSD:    0.0042,
+	}
+}
+
+func sampleQualityGateResultPayload() mq.QualityGateResultPayload {
+	passed, failed := true, false
+	return mq.QualityGateResultPayload{
+		RunID:       "550e8400-e29b-41d4-a716-446655440040",
+		TenantID:    "550e8400-e29b-41d4-a716-446655440006",
+		TestsPassed: &passed,
+		LintPassed:  &failed,
+		TestOutput:  "3 passed",
+		LintOutput:  "E501 line too long",
+		Error:       "",
+	}
+}
+
 // TODO(FIX-086): The following NATS subjects still need contract test coverage:
 //
-//  - tasks.agent / tasks.result / tasks.output / tasks.cancel (legacy task dispatch)
-//  - runs.start / runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
+//  - tasks.output / tasks.cancel (legacy task dispatch)
+//  - runs.toolcall.request / runs.toolcall.response / runs.toolcall.result
 //  - runs.complete / runs.cancel / runs.output / runs.heartbeat
-//  - runs.qualitygate.request / runs.qualitygate.result
 //  - context.shared.updated
 //  - conversation.run.cancel / conversation.compact.request
 //  - mcp.server.status / mcp.tools.discovered
@@ -573,8 +686,17 @@ type fixtureEntry struct {
 func allFixtures() []fixtureEntry {
 	return []fixtureEntry{
 		{mq.SubjectConversationRunStart, sampleConversationRunStartPayload()},
+		{mq.SubjectRunStart, sampleRunStartPayload()},
+		{mq.SubjectTaskAgent, sampleTaskAgentPayload()},
+		{mq.SubjectTaskResult, sampleTaskResultPayload()},
 		{mq.SubjectConversationRunComplete, sampleConversationRunCompletePayload()},
 		{mq.SubjectConversationCompactComplete, sampleConversationCompactCompletePayload()},
+		// Auto-agent workspace tests (KI-81)
+		{mq.SubjectConversationTestRequest, sampleWorkspaceTestRequestPayload()},
+		{mq.SubjectConversationTestResult, sampleWorkspaceTestResultPayload()},
+		// Workspace deletion through the worker (KI-96 D11)
+		{mq.SubjectWorkspaceDeleteRequest, sampleWorkspaceDeleteRequestPayload()},
+		{mq.SubjectWorkspaceDeleteResult, sampleWorkspaceDeleteResultPayload()},
 		{mq.SubjectBenchmarkRunRequest, sampleBenchmarkRunRequestPayload()},
 		{mq.SubjectBenchmarkRunResult, sampleBenchmarkRunResultPayload()},
 		{mq.SubjectBenchmarkTaskStarted, sampleBenchmarkTaskStartedPayload()},
@@ -595,10 +717,6 @@ func allFixtures() []fixtureEntry {
 		{mq.SubjectGraphSearchResult, sampleGraphSearchResultPayload()},
 		{mq.SubjectA2ATaskCreated, sampleA2ATaskCreatedPayload()},
 		{mq.SubjectA2ATaskComplete, sampleA2ATaskCompletePayload()},
-		// FIX-086: Review/Refactor subjects (Phase 31)
-		{mq.SubjectReviewTriggerRequest, sampleReviewTriggerRequestPayload()},
-		{mq.SubjectReviewTriggerComplete, sampleReviewTriggerCompletePayload()},
-		{mq.SubjectReviewApprovalRequired, sampleReviewApprovalRequiredPayload()},
 		// FIX-086: Prompt evolution subjects (Phase 33)
 		{mq.SubjectPromptEvolutionReflect, samplePromptEvolutionReflectPayload()},
 		{mq.SubjectPromptEvolutionReflectComplete, samplePromptEvolutionReflectCompletePayload()},
@@ -606,6 +724,9 @@ func allFixtures() []fixtureEntry {
 		// FIX-086: Context reranking subjects
 		{mq.SubjectContextRerankRequest, sampleContextRerankRequestPayload()},
 		{mq.SubjectContextRerankResult, sampleContextRerankResultPayload()},
+		// Quality gates (KI-28: timeout_seconds)
+		{mq.SubjectQualityGateRequest, sampleQualityGateRequestPayload()},
+		{mq.SubjectQualityGateResult, sampleQualityGateResultPayload()},
 	}
 }
 
@@ -620,6 +741,9 @@ func TestContract_GenerateFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal %s: %v", fx.Subject, err)
 		}
+		// End with a newline like the committed fixtures (end-of-file-fixer),
+		// so regenerating them leaves the working tree clean.
+		data = append(data, '\n')
 
 		// Replace dots with underscores for filename safety.
 		filename := subjectToFilename(fx.Subject) + ".json"
@@ -665,10 +789,17 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 
 	// Common field expectations per subject.
 	expectedKeys := map[string][]string{
-		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic"},
-		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model"},
+		mq.SubjectConversationRunStart:        {"run_id", "conversation_id", "project_id", "messages", "model", "agentic", "turn_id", "approval_timeout_seconds", "tool_uid"},
+		mq.SubjectRunStart:                    {"run_id", "task_id", "project_id", "agent_id", "prompt", "termination", "workspace_path", "backend", "approval_timeout_seconds", "tool_output_max_chars", "tool_uid"},
+		mq.SubjectTaskAgent:                   {"task_id", "project_id", "title", "prompt", "backend", "workspace_path", "tool_uid"},
+		mq.SubjectTaskResult:                  {"task_id", "project_id", "tenant_id", "dispatch_id", "status", "cost_usd"},
+		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
-		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model"},
+		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds", "tool_uid"},
+		mq.SubjectConversationTestResult:      {"request_id", "tenant_id", "conversation_id", "passed", "output"},
+		mq.SubjectWorkspaceDeleteRequest:      {"deletion_id", "tenant_id", "tool_uid", "project_id", "workspace_path"},
+		mq.SubjectWorkspaceDeleteResult:       {"deletion_id", "tenant_id", "ok", "error"},
+		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model", "tool_uid"},
 		mq.SubjectBenchmarkRunResult:          {"run_id", "status", "results", "summary"},
 		mq.SubjectBenchmarkTaskStarted:        {"run_id", "task_id", "task_name", "index", "total"},
 		mq.SubjectBenchmarkTaskProgress:       {"run_id", "task_id", "completed_tasks", "total_tasks"},
@@ -676,7 +807,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectEvalGemmasResult:            {"plan_id", "information_diversity_score", "unnecessary_path_ratio"},
 		mq.SubjectRepoMapRequest:              {"project_id", "workspace_path", "token_budget"},
 		mq.SubjectRepoMapResult:               {"project_id", "map_text", "token_count", "file_count"},
-		mq.SubjectRetrievalIndexRequest:       {"project_id", "workspace_path", "embedding_model"},
+		mq.SubjectRetrievalIndexRequest:       {"project_id", "workspace_path", "embedding_model", "knowledge_path"},
 		mq.SubjectRetrievalIndexResult:        {"project_id", "status", "file_count", "chunk_count"},
 		mq.SubjectRetrievalSearchRequest:      {"project_id", "query", "request_id", "top_k"},
 		mq.SubjectRetrievalSearchResult:       {"project_id", "query", "request_id", "results"},
@@ -688,10 +819,6 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectGraphSearchResult:           {"project_id", "request_id", "results"},
 		mq.SubjectA2ATaskCreated:              {"task_id", "tenant_id", "skill_id", "prompt"},
 		mq.SubjectA2ATaskComplete:             {"task_id", "state"},
-		// FIX-086: Review/Refactor subjects
-		mq.SubjectReviewTriggerRequest:   {"project_id", "tenant_id", "commit_sha", "source"},
-		mq.SubjectReviewTriggerComplete:  {"project_id", "tenant_id", "commit_sha", "status", "run_id"},
-		mq.SubjectReviewApprovalRequired: {"run_id", "project_id", "tenant_id", "impact_level"},
 		// FIX-086: Prompt evolution subjects
 		mq.SubjectPromptEvolutionReflect:         {"tenant_id", "mode_id", "model_family", "current_prompt"},
 		mq.SubjectPromptEvolutionReflectComplete: {"tenant_id", "mode_id", "model_family", "tactical_fixes"},
@@ -699,6 +826,9 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		// FIX-086: Context reranking subjects
 		mq.SubjectContextRerankRequest: {"request_id", "project_id", "query"},
 		mq.SubjectContextRerankResult:  {"request_id", "entries"},
+		// Quality gates
+		mq.SubjectQualityGateRequest: {"run_id", "project_id", "tenant_id", "workspace_path", "run_tests", "run_lint", "test_command", "lint_command", "timeout_seconds", "heartbeat_seconds", "tool_uid", "tool_output_max_chars"},
+		mq.SubjectQualityGateResult:  {"run_id", "tenant_id", "tests_passed", "lint_passed", "test_output", "lint_output"},
 	}
 
 	keys, ok := expectedKeys[subject]

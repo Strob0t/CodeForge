@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -23,6 +25,39 @@ import (
 
 func (s *RuntimeService) cleanupRunState(runID string) {
 	s.state.CleanupRun(runID)
+	s.noRollbackBase.Delete(runID)
+}
+
+// loadRunScoped loads the run a worker message refers to and returns ctx
+// scoped to the run's tenant. Worker messages arrive without a request
+// tenant: the tenant the worker echoes selects the tenant for the lookup, and
+// the stored run is authoritative for everything that follows (store writes,
+// WebSocket events, follow-up runs). The returned ctx carries the payload
+// tenant even when the lookup fails.
+func (s *RuntimeService) loadRunScoped(ctx context.Context, runID, payloadTenant string) (context.Context, *run.Run, error) {
+	ctx = withPayloadTenant(ctx, payloadTenant)
+	r, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return withEntityTenant(ctx, r.TenantID), r, nil
+}
+
+// skipEndedRun drops the domain.ErrConflict with which the store refuses to
+// update a run that already ended (KI-31): the path that ended the run did
+// the work, so the caller skips it instead of failing. Other errors pass.
+func skipEndedRun(ctx context.Context, err error, op, runID string) error {
+	if errors.Is(err, domain.ErrConflict) {
+		slog.InfoContext(ctx, "run already ended, skipped", "operation", op, "run_id", runID)
+		return nil
+	}
+	return err
+}
+
+// logRunUpdate logs the error of a best-effort run update; a run that already
+// ended is skipped (skipEndedRun).
+func logRunUpdate(ctx context.Context, err error, op, runID string) {
+	logBestEffort(ctx, skipEndedRun(ctx, err, op, runID), op, slog.String("run_id", runID))
 }
 
 // cancelRunWithReason cancels a run with a specific reason message (used by timeout goroutine).
@@ -34,43 +69,89 @@ func (s *RuntimeService) cancelRunWithReason(ctx context.Context, runID, reason 
 	if r.Status != run.StatusRunning && r.Status != run.StatusPending {
 		return nil // already completed
 	}
+	return s.stopRun(ctx, r, run.StatusTimeout, reason)
+}
 
-	// OTEL: annotate run span before cleanup ends it
-	if sp, ok := s.state.GetRunSpan(runID); ok {
-		sp.SetAttributes(attribute.String("cancel.reason", reason))
-		sp.SetStatus(codes.Error, reason)
+// runCancelPayload is the runs.cancel message that tells the worker to stop a run.
+type runCancelPayload struct {
+	RunID string `json:"run_id"`
+}
+
+// workerStopTimeout bounds the runs.cancel publish of a stop.
+const workerStopTimeout = 5 * time.Second
+
+// stopRun ends a run that the control plane terminates while the worker still
+// executes it: user cancel, context-level timeout, termination limits, the
+// post-execution budget and stall detection. The worker is told to stop
+// first, then the run goes through the same completion path as a run the
+// worker finished (KI-30), with status and reason as its end and the outcome
+// it has (output and model of a run waiting for its gate, usage) kept.
+//
+// While the stop is under way the run is marked stopping: the completion the
+// worker sends when it stops only raises the usage totals (HandleRunComplete),
+// so the run ends with the stop's status and reason, not the worker's
+// "cancelled". If the stop cannot record the run's end, that completion ends
+// the run instead (KI-76); without it the run would stay running.
+func (s *RuntimeService) stopRun(ctx context.Context, r *run.Run, status run.Status, reason string) error {
+	s.state.BeginStop(r.ID)
+	s.noteWorkerStop(r.ID)
+	s.tellWorkerToStop(ctx, r.ID)
+	err := s.finalizeRun(ctx, r, status, storedOutcome(r, status, reason))
+	deferred := s.state.EndStop(r.ID)
+	if err == nil || deferred == nil || errors.Is(err, domain.ErrConflict) {
+		return err
 	}
-	if s.metrics != nil {
-		s.metrics.RecordRunFailed(ctx, "project.id", r.ProjectID, "status", "timeout")
-	}
-
-	s.cleanupRunState(runID)
-
-	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}); err != nil {
-		return fmt.Errorf("complete run: %w", err)
-	}
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-
-	cancelPayload := struct {
-		RunID string `json:"run_id"`
-	}{RunID: runID}
-	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
-
-	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-		"status": string(run.StatusTimeout),
-		"reason": reason,
-	})
-	s.broadcastRunStatus(ctx, r, run.StatusTimeout)
-
-	if s.onRunComplete != nil {
-		s.onRunComplete(ctx, r.ID, run.StatusTimeout)
+	slog.WarnContext(ctx, "stop could not record the run's end, ending it with the worker's message",
+		"run_id", r.ID, "stop_status", status, "error", err)
+	if cerr := deferred(ctx); cerr != nil {
+		return errors.Join(err, cerr)
 	}
 	return nil
 }
 
-// finalizeRun completes the run lifecycle: update DB, task, agent, broadcast events.
+// tellWorkerToStop publishes runs.cancel before the run is completed: the
+// worker stops editing the workspace before checkpoints are cleaned up and
+// the next plan step starts, and it stops even when the run record cannot be
+// completed. The publish does not depend on the caller's context (a
+// disconnected HTTP client must not keep the worker running); it keeps the
+// context's values (tenant) and has its own timeout.
+func (s *RuntimeService) tellWorkerToStop(ctx context.Context, runID string) {
+	pubCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerStopTimeout)
+	defer cancel()
+	logBestEffort(pubCtx, s.publishJSON(pubCtx, messagequeue.SubjectRunCancel, runCancelPayload{RunID: runID}),
+		"publishJSON", slog.String("subject", messagequeue.SubjectRunCancel), slog.String("run_id", runID))
+}
+
+// finalizeRun is the one completion path of a run, whichever way it ended:
+// run state cleanup, the terminal run record, task and agent reset, events,
+// WebSocket broadcasts, checkpoint and sandbox cleanup, the audit entry and
+// onRunComplete (execution-plan progress). When the run record cannot be
+// completed, nothing after it happens.
 func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload) error {
+	return s.endRun(ctx, r, status, payload, agentEnd)
+}
+
+// runEnd tells endRun what a run's end involves beyond its status.
+type runEnd struct {
+	// agentWorked: the end is an outcome of the agent's work that its
+	// statistics record (a run that could not be started is not).
+	agentWorked bool
+	// rollBack: restore the workspace to its state before the run (a failed
+	// quality gate with rollback_on_gate_fail). It happens only after this
+	// path wrote the run's terminal record, so a run another path ended (a
+	// passed gate that delivered, a cancel) is never rolled back.
+	rollBack bool
+	// ended announces how the run ended (audit entry, event, broadcast of a
+	// gate's outcome); it runs right after this path wrote the run's
+	// terminal record, never on a path that lost the run's end to another.
+	ended func(ctx context.Context)
+}
+
+// agentEnd is the end of a run the agent worked on.
+var agentEnd = runEnd{agentWorked: true}
+
+// endRun is finalizeRun with the details of the run's end.
+func (s *RuntimeService) endRun(ctx context.Context, r *run.Run, status run.Status, payload *messagequeue.RunCompletePayload, end runEnd) error {
 	// OTEL: annotate run span before cleanup ends it
 	if sp, ok := s.state.GetRunSpan(r.ID); ok {
 		sp.SetAttributes(
@@ -82,6 +163,22 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 			sp.SetStatus(codes.Error, payload.Error)
 		}
 	}
+
+	// The terminal record comes first, then the run state is released: a HITL
+	// waiter woken before the record commits would count a step on a still
+	// running run and record a policy denial. A conflict means another path
+	// ended the run; the state this process holds for it is released as well.
+	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: status, Output: payload.Output, Error: payload.Error, CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model}); err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			s.cleanupRunState(r.ID)
+		}
+		return fmt.Errorf("complete run: %w", err)
+	}
+	s.cleanupRunState(r.ID)
+	if end.ended != nil {
+		end.ended(ctx)
+	}
+
 	if s.metrics != nil {
 		metricAttrs := []string{"project.id", r.ProjectID, "status", string(status)}
 		if status == run.StatusCompleted {
@@ -92,30 +189,24 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
 	}
 
-	s.cleanupRunState(r.ID)
-
-	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: status, Output: payload.Output, Error: payload.Error, CostUSD: payload.CostUSD, StepCount: payload.StepCount, TokensIn: payload.TokensIn, TokensOut: payload.TokensOut, Model: payload.Model}); err != nil {
-		return fmt.Errorf("complete run: %w", err)
-	}
-
-	// Update task result
+	// The task's result and the status the run leaves it in, in one write.
 	taskResult := task.Result{
 		Output: payload.Output,
 		Error:  payload.Error,
 	}
-	taskStatus := task.StatusCompleted
-	if status == run.StatusFailed || status == run.StatusTimeout {
-		taskStatus = task.StatusFailed
-	}
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, taskStatus), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
+	logBestEffort(ctx, s.store.UpdateTaskResult(ctx, r.TaskID, taskStatusForRun(status), taskResult, payload.CostUSD), "UpdateTaskResult", slog.String("task_id", r.TaskID))
 
 	// Set agent back to idle
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
 
-	// Accumulate agent identity stats (Phase 23C).
-	if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
-		slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
+	// Agent identity stats (Phase 23C) record how the agent's runs turned out.
+	// A cancel is the user's (or the plan's) decision and a failed start an
+	// infrastructure failure, not outcomes of the agent's work, and are not
+	// counted; timeouts and stalls are failures.
+	if end.agentWorked && status != run.StatusCancelled {
+		if err := s.store.IncrementAgentStats(ctx, r.AgentID, payload.CostUSD, status == run.StatusCompleted); err != nil {
+			slog.Warn("failed to increment agent stats", "agent_id", r.AgentID, "error", err)
+		}
 	}
 
 	// Record event
@@ -134,11 +225,7 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	finalRun.TokensOut = payload.TokensOut
 	finalRun.Model = payload.Model
 	s.broadcastRunStatus(ctx, &finalRun, status)
-	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
-		AgentID:   r.AgentID,
-		ProjectID: r.ProjectID,
-		Status:    string(agent.StatusIdle),
-	})
+	s.broadcastTaskAndAgent(ctx, r, taskStatusForRun(status), agent.StatusIdle)
 
 	// Broadcast AG-UI run_finished alongside native event
 	aguiStatus := "completed"
@@ -158,15 +245,16 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 		Steps:     payload.StepCount,
 	})
 
-	// Clean up checkpoints (remove shadow commits, keep working state)
-	if s.checkpoint != nil {
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		if projErr == nil {
-			if cpErr := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); cpErr != nil {
-				slog.Warn("checkpoint cleanup failed", "run_id", r.ID, "error", cpErr)
-			}
-		}
+	// A run delivers its change (deliver_mode) once it is recorded completed,
+	// with or without quality gates, before the next plan step can touch the
+	// workspace. A failed, stopped or gate-failed run never delivers (KI-26,
+	// D9). Delivery comes before the checkpoint cleanup: a patch is the
+	// change since the run's base checkpoint.
+	if status == run.StatusCompleted {
+		s.triggerDelivery(ctx, r)
 	}
+
+	s.releaseCheckpoints(ctx, r, end.rollBack)
 
 	// Clean up sandbox
 	if s.sandbox != nil {
@@ -181,7 +269,15 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	}
 
 	// Audit trail
-	s.appendAudit(ctx, r, "run.completed", fmt.Sprintf("Run finalized with status %s, %d steps, cost $%.4f", status, payload.StepCount, payload.CostUSD))
+	auditAction := "run.completed"
+	if status == run.StatusCancelled {
+		auditAction = "run.cancelled"
+	}
+	auditDetails := fmt.Sprintf("Run finalized with status %s, %d steps, cost $%.4f", status, payload.StepCount, payload.CostUSD)
+	if payload.Error != "" {
+		auditDetails += ": " + payload.Error
+	}
+	s.appendAudit(ctx, r, auditAction, auditDetails)
 
 	slog.Info("run finalized", "run_id", r.ID, "status", status, "steps", payload.StepCount)
 
@@ -191,6 +287,66 @@ func (s *RuntimeService) finalizeRun(ctx context.Context, r *run.Run, status run
 	}
 
 	return nil
+}
+
+// releaseCheckpoints rolls the workspace back to its state before the run if
+// rollBack is set, then deletes the run's checkpoints (the working state is
+// kept).
+func (s *RuntimeService) releaseCheckpoints(ctx context.Context, r *run.Run, rollBack bool) {
+	if s.checkpoint == nil {
+		if rollBack {
+			s.reportRollbackFailure(ctx, r, errors.New("checkpoints are not available"))
+		}
+		return
+	}
+	proj, err := s.store.GetProject(ctx, r.ProjectID)
+	if err != nil {
+		if rollBack {
+			s.reportRollbackFailure(ctx, r, fmt.Errorf("get project: %w", err))
+		}
+		slog.Warn("checkpoint cleanup skipped", "run_id", r.ID, "error", err)
+		return
+	}
+	if rollBack {
+		s.rollBackWorkspace(ctx, r, proj.WorkspacePath)
+	}
+	if err := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); err != nil {
+		slog.Warn("checkpoint cleanup failed", "run_id", r.ID, "error", err)
+	}
+}
+
+// rollBackWorkspace restores the workspace to its state before the run's
+// first change and records the outcome in the audit trail. The checkpoint
+// chain in the workspace repository is the record: only a workspace without
+// the run's checkpoint ref counts as unchanged.
+func (s *RuntimeService) rollBackWorkspace(ctx context.Context, r *run.Run, workspacePath string) {
+	err := s.checkpoint.RewindToFirst(ctx, r.ID, workspacePath)
+	switch {
+	case errors.Is(err, ErrNoCheckpoints):
+		slog.Info("rollback: the workspace holds no checkpoint of the run", "run_id", r.ID)
+	case err != nil:
+		s.reportRollbackFailure(ctx, r, err)
+	default:
+		slog.Info("workspace rolled back", "run_id", r.ID)
+		s.appendAudit(ctx, r, "qualitygate.rolled_back", "Workspace restored to its state before the run")
+	}
+}
+
+func (s *RuntimeService) reportRollbackFailure(ctx context.Context, r *run.Run, err error) {
+	slog.Error("checkpoint rollback failed", "run_id", r.ID, "error", err)
+	s.appendAudit(ctx, r, "qualitygate.rollback_failed", "Workspace rollback failed: "+err.Error())
+}
+
+// taskStatusForRun maps the terminal status of a run to the status of its task.
+func taskStatusForRun(status run.Status) task.Status {
+	switch status {
+	case run.StatusFailed, run.StatusTimeout:
+		return task.StatusFailed
+	case run.StatusCancelled:
+		return task.StatusCancelled
+	default:
+		return task.StatusCompleted
+	}
 }
 
 // triggerDelivery attempts to deliver the run output (patch, commit, branch, PR).
@@ -271,8 +427,6 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 	})
 }
 
-// CancelRun cancels a running run and notifies the worker.
-
 // --- Internal helpers ---
 
 // AbsoluteMaxExecutionTimeout is the hard upper bound for any run, regardless of
@@ -312,10 +466,11 @@ func (s *RuntimeService) checkTermination(r *run.Run, profile *policy.PolicyProf
 		return fmt.Sprintf("absolute execution timeout reached (%s)", elapsed.Truncate(time.Second))
 	}
 
-	// Check heartbeat timeout
-	if s.runtimeCfg.HeartbeatTimeout > 0 {
+	// Check heartbeat timeout, with the watchdog's allowance for the
+	// heartbeat interval and delivery delays.
+	if after := LostWorkerAfter(s.runtimeCfg); after > 0 {
 		if lastHB, ok := s.state.GetHeartbeat(r.ID); ok {
-			if time.Since(lastHB) > s.runtimeCfg.HeartbeatTimeout {
+			if time.Since(lastHB) > after {
 				return "heartbeat timeout (worker unresponsive)"
 			}
 		}
@@ -416,12 +571,29 @@ func (s *RuntimeService) broadcastRunStatus(ctx context.Context, r *run.Run, sta
 		RunID:     r.ID,
 		TaskID:    r.TaskID,
 		ProjectID: r.ProjectID,
+		AgentID:   r.AgentID,
 		Status:    string(status),
 		StepCount: r.StepCount,
 		CostUSD:   r.CostUSD,
 		TokensIn:  r.TokensIn,
 		TokensOut: r.TokensOut,
 		Model:     r.Model,
+	})
+}
+
+// broadcastTaskAndAgent announces the task and agent status a run's start or
+// end wrote, so clients follow them without refetching on run.status.
+func (s *RuntimeService) broadcastTaskAndAgent(ctx context.Context, r *run.Run, taskStatus task.Status, agentStatus agent.Status) {
+	s.hub.BroadcastEvent(ctx, event.EventTaskStatus, event.TaskStatusEvent{
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(taskStatus),
+		AgentID:   r.AgentID,
+	})
+	s.hub.BroadcastEvent(ctx, event.EventAgentStatus, event.AgentStatusEvent{
+		AgentID:   r.AgentID,
+		ProjectID: r.ProjectID,
+		Status:    string(agentStatus),
 	})
 }
 
@@ -459,10 +631,11 @@ func toContextEntryPayloads(entries []cfcontext.ContextEntry) []messagequeue.Con
 	return out
 }
 
-// isFileModifyingTool returns true for tools that change files on disk.
+// isFileModifyingTool returns true for tools that change files on disk:
+// Edit, Write and Bash under any worker or Claude Code name.
 func isFileModifyingTool(tool string) bool {
-	switch tool {
-	case "Edit", "Write", "Bash", "execute", "write_file", "edit_file":
+	switch policy.CanonicalTool(tool) {
+	case policy.ToolEdit, policy.ToolWrite, policy.ToolBash, "execute":
 		return true
 	}
 	return false

@@ -34,9 +34,13 @@ from codeforge.consumer._subjects import (
     SUBJECT_EVAL_GEMMAS_RESULT,
 )
 from codeforge.models import GemmasEvalRequest, GemmasEvalResult
+from codeforge.tool_identity import tool_tenant
 
 if TYPE_CHECKING:
     import nats.aio.msg
+
+    from codeforge.consumer._in_flight import AcceptedWork
+    from codeforge.llm import LiteLLMClient
 
 
 logger = structlog.get_logger()
@@ -174,7 +178,8 @@ async def _wait_for_litellm(llm: object, log: structlog.stdlib.BoundLogger) -> b
 # --- Evaluator + pipeline builders ---
 
 
-def _build_evaluators(evaluator_names: list[str], model: str) -> list:
+def _build_evaluators(evaluator_names: list[str], model: str, llm: LiteLLMClient | None = None) -> list:
+    """Build the evaluators; the LLM verifiers call the proxy through *llm* (the worker's client)."""
     from codeforge.evaluation.evaluators.functional_test import FunctionalTestEvaluator
     from codeforge.evaluation.evaluators.llm_judge import LLMJudgeEvaluator
     from codeforge.evaluation.evaluators.sparc import SPARCEvaluator
@@ -201,11 +206,11 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
         elif name == "sparc":
             evaluators.append(SPARCEvaluator())
         elif name == "trajectory_verifier":
-            evaluators.append(TrajectoryVerifierEvaluator(model=model))
+            evaluators.append(TrajectoryVerifierEvaluator(model=model, llm=llm))
         elif name == "logprob_verifier":
             from codeforge.evaluation.evaluators.logprob_verifier import LogprobVerifierEvaluator
 
-            evaluators.append(LogprobVerifierEvaluator(model=model))
+            evaluators.append(LogprobVerifierEvaluator(model=model, llm=llm))
         elif name == "filesystem_state":
             from codeforge.evaluation.evaluators.filesystem_state import FilesystemStateEvaluator
 
@@ -230,6 +235,15 @@ def _build_evaluators(evaluator_names: list[str], model: str) -> list:
     return evaluators
 
 
+def _verifier_model(model: str) -> str:
+    """The model the LLM verifiers of a run use: the run's model, or for "auto" the resolved default."""
+    if model != "auto":
+        return model
+    from codeforge.model_resolver import resolve_model
+
+    return resolve_model()
+
+
 def _build_hybrid_pipeline(evaluators: list) -> object:
     from codeforge.evaluation.hybrid_pipeline import HybridEvaluationPipeline
 
@@ -238,7 +252,7 @@ def _build_hybrid_pipeline(evaluators: list) -> object:
     return HybridEvaluationPipeline(filter_evaluators=filter_evals, rank_evaluators=rank_evals)
 
 
-def _build_progress_callbacks(js: object, run_id: str) -> tuple:
+def _build_progress_callbacks(js: object, run_id: str, tenant_id: str = "") -> tuple:
     import json as _json
 
     accumulated_cost = 0.0
@@ -248,7 +262,14 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         if js is None:
             return
         payload = _json.dumps(
-            {"run_id": run_id, "task_id": task.id, "task_name": task.name, "index": index + 1, "total": total}
+            {
+                "run_id": run_id,
+                "tenant_id": tenant_id,
+                "task_id": task.id,
+                "task_name": task.name,
+                "index": index + 1,
+                "total": total,
+            }
         ).encode()
         try:
             await js.publish(SUBJECT_BENCHMARK_TASK_STARTED, payload)
@@ -264,9 +285,7 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         if hasattr(result, "execution"):
             cost = getattr(result.execution, "cost_usd", 0.0) or 0.0
             if result.eval_score is not None:
-                dims = getattr(result.eval_score, "dimensions", [])
-                dim_scores = [d.score for d in dims if hasattr(d, "score")]
-                avg_task_score = sum(dim_scores) / len(dim_scores) if dim_scores else 0.0
+                avg_task_score = result.eval_score.average_score()
         else:
             cost = getattr(result, "cost_usd", 0.0) or 0.0
             scores = getattr(result, "scores", {}) or {}
@@ -278,6 +297,7 @@ def _build_progress_callbacks(js: object, run_id: str) -> tuple:
         payload = _json.dumps(
             {
                 "run_id": run_id,
+                "tenant_id": tenant_id,
                 "task_id": task.id,
                 "task_name": task.name,
                 "score": round(avg_task_score, 4),
@@ -385,23 +405,27 @@ class BenchmarkHandlerMixin:
         request_id = (msg.headers or {}).get(HEADER_REQUEST_ID, "")
         log = logger.bind(request_id=request_id)
 
+        req = await self._parse_request(msg, BenchmarkRunRequest)
+        if req is None:
+            return
+        run_id = req.run_id
+        tenant_id = req.tenant_id
+
         if not await _wait_for_litellm(self._llm, log):
-            log.error("LiteLLM not available, aborting benchmark run")
-            await self._publish_error(
+            log.error("LiteLLM not available, aborting benchmark run", run_id=run_id)
+            await self._publish_result(
                 BenchmarkRunResult(
-                    run_id="", status="failed", error="LiteLLM proxy not available after health check retries"
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    status="failed",
+                    error="LiteLLM proxy not available after health check retries",
                 ),
                 SUBJECT_BENCHMARK_RUN_RESULT,
             )
             await msg.ack()
             return
 
-        run_id = ""
-        tenant_id = ""
         try:
-            req = BenchmarkRunRequest.model_validate_json(msg.data)
-            run_id = req.run_id
-            tenant_id = req.tenant_id
             await _validate_model_exists(req.model)
             benchmark_type = req.benchmark_type or "simple"
             log = log.bind(run_id=run_id, benchmark_type=benchmark_type, model=req.model)
@@ -411,45 +435,73 @@ class BenchmarkHandlerMixin:
                 await msg.ack()
                 return
 
-            await msg.ack()
-            task = asyncio.create_task(self._execute_benchmark_run(req, log), name=f"benchmark-{req.run_id}")
+            if not await self._accept(msg):
+                self._clear_processed(f"bench-{req.run_id}")
+                return
+
+            async def report_failure(reason: str) -> None:
+                await self._publish_result(
+                    BenchmarkRunResult(run_id=run_id, tenant_id=tenant_id, status="failed", error=reason),
+                    SUBJECT_BENCHMARK_RUN_RESULT,
+                )
+
+            work = self._in_flight.accept(f"benchmark run {run_id}", report_failure)
+            task = self._in_flight.start_background(
+                self._run_accepted_benchmark(req, log, work), name=f"benchmark-{req.run_id}"
+            )
             task.add_done_callback(_handle_task_exception)
 
         except Exception as exc:
             log.exception("benchmark run failed")
-            await self._publish_error(
+            await self._publish_result(
                 BenchmarkRunResult(run_id=run_id, tenant_id=tenant_id, status="failed", error=str(exc)),
                 SUBJECT_BENCHMARK_RUN_RESULT,
             )
-            await msg.ack()
+            if not msg.is_acked:
+                await msg.ack()
+
+    async def _run_accepted_benchmark(self, req: object, log: structlog.BoundLogger, work: AcceptedWork) -> None:
+        """Run an accepted benchmark in the background; it publishes its own result unless cancelled."""
+        try:
+            await self._execute_benchmark_run(req, log)
+            work.completed = True
+        finally:
+            self._in_flight.release(work)
 
     async def _execute_benchmark_run(self, req: object, log: structlog.BoundLogger) -> None:
         from codeforge.evaluation.pipeline import EvaluationPipeline
         from codeforge.models import BenchmarkRunResult
 
         async with _ensure_benchmark_semaphore():
+            pipeline: EvaluationPipeline | None = None
             try:
                 log.info("benchmark run started")
                 start = time.monotonic()
-                evaluators = _build_evaluators(req.evaluators, req.model)
+                effective_llm = await self._resolve_effective_llm(req, log)
+                # The verifiers judge the run: a concrete model (never "auto")
+                # on the worker's own client, so their calls are neither routed
+                # by the task prompt nor recorded in the run's routing log.
+                evaluators = _build_evaluators(req.evaluators, _verifier_model(req.model), llm=self._llm)
                 pipeline = EvaluationPipeline(evaluators)
                 hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
-                effective_llm = await self._resolve_effective_llm(req, log)
-                on_start, on_complete = _build_progress_callbacks(self._js, req.run_id)
+                on_start, on_complete = _build_progress_callbacks(self._js, req.run_id, req.tenant_id)
 
                 benchmark_type = req.benchmark_type or "simple"
-                if benchmark_type == "tool_use":
-                    results = await run_tool_use_benchmark(
-                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                    )
-                elif benchmark_type == "agent":
-                    results = await run_agent_benchmark(
-                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                    )
-                else:
-                    results = await run_simple_benchmark(
-                        req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
-                    )
+                # Its tool processes run as the run's tenant's tool UID (KI-96),
+                # each task in its own workspace.
+                async with tool_tenant(req.tenant_id, req.tool_uid, None):
+                    if benchmark_type == "tool_use":
+                        results = await run_tool_use_benchmark(
+                            req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                        )
+                    elif benchmark_type == "agent":
+                        results = await run_agent_benchmark(
+                            req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                        )
+                    else:
+                        results = await run_simple_benchmark(
+                            req, effective_llm, pipeline, on_start, on_complete, hybrid_pipeline
+                        )
 
                 if req.model == "auto" and hasattr(effective_llm, "routing_log"):
                     _annotate_routing(results, effective_llm.routing_log)
@@ -469,8 +521,7 @@ class BenchmarkHandlerMixin:
                     total_tokens=summary.get("total_tokens_in", 0) + summary.get("total_tokens_out", 0),
                     total_duration_ms=summary.get("elapsed_ms", 0),
                 )
-                if self._js is not None:
-                    await self._js.publish(SUBJECT_BENCHMARK_RUN_RESULT, result.model_dump_json().encode())
+                await self._publish_result(result, SUBJECT_BENCHMARK_RUN_RESULT)
                 log.info(
                     "benchmark run completed",
                     task_count=len(results),
@@ -480,10 +531,13 @@ class BenchmarkHandlerMixin:
 
             except Exception as exc:
                 log.exception("benchmark run failed")
-                await self._publish_error(
+                await self._publish_result(
                     BenchmarkRunResult(run_id=req.run_id, tenant_id=req.tenant_id, status="failed", error=str(exc)),
                     SUBJECT_BENCHMARK_RUN_RESULT,
                 )
+            finally:
+                if pipeline is not None:
+                    await pipeline.aclose()
 
     async def _resolve_effective_llm(self, req: object, log: structlog.BoundLogger) -> object:
         if req.model != "auto":

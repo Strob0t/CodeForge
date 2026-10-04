@@ -21,11 +21,11 @@ from tree_sitter_language_pack import get_parser
 from codeforge._tree_sitter_common import (
     _DEF_NODE_TYPES,
     _EXTENSION_MAP,
-    _MAX_FILE_SIZE,
-    _MAX_FILES,
-    _SKIP_DIRS,
+    SourceScan,
+    iter_source_files,
 )
 from codeforge.models import RetrievalSearchHit
+from codeforge.workspace_fs import PathLeavesWorkspaceError, WorkspaceRoot
 
 if TYPE_CHECKING:
     from tree_sitter import Parser
@@ -71,7 +71,8 @@ class ProjectIndex:
     project_id: str
     chunks: list[CodeChunk]
     bm25: bm25s.BM25
-    embeddings: np.ndarray
+    # None: the embedding model was unavailable, the index is BM25-only (KI-130).
+    embeddings: np.ndarray | None
     file_count: int
     chunk_count: int
     embedding_model: str
@@ -98,6 +99,24 @@ class IndexStatus:
 # ---------------------------------------------------------------------------
 
 
+def _open_index_root(path: str, tenant: str, below: str) -> WorkspaceRoot:
+    """The directory an index is built from.
+
+    A workspace (no tenant; its directory may not be a symlink), or the
+    directory *below* inside the tenant's area <path>/<tenant>/ of the
+    knowledge content root *path*. The content root is the operator's, opened
+    like the Go Core does (its own path may be a symlink); the area is opened
+    inside it first, so ".." or a symlink in *below* cannot leave the area
+    (KI-105).
+    """
+    if not tenant:
+        return WorkspaceRoot(path)
+    if tenant in (".", "..") or "/" in tenant:
+        raise PathLeavesWorkspaceError(tenant)
+    with WorkspaceRoot.operator_dir(path) as content, content.subroot(tenant) as area:
+        return area.subroot(below)
+
+
 class CodeChunker:
     """Splits source files into chunks at definition boundaries using tree-sitter."""
 
@@ -121,62 +140,44 @@ class CodeChunker:
         self,
         workspace_path: str,
         file_extensions: list[str] | None = None,
+        *,
+        tenant: str = "",
+        below: str = ".",
     ) -> dict[str, tuple[str, list[CodeChunk]]]:
         """Walk workspace and return {rel_path: (content_hash, chunks)} per file.
 
-        The content hash is the SHA-256 hex digest of the raw file bytes.
+        The content hash is the SHA-256 hex digest of the raw file bytes. With
+        *tenant*, *workspace_path* is the knowledge content root and only the
+        directory *below* in the tenant's area <root>/<tenant>/ is walked (a
+        knowledge base, KI-105); paths are relative to it.
         """
-        ext_filter: set[str] | None = None
+        extensions: set[str] = set(_EXTENSION_MAP)
         if file_extensions:
-            ext_filter = {e if e.startswith(".") else f".{e}" for e in file_extensions}
+            extensions &= {e if e.startswith(".") else f".{e}" for e in file_extensions}
 
         result: dict[str, tuple[str, list[CodeChunk]]] = {}
-        file_count = 0
+        try:
+            root = _open_index_root(workspace_path, tenant, below)
+        except OSError as exc:
+            logger.warning("cannot open workspace", path=workspace_path, tenant=tenant, below=below, error=str(exc))
+            return result
 
-        for dirpath, dirnames, filenames in os.walk(workspace_path):
-            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-
-            for fname in filenames:
-                if file_count >= _MAX_FILES:
-                    return result
-
-                abs_path = os.path.join(dirpath, fname)
-                _, ext = os.path.splitext(fname)
-
-                if ext not in _EXTENSION_MAP:
-                    continue
-                if ext_filter is not None and ext not in ext_filter:
-                    continue
-
-                try:
-                    if os.path.getsize(abs_path) > _MAX_FILE_SIZE:
-                        continue
-                except OSError:
-                    continue
-
-                rel_path = os.path.relpath(abs_path, workspace_path)
-                language = _EXTENSION_MAP[ext]
-                content_hash = _file_sha256(abs_path)
-                file_chunks = self.chunk_file(abs_path, rel_path, language)
-                result[rel_path] = (content_hash, file_chunks)
-                file_count += 1
+        scan = SourceScan("retrieval")
+        with root:
+            for rel_path, source in iter_source_files(root, extensions, scan):
+                language = _EXTENSION_MAP[os.path.splitext(rel_path)[1]]
+                result[rel_path] = (hashlib.sha256(source).hexdigest(), self.chunk_source(source, rel_path, language))
+        scan.log()
 
         return result
 
-    def chunk_file(self, abs_path: str, rel_path: str, language: str) -> list[CodeChunk]:  # noqa: C901
-        """Parse a single file and split at definition boundaries."""
-        try:
-            with open(abs_path, "rb") as f:
-                source = f.read()
-        except OSError:
-            logger.warning("cannot read file", path=abs_path)
-            return []
-
+    def chunk_source(self, source: bytes, rel_path: str, language: str) -> list[CodeChunk]:  # noqa: C901
+        """Parse the source of a single file and split it at definition boundaries."""
         try:
             parser = self._get_parser(language)
             tree = parser.parse(source)
         except Exception as exc:
-            logger.warning("parse failed", path=abs_path, language=language, error=str(exc))
+            logger.warning("parse failed", path=rel_path, language=language, error=str(exc))
             return []
 
         lines = source.decode(errors="replace").splitlines(keepends=True)
@@ -338,17 +339,22 @@ class CodeChunker:
 
 
 # ---------------------------------------------------------------------------
-# File hashing helpers
+# CPU-bound index helpers (run in worker threads, they touch no shared state)
 # ---------------------------------------------------------------------------
 
 
-def _file_sha256(path: str) -> str:
-    """Compute the SHA-256 hex digest of a file's contents."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(8192), b""):
-            h.update(block)
-    return h.hexdigest()
+def _build_bm25(corpus: list[str]) -> bm25s.BM25:
+    """Tokenize *corpus* and build its BM25 index."""
+    bm25 = bm25s.BM25()
+    bm25.index(bm25s.tokenize(corpus))
+    return bm25
+
+
+def _decode_embeddings(resp: httpx.Response) -> np.ndarray:
+    """Decode a /v1/embeddings response into a matrix ordered by input index."""
+    embeddings_data: list[dict[str, object]] = resp.json().get("data", [])
+    embeddings_data.sort(key=lambda d: int(d.get("index", 0)))
+    return np.array([item["embedding"] for item in embeddings_data], dtype=np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +371,8 @@ class HybridRetriever:
         self._litellm_url = litellm_url.rstrip("/")
         self._litellm_key = litellm_key
         self._client: httpx.AsyncClient | None = None
+        # Embedding models found unavailable: reported once, not on every index build.
+        self._unavailable_embedding_models: set[str] = set()
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -384,8 +392,10 @@ class HybridRetriever:
         workspace_path: str,
         embedding_model: str = "text-embedding-3-small",
         file_extensions: list[str] | None = None,
+        tenant: str = "",
+        below: str = ".",
     ) -> IndexStatus:
-        """Chunk workspace, build BM25 index and compute embeddings.
+        """Chunk workspace (only its directory *below*), build BM25 index and compute embeddings.
 
         Supports incremental builds: if a prior index exists with the same
         embedding model, only changed/new files are re-chunked and re-embedded.
@@ -395,8 +405,12 @@ class HybridRetriever:
         log.info("building retrieval index", workspace=workspace_path)
 
         try:
-            # Collect files with per-file content hashes.
-            per_file = self._chunker.chunk_workspace_by_file(workspace_path, file_extensions)
+            # Collect files with per-file content hashes. Walking and parsing the
+            # workspace is CPU-bound: run it off the event loop, which also keeps
+            # the in-progress acks of this request flowing.
+            per_file = await asyncio.to_thread(
+                self._chunker.chunk_workspace_by_file, workspace_path, file_extensions, tenant=tenant, below=below
+            )
             if not per_file:
                 log.info("index empty, no files found")
                 return IndexStatus(
@@ -410,6 +424,7 @@ class HybridRetriever:
             can_incremental = (
                 prior is not None
                 and prior.embedding_model == embedding_model
+                and prior.embeddings is not None  # a BM25-only index is rebuilt in full
                 and prior.file_hashes  # non-empty hash map
             )
 
@@ -462,14 +477,11 @@ class HybridRetriever:
                 embedding_model=embedding_model,
             )
 
-        # Build BM25
+        # Build BM25 off the event loop: it scales with the repository.
         corpus = [c.content for c in chunks]
-        corpus_tokens = bm25s.tokenize(corpus)
-        bm25 = bm25s.BM25()
-        bm25.index(corpus_tokens)
+        bm25 = await asyncio.to_thread(_build_bm25, corpus)
 
-        # Embed all chunks
-        embeddings = await self._embed_texts(corpus, embedding_model)
+        embeddings = await self._embed_or_none(corpus, embedding_model, log)
 
         index = ProjectIndex(
             project_id=project_id,
@@ -560,11 +572,16 @@ class HybridRetriever:
                 chunk_count=len(file_chunks),
             )
 
-        # Embed only new/changed chunks.
+        # Embed only new/changed chunks; without the embedding model the
+        # index becomes BM25-only.
+        embeddings_available = True
         if new_chunks:
             new_corpus = [c.content for c in new_chunks]
-            new_embeddings = await self._embed_texts(new_corpus, embedding_model)
-            embedding_rows.append(new_embeddings)
+            new_embeddings = await self._embed_or_none(new_corpus, embedding_model, log)
+            if new_embeddings is None:
+                embeddings_available = False
+            else:
+                embedding_rows.append(new_embeddings)
             chunks.extend(new_chunks)
 
         if not chunks:
@@ -578,14 +595,15 @@ class HybridRetriever:
                 files_unchanged=files_unchanged,
             )
 
-        # Concatenate embeddings.
-        all_embeddings = np.concatenate(embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
-
-        # Rebuild BM25 (always full — it's fast).
+        # Concatenate embeddings and rebuild BM25 (always full) off the event
+        # loop: both scale with the repository.
+        all_embeddings: np.ndarray | None = None
+        if embeddings_available:
+            all_embeddings = (
+                await asyncio.to_thread(np.concatenate, embedding_rows, axis=0) if embedding_rows else np.empty((0, 0))
+            )
         corpus = [c.content for c in chunks]
-        corpus_tokens = bm25s.tokenize(corpus)
-        bm25 = bm25s.BM25()
-        bm25.index(corpus_tokens)
+        bm25 = await asyncio.to_thread(_build_bm25, corpus)
 
         index = ProjectIndex(
             project_id=project_id,
@@ -649,12 +667,13 @@ class HybridRetriever:
         # bm25_results shape: (1, k) -- indices into chunks
         bm25_ranking: list[int] = [int(idx) for idx in bm25_results[0]]
 
-        # Semantic retrieval
-        if query_embedding is None:
-            query_embedding = (await self._embed_texts([query], index.embedding_model))[0]
-        query_vec = query_embedding
-        cosine_scores = self._cosine_similarity(query_vec, index.embeddings)
-        semantic_ranking: list[int] = list(np.argsort(-cosine_scores))
+        # Semantic retrieval (none for a BM25-only index)
+        semantic_ranking: list[int] = []
+        if index.embeddings is not None:
+            if query_embedding is None:
+                query_embedding = (await self._embed_texts([query], index.embedding_model))[0]
+            cosine_scores = self._cosine_similarity(query_embedding, index.embeddings)
+            semantic_ranking = list(np.argsort(-cosine_scores))
 
         # RRF fusion
         fused = self._rrf_fuse(bm25_ranking, semantic_ranking)
@@ -713,6 +732,30 @@ class HybridRetriever:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def _embed_or_none(
+        self, texts: list[str], model: str, log: structlog.stdlib.BoundLogger
+    ) -> np.ndarray | None:
+        """Embed *texts*, or return None when the embedding model cannot be used (KI-130).
+
+        Without an embedding provider (no key for the default cloud model, a
+        local-only installation) the index is BM25-only; that is reported once
+        per model, not on every index build.
+        """
+        try:
+            embeddings = await self._embed_texts(texts, model)
+        except httpx.HTTPError as exc:
+            if model not in self._unavailable_embedding_models:
+                self._unavailable_embedding_models.add(model)
+                log.warning(
+                    "embedding model unavailable, retrieval indexes are BM25 only "
+                    "(set orchestrator.default_embedding_model / CODEFORGE_ORCH_EMBEDDING_MODEL)",
+                    embedding_model=model,
+                    error=str(exc),
+                )
+            return None
+        self._unavailable_embedding_models.discard(model)
+        return embeddings
+
     async def _embed_texts(self, texts: list[str], model: str = "text-embedding-3-small") -> np.ndarray:
         """Batch-embed texts via the LiteLLM /v1/embeddings endpoint."""
         resp = await self._get_client().post(
@@ -720,14 +763,8 @@ class HybridRetriever:
             json={"input": texts, "model": model},
         )
         resp.raise_for_status()
-        data = resp.json()
-
-        # Sort by index to ensure correct ordering
-        embeddings_data: list[dict[str, object]] = data.get("data", [])
-        embeddings_data.sort(key=lambda d: int(d.get("index", 0)))
-
-        vectors = [item["embedding"] for item in embeddings_data]
-        return np.array(vectors, dtype=np.float32)
+        # Decoding a whole corpus' vectors is CPU-bound: keep it off the event loop.
+        return await asyncio.to_thread(_decode_embeddings, resp)
 
     @staticmethod
     def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
@@ -900,7 +937,7 @@ class RetrievalSubAgent:
         # Batch-embed all queries in one call if index exists.
         embeddings: list[np.ndarray | None] = [None] * len(queries)
         index = self._retriever._indexes.get(project_id)
-        if index is not None:
+        if index is not None and index.embeddings is not None:
             try:
                 all_vecs = await self._retriever._embed_texts(queries, index.embedding_model)
                 embeddings = list(all_vecs)

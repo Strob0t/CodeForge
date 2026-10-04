@@ -34,7 +34,6 @@ class ToolRouter:
             "list_directory",
             "propose_goal",
             "propose_roadmap",
-            "spawn_subagent",
             "transition_to_act",
         }
     )
@@ -92,24 +91,28 @@ class ToolRouter:
         Returns a sorted, deduplicated list capped at *max_tools*.
         """
         available = set(self._all_tools)
-        selected: set[str] = set(self.BASE_TOOLS & available)
+        base: set[str] = set(self.BASE_TOOLS & available)
 
         if not user_message:
-            return sorted(selected)
+            return sorted(base)
 
         msg_lower = user_message.lower()
+        triggered: set[str] = set()
 
         # Add MCP read-only tools if docs-related keywords found.
         if any(kw in msg_lower for kw in self.DOCS_KEYWORDS):
             for tool in self._all_tools:
                 if tool.startswith("mcp__") and any(frag in tool for frag in self._MCP_READONLY_FRAGMENTS):
-                    selected.add(tool)
+                    triggered.add(tool)
 
         # Add tools matching keyword triggers.
         for keyword, tools in self.TOOL_KEYWORDS.items():
             if keyword in msg_lower:
                 for t in tools:
                     if t in available:
-                        selected.add(t)
+                        triggered.add(t)
 
-        return sorted(selected)[:max_tools]
+        # When the cap is hit, drop untriggered base tools before the tools
+        # the message asked for (the cap is smaller than BASE_TOOLS + docs tools).
+        prioritized = sorted(triggered) + sorted(base - triggered)
+        return sorted(prioritized[:max_tools])

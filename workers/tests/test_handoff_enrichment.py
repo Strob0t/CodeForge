@@ -31,6 +31,7 @@ async def test_handoff_payload_has_plan_fields() -> None:
             "step_id": "step-7",
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     assert "initiated" in result
@@ -55,6 +56,7 @@ async def test_handoff_payload_has_metadata() -> None:
             "metadata": {"priority": "high", "reason": "urgent"},
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     assert "initiated" in result
@@ -78,6 +80,7 @@ async def test_handoff_payload_has_chain_tracking() -> None:
             "context": "Do something",
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     payload = json.loads(published[0][1])
@@ -105,6 +108,7 @@ async def test_handoff_chain_tracking_preserves_existing() -> None:
             },
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     payload = json.loads(published[0][1])
@@ -124,6 +128,7 @@ async def test_handoff_payload_missing_required_fields() -> None:
         run_id="run-1",
         arguments={"context": "Do something"},
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
     assert "Error" in result
 
@@ -132,6 +137,7 @@ async def test_handoff_payload_missing_required_fields() -> None:
         run_id="run-1",
         arguments={"target_agent_id": "agent-2"},
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
     assert "Error" in result
 
@@ -140,6 +146,7 @@ async def test_handoff_payload_missing_required_fields() -> None:
         run_id="run-1",
         arguments={},
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
     assert "Error" in result
 
@@ -158,6 +165,7 @@ async def test_handoff_uses_subject_constant() -> None:
             "context": "Do something",
         },
         nats_publish=fake_publish,
+        workspace_path="/ws",
     )
 
     assert len(published) == 1
@@ -175,109 +183,184 @@ async def test_handoff_tool_def_has_new_parameters() -> None:
     assert params["metadata"]["type"] == "object"
 
 
+async def test_handoff_payload_carries_run_tenant_and_project() -> None:
+    """The handoff request carries the source run's tenant and project (KI-12)."""
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review this code"},
+        nats_publish=fake_publish,
+        tenant_id="tenant-a",
+        project_id="proj-a",
+        workspace_path="/ws",
+    )
+
+    payload = json.loads(published[0][1])
+    assert payload["tenant_id"] == "tenant-a"
+    assert payload["project_id"] == "proj-a"
+
+
+async def test_registered_handoff_tool_uses_run_tenant_and_project() -> None:
+    """register_handoff_tool binds the conversation run's tenant and project to the tool."""
+    from codeforge.consumer._conversation_skill_integration import register_handoff_tool
+
+    registry = MagicMock()
+    js = MagicMock()
+    js.publish = AsyncMock()
+
+    register_handoff_tool(registry, "run-1", js, tenant_id="tenant-a", project_id="proj-a")
+
+    executor = registry.register.call_args.args[1]
+    await executor.execute({"target_agent_id": "agent-2", "context": "go"}, "/ws")
+
+    subject, data = js.publish.call_args.args
+    assert subject == SUBJECT_HANDOFF_REQUEST
+    payload = json.loads(data)
+    assert payload["tenant_id"] == "tenant-a"
+    assert payload["project_id"] == "proj-a"
+
+
 # ---------------------------------------------------------------------------
-# Consumer tests (_handoff.py)
+# Workspace and approval timeout (review of KI-21/KI-23)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def consumer():
-    """Create a minimal consumer-like object with HandoffHandlerMixin."""
-    from codeforge.consumer import TaskConsumer
+async def test_handoff_payload_carries_workspace_and_approval_timeout() -> None:
+    """The handoff run works in the source run's workspace and waits as long for approvals."""
+    published: list[tuple[str, bytes]] = []
 
-    c = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
-    c._js = AsyncMock()
-    # Reset processed IDs between tests
-    c._processed_ids.clear()
-    return c
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
 
+    await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review this code"},
+        nats_publish=fake_publish,
+        workspace_path="/data/workspaces/proj-a",
+        approval_timeout_seconds=90,
+    )
 
-async def test_handoff_consumer_forwards_metadata(consumer) -> None:
-    """metadata from incoming payload appears in run_payload config."""
-    payload = {
-        "source_run_id": "run-src",
-        "target_agent_id": "agent-tgt",
-        "context": "Do the thing",
-        "metadata": {"custom_key": "custom_value"},
-    }
-    msg = MagicMock()
-    msg.data = json.dumps(payload).encode()
-    msg.headers = None
-    msg.ack = AsyncMock()
-
-    await consumer._handle_handoff_request(msg)
-
-    msg.ack.assert_called()
-    publish_call = consumer._js.publish.call_args
-    run_payload = json.loads(publish_call.args[1])
-    config = run_payload["config"]
-    assert config["handoff_custom_key"] == "custom_value"
+    payload = json.loads(published[0][1])
+    assert payload["workspace_path"] == "/data/workspaces/proj-a"
+    assert payload["approval_timeout_seconds"] == 90
 
 
-async def test_handoff_consumer_forwards_plan_id(consumer) -> None:
-    """plan_id from incoming payload appears in run_payload config."""
-    payload = {
-        "source_run_id": "run-src",
-        "target_agent_id": "agent-tgt",
-        "context": "Do the thing",
-        "plan_id": "plan-42",
-        "step_id": "step-7",
-    }
-    msg = MagicMock()
-    msg.data = json.dumps(payload).encode()
-    msg.headers = None
-    msg.ack = AsyncMock()
+@pytest.mark.parametrize("workspace", ["", "   "])
+async def test_handoff_without_workspace_fails_at_handoff_time(workspace: str) -> None:
+    """Without a workspace the handoff run would fail later: refuse the handoff now."""
+    publish = AsyncMock()
 
-    await consumer._handle_handoff_request(msg)
+    result = await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review this code"},
+        nats_publish=publish,
+        workspace_path=workspace,
+    )
 
-    publish_call = consumer._js.publish.call_args
-    run_payload = json.loads(publish_call.args[1])
-    config = run_payload["config"]
-    assert config["plan_id"] == "plan-42"
-    assert config["step_id"] == "step-7"
+    assert result.startswith("Error:")
+    assert "workspace" in result
+    publish.assert_not_awaited()
 
 
-async def test_handoff_consumer_stamps_trust(consumer) -> None:
-    """Outgoing run payload has trust annotation."""
-    payload = {
-        "source_run_id": "run-src",
-        "target_agent_id": "agent-tgt",
-        "context": "Do the thing",
-    }
-    msg = MagicMock()
-    msg.data = json.dumps(payload).encode()
-    msg.headers = None
-    msg.ack = AsyncMock()
+async def test_registered_handoff_tool_sends_the_run_workspace_and_approval_timeout() -> None:
+    from codeforge.consumer._conversation_skill_integration import register_handoff_tool
 
-    await consumer._handle_handoff_request(msg)
+    registry = MagicMock()
+    js = MagicMock()
+    js.publish = AsyncMock()
 
-    publish_call = consumer._js.publish.call_args
-    run_payload = json.loads(publish_call.args[1])
-    assert "trust" in run_payload
-    assert run_payload["trust"]["origin"] == "internal"
-    assert run_payload["trust"]["trust_level"] == "full"
+    register_handoff_tool(registry, "run-1", js, tenant_id="t", project_id="p", approval_timeout_seconds=90)
+    executor = registry.register.call_args.args[1]
+    await executor.execute({"target_agent_id": "agent-2", "context": "go"}, "/data/workspaces/p")
+
+    payload = json.loads(js.publish.call_args.args[1])
+    assert payload["workspace_path"] == "/data/workspaces/p"
+    assert payload["approval_timeout_seconds"] == 90
 
 
-async def test_handoff_consumer_propagates_chain_hop(consumer) -> None:
-    """hop counter increments in consumer."""
-    payload = {
-        "source_run_id": "run-src",
-        "target_agent_id": "agent-tgt",
-        "context": "Do the thing",
-        "metadata": {
-            "handoff_chain_id": "chain-1",
-            "handoff_hop": "2",
+async def test_handoff_metadata_values_are_strings() -> None:
+    """S2-G fix, 4: the Go Core reads metadata as string values (map[string]string).
+
+    The LLM supplies a free-form object; a nested or numeric value made the
+    request fail to decode in Go and dead-lettered it silently. The worker
+    sends every value as a string, JSON-encoding the others.
+    """
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    result = await execute_handoff(
+        run_id="run-1",
+        arguments={
+            "target_agent_id": "agent-2",
+            "context": "Review this code",
+            "metadata": {
+                "priority": "high",
+                "attempts": 3,
+                "score": 0.5,
+                "urgent": True,
+                "none": None,
+                "files": ["a.go", "b.go"],
+                "nested": {"depth": 2, "tags": ["x"]},
+                "handoff_chain_id": "chain-1",
+                "handoff_hop": 1,
+            },
         },
-    }
-    msg = MagicMock()
-    msg.data = json.dumps(payload).encode()
-    msg.headers = None
-    msg.ack = AsyncMock()
+        nats_publish=fake_publish,
+        workspace_path="/ws",
+    )
 
-    await consumer._handle_handoff_request(msg)
+    assert "initiated" in result
+    meta = json.loads(published[0][1])["metadata"]
+    assert all(isinstance(value, str) for value in meta.values()), meta
+    assert meta["priority"] == "high"
+    assert meta["attempts"] == "3"
+    assert meta["score"] == "0.5"
+    assert meta["urgent"] == "true"
+    assert meta["none"] == "null"
+    assert json.loads(meta["files"]) == ["a.go", "b.go"]
+    assert json.loads(meta["nested"]) == {"depth": 2, "tags": ["x"]}
+    assert meta["handoff_hop"] == "2", "a numeric hop counts on"
 
-    publish_call = consumer._js.publish.call_args
-    run_payload = json.loads(publish_call.args[1])
-    config = run_payload["config"]
-    assert config["handoff_handoff_hop"] == "3"
-    assert config["handoff_handoff_chain_id"] == "chain-1"
+
+@pytest.mark.parametrize("metadata", ["not an object", ["a"], {"handoff_chain_id": "c", "handoff_hop": "many"}])
+async def test_handoff_with_invalid_metadata_is_refused(metadata: object) -> None:
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    result = await execute_handoff(
+        run_id="run-1",
+        arguments={"target_agent_id": "agent-2", "context": "Review", "metadata": metadata},
+        nats_publish=fake_publish,
+        workspace_path="/ws",
+    )
+
+    assert result.startswith("Error:")
+    assert published == []
+
+
+async def test_handoff_carries_a_handoff_id() -> None:
+    """S2-G fix, 3: the Go Core carries a handoff out once per handoff_id, whatever its redeliveries."""
+    published: list[tuple[str, bytes]] = []
+
+    async def fake_publish(subject: str, data: bytes) -> None:
+        published.append((subject, data))
+
+    arguments = {"target_agent_id": "agent-2", "context": "Review"}
+    await execute_handoff(run_id="run-1", arguments=arguments, nats_publish=fake_publish, workspace_path="/ws")
+    await execute_handoff(run_id="run-1", arguments=arguments, nats_publish=fake_publish, workspace_path="/ws")
+    await execute_handoff(
+        run_id="run-1", arguments=arguments, nats_publish=fake_publish, workspace_path="/ws", handoff_id="given"
+    )
+
+    ids = [json.loads(data)["handoff_id"] for _, data in published]
+    assert all(ids[:2])
+    assert ids[0] != ids[1], "every handoff_to call is a handoff of its own"
+    assert ids[2] == "given"

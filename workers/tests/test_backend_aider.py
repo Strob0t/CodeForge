@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -87,15 +88,19 @@ class TestExecute:
         mock_proc = AsyncMock()
         mock_proc.stdout = mock_stdout
         mock_proc.returncode = None
-        mock_proc.terminate = MagicMock()
+        mock_proc.pid = 424242
         mock_proc.wait = AsyncMock()
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("codeforge.subprocess_utils.os.killpg") as killpg,
+        ):
             result = await executor.execute("t1", "fix the bug", "/workspace", config={"timeout": 5})
 
         assert result.status == "failed"
         assert "timed out" in result.error
-        mock_proc.terminate.assert_called_once()
+        # The CLI's whole process group is stopped, not just the CLI (KI-22).
+        killpg.assert_any_call(424242, signal.SIGTERM)
 
     @pytest.mark.asyncio
     async def test_os_error_starting_process(self, executor: AiderExecutor) -> None:
@@ -249,13 +254,15 @@ class TestCancel:
     async def test_cancel_terminates_process(self, executor: AiderExecutor) -> None:
         mock_proc = AsyncMock()
         mock_proc.returncode = None
-        mock_proc.terminate = MagicMock()
+        mock_proc.pid = 424242
         mock_proc.wait = AsyncMock(return_value=0)
 
         executor._processes["t1"] = mock_proc
 
-        await executor.cancel("t1")
-        mock_proc.terminate.assert_called_once()
+        with patch("codeforge.subprocess_utils.os.killpg") as killpg:
+            await executor.cancel("t1")
+        # The CLI's whole process group is stopped, not just the CLI (KI-22).
+        killpg.assert_any_call(424242, signal.SIGTERM)
 
     @pytest.mark.asyncio
     async def test_cancel_noop_for_unknown_task(self, executor: AiderExecutor) -> None:

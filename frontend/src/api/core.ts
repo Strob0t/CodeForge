@@ -17,7 +17,7 @@ export function setAccessTokenGetter(fn: () => string | null): void {
   accessTokenGetter = fn;
 }
 
-/** Return the current access token (used by WebSocket to append ?token=). */
+/** Return the current access token (the WebSocket client connects only when one exists). */
 export function getAccessToken(): string | null {
   return accessTokenGetter?.() ?? null;
 }

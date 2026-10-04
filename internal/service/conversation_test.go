@@ -17,7 +17,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
-	"github.com/Strob0t/CodeForge/internal/adapter/osfs"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -60,7 +59,9 @@ func (m *convMockStore) CreateConversation(_ context.Context, c *conversation.Co
 func (m *convMockStore) GetConversation(_ context.Context, id string) (*conversation.Conversation, error) {
 	for i := range m.conversations {
 		if m.conversations[i].ID == id {
-			return &m.conversations[i], nil
+			c := m.conversations[i]
+			c.ActiveTurnID = m.activeTurnOf(id)
+			return &c, nil
 		}
 	}
 	return nil, errMockNotFound
@@ -110,6 +111,17 @@ func (m *convMockStore) CreateMessage(_ context.Context, msg *conversation.Messa
 	msg.ID = fmt.Sprintf("msg-%d", len(m.messages)+1)
 	m.messages = append(m.messages, *msg)
 	return msg, nil
+}
+
+// CreateToolMessages stores a turn's tool messages like CreateMessage.
+func (m *convMockStore) CreateToolMessages(_ context.Context, conversationID string, msgs []conversation.Message) error {
+	for i := range msgs {
+		msg := msgs[i]
+		msg.ConversationID = conversationID
+		msg.ID = fmt.Sprintf("msg-%d", len(m.messages)+1)
+		m.messages = append(m.messages, msg)
+	}
+	return nil
 }
 
 func (m *convMockStore) ListMessages(_ context.Context, conversationID string) ([]conversation.Message, error) {
@@ -356,7 +368,7 @@ func TestSendMessageAgentic_ContextPopulatedWhenEnabled(t *testing.T) {
 	svc.SetAgentConfig(agentCfg)
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	ctxOpt := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	ctxOpt := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 	svc.SetContextOptimizer(ctxOpt)
 
 	ctx := context.Background()
@@ -487,7 +499,7 @@ func TestSendMessageAgentic_ContextEmptyWhenDisabled(t *testing.T) {
 	svc.SetAgentConfig(agentCfg)
 
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
-	ctxOpt := service.NewContextOptimizerService(store, osfs.New(), orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
+	ctxOpt := service.NewContextOptimizerService(store, orchCfg, &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second})
 	svc.SetContextOptimizer(ctxOpt)
 
 	ctx := context.Background()
@@ -612,7 +624,7 @@ func TestSendMessageAgentic_AdaptiveBudgetReducesContext(t *testing.T) {
 	}
 	orchCfg := &config.Orchestrator{DefaultContextBudget: 8192, PromptReserve: 1024}
 	limCfg := &config.Limits{MaxFiles: 50, MaxFileSize: 32768, SearchTimeout: 5 * time.Second}
-	ctxOpt := service.NewContextOptimizerService(store, osfs.New(), orchCfg, limCfg)
+	ctxOpt := service.NewContextOptimizerService(store, orchCfg, limCfg)
 	ctx := context.Background()
 
 	// ---- Sub-test 1: fresh conversation (0 history) => context entries present ----
@@ -1048,7 +1060,7 @@ func TestFullAutoGate_NoGoalsRedirectsToGoalResearcher(t *testing.T) {
 	svc.SetPolicyService(policySvc)
 
 	// Wire goal service backed by our store (which returns empty goals).
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1107,7 +1119,7 @@ func TestFullAutoGate_WithGoalsPassesThrough(t *testing.T) {
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	svc.SetPolicyService(policySvc)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1160,7 +1172,7 @@ func TestFullAutoGate_NonFullAutoSkipsGate(t *testing.T) {
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	svc.SetPolicyService(policySvc)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()
@@ -1229,7 +1241,7 @@ func TestFullAutoGate_OpenFeaturesPassesThrough(t *testing.T) {
 	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	svc.SetPolicyService(policySvc)
 
-	goalSvc := service.NewGoalDiscoveryService(store, osfs.New())
+	goalSvc := service.NewGoalDiscoveryService(store)
 	svc.SetGoalService(goalSvc)
 
 	ctx := context.Background()

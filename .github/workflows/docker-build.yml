@@ -18,6 +18,8 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -60,6 +62,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The scan pulls exactly this push by digest; registry paths must be
+      # lowercase and the repository owner may not be.
+      - name: Record pushed image reference
+        id: image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ref=${IMAGE,,}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@v2
         if: github.event_name != 'pull_request'
@@ -74,6 +85,8 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -116,6 +129,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The scan pulls exactly this push by digest; registry paths must be
+      # lowercase and the repository owner may not be.
+      - name: Record pushed image reference
+        id: image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ref=${IMAGE,,}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@v2
         if: github.event_name != 'pull_request'
@@ -130,6 +152,8 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -172,6 +196,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The scan pulls exactly this push by digest; registry paths must be
+      # lowercase and the repository owner may not be.
+      - name: Record pushed image reference
+        id: image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "ref=${IMAGE,,}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@v2
         if: github.event_name != 'pull_request'
@@ -181,7 +214,7 @@ jobs:
           push-to-registry: true
 
   scan-images:
-    name: Grype Image Scan
+    name: Grype Image Scan (${{ matrix.name }})
     needs: [build-core, build-worker, build-frontend]
     runs-on: ubuntu-latest
     permissions:
@@ -189,8 +222,15 @@ jobs:
       security-events: write
       packages: read
     strategy:
+      fail-fast: false
       matrix:
-        image: [codeforge-core, codeforge-worker, codeforge-frontend]
+        include:
+          - name: codeforge-core
+            image: ${{ needs.build-core.outputs.image }}
+          - name: codeforge-worker
+            image: ${{ needs.build-worker.outputs.image }}
+          - name: codeforge-frontend
+            image: ${{ needs.build-frontend.outputs.image }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -204,7 +244,7 @@ jobs:
         uses: anchore/scan-action@869c549e657a088dc0441b08ce4fc0ecdac2bb65 # v5
         id: scan
         with:
-          image: "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}:sha-${{ github.sha }}"
+          image: ${{ matrix.image }}
           fail-build: true
           severity-cutoff: high
           output-format: sarif

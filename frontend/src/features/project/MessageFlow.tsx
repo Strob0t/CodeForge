@@ -18,49 +18,55 @@ interface Arrow {
   sourceId: string;
   targetId: string;
   status: string;
-  timestamp: number;
+  /** Changes with every status, so a removal timer removes only the arrow it was set for. */
+  version: number;
 }
+
+/** Statuses after which the War Room no longer follows a handoff: their arrow goes after 10 s. */
+const SETTLED_STATUSES: ReadonlySet<string> = new Set([
+  "quarantined",
+  "rejected",
+  "failed",
+  "a2a_delegated",
+]);
 
 export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
   const { onMessage } = useWebSocket();
   const [arrows, setArrows] = createSignal<Arrow[]>([]);
   const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
+  let version = 0;
 
   const cleanup = onMessage((msg) => {
     if (msg.type !== "handoff.status") return;
     if (!isHandoffStatusEvent(msg.payload)) return;
     const p = msg.payload;
+    const v = ++version;
 
     setArrows((prev) => {
       const existing = prev.find(
         (a) => a.sourceId === p.source_agent_id && a.targetId === p.target_agent_id,
       );
       if (existing) {
-        return prev.map((a) =>
-          a.id === existing.id ? { ...a, status: p.status, timestamp: Date.now() } : a,
-        );
+        return prev.map((a) => (a.id === existing.id ? { ...a, status: p.status, version: v } : a));
       }
       return [
         ...prev,
         {
-          id: `${p.source_agent_id}-${p.target_agent_id}-${Date.now()}`,
+          id: `${p.source_agent_id}-${p.target_agent_id}-${v}`,
           sourceId: p.source_agent_id,
           targetId: p.target_agent_id,
           status: p.status,
-          timestamp: Date.now(),
+          version: v,
         },
       ];
     });
 
-    // Auto-remove completed/failed arrows after 10s
-    if (p.status === "completed" || p.status === "failed") {
+    // A settled handoff's arrow goes after 10 s, unless a later status (a
+    // held handoff that was approved) changed it meanwhile.
+    if (SETTLED_STATUSES.has(p.status)) {
       const timerId = setTimeout(() => {
         pendingTimers.delete(timerId);
-        setArrows((prev) =>
-          prev.filter(
-            (a) => !(a.sourceId === p.source_agent_id && a.targetId === p.target_agent_id),
-          ),
-        );
+        setArrows((prev) => prev.filter((a) => a.version !== v));
       }, 10000);
       pendingTimers.add(timerId);
     }
@@ -74,9 +80,11 @@ export default function MessageFlow(props: { containerRef?: HTMLDivElement }) {
   const arrowColor = (status: string) => {
     switch (status) {
       case "initiated":
+      case "a2a_delegated":
         return "var(--cf-accent)";
-      case "completed":
-        return "var(--cf-success)";
+      case "quarantined":
+        return "var(--cf-warning)";
+      case "rejected":
       case "failed":
         return "var(--cf-danger)";
       default:

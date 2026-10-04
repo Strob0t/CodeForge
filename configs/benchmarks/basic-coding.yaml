@@ -25,7 +25,7 @@ tasks:
           return result
 
   - id: basic-002
-    name: Bug fix — off-by-one error
+    name: Bug fix - off-by-one error
     input: |
       Fix the bug in this function. It should return the sum of elements from index
       `start` to `end` (inclusive).
@@ -45,7 +45,7 @@ tasks:
           return total
 
   - id: basic-003
-    name: Refactor — extract helper function
+    name: Refactor - extract helper function
     input: |
       Refactor this code to extract the duplicate validation logic into a helper function.
 

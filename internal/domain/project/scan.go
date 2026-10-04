@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"strings"
+
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // maxManifestRead is the maximum bytes to read from a manifest file for framework detection.
@@ -87,17 +88,17 @@ func ScanWorkspaceFS(fsys fs.FS, scannedPath string) (*StackDetectionResult, err
 }
 
 // ScanWorkspace scans a directory on disk for language manifests and returns detection results.
-// Only top-level entries are checked (no recursive walk).
+// Only top-level entries are checked (no recursive walk). Manifests are read
+// through workspacefs (KI-95): never through a symlink that leaves the
+// workspace, and a FIFO never blocks the scan.
 func ScanWorkspace(path string) (*StackDetectionResult, error) {
-	info, err := os.Stat(path)
+	ws, err := workspacefs.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("scan workspace: %w", err)
 	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("scan workspace: %s is not a directory", path)
-	}
+	defer func() { _ = ws.Close() }()
 
-	return ScanWorkspaceFS(os.DirFS(path), path)
+	return ScanWorkspaceFS(ws.FS(), path)
 }
 
 // manifestConfidence returns a confidence score based on the number of manifests found.

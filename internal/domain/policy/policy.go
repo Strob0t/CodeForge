@@ -4,6 +4,8 @@
 package policy
 
 import (
+	"slices"
+
 	"github.com/Strob0t/CodeForge/internal/domain/resource"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
@@ -28,7 +30,9 @@ const (
 )
 
 // ToolSpecifier identifies a tool and optionally a sub-command pattern.
-// Examples: Tool="Read", Tool="Bash" SubPattern="git status:*"
+// Tool is a canonical tool name (see CanonicalTool) or a filepath.Match glob
+// such as "mcp__*". SubPattern is a glob ("*" matches any characters) over
+// each simple command of a shell command, e.g. Tool="Bash" SubPattern="git *".
 type ToolSpecifier struct {
 	Tool       string `json:"tool" yaml:"tool"`
 	SubPattern string `json:"sub_pattern,omitempty" yaml:"sub_pattern,omitempty"`
@@ -50,6 +54,11 @@ type QualityGate struct {
 	RequireTestsPass   bool `json:"require_tests_pass" yaml:"require_tests_pass"`
 	RequireLintPass    bool `json:"require_lint_pass" yaml:"require_lint_pass"`
 	RollbackOnGateFail bool `json:"rollback_on_gate_fail" yaml:"rollback_on_gate_fail"`
+}
+
+// Enabled reports whether a run must pass a gate (tests or lint) to complete.
+func (g QualityGate) Enabled() bool {
+	return g.RequireTestsPass || g.RequireLintPass
 }
 
 // TerminationCondition defines when an agent run should stop.
@@ -80,13 +89,24 @@ type ToolCall struct {
 	Path    string `json:"path,omitempty"`
 }
 
-// HasRuleForSpecifier returns true if the profile already contains a rule
-// with the given specifier (same Tool and SubPattern).
-func (p *PolicyProfile) HasRuleForSpecifier(spec ToolSpecifier) bool {
+// HasRule returns true if the profile already contains a rule equal to rule
+// (same specifier, decision, path and command lists and trust minimum).
+func (p *PolicyProfile) HasRule(rule *PermissionRule) bool {
 	for i := range p.Rules {
-		if p.Rules[i].Specifier == spec {
+		if p.Rules[i].Equal(rule) {
 			return true
 		}
 	}
 	return false
+}
+
+// Equal reports whether two rules are identical. Nil and empty lists are equal.
+func (r *PermissionRule) Equal(o *PermissionRule) bool {
+	return r.Specifier == o.Specifier &&
+		r.Decision == o.Decision &&
+		r.TrustMinimum == o.TrustMinimum &&
+		slices.Equal(r.PathAllow, o.PathAllow) &&
+		slices.Equal(r.PathDeny, o.PathDeny) &&
+		slices.Equal(r.CommandAllow, o.CommandAllow) &&
+		slices.Equal(r.CommandDeny, o.CommandDeny)
 }

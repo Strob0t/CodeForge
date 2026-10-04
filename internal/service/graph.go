@@ -59,6 +59,7 @@ func NewGraphService(store database.Store, queue messagequeue.Queue, hub broadca
 func (s *GraphService) RequestBuild(ctx context.Context, projectID, workspacePath string) error {
 	payload := messagequeue.GraphBuildRequestPayload{
 		ProjectID:     projectID,
+		TenantID:      outgoingTenant(ctx, "graph.build.request"),
 		WorkspacePath: workspacePath,
 	}
 	data, err := json.Marshal(payload)
@@ -88,6 +89,7 @@ func (s *GraphService) RequestBuild(ctx context.Context, projectID, workspacePat
 
 // HandleBuildResult processes the result of a graph build from the Python worker.
 func (s *GraphService) HandleBuildResult(ctx context.Context, payload *messagequeue.GraphBuildResultPayload) error {
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 	status := payload.Status
 	if payload.Error != "" {
 		status = "error"

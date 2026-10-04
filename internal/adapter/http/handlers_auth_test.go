@@ -13,6 +13,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // validPassword satisfies the complexity requirements: >=10 chars, uppercase, lowercase, digit.
@@ -378,6 +379,41 @@ func TestHandleGetCurrentUser(t *testing.T) {
 	}
 	if resp.Email != "me@test.com" {
 		t.Fatalf("expected email me@test.com, got %q", resp.Email)
+	}
+}
+
+// TestHandleGetCurrentUser_PlatformAdminFlag: the frontend shows actions on
+// what all tenants share (models, provider credentials) only to platform
+// admins, read from is_platform_admin (KI-75).
+func TestHandleGetCurrentUser_PlatformAdminFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		u    *user.User
+		want bool
+	}{
+		{"platform admin", &user.User{ID: "pa", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}, true},
+		{"admin of another tenant", &user.User{ID: "ta", Role: user.RoleAdmin, TenantID: "11111111-2222-3333-4444-555555555555"}, false},
+		{"editor of the default tenant", &user.User{ID: "de", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := withUserContext(httptest.NewRequest("GET", "/api/v1/auth/me", http.NoBody), tt.u)
+			w := httptest.NewRecorder()
+			newTestRouter().ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+			}
+			var resp struct {
+				ID              string `json:"id"`
+				IsPlatformAdmin *bool  `json:"is_platform_admin"`
+			}
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.ID != tt.u.ID || resp.IsPlatformAdmin == nil || *resp.IsPlatformAdmin != tt.want {
+				t.Fatalf("got id %q is_platform_admin %v, want %v", resp.ID, resp.IsPlatformAdmin, tt.want)
+			}
+		})
 	}
 }
 

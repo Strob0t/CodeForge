@@ -43,7 +43,7 @@ DEFINITION = ToolDefinition(
         "Using create_skill for normal coding work -- use write_file to create files",
         "Calling create_skill without a real reusable pattern to save",
         "Missing required fields: name, type, description, content",
-        "Retrying after UUID/validation error -- the error means the skill system is not available for this task",
+        "Retrying after a 'not saved' error -- the skill system is not available for this task",
     ],
     parameters={
         "type": "object",
@@ -142,8 +142,9 @@ class CreateSkillTool:
 
         if self._save_fn is None:
             return ToolResult(
-                output=f"Skill '{name}' validated but no save function configured.",
-                success=True,
+                output="",
+                error=f"Skill '{name}' not saved: skill storage is not available for this task.",
+                success=False,
             )
 
         try:

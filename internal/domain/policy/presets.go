@@ -7,14 +7,11 @@ func PresetPlanReadonly() PolicyProfile {
 		Name:        "plan-readonly",
 		Description: "Read-only mode for debugging and previewing. No side-effects allowed.",
 		Mode:        ModePlan,
-		Rules: []PermissionRule{
-			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionDeny},
-			{Specifier: ToolSpecifier{Tool: "Write"}, Decision: DecisionDeny},
-			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionDeny},
-		},
+		Rules: append(readOnlyRules(),
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionDeny},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionDeny},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionDeny},
+		),
 		Termination: TerminationCondition{
 			MaxSteps:       30,
 			TimeoutSeconds: 300,
@@ -30,24 +27,17 @@ func PresetHeadlessSafeSandbox() PolicyProfile {
 		Name:        "headless-safe-sandbox",
 		Description: "Safe sandbox for headless/autonomous execution. Strict safety limits.",
 		Mode:        ModeDefault,
-		Rules: []PermissionRule{
-			{Specifier: ToolSpecifier{Tool: "LLM"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
-			{
-				Specifier: ToolSpecifier{Tool: "Edit"},
-				Decision:  DecisionAllow,
-				PathDeny:  []string{".env", "**/.env", "secrets/**", "**/credentials.*"},
-			},
-			{
-				Specifier:    ToolSpecifier{Tool: "Bash"},
+		Rules: append(readOnlyRules(),
+			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAsk, PathDeny: protectedPaths()},
+			PermissionRule{
+				Specifier:    ToolSpecifier{Tool: ToolBash},
 				Decision:     DecisionAllow,
 				CommandAllow: []string{"git status", "git diff", "git log", "go test", "python -m pytest", "npm test", "make test", "make lint"},
 			},
-			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionDeny},
-		},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionDeny},
+		),
 		QualityGate: QualityGate{
 			RequireTestsPass:   true,
 			RequireLintPass:    true,
@@ -70,25 +60,16 @@ func PresetHeadlessPermissiveSandbox() PolicyProfile {
 		Name:        "headless-permissive-sandbox",
 		Description: "Permissive sandbox for batch operations and refactoring.",
 		Mode:        ModeAcceptEdits,
-		Rules: []PermissionRule{
-			{Specifier: ToolSpecifier{Tool: "LLM"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
-			{
-				Specifier: ToolSpecifier{Tool: "Edit"},
-				Decision:  DecisionAllow,
-				PathDeny:  []string{".env", "**/.env", "secrets/**"},
+		Rules: append(readOnlyRules(),
+			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{
+				Specifier:   ToolSpecifier{Tool: ToolBash},
+				Decision:    DecisionAllow,
+				CommandDeny: []string{"curl", "wget", "ssh", "scp", "nc", "ncat"},
 			},
-			{Specifier: ToolSpecifier{Tool: "Write"}, Decision: DecisionAllow},
-			{
-				Specifier:    ToolSpecifier{Tool: "Bash"},
-				Decision:     DecisionDeny,
-				CommandAllow: []string{"curl", "wget", "ssh", "scp", "nc", "ncat"},
-			},
-			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionAllow},
-		},
+		),
 		QualityGate: QualityGate{
 			RequireTestsPass: true,
 		},
@@ -109,26 +90,12 @@ func PresetTrustedMountAutonomous() PolicyProfile {
 		Name:        "trusted-mount-autonomous",
 		Description: "Fully autonomous with direct file access. Minimal restrictions.",
 		Mode:        ModeAcceptEdits,
-		Rules: []PermissionRule{
-			{Specifier: ToolSpecifier{Tool: "LLM"}, Decision: DecisionAllow},
-			{
-				Specifier: ToolSpecifier{Tool: "Edit"},
-				Decision:  DecisionDeny,
-				PathAllow: []string{".env", "**/.env", "secrets/**"},
-			},
-			{
-				Specifier: ToolSpecifier{Tool: "Write"},
-				Decision:  DecisionDeny,
-				PathAllow: []string{".env", "**/.env", "secrets/**"},
-			},
-			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Glob"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Grep"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Edit"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Write"}, Decision: DecisionAllow},
-			{Specifier: ToolSpecifier{Tool: "Bash"}, Decision: DecisionAllow},
-		},
+		Rules: append(readOnlyRules(),
+			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: protectedPaths()},
+			PermissionRule{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionAllow},
+		),
 		Termination: TerminationCondition{
 			MaxSteps:       200,
 			TimeoutSeconds: 3600,
@@ -145,12 +112,41 @@ func PresetSupervisedAskAll() PolicyProfile {
 		Description: "Supervised mode: all tools require user approval except Read.",
 		Mode:        ModeDefault,
 		Rules: []PermissionRule{
-			{Specifier: ToolSpecifier{Tool: "Read"}, Decision: DecisionAllow},
+			{Specifier: ToolSpecifier{Tool: ToolRead}, Decision: DecisionAllow},
 		},
 		Termination: TerminationCondition{
 			MaxSteps: 50,
 		},
 	}
+}
+
+// readOnlyRules allows the LLM call and the read-only built-in tools.
+func readOnlyRules() []PermissionRule {
+	return []PermissionRule{
+		{Specifier: ToolSpecifier{Tool: ToolLLM}, Decision: DecisionAllow},
+		{Specifier: ToolSpecifier{Tool: ToolRead}, Decision: DecisionAllow},
+		{Specifier: ToolSpecifier{Tool: ToolGlob}, Decision: DecisionAllow},
+		{Specifier: ToolSpecifier{Tool: ToolGrep}, Decision: DecisionAllow},
+		{Specifier: ToolSpecifier{Tool: ToolListDir}, Decision: DecisionAllow},
+	}
+}
+
+// secretPaths are the workspace files that hold secrets.
+func secretPaths() []string {
+	return []string{".env", "**/.env", "secrets/**", "**/credentials.*"}
+}
+
+// gitMetadataPaths are git's own files: the Go Core runs git in the workspace,
+// and .git/config, hooks and info/attributes make git run programs (KI-77).
+// Bash can still write there, which the Go Core's hardened git covers.
+func gitMetadataPaths() []string {
+	return []string{"**/.git", "**/.git/**"}
+}
+
+// protectedPaths are the workspace paths that no preset lets an agent edit or
+// write.
+func protectedPaths() []string {
+	return append(secretPaths(), gitMetadataPaths()...)
 }
 
 // PresetNames returns the names of all built-in presets.

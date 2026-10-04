@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -51,13 +52,44 @@ func (s *RuntimeService) handleQualityGateResult(ctx context.Context, data []byt
 	return s.HandleQualityGateResult(ctx, &result)
 }
 
-// handleHeartbeat records the latest heartbeat timestamp for a run.
-func (s *RuntimeService) handleHeartbeat(_ context.Context, data []byte) error {
+// handleHeartbeat unmarshals a worker heartbeat and delegates to HandleHeartbeat.
+func (s *RuntimeService) handleHeartbeat(ctx context.Context, data []byte) error {
 	var hb messagequeue.RunHeartbeatPayload
 	if err := json.Unmarshal(data, &hb); err != nil {
 		return fmt.Errorf("unmarshal heartbeat: %w", err)
 	}
+	return s.HandleHeartbeat(ctx, &hb)
+}
+
+// HeartbeatPhaseQualityGate marks the heartbeats a worker sends while it runs
+// a run's quality gate.
+const HeartbeatPhaseQualityGate = "quality_gate"
+
+// HandleHeartbeat records a worker heartbeat in the store, where the
+// stuck-work watchdog finds the work whose worker died (KI-65). A run's
+// heartbeat is also kept in memory for the termination check of its tool
+// calls. A conversation run's heartbeat names its turn and counts only for
+// the conversation's active turn; it is not kept in memory. A quality gate
+// heartbeat refreshes the run's updated_at while the run waits in
+// quality_gate, which tells the watchdog (on any replica, also after a
+// restart) that the gate still runs. Heartbeats are delivered at least once;
+// recording one twice is harmless. An agent heartbeat that cannot be recorded
+// is logged and dropped: the next one follows.
+func (s *RuntimeService) HandleHeartbeat(ctx context.Context, hb *messagequeue.RunHeartbeatPayload) error {
+	ctx = withPayloadTenant(ctx, hb.TenantID)
+	if hb.TurnID != "" {
+		logBestEffort(ctx, s.store.TouchConversationTurnHeartbeat(ctx, hb.RunID, hb.TurnID),
+			"TouchConversationTurnHeartbeat", slog.String("conversation_id", hb.RunID), slog.String("turn_id", hb.TurnID))
+		return nil
+	}
 	s.state.SetHeartbeat(hb.RunID, time.Now())
+	if hb.Phase == HeartbeatPhaseQualityGate {
+		if err := s.store.TouchRun(ctx, hb.RunID, run.StatusQualityGate); err != nil {
+			return fmt.Errorf("quality gate heartbeat: %w", err)
+		}
+		return nil
+	}
+	logBestEffort(ctx, s.store.TouchRunHeartbeat(ctx, hb.RunID), "TouchRunHeartbeat", slog.String("run_id", hb.RunID))
 	return nil
 }
 
@@ -68,6 +100,7 @@ func (s *RuntimeService) handleRunOutput(ctx context.Context, data []byte) error
 	if err := json.Unmarshal(data, &output); err != nil {
 		return fmt.Errorf("unmarshal run output: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, output.TenantID)
 	s.hub.BroadcastEvent(ctx, event.EventTaskOutput, event.TaskOutputEvent{
 		TaskID: output.TaskID,
 		Line:   output.Line,
@@ -89,6 +122,7 @@ type trajectoryPayload struct {
 	EventType string  `json:"event_type"`
 	RunID     string  `json:"run_id"`
 	ProjectID string  `json:"project_id"`
+	TenantID  string  `json:"tenant_id,omitempty"`
 	ToolName  string  `json:"tool_name,omitempty"`
 	Model     string  `json:"model,omitempty"`
 	Input     string  `json:"input,omitempty"`
@@ -108,6 +142,7 @@ func (s *RuntimeService) handleTrajectoryEvent(ctx context.Context, data []byte)
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal trajectory event: %w", err)
 	}
+	ctx = withPayloadTenant(ctx, payload.TenantID)
 
 	// Use RunID as fallback for AgentID/TaskID when not available
 	// (conversation runs don't have separate agent/task IDs).
@@ -255,7 +290,8 @@ func (s *RuntimeService) handleTrajectoryRoadmapProposed(ctx context.Context, ru
 }
 
 // handleTrajectorySubagentRequested broadcasts an AG-UI text message informing
-// about a sub-agent spawn request.
+// about a sub-agent spawn request. Planned (KI-25): no sub-agent is started,
+// and the worker does not offer spawn_subagent until one is.
 func (s *RuntimeService) handleTrajectorySubagentRequested(ctx context.Context, runID, projectID string, data []byte) {
 	var req struct {
 		Data struct {

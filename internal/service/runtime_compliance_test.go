@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -43,7 +44,24 @@ func newComplianceEnv(_ run.ExecMode) (*service.RuntimeService, *runtimeMockStor
 	return svc, store, queue, bc
 }
 
+// rejectedUntilIsolated reports whether mode cannot start yet and, if so,
+// asserts that StartRun rejected it. Sandbox runs fail closed until tools
+// execute inside the container (KI-13); once the mode becomes available, the
+// start-based scenarios below cover it again without changes.
+func rejectedUntilIsolated(t *testing.T, mode run.ExecMode, startErr error) bool {
+	t.Helper()
+	if mode.CheckAvailable() == nil {
+		return false
+	}
+	if !errors.Is(startErr, run.ErrExecModeUnavailable) {
+		t.Fatalf("StartRun(%s) error = %v, want ErrExecModeUnavailable", mode, startErr)
+	}
+	return true
+}
+
 // TestRuntimeCompliance runs the same scenarios against both Mount and Sandbox exec modes.
+// Scenarios on already existing runs apply to both; starting a run is rejected for
+// modes that cannot isolate tool execution yet.
 func TestRuntimeCompliance(t *testing.T) {
 	modes := []run.ExecMode{run.ExecModeMount, run.ExecModeSandbox}
 
@@ -60,6 +78,12 @@ func TestRuntimeCompliance(t *testing.T) {
 					ExecMode:  mode,
 				}
 				r, err := svc.StartRun(ctx, &req)
+				if rejectedUntilIsolated(t, mode, err) {
+					if _, ok := queue.lastMessage(messagequeue.SubjectRunStart); ok {
+						t.Fatal("a rejected run must not be published to NATS")
+					}
+					return
+				}
 				if err != nil {
 					t.Fatalf("StartRun failed: %v", err)
 				}
@@ -363,6 +387,9 @@ func TestRuntimeCompliance(t *testing.T) {
 					ExecMode:  mode,
 				}
 				r, err := svc.StartRun(ctx, &req)
+				if rejectedUntilIsolated(t, mode, err) {
+					return
+				}
 				if err != nil {
 					t.Fatalf("StartRun failed: %v", err)
 				}

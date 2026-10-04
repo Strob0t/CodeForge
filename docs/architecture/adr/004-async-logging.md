@@ -44,26 +44,28 @@ Key design:
 
 Mirrors the Go approach using Python stdlib for async buffering and `structlog` for JSON formatting:
 - `queue.Queue(maxsize=10_000)` as the buffer
-- `logging.handlers.QueueHandler` for non-blocking enqueue (provides the async mechanism)
+- `logging.handlers.QueueHandler` for non-blocking enqueue (provides the async mechanism); records are formatted in the calling thread, so the listener only writes finished lines
 - `logging.handlers.QueueListener` with a background thread for draining
-- `structlog.JSONRenderer` for formatting log records as structured JSON (formatting only, not async)
-- `stop_logging()` function for graceful shutdown
+- one `structlog.stdlib.ProcessorFormatter` on the root queue handler renders structlog and stdlib records (httpx, nats) alike; its last step redacts URL userinfo across the whole rendered line
+- `stop_logging()` function for graceful shutdown (called at the end of the worker's `main()`)
 
-#### Log Schemas
+#### Log Schema
 
-Both Go and Python emit structured JSON, but with different key names:
+Go and Python emit the same keys, one JSON object per line:
 
 **Go (slog):**
 ```json
-{"time": "...", "level": "INFO", "service": "codeforge", "msg": "...", "request_id": "..."}
+{"time": "...", "level": "INFO", "msg": "...", "service": "codeforge-core", "request_id": "..."}
 ```
 
-**Python (structlog):**
+**Python (structlog + stdlib):**
 ```json
-{"timestamp": "...", "level": "info", "service": "codeforge-worker", "event": "...", "request_id": "..."}
+{"time": "2026-09-30T12:00:00.123Z", "level": "INFO", "msg": "...", "service": "codeforge-worker", "logger": "codeforge.consumer", "request_id": "..."}
 ```
 
-Note: Go uses `time`/`msg`, Python uses `timestamp`/`event`. The `level` and `request_id` fields are shared, enabling cross-service correlation.
+`time` is the record's creation time in UTC with milliseconds; levels are DEBUG, INFO, WARN, ERROR (Python CRITICAL maps to ERROR); tracebacks go into an `exception` field. The Go `service` field defaults to `codeforge-core` (`logging.service`, `internal/config/config.go`).
+
+> **Implementation status (2026-09-30):** the worker schema matches Go since the KI-35 fix; before it, structlog wrote `timestamp`/`event`/lowercase levels and stdlib loggers wrote plain text.
 
 ### Consequences
 
@@ -83,7 +85,7 @@ Note: Go uses `time`/`msg`, Python uses `timestamp`/`event`. The `level` and `re
 
 #### Neutral
 
-- Async mode is opt-in via `cfg.Async` (defaults to `true` in production config)
+- Async mode is controlled by `cfg.Async` (`logging.async`), which defaults to `true` in all environments; set it to `false` for ordered synchronous logging
 - Sync mode available for development/debugging where log ordering matters more than throughput
 
 ### Alternatives Considered

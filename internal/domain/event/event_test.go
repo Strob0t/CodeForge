@@ -67,3 +67,27 @@ func TestAgentEvent_SequenceNumberJSON(t *testing.T) {
 		}
 	})
 }
+
+// KI-17: the refactoring impact event carries what the frontend's
+// ReviewImpactEvent (frontend/src/api/types.ts) and RefactorApproval read.
+func TestReviewImpactEvent_JSONFields(t *testing.T) {
+	data, err := json.Marshal(event.ReviewImpactEvent{RunID: "r", Reason: "why"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, key := range []string{
+		"run_id", "plan_id", "step_id", "project_id", "impact_level",
+		"files_changed", "lines_added", "lines_removed", "cross_layer", "structural", "reason",
+	} {
+		if _, ok := fields[key]; !ok {
+			t.Errorf("ReviewImpactEvent JSON has no %q: %s", key, data)
+		}
+	}
+	if len(fields) != 11 {
+		t.Errorf("ReviewImpactEvent JSON has %d fields, want 11: %s", len(fields), data)
+	}
+}

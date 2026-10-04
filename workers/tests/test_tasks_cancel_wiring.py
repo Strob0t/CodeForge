@@ -41,6 +41,7 @@ class TestRuntimeClientCancelByTaskID:
     def runtime(self, mock_js: AsyncMock) -> RuntimeClient:
         return RuntimeClient(
             js=mock_js,
+            notifications=mock_js,
             run_id="run-abc",
             task_id="task-xyz",
             project_id="proj-1",
@@ -133,6 +134,7 @@ class TestRunsHandlerExtraSubjects:
 
     async def test_start_cancel_listener_called_with_tasks_cancel(self) -> None:
         """_do_run_start should call start_cancel_listener with tasks.cancel in extra_subjects."""
+        from codeforge.consumer._base import ConsumerBaseMixin
         from codeforge.consumer._runs import RunHandlerMixin
         from codeforge.consumer._subjects import SUBJECT_TASK_CANCEL
         from codeforge.models import RunStartMessage, TerminationConfig
@@ -145,12 +147,13 @@ class TestRunsHandlerExtraSubjects:
             agent_id="agent-1",
             prompt="do something",
             policy_profile="default",
-            exec_mode="sandbox",
+            exec_mode="mount",
             termination=TerminationConfig(max_steps=50, timeout_seconds=600, max_cost=5.0),
+            heartbeat_seconds=7,
         )
 
         # Create handler with mock dependencies
-        handler = type("Handler", (RunHandlerMixin,), {})()
+        handler = type("Handler", (RunHandlerMixin, ConsumerBaseMixin), {})()
         mock_js = AsyncMock()
         mock_js.subscribe = AsyncMock(return_value=AsyncMock())
         handler._js = mock_js
@@ -163,14 +166,24 @@ class TestRunsHandlerExtraSubjects:
         import codeforge.consumer._runs as runs_module
 
         captured_extra = []
+        heartbeat_intervals: list[float] = []
+        closed: list[bool] = []
 
         class MockRuntime:
             def __init__(self, **kwargs: object) -> None:
                 self.run_id = kwargs["run_id"]
                 self.task_id = kwargs["task_id"]
 
-            async def start_cancel_listener(self, extra_subjects: list[str] | None = None) -> None:
+            async def start_cancel_listener(
+                self, extra_subjects: list[str] | None = None, after: int | None = None
+            ) -> None:
                 captured_extra.extend(extra_subjects or [])
+
+            async def start_heartbeat(self, interval: float = 30.0) -> None:
+                heartbeat_intervals.append(interval)
+
+            async def close(self) -> None:
+                closed.append(True)
 
         original_rc = runs_module.RuntimeClient
         runs_module.RuntimeClient = MockRuntime  # type: ignore[assignment,misc]
@@ -183,3 +196,5 @@ class TestRunsHandlerExtraSubjects:
             runs_module.RuntimeClient = original_rc  # type: ignore[assignment,misc]
 
         assert SUBJECT_TASK_CANCEL in captured_extra
+        assert heartbeat_intervals == [7.0], "the run beats at Go's runtime.heartbeat_interval (S2-F review, F11)"
+        assert closed == [True], "the run's cancel listeners must be released when it ends"

@@ -6,6 +6,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 )
@@ -83,6 +84,10 @@ func (s *ServerDef) Validate() error {
 	case TransportSSE, TransportStreamableHTTP:
 		if s.URL == "" {
 			return fmt.Errorf("%w: url is required for %s transport", domain.ErrValidation, s.Transport)
+		}
+		// The parse error is not shown: it can quote a password of the url.
+		if u, err := url.Parse(s.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return fmt.Errorf("%w: url must be an http or https URL with a host", domain.ErrValidation)
 		}
 	}
 

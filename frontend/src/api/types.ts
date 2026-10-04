@@ -42,7 +42,8 @@ export interface UpdateProjectRequest {
   description?: string;
   repo_url?: string;
   provider?: string;
-  config?: Record<string, string>;
+  /** Merged into the stored config: a key with a value is set, a key with null is removed, other keys are kept. */
+  config?: Record<string, string | null>;
 }
 
 /** Matches Go domain/project.ParsedRepoURL */
@@ -890,6 +891,8 @@ export interface User {
   tenant_id: string;
   enabled: boolean;
   must_change_password?: boolean;
+  /** Admin of the default tenant: manages what all tenants share (LLM models, provider credentials). */
+  is_platform_admin: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -911,6 +914,13 @@ export interface LoginResponse {
   access_token: string;
   expires_in: number;
   user: User;
+}
+
+/** Matches Go POST /api/v1/ws/ticket: a single-use WebSocket upgrade ticket. */
+export interface WSTicketResponse {
+  ticket: string;
+  /** Seconds until the ticket expires. */
+  expires_in: number;
 }
 
 /** Matches Go domain/user.CreateRequest */
@@ -1276,6 +1286,12 @@ export interface CreateMCPServerRequest {
   enabled: boolean;
 }
 
+/** An MCP server to test: a new one, or a saved one being edited (with its id,
+ * whose stored env and header values stand in for "***"). */
+export interface TestMCPServerRequest extends CreateMCPServerRequest {
+  id?: string;
+}
+
 /** Result of an MCP server connection test */
 export interface MCPTestResult {
   success: boolean;
@@ -1398,6 +1414,8 @@ export interface BenchmarkResult {
   tokens_out: number;
   duration_ms: number;
   evaluator_scores?: Record<string, Record<string, number>>;
+  /** Dimensions an evaluator could not score (dimension -> error); never in scores. */
+  evaluation_errors?: Record<string, string>;
   files_changed?: string[];
   functional_test_output?: string;
   rollout_id?: number;
@@ -1607,13 +1625,23 @@ export interface ActiveWorkItem {
   started_at: string;
 }
 
+/**
+ * Status of a handoff as the Go Core announces it: initiated (the target's
+ * run started), quarantined (held for review), rejected (by the quarantine),
+ * failed (refused, or its retries ran out), a2a_delegated (sent to a remote
+ * A2A agent).
+ */
+export type HandoffStatus = "initiated" | "quarantined" | "rejected" | "failed" | "a2a_delegated";
+
 /** WS event: handoff status between agents (Phase 23D War Room) */
 export interface HandoffStatusEvent {
   source_agent_id: string;
   target_agent_id: string;
   plan_id?: string;
   step_id?: string;
-  status: "initiated" | "accepted" | "completed" | "failed";
+  /** The target agent's run (status initiated). */
+  run_id?: string;
+  status: HandoffStatus;
   context?: string;
 }
 
@@ -1652,11 +1680,10 @@ export interface UpdateGoalRequest {
   enabled?: boolean;
 }
 
+/** Matches Go service.GoalDiscoveryResult (goals is null when nothing was detected) */
 export interface GoalDiscoveryResult {
-  detected: number;
-  imported: number;
-  skipped: number;
-  sources: string[];
+  goals_created: number;
+  goals: ProjectGoal[] | null;
 }
 
 // --- Subscription Providers (OAuth Device Flow) ---
@@ -1851,6 +1878,60 @@ export interface BoundaryConfig {
   version: number;
 }
 
+/** Answer of a review trigger: the started plan (triggered is always true). */
+export interface ReviewTriggerResponse {
+  triggered: boolean;
+  plan_id?: string;
+}
+
+/**
+ * Impact of a review pipeline's refactoring (WS `review.approval_required`,
+ * `review.refactor_applied`; Go event.ReviewImpactEvent).
+ */
+export interface ReviewImpactEvent {
+  run_id: string;
+  plan_id: string;
+  step_id: string;
+  project_id: string;
+  impact_level: "low" | "medium" | "high";
+  files_changed: number;
+  lines_added: number;
+  lines_removed: number;
+  cross_layer: boolean;
+  structural: boolean;
+  /** Why the refactoring needs approval although it could not be scored. */
+  reason?: string;
+}
+
+/**
+ * A refactoring that waits for keep or undo (GET /projects/{id}/review/pending;
+ * Go service.PendingReviewDecision). A failed or cancelled refactoring step
+ * waits too: its plan stays as it ended.
+ */
+export interface PendingReviewDecision extends ReviewImpactEvent {
+  step_status: string;
+  plan_status: string;
+  since: string;
+}
+
+/** Answer to keep (approve) or undo (reject); Go service.ReviewDecision. */
+export interface ReviewDecisionResponse {
+  status: "approved" | "rejected";
+  /** The refactoring had committed and HEAD was moved back. */
+  head_restored: boolean;
+  /** What the undo could not do, e.g. why HEAD was left where it is. */
+  message?: string;
+  restored_paths?: string[];
+}
+
+/** A slash command offered by the backend (GET /commands). */
+export interface CommandInfo {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+}
+
 // --- Quarantine types (Phase 23) ---
 
 /** Quarantine message status (matches Go domain/quarantine.Status) */
@@ -1868,6 +1949,9 @@ export interface QuarantineMessage {
   risk_score: number;
   risk_factors: string[];
   status: QuarantineStatus;
+  /** The reviewer's user ID; absent before the review and after the reviewer's erasure. */
+  reviewed_by_id?: string;
+  /** The reviewer's name at the time of the review. */
   reviewed_by: string;
   review_note: string;
   created_at: string;
@@ -1883,9 +1967,8 @@ export interface QuarantineStats {
   expired: number;
 }
 
-/** Request body for approve/reject actions */
+/** Request body for approve/reject actions (the reviewer is the logged-in user) */
 export interface QuarantineReviewRequest {
-  reviewed_by: string;
   note: string;
 }
 
@@ -2068,5 +2151,44 @@ export interface RoutingOutcome {
   run_id?: string;
   conversation_id?: string;
   prompt_hash?: string;
+  created_at: string;
+}
+
+// --- Channels (Phase 9) ---
+
+/** Matches Go domain/channel.Channel. */
+export interface ChannelRecord {
+  id: string;
+  tenant_id: string;
+  project_id?: string;
+  name: string;
+  type: "project" | "bot";
+  description: string;
+  /** A webhook key was generated (the key itself is shown only once). */
+  has_webhook_key: boolean;
+  created_by?: string;
+  created_at: string;
+  /** Top-level messages of others after the caller's read position. */
+  unread_count: number;
+}
+
+/** Matches Go domain/channel.ReadState. */
+export interface ChannelReadState {
+  channel_id: string;
+  user_id: string;
+  last_read_message_id?: string;
+  last_read_at: string;
+}
+
+/** Matches Go domain/channel.Message (Go omits an empty parent_id and sender_id). */
+export interface ChannelMessageRecord {
+  id: string;
+  channel_id: string;
+  /** The user who posted it; absent for agents, bots and webhooks. */
+  sender_id?: string;
+  sender_type: string;
+  sender_name: string;
+  content: string;
+  parent_id: string;
   created_at: string;
 }

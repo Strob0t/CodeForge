@@ -3,10 +3,10 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // DeliveryResult holds the outcome of a delivery operation.
@@ -26,7 +27,10 @@ type DeliveryResult struct {
 	PushError  string          `json:"push_error,omitempty"` // P2-5: propagate push failure
 }
 
-// DeliverService executes delivery strategies after a successful run.
+// DeliverService executes delivery strategies after a successful run. All
+// git (and gh) runs through git.OpenRepo's hardened repository (KI-77):
+// the workspace is agent-writable, so its hooks, filters, drivers and
+// transport settings must not run in the Go Core.
 type DeliverService struct {
 	store database.Store
 	cfg   *config.Runtime
@@ -36,6 +40,15 @@ type DeliverService struct {
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
 	return &DeliverService{store: store, cfg: cfg, pool: pool}
+}
+
+// deliveryIdentity is the author of delivery commits in a repository that
+// configures none (the Go Core ignores global git config).
+var deliveryIdentity = []string{
+	"GIT_AUTHOR_NAME=CodeForge",
+	"GIT_AUTHOR_EMAIL=codeforge@codeforge.invalid",
+	"GIT_COMMITTER_NAME=CodeForge",
+	"GIT_COMMITTER_EMAIL=codeforge@codeforge.invalid",
 }
 
 // Deliver executes the delivery strategy for the given run.
@@ -61,7 +74,7 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 
 	switch r.DeliverMode {
 	case run.DeliverModePatch:
-		return s.deliverPatch(ctx, dir, r, shortID)
+		return s.deliverPatch(ctx, dir, r)
 	case run.DeliverModeCommitLocal:
 		return s.deliverCommitLocal(ctx, dir, r, shortID, taskTitle)
 	case run.DeliverModeBranch:
@@ -73,16 +86,26 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	}
 }
 
-func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run, shortID string) (*DeliveryResult, error) {
+// deliverPatch writes the run's change as a patch: the working tree
+// (including new files) against the run's base checkpoint, the working tree
+// before its first change, so the user's earlier uncommitted work and files
+// of earlier deliveries are not part of it. The diff is taken from a private
+// index (the user's index is not touched) before the checkpoints are cleaned
+// up, and the patch is written inside the repository's .git directory, where
+// git does not see it as a change.
+func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Run) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		diff, err := runDeliverGit(ctx, dir, "diff", "HEAD")
+		repo, err := git.OpenRepo(ctx, dir)
 		if err != nil {
-			return fmt.Errorf("git diff: %w", err)
+			return fmt.Errorf("patch delivery: %w", err)
 		}
-
-		patchFile := filepath.Join(dir, fmt.Sprintf("%s.patch", shortID))
-		if err := os.WriteFile(patchFile, []byte(diff), 0o600); err != nil {
+		diff, err := runChange(ctx, repo, r.ID)
+		if err != nil {
+			return fmt.Errorf("patch delivery: %w", err)
+		}
+		patchFile, err := writePatch(repo, r.ID, diff)
+		if err != nil {
 			return fmt.Errorf("write patch: %w", err)
 		}
 
@@ -96,60 +119,127 @@ func (s *DeliverService) deliverPatch(ctx context.Context, dir string, r *run.Ru
 	return result, err
 }
 
+// runChange returns the run's change as a binary diff: its base checkpoint
+// against the working tree now.
+func runChange(ctx context.Context, repo *git.Repo, runID string) (string, error) {
+	if err := checkRunID(runID); err != nil {
+		return "", err
+	}
+	tip, _, err := readCheckpointRef(ctx, repo, runID)
+	if err != nil {
+		return "", err
+	}
+	if tip == "" {
+		return "", fmt.Errorf("run %s: %w: its change is unknown", runID, ErrNoCheckpoints)
+	}
+	base, err := resolveBase(ctx, repo, tip)
+	if err != nil {
+		return "", err
+	}
+	idx, err := newWorktreeIndex(ctx, repo)
+	if err != nil {
+		return "", fmt.Errorf("patch index: %w", err)
+	}
+	defer idx.remove()
+	args := append([]string{"diff", "--cached", "--binary"}, git.DiffFormatArgs...)
+	diff, err := repo.Run(ctx, idx.env, append(args, base.commit, "--")...)
+	if err != nil {
+		return "", fmt.Errorf("git diff: %w", err)
+	}
+	return diff, nil
+}
+
+// patchDir is where patches are written, relative to the .git directory.
+const patchDir = "codeforge/patches"
+
+// writePatch writes the patch to .git/codeforge/patches/<run>.patch and
+// returns its path. The directory is agent-writable: all access goes through
+// workspacefs on .git (os.Root, never blocking: a FIFO swapped in for .git
+// after git.OpenRepo looked at it would otherwise hold a slot of the shared
+// git pool), which refuses symlinks leading out of it; the directories must
+// not be symlinks at all, and an existing file (or symlink) of that name is
+// replaced, never written through.
+func writePatch(repo *git.Repo, runID, diff string) (string, error) {
+	root, err := workspacefs.Open(repo.GitDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	for _, d := range []string{"codeforge", patchDir} {
+		if err := root.Mkdir(d, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		info, err := root.Lstat(d)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf(".git/%s is not a directory", d)
+		}
+	}
+	name := patchDir + "/" + runID + ".patch"
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if err := root.CreateExclusive(name, []byte(diff), 0o600); err != nil {
+		return "", err
+	}
+	return filepath.Join(repo.GitDir, filepath.FromSlash(name)), nil
+}
+
 func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-			return fmt.Errorf("git add: %w", err)
-		}
-
-		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit: %w", err)
-		}
-
-		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		repo, err := git.OpenRepo(ctx, dir)
 		if err != nil {
-			return fmt.Errorf("git rev-parse: %w", err)
+			return fmt.Errorf("commit-local delivery: %w", err)
 		}
-
-		slog.Info("commit-local delivered", "run_id", r.ID, "hash", strings.TrimSpace(hash))
+		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
+		if err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
+		if err := rc.advanceHead(ctx, repo); err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
+		rc.syncIndex(ctx, repo)
+		slog.Info("commit-local delivered", "run_id", r.ID, "hash", rc.commit)
 		result = &DeliveryResult{
 			Mode:       run.DeliverModeCommitLocal,
-			CommitHash: strings.TrimSpace(hash),
+			CommitHash: rc.commit,
 		}
 		return nil
 	})
 	return result, err
 }
 
+func (s *DeliverService) commitMessage(shortID, taskTitle string) string {
+	return fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
+}
+
 func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
+		repo, err := git.OpenRepo(ctx, dir)
+		if err != nil {
+			return fmt.Errorf("branch delivery: %w", err)
+		}
 		branchName := fmt.Sprintf("codeforge/%s", shortID)
 
-		if _, err := runDeliverGit(ctx, dir, "checkout", "-b", branchName); err != nil {
-			return fmt.Errorf("git checkout -b: %w", err)
-		}
-
-		// Commit on the new branch (add, commit, rev-parse)
-		if _, err := runDeliverGit(ctx, dir, "add", "-A"); err != nil {
-			return fmt.Errorf("git add: %w", err)
-		}
-
-		msg := fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
-		if _, err := runDeliverGit(ctx, dir, "commit", "-m", msg); err != nil {
-			return fmt.Errorf("git commit: %w", err)
-		}
-
-		hash, err := runDeliverGit(ctx, dir, "rev-parse", "HEAD")
+		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
 		if err != nil {
-			return fmt.Errorf("git rev-parse: %w", err)
+			return fmt.Errorf("branch delivery: %w", err)
 		}
-		commitHash := strings.TrimSpace(hash)
+		if err := rc.checkoutNewBranch(ctx, repo, "refs/heads/"+branchName); err != nil {
+			return fmt.Errorf("branch delivery: %w", err)
+		}
+		rc.syncIndex(ctx, repo)
+		commitHash := rc.commit
 
+		// The remote and its transport come from agent-writable config: a
+		// repository that configures transports is not pushed from (Push).
+		pushErr := repo.Push(ctx, "--no-verify", "-u", "origin", branchName)
 		var pushError string
-		if _, pushErr := runDeliverGit(ctx, dir, "push", "-u", "origin", branchName); pushErr != nil {
+		if pushErr != nil {
 			pushError = pushErr.Error()
 			slog.Warn("git push failed (branch delivery)", "run_id", r.ID, "error", pushErr)
 		}
@@ -179,44 +269,37 @@ func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, 
 		return branchResult, nil
 	}
 
-	// Try to create PR using gh CLI (not a git operation, no pool needed)
+	// gh reads the remote from the workspace repository and runs git: it
+	// gets the repository's hardened environment.
+	repo, err := git.OpenRepo(ctx, dir)
+	if err == nil {
+		err = repo.RequireNetworkSafe()
+	}
+	if err != nil {
+		slog.Warn("gh pr create skipped, falling back to branch-only", "run_id", r.ID, "error", err)
+		return branchResult, nil
+	}
 	prTitle := fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle)
 	prBody := fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID)
-	prURL, prErr := runDeliverCmd(ctx, dir, "gh", "pr", "create",
+	cmd := repo.Command(ctx, "gh", "pr", "create",
 		"--title", prTitle,
 		"--body", prBody,
 		"--head", branchResult.BranchName,
 	)
-	if prErr != nil {
-		slog.Warn("gh pr create failed, falling back to branch-only", "run_id", r.ID, "error", prErr)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if prErr := cmd.Run(); prErr != nil {
+		slog.Warn("gh pr create failed, falling back to branch-only", "run_id", r.ID, "error", prErr, "stderr", strings.TrimSpace(stderr.String()))
 		return branchResult, nil
 	}
+	prURL := strings.TrimSpace(stdout.String())
 
-	slog.Info("PR delivered", "run_id", r.ID, "url", strings.TrimSpace(prURL))
+	slog.Info("PR delivered", "run_id", r.ID, "url", prURL)
 	return &DeliveryResult{
 		Mode:       run.DeliverModePR,
 		BranchName: branchResult.BranchName,
 		CommitHash: branchResult.CommitHash,
-		PRURL:      strings.TrimSpace(prURL),
+		PRURL:      prURL,
 	}, nil
-}
-
-// runDeliverGit runs a git command in the given directory.
-func runDeliverGit(ctx context.Context, dir string, args ...string) (string, error) {
-	return runDeliverCmd(ctx, dir, "git", args...)
-}
-
-// runDeliverCmd runs an arbitrary command in the given directory.
-func runDeliverCmd(ctx context.Context, dir, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
 }

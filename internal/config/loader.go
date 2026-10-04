@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/netutil"
+	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
 // DefaultConfigFile is the path checked for YAML configuration.
@@ -77,6 +81,12 @@ func Load() (*Config, error) {
 // defaults < YAML < ENV < CLI flags. The YAML path can be overridden
 // via CLIFlags.ConfigPath.
 func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
+	return loadWithCLI(flags, ensureSecrets)
+}
+
+// loadWithCLI is LoadWithCLI with the step that fills missing secrets
+// (ensureSecrets at startup) passed in.
+func loadWithCLI(flags CLIFlags, fillSecrets func(*Config) error) (*Config, string, error) {
 	yamlPath := DefaultConfigFile
 	if v := os.Getenv("CODEFORGE_CONFIG_FILE"); v != "" {
 		yamlPath = v
@@ -92,9 +102,12 @@ func LoadWithCLI(flags CLIFlags) (*Config, string, error) {
 	}
 
 	loadEnv(&cfg)
+	if err := loadSecretFiles(&cfg); err != nil {
+		return nil, "", fmt.Errorf("config secret files: %w", err)
+	}
 	applyCLI(&cfg, flags)
 
-	if err := ensureSecrets(&cfg); err != nil {
+	if err := fillSecrets(&cfg); err != nil {
 		return nil, "", fmt.Errorf("config secrets: %w", err)
 	}
 
@@ -115,6 +128,9 @@ func LoadFrom(yamlPath string) (*Config, error) {
 	}
 
 	loadEnv(&cfg)
+	if err := loadSecretFiles(&cfg); err != nil {
+		return nil, fmt.Errorf("config secret files: %w", err)
+	}
 
 	if err := ensureSecrets(&cfg); err != nil {
 		return nil, fmt.Errorf("config secrets: %w", err)
@@ -170,6 +186,7 @@ func loadEnv(cfg *Config) {
 
 	setString(&cfg.Server.Port, "CODEFORGE_PORT")
 	setString(&cfg.Server.CORSOrigin, "CODEFORGE_CORS_ORIGIN")
+	setStringSlice(&cfg.Server.TrustedProxies, "CODEFORGE_TRUSTED_PROXIES")
 	setString(&cfg.Postgres.DSN, "DATABASE_URL")
 	setTyped(&cfg.Postgres.MaxConns, "CODEFORGE_PG_MAX_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
 	setTyped(&cfg.Postgres.MinConns, "CODEFORGE_PG_MIN_CONNS", func(s string) (int32, error) { n, err := strconv.ParseInt(s, 10, 32); return int32(n), err })
@@ -177,6 +194,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Postgres.MaxConnIdleTime, "CODEFORGE_PG_MAX_CONN_IDLE_TIME", time.ParseDuration)
 	setTyped(&cfg.Postgres.HealthCheck, "CODEFORGE_PG_HEALTH_CHECK", time.ParseDuration)
 	setString(&cfg.NATS.URL, "NATS_URL")
+	setTyped(&cfg.NATS.StreamMaxBytes, "CODEFORGE_NATS_STREAM_MAX_BYTES", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
 	setString(&cfg.LiteLLM.URL, "LITELLM_BASE_URL")
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
 	setString(&cfg.LiteLLM.ConversationModel, "CODEFORGE_CONVERSATION_MODEL")
@@ -196,6 +214,9 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
 	setString(&cfg.Workspace.PipelineDir, "CODEFORGE_WORKSPACE_PIPELINE_DIR")
+	setStringSlice(&cfg.Workspace.AdoptRoots, "CODEFORGE_WORKSPACE_ADOPT_ROOTS")
+	setString(&cfg.Workspace.ToolACLs, "CODEFORGE_WORKSPACE_TOOL_ACLS")
+	setString(&cfg.Knowledge.ContentRoot, "CODEFORGE_KNOWLEDGE_CONTENT_ROOT")
 	setTyped(&cfg.Runtime.StallThreshold, "CODEFORGE_STALL_THRESHOLD", strconv.Atoi)
 	setTyped(&cfg.Runtime.StallMaxRetries, "CODEFORGE_STALL_MAX_RETRIES", strconv.Atoi)
 	setTyped(&cfg.Runtime.QualityGateTimeout, "CODEFORGE_QG_TIMEOUT", time.ParseDuration)
@@ -205,6 +226,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.DeliveryCommitPrefix, "CODEFORGE_COMMIT_PREFIX")
 	setTyped(&cfg.Runtime.HeartbeatInterval, "CODEFORGE_HEARTBEAT_INTERVAL", time.ParseDuration)
 	setTyped(&cfg.Runtime.HeartbeatTimeout, "CODEFORGE_HEARTBEAT_TIMEOUT", time.ParseDuration)
+	setTyped(&cfg.Runtime.TaskAcceptTimeout, "CODEFORGE_TASK_ACCEPT_TIMEOUT", time.ParseDuration)
 	setTyped(&cfg.Runtime.ApprovalTimeoutSeconds, "CODEFORGE_APPROVAL_TIMEOUT_SECONDS", strconv.Atoi)
 
 	// Idempotency
@@ -223,11 +245,6 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.Runtime.Sandbox.NetworkMode, "CODEFORGE_SANDBOX_NETWORK")
 	setString(&cfg.Runtime.Sandbox.Image, "CODEFORGE_SANDBOX_IMAGE")
 
-	// Cache
-	setTyped(&cfg.Cache.L1MaxSizeMB, "CODEFORGE_CACHE_L1_SIZE_MB", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
-	setString(&cfg.Cache.L2Bucket, "CODEFORGE_CACHE_L2_BUCKET")
-	setTyped(&cfg.Cache.L2TTL, "CODEFORGE_CACHE_L2_TTL", time.ParseDuration)
-
 	// Orchestrator
 	setTyped(&cfg.Orchestrator.MaxParallel, "CODEFORGE_ORCH_MAX_PARALLEL", strconv.Atoi)
 	setTyped(&cfg.Orchestrator.PingPongMaxRounds, "CODEFORGE_ORCH_PINGPONG_MAX_ROUNDS", strconv.Atoi)
@@ -240,6 +257,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Orchestrator.PromptReserve, "CODEFORGE_ORCH_PROMPT_RESERVE", strconv.Atoi)
 	setTyped(&cfg.Orchestrator.SubAgentEnabled, "CODEFORGE_ORCH_SUBAGENT_ENABLED", strconv.ParseBool)
 	setString(&cfg.Orchestrator.SubAgentModel, "CODEFORGE_ORCH_SUBAGENT_MODEL")
+	setString(&cfg.Orchestrator.DefaultEmbeddingModel, "CODEFORGE_ORCH_EMBEDDING_MODEL")
 	setTyped(&cfg.Orchestrator.SubAgentMaxQueries, "CODEFORGE_ORCH_SUBAGENT_MAX_QUERIES", strconv.Atoi)
 	setTyped(&cfg.Orchestrator.SubAgentRerank, "CODEFORGE_ORCH_SUBAGENT_RERANK", strconv.ParseBool)
 	setTyped(&cfg.Orchestrator.SubAgentTimeout, "CODEFORGE_ORCH_SUBAGENT_TIMEOUT", time.ParseDuration)
@@ -257,7 +275,8 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Orchestrator.ContextRerankEnabled, "CODEFORGE_CONTEXT_RERANK_ENABLED", strconv.ParseBool)
 	setString(&cfg.Orchestrator.ContextRerankModel, "CODEFORGE_CONTEXT_RERANK_MODEL")
 
-	// Webhook
+	// Webhook (the secrets are the removed global ones, KI-85)
+	setTyped(&cfg.Webhook.DeliveryRetention, "CODEFORGE_WEBHOOK_DELIVERY_RETENTION", time.ParseDuration)
 	setString(&cfg.Webhook.GitHubSecret, "CODEFORGE_WEBHOOK_GITHUB_SECRET")
 	setString(&cfg.Webhook.GitLabToken, "CODEFORGE_WEBHOOK_GITLAB_TOKEN")
 	setString(&cfg.Webhook.PlaneSecret, "CODEFORGE_WEBHOOK_PLANE_SECRET")
@@ -265,6 +284,9 @@ func loadEnv(cfg *Config) {
 	// Notification
 	setString(&cfg.Notification.SlackWebhookURL, "CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL")
 	setString(&cfg.Notification.DiscordWebhookURL, "CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL")
+	setStringSlice(&cfg.Notification.ApprovalRecipients, "CODEFORGE_NOTIFICATION_APPROVAL_RECIPIENTS")
+	setString(&cfg.Notification.WebUIURL, "CODEFORGE_NOTIFICATION_WEB_UI_URL")
+	setStringSlice(&cfg.Notification.ApprovalTenants, "CODEFORGE_NOTIFICATION_APPROVAL_TENANTS")
 
 	// OpenTelemetry
 	setTyped(&cfg.OTEL.Enabled, "CODEFORGE_OTEL_ENABLED", strconv.ParseBool)
@@ -289,6 +311,8 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.MCP.Enabled, "CODEFORGE_MCP_ENABLED", strconv.ParseBool)
 	setString(&cfg.MCP.ServersDir, "CODEFORGE_MCP_SERVERS_DIR")
 	setTyped(&cfg.MCP.ServerPort, "CODEFORGE_MCP_SERVER_PORT", strconv.Atoi)
+	setStringSlice(&cfg.MCP.AllowedPrivateHosts, "CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS")
+	setTyped(&cfg.MCP.UseProxy, "CODEFORGE_MCP_USE_PROXY", strconv.ParseBool)
 
 	// Agent
 	setString(&cfg.Agent.DefaultModel, "CODEFORGE_AGENT_DEFAULT_MODEL")
@@ -315,6 +339,7 @@ func loadEnv(cfg *Config) {
 	// Auth
 	setTyped(&cfg.Auth.Enabled, "CODEFORGE_AUTH_ENABLED", strconv.ParseBool)
 	setString(&cfg.Auth.JWTSecret, "CODEFORGE_AUTH_JWT_SECRET")
+	setString(&cfg.Auth.LLMKeyEncryptionSecret, "CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET")
 	setTyped(&cfg.Auth.AccessTokenExpiry, "CODEFORGE_AUTH_ACCESS_EXPIRY", time.ParseDuration)
 	setTyped(&cfg.Auth.RefreshTokenExpiry, "CODEFORGE_AUTH_REFRESH_EXPIRY", time.ParseDuration)
 	setTyped(&cfg.Auth.BcryptCost, "CODEFORGE_AUTH_BCRYPT_COST", strconv.Atoi)
@@ -358,15 +383,69 @@ func loadEnv(cfg *Config) {
 
 	// Plane
 	setString(&cfg.Plane.APIToken, "CODEFORGE_PLANE_API_TOKEN")
+	setString(&cfg.Plane.BaseURL, "CODEFORGE_PLANE_BASE_URL")
+
+	// PM syncs
+	setStringSlice(&cfg.PM.AllowedPrivateHosts, "CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS")
 
 	// Retention
+	setTyped(&cfg.Retention.Interval, "CODEFORGE_RETENTION_INTERVAL", time.ParseDuration)
 	setTyped(&cfg.Retention.Sessions, "CODEFORGE_RETENTION_SESSIONS", time.ParseDuration)
 	setTyped(&cfg.Retention.Conversations, "CODEFORGE_RETENTION_CONVERSATIONS", time.ParseDuration)
 	setTyped(&cfg.Retention.CostRecords, "CODEFORGE_RETENTION_COST_RECORDS", time.ParseDuration)
 	setTyped(&cfg.Retention.AuditEntries, "CODEFORGE_RETENTION_AUDIT_ENTRIES", time.ParseDuration)
+	setTyped(&cfg.Retention.AuditIPAddresses, "CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES", time.ParseDuration)
+	setTyped(&cfg.Retention.ConsentIPAddresses, "CODEFORGE_RETENTION_CONSENT_IP_ADDRESSES", time.ParseDuration)
 
 	// Env file override
 	setString(&cfg.EnvFile, "CODEFORGE_ENV_FILE")
+}
+
+// secretSetting is a secret that may be given as <key>_FILE (Docker secrets).
+type secretSetting struct {
+	key string
+	set func(string)
+}
+
+// secretSettings lists the settings that accept <key>_FILE. It is limited to
+// secrets on purpose: files are how secrets reach a container without showing
+// up in `docker inspect`, other settings stay plain environment variables.
+func secretSettings(cfg *Config) []secretSetting {
+	str := func(dst *string) func(string) { return func(v string) { *dst = v } }
+	return []secretSetting{
+		{"CODEFORGE_INTERNAL_KEY", str(&cfg.InternalKey)},
+		{"DATABASE_URL", str(&cfg.Postgres.DSN)},
+		{"NATS_URL", str(&cfg.NATS.URL)},
+		{"LITELLM_MASTER_KEY", str(&cfg.LiteLLM.MasterKey)},
+		{"CODEFORGE_AUTH_JWT_SECRET", str(&cfg.Auth.JWTSecret)},
+		{"CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", str(&cfg.Auth.LLMKeyEncryptionSecret)},
+		{"CODEFORGE_AUTH_ADMIN_PASS", str(&cfg.Auth.DefaultAdminPass)},
+		{"CODEFORGE_WEBHOOK_GITHUB_SECRET", str(&cfg.Webhook.GitHubSecret)},
+		{"CODEFORGE_WEBHOOK_GITLAB_TOKEN", str(&cfg.Webhook.GitLabToken)},
+		{"CODEFORGE_WEBHOOK_PLANE_SECRET", str(&cfg.Webhook.PlaneSecret)},
+		{"CODEFORGE_NOTIFICATION_SLACK_WEBHOOK_URL", str(&cfg.Notification.SlackWebhookURL)},
+		{"CODEFORGE_NOTIFICATION_DISCORD_WEBHOOK_URL", str(&cfg.Notification.DiscordWebhookURL)},
+		{"GITHUB_CLIENT_SECRET", str(&cfg.GitHub.ClientSecret)},
+		{"CODEFORGE_SMTP_PASSWORD", str(&cfg.Notification.SMTPPassword)},
+		{"CODEFORGE_PLANE_API_TOKEN", str(&cfg.Plane.APIToken)},
+		{"CODEFORGE_A2A_API_KEYS", func(v string) { cfg.A2A.APIKeys = splitList(v) }},
+	}
+}
+
+// loadSecretFiles overlays secrets read from <key>_FILE onto cfg. It runs after
+// loadEnv, at the same precedence level: a key set both directly and as a
+// file is rejected instead of silently preferring one of them.
+func loadSecretFiles(cfg *Config) error {
+	for _, s := range secretSettings(cfg) {
+		v, ok, err := secrets.LookupFileEnv(s.key)
+		if err != nil {
+			return err
+		}
+		if ok {
+			s.set(v)
+		}
+	}
+	return nil
 }
 
 // validate checks that required fields are set and security constraints are met.
@@ -374,11 +453,17 @@ func validate(cfg *Config) error {
 	if cfg.Server.Port == "" {
 		return errors.New("server.port is required")
 	}
+	if _, err := cfg.Server.TrustedProxyPrefixes(); err != nil {
+		return fmt.Errorf("server.trusted_proxies: %w", err)
+	}
 	if cfg.Postgres.DSN == "" {
 		return errors.New("postgres.dsn is required")
 	}
 	if cfg.NATS.URL == "" {
 		return errors.New("nats.url is required")
+	}
+	if cfg.NATS.StreamMaxBytes < 1 {
+		return errors.New("nats.stream_max_bytes must be >= 1")
 	}
 	if cfg.Postgres.MaxConns < 1 {
 		return errors.New("postgres.max_conns must be >= 1")
@@ -388,6 +473,68 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Rate.Burst < 1 {
 		return errors.New("rate.burst must be >= 1")
+	}
+	if cfg.Notification.SMTPHost != "" && (cfg.Notification.SMTPPort < 1 || cfg.Notification.SMTPPort > 65535) {
+		return fmt.Errorf("notification.smtp_port must be 1-65535 when smtp_host is set (got %d)", cfg.Notification.SMTPPort)
+	}
+	// The gate timeout reaches the worker in whole seconds and bounds the
+	// quality-gate watchdog; the watchdog ticks at stale_check_interval.
+	if cfg.Runtime.QualityGateTimeout < time.Second {
+		return errors.New("runtime.quality_gate_timeout must be >= 1s")
+	}
+	if cfg.Runtime.StaleCheckInterval <= 0 {
+		return errors.New("runtime.stale_check_interval must be > 0")
+	}
+	for _, root := range cfg.Workspace.AdoptRoots {
+		if !filepath.IsAbs(root) || filepath.Clean(root) == "/" {
+			return fmt.Errorf("workspace.adopt_roots: %q must be an absolute directory other than /", root)
+		}
+	}
+	// The default gate commands follow the rules of the project config keys
+	// test_command / lint_command: the worker would refuse them at every gate.
+	if err := project.CheckGateCommand(cfg.Runtime.DefaultTestCommand); err != nil {
+		return fmt.Errorf("runtime.default_test_command: %w", err)
+	}
+	if err := project.CheckGateCommand(cfg.Runtime.DefaultLintCommand); err != nil {
+		return fmt.Errorf("runtime.default_lint_command: %w", err)
+	}
+	if err := validateHeartbeat(&cfg.Runtime); err != nil {
+		return err
+	}
+	if cfg.A2A.Enabled {
+		if _, err := cfg.A2A.ParsedAPIKeys(); err != nil {
+			return fmt.Errorf("a2a.api_keys: %w", err)
+		}
+	}
+	if cfg.Runtime.TaskAcceptTimeout < 0 {
+		return fmt.Errorf("runtime.task_accept_timeout must be 0 (check off) or positive (got %s)", cfg.Runtime.TaskAcceptTimeout)
+	}
+	if cfg.Webhook.DeliveryRetention <= 0 {
+		return fmt.Errorf("webhook.delivery_retention must be positive (got %s)", cfg.Webhook.DeliveryRetention)
+	}
+	if err := validateRetention(&cfg.Retention); err != nil {
+		return err
+	}
+	if err := validateGitHubWebFlow(&cfg.GitHub); err != nil {
+		return err
+	}
+	if err := validateApprovals(&cfg.Notification); err != nil {
+		return err
+	}
+	if err := validateStallMaxRetries(cfg.Runtime.StallMaxRetries); err != nil {
+		return err
+	}
+	if n := cfg.Agent.ToolOutputMaxChars; n < 0 || n > maxToolOutputMaxChars {
+		return fmt.Errorf("agent.tool_output_max_chars must be 0 (the worker's default) to %d (got %d)", maxToolOutputMaxChars, n)
+	}
+	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
+		return err
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.MCP.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("mcp.allowed_private_hosts: %w", err)
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.PM.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("pm.allowed_private_hosts: %w", err)
 	}
 
 	// Auth validation: reject empty JWT secret when auth is enabled.
@@ -456,6 +603,61 @@ func validate(cfg *Config) error {
 	return nil
 }
 
+// validateStallMaxRetries rejects a negative bound on stall re-plans.
+func validateStallMaxRetries(n int) error {
+	if n < 0 {
+		return fmt.Errorf("runtime.stall_max_retries must be 0 (no re-planning) or more (got %d)", n)
+	}
+	return nil
+}
+
+// validateHeartbeat checks the worker heartbeat settings. The interval
+// reaches the worker in whole seconds. A timeout not longer than the
+// interval would end every healthy run between two heartbeats.
+func validateHeartbeat(r *Runtime) error {
+	if r.HeartbeatInterval < 0 || (r.HeartbeatInterval > 0 && r.HeartbeatInterval < time.Second) {
+		return fmt.Errorf("runtime.heartbeat_interval must be 0 (default %s) or at least 1s (got %s)", DefaultWorkerHeartbeatInterval, r.HeartbeatInterval)
+	}
+	if r.HeartbeatTimeout < 0 {
+		return fmt.Errorf("runtime.heartbeat_timeout must be 0 (heartbeat checks off) or positive (got %s)", r.HeartbeatTimeout)
+	}
+	if interval := r.WorkerHeartbeatInterval(); r.HeartbeatTimeout > 0 && r.HeartbeatTimeout <= interval {
+		return fmt.Errorf("runtime.heartbeat_timeout (%s) must be greater than the heartbeat interval (%s)", r.HeartbeatTimeout, interval)
+	}
+	return nil
+}
+
+// minRetentionPeriod is the shortest retention period accepted. The policy is
+// measured in days; a shorter value is a unit mistake ("30m" meant as months
+// would purge everything older than 30 minutes).
+const minRetentionPeriod = 24 * time.Hour
+
+// validateRetention rejects retention settings that would purge more than a
+// policy measured in days: every period is 0 (keep forever) or at least a
+// day, and the job interval is 0 (disabled) or at least a minute.
+func validateRetention(r *Retention) error {
+	if r.Interval < 0 || (r.Interval > 0 && r.Interval < time.Minute) {
+		return fmt.Errorf("retention.interval must be 0 (job disabled) or at least 1m (got %s)", r.Interval)
+	}
+	periods := []struct {
+		key    string
+		period time.Duration
+	}{
+		{"retention.sessions", r.Sessions},
+		{"retention.conversations", r.Conversations},
+		{"retention.cost_records", r.CostRecords},
+		{"retention.audit_entries", r.AuditEntries},
+		{"retention.audit_ip_addresses", r.AuditIPAddresses},
+		{"retention.consent_ip_addresses", r.ConsentIPAddresses},
+	}
+	for _, p := range periods {
+		if p.period < 0 || (p.period > 0 && p.period < minRetentionPeriod) {
+			return fmt.Errorf("%s must be 0 (keep forever) or at least 24h (got %s)", p.key, p.period)
+		}
+	}
+	return nil
+}
+
 // ensureSecrets auto-generates missing secrets on first boot.
 // Called AFTER env var loading but BEFORE validation so that
 // auto-generated values pass the entropy check.
@@ -466,6 +668,7 @@ func ensureSecrets(cfg *Config) error {
 			return fmt.Errorf("generate JWT secret: %w", err)
 		}
 		cfg.Auth.JWTSecret = token
+		cfg.Auth.jwtSecretGenerated = true
 		slog.Info("auto-generated JWT secret -- persists only in memory; set CODEFORGE_AUTH_JWT_SECRET env var to stabilize across restarts")
 	}
 	return nil
@@ -514,14 +717,20 @@ func setTyped[T any](dst *T, key string, parse func(string) (T, error)) {
 
 func setStringSlice(dst *[]string, key string) {
 	if v := os.Getenv(key); v != "" {
-		parts := strings.Split(v, ",")
-		result := make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				result = append(result, p)
-			}
-		}
-		*dst = result
+		*dst = splitList(v)
 	}
+}
+
+// splitList splits a list separated by commas or newlines (a file with one
+// entry per line) and drops blank entries.
+func splitList(v string) []string {
+	parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }

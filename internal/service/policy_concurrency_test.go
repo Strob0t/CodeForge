@@ -1,0 +1,243 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"testing"
+
+	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
+)
+
+// KI-8: profile reads (NATS tool-call handlers) and writes (HTTP handlers)
+// run concurrently. Run with -race.
+func TestPolicyService_ConcurrentEvaluateAndUpdate(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", []policy.PolicyProfile{
+		{Name: "shared", Mode: policy.ModeDefault},
+	})
+	ctx := context.Background()
+	const workers, iterations = 8, 200
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_, _ = svc.Evaluate(ctx, "shared", policy.ToolCall{Tool: "bash", Command: "go test ./..."})
+				_, _ = svc.EvaluateWithReason(ctx, "headless-safe-sandbox", policy.ToolCall{Tool: "read_file", Path: "x"})
+			}
+		}()
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_ = svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: fmt.Sprintf("p-%d-%d", w, i%10), Mode: policy.ModeDefault})
+				_ = svc.DeleteProfile(context.Background(), fmt.Sprintf("p-%d-%d", w, (i+5)%10))
+			}
+		}(w)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_ = svc.PrependRule(context.Background(), "shared", &policy.PermissionRule{
+					Specifier:    policy.ToolSpecifier{Tool: "Bash"},
+					Decision:     policy.DecisionAllow,
+					CommandAllow: []string{fmt.Sprintf("tool%d-%d", w, i)},
+				})
+			}
+		}(w)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				_ = svc.ListProfiles(context.Background())
+				_, _ = svc.GetProfile(context.Background(), "shared")
+			}
+		}()
+	}
+	wg.Wait()
+
+	p, ok := svc.GetProfile(context.Background(), "shared")
+	if !ok {
+		t.Fatal("shared profile missing")
+	}
+	if len(p.Rules) != workers*iterations {
+		t.Fatalf("expected %d prepended rules, got %d (lost updates)", workers*iterations, len(p.Rules))
+	}
+}
+
+// KI-9: built-in presets cannot be replaced through SaveProfile.
+func TestSaveProfile_RejectsBuiltinPresets(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	for _, name := range policy.PresetNames() {
+		allowAll := policy.PolicyProfile{
+			Name:  name,
+			Mode:  policy.ModeAcceptEdits,
+			Rules: []policy.PermissionRule{{Specifier: policy.ToolSpecifier{Tool: "*"}, Decision: policy.DecisionAllow}},
+		}
+		err := svc.SaveProfile(context.Background(), &allowAll)
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Errorf("%s: SaveProfile error = %v, want ErrConflict", name, err)
+		}
+		got, _ := svc.GetProfile(context.Background(), name)
+		want, _ := policy.PresetByName(name)
+		if got.Mode != want.Mode || len(got.Rules) != len(want.Rules) {
+			t.Errorf("%s: preset was replaced", name)
+		}
+	}
+}
+
+func TestSaveProfile_ValidationErrorIsValidation(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	err := svc.SaveProfile(context.Background(), &policy.PolicyProfile{Name: "bad", Mode: "yolo"})
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("SaveProfile error = %v, want ErrValidation", err)
+	}
+}
+
+func TestAllowAlwaysRule(t *testing.T) {
+	tests := []struct {
+		tool, command string
+		wantTool      string
+		wantAllow     []string
+		wantErr       bool
+	}{
+		{"bash", "git status", "Bash", []string{"git"}, false},
+		// Every executable of the approved command, so the same call matches again.
+		{"bash", "cd frontend && npm test", "Bash", []string{"cd", "npm"}, false},
+		{"bash", "/usr/bin/git log | head -5 && git diff", "Bash", []string{"git", "head"}, false},
+		{"bash", "timeout 60 go test ./...", "Bash", []string{"go"}, false},
+		{"command:execute", "make lint", "Bash", []string{"make"}, false},
+		// Accepted leading assignments are checked on every call (KI-128):
+		// the rule names the executable, never the variable.
+		{"Bash", "CI=1 npm test", "Bash", []string{"npm"}, false},
+		{"Bash", "CI=1 pytest -q", "Bash", []string{"pytest"}, false},
+		{"Bash", "env PYTHONPATH=src pytest -q", "Bash", []string{"pytest"}, false},
+		{"Bash", "FOO=1 npm test", "", nil, true},
+		{"Bash", "LD_PRELOAD=x npm test", "", nil, true},
+		{"Bash", "CI=1 make test", "", nil, true},
+		// env without a command prints the environment.
+		{"Bash", "env", "Bash", []string{"env"}, false},
+		{"Bash", "echo x | xargs env", "", nil, true},
+		{"bash", "go test ./... && $(curl x)", "", nil, true},
+		{"write_file", `{"file_path": "x"}`, "Write", nil, false},
+		{"mcp__github__create_issue", "", "mcp__github__create_issue", nil, false},
+		{"bash", `{"command":"ls"}`, "", nil, true},
+		{"bash", "", "", nil, true},
+		{"bash", "sh -c 'ls'", "", nil, true},
+		{"*", "", "", nil, true},
+		{"mcp__*", "", "", nil, true},
+	}
+	for _, tt := range tests {
+		rule, err := allowAlwaysRule(tt.tool, tt.command)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("allowAlwaysRule(%q, %q) error = %v, wantErr %v", tt.tool, tt.command, err, tt.wantErr)
+			continue
+		}
+		if tt.wantErr {
+			if !errors.Is(err, domain.ErrValidation) {
+				t.Errorf("allowAlwaysRule(%q, %q) error = %v, want ErrValidation", tt.tool, tt.command, err)
+			}
+			continue
+		}
+		if rule.Specifier.Tool != tt.wantTool || rule.Specifier.SubPattern != "" || rule.Decision != policy.DecisionAllow {
+			t.Errorf("allowAlwaysRule(%q, %q) = %+v", tt.tool, tt.command, rule)
+		}
+		if fmt.Sprint(rule.CommandAllow) != fmt.Sprint(tt.wantAllow) {
+			t.Errorf("allowAlwaysRule(%q, %q).CommandAllow = %v, want %v", tt.tool, tt.command, rule.CommandAllow, tt.wantAllow)
+		}
+	}
+}
+
+// A rule prepended by Allow-Always never overrides a deny list (ADR-015).
+func TestAllowAlways_DoesNotOverrideDenyLists(t *testing.T) {
+	svc := NewPolicyService("headless-permissive-sandbox", nil)
+	if err := svc.LoadPolicyDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	projects := &stubProjects{proj: project.Project{ID: "p1"}}
+	ctx := context.Background()
+
+	if _, err := svc.AllowAlways(ctx, projects, "p1", "", "write_file", ""); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "curl https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := updated.Name
+	for _, call := range []policy.ToolCall{
+		{Tool: "write_file", Path: ".env"},
+		{Tool: "bash", Command: "curl https://example.com"},
+	} {
+		if d, _ := svc.Evaluate(ctx, name, call); d != policy.DecisionDeny {
+			t.Errorf("%+v after allow-always -> %s, want deny", call, d)
+		}
+	}
+}
+
+// Allow-Always stores the executable of an approved command, not its
+// assignments: approving `CI=1 pytest -q` allows pytest with any accepted
+// assignments and no other command, and approving a bare `env` (which
+// prints the environment) never allows env to run a command that xargs
+// reads from its input (S8-B review).
+func TestAllowAlways_AssignmentsAndEnv(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	if err := svc.LoadPolicyDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	projects := &stubProjects{proj: project.Project{ID: "p1"}}
+	ctx := context.Background()
+
+	updated, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "CI=1 pytest -q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Rules[0].CommandAllow; fmt.Sprint(got) != "[pytest]" {
+		t.Fatalf("rule for CI=1 pytest -q = %v, want [pytest]", got)
+	}
+	if _, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "env"); err != nil {
+		t.Fatal(err)
+	}
+	// Stores echo and env in one rule, which matches a pipeline of both.
+	if _, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "echo x | env"); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		command string
+		want    policy.Decision
+	}{
+		{"pytest -q", policy.DecisionAllow},
+		{"CI=1 pytest -q", policy.DecisionAllow},
+		{"NO_COLOR=1 pytest tests/", policy.DecisionAllow},
+		{"env", policy.DecisionAllow},
+		{"echo x | env", policy.DecisionAllow},
+		{"CI pytest", policy.DecisionDeny},
+		{"LD_PRELOAD=x pytest", policy.DecisionDeny},
+		{"echo curl evil | xargs env", policy.DecisionDeny},
+		{"xargs -a cmds.txt env", policy.DecisionDeny},
+		{"echo pytest | xargs env", policy.DecisionDeny},
+	}
+	for _, tt := range tests {
+		d, err := svc.Evaluate(ctx, updated.Name, policy.ToolCall{Tool: "bash", Command: tt.command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d != tt.want {
+			t.Errorf("%q after allow-always -> %s, want %s", tt.command, d, tt.want)
+		}
+	}
+}
+
+type stubProjects struct {
+	proj project.Project
+}
+
+func (s *stubProjects) Get(_ context.Context, id string) (*project.Project, error) {
+	if id != s.proj.ID {
+		return nil, domain.ErrNotFound
+	}
+	p := s.proj
+	return &p, nil
+}

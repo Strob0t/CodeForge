@@ -140,22 +140,49 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 }
 
 // DeleteUserData removes all personal data for the given user (GDPR Article 17
-// — Right to Erasure). Audit log entries are anonymized (PII nulled) before
-// user deletion to preserve the audit trail per ADR-009. The database FK
-// constraints with ON DELETE CASCADE handle dependent rows automatically.
+// - Right to Erasure), see eraseUser.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
-	// Anonymize audit log entries before deletion so the audit trail is
-	// preserved without PII (admin_email and ip_address set to NULL).
-	// This implements the ADR-009 requirement: "Audit log entries are
-	// anonymized (user ID replaced with a tombstone value) rather than
-	// deleted, preserving the security audit trail while removing PII."
-	anonymized, err := s.store.AnonymizeAuditLogForUser(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("anonymize audit log: %w", err)
-	}
-	slog.Info("gdpr: audit log anonymized", "user_id", userID, "entries_anonymized", anonymized)
+	return eraseUser(ctx, s.store, userID)
+}
 
-	if err := s.store.DeleteUser(ctx, userID); err != nil {
+// userErasureStore is what erasing a user needs.
+type userErasureStore interface {
+	AnonymizeAuditLogForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error)
+	AnonymizeQuarantineReviewsForUser(ctx context.Context, userID string) (int64, error)
+	DeleteUser(ctx context.Context, id string) error
+}
+
+// eraseUser is the one way a user is deleted, whether through the GDPR
+// endpoints or account deletion: rows that outlive the user keep their content
+// without the user's personal data (ADR-009) - audit entries lose email and IP
+// address, consent records (proof of consent) lose IP address and user agent,
+// channel messages get a placeholder sender name, quarantine reviews a
+// placeholder reviewer name. These run first, while the rows can still be
+// found by the user's ID; if one fails, the user is not
+// deleted and the erasure can be retried. Deleting the user then removes the
+// dependent rows (ON DELETE CASCADE) and unlinks the kept ones (ON DELETE SET
+// NULL).
+func eraseUser(ctx context.Context, store userErasureStore, userID string) error {
+	steps := []struct {
+		name      string
+		anonymize func(ctx context.Context, userID string) (int64, error)
+	}{
+		{"audit_log", store.AnonymizeAuditLogForUser},
+		{"user_consents", store.AnonymizeConsentsForUser},
+		{"channel_messages", store.AnonymizeChannelMessagesForUser},
+		{"quarantine_reviews", store.AnonymizeQuarantineReviewsForUser},
+	}
+	for _, step := range steps {
+		n, err := step.anonymize(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("anonymize %s: %w", step.name, err)
+		}
+		slog.Info("gdpr: personal data anonymized", "user_id", userID, "table", step.name, "rows", n)
+	}
+
+	if err := store.DeleteUser(ctx, userID); err != nil {
 		return fmt.Errorf("delete user data: %w", err)
 	}
 	slog.Info("gdpr: user data deleted", "user_id", userID)

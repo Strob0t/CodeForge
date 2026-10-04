@@ -99,6 +99,13 @@ class OpenHandsExecutor:
             self._active_tasks[task_id] = conversation_id
             try:
                 return await self._poll_until_done(client, base, conversation_id, task_id, timeout, on_output)
+            except asyncio.CancelledError:
+                # tasks.cancel or worker shutdown: stop the remote agent too.
+                try:
+                    await client.delete(f"{base}/api/conversations/{conversation_id}")
+                except httpx.HTTPError as exc:
+                    logger.warning("openhands cancel failed task=%s: %s", task_id, exc)
+                raise
             finally:
                 self._active_tasks.pop(task_id, None)
 

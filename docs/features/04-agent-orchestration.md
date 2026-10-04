@@ -14,14 +14,26 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 |---|---|---|---|---|
 | Aider | `adapter/aider/` | `backends/aider.py` | CLI wrapper | code-edit, git-commit, multi-file |
 | Goose | `adapter/goose/` | `backends/goose.py` | CLI wrapper (requires CLI installed) | code-edit, mcp-native |
-| OpenHands | `adapter/openhands/` | `backends/openhands.py` | CLI wrapper (requires CLI installed) | code-edit, browser, sandbox |
+| OpenHands | `adapter/openhands/` | `backends/openhands.py` | HTTP API client (requires a running OpenHands server at `CODEFORGE_OPENHANDS_URL`) | code-edit, browser, sandbox |
 | OpenCode | `adapter/opencode/` | `backends/opencode.py` | CLI wrapper (requires CLI installed) | code-edit, lsp |
 | Plandex | `adapter/plandex/` | `backends/plandex.py` | CLI wrapper (requires CLI installed) | code-edit, planning, multi-file |
 | SWE-agent | -- | `backends/sweagent.py` | CLI wrapper (requires Docker) | code-edit, sandbox, multi-file |
 
 All Go backends implement the `agentbackend.Backend` interface with capability declarations. All Python backends implement the `BackendExecutor` protocol (see below).
 
-> **Current status:** All backends are implemented as CLI wrappers. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. Goose, OpenHands, OpenCode, and Plandex wrap their respective CLIs (requires each CLI to be installed). The Python consumer routes tasks to the correct backend based on the NATS subject name.
+> **Current status:** Aider, Goose, OpenCode, Plandex and SWE-agent are CLI wrappers (each CLI must be installed); OpenHands is an HTTP API client that talks to a running OpenHands server. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. The Python consumer routes tasks to the correct backend based on the NATS subject name. `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`, `dispatch_id`, `heartbeat_seconds`); every backend CLI runs in its own process group (as the tenant's tool user), which `tasks.cancel` stops, and the result then has status `cancelled` (KI-22, KI-23 fixed). Dispatch IDs, heartbeats and result costs: [ADR-016](../architecture/adr/016-nats-delivery-semantics.md).
+
+#### Claude Code (`claudecode/*` routing target)
+
+With `CODEFORGE_CLAUDECODE_ENABLED=true` the router can pick `claudecode/default` for conversations in the configured complexity tiers (runs never use it). `workers/codeforge/claude_code_executor.py` runs the Claude Code CLI in the conversation's workspace, and every tool call is decided by the Go policy (KI-72):
+
+- **Hook and socket:** a PreToolUse hook (matcher `*`, `workers/codeforge/claude_code_policy_hook.py`, stdlib only, run as `<python> -I <hook> || exit 2`; with tool isolation on the base interpreter with `-I -S` as the tenant's tool user) sends each call to a per-run unix socket (private 0700 directory under `/tmp`, random token) served by the executor, which asks Go via `runs.toolcall.request`; mode tool lists, path and command rules and HITL apply. Any error blocks the call.
+- **Tools:** only tools the Go policy maps to canonical names are offered (`--tools Read,Write,Edit,MultiEdit,NotebookEdit,Bash,Grep,Glob,LS,Monitor`; `Monitor` counts as `Bash`); any other tool name is denied before Go is asked. WebFetch and WebSearch are not offered: presets restrict network access through Bash command rules, which a fetch tool would bypass.
+- **Paths:** the same mapping as the agent loop (`workers/codeforge/policy_args.py`): paths relative to the real (symlink-resolved) workspace, a path outside stays absolute and is denied; glob patterns are checked where they can reach.
+- **Isolation from the repository:** `--setting-sources ""` (no user, project or local settings, hooks or permission rules), `--strict-mcp-config` with no MCP servers, `--permission-mode dontAsk` (only hook-allowed calls run), never `bypassPermissions`; the prompt goes to stdin and the system prompt to a 0600 file (`--system-prompt-file`).
+- **Supervision:** the CLI runs in its own process group; timeout (`CODEFORGE_CLAUDECODE_TIMEOUT`, run time without approval waits) and cancel (Stop in the chat, polled every 0.5 s) stop the whole group; output is streamed and usage counted even when a turn ends early. A failed turn falls back to the next model only if it changed nothing (`fallback_safe`).
+- **Tenant isolation (KI-96):** with `CODEFORGE_TOOL_ISOLATION=required` the CLI, its hook and its Bash commands run as the tenant's tool user under Landlock, with a per-run `CLAUDE_CONFIG_DIR` below the tenant's HOME and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`; an operator's `CLAUDE_CONFIG_DIR` is not passed (use `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`). The CLI's Bash inherits those credentials ([KI-111](../todo.md#known-issues)).
+- **Capability check:** before a run, `<cli> --help` must list every flag used, and a probe checks the hidden `--system-prompt-file` / `--max-turns`; only a passing check is cached (per binary path and mtime). An unsupported CLI fails the run and is hidden from routing. Tested with Claude Code 2.1.x.
 
 ### Backend Routing Architecture
 
@@ -30,7 +42,7 @@ The Python consumer extracts the backend name from the NATS subject (`tasks.agen
 ```mermaid
 flowchart TD
     GO["Go Core\n(adapter/aider/, adapter/goose/, etc.)"]
-    CONSUMER["Python Consumer (consumer.py)\nextract backend name from subject\nBackendRouter.execute(backend_name, ...)"]
+    CONSUMER["Python Consumer (consumer/_tasks.py)\nextract backend name from subject\nBackendRouter.execute(backend_name, ...)"]
     EXEC["BackendExecutor (aider.py, goose.py, etc.)\ncheck_available() -- verify CLI/service reachable\nexecute() -- run task (subprocess or API call)\ncancel() -- terminate running task"]
 
     GO -- "NATS: tasks.agent.aider,\ntasks.agent.goose, etc." --> CONSUMER
@@ -56,7 +68,9 @@ class BackendExecutor(Protocol):
 | `CODEFORGE_GOOSE_PATH` | `goose` | Path to Goose CLI binary |
 | `CODEFORGE_OPENCODE_PATH` | `opencode` | Path to OpenCode CLI binary |
 | `CODEFORGE_PLANDEX_PATH` | `plandex` | Path to Plandex CLI binary |
+| `CODEFORGE_SWEAGENT_PATH` | `sweagent` | Path to SWE-agent CLI binary |
 | `CODEFORGE_OPENHANDS_URL` | `http://localhost:3000` | OpenHands service URL |
+| `CODEFORGE_OPENHANDS_POLL_INTERVAL` / `_HTTP_TIMEOUT` / `_HEALTH_TIMEOUT` / `_CANCEL_TIMEOUT` | `2.0` / `30.0` / `5.0` / `5.0` | OpenHands client polling interval and timeouts (seconds) |
 
 #### Key Files
 
@@ -66,9 +80,10 @@ class BackendExecutor(Protocol):
 | `workers/codeforge/backends/router.py` | BackendRouter dispatcher |
 | `workers/codeforge/backends/aider.py` | AiderExecutor (real CLI wrapper) |
 | `workers/codeforge/backends/goose.py` | GooseExecutor (CLI wrapper) |
-| `workers/codeforge/backends/openhands.py` | OpenHandsExecutor (CLI wrapper) |
+| `workers/codeforge/backends/openhands.py` | OpenHandsExecutor (HTTP API client) |
 | `workers/codeforge/backends/opencode.py` | OpenCodeExecutor (CLI wrapper) |
 | `workers/codeforge/backends/plandex.py` | PlandexExecutor (CLI wrapper) |
+| `workers/codeforge/backends/sweagent.py` | SweagentExecutor (CLI wrapper) |
 | `workers/codeforge/backends/__init__.py` | `build_default_router()` factory |
 
 ### Execution Modes
@@ -78,6 +93,8 @@ class BackendExecutor(Protocol):
 | Sandbox | High (isolated container) | Medium | Untrusted agents, batch jobs |
 | Mount | Low (direct file access) | High | Trusted agents, local dev |
 | Hybrid | Medium (controlled access) | Medium | Review workflows, CI-like |
+
+> **Implementation status (2026-09-30):** Mount is the default (`POST /api/v1/runs` without `exec_mode`, else the project config key `execution_mode`, which accepts only `mount` until sandbox isolation exists). The sandbox code (`internal/service/sandbox.go`) creates per-run containers, but the worker runs tools locally (`bash -c` in `workers/codeforge/tools/bash.py`), so runs, agentic conversations and benchmark runs in `sandbox`/`hybrid` exec mode are rejected with HTTP 400 (`run.ExecMode.CheckAvailable`, fail closed since 2026-09-30, KI-13) until tools execute inside the container; the worker also refuses non-`mount` `runs.start`.
 
 ### Agent Workflow
 
@@ -98,6 +115,8 @@ Each step is individually configurable. The **autonomy** level determines who ap
 | 4 | `full-auto` | Safety rules | Batch jobs, delegated tasks |
 | 5 | `headless` | Safety rules, no UI | CI/CD, cron jobs, API |
 
+> **Implementation status (2026-09-30):** A mode's autonomy level is mapped to a policy preset by `policyForAutonomy()` in `internal/service/conversation_dispatch.go` (1 → `supervised-ask-all`, 4-5 → `trusted-mount-autonomous`, otherwise `headless-safe-sandbox`). Dispatch and tool-call evaluation use one resolver: the project's explicit profile (`policy_profile`, then `config["policy_preset"]`) wins, then the mode-derived preset, then the default, so a mode cannot escalate a project that pins a stricter profile.
+
 ### Safety Layer (8 Components)
 
 - Budget Limiter -- hard stop on cost exceeded.
@@ -109,6 +128,8 @@ Each step is individually configurable. The **autonomy** level determines who ap
 - **Path Blocklist** -- sensitive files protected.
 - Stall Detection -- re-planning or abort.
 
+> **Implementation status (2026-09-29):** Per-tool-call policy checks, budget and step limits, and stall detection run in the Go runtime (`internal/service/runtime_execution.go`, `internal/service/policy.go`); quality gates, delivery and checkpoint rollback in `runtime_gate.go`, `runtime_lifecycle.go`, `deliver.go` and `checkpoint.go` (checkpoints under `refs/codeforge/checkpoints/<run>`, never on a branch; every workspace git call hardened, KI-77). Policy evaluation follows ADR-015 (canonical tool names, deny lists win, shell-aware command matching). Gate and delivery rules since S3 (KI-26 to KI-29): every completed run delivers; only a check that ran and failed rolls back; gate commands from the project config (`test_command`, `lint_command`, validated on write), the workspace language or the runtime defaults; a stuck gate is failed by the watchdog. Stops (cancel, timeout, termination limit, budget, stall) end runs through the common completion path and advance plans (KI-30, fixed). See [Known Issues](../todo.md#known-issues).
+
 ### Quality Layer (4 Tiers)
 
 - Action Sampling (light) -- N responses, select best.
@@ -119,6 +140,8 @@ Each step is individually configurable. The **autonomy** level determines who ap
 ### Modes System
 
 YAML-configurable agent specializations. 24 built-in mode presets including architect, coder, reviewer, debugger, tester, documenter, refactorer, security, moderator, proponent, devops, api_tester, benchmarker, frontend, backend_architect, lsp_engineer, orchestrator, evaluator, workflow_optimizer, infra_maintainer, prototyper, goal_researcher, boundary_analyzer, and contract_reviewer. Users can define custom modes in `.codeforge/modes/`. Modes support composition through pipelines and DAG workflows.
+
+> **Implementation status (2026-09-30):** Mode `Tools` / `DeniedTools` use canonical names and are enforced by the Go policy evaluation on the run and conversation paths: a tool in `DeniedTools` is denied, and a built-in tool missing from a non-empty `Tools` list is denied, so read-only modes (architect, reviewer, security) cannot write or run bash. Tool lists are defined inline in each Mode struct, not as separate YAML tool-bundle files. Since KI-69 the worker offers the LLM only the tools its mode allows (`ToolRegistry.restrict_to_mode`, the same rule as `policy.WithModeTools`, kept equal to Go by a test); the Go check stays the enforcement.
 
 ### Worker Modules
 
@@ -146,7 +169,7 @@ The Experience Pool (`workers/codeforge/memory/experience.py`) caches successful
 
 2. **Post-loop store:** After a successful loop completion (no error, non-empty output), the executor stores the result via `experience_pool.store()` for future reuse.
 
-**Tenant isolation:** The NATS `conversation.run.start` payload carries `tenant_id` (injected by Go Core via `tenantctx.FromContext(ctx)`). The Python consumer passes this to `ExperiencePool(tenant_id=...)`, and all queries filter by `AND tenant_id = %s`.
+**Tenant isolation (target design):** The NATS `conversation.run.start` payload carries `tenant_id` (injected by Go Core via `tenantctx.FromContext(ctx)`), and `ExperiencePool` filters all queries by `AND tenant_id = %s`. However, the worker creates one shared `ExperiencePool` at startup without a tenant (`workers/codeforge/consumer/__init__.py`), so all entries are stored and queried under the default zero-UUID tenant and isolation is effectively per project only (see [Known Issues](../todo.md#known-issues) KI-16).
 
 **Eviction:** When `max_entries` is configured (default: 1000), the `store()` method evicts the oldest entries (by `last_used_at`) after each INSERT to keep the pool bounded per project+tenant.
 
@@ -154,7 +177,7 @@ The Experience Pool (`workers/codeforge/memory/experience.py`) caches successful
 - `workers/codeforge/agent_loop.py` — cache check before loop, store after loop
 - `workers/codeforge/memory/experience.py` — `ExperiencePool` with `lookup()`, `store()`, tenant filtering, eviction
 - `workers/codeforge/consumer/_conversation.py` — passes `experience_pool` to `AgentLoopExecutor`
-- Config: `experience.enabled`, `experience.confidence_threshold`, `experience.max_entries` in `codeforge.yaml`
+- Config: `experience.enabled`, `experience.confidence_threshold`, `experience.max_entries` exist in the Go config (`internal/config/config.go`) but are not wired yet; the worker always enables the pool with threshold 0.85 and `max_entries` 1000 (KI-16)
 
 ### Skills System (Auto-Agent)
 
@@ -166,10 +189,10 @@ Reusable workflows and code patterns automatically injected into agent prompts.
 | Skill Service | `internal/service/skill.go` | CRUD, ListActive, IncrementUsage |
 | Skill Selector | `workers/codeforge/skills/selector.py` | LLM-based pre-loop selection with BM25 fallback |
 | Format Parsers | `workers/codeforge/skills/parsers.py` | Import from CodeForge YAML, Claude, Cursor, Markdown |
-| Safety Check | `workers/codeforge/skills/safety.py` | LLM-based injection detection at import time |
+| Safety Check | `workers/codeforge/skills/safety.py` | LLM-based injection detection helper (not yet wired into the import path) |
 | Search Tool | `workers/codeforge/tools/search_skills.py` | In-loop BM25 skill discovery for agents |
-| Create Tool | `workers/codeforge/tools/create_skill.py` | Agent-proposed skill drafts with injection guard |
-| Import Handler | `internal/adapter/http/handlers_skill_import.go` | `POST /api/v1/skills/import` URL fetch + safety |
+| Create Tool | `workers/codeforge/tools/create_skill.py` | Agent-proposed skill drafts with injection guard (persisting drafts currently fails, see [Known Issues](../todo.md#known-issues) KI-58) |
+| Import Handler | `internal/adapter/http/handlers_agent_features.go` (`ImportSkill`) | `POST /api/v1/skills/import` URL fetch + regex quarantine scoring |
 | Meta-Skill | `workers/codeforge/skills/builtins/codeforge-skill-creator.yaml` | Built-in skill teaching agents how to create skills |
 | Builtin Loader | `workers/codeforge/skills/registry.py` | Auto-loads YAML skills from `builtins/` directory |
 
@@ -179,7 +202,7 @@ Reusable workflows and code patterns automatically injected into agent prompts.
 
 **Three-layer prompt injection protection:**
 1. Regex scorer (Go quarantine scorer + Python regex check)
-2. LLM safety check at import time (fail-open)
+2. LLM safety check (`check_skill_safety`, fail-open) -- implemented in the worker but not yet called on import; imports currently use only the Go regex quarantine scorer
 3. Runtime sandboxing via `<skill>` tags with trust levels
 
 **Skill selection flow:**
@@ -195,23 +218,24 @@ The policy layer governs agent permissions, quality gates, and termination condi
 #### Backend
 
 - Domain: `internal/domain/policy/` -- PolicyProfile, PermissionRule, ToolSpecifier, QualityGate, TerminationCondition.
-- Presets (4): plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous.
-- Service: `internal/service/policy.go` -- first-match-wins rule evaluation, CRUD (SaveProfile, DeleteProfile).
+- Presets (5): plan-readonly, headless-safe-sandbox, headless-permissive-sandbox, trusted-mount-autonomous, supervised-ask-all.
+- Service: `internal/service/policy.go` -- first-match-wins rule evaluation, CRUD (SaveProfile, DeleteProfile), `EvaluateWithReason` (decision, scope, matched rule, reason).
+- Profile resolution (KI-69): a run uses the request's profile (`policy_profile` on `POST /api/v1/runs`), then the project's (`policy_profile`, then config `policy_preset`), then the service default (`RuntimeService.StartRun`); a conversation uses the project's profile, then the preset of the mode's autonomy, then the default (`conversationPolicyProfile`, see Autonomy Spectrum). An unknown profile is refused (run start 400) or denies every call.
 - **Loader**: `internal/domain/policy/loader.go` -- YAML file loading + SaveToFile for custom profiles.
-- REST API: GET/POST /policies, GET/DELETE /policies/{name}, POST /policies/{name}/evaluate.
+- REST API: GET/POST /policies, POST /policies/allow-always (admin), GET/DELETE /policies/{name}, POST /policies/{name}/evaluate.
+
+> **Implementation status (2026-09-30):** The policy defects KI-4 to KI-10 are fixed ([ADR-015](../architecture/adr/015-policy-deny-lists-and-tool-names.md)), and so are KI-68 and KI-69 (S6): custom profiles are tenant-scoped (`<policy.custom_dir>/<tenant_id>/`, default `data/policies`; presets are global and read-only), the worker offers only the tools a mode allows, and Bash redirection targets are checked against `path_deny`. See [Known Issues](../todo.md#known-issues).
 
 #### Frontend (PolicyPanel)
 
 - Component: `frontend/src/features/project/PolicyPanel.tsx`.
-- 3 views: List (presets + custom), Detail (summary + rules table + evaluate tester), Editor (create/clone).
+- 4 views: List (presets + custom), Detail (summary + rules table + evaluate tester), Editor (create/clone), Effective Permission Preview (policy + tool/command/path -> decision, scope, matched rule, reason).
 - Evaluate tester lets you test a tool call against a policy and see the decision (allow/deny/ask).
 - Types: `PolicyProfile`, `PermissionRule`, `PolicyQualityGate`, `TerminationCondition`, `ResourceLimits`.
 
 #### Deferred
 
-- Scope levels: global (user) to project to run/session (override).
-- "Effective Permission Preview" -- show which rule matched and why.
-- Run-level policy overrides.
+- Scope levels: global (user) to project to run/session (override); only the run-level override exists so far (see Backend).
 
 ### Retrieval Sub-Agent (Phase 6C)
 
@@ -242,6 +266,8 @@ sequenceDiagram
 - **Context Optimizer**: `fetchRetrievalEntriesWithHits()` tries sub-agent first, falls back to single-shot search.
 - REST API: `POST /api/v1/projects/{id}/search/agent`.
 - Config: `SubAgentModel`, `SubAgentMaxQueries`, `SubAgentRerank` in `config.Orchestrator`.
+- Per-project expansion prompt: project config key `expansion_prompt` replaces the default query-expansion system prompt (`internal/service/context_sources.go`, `internal/adapter/http/handlers_retrieval.go`; `PUT /projects/{id}` merges config keys, so other settings do not remove it).
+- Cost tracking: the worker reports `cost_usd` / `tokens_in` / `tokens_out` in `retrieval.subagent.result`; `HandleSubAgentSearchResult()` records them in the event store.
 
 #### Frontend (RetrievalPanel)
 
@@ -251,14 +277,12 @@ sequenceDiagram
 
 #### Deferred
 
-- Configurable expansion prompts per project.
 - Streaming results (partial results as queries complete).
-- Cost tracking for sub-agent LLM calls.
 
 ### Completed (Phase 1-2)
 
 - [x] `agentbackend.Backend` interface definition (`internal/port/agentbackend/`).
-- [x] Agent backend registry with self-registration via `init()`.
+- [x] Agent backend registry (`agentbackend.Register`), populated by explicit `<adapter>.Register(queue)` calls in `cmd/codeforge/main.go`.
 - [x] Basic queue consumer (Python worker) -- NATS-based async dispatch.
 - [x] Aider backend adapter (`internal/adapter/aider/`).
 - [x] Simple task to single agent execution.
@@ -274,30 +298,31 @@ sequenceDiagram
 - [x] Circuit breaker for NATS + LiteLLM calls.
 - [x] Graceful 4-phase shutdown, idempotency middleware, dead letter queue.
 - [x] Event sourcing for agent trajectory (`agent_events` table, 22+ event types).
-- [x] Tiered cache (L1 Ristretto + L2 NATS KV), rate limiting, connection pool tuning.
+- [x] Rate limiting, connection pool tuning (a tiered cache existed until 2026-10-01; it was never used and was removed, KI-60).
 
 ### Completed (Phase 4 -- Agent Execution Engine)
 
-- [x] Policy layer: 4 presets, YAML custom policies, first-match-wins evaluation, REST API + frontend PolicyPanel.
-- [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement.
-- [x] Checkpoint system: shadow Git commits for safe rollback.
-- [x] Docker Sandbox: container lifecycle management with resource limits.
+- [x] Policy layer: 5 presets, YAML custom policies, deny lists win then first-match-wins (ADR-015), REST API + frontend PolicyPanel (KI-4 to KI-10 fixed 2026-09-30; open: KI-68, KI-69).
+- [x] Runtime API: step-by-step execution protocol (Go to Python via NATS), per-tool-call policy enforcement. `runs.start` runs the agent loop (`AgentLoopExecutor`) in the project workspace named by the run start; Go decides every LLM and tool call (KI-21 fixed 2026-09-30).
+- [x] Checkpoint system: working-tree commits from a private index under `refs/codeforge/checkpoints/<run>` for rollback (tree, user's index and HEAD); hardened git (KI-27, KI-77 fixed 2026-09-30).
+- [x] Docker Sandbox: container lifecycle management with resource limits (use gated: tools do not run inside it yet, so sandbox/hybrid runs are rejected, KI-13).
+- [ ] Execute agent tools inside the sandbox container (`SandboxService.Exec`), then lift the KI-13 gate
 - [x] Stall detection: FNV-64a hash ring buffer, configurable threshold.
-- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol.
-- [x] 5 deliver modes: none, patch, commit-local, branch, PR.
+- [x] Quality gate enforcement: test/lint gates via NATS request/result protocol with project/language commands, per-command timeout, heartbeats and a watchdog (KI-26, KI-28, KI-29 fixed 2026-09-30).
+- [x] 5 deliver modes: none, patch, commit-local, branch, PR; delivery for every completed run, before checkpoint cleanup; patches in `.git/codeforge/patches/` (KI-26, KI-27 fixed 2026-09-30).
 
 ### Completed (Phase 5 -- Multi-Agent Orchestration)
 
-- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus).
+- [x] Execution plans: DAG scheduling with 4 protocols (sequential, parallel, ping_pong, consensus) (a failed or cancelled step ends sequential/parallel plans as failed and skips blocked dependents; a step whose run stalled gets a new run up to `runtime.stall_max_retries` times, KI-62).
 - [x] Orchestrator agent (meta-agent): LLM-based feature decomposition, agent strategy selection.
-- [x] Agent teams: team CRUD, role-based members, protocol selection.
+- [x] Agent teams: internal team assembly by the orchestrator/task planner (`PoolManagerService`, `internal/service/pool_manager.go`); the team CRUD REST API and Teams page were removed (only `/teams/{teamId}/shared-context` remains). A team ends with its plan (completed, failed or cancelled; the watchdog check "ended teams" covers plans that ended while the Go Core was down, KI-33).
 - [x] Context optimizer: token budget management, workspace scanning, context packing.
 - [x] Shared context: team-level versioned state with NATS notifications.
 - [x] Modes system: 24 built-in presets, ModeService, REST API.
 
 ### Completed (Phase 6 -- Code-RAG)
 
-- [x] Tier 1 -- RepoMap: tree-sitter symbol extraction, PageRank file ranking (16+ languages).
+- [x] Tier 1 -- RepoMap: tree-sitter symbol extraction, PageRank file ranking (13 languages / 14 tree-sitter grammars).
 - [x] Tier 2 -- Hybrid Retrieval: BM25S keyword + semantic embeddings, RRF fusion.
 - [x] Tier 3 -- Retrieval Sub-Agent: LLM multi-query expansion, parallel search, re-ranking.
 - [x] Tier 4 -- GraphRAG: PostgreSQL adjacency-list graph, BFS with hop-decay scoring.
@@ -322,7 +347,7 @@ Agents connect to external MCP servers during runs to use their tools.
 
 - **McpWorkbench**: Multi-server container (connect/disconnect, tool discovery, tool call bridging)
 - **McpToolRecommender**: BM25-based ranking of relevant tools for task prompts
-- **Transport**: stdio and SSE via Python `mcp` SDK
+- **Transport**: stdio, SSE and Streamable HTTP via Python `mcp` SDK; stdio servers start through `tool_process.tool_stdio_client` as the tenant's tool user (uid 20000-29999, no capabilities, Landlock, cwd the run's workspace; declared env without the worker's credentials and code-loading variables, handed over on a memfd), never in the Go Core (KI-71, KI-96, [ADR-017](../architecture/adr/017-tool-isolation-and-nats-authentication.md), [ADR-018](../architecture/adr/018-per-tenant-tool-identities-and-landlock.md))
 - **Code**: `workers/codeforge/mcp_workbench.py`, `workers/codeforge/mcp_models.py`
 
 #### MCP Server Registry
@@ -330,13 +355,16 @@ Agents connect to external MCP servers during runs to use their tools.
 Persistent storage for MCP server definitions with project-level assignment.
 
 - **Database**: `mcp_servers`, `project_mcp_servers`, `mcp_server_tools` tables (migration 036)
-- **HTTP API**: 11 endpoints for CRUD, test connection, tools listing, project assignment
+- **HTTP API**: 11 endpoints for CRUD, test connection, tools listing, project assignment ([openapi.yaml](../api/openapi.yaml))
+- **Access**: every user of a tenant reads its servers; a tenant's admins (`RoleAdmin`) create, change, delete, test and assign them. The Go Core tests only `sse` and `streamable_http` servers (a stdio test answers 400)
+- **Secrets**: env and header values are redacted to `***` in every response; an update that sends `***` keeps the stored value only while transport, URL, command and args are unchanged (`internal/domain/mcp/redact.go`)
+- **Tenancy**: servers and `project_mcp_servers` links are tenant-scoped (migration 112); assignment audit entries name the server and are written before the change
 - **Frontend**: MCPServersPage (server list, add/edit modal, test connection, tools discovery)
 - **Code**: `internal/adapter/postgres/store_mcp.go`, `internal/adapter/http/handlers_mcp.go`, `frontend/src/features/mcp/MCPServersPage.tsx`
 
 #### Policy Integration
 
-MCP tool calls use namespaced identifiers `mcp:{server}:{tool}` and flow through the existing policy engine with glob matching. Mode-based filtering via `Mode.Tools` and `Mode.DeniedTools` supports the same convention.
+MCP tools reach the policy engine as `mcp__{server}__{tool}` (the worker's tool name, kept unchanged by canonicalization) and are matched by `PolicyProfile.Evaluate` in `internal/domain/policy/evaluation.go`, the single evaluator, which supports glob patterns (e.g. `mcp__github__*`). `Mode.DeniedTools` denies MCP tools too; a mode's `Tools` list only restricts built-in tools.
 
 ### Agentic Conversation Mode (Phase 17)
 
@@ -344,31 +372,40 @@ The agentic conversation mode transforms the Chat UI into an autonomous coding a
 
 #### How It Works
 
-1. **User sends a message** via the Chat UI (or API with `?mode=agentic` / `"agentic": true`)
+1. **User sends a message** via the Chat UI (or API with body field `"agentic": true`; without it, `agent.agentic_by_default` applies when the project has a workspace)
 2. **Go Core** stores the message, builds a context pack (system prompt, conversation history, tool definitions, MCP servers, policy profile), and publishes to NATS
 3. **Python Worker** receives the job and starts the agent loop (calls LLM with tool definitions, streams text via AG-UI WebSocket events, executes each `tool_calls` response with per-call policy enforcement, appends tool results and feeds back to the LLM, repeats until the LLM responds without tool calls or termination limits are hit)
 4. **Go Core** receives the completion, stores all tool messages and the final reply, and broadcasts `agui.run_finished`
 
+One run per conversation: a message sent while a run is active gets 409. Every dispatch has a `turn_id` (on `conversation.run.start`, `runs.toolcall.request` and `conversation.run.complete`), so the tool calls of a stopped run are denied ([architecture.md](../architecture.md#agentic-conversation-loop-phase-17), [ADR-016](../architecture/adr/016-nats-delivery-semantics.md)). Runs (`runs.start`) use the same agent loop and loop setup in the run's project workspace (`build_loop_config`, `resolve_model_and_fallbacks` in `workers/codeforge/loop_config.py`; no skill tools, no Claude Code models), with heartbeats and a Go decision on every LLM and tool call.
+
 #### Built-in Tools
 
-| Tool | Policy Name | Description |
+| Tool name (LLM function + policy `tool`) | Preset rule name (not mapped) | Description |
 |------|-------------|-------------|
-| Read | `Read` | Read file contents with optional line range (offset/limit) |
-| Write | `Write` | Create or overwrite a file, creating parent directories |
-| Edit | `Edit` | Search-and-replace: validate old_text is unique, replace with new_text |
-| Bash | `Bash` | Execute shell command with timeout (default 120s), captures stdout+stderr |
-| Search | `Grep` | Regex search across files via `grep -rn` (Python tool name: `search_files`, LLM function name: `Search`, policy name: `Grep`) |
-| Glob | `Glob` | Find files by glob pattern via `pathlib.Path.glob()` |
-| ListDir | `ListDir` | List directory contents, optional recursive |
+| `read_file` | `Read` | Read file contents with optional line range (offset/limit) |
+| `write_file` | `Write` | Create or overwrite a file, creating parent directories |
+| `edit_file` | `Edit` | Search-and-replace: old_text must appear exactly once, replaced with new_text |
+| `bash` | `Bash` | Execute shell command in the workspace with timeout (default 120s), captures stdout+stderr |
+| `search_files` | `Grep` | Search file contents by pattern (grep), returns matching lines with paths and line numbers |
+| `glob_files` | `Glob` | Find files by glob pattern via `pathlib.Path.glob()` |
+| `list_directory` | -- | List directory contents, optional recursive (depth 3) |
+| `search_conversations` | -- | Search past conversation messages by keyword |
+| `search_skills` | -- | In-loop BM25 skill discovery |
+| `create_skill` | -- | Propose a reusable skill draft |
 
-Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
+**Tool processes on isolated deployments (KI-96, [ADR-018](../architecture/adr/018-per-tenant-tool-identities-and-landlock.md)).** With `CODEFORGE_TOOL_ISOLATION=required` (production) every process a tool starts runs as the tenant's tool user under Landlock: it can write only the run's workspace and the tenant's HOME (TMPDIR is a per-work directory below HOME; `/tmp` is not usable), and it sees only its own `/proc` entry, so `ps`, `pgrep`, `pkill`, `top`, psutil, `df`, `mount`, `ss`, `netstat` and `/proc/self` reads in child processes do not work (the JVM's container detection falls back to host values; `JAVA_TOOL_OPTIONS` and `TMUX_TMPDIR` point the JVM and tmux at TMPDIR). Agents stop their own background jobs with `kill <pid>` or `kill %1`. A background process (a dev server, a watcher) lives at most until the tenant has no work left in that worker: conversation turns are separate work items, so it usually ends with its turn. The Bash tool's description tells the LLM so.
+
+Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`, `build_default_registry()`); `handoff_to`, `propose_goal` and `propose_roadmap` are added per run (`spawn_subagent` is not registered until Go starts sub-agents, KI-25; `handoff_to` is offered whenever it is registered). MCP-discovered tools merge in with `mcp__{server}__{tool}` naming and route through `McpWorkbench.call_tool()`.
+
+> **Implementation status (2026-09-30):** The worker sends its own tool name (`read_file`, `bash`, ...) with the real `command` (bash only) and `path` (`workers/codeforge/tool_executor.py`, `policy_request_args`); `claudecode/*` runs send Claude Code's tool names (`workers/codeforge/claude_code_executor.py`). The Go policy domain maps both to the preset names (`internal/domain/policy/toolnames.go`, ADR-015), so preset rules match agent tool calls.
 
 #### Conversation History Management
 
-The `ConversationHistoryManager` assembles messages within a configurable token budget (`MaxContextTokens`, default 120000):
+The `ConversationHistoryManager` assembles messages within a per-model token budget resolved by the worker (`resolve_context_limit()` in `workers/codeforge/consumer/_conversation.py`: 85% of the model's context window, capped at 120000 / 32000 / 16000 for the full / api_with_tools / pure_completion capability tiers). `agent.max_context_tokens` is only exposed to the frontend via `GET /api/v1/agent-config`:
 
 - **Head-and-tail strategy**: System prompt + first few messages + last N messages always included
-- **Tool result truncation**: Long outputs capped at `ToolOutputMaxChars` (default 10000) with head+tail preservation
+- **Tool result truncation**: Long outputs capped at 10000 characters (`DEFAULT_TOOL_OUTPUT_MAX_CHARS` in `workers/codeforge/history.py`) with head+tail preservation
 - **Context injection**: RepoMap, retrieval results, and LSP diagnostics embedded in the system prompt
 
 #### Human-in-the-Loop (HITL) Approval
@@ -380,16 +417,19 @@ When the policy layer returns `DecisionAsk` for a tool call:
 3. User decision sent via `POST /api/v1/runs/{id}/approve/{callId}` with `{"decision": "allow"|"deny"}`
 4. If approved, tool executes normally; if denied or timeout (default 60s), a "Permission denied" result is returned to the LLM
 
+> **Implementation status (2026-10-01):** The worker waits for a decision as long as the Go Core waits (`runtime.approval_timeout_seconds`, default 60 s, plus 15 s), and a stopped conversation denies only the calls of the stopped turn (KI-21, KI-24).
+>
+> **Approval by email (KI-57).** With `notification.smtp_host`, `smtp_from`, `approval_recipients` and `web_ui_url` set, the email provider mails each pending approval of the tenants in `notification.approval_tenants` (default: the default tenant) to the recipients: tool, command, path, profile and arguments preview (HTML-escaped) and a link to `<web_ui_url>/approvals/<run>/<call>`. The page asks for a login (the login returns to the page), shows the request (`GET /api/v1/runs/{id}/approvals/{callId}`) and decides it (`POST /api/v1/feedback/{run_id}/{call_id}?decision=allow|deny`); both are for admins and editors, scoped to the caller's tenant, and the audit entry records tool and deciding user. The email itself decides nothing. Raise `runtime.approval_timeout_seconds` so the mail can be read before the approval times out. Slack approval messages (with `slack_webhook_url` and `web_ui_url`) show the same fields, escaped for mrkdwn, and link to the same page; they carry no buttons ([Known Issues](../todo.md#known-issues) KI-84).
+
 #### Configuration
 
 ```yaml
 agent:
-  builtin_tools: [Read, Write, Edit, Bash, Search, Glob, ListDir]
   default_model: ""  # Uses project's configured model
-  max_context_tokens: 120000
+  max_context_tokens: 128000    # Only reported to the frontend (GET /api/v1/agent-config)
   max_loop_iterations: 50
-  agentic_by_default: false
-  tool_output_max_chars: 10000
+  agentic_by_default: true
+  tool_output_max_chars: 10000  # Sent with runs.start and conversation.run.start; the worker truncates tool output in the history
   context_enabled: true         # Enable proactive context injection for conversations (default: true)
   context_budget: 2048          # Base token budget for conversation context (adaptive: decays with history length)
   context_prompt_reserve: 512   # Tokens reserved for prompt overhead
@@ -410,14 +450,14 @@ Context injection is **enabled by default** (`context_enabled: true`). The conve
 - Turn 30 (~60 messages): 0 tokens — agent has built its own context through tool calls
 - Threshold: 60 messages. Formula: `budget * (60 - len(history)) / 60`
 
-**Auto-Indexing:** Clone, Adopt, and Setup handlers auto-trigger all three index builds (`autoIndexProject()` in `internal/adapter/http/handlers.go`):
+**Auto-Indexing:** Clone, Adopt, and Setup handlers auto-trigger all three index builds (`autoIndexProject()` in `internal/adapter/http/handlers_project.go`, delegating to `ProjectService.AutoIndex()` in `internal/service/project.go`, which also records a review trigger):
 - RepoMap (tree-sitter + PageRank)
 - Retrieval Index (BM25S + semantic embeddings)
 - GraphRAG (AST adjacency graph)
 
 **Benefits:**
 - Agents start with relevant file context instead of discovering it reactively via tool calls
-- Reduces initial tool-call overhead by 2-3x (fewer `Read`/`Search`/`Glob` calls)
+- Reduces initial tool-call overhead by 2-3x (fewer `read_file`/`search_files`/`glob_files` calls)
 - Especially impactful for weaker LLMs that struggle with multi-step context discovery
 - Token-efficient: budget shrinks automatically as the agent learns the codebase
 
@@ -441,9 +481,11 @@ Context injection is **enabled by default** (`context_enabled: true`). The conve
 | File | Purpose |
 |------|---------|
 | `workers/codeforge/agent_loop.py` | Core agentic loop executor |
+| `workers/codeforge/loop_config.py` | Loop setup shared by conversations and runs (`build_loop_config`, `resolve_model_and_fallbacks`) |
 | `workers/codeforge/history.py` | Conversation history manager |
-| `workers/codeforge/tools/` | Built-in tool registry (7 tools) |
-| `internal/service/conversation.go` | Agentic dispatch and completion handler |
+| `workers/codeforge/tools/` | Built-in tool registry (10 default tools + per-run `handoff_to` / `propose_goal` / `propose_roadmap` / `spawn_subagent`) |
+| `internal/service/conversation.go`, `internal/service/conversation_dispatch.go`, `internal/service/conversation_agent.go` | Conversation service (one active run, turns), agentic dispatch and completion handler |
+| `internal/service/runtime_execution.go`, `internal/service/runtime_lifecycle.go` | Tool-call requests of runs and conversations (policy decision, checkpoints, HITL); stopping and ending runs (termination limits, rollback, delivery) |
 | `internal/service/runtime_approval.go` | HITL approval (waitForApproval, ResolveApproval) |
 | `internal/adapter/http/handlers_conversation.go` | HTTP handlers (approval endpoint) |
 | `frontend/src/features/project/ChatPanel.tsx` | Chat UI with agentic enhancements |
@@ -458,14 +500,14 @@ Structured evaluation framework for measuring agent and model quality. Only acce
 Three-pillar evaluation stack running in the Python worker:
 
 1. **DeepEval** — LLM-as-judge metrics (correctness, faithfulness, relevancy, tool correctness) via `LiteLLMJudge` wrapper
-2. **AgentNeo** — Optional tracing for tool selection accuracy, goal decomposition, and plan adaptability
+2. **AgentNeo** — Optional tracing for tool selection accuracy, goal decomposition, and plan adaptability (removed 2026-03-05, replaced by OpenTelemetry tracing in `workers/codeforge/tracing/`)
 3. **GEMMAS Collaboration** — Information Diversity Score (IDS) and Unnecessary Path Ratio (UPR) for multi-agent workflows
 
 #### Workflow
 
 1. User creates a benchmark run via `/benchmarks` page (selects dataset, model, metrics)
-2. Go Core stores run in `benchmark_runs` table and publishes `benchmark.run.request` to NATS
-3. Python worker loads YAML dataset, executes tasks against LLM, evaluates with selected metrics
+2. Go Core stores run in `benchmark_runs` table and publishes `benchmark.run.request` to NATS. The frontend sends a dataset name; the Go Core resolves it to the absolute path of the file inside `benchmark.datasets_dir` (`(*BenchmarkRunManager).resolveDatasetPath()` in `internal/service/benchmark_run.go`, through os.Root) and publishes that path, so the worker receives an absolute path. Without a datasets directory, or when the dataset is missing but a suite provider can load the tasks, the name is passed on unchanged.
+3. Python worker loads YAML dataset (only below its own `benchmark.datasets_dir`, KI-107), executes tasks against LLM, evaluates with selected metrics
 4. Results published back via `benchmark.run.result`, stored in `benchmark_results` table
 5. Frontend displays per-task scores, summary, and supports run-to-run comparison
 
@@ -476,10 +518,18 @@ Three-pillar evaluation stack running in the Python worker:
 | POST | `/api/v1/benchmarks/runs` | Create benchmark run |
 | GET | `/api/v1/benchmarks/runs` | List all runs |
 | GET | `/api/v1/benchmarks/runs/{id}` | Get run details |
+| PATCH | `/api/v1/benchmarks/runs/{id}` | Cancel run |
 | DELETE | `/api/v1/benchmarks/runs/{id}` | Delete run |
 | GET | `/api/v1/benchmarks/runs/{id}/results` | List results for run |
+| GET | `/api/v1/benchmarks/runs/{id}/export/results`, `/export/training`, `/export/rlvr` | Export results, training data, RLVR data |
+| GET | `/api/v1/benchmarks/runs/{id}/cost-analysis` | Cost analysis |
+| POST | `/api/v1/benchmarks/runs/{id}/analyze` | Analyze run |
+| GET, POST | `/api/v1/benchmarks/suites` | List / create suites |
+| GET, PUT, DELETE | `/api/v1/benchmarks/suites/{id}` | Get / update / delete suite |
 | GET | `/api/v1/benchmarks/datasets` | List available datasets |
 | POST | `/api/v1/benchmarks/compare` | Compare two runs |
+| POST | `/api/v1/benchmarks/compare-multi` | Compare multiple runs |
+| GET | `/api/v1/benchmarks/leaderboard` | Leaderboard |
 
 All endpoints gated by `DevModeOnly` middleware.
 
@@ -493,8 +543,8 @@ All endpoints gated by `DevModeOnly` middleware.
 | `workers/codeforge/evaluation/datasets.py` | Dataset loading and result persistence |
 | `workers/codeforge/evaluation/collaboration.py` | IDS + UPR collaboration metrics |
 | `workers/codeforge/evaluation/dag_builder.py` | CollaborationDAG from agent messages |
-| `workers/codeforge/tracing/setup.py` | TracingManager with AgentNeo/NoOp fallback |
-| `workers/codeforge/tracing/metrics.py` | AgentNeo metric wrappers |
+| `workers/codeforge/tracing/setup.py` | TracingManager (OpenTelemetry, NoOp fallback) |
+| `workers/codeforge/tracing/metrics.py` | OpenTelemetry metric instruments |
 | `internal/service/benchmark.go` | Go benchmark service (CRUD + dataset listing) |
 | `internal/adapter/postgres/store_benchmark.go` | PostgreSQL benchmark store |
 | `internal/adapter/http/handlers_benchmark.go` | HTTP handlers for benchmark API |
@@ -515,17 +565,19 @@ Extends Phase 20 benchmarks with hybrid verification, multi-rollout scaling, syn
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **MultiRolloutRunner** | `workers/codeforge/evaluation/runners/multi_rollout.py` | Parallel evaluation runner for multi-rollout scaling |
-| **TrajectoryVerifier** | `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` | Hybrid verification pipeline for trajectory validation |
+| **MultiRolloutRunner** | `workers/codeforge/evaluation/runners/multi_rollout.py` | Multi-rollout evaluation runner (sequential, early stopping) |
+| **HybridEvaluationPipeline** | `workers/codeforge/evaluation/hybrid_pipeline.py` | Two-stage hybrid verification: execution-based filter, then LLM rank |
+| **TrajectoryVerifier** | `workers/codeforge/evaluation/evaluators/trajectory_verifier.py` | LLM trajectory rank stage of the hybrid pipeline (uses the worker's LiteLLM client; an unusable verdict is an evaluation error per dimension, never a 0.0 score) |
 | **SWE-GEN** | `workers/codeforge/evaluation/generators/swegen.py` | Synthetic task generator for SWE-bench style evaluation |
 | **DPO Trajectory Exporter** | `workers/codeforge/evaluation/export/trajectory_exporter.py` | Export trajectories in DPO format for training |
 
 #### Features
 
-- **Multi-rollout scaling**: Run multiple evaluation rollouts in parallel via `MultiRolloutRunner`, aggregate results with diversity-aware MAB (entropy-UCB1) selection
-- **Hybrid verification**: `TrajectoryVerifier` combines functional test results with LLM-based trajectory analysis for robust pass/fail decisions
+- **Multi-rollout scaling**: Run N rollouts sequentially (with early stopping) via `MultiRolloutRunner`, score diversity, and select the best by hybrid verification, majority, longest or shortest strategy
+- **Hybrid verification**: `HybridEvaluationPipeline` filters with execution-based evaluators (e.g. functional tests), then ranks survivors with LLM-based evaluators (`TrajectoryVerifierEvaluator` among them) for robust pass/fail decisions
 - **Synthetic tasks**: `SWE-GEN` generates SWE-bench style tasks from real repositories for custom evaluation datasets
-- **DPO export**: `DPO Trajectory Exporter` converts successful/failed trajectory pairs into DPO training format for model fine-tuning
+- **DPO export**: `DPO Trajectory Exporter` converts successful/failed trajectory pairs into DPO training format for model fine-tuning; results with evaluation errors and no valid score are left out of the DPO and RLVR exports
+- **Evaluation errors**: a dimension an evaluator could not score is reported in `evaluation_errors` (benchmark results API and UI) and is not a score: averages skip it and a rollout with such an error ranks below fully evaluated ones
 
 ### Phase 21: Intelligent Agent Orchestration (2026-02-26)
 
@@ -575,9 +627,9 @@ When the review router triggers, a ping_pong sub-plan is created with proponent 
 |---|---|
 | `internal/domain/orchestration/review_decision.go` | ReviewDecision domain model |
 | `internal/service/review_router.go` | Confidence-based review evaluation |
-| `internal/service/orchestrator.go` | Debate protocol integration |
+| `internal/service/orchestrator_consensus.go` | Debate protocol integration (`startDebate`, `handleDebateComplete`) |
 | `internal/domain/mode/presets.go` | moderator + proponent mode presets |
-| `internal/adapter/ws/events.go` | review_router.decision + debate.status events |
+| `internal/domain/event/broadcast.go` | review_router.decision + debate.status events |
 | `workers/codeforge/schemas/` | Typed Pydantic schemas per step |
 | `frontend/src/features/project/AgentFlowGraph.tsx` | SVG DAG renderer |
 | `frontend/src/features/project/StepDetailPanel.tsx` | Step detail with debate visualization |
@@ -587,9 +639,9 @@ When the review router triggers, a ping_pong sub-plan is created with proponent 
 
 - [x] OTEL agent-level spans and metrics wired into service layer (runtime.go, conversation.go).
 - [x] `NewMetrics()` instantiated in main.go, injected via `SetMetrics()` setters.
-- [x] Python `BackendRouter` dispatcher with 5 registered backend executors.
+- [x] Python `BackendRouter` dispatcher with 6 registered backend executors (incl. SWE-agent).
 - [x] `AiderExecutor` real CLI wrapper (subprocess, streaming, timeout, cancel).
-- [x] Goose/OpenHands/OpenCode/Plandex CLI wrapper executors (requires respective CLIs installed).
+- [x] Goose/OpenCode/Plandex CLI wrapper executors (requires respective CLIs installed) and OpenHands HTTP API executor (requires a running OpenHands server).
 - [x] Consumer extracts backend name from NATS subject, routes to correct executor.
 - [x] 40 new Python tests (router, aider, CLI wrappers, consumer).
 
@@ -637,9 +689,9 @@ Three-tier file scanning with priority-based ordering:
 
 | Tier | Source Files | Goal Kind | Priority |
 |------|-------------|-----------|----------|
-| 1. GSD (Goal-Structured Development) | `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/STATE.md` | vision, requirement, state | 95-80 |
-| 2. Agent Instructions | `CLAUDE.md`, `.cursorrules`, `.clinerules` | context | 80 |
-| 3. Project Documentation | `README.md`, `docs/architecture.md`, `docs/requirements.md`, `CONTRIBUTING.md` | state, context | 75-70 |
+| 1. GSD (Goal-Structured Development) | `.planning/PROJECT.md`, `.planning/REQUIREMENTS.md`, `.planning/STATE.md`, `.planning/NN-CONTEXT.md` | vision, requirement, state, context | 95-75 |
+| 2. Agent Instructions | `CLAUDE.md`, `.cursorrules`, `.clinerules` | constraint | 88-85 |
+| 3. Project Documentation | `README.md` first section (vision), `docs/requirements.md` (requirement), `docs/architecture.md`, `CONTRIBUTING.md` (constraint) | vision, requirement, constraint | 85-60 |
 
 Detection is workspace-path-based: files are read from disk, parsed for relevant sections, and imported as `ProjectGoal` records in PostgreSQL.
 
@@ -649,15 +701,15 @@ Detection is workspace-path-based: files are read from disk, parsed for relevant
 |------|---------|---------------|
 | `vision` | High-level project purpose and direction | `.planning/PROJECT.md`, README intro |
 | `requirement` | Functional/non-functional requirements | `.planning/REQUIREMENTS.md`, docs/requirements.md |
-| `constraint` | Architecture decisions, tech choices, coding standards | `CLAUDE.md`, `.cursorrules` |
-| `state` | Current project status, what is built, what is missing | README "Status" section, CONTRIBUTING.md |
-| `context` | General context that helps agents understand the codebase | `.cursorrules`, docs/architecture.md |
+| `constraint` | Architecture decisions, tech choices, coding standards | `CLAUDE.md`, `.cursorrules`, `.clinerules`, docs/architecture.md, CONTRIBUTING.md |
+| `state` | Current project status, what is built, what is missing | `.planning/STATE.md` |
+| `context` | General context that helps agents understand the codebase | `.planning/NN-CONTEXT.md` |
 
 #### Context Injection
 
 Goals reach agents through two complementary paths:
 
-1. **System prompt injection** -- `renderGoalContext()` in `internal/service/conversation_agent.go` (line 436) fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, renders them as structured markdown grouped by kind, and injects them into the `GoalContext` template field of the agent system prompt. Note: `internal/service/goal_discovery.go` provides `AsContextEntries()` for context pack integration.
+1. **System prompt injection** -- `internal/service/conversation_prompt.go` fetches enabled goals via `GoalDiscoveryService.ListEnabled()`, and `renderGoalContext()` (`internal/service/goal_discovery.go`) renders them as structured markdown grouped by kind; the result fills the `GoalContext` template field of the agent system prompt. Note: `internal/service/goal_discovery.go` provides `AsContextEntries()` for context pack integration.
 
 2. **Context pack entries** -- `ContextOptimizerService` includes goal entries (kind `EntryGoal`) as high-priority candidates during context packing, ensuring goals survive token budget trimming.
 
@@ -665,11 +717,11 @@ Goals reach agents through two complementary paths:
 
 Conversations can optionally pre-pack codebase context into the NATS payload before the agent loop starts.
 
-- **Opt-in**: Set `agent.context_enabled: true` in config YAML
+- **Enabled by default** (`agent.context_enabled: true`); set it to `false` to disable
 - **Pipeline**: Reuses the existing ContextOptimizerService parallel pipeline
 - **Budget**: Separate token budget (context_budget: 2048) smaller than orchestration
 - **Graceful degradation**: Conversation proceeds without pre-packed context on failure
-- **Key files**: context_optimizer.go, conversation_agent.go, conversation.go
+- **Key files**: context_optimizer.go, conversation_agent_prompt.go (`buildConversationContextEntries()`), conversation_prompt.go
 - **Python side**: No changes needed
 
 #### Auto-Discovery
@@ -698,13 +750,13 @@ Goal detection runs automatically during `SetupProject()` (Step 4) after repo cl
 |------|---------|
 | `internal/domain/goal/goal.go` | GoalKind enum, ProjectGoal, CreateRequest, UpdateRequest, validation |
 | `internal/service/goal_discovery.go` | GoalDiscoveryService (detect, CRUD, context rendering) |
-| `internal/service/goal_discovery_test.go` | 11 unit tests |
+| `internal/service/goal_discovery_test.go` | Unit tests |
 | `internal/adapter/postgres/store_project_goal.go` | PostgreSQL CRUD (7 methods) |
 | `internal/adapter/postgres/migrations/056_project_goals.sql` | DB migration |
-| `internal/adapter/http/handlers_goals.go` | HTTP handlers (6 endpoints) |
-| `internal/service/conversation_agent.go` | System prompt injection (`renderGoalContext()`) |
+| `internal/adapter/http/handlers_goals.go` | HTTP handlers (7 endpoints) |
+| `internal/service/conversation_prompt.go` | System prompt injection (calls `renderGoalContext()`) |
 | `internal/service/context_optimizer.go` | Context pack injection (`SetGoalService()`) |
-| `internal/service/project.go` | Auto-detection in `SetupProject()` Step 4 |
+| `internal/service/project_workspace.go` | Auto-detection in `SetupProject()` Step 4 |
 | `frontend/src/features/project/GoalsPanel.tsx` | Goal management UI |
 
 ### Open Items
@@ -716,14 +768,16 @@ Goal detection runs automatically during `SetupProject()` (Step 4) after repo cl
 CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a-go) (Linux Foundation) for secure, interoperable agent-to-agent communication. CodeForge acts as both **server** (exposing agents) and **client** (delegating to remote agents).
 
 **Server Role (inbound):**
-- Dynamic `AgentCard` at `/.well-known/agent.json` with skills from registered modes
+- Dynamic `AgentCard` at `/.well-known/agent-card.json` with skills from registered modes (public only when `a2a.allow_open` is true, otherwise behind A2A auth)
 - SDK-based handler via `a2a-go` — JSON-RPC task lifecycle (submit/working/completed/failed)
 - `AgentExecutor` bridges A2A tasks to CodeForge's NATS-based execution pipeline
 - Python worker: dedicated `AgentExecutor.execute_a2a_task()` with A2A-specific system prompts (skill context, cost tracking)
 - `A2AHandlerMixin` publishes WORKING state before execution, then COMPLETED/FAILED with trust-stamped payloads
-- Trust annotations stamped on all inbound tasks (origin="a2a", level=untrusted)
-- Quarantine evaluation before task execution (Phase 23B integration)
-- Bearer token authentication middleware with configurable API keys
+- Trust annotations stamped on all inbound tasks (origin="a2a", level `partial` for an authenticated A2A key)
+- Quarantine evaluation before task execution (Phase 23B): the prompt is screened before any worker sees it; a held prompt waits for an admin's review of its quarantine message (see [Security and Trust](../architecture.md#message-quarantine-system))
+- Bearer token authentication (`middleware.A2AAuth`) with `a2a.api_keys`: `<key>` (default tenant) or `<tenant-uuid>:<key>`; the caller acts in its key's tenant, sees only the inbound tasks its own key created and never outbound ones; without keys every request gets 401
+
+> **Implementation status (2026-10-01):** The A2A trust gates are wired (KI-15). For an inbound prompt the task is created first and records the held quarantine message (`quarantine_message_id`): Approve replays the prompt only while the task is still `submitted` (otherwise the message is rejected and the call answers 409), Reject rejects the task, a cancel by the caller withdraws the message, and a prompt whose task cannot record the screening is withdrawn. `a2a://` handoffs run through `HandoffService`: the Go Core handles `handoff.request` (source and target checked in the request's tenant and project, screened by the quarantine, the target agent's configured mode wins, a task and a tracked run, an inbox message, `handoff.status` with `run_id` and one of `initiated`, `quarantined`, `rejected`, `failed`, `a2a_delegated`). Each handoff stage is carried out once (`handoff_claims`).
 
 **Client Role (outbound):**
 - `A2AService` (`internal/service/a2a.go`) manages remote agent discovery and task delegation
@@ -735,7 +789,7 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 **Handoff Integration (Phase 27M):**
 - `a2a://` prefix in handoff target routes to A2A instead of NATS
 - Example: `TargetAgentID: "a2a://remote-coder"` delegates via A2A protocol
-- Existing trust and quarantine checks still applied before delegation
+- Trust and quarantine checks are applied before delegation (`HandoffService`, status `a2a_delegated`)
 
 **API Endpoints:**
 
@@ -771,7 +825,8 @@ CodeForge implements the [A2A Protocol v0.3.0](https://github.com/a2aproject/a2a
 | `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | (empty) | Comma-separated API keys |
 | `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol |
 | `a2a.max_tasks` | `CODEFORGE_A2A_MAX_TASKS` | `100` | Max concurrent A2A tasks |
-| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `true` | Allow unauthenticated discovery |
+| `a2a.allow_open` | `CODEFORGE_A2A_ALLOW_OPEN` | `false` | Allow unauthenticated AgentCard discovery |
+| `a2a.streaming` | `CODEFORGE_A2A_STREAMING` | `false` | Advertise streaming capability in AgentCard |
 
 **Key Files:**
 
@@ -853,11 +908,13 @@ Goals are injected into agent interactions through two complementary paths:
 | `internal/adapter/http/handlers_goals.go` | REST API handlers |
 | `internal/service/context_optimizer.go` | Goal → ContextPack integration |
 | `workers/codeforge/tools/propose_goal.py` | AG-UI event tool -- proposes goals via trajectory events instead of HTTP callbacks |
-| `internal/service/conversation_agent.go` | Goal -> system prompt injection |
+| `internal/service/conversation_prompt.go` | Goal -> system prompt injection |
 
 ## Contract-First Review/Refactor Pipeline (Phase 31)
 
 Automated code review and refactoring cycle for orchestrated projects.
+
+> **Implementation status (2026-10-01):** The pipeline runs end to end (KI-17). `POST /projects/{id}/review-refactor` starts a plan from the `review-refactor` template (202 `{triggered, plan_id}`; 409 when the project already has an active review pipeline or the agent belongs to another plan; 400 for a project without workspace or agents and for a workspace that is not a git repository). The reports reach later steps through the plan's team (shared context); the artifact validators know `BOUNDARIES.json`, `CONTRACT_REVIEW.md`, `PROPOSAL.md` and `SYNTHESIS.md`, and the boundary analyzer's `BOUNDARIES.json` replaces the project's auto-detected boundaries (manually added ones are kept).
 
 ### Pipeline: `review-refactor`
 
@@ -865,35 +922,32 @@ Automated code review and refactoring cycle for orchestrated projects.
 1. **Boundary Analysis** (`boundary_analyzer` mode) -- LLM identifies API, data, inter-service, and cross-language boundary files
 2. **Contract Review** (`contract_reviewer` mode) -- Cross-layer contract consistency checking
 3. **Intra-Layer Review** (`reviewer` mode) -- Standard code quality review within layers
-4. **Refactoring Proposals** (`refactorer` mode) -- Concrete refactoring suggestions with diffs
+4. **Refactoring** (`refactorer` mode) -- Applies the refactorings in the workspace without committing; the change is measured against the baseline taken when this step starts
 
-### Cascade Trigger System
+### Trigger
 
-`ReviewTriggerService` with 3 trigger sources:
-- **Pipeline-Completion** -- Auto-triggered after pipeline finishes (configurable)
-- **Branch-Merge** -- Webhook or polling for merges to configured branches
-- **Manual** -- `POST /api/v1/projects/{id}/review-refactor` or `/review` chat command
-
-Deduplication: Same commit SHA within 30min window -> skip (manual bypasses dedup).
+The only trigger is manual: `POST /api/v1/projects/{id}/review-refactor` (optional `commit_sha`, recorded in `review_triggers`; `ReviewTriggerService`, `internal/service/review_trigger.go`) or `POST /projects/{id}/boundaries/analyze` for the boundary analysis alone. Pipeline-completion and branch-merge triggers and a chat command are not implemented; the trigger dedup was removed with them. One review pipeline is active per project; only review pipelines check that the agent is free (409).
 
 ### Threshold-based HITL
 
-`DiffImpactScorer` evaluates refactoring diffs:
-- **Low** (< auto_apply_threshold): Auto-apply
-- **Medium** (>= auto_apply, < approval_threshold): Auto-apply + notification
-- **High** (>= approval_threshold, cross-layer, or structural): HITL pause
+`DiffImpactScorer` evaluates the refactoring against the baseline commit:
+- **Low** (< auto_apply_threshold, default 50 changed lines): Auto-apply
+- **Medium** (>= auto_apply, < approval_threshold, default 200): Auto-apply + notification (`review.refactor_applied`)
+- **High** (>= approval_threshold, a boundary file, or a file added, deleted or renamed): HITL pause
 
-`waiting_approval` step status pauses the pipeline. WebSocket event `refactor.approval_required` triggers frontend overlay. User can Approve/Reject via `POST /api/v1/runs/{id}/approve|reject`.
+The pipeline state lives in the Go record `review_pipelines` (migration 100: `pending`, `refactoring`, `awaiting_decision`, `done`; baseline, result, step, run, impact), not in the workspace: the refs `refs/codeforge/review/<plan>` and `refs/codeforge/review-result/<plan>` only keep the commits alive. The gate fails closed when it cannot measure (tampered ref, missing record, boundary lookup error). A high impact sets the step to `waiting_approval` and broadcasts the WebSocket event `review.approval_required` (`ReviewImpactEvent`: run, plan, step, impact level, files and lines, cross-layer, structural, reason). The decision is `POST /api/v1/runs/{refactorer run id}/approve|reject` with `{plan_id, step_id}` and answers `{status, head_restored, message?, restored_paths?}`: approve keeps the change, reject undoes it - only the paths the refactoring changed are set back (three-way merge) and HEAD moves back only if it still points to the refactoring's commit (compare-and-swap). Keep and undo also work after a failed or cancelled refactoring and are matched on the review record, so they survive run retention; an undo while the measurement is still recorded answers 409 "try again". `GET /projects/{id}/review/pending` lists the waiting decisions; the `RefactorApproval` dialog loads them when it opens and when the WebSocket reconnects and decides through the API client. A stopped refactoring is measured once its worker confirmed the stop, or by the watchdog check "undecided review refactorings" after the lost-worker deadline. `POST /runs/{id}/approve-partial` answers 501.
+
+Open (KI-94): user edits made while the refactorer runs count as the refactoring; `CancelPlan` of a parent plan does not cancel a running debate sub-plan; git-quoted (non-ASCII) paths are not matched by the boundary check.
 
 ### Boundary Management
 
 - `GET/PUT /api/v1/projects/{id}/boundaries` -- CRUD for boundary configuration
 - `POST /api/v1/projects/{id}/boundaries/analyze` -- Re-trigger boundary analysis
-- Auto-triggered during project indexing (clone/adopt/setup)
+- Auto-triggered during project indexing (clone/adopt/setup): starts a boundary analysis when the project has an idle agent (KI-17)
 
 ### Phase-aware Context Budget
 
-Each pipeline step gets a scaled context budget:
+Each pipeline step gets a scaled context budget (implemented as `PhaseAwareContextBudget` in `internal/service/context_budget.go` with `agent.phase_scaling` overrides, not yet applied; conversations use `AdaptiveContextBudget` only):
 - boundary_analyzer: 100% (needs full project overview)
 - contract_reviewer: 60% (focused on boundary files)
 - reviewer: 50% (focused on changed layer)
@@ -909,7 +963,7 @@ Two-phase agent execution separating reasoning from action:
 - **Act phase:** All tools available. Standard routing tag.
 - **Transition:** LLM calls virtual `transition_to_act` tool, or auto-transition after `CODEFORGE_PLAN_ACT_MAX_ITERATIONS` (default 10).
 - **Activation:** Automatic for modes with `autonomy >= 4` (e.g., prototyper, boundary_analyzer) via `plan_act_enabled` NATS field.
-- **Key files:** `workers/codeforge/plan_act.py` (controller), `workers/codeforge/agent_loop.py` (integration), `internal/service/conversation_agent.go` (dispatcher), `internal/port/messagequeue/schemas.go` (payload)
+- **Key files:** `workers/codeforge/plan_act.py` (controller), `workers/codeforge/agent_loop.py` (integration), `internal/service/conversation_dispatch.go` (dispatcher), `internal/port/messagequeue/schemas_conversation.go` (payload)
 
 ### Semantic Deduplication of Context Candidates (B2)
 

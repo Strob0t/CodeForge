@@ -11,11 +11,15 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 const githubTokenURL = "https://github.com/login/oauth/access_token" //nolint:gosec // G101: not a credential, just a well-known OAuth endpoint URL
+
+const githubProvider = "github"
 
 // GitHubOAuthConfig holds the configuration for GitHub OAuth.
 type GitHubOAuthConfig struct {
@@ -45,25 +49,41 @@ func NewGitHubOAuthService(cfg GitHubOAuthConfig, db database.Store, encryptionK
 	}
 }
 
-// AuthorizeURL generates the GitHub OAuth authorization URL and stores the CSRF state.
-func (s *GitHubOAuthService) AuthorizeURL(ctx context.Context) (string, error) {
-	state, err := vcsaccount.NewOAuthState("github", "")
+// AuthorizeURL generates the GitHub OAuth authorization URL and stores the
+// CSRF state for the caller's tenant (the account is created there). It
+// returns the state too, for the caller to bind it to the browser.
+func (s *GitHubOAuthService) AuthorizeURL(ctx context.Context) (authURL, state string, err error) {
+	st, err := vcsaccount.NewOAuthState(githubProvider, tenantctx.FromContext(ctx))
 	if err != nil {
-		return "", fmt.Errorf("generate oauth state: %w", err)
+		return "", "", fmt.Errorf("generate oauth state: %w", err)
 	}
 
-	if err := s.db.CreateOAuthState(ctx, state); err != nil {
-		return "", fmt.Errorf("store oauth state: %w", err)
+	// Expired states of abandoned flows are deleted by the retention job.
+	if err := s.db.CreateOAuthState(ctx, st); err != nil {
+		return "", "", fmt.Errorf("store oauth state: %w", err)
 	}
 
+	// The redirect URI is the configured one only - never taken from a
+	// request (config validation keeps it on this service's callback).
 	params := url.Values{
 		"client_id":    {s.cfg.ClientID},
 		"redirect_uri": {s.cfg.RedirectURI},
 		"scope":        {strings.Join(s.cfg.Scopes, " ")},
-		"state":        {state.State},
+		"state":        {st.State},
 	}
 
-	return "https://github.com/login/oauth/authorize?" + params.Encode(), nil
+	return "https://github.com/login/oauth/authorize?" + params.Encode(), st.State, nil
+}
+
+// UIURL returns path on the origin of the configured callback URL - the
+// origin the web UI uses for the API - for the browser's way back after
+// the callback.
+func (s *GitHubOAuthService) UIURL(path string) string {
+	u, err := url.Parse(s.cfg.RedirectURI)
+	if err != nil || u.Host == "" {
+		return path
+	}
+	return u.Scheme + "://" + u.Host + path
 }
 
 // githubTokenResponse represents the JSON response from GitHub's token endpoint.
@@ -82,14 +102,17 @@ func (s *GitHubOAuthService) HandleCallback(ctx context.Context, code, statePara
 		return nil, fmt.Errorf("state parameter is required")
 	}
 
-	// Validate and consume the state token (CSRF check).
-	oauthState, err := s.db.GetOAuthState(ctx, stateParam)
+	// Validate and consume the state token (CSRF check, single use). The
+	// callback has no session: the state names the tenant that started the
+	// flow, and the account is created there.
+	oauthState, err := s.db.ConsumeOAuthState(ctx, stateParam)
 	if err != nil {
 		return nil, fmt.Errorf("invalid or expired oauth state: %w", err)
 	}
-
-	// Delete the state immediately to prevent replay.
-	_ = s.db.DeleteOAuthState(ctx, oauthState.State)
+	if oauthState == nil || oauthState.IsExpired() || oauthState.Provider != githubProvider || oauthState.TenantID == "" {
+		return nil, fmt.Errorf("invalid or expired oauth state: %w", domain.ErrNotFound)
+	}
+	ctx = tenantctx.WithTenant(ctx, oauthState.TenantID)
 
 	// Exchange the authorization code for an access token.
 	token, err := s.exchangeCode(ctx, code)

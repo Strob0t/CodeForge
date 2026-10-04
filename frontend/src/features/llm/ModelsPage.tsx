@@ -2,6 +2,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { DiscoveredModel, LLMModel } from "~/api/types";
+import { useAuth } from "~/components/AuthProvider";
 import { useConfirm } from "~/components/ConfirmProvider";
 import { useToast } from "~/components/Toast";
 import { useAsyncAction, useFormState } from "~/hooks";
@@ -33,6 +34,8 @@ export function ModelsContent() {
   const { t } = useI18n();
   const { show: toast } = useToast();
   const { confirm } = useConfirm();
+  // All tenants share the LiteLLM models: only platform admins change them.
+  const { isPlatformAdmin } = useAuth();
   const [models, { refetch }] = createResource(() => api.llm.models());
   const [health] = createResource(() => api.llm.health());
   const [showForm, setShowForm] = createSignal(false);
@@ -144,14 +147,20 @@ export function ModelsContent() {
         <Button variant="secondary" onClick={() => void handleDiscover()} disabled={discovering()}>
           {discovering() ? t("models.discovering") : t("models.discover")}
         </Button>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          {showForm() ? t("common.cancel") : t("models.addModel")}
-        </Button>
+        <Show when={isPlatformAdmin()}>
+          <Button onClick={() => setShowForm((v) => !v)}>
+            {showForm() ? t("common.cancel") : t("models.addModel")}
+          </Button>
+        </Show>
       </div>
+
+      <Show when={!isPlatformAdmin()}>
+        <p class="mb-4 text-sm text-cf-text-muted">{t("models.platformAdminOnly")}</p>
+      </Show>
 
       <ErrorBanner error={error} onDismiss={clearError} />
 
-      <Show when={showForm()}>
+      <Show when={showForm() && isPlatformAdmin()}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -253,7 +262,7 @@ export function ModelsContent() {
               {(model) => (
                 <ModelCard
                   model={model}
-                  onDelete={handleDelete}
+                  onDelete={isPlatformAdmin() ? handleDelete : undefined}
                   expanded={isExpanded(model.model_name)}
                   onToggle={() => toggleModel(model.model_name)}
                 />
@@ -277,7 +286,8 @@ export default function ModelsPage() {
 
 interface ModelCardProps {
   model: LLMModel;
-  onDelete: (id: string) => Promise<void>;
+  /** Deletes the model; absent when the user may not delete it. */
+  onDelete?: (id: string) => Promise<void>;
   expanded: boolean;
   onToggle: () => void;
 }
@@ -310,11 +320,11 @@ function ModelCard(props: ModelCardProps) {
               </Show>
             </div>
           </button>
-          <Show when={props.model.model_id}>
+          <Show when={props.model.model_id && props.onDelete}>
             <Button
               variant="danger"
               size="sm"
-              onClick={() => void props.onDelete(props.model.model_id ?? "")}
+              onClick={() => void props.onDelete?.(props.model.model_id ?? "")}
               aria-label={t("models.deleteAria", { name: props.model.model_name })}
             >
               {t("common.delete")}

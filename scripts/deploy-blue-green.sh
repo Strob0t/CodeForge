@@ -1,86 +1,183 @@
 #!/usr/bin/env bash
-# Blue-Green deployment for CodeForge
+# Blue-green deployment for CodeForge (see docker-compose.blue-green.yml)
+#
 # Usage: ./scripts/deploy-blue-green.sh [blue|green]
+#   Starts the given color (default: the one that is not running), waits
+#   until its core and frontend are healthy and then stops the other color.
+#   Traefik routes to whichever color runs. If the new color does not become
+#   healthy it is stopped and the active one keeps serving.
+#
+#   The shared services (postgres, nats, litellm) must already run and be
+#   healthy (`docker compose -f docker-compose.prod.yml -f
+#   docker-compose.blue-green.yml up -d`). The color is started with
+#   --no-deps, so the deployment never recreates them.
+#
+#   This script switches only the core and the frontend. The worker is not
+#   colored: an upgrade to per-tenant tool users (KI-96, ADR-018) stops every
+#   worker by hand first (`docker compose ... stop worker`, all replicas),
+#   deploys a color with this script, then starts the new worker image
+#   (`docker compose ... up -d worker`). An older worker must never run next
+#   to a new one or after the upgrade: it runs every tenant's tools as one
+#   user in the workspace group and takes no tenant lock. Run
+#   ./scripts/check-host.sh with the new worker image before.
+#
+# Environment:
+#   ACME_EMAIL, CODEFORGE_DOMAIN  required by the overlay (or set in .env)
+#   DRY_RUN=1                     print the plan and run the changing compose
+#                                 commands with --dry-run (nothing is pulled,
+#                                 created, started or stopped)
+#   HEALTH_TIMEOUT (default 120), HEALTH_INTERVAL (default 5) in seconds
 set -euo pipefail
 
-COMPOSE_FILES="-f docker-compose.prod.yml -f docker-compose.blue-green.yml"
-HEALTH_TIMEOUT=60
-HEALTH_INTERVAL=5
+cd "$(dirname "$0")/.."
 
-# Detect current active color by checking which core container is running
-detect_active() {
-    if docker compose $COMPOSE_FILES ps core-blue --status running 2>/dev/null | grep -q "running"; then
-        echo "blue"
-    elif docker compose $COMPOSE_FILES ps core-green --status running 2>/dev/null | grep -q "running"; then
-        echo "green"
+COMPOSE=(docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml)
+# The colors are compose profiles; naming them lets ps/stop see both.
+export COMPOSE_PROFILES=blue,green
+
+# The services the colors depend on (core's depends_on in the prod file).
+SHARED_SERVICES=(postgres nats litellm)
+
+HEALTH_TIMEOUT=${HEALTH_TIMEOUT:-120}
+HEALTH_INTERVAL=${HEALTH_INTERVAL:-5}
+DRY_RUN=${DRY_RUN:-0}
+
+# change runs a compose command that changes the deployment (simulated in a
+# dry run).
+change() {
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "+ docker compose --dry-run $*"
+        "${COMPOSE[@]}" --dry-run "$@"
     else
-        echo "none"
+        "${COMPOSE[@]}" "$@"
     fi
 }
 
-# Wait for a service to be healthy
-wait_healthy() {
-    local service=$1
-    local elapsed=0
+# running_id prints the ID of the service's running container (empty if none).
+running_id() {
+    "${COMPOSE[@]}" ps -q --status running "$1" 2>/dev/null | head -n 1
+}
 
-    echo "Waiting for $service to be healthy..."
-    while [ $elapsed -lt $HEALTH_TIMEOUT ]; do
-        if docker compose $COMPOSE_FILES ps "$service" --status running 2>/dev/null | grep -q "running"; then
-            local health
-            health=$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose $COMPOSE_FILES ps -q "$service")" 2>/dev/null || echo "unknown")
-            if [ "$health" = "healthy" ]; then
-                echo "$service is healthy"
-                return 0
-            fi
+# detect_active prints the color whose core is running, or "none".
+detect_active() {
+    local blue green
+    blue=$(running_id core-blue)
+    green=$(running_id core-green)
+    if [ -n "$blue" ] && [ -n "$green" ]; then
+        echo "ERROR: both colors are running; stop one before deploying" >&2
+        return 1
+    elif [ -n "$blue" ]; then
+        echo blue
+    elif [ -n "$green" ]; then
+        echo green
+    else
+        echo none
+    fi
+}
+
+# health prints the health of a container: healthy, starting, unhealthy, or
+# none when it has no health check.
+health() {
+    docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2>/dev/null || echo unknown
+}
+
+# require_shared_services fails unless every shared service runs and, when it
+# has a health check, is healthy: the colors are started with --no-deps, so
+# nothing else starts them (and an `up` with dependencies could recreate them).
+require_shared_services() {
+    local service id state missing=()
+    for service in "${SHARED_SERVICES[@]}"; do
+        id=$(running_id "$service")
+        state=$([ -n "$id" ] && health "$id" || echo "not running")
+        if [ "$state" != "healthy" ] && [ "$state" != "none" ]; then
+            missing+=("$service ($state)")
         fi
-        sleep $HEALTH_INTERVAL
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo "ERROR: shared services are not running and healthy: ${missing[*]}" >&2
+        echo "Start them first: ${COMPOSE[*]} up -d" >&2
+        return 1
+    fi
+    echo "Shared services running: ${SHARED_SERVICES[*]}"
+}
+
+# wait_healthy waits until the service's container reports healthy.
+wait_healthy() {
+    local service=$1 elapsed=0 id
+    echo "Waiting for $service to be healthy..."
+    while [ "$elapsed" -lt "$HEALTH_TIMEOUT" ]; do
+        id=$(running_id "$service")
+        if [ -n "$id" ] && [ "$(health "$id")" = "healthy" ]; then
+            echo "$service is healthy"
+            return 0
+        fi
+        sleep "$HEALTH_INTERVAL"
         elapsed=$((elapsed + HEALTH_INTERVAL))
     done
-
-    echo "ERROR: $service did not become healthy within ${HEALTH_TIMEOUT}s"
+    echo "ERROR: $service did not become healthy within ${HEALTH_TIMEOUT}s" >&2
     return 1
 }
 
-# Main deployment logic
 ACTIVE=$(detect_active)
-echo "Current active deployment: $ACTIVE"
+echo "Active color: $ACTIVE"
 
-if [ "${1:-}" != "" ]; then
-    TARGET=$1
+TARGET=${1:-}
+if [ -z "$TARGET" ]; then
+    if [ "$ACTIVE" = "blue" ]; then TARGET=green; else TARGET=blue; fi
+fi
+case "$TARGET" in
+    blue | green) ;;
+    *)
+        echo "Usage: $0 [blue|green]" >&2
+        exit 2
+        ;;
+esac
+if [ "$TARGET" = "$ACTIVE" ]; then
+    echo "ERROR: $TARGET is the active color; deploy the other one" >&2
+    exit 2
+fi
+echo "Deploying: $TARGET"
+require_shared_services
+
+if [ "$DRY_RUN" = "1" ]; then
+    # A dry-run pull still asks the registry; the plan is shown instead.
+    echo "(dry run) would pull core-$TARGET frontend-$TARGET"
 else
-    # Auto-select: deploy to the inactive color
-    if [ "$ACTIVE" = "blue" ]; then
-        TARGET="green"
-    else
-        TARGET="blue"
+    change pull "core-$TARGET" "frontend-$TARGET"
+fi
+
+# start_healthy starts one service of the color without its dependencies and
+# waits until it is healthy; on failure the color is stopped again.
+start_healthy() {
+    change up -d --no-deps "$1"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "(dry run) would wait for $1 to be healthy"
+        return 0
     fi
+    if ! wait_healthy "$1"; then
+        echo "Deployment of $TARGET failed; stopping it, $ACTIVE keeps serving." >&2
+        change stop "core-$TARGET" "frontend-$TARGET"
+        exit 1
+    fi
+}
+
+# Traefik routes to the colors; it is started here if it is not running yet.
+change up -d --no-deps traefik
+# The frontend proxies to its color's core: the core first.
+start_healthy "core-$TARGET"
+start_healthy "frontend-$TARGET"
+
+if [ "$DRY_RUN" = "1" ]; then
+    if [ "$ACTIVE" != "none" ]; then
+        change stop "core-$ACTIVE" "frontend-$ACTIVE"
+    fi
+    echo "(dry run) done; nothing was changed"
+    exit 0
 fi
 
-echo "Deploying to: $TARGET"
-
-# Pull latest images
-echo "Pulling latest images..."
-docker compose $COMPOSE_FILES pull "core-${TARGET}" "frontend-${TARGET}"
-
-# Start the target services
-echo "Starting $TARGET services..."
-docker compose $COMPOSE_FILES up -d "core-${TARGET}" "frontend-${TARGET}"
-
-# Wait for health
-if ! wait_healthy "core-${TARGET}"; then
-    echo "Deployment failed. Rolling back..."
-    docker compose $COMPOSE_FILES stop "core-${TARGET}" "frontend-${TARGET}"
-    exit 1
-fi
-
-echo "$TARGET deployment is healthy."
-
-# Update Traefik priorities to route traffic to new deployment
-# Higher priority = preferred route. We swap priorities by scaling down the old.
-if [ "$ACTIVE" != "none" ] && [ "$ACTIVE" != "$TARGET" ]; then
+if [ "$ACTIVE" != "none" ]; then
     echo "Switching traffic from $ACTIVE to $TARGET..."
-    docker compose $COMPOSE_FILES stop "core-${ACTIVE}" "frontend-${ACTIVE}"
-    echo "Old $ACTIVE services stopped."
+    change stop "core-$ACTIVE" "frontend-$ACTIVE"
 fi
 
 echo "Blue-green deployment complete. Active: $TARGET"

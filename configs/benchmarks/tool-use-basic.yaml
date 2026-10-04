@@ -1,4 +1,4 @@
-# CodeForge Tool-Use Benchmark — Basic Tasks
+# CodeForge Tool-Use Benchmark - Basic Tasks
 # Tests LLM ability to select and invoke the correct tools
 
 name: tool-use-basic

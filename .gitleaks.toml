@@ -1,0 +1,15 @@
+# gitleaks configuration (CI "Security Scanning" job, gitleaks-action).
+# Default rules, plus an allowlist for synthetic secrets that tests use as
+# fixtures. Allowlist exact fixture values only, never whole paths, so a real
+# secret pasted into a test file is still reported.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic test fixture secrets"
+regexes = [
+  # internal/config/secret_files_test.go: strongTestSecret (JWT strength checks)
+  '''Xk9mL2pR7wQn4tFvB8jC3hGdE5sAyU0zABCDEFGH''',
+  # internal/config/secret_files_test.go: CODEFORGE_INTERNAL_KEY_FILE fixture
+  '''0f1e2d3c4b5a69788796a5b4c3d2e1f0''',
+]

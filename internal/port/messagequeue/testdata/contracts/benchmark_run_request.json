@@ -17,5 +17,6 @@
   ],
   "hybrid_verification": true,
   "rollout_count": 3,
-  "rollout_strategy": "best"
+  "rollout_strategy": "best",
+  "tool_uid": 20000
 }

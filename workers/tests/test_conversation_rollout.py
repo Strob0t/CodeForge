@@ -345,6 +345,7 @@ class TestSnapshotRestore:
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_proc = AsyncMock()
             mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_proc.returncode = 0  # _run_git raises on a non-zero exit code
             mock_exec.return_value = mock_proc
 
             from codeforge.agent_loop import _snapshot_workspace
@@ -371,6 +372,7 @@ class TestSnapshotRestore:
             calls.append(args)
             mock_proc = AsyncMock()
             mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_proc.returncode = 0  # _run_git raises on a non-zero exit code
             return mock_proc
 
         with patch("asyncio.create_subprocess_exec", side_effect=_fake_exec):

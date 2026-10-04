@@ -176,25 +176,27 @@ func TestAssembleTeamForStrategy_NoIdleAgents(t *testing.T) {
 	}
 }
 
-func TestCleanupTeam_ReleasesAgents(t *testing.T) {
+// TestCleanupTeam_EndedTeamIsSkipped: a second cleanup of a team that already
+// ended must not change its status or release agents that may work for
+// another team by now (KI-31).
+func TestCleanupTeam_EndedTeamIsSkipped(t *testing.T) {
 	svc, store := newPoolManagerTestEnv()
 	ctx := context.Background()
 
-	// Create a team first.
-	req := &agent.CreateTeamRequest{
+	team, err := svc.CreateTeam(ctx, &agent.CreateTeamRequest{
 		ProjectID: "proj-1",
-		Name:      "Cleanup Team",
+		Name:      "Ended Team",
 		Protocol:  "sequential",
-		Members: []agent.CreateMemberRequest{
-			{AgentID: "a1", Role: agent.RoleCoder},
-		},
-	}
-	team, err := svc.CreateTeam(ctx, req)
+		Members:   []agent.CreateMemberRequest{{AgentID: "a1", Role: agent.RoleCoder}},
+	})
 	if err != nil {
-		t.Fatalf("CreateTeam failed: %v", err)
+		t.Fatalf("CreateTeam: %v", err)
+	}
+	if err := svc.CleanupTeam(ctx, team.ID, false); err != nil {
+		t.Fatalf("first CleanupTeam: %v", err)
 	}
 
-	// Set agent to running to verify it gets reset.
+	// The agent joined another team meanwhile.
 	store.mu.Lock()
 	for i := range store.agents {
 		if store.agents[i].ID == "a1" {
@@ -203,14 +205,14 @@ func TestCleanupTeam_ReleasesAgents(t *testing.T) {
 	}
 	store.mu.Unlock()
 
-	err = svc.CleanupTeam(ctx, team.ID, false)
-	if err != nil {
-		t.Fatalf("CleanupTeam failed: %v", err)
+	if err := svc.CleanupTeam(ctx, team.ID, true); err != nil {
+		t.Fatalf("second CleanupTeam: %v, want nil (skip)", err)
 	}
-
-	// Verify agent is back to idle.
-	ag, _ := store.GetAgent(ctx, "a1")
-	if ag.Status != agent.StatusIdle {
-		t.Fatalf("expected agent idle after cleanup, got %s", ag.Status)
+	got, _ := store.GetTeam(ctx, team.ID)
+	if got.Status != agent.TeamStatusCompleted {
+		t.Errorf("team status = %s, want completed", got.Status)
+	}
+	if ag, _ := store.GetAgent(ctx, "a1"); ag.Status != agent.StatusRunning {
+		t.Errorf("agent status = %s, want running (not released again)", ag.Status)
 	}
 }

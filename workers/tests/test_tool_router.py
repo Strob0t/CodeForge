@@ -21,6 +21,8 @@ def all_tools() -> list[str]:
         "glob_files",
         "list_directory",
         "propose_goal",
+        "propose_roadmap",
+        "spawn_subagent",
         "transition_to_act",
         "search_conversations",
         "search_skills",
@@ -198,3 +200,8 @@ class TestCaseInsensitivity:
     def test_mixed_case_keywords(self, router: ToolRouter) -> None:
         selected = router.select("How To use the Library")
         assert "mcp__docs__search_docs" in selected
+
+
+def test_spawn_subagent_is_not_a_base_tool() -> None:
+    """spawn_subagent starts nothing yet and is not offered (KI-25)."""
+    assert "spawn_subagent" not in ToolRouter.BASE_TOOLS

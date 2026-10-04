@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import uuid
@@ -10,27 +11,29 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import structlog
 
+from codeforge.consumer._cancel_registry import conversation_key, run_key
+from codeforge.consumer._conversation_experience import answer_from_experience, remember_answer
 from codeforge.consumer._conversation_prompt_builder import build_system_prompt
-from codeforge.consumer._conversation_routing import (
-    build_fallback_chain,
-    get_available_models,
-    get_hybrid_router,
-)
+from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
 from codeforge.consumer._conversation_skill_integration import (
     register_handoff_tool,
     register_propose_goal_tool,
     register_propose_roadmap_tool,
-    register_spawn_subagent_tool,
     wire_skill_tools,
 )
+from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
+from codeforge.loop_config import build_loop_config, resolve_model_capability
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
-from codeforge.runtime import RuntimeClient
+from codeforge.nats_publish import publish_with_retry
+from codeforge.runtime import RuntimeClient, heartbeat_interval
+from codeforge.tool_identity import ToolIsolationError, tool_tenant
+from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
     import nats.aio.msg
 
-    from codeforge.agent_loop import LoopConfig
+    from codeforge.consumer._in_flight import AcceptedWork
     from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
     from codeforge.models import ContextEntry
@@ -89,19 +92,25 @@ _GO_MODULE_MAP: dict[str, str] = {
 }
 
 
+# Dependency manifests are small; a larger one is not read.
+_MAX_MANIFEST_BYTES = 1024 * 1024
+
+
 def _scan_file_for_keys(
-    filepath: str,
+    root: WorkspaceRoot,
+    name: str,
     mapping: dict[str, str],
     existing: set[str],
     *,
     parse_json: bool = False,
 ) -> list[str]:
-    """Scan a file for known dependency keys and return matched framework names."""
-    if not os.path.isfile(filepath):
-        return []
+    """Scan a workspace file for known dependency keys and return matched framework names.
+
+    The file is read through the workspace helper (KI-95): a symlink that
+    leaves the workspace, a FIFO or an oversized file is not read.
+    """
     try:
-        with open(filepath) as f:
-            raw = f.read()
+        raw = root.read_text(name, max_bytes=_MAX_MANIFEST_BYTES, errors="replace")
     except OSError:
         return []
 
@@ -111,37 +120,46 @@ def _scan_file_for_keys(
             data = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             return []
-        all_deps: dict[str, str] = {}
-        all_deps.update(data.get("dependencies", {}))
-        all_deps.update(data.get("devDependencies", {}))
-        for pkg, name in mapping.items():
-            if pkg in all_deps and name not in existing:
-                hits.append(name)
+        if not isinstance(data, dict):
+            return []
+        all_deps: dict[str, object] = {}
+        for key in ("dependencies", "devDependencies"):
+            deps = data.get(key)
+            if isinstance(deps, dict):
+                all_deps.update(deps)
+        for pkg, framework in mapping.items():
+            if pkg in all_deps and framework not in existing:
+                hits.append(framework)
     else:
         content = raw.lower()
-        for pkg, name in mapping.items():
-            if pkg in content and name not in existing:
-                hits.append(name)
+        for pkg, framework in mapping.items():
+            if pkg in content and framework not in existing:
+                hits.append(framework)
     return hits
 
 
 def _detect_frameworks(workspace_path: str) -> list[str]:
     """Detect frameworks from workspace dependency files."""
-    if not workspace_path or not os.path.isdir(workspace_path):
+    if not workspace_path:
+        return []
+    try:
+        root = WorkspaceRoot(workspace_path)
+    except OSError:
         return []
 
     frameworks: list[str] = []
     seen: set[str] = set()
 
-    for filepath, mapping, use_json in [
-        (os.path.join(workspace_path, "package.json"), _JS_FRAMEWORK_MAP, True),
-        (os.path.join(workspace_path, "requirements.txt"), _PY_FRAMEWORK_MAP, False),
-        (os.path.join(workspace_path, "pyproject.toml"), _PY_FRAMEWORK_MAP, False),
-        (os.path.join(workspace_path, "go.mod"), _GO_MODULE_MAP, False),
-    ]:
-        hits = _scan_file_for_keys(filepath, mapping, seen, parse_json=use_json)
-        frameworks.extend(hits)
-        seen.update(hits)
+    with root:
+        for name, mapping, use_json in [
+            ("package.json", _JS_FRAMEWORK_MAP, True),
+            ("requirements.txt", _PY_FRAMEWORK_MAP, False),
+            ("pyproject.toml", _PY_FRAMEWORK_MAP, False),
+            ("go.mod", _GO_MODULE_MAP, False),
+        ]:
+            hits = _scan_file_for_keys(root, name, mapping, seen, parse_json=use_json)
+            frameworks.extend(hits)
+            seen.update(hits)
 
     return frameworks[:5]
 
@@ -199,54 +217,6 @@ async def _prefetch_docs(
     return entries
 
 
-# Fallback limits when model info is unavailable (conservative defaults).
-_FALLBACK_CONTEXT_LIMITS: dict[str, int] = {
-    "full": 120_000,
-    "api_with_tools": 32_000,
-    "pure_completion": 16_000,
-}
-
-
-async def resolve_context_limit(
-    llm_client: object,
-    model: str,
-    capability_level: str,
-    api_key: str = "",
-) -> int:
-    """Resolve the effective context token limit for a model.
-
-    Queries the model's actual context window from LiteLLM, then applies
-    a safety margin (85% to leave room for output tokens). Falls back to
-    tier-based defaults if the model info is unavailable.
-    """
-    from codeforge.llm import query_model_context_window
-
-    fallback = _FALLBACK_CONTEXT_LIMITS.get(capability_level, 16_000)
-
-    # Access the underlying httpx client from LiteLLMClient.
-    http_client = getattr(llm_client, "_client", None)
-    if http_client is None:
-        logger.info("using fallback context limit (no http client)", model=model, limit=fallback)
-        return fallback
-
-    actual_window = await query_model_context_window(http_client, model, api_key)
-
-    if actual_window is not None:
-        # Use 85% of actual window to leave room for output tokens.
-        effective = int(actual_window * 0.85)
-        logger.info(
-            "resolved context limit from model info",
-            model=model,
-            actual=actual_window,
-            effective=effective,
-        )
-        # Don't exceed tier default even if model claims more.
-        return min(effective, fallback)
-
-    logger.info("using fallback context limit", model=model, capability=capability_level, limit=fallback)
-    return fallback
-
-
 class ConversationHandlerMixin:
     """Handles conversation.run.start messages -- agentic loop with tool calling."""
 
@@ -282,18 +252,10 @@ class ConversationHandlerMixin:
     ) -> list[dict[str, str]]:
         """Build the message list from system prompt, history, context, and session info."""
         from codeforge.history import ConversationHistoryManager, HistoryConfig
-        from codeforge.tools.capability import classify_model
 
-        # Resolve context limit early so it can inform prompt construction
-        # (e.g. compact tool guide for small-context models).
-        _cap_level = classify_model(run_msg.model)
-        _context_cap = await resolve_context_limit(
-            self._llm,
-            run_msg.model,
-            str(_cap_level),
-            api_key=getattr(self, "_litellm_key", ""),
-        )
-        log.info("context limit set", capability_level=_cap_level.value, max_tokens=_context_cap)
+        # The capability selects the tool guide and the context limit sizes
+        # the history (and picks a compact guide for small-context models).
+        capability = await resolve_model_capability(self._llm, run_msg.model)
 
         system_prompt, loaded_skills = await build_system_prompt(
             run_msg,
@@ -301,14 +263,22 @@ class ConversationHandlerMixin:
             log,
             self._db_url,
             self._llm,
-            context_limit=_context_cap,
+            capability=capability,
         )
 
-        wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url)
-        register_handoff_tool(registry, run_msg.run_id, self._js)
+        wire_skill_tools(registry, loaded_skills, run_msg.project_id, log, self._db_url, tenant_id=run_msg.tenant_id)
+        register_handoff_tool(
+            registry,
+            run_msg.run_id,
+            self._js,
+            tenant_id=run_msg.tenant_id,
+            project_id=run_msg.project_id,
+            approval_timeout_seconds=run_msg.approval_timeout_seconds,
+        )
         register_propose_goal_tool(registry, runtime)
         register_propose_roadmap_tool(registry, runtime)
-        register_spawn_subagent_tool(registry, runtime)
+        # spawn_subagent is not registered until Go starts sub-agents and
+        # returns their results (KI-25, see register_spawn_subagent_tool).
 
         if run_msg.summarize_threshold > 0 and len(run_msg.messages) > run_msg.summarize_threshold:
             from codeforge.history import ConversationSummarizer
@@ -316,7 +286,9 @@ class ConversationHandlerMixin:
             summarizer = ConversationSummarizer(llm=self._llm, threshold=run_msg.summarize_threshold)
             run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
-        history_cfg = HistoryConfig(max_context_tokens=_context_cap)
+        history_cfg = HistoryConfig(max_context_tokens=capability.context_limit)
+        if run_msg.tool_output_max_chars > 0:
+            history_cfg.tool_output_max_chars = run_msg.tool_output_max_chars
 
         history_mgr = ConversationHistoryManager(history_cfg)
         messages = history_mgr.build_messages(
@@ -338,70 +310,122 @@ class ConversationHandlerMixin:
 
         Returns (primary_model, routing_result, fallback_models).
         """
-        from codeforge.llm import resolve_model_with_routing
-
-        scenario = run_msg.mode.llm_scenario if run_msg.mode else ""
-        router = await get_hybrid_router(self._litellm_url, self._litellm_key)
-        routing = await asyncio.to_thread(
-            resolve_model_with_routing,
+        return await resolve_model_and_fallbacks(
+            self._litellm_url,
+            self._litellm_key,
             prompt=user_prompt,
-            scenario=scenario,
-            router=router,
-            max_cost=run_msg.termination.max_cost if run_msg.termination.max_cost > 0 else None,
+            scenario=run_msg.mode.llm_scenario if run_msg.mode else "",
+            explicit_model=run_msg.model,
+            max_cost=run_msg.termination.max_cost,
+            log=log,
         )
-        primary_model = run_msg.model or routing.model
-        if run_msg.model and routing.model and routing.model != run_msg.model:
-            log.info("explicit model overrides routing", explicit=run_msg.model, routed=routing.model)
-        elif not run_msg.model and routing.model:
-            log.info("routing selected model", model=routing.model, scenario=scenario)
-
-        fallback_models = await build_fallback_chain(
-            router,
-            user_prompt,
-            primary_model,
-            run_msg.termination.max_cost,
-            routing,
-            lambda: get_available_models(self._litellm_url, self._litellm_key),
-        )
-
-        return primary_model, routing, fallback_models
 
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
-        """Process a conversation run: agentic loop with tool calling."""
+        """Process a conversation run: agentic loop with tool calling.
+
+        Acked on accept (at-most-once): the run changes the workspace and must
+        not be executed a second time by another worker. Failures are reported
+        to the Go Core as a failed completion instead of being retried.
+        """
+        run_msg = await self._parse_request(msg, ConversationRunStartMessage)
+        if run_msg is None:
+            return
+        run_id = run_msg.run_id
+        log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id, session_id=run_msg.session_id)
+
+        if run_id in self._active_runs:
+            log.warning("duplicate conversation run start, skipping")
+            await msg.ack()
+            return
+
+        # A conversation run stopped while its start waited in NATS is not
+        # executed; a later turn (published after the stop) runs (KI-65
+        # follow-up). Its cancelled completion ends the Go turn (S2-G fix, 2);
+        # if it cannot be published, the start is retried (dead-lettered on
+        # its last delivery, which Go ends).
+        start = stream_sequence(msg)
+        if start is not None and self._cancels.cancelled_any(
+            [conversation_key(run_msg.conversation_id), run_key(run_id)], start
+        ):
+            log.info("conversation run stopped while it waited for a worker, skipping")
+            try:
+                await self._publish_skipped_completion(run_msg)
+            except Exception as exc:
+                log.exception("could not report the skipped conversation run", error=str(exc))
+                await self._retry_or_dead_letter(msg)
+                return
+            await msg.ack()
+            return
+
+        if self._js is None:
+            log.error("JetStream not available")
+            await msg.nak()
+            return
+
+        self._active_runs.add(run_id)
+        if not await self._accept(msg):
+            self._active_runs.discard(run_id)
+            return
+
+        async def report_failure(reason: str) -> None:
+            await self._publish_failed_completion(run_msg, reason)
+
+        try:
+            with self._in_flight.track(f"conversation run {run_id}", report_failure) as work:
+                try:
+                    await self._run_conversation(run_msg, log, work, start)
+                except Exception as exc:
+                    # Intentional catch-all: outermost handler safety net. A run
+                    # whose completion was already published is not failed again.
+                    logger.exception("failed to process conversation run", error=str(exc))
+                    if not work.completed:
+                        # A refused tool identity names its reason (tenant, tool UID, remedy).
+                        reason = str(exc) if isinstance(exc, ToolIsolationError) else "internal worker error"
+                        await self._publish_failed_completion(run_msg, reason)
+        finally:
+            self._active_runs.discard(run_id)
+
+    async def _run_conversation(
+        self,
+        run_msg: ConversationRunStartMessage,
+        log: structlog.stdlib.BoundLogger,
+        work: AcceptedWork,
+        start: int | None = None,
+    ) -> None:
+        """Execute an accepted conversation run and publish its completion (then *work* is completed).
+
+        *start* is the stream sequence of the run's start message: the cancel
+        listener sees every cancel published after it (S2-G fix, f2).
+        """
         from codeforge.mcp_workbench import McpWorkbench
         from codeforge.tools import ToolRegistry, build_default_registry
 
+        log.info("received conversation run start")
+        runtime = RuntimeClient(
+            js=self._js,
+            run_id=run_msg.run_id,
+            task_id=run_msg.run_id,
+            project_id=run_msg.project_id,
+            termination=run_msg.termination,
+            tenant_id=run_msg.tenant_id,
+            mode_id=run_msg.mode.id if run_msg.mode else "",
+            turn_id=run_msg.turn_id,
+            approval_timeout_seconds=run_msg.approval_timeout_seconds,
+            notifications=self._notifications,
+        )
         workbench: McpWorkbench | None = None
-        run_id: str | None = None
+        identity = contextlib.AsyncExitStack()
         try:
-            run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
-            run_id = run_msg.run_id
-            log = logger.bind(run_id=run_id, conversation_id=run_msg.conversation_id, session_id=run_msg.session_id)
-
-            if run_id in self._active_runs:
-                log.warning("duplicate conversation run start, skipping")
-                await msg.ack()
-                return
-            self._active_runs.add(run_id)
-
-            log.info("received conversation run start")
-
-            if self._js is None:
-                log.error("JetStream not available")
-                await msg.nak()
-                return
-
-            runtime = RuntimeClient(
-                js=self._js,
-                run_id=run_msg.run_id,
-                task_id=run_msg.run_id,
-                project_id=run_msg.project_id,
-                termination=run_msg.termination,
+            await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"], after=start)
+            await runtime.start_heartbeat(heartbeat_interval(run_msg.heartbeat_seconds))
+            # The turn's tool processes and MCP stdio servers run as its tenant's tool UID (KI-96).
+            await identity.enter_async_context(
+                tool_tenant(run_msg.tenant_id, run_msg.tool_uid, run_msg.workspace_path or None)
             )
-            await runtime.start_cancel_listener(extra_subjects=["conversation.run.cancel"])
-            await runtime.start_heartbeat()
 
             registry: ToolRegistry = build_default_registry()
+            if run_msg.mode:
+                registry.restrict_to_mode(run_msg.mode.tools, run_msg.mode.denied_tools)
 
             if run_msg.mcp_servers:
                 workbench = McpWorkbench()
@@ -445,25 +469,19 @@ class ConversationHandlerMixin:
                 result = AgentLoopResult(output="", tool_calls=[], cost=0.0, error="Wall-clock timeout exceeded")
 
             await self._publish_completion(run_msg, result)
-
-            await msg.ack()
+            work.completed = True
             log.info(
                 "conversation run complete",
                 steps=result.step_count,
                 cost=result.total_cost,
                 error=result.error or None,
             )
-
-        except Exception as exc:
-            # Intentional catch-all: outermost handler safety net
-            logger.exception("failed to process conversation run", error=str(exc))
-            await self._publish_error_result(msg)
-            await msg.ack()
         finally:
+            await runtime.close()
             if workbench is not None:
                 await workbench.disconnect_all()
-            if run_id is not None:
-                self._active_runs.discard(run_id)
+            # Leaving the identity shares what MCP servers and tool processes created (KI-71 review).
+            await identity.aclose()
 
     async def _publish_completion(
         self,
@@ -485,34 +503,64 @@ class ConversationHandlerMixin:
             step_count=result.step_count,
             model=result.model,
             tenant_id=run_msg.tenant_id,
+            turn_id=run_msg.turn_id,
         )
         stamped = self._stamp_trust(complete_msg.model_dump())
-        await self._js.publish(
+        # One message ID for all attempts: the Go Core deduplicates completions
+        # by Nats-Msg-Id only (a retry must not store the assistant message twice).
+        await publish_with_retry(
+            self._js,
             SUBJECT_CONVERSATION_RUN_COMPLETE,
             json.dumps(stamped).encode(),
             headers={"Nats-Msg-Id": f"conv-complete-{uuid.uuid4()}"},
         )
 
-    async def _publish_error_result(self, msg: nats.aio.msg.Msg) -> None:
-        """Best-effort publish of an error completion when the main handler fails."""
+    async def _publish_skipped_completion(self, run_msg: ConversationRunStartMessage) -> None:
+        """Publish the cancelled completion of a conversation run whose start is skipped; raises on failure."""
+        if self._js is None:
+            err_msg = "JetStream not available for the skipped conversation run's completion"
+            raise RuntimeError(err_msg)
+        skipped = ConversationRunCompleteMessage(
+            run_id=run_msg.run_id,
+            conversation_id=run_msg.conversation_id,
+            session_id=run_msg.session_id,
+            status="cancelled",
+            error="conversation run cancelled before a worker started it",
+            tenant_id=run_msg.tenant_id,
+            turn_id=run_msg.turn_id,
+        )
+        # One message ID per turn: a retried start publishes it again, and the
+        # Go Core deduplicates completions by Nats-Msg-Id.
+        await publish_with_retry(
+            self._js,
+            SUBJECT_CONVERSATION_RUN_COMPLETE,
+            skipped.model_dump_json().encode(),
+            headers={"Nats-Msg-Id": f"conv-skipped-{run_msg.run_id}-{run_msg.turn_id}"},
+        )
+
+    async def _publish_failed_completion(self, run_msg: ConversationRunStartMessage, error: str) -> None:
+        """Last-resort failed completion of an accepted run whose own completion was not published."""
+        if self._js is None:
+            logger.error("JetStream not available, conversation run not failed", run_id=run_msg.run_id)
+            return
+        error_complete = ConversationRunCompleteMessage(
+            run_id=run_msg.run_id,
+            conversation_id=run_msg.conversation_id,
+            session_id=run_msg.session_id,
+            status="failed",
+            error=error,
+            tenant_id=run_msg.tenant_id,
+            turn_id=run_msg.turn_id,
+        )
         try:
-            run_msg = ConversationRunStartMessage.model_validate_json(msg.data)
-            if self._js is not None:
-                error_complete = ConversationRunCompleteMessage(
-                    run_id=run_msg.run_id,
-                    conversation_id=run_msg.conversation_id,
-                    session_id=run_msg.session_id,
-                    status="failed",
-                    error="internal worker error",
-                    tenant_id=run_msg.tenant_id,
-                )
-                await self._js.publish(
-                    SUBJECT_CONVERSATION_RUN_COMPLETE,
-                    error_complete.model_dump_json().encode(),
-                    headers={"Nats-Msg-Id": f"conv-error-{uuid.uuid4()}"},
-                )
+            await publish_with_retry(
+                self._js,
+                SUBJECT_CONVERSATION_RUN_COMPLETE,
+                error_complete.model_dump_json().encode(),
+                headers={"Nats-Msg-Id": f"conv-error-{uuid.uuid4()}"},
+            )
         except Exception as exc:  # Intentional catch-all: last-resort error notification
-            logger.exception("failed to publish conversation error result", error=str(exc))
+            logger.exception("failed to publish conversation error result", run_id=run_msg.run_id, error=str(exc))
 
     async def _execute_conversation_run(
         self,
@@ -526,7 +574,11 @@ class ConversationHandlerMixin:
     ) -> AgentLoopResult:
         """Dispatch to simple chat, Claude Code, or LiteLLM agentic loop."""
         if not run_msg.agentic:
-            return await self._run_simple_chat(
+            pool = getattr(self, "_experience_pool", None)
+            cached = await answer_from_experience(pool, run_msg, runtime, primary_model)
+            if cached is not None:
+                return cached
+            result = await self._run_simple_chat(
                 run_msg,
                 messages,
                 primary_model,
@@ -534,6 +586,8 @@ class ConversationHandlerMixin:
                 runtime,
                 fallback_models=fallback_models,
             )
+            await remember_answer(pool, run_msg, result)
+            return result
 
         if primary_model.startswith("claudecode/"):
             from codeforge.claude_code_executor import ClaudeCodeExecutor, get_default_max_turns
@@ -545,7 +599,9 @@ class ConversationHandlerMixin:
                 max_turns=run_msg.termination.max_steps or get_default_max_turns(),
                 system_prompt=run_msg.system_prompt,
             )
-            if result.error and fallback_models:
+            # Re-run the turn on another model only when Claude Code applied
+            # nothing and was not stopped; otherwise its error says why.
+            if result.error and fallback_models and result.metadata.get("fallback_safe") is True:
                 next_model = fallback_models[0]
                 remaining = fallback_models[1:]
                 await runtime.send_output(f"\n[Claude Code unavailable. Switching to {next_model}]\n")
@@ -588,14 +644,21 @@ class ConversationHandlerMixin:
             tool_registry=registry,
             runtime=runtime,
             workspace_path=run_msg.workspace_path,
-            experience_pool=getattr(self, "_experience_pool", None),
         )
-        loop_cfg, complexity_hint = self._build_loop_config(
-            run_msg,
-            primary_model,
-            routing,
-            registry,
-            fallback_models,
+        capability = await resolve_model_capability(self._llm, primary_model)
+        loop_cfg, complexity_hint = build_loop_config(
+            primary_model=primary_model,
+            capability_level=capability.level,
+            routing=routing,
+            tool_names=registry.tool_names,
+            fallback_models=fallback_models,
+            user_prompt=next((m.content for m in run_msg.messages if m.role == "user" and m.content), ""),
+            max_steps=run_msg.termination.max_steps,
+            max_cost=run_msg.termination.max_cost,
+            mode_tools=frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset(),
+            provider_api_key=run_msg.provider_api_key,
+            plan_act_enabled=run_msg.plan_act_enabled,
+            tool_output_max_chars=run_msg.tool_output_max_chars,
         )
         if complexity_hint:
             messages.append({"role": "system", "content": complexity_hint})
@@ -611,93 +674,6 @@ class ConversationHandlerMixin:
             return await rollout_exec.execute(messages, config=loop_cfg)
 
         return await executor.run(messages, config=loop_cfg)
-
-    @staticmethod
-    def _build_loop_config(
-        run_msg: ConversationRunStartMessage,
-        primary_model: str,
-        routing: RoutingResult,
-        registry: ToolRegistryLike,
-        fallback_models: list[str],
-    ) -> tuple[LoopConfig, str | None]:
-        """Build LoopConfig with complexity-aware adjustments.
-
-        Returns ``(config, complexity_hint)`` where *complexity_hint* is an
-        optional system message to inject for weak/local models on complex tasks
-        (``None`` when not applicable).
-        """
-        from codeforge.agent_loop import LoopConfig
-        from codeforge.tools.capability import CapabilityLevel, classify_model
-        from codeforge.tools.tool_router import ToolRouter
-
-        mode_tools = frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset()
-        capability_level = classify_model(primary_model)
-
-        user_msg = next((m.content for m in run_msg.messages if m.role == "user" and m.content), "")
-        tool_router = ToolRouter(all_tool_names=registry.tool_names)
-        selected_tools = tool_router.select(user_msg) if user_msg else None
-        if selected_tools is not None:
-            logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
-
-        _is_local = primary_model.startswith(("lm_studio/", "ollama/"))
-        _temperature = 0.7 if _is_local else routing.temperature
-        _top_p: float | None = 0.8 if _is_local else None
-        _extra_body: dict[str, object] | None = {"top_k": 20, "repetition_penalty": 1.05} if _is_local else None
-
-        loop_cfg = LoopConfig(
-            max_iterations=run_msg.termination.max_steps or 50,
-            max_cost=run_msg.termination.max_cost or 0.0,
-            model=primary_model,
-            temperature=_temperature,
-            tags=routing.tags,
-            fallback_models=fallback_models,
-            routing_layer=routing.routing_layer,
-            complexity_tier=routing.complexity_tier,
-            task_type=routing.task_type,
-            provider_api_key=run_msg.provider_api_key,
-            plan_act_enabled=run_msg.plan_act_enabled,
-            extra_plan_tools=mode_tools,
-            routing_metadata=getattr(routing, "routing_metadata", None),
-            capability_level=str(capability_level),
-            mode_tools=mode_tools,
-            top_p=_top_p,
-            extra_body=_extra_body,
-            selected_tools=selected_tools,
-        )
-
-        # Complexity-aware adjustments for weaker / local models.
-        _complexity = routing.complexity_tier or "unknown"
-        _is_weak_model = (
-            capability_level in (CapabilityLevel.PURE_COMPLETION, CapabilityLevel.API_WITH_TOOLS) and _is_local
-        )
-
-        complexity_hint: str | None = None
-        if _is_weak_model and _complexity in ("complex", "reasoning"):
-            complexity_hint = (
-                "This is a complex task being handled by a local model. "
-                "Break it into smaller, sequential subtasks. "
-                "Complete each subtask fully (write + test) before moving to the next one."
-            )
-            logger.info(
-                "injected complexity decomposition hint",
-                complexity=_complexity,
-                model=primary_model,
-            )
-
-        if _is_local and _complexity == "simple":
-            from dataclasses import replace as _dc_replace
-
-            loop_cfg = _dc_replace(
-                loop_cfg,
-                max_iterations=min(loop_cfg.max_iterations, 20),
-            )
-            logger.info(
-                "capped iterations for simple local task",
-                max_iterations=loop_cfg.max_iterations,
-                model=primary_model,
-            )
-
-        return loop_cfg, complexity_hint
 
     async def _run_simple_chat(
         self,

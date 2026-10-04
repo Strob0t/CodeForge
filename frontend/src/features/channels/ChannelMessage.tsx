@@ -16,6 +16,8 @@ export interface ChannelMessageData {
 
 interface ChannelMessageProps {
   message: ChannelMessageData;
+  /** Number of thread replies to this message. */
+  replyCount?: number;
   onThreadClick?: (messageId: string) => void;
 }
 
@@ -108,14 +110,20 @@ const ChannelMessage: Component<ChannelMessageProps> = (props) => {
           {props.message.content}
         </p>
 
-        {/* Thread reply link — only for top-level messages when handler is provided */}
+        {/* Thread link — only for top-level messages when handler is provided;
+            always visible when the thread has replies. */}
         <Show when={!props.message.parent_id && props.onThreadClick}>
           <button
             type="button"
-            class="mt-1 text-xs text-cf-accent hover:text-cf-accent-hover transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2"
+            class={
+              "mt-1 text-xs text-cf-accent hover:text-cf-accent-hover transition-colors focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cf-focus-ring focus-visible:ring-offset-2" +
+              ((props.replyCount ?? 0) > 0 ? "" : " opacity-0 group-hover:opacity-100")
+            }
             onClick={() => props.onThreadClick?.(props.message.id)}
           >
-            Reply in thread
+            {(props.replyCount ?? 0) > 0
+              ? `${props.replyCount} ${props.replyCount === 1 ? "reply" : "replies"}`
+              : "Reply in thread"}
           </button>
         </Show>
       </div>

@@ -49,6 +49,10 @@ CRUD endpoints for benchmark runs/results behind a `DevModeOnly` middleware that
 
 Unified `BenchmarkPage` with run management, dataset selection, results inspection, and run comparison.
 
+> **Implementation status (2026-09-29):** Only `SimpleBenchmarkRunner`, `ToolUseBenchmarkRunner` and `AgentBenchmarkRunner` inherit from `BaseBenchmarkRunner`; `MultiRolloutRunner` (`workers/codeforge/evaluation/runners/multi_rollout.py`) wraps them. The `trajectory_verifier` and `logprob_verifier` evaluators imported the `litellm` SDK directly (not a worker dependency), so they always scored 0.0 (KI-37); the Python `MeterProvider` (KI-36) and the DeepEval telemetry opt-out (KI-54) were missing too. All three are fixed since 2026-09-30 (see the update below).
+
+> **Update (2026-10-01, KI-37, S6-G):** the verifiers call the proxy through the worker's HTTP client (`VerifierClient`, closed by `aclose()`) with the resolved model. An evaluation that cannot produce a score is an error, never a 0.0 score: `EvalDimension.error` (per dimension for a partial verifier answer, an unknown label or an empty logprob answer), `evaluation_errors` on the benchmark result (migration 110, Go, Python and UI), averages skip the `*_error` keys, and a rollout with a filter or rank error ranks below fully evaluated ones (early stop included). The RLVR and DPO exports leave out results with evaluation errors and no valid score; a partial result uses its valid dimensions.
+
 ### Consequences
 
 #### Positive

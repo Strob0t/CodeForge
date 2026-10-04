@@ -14,7 +14,8 @@ poetry config virtualenvs.in-project true
 # -- Go: golangci-lint v2 --------------------------
 echo ""
 echo "> Installing golangci-lint..."
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" latest
+GOLANGCI_LINT_VERSION=v2.11.4  # keep in sync with .github/workflows/ci.yml
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
 
 # -- Go: goimports --------------------------------
 echo ""

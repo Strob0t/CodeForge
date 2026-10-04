@@ -51,7 +51,7 @@ export default function EvolutionTab() {
       const ok = await confirm({
         title: t("prompts.evolution.promote"),
         message: t("prompts.evolution.confirm.promote"),
-        variant: "warning",
+        variant: "primary",
         confirmLabel: t("prompts.evolution.promote"),
       });
       if (!ok) return;

@@ -3,8 +3,10 @@ package email
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/smtp"
+	"strings"
 )
 
 // SMTPConfig holds the configuration for SMTP connections.
@@ -27,6 +29,10 @@ func NewNotifier(cfg SMTPConfig) *Notifier {
 
 // Send sends an email notification.
 func (n *Notifier) Send(_ context.Context, to, subject, body string) error {
+	// A line break in a header value would start a new header (Bcc: ...).
+	if strings.ContainsAny(to, "\r\n") || strings.ContainsAny(subject, "\r\n") {
+		return errors.New("email recipient or subject contains a line break")
+	}
 	addr := fmt.Sprintf("%s:%d", n.cfg.Host, n.cfg.Port)
 
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",

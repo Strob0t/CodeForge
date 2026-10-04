@@ -157,11 +157,11 @@ export default function ProjectDetailPage() {
   // Destructure for template readability
   const {
     project,
-    refetchProject,
     tasks,
     refetchTasks,
     gitStatus,
     agents,
+    refetchAgents,
     onboardGoals,
     onboardRoadmap,
     onboardSessions,
@@ -411,13 +411,8 @@ export default function ProjectDetailPage() {
                   </Button>
                   <CompactSettingsPopover
                     projectId={params.id}
-                    config={p().config ?? {}}
                     open={settingsOpen()}
                     onClose={() => setSettingsOpen(false)}
-                    onSaved={() => {
-                      refetchProject();
-                      setSettingsOpen(false);
-                    }}
                   />
                 </div>
               </div>
@@ -685,7 +680,9 @@ export default function ProjectDetailPage() {
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4">
                           <AgentPanel
                             projectId={params.id}
+                            agents={agents() ?? []}
                             tasks={tasks() ?? []}
+                            onAgentsChanged={refetchAgents}
                             onError={setError}
                           />
                           <RunPanel
@@ -846,7 +843,7 @@ export default function ProjectDetailPage() {
               </Show>
 
               {/* Global overlay: refactor approval dialog */}
-              <RefactorApproval />
+              <RefactorApproval projectId={params.id} />
 
               {/* Design Canvas modal overlay */}
               <CanvasModal

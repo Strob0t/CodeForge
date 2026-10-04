@@ -12,6 +12,13 @@ if TYPE_CHECKING:
     from codeforge.evaluation.providers.base import EvalDimension, ExecutionResult, TaskSpec
 
 
+class EvaluatorError(Exception):
+    """An evaluator could not produce its scores (e.g. its LLM call failed).
+
+    The pipeline records it as an evaluation error, never as a 0.0 score.
+    """
+
+
 @runtime_checkable
 class Evaluator(Protocol):
     """Interface that all evaluator plugins must implement."""

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -18,6 +19,20 @@ const providerName = "github-issues"
 type Provider struct {
 	// execCommand is swappable for testing.
 	execCommand func(ctx context.Context, name string, args ...string) *exec.Cmd
+	// token is a PM integration's own GitHub token (KI-85); gh runs with it
+	// as GH_TOKEN. Without one gh uses the Go Core's own login.
+	token string
+}
+
+// gh returns the gh command for args, authenticated with the integration's
+// token when it has one.
+func (p *Provider) gh(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := p.execCommand(ctx, "gh", args...)
+	if p.token != "" {
+		// The last GH_TOKEN wins over one in the Core's environment.
+		cmd.Env = append(os.Environ(), "GH_TOKEN="+p.token)
+	}
+	return cmd
 }
 
 func newProvider() *Provider {
@@ -59,7 +74,7 @@ func (p *Provider) ListItems(ctx context.Context, projectRef string) ([]pmprovid
 		return nil, err
 	}
 
-	cmd := p.execCommand(ctx, "gh", "issue", "list",
+	cmd := p.gh(ctx, "issue", "list",
 		"--repo", projectRef,
 		"--json", "number,title,body,state,labels,assignees",
 		"--limit", "100",
@@ -90,7 +105,7 @@ func (p *Provider) GetItem(ctx context.Context, projectRef, itemID string) (*pmp
 		return nil, err
 	}
 
-	cmd := p.execCommand(ctx, "gh", "issue", "view", itemID,
+	cmd := p.gh(ctx, "issue", "view", itemID,
 		"--repo", projectRef,
 		"--json", "number,title,body,state,labels,assignees",
 	)
@@ -148,7 +163,7 @@ func (p *Provider) CreateItem(ctx context.Context, projectRef string, item *pmpr
 		args = append(args, "--label", label)
 	}
 
-	cmd := p.execCommand(ctx, "gh", args...)
+	cmd := p.gh(ctx, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -182,7 +197,7 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 		args = append(args, "--body", item.Description)
 	}
 
-	cmd := p.execCommand(ctx, "gh", args...)
+	cmd := p.gh(ctx, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 

@@ -1,19 +1,28 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 
+import { useToast } from "~/components/Toast";
+import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
+
 import { api } from "../../api/client";
 
-interface PermissionRequestCardProps {
+export interface PermissionRequestCardProps {
   projectId: string;
   runId: string;
   callId: string;
   tool: string;
   command?: string;
   path?: string;
+  profile?: string;
+  /** Truncated JSON of the tool arguments (display only). */
+  argumentsPreview?: string;
   timeoutSeconds?: number;
   onResolved?: (decision: "allow" | "deny") => void;
 }
 
 export default function PermissionRequestCard(props: PermissionRequestCardProps) {
+  const { t } = useI18n();
+  const { show: toast } = useToast();
   const timeout = () => props.timeoutSeconds ?? 60;
   const [remaining, setRemaining] = createSignal(timeout());
   const [resolved, setResolved] = createSignal<"allow" | "deny" | null>(null);
@@ -49,9 +58,10 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
   async function handleAllowAlways() {
     await handleDecision("allow");
     try {
-      await api.policies.allowAlways(props.projectId, props.tool, props.command);
-    } catch {
-      // Best-effort: current call already approved, persistence failure is non-blocking
+      await api.policies.allowAlways(props.projectId, props.tool, props.command, props.profile);
+    } catch (err) {
+      // The current call is approved; tell the user the rule was not saved.
+      toast("error", t("policy.allowAlwaysFailed", { error: extractErrorMessage(err) }));
     }
   }
 
@@ -112,6 +122,14 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
           <div class="flex gap-2">
             <span class="text-cf-text-muted w-20">Path:</span>
             <span class="font-mono text-cf-text-primary break-all">{props.path}</span>
+          </div>
+        </Show>
+        <Show when={props.argumentsPreview}>
+          <div class="flex gap-2">
+            <span class="text-cf-text-muted w-20 shrink-0">Arguments:</span>
+            <pre class="font-mono text-xs text-cf-text-primary whitespace-pre-wrap break-all max-h-40 overflow-y-auto min-w-0">
+              {props.argumentsPreview}
+            </pre>
           </div>
         </Show>
       </div>

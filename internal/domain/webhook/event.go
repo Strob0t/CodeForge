@@ -16,15 +16,17 @@ const (
 
 // VCSEvent is a normalized VCS webhook event.
 type VCSEvent struct {
-	Type       VCSEventType `json:"type"`
-	Provider   string       `json:"provider"` // "github", "gitlab"
-	Repository string       `json:"repository"`
-	Branch     string       `json:"branch"`
-	Sender     string       `json:"sender"`
-	CommitHash string       `json:"commit_hash,omitempty"`
-	Message    string       `json:"message,omitempty"`
-	URL        string       `json:"url,omitempty"`
-	ReceivedAt time.Time    `json:"received_at"`
+	Type VCSEventType `json:"type"`
+	// ProjectID is the project of the webhook the event arrived on.
+	ProjectID  string    `json:"project_id,omitempty"`
+	Provider   string    `json:"provider"` // "github", "gitlab"
+	Repository string    `json:"repository"`
+	Branch     string    `json:"branch"`
+	Sender     string    `json:"sender"`
+	CommitHash string    `json:"commit_hash,omitempty"`
+	Message    string    `json:"message,omitempty"`
+	URL        string    `json:"url,omitempty"`
+	ReceivedAt time.Time `json:"received_at"`
 }
 
 // VCSPushEvent contains details specific to push events.

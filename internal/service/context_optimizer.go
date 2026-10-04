@@ -9,7 +9,6 @@ import (
 	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/port/database"
-	"github.com/Strob0t/CodeForge/internal/port/filesystem"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
@@ -17,13 +16,13 @@ import (
 // trimming to token budgets, and injecting shared context from team collaboration.
 type ContextOptimizerService struct {
 	store         database.Store
-	fs            filesystem.Provider
 	orchCfg       *config.Orchestrator
 	limits        *config.Limits
 	retrieval     *RetrievalService
 	graph         *GraphService
 	lsp           *LSPService
 	goalSvc       *GoalDiscoveryService
+	knowledge     *KnowledgeBaseService
 	modelRegistry *ModelRegistry
 	queue         messagequeue.Queue
 	rerankWaiter  *syncWaiter[messagequeue.ContextRerankResultPayload]
@@ -34,15 +33,20 @@ type ContextOptimizerService struct {
 }
 
 // NewContextOptimizerService creates a ContextOptimizerService.
-func NewContextOptimizerService(store database.Store, fs filesystem.Provider, orchCfg *config.Orchestrator, limits *config.Limits) *ContextOptimizerService {
+func NewContextOptimizerService(store database.Store, orchCfg *config.Orchestrator, limits *config.Limits) *ContextOptimizerService {
 	return &ContextOptimizerService{
 		store:        store,
-		fs:           fs,
 		orchCfg:      orchCfg,
 		limits:       limits,
 		rerankWaiter: newSyncWaiter[messagequeue.ContextRerankResultPayload]("context-rerank"),
 		builtTasks:   make(map[string]bool),
 	}
+}
+
+// SetKnowledgeBases wires the knowledge-base service whose content backs the
+// knowledge fallback when no retrieval index is ready.
+func (s *ContextOptimizerService) SetKnowledgeBases(k *KnowledgeBaseService) {
+	s.knowledge = k
 }
 
 // SetRetrieval wires the retrieval service for hybrid search injection.

@@ -1,8 +1,9 @@
 # CodeForge -- Project Status
 
-> Last update: 2026-03-22
+> Last update: 2026-10-01 (Known Issues fix plan: S0 to S6 done except KI-25; KI-71 tool isolation and NATS authentication done)
 > For granular task tracking, see [todo.md](todo.md).
 > For phase implementation details, see git history.
+> A trailing "**Known issue:** KI-n" marks a completed phase whose key deliverable is not wired or not working yet; see [Known Issues](todo.md#known-issues).
 
 ### Phase 0: Project Setup (COMPLETED)
 
@@ -18,11 +19,11 @@ Git local provider (clone, status, pull, branches, checkout), agent lifecycle wi
 
 ### Phase 3: Reliability, Performance & Agent Foundation (COMPLETED)
 
-Hierarchical config (defaults < YAML < ENV < CLI), structured JSON logging (Go slog + Python structlog), async logging with buffered channels, circuit breaker, graceful 4-phase shutdown, idempotency keys, optimistic locking, dead letter queue, event sourcing for agent trajectory, tiered cache (ristretto L1 + NATS KV L2), rate limiting, DB pool tuning, worker pools.
+Hierarchical config (defaults < YAML < ENV < CLI), structured JSON logging (Go slog + Python structlog), async logging with buffered channels, circuit breaker, graceful 4-phase shutdown, idempotency keys, optimistic locking, dead letter queue, event sourcing for agent trajectory, tiered cache (ristretto L1 + NATS KV L2; removed again in S6, KI-60: nothing used it), rate limiting, DB pool tuning, worker pools.
 
 ### Phase 4: Agent Execution Engine (COMPLETED)
 
-Policy layer with first-match-wins evaluation (4 built-in presets), YAML-configurable custom policies, runtime API with step-by-step execution protocol (NATS Go<->Python), Docker sandbox execution, stall detection (FNV-64a hash ring), quality gate enforcement, 5 delivery modes (none/patch/commit/branch/PR), shadow Git checkpoints, resource limits, secrets vault with SIGHUP reload, multi-tenancy preparation (tenant_id on all tables).
+Policy layer with first-match-wins evaluation (4 built-in presets), YAML-configurable custom policies, runtime API with step-by-step execution protocol (NATS Go<->Python), Docker sandbox container lifecycle (per-run container with resource limits; tool execution inside the container is not wired, tools still run in the worker process), stall detection (FNV-64a hash ring), quality gate enforcement, 5 delivery modes (none/patch/commit/branch/PR), shadow Git checkpoints, resource limits, secrets vault with SIGHUP reload, multi-tenancy preparation (tenant_id on all tables). - **Known issue:** KI-13 (sandbox), KI-21 (`runs.start` is a single LLM completion), KI-26, KI-27 (delivery)
 
 ### Phase 5: Multi-Agent Orchestration (COMPLETED)
 
@@ -38,14 +39,14 @@ Real cost extraction from LiteLLM responses, fallback pricing table, token persi
 
 ### Phase 8: Roadmap Foundation, Event Trajectory, Docker Production (COMPLETED)
 
-Roadmap/Feature-Map domain model (Roadmap, Milestone, Feature), spec provider and PM provider port interfaces, 12 roadmap REST endpoints, trajectory API with cursor pagination, Docker production images (Go multi-stage, Python slim, nginx frontend), docker-compose.prod.yml, GitHub Actions Docker build CI.
+Roadmap/Feature-Map domain model (Roadmap, Milestone, Feature), spec provider and PM provider port interfaces, 12 roadmap REST endpoints, trajectory API with cursor pagination, Docker production images (Go multi-stage, Python slim, nginx frontend), docker-compose.prod.yml, GitHub Actions Docker build CI. - **Known issue:** KI-43, KI-44, KI-45, KI-46 (production compose does not start as shipped)
 
 ### Phase 9A-9E: Advanced Integrations (COMPLETED)
 
 **9A:** OpenSpec, Markdown, GitHub Issues adapters, enhanced AutoDetect, spec/PM import.
 **9B:** SVN provider, Gitea/Forgejo PM adapter, VCS webhooks (GitHub + GitLab), bidirectional PM sync.
 **9C:** PM webhook processing (GitHub/GitLab/Plane), Slack + Discord notification adapters.
-**9D:** OpenTelemetry (TracerProvider + MeterProvider), A2A protocol stub, AG-UI event protocol, blue-green deployment infrastructure.
+**9D:** OpenTelemetry (TracerProvider + MeterProvider), A2A protocol stub, AG-UI event protocol, blue-green deployment infrastructure (working since S6, KI-47 and KI-70).
 **9E:** Plane.so PM adapter (full CRUD), full auto-detection engine (three-tier), Feature-Map visual editor (Kanban drag-and-drop).
 
 ### Phase 10: Frontend Foundations (COMPLETED)
@@ -116,14 +117,14 @@ Confidence-based moderator router with structured output, typed agent module sch
 
 ### Phase 22: Planned Pattern Implementation (COMPLETED)
 
-All 8 patterns from CLAUDE.md implemented: RouterLLM scenario wiring, GitHub Copilot token exchange, composite memory scoring, experience pool (@exp_cache), HandoffMessage pattern, Microagents (YAML+Markdown triggers), Skills system (BM25-recommended snippets), Human Feedback Provider Protocol (Slack + Email adapters).
+All 8 adopted patterns (list: `docs/architecture/project-reference.md`) implemented: RouterLLM scenario wiring, GitHub Copilot token exchange, composite memory scoring, experience pool (@exp_cache), HandoffMessage pattern, Microagents (YAML+Markdown triggers), Skills system (BM25-recommended snippets), Human Feedback Provider Protocol (Slack + Email adapters; the email adapter sends a link to the web approval page, KI-57). - **Known issue:** KI-84 (Slack buttons have no interaction endpoint, Slack gets every tenant's requests)
 
 ### Phase 23: Security & Identity Patterns (COMPLETED)
 
 **23A:** Trust annotations (4 levels: untrusted/partial/verified/full) auto-stamped on NATS payloads.
-**23B:** Message quarantine with risk scoring, admin review hold, evaluate/approve/reject.
-**23C:** Persistent agent identity (fingerprint, stats accumulation, inbox, active work visibility).
-**23D:** War Room -- live multi-agent collaboration view with swim lanes and handoff arrows.
+**23B:** Message quarantine with risk scoring, admin review hold, evaluate/approve/reject (inbound A2A prompts and handoffs are screened since S6, KI-15; the reviewer is the logged-in user, KI-79). - **Known issue:** KI-91 (messages never expire)
+**23C:** Persistent agent identity (stats accumulation: total runs, cost, success rate, last active; agent inbox; active work visibility). Agent fingerprinting is not implemented.
+**23D:** War Room -- live multi-agent collaboration view with swim lanes and handoff arrows (rendered since S6, KI-15). - **Known issue:** KI-92 (arrows of `initiated` handoffs are never removed)
 
 ### Phase 24: Active Work Visibility (COMPLETED)
 
@@ -139,15 +140,15 @@ Provider interface pattern, evaluator plugins (LLMJudge, FunctionalTest, SPARC),
 
 ### Phase 27: A2A Protocol Integration (COMPLETED)
 
-Full A2A v0.3.0 implementation via a2a-go SDK. CodeForge as both A2A server (inbound tasks) and client (outbound federation). AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing prefix.
+Full A2A v0.3.0 implementation via a2a-go SDK. CodeForge as both A2A server (inbound tasks) and client (outbound federation). AgentCard builder, auth middleware, task lifecycle, remote agent registry, `a2a://` handoff routing prefix; inbound calls authenticate with per-tenant A2A API keys (KI-15).
 
 ### Phase 28: R2E-Gym / EntroPO Integration (COMPLETED)
 
-Hybrid verification pipeline (filter->rank), trajectory verifier evaluator (5-dimension LLM scoring), multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-enhanced UCB1), DPO/EntroPO trajectory export (JSONL chosen/rejected pairs), SWE-GEN synthetic task generation from Git history. Cross-layer bug fixes for DB fields, NATS wiring, and cost population.
+Hybrid verification pipeline (filter->rank), trajectory verifier evaluator (5-dimension LLM scoring), multi-rollout test-time scaling (best-of-N), diversity-aware MAB routing (entropy-enhanced UCB1), DPO/EntroPO trajectory export (JSONL chosen/rejected pairs), SWE-GEN synthetic task generation from Git history. Cross-layer bug fixes for DB fields, NATS wiring, and cost population. Evaluation errors never score 0.0: they travel as `evaluation_errors` and ranking and training exports skip them (KI-37, S6-G).
 
 ### Phase 29: Hybrid Intelligent Model Routing (COMPLETED)
 
-Three-layer routing cascade: ComplexityAnalyzer (rule-based, <1ms) -> MABModelSelector (UCB1 learning) -> LLMMetaRouter (cold-start fallback). Task-type complexity boost, model auto-discovery from LiteLLM (cached 60s), LiteLLM config simplified to 13 provider-level wildcard entries. Adaptive retry with exponential backoff, per-provider rate-limit tracking.
+Three-layer routing cascade: ComplexityAnalyzer (rule-based, <1ms) -> MABModelSelector (UCB1 learning) -> LLMMetaRouter (cold-start fallback). Task-type complexity boost, model auto-discovery from LiteLLM (cached 60s), LiteLLM config simplified to provider-level wildcard entries (currently 11 wildcards plus `openai/container`). Adaptive retry with exponential backoff, per-provider rate-limit tracking.
 
 ### Phase 30: Goal Discovery & Adaptive Retry (COMPLETED)
 
@@ -160,13 +161,13 @@ Simple chat path unified with agentic path through NATS dispatch, ConversationRu
 
 ### OTEL Tracing Rewrite (COMPLETED)
 
-AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumented service methods, 3 conversation spans, run spans in sync.Map, all metrics nil-guarded.
+AgentNeo replaced with OpenTelemetry backend (OTLP gRPC exporter), 6 instrumented service methods, 3 conversation spans, run spans in sync.Map, all metrics nil-guarded. - **Known issue:** KI-36 (worker metrics never exported, no Python trace-context propagation, Go exporter ignores `CODEFORGE_OTEL_INSECURE`)
 
 ### Test Suites (COMPLETED)
 
-**Browser E2E:** 82 Playwright tests (health, navigation, projects, costs, models, a11y).
-**LLM E2E:** 95 API-level Playwright tests across 11 spec files (prerequisites, models, conversations, streaming, multi-provider, routing, costs, MCP, benchmarks).
-**Benchmark E2E:** 132 browser Playwright tests across 13 spec files.
+**Browser E2E:** about 280 Playwright tests in 25 top-level spec files under `frontend/e2e/` (health, navigation, projects, costs, models, a11y, ...).
+**LLM E2E:** 88 API-level Playwright tests across 11 spec files in `frontend/e2e/llm/` (prerequisites, models, conversations, streaming, multi-provider, routing, costs, MCP, benchmarks).
+**Benchmark E2E:** about 165 browser Playwright tests across 13 `frontend/e2e/benchmark*.spec.ts` files.
 **Backend E2E:** 88 pass / 0 fail / 3 skip (97% pass rate) across all 4 pillars with real LLM calls.
 
 ### Mobile-Responsive Frontend (COMPLETED)
@@ -201,11 +202,11 @@ UX improvements to project detail page workflow. Tab reorder to match natural pr
 
 ### Chat Enhancements (COMPLETED)
 
-10 features transforming the chat into a full-featured development workspace. HITL permission UI with approve/deny cards and countdown timer, `supervised-ask-all` policy preset, autonomy-to-preset auto-mapping, "Allow Always" button with persistent policy rule creation (`POST /policies/allow-always` clones preset to custom profile, prepends allow rule, idempotent). Inline diff review (DiffPreview component). Action buttons (copy, retry, apply, view diff). Per-message cost tracking (MessageBadge + CostBreakdown). Smart references with @/#// autocomplete popover and frequency tracker. Slash commands (/compact, /rewind, /clear, /help, /mode, /model) with rewind timeline picker. Conversation full-text search (PostgreSQL GIN index, ts_rank, SearchPage tabs). Notification center (browser push, Web Audio sounds, tab badge, AG-UI event wiring, notificationStore). Real-time channels with threads (3 tables, 9 endpoints, WebSocket events, sidebar ChannelList, ChannelView, ThreadPanel). Feature spec: `docs/features/05-chat-enhancements.md`.
+10 features transforming the chat into a full-featured development workspace. HITL permission UI with approve/deny cards and countdown timer, `supervised-ask-all` policy preset, autonomy-to-preset auto-mapping, "Allow Always" button with persistent policy rule creation (`POST /policies/allow-always` clones preset to custom profile, prepends allow rule, idempotent). Inline diff review (DiffPreview component). Action buttons (copy, retry, apply, view diff). Per-message cost tracking (MessageBadge + CostBreakdown). Smart references with @/#// autocomplete popover and frequency tracker. Slash commands (/compact, /rewind, /clear, /help, /mode, /model) with rewind timeline picker. Conversation full-text search (PostgreSQL GIN index, ts_rank, SearchPage tabs). Notification center (browser push, Web Audio sounds, tab badge, AG-UI event wiring, notificationStore). Real-time channels with threads (3 tables, 9 endpoints, WebSocket events, sidebar ChannelList, ChannelView, ThreadPanel). Feature spec: `docs/features/05-chat-enhancements.md`. - **Known issue:** KI-7 (mode-derived profile ignored, Allow-Always clones not persisted)
 
 ### Subscription Provider Integration (COMPLETED)
 
-OAuth device flow integration for subscription-based LLM providers (Claude Code Max, GitHub Copilot). Go adapter layer (`internal/adapter/auth/`) with `SubscriptionProvider` interface and implementations for Anthropic (device code -> OAuth token -> `create_api_key` endpoint) and GitHub (device code -> PAT). Atomic `.env` writer (`internal/service/envwriter.go`) with temp-file-and-rename. Subscription orchestration service with background goroutine polling, context cancellation, and configurable intervals. 4 HTTP endpoints (`/api/v1/auth/providers/*`) for list/connect/status/disconnect. Python routing updates: `github_copilot` added to `PROVIDER_KEY_MAP`, prepended in all 4 complexity tiers in both `router.py` and `meta_router.py`. LiteLLM config updated with Copilot extra_headers. Frontend SettingsPage extended with Subscription Providers section showing device code + "Open in browser" link, connect/disconnect buttons, and available models per provider. 87 tests total (22 auth adapter, 9 envwriter, 8 subscription service, 48 Python routing).
+OAuth device flow integration for subscription-based LLM providers (Claude Code Max, GitHub Copilot). Go adapter layer (`internal/adapter/auth/`) with `SubscriptionProvider` interface and implementations for Anthropic (device code -> OAuth token -> `create_api_key` endpoint) and GitHub (device code -> PAT). Atomic `.env` writer (`internal/service/envwriter.go`) with temp-file-and-rename. Subscription orchestration service with background goroutine polling, context cancellation, and configurable intervals. 4 HTTP endpoints (`/api/v1/auth/providers/*`) for list/connect/status/disconnect. Python routing updates: `github_copilot` added to `PROVIDER_KEY_MAP`, prepended in all 4 complexity tiers in both `router.py` and `meta_router.py`. LiteLLM config entry for Copilot (with extra_headers) was added but is currently disabled (commented out) because device-code auth blocks LiteLLM startup; Copilot token exchange is handled by Go Core (`internal/adapter/copilot/client.go`). Frontend SettingsPage extended with Subscription Providers section showing device code + "Open in browser" link, connect/disconnect buttons, and available models per provider. 87 tests total (22 auth adapter, 9 envwriter, 8 subscription service, 48 Python routing).
 
 ### Benchmark Live Feed (COMPLETED)
 
@@ -247,11 +248,11 @@ Live feed state lifted from child `BenchmarkLiveFeed` component to parent `Bench
 
 ### Allow Always Policy Persistence (COMPLETED)
 
-"Allow Always" button in HITL PermissionRequestCard now persists permanent policy rules. `POST /api/v1/policies/allow-always` endpoint: resolves project's effective profile, clones immutable presets to `{preset}-custom-{projectId}`, constructs `PermissionRule` from tool name + command glob pattern (e.g., `Bash/git*`), prepends to profile (first-match-wins), updates project association. Idempotent via `HasRuleForSpecifier` duplicate detection. Future identical tool calls auto-approve without HITL prompt. 12 files changed, 26 new tests across Go domain/service/HTTP layers + frontend wiring.
+"Allow Always" button in HITL PermissionRequestCard now persists permanent policy rules. `POST /api/v1/policies/allow-always` endpoint: resolves project's effective profile, clones immutable presets to `{preset}-custom-{projectId}`, constructs `PermissionRule` from tool name + command glob pattern (e.g., `Bash/git*`), prepends to profile (first-match-wins), updates project association. Idempotent via `HasRuleForSpecifier` duplicate detection. Future identical tool calls auto-approve without HITL prompt. 12 files changed, 26 new tests across Go domain/service/HTTP layers + frontend wiring. - **Known issue:** KI-7 (clones are never written to disk because `PolicyDir` is unset; the glob is built from the JSON tool arguments)
 
 ### Phase 31: Contract-First Review/Refactor (COMPLETED)
 
-Contract-first review and refactoring pipeline: boundary domain model (ProjectBoundaryConfig), 2 new agent modes (boundary-analyzer, contract-reviewer), review-refactor pipeline template (4-step sequential: boundary analysis -> contract review -> intra-layer review -> refactoring), DiffImpactScorer with 3-tier threshold HITL (auto-apply/notify/approve), ReviewTriggerService with cascade dedup (pipeline-completion, branch-merge, manual), phase-aware context budget per pipeline step, waiting_approval step status with approve/reject flow, HTTP endpoints for boundaries CRUD and run approval, Python NATS consumer for review triggers, SolidJS RefactorApproval overlay and BoundariesPanel.
+Contract-first review and refactoring pipeline: boundary domain model (ProjectBoundaryConfig), 2 new agent modes (`boundary_analyzer`, `contract_reviewer`), review-refactor pipeline template (4-step sequential: boundary analysis -> contract review -> intra-layer review -> refactoring), DiffImpactScorer with 3-tier threshold HITL (auto-apply/notify/approve), ReviewTriggerService (manual trigger), phase-aware context budget per pipeline step, waiting_approval step status with approve/reject flow, HTTP endpoints for boundaries CRUD and run approval, SolidJS RefactorApproval overlay and BoundariesPanel. Wired end to end in S6 (KI-17): review plan, baseline record, impact gate, keep/undo decision. - **Known issue:** KI-94 (leftovers of the review pipeline)
 
 ### Sidebar Restructure (COMPLETED)
 
@@ -346,3 +347,15 @@ Five features merged on 2026-03-23:
 2. **Trajectory event UUID error** — `AgentEvent.AgentID`/`TaskID` were empty strings for conversation-based runs, causing PostgreSQL UUID parse errors. Fixed by using `RunID` as fallback.
 
 Remaining: GoalProposalCards don't render in chat UI (WebSocket event reaches frontend but isn't matched to conversation). AI Discover auto-selects weak models that can't use tools.
+
+### Known Issues Fix Plan (2026-09-30)
+
+Milestones of [known-issues-fix-plan.md](known-issues-fix-plan.md) on `staging` (PR branch `claude/busy-dijkstra-q0oxi9`):
+
+- **S0 (CI) done:** golangci-lint v2.11.4, CI on pull requests to `staging`, integration-tagged tests, frontend typecheck/tests, test repairs (KI-1, KI-2, KI-3).
+- **S1 (policy and security) done:** policy enforcement per [ADR-015](architecture/adr/015-policy-deny-lists-and-tool-names.md) (KI-4 to KI-10), trusted-proxy client IP (KI-11), tenant-scoped WebSocket fan-out with ticket auth (KI-12), sandbox/hybrid exec modes rejected until isolated (KI-13), loopback-only dev ports (KI-14).
+- **S2 (messaging and runtime) done:** NATS delivery semantics per [ADR-016](architecture/adr/016-nats-delivery-semantics.md) (KI-18 to KI-20), runtime state (KI-24, KI-30 to KI-32), run path in the agent loop with workspace, backend and approval timeout in the payloads (KI-21, KI-23), backend task cancel and removal of the dead review trigger subjects (KI-22); follow-ups KI-63, KI-65 to KI-67, KI-76 in progress.
+- **S4 (operations) done:** deployment fixes (KI-43 to KI-50, KI-59), worker HTTP health and readiness (KI-34), worker logs in the Go schema (KI-35), OTEL export and trace propagation (KI-36), config drift (KI-51), SIGHUP secrets-only reload (KI-61); the blue-green overlay works since S6 (KI-70).
+- **S5 (frontend) done:** live updates (KI-39), model delete route (KI-40), config merge (KI-41), channel broadcasts (KI-42).
+- **S3 (quality gates and delivery) done:** checkpoints as a durable ref chain outside the workspace history (KI-27), delivery for every completed run with rollback only for failed checks (KI-26), project/language gate commands validated on write and fail-closed results (KI-29), gate timeout, heartbeats and the stuck-work watchdog (KI-28), hardened git in agent-writable workspaces (KI-77).
+- **S6 (trust, compliance, unwired features) done except KI-25:** GDPR retention job (KI-52), audit listing after erasure (KI-53), deepeval telemetry off (KI-54), the Claude Code policy hook (KI-72), tenant-scoped policy profiles and platform-admin model management (KI-68, KI-75), policy follow-ups (KI-69), experience pool (KI-16) and `create_skill` tenant (KI-58), the Copilot token exposure (KI-80), verifiers (KI-37), tool configuration drift (KI-38), tenant headers on NATS (KI-64), S2 follow-ups (KI-63, KI-65 to KI-67, KI-76); A2A/handoff trust (KI-15), the review pipeline (KI-17), team cleanup (KI-33), stall re-planning (KI-62), GitHub OAuth web flow (KI-55), PM webhooks (KI-56), approval emails (KI-57), removal of the unused tiered cache (KI-60), the workspace test run in the worker (KI-81), the git config allowlist (KI-82), blue-green (KI-70), channels (KI-73), live updates (KI-74), artifact validation (KI-78) and GDPR residuals (KI-79) and agent tool isolation (KI-71, [ADR-017](architecture/adr/017-tool-isolation-and-nats-authentication.md)): tool processes run as the tool user (uid 10002) started only through `workers/codeforge/tool_process.py`, the worker's secrets sit in a tmpfs only the worker can enter, NATS requires a user per service with per-subject permissions (`configs/nats/nats-server.conf`, `nats:2.15-alpine`), MCP stdio servers run in the worker as the tool user, MCP secrets are redacted and MCP links tenant-scoped (migrations 111, 112). Open: KI-25 (`spawn_subagent` is not offered until Go starts sub-agents), the follow-ups KI-83 to KI-103 (LSP in the core, Slack approvals, webhook tenants and GitLab token, single replica, SVN password, nested repositories, channel users, retention of delivery records, quarantine expiry, handoff arrows, privacy page screens, review leftovers, and from KI-71: symlink-safe workspace readers, per-tenant tool UIDs, MCP redaction and UI gaps, MCP test SSRF, NATS upgrade checks, the sharing pass).

@@ -11,6 +11,7 @@
     "lint": "eslint src/",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
+    "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -21,8 +22,8 @@
   "dependencies": {
     "@solidjs/router": "^0.15.0",
     "@tanstack/solid-virtual": "^3.13.21",
-    "@unovis/solid": "^1.6.4",
-    "@unovis/ts": "^1.6.4",
+    "@unovis/solid": "^1.7.1",
+    "@unovis/ts": "^1.7.1",
     "solid-js": "^1.9.0",
     "solid-monaco": "^0.3.0",
     "vscode-icons-js": "^11.6.1"

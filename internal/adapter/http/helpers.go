@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 )
 
 // ---------------------------------------------------------------------------
@@ -103,10 +105,13 @@ func sanitizeName(name string) error {
 	return nil
 }
 
+// maxRawBodyBytes limits request bodies read by readBody.
+const maxRawBodyBytes = 10 << 20 // 10 MB
+
 // readBody reads the request body with a size limit. Returns nil if the body
-// exceeds maxBytes (and writes a 413 response).
-func readBody(w http.ResponseWriter, r *http.Request, maxBytes int64) []byte {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+// exceeds maxRawBodyBytes (and writes a 413 response).
+func readBody(w http.ResponseWriter, r *http.Request) []byte {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRawBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
@@ -141,9 +146,15 @@ func writeDomainError(w http.ResponseWriter, err error, fallbackMsg string) {
 		writeError(w, http.StatusNotFound, fallbackMsg)
 	case errors.Is(err, domain.ErrConflict):
 		writeError(w, http.StatusConflict, "resource was modified by another request")
+	case errors.Is(err, project.ErrProjectBusy):
+		writeError(w, http.StatusConflict, project.ErrProjectBusy.Error())
 	case errors.Is(err, domain.ErrValidation):
 		msg := strings.TrimPrefix(err.Error(), domain.ErrValidation.Error()+": ")
 		writeError(w, http.StatusBadRequest, msg)
+	case errors.Is(err, tenant.ErrToolUIDRangeExhausted):
+		// Every tool UID of the deployment is taken (KI-96): no new tenant can run tools.
+		slog.Error("tool work refused: the tool UID range is exhausted", "error", err.Error())
+		writeError(w, http.StatusServiceUnavailable, tenant.ErrToolUIDRangeExhausted.Error())
 	case strings.Contains(err.Error(), "invalid input syntax"):
 		writeError(w, http.StatusBadRequest, "invalid identifier format")
 	case strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "SQLSTATE 23505"):

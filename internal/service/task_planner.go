@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
 // TaskPlannerService enhances feature decomposition with project context,
@@ -110,7 +109,13 @@ func (s *TaskPlannerService) gatherProjectContext(ctx context.Context, projectID
 		return "", nil
 	}
 
-	entries, err := os.ReadDir(proj.WorkspacePath)
+	// Listed through workspacefs (KI-95): no symlink leads the listing out of the workspace.
+	ws, err := workspacefs.Open(proj.WorkspacePath)
+	if err != nil {
+		return "", fmt.Errorf("read workspace dir: %w", err)
+	}
+	defer func() { _ = ws.Close() }()
+	entries, err := ws.ReadDir(".")
 	if err != nil {
 		return "", fmt.Errorf("read workspace dir: %w", err)
 	}
@@ -134,7 +139,7 @@ func (s *TaskPlannerService) gatherProjectContext(ctx context.Context, projectID
 		if e.IsDir() {
 			fmt.Fprintf(&b, "%s/\n", name)
 			// List first-level contents of this subdirectory.
-			subEntries, err := os.ReadDir(filepath.Join(proj.WorkspacePath, name))
+			subEntries, err := ws.ReadDir(name)
 			if err != nil {
 				continue
 			}

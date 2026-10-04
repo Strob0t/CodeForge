@@ -31,6 +31,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
@@ -47,6 +48,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/domain/vcsaccount"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // Ensure mockStore implements database.Store at compile time.
@@ -203,8 +205,16 @@ func (m *mockStore) UpdateTaskStatus(_ context.Context, _ string, _ task.Status)
 	return nil
 }
 
-func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
+func (m *mockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Status, _ task.Result, _ float64) error {
 	return nil
+}
+
+func (m *mockStore) EndTaskDispatch(_ context.Context, _, _ string, _ task.Status, _ task.Result) error {
+	return nil
+}
+
+func (m *mockStore) RecordTaskResult(_ context.Context, _, _ string, _ task.Status, _ task.Result, _ float64) (bool, error) {
+	return true, nil
 }
 
 // --- Run methods (satisfy database.Store interface) ---
@@ -219,10 +229,22 @@ func (m *mockStore) UpdateRunStatus(_ context.Context, _ string, _ run.Status, _
 func (m *mockStore) CompleteRun(_ context.Context, _ *run.CompletionRequest) error {
 	return nil
 }
+func (m *mockStore) EnterQualityGate(_ context.Context, _ *run.CompletionRequest) error {
+	return nil
+}
+func (m *mockStore) CountRunStep(_ context.Context, _ string) error { return nil }
+func (m *mockStore) AddRunUsage(_ context.Context, _ string, _ *run.Usage) (*run.Run, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) RaiseRunUsage(_ context.Context, _ string, _ *run.Usage) error { return nil }
 func (m *mockStore) UpdateRunArtifact(_ context.Context, _, _ string, _ *bool, _ []string) error {
 	return nil
 }
 func (m *mockStore) ListRunsByTask(_ context.Context, _ string) ([]run.Run, error) { return nil, nil }
+func (m *mockStore) ListStaleRuns(_ context.Context, _ run.Status, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) TouchRun(_ context.Context, _ string, _ run.Status) error { return nil }
 
 // --- Plan stub methods (satisfy database.Store interface) ---
 
@@ -341,10 +363,6 @@ func (m *mockStore) DashboardCostTrend(_ context.Context, _ int) ([]cost.DailyCo
 }
 
 // Project repo lookup
-func (m *mockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
-	return nil, nil
-}
-
 // Review Policy stubs
 func (m *mockStore) CreateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
 	return nil
@@ -433,6 +451,12 @@ func (m *mockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, erro
 }
 func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
 func (m *mockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+func (m *mockStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (m *mockStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection Rule stubs
 func (m *mockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
@@ -729,7 +753,7 @@ func (m *mockStore) DeleteVCSAccount(_ context.Context, _ string) error { return
 func (m *mockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
 	return nil
 }
-func (m *mockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+func (m *mockStore) ConsumeOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
 	return nil, domain.ErrNotFound
 }
 func (m *mockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
@@ -891,7 +915,7 @@ func (m *mockStore) GetQuarantinedMessage(_ context.Context, _ string) (*quarant
 func (m *mockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (m *mockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -928,6 +952,13 @@ func (m *mockStore) SendAgentMessage(_ context.Context, msg *agent.InboxMessage)
 	m.inboxMessages = append(m.inboxMessages, *msg)
 	return nil
 }
+
+func (m *mockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
+	return orchestration.HandoffClaim{Claimed: true}, nil
+}
+func (m *mockStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (m *mockStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (m *mockStore) ListAgentInbox(_ context.Context, agentID string, unreadOnly bool) ([]agent.InboxMessage, error) {
 	var result []agent.InboxMessage
 	for _, msg := range m.inboxMessages {
@@ -957,7 +988,25 @@ func (m *mockStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.Clai
 	return &task.ClaimResult{Claimed: false, Reason: "not implemented in mock"}, nil
 }
 
-func (m *mockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
+func (m *mockStore) TouchRunHeartbeat(_ context.Context, _ string) error { return nil }
+func (m *mockStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]run.Run, error) {
+	return nil, nil
+}
+func (m *mockStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) ClaimConversationTurnCompletion(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (m *mockStore) TouchConversationTurnHeartbeat(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockStore) ListConversationTurnsWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]conversation.ActiveTurn, error) {
+	return nil, nil
+}
+func (m *mockStore) TouchTaskHeartbeat(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) ListTasksWithStaleHeartbeat(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
 	return nil, nil
 }
 
@@ -1222,7 +1271,7 @@ func TestProjectService_IsUnderWorkspaceRoot(t *testing.T) {
 
 func TestProjectServiceAdopt(t *testing.T) {
 	wsRoot := t.TempDir()
-	adoptDir := filepath.Join(wsRoot, "myproject")
+	adoptDir := filepath.Join(wsRoot, tenantctx.DefaultTenantID, "myproject") // the caller's tenant area (S3 follow-up 1f)
 	if err := os.MkdirAll(adoptDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1231,7 +1280,7 @@ func TestProjectServiceAdopt(t *testing.T) {
 	}
 	svc := NewProjectService(store, wsRoot)
 
-	p, err := svc.Adopt(context.Background(), "p1", adoptDir)
+	p, err := svc.Adopt(context.Background(), "p1", adoptDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1246,7 +1295,7 @@ func TestProjectServiceAdoptEmptyPath(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Adopt(context.Background(), "p1", "")
+	_, err := svc.Adopt(context.Background(), "p1", "", false)
 	if err == nil {
 		t.Fatal("expected error for empty path")
 	}
@@ -1259,7 +1308,7 @@ func TestProjectServiceAdoptOutsideWorkspaceRoot(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir()) // different root than outsideDir
 
-	_, err := svc.Adopt(context.Background(), "p1", outsideDir)
+	_, err := svc.Adopt(context.Background(), "p1", outsideDir, true)
 	if err == nil {
 		t.Fatal("expected error for path outside workspace root")
 	}
@@ -1274,7 +1323,7 @@ func TestProjectServiceAdoptNonexistentDir(t *testing.T) {
 	}
 	svc := NewProjectService(store, t.TempDir())
 
-	_, err := svc.Adopt(context.Background(), "p1", "/nonexistent/path/12345")
+	_, err := svc.Adopt(context.Background(), "p1", "/nonexistent/path/12345", false)
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
 	}
@@ -1411,7 +1460,18 @@ func (m *mockStore) CreateChannel(_ context.Context, _ *channel.Channel) (*chann
 func (m *mockStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
 	return nil, nil
 }
-func (m *mockStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+func (m *mockStore) ListChannels(_ context.Context, _, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+
+func (m *mockStore) SetChannelWebhookKeyHash(_ context.Context, _ string, _ []byte) error { return nil }
+func (m *mockStore) GetChannelWebhookKeyHash(_ context.Context, _ string) (tenantID string, hash []byte, err error) {
+	return "", nil, domain.ErrNotFound
+}
+func (m *mockStore) MarkChannelRead(_ context.Context, _, _, _ string) (*channel.ReadState, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *mockStore) ListChannelReadStates(_ context.Context, _ string) ([]channel.ReadState, error) {
 	return nil, nil
 }
 func (m *mockStore) DeleteChannel(_ context.Context, _ string) error { return nil }
@@ -1439,9 +1499,6 @@ func (m *mockStore) DeleteProjectBoundaries(_ context.Context, _ string) error {
 func (m *mockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (m *mockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }
@@ -1451,23 +1508,38 @@ func (m *mockStore) ListAuditEntries(_ context.Context, _ string, _, _ int) ([]d
 func (m *mockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 func (m *mockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+
+// GDPR erasure and retention stubs
+
+// WithRetentionLock reports the lock as held by another replica: no test
+// here sweeps.
+func (m *mockStore) WithRetentionLock(context.Context, func(context.Context, database.RetentionPurger)) (bool, error) {
+	return false, nil
+}
+
+func (m *mockStore) TouchSession(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockStore) UnconsumedQuarantineRelease(_ context.Context, _ string, _ []byte) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (m *mockStore) ConsumeQuarantineRelease(_ context.Context, _ string) error {
+	return domain.ErrNotFound
 }
 
 // Consent stubs (GDPR)
@@ -1698,4 +1770,21 @@ func TestIsAllowedGiteaHost(t *testing.T) {
 			}
 		})
 	}
+}
+
+// QueueTask queues the task (the status guard is in queueTaskStore).
+func (m *mockStore) QueueTask(_ context.Context, id, agentID, dispatchID string) error {
+	for i := range m.tasks {
+		if m.tasks[i].ID == id {
+			m.tasks[i].Status = task.StatusQueued
+			m.tasks[i].AgentID = agentID
+			m.tasks[i].DispatchID = dispatchID
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (m *mockStore) ListTasksNeverAccepted(_ context.Context, _ time.Duration, _ int) ([]task.Task, error) {
+	return nil, nil
 }

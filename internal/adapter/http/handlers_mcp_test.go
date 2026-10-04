@@ -39,10 +39,12 @@ func TestGetMCPServer_NotFound(t *testing.T) {
 
 func TestCreateMCPServer_Success(t *testing.T) {
 	r := newTestRouter()
+	// KI-100: a loopback url (localhost) is refused; in the test DNS this
+	// name resolves to a public address (newTestMCPService).
 	body, _ := json.Marshal(mcp.ServerDef{
 		Name:      "test-server",
 		Transport: mcp.TransportSSE,
-		URL:       "http://localhost:3001/sse",
+		URL:       "http://mcp.example.com:3001/sse",
 	})
 	req := httptest.NewRequest("POST", "/api/v1/mcp/servers", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

@@ -259,3 +259,42 @@ func TestUpdateItem_InvalidRef(t *testing.T) {
 		t.Fatal("expected error for invalid project ref")
 	}
 }
+
+// KI-85: a PM integration's own GitHub token runs gh as that account
+// (GH_TOKEN); without one, gh uses the Go Core's own login, which serves
+// only the default tenant.
+func TestProvider_TokenRunsGHAsTheIntegration(t *testing.T) {
+	for _, token := range []string{"ghp_integration", ""} {
+		prov, err := pmprovider.New(providerName, map[string]string{"token": token})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		p, ok := prov.(*Provider)
+		if !ok {
+			t.Fatalf("provider %T", prov)
+		}
+		var cmd *exec.Cmd
+		p.execCommand = func(_ context.Context, _ string, _ ...string) *exec.Cmd {
+			cmd = exec.Command("echo", "[]")
+			return cmd
+		}
+		if _, err := p.ListItems(context.Background(), "owner/repo"); err != nil {
+			t.Fatalf("ListItems: %v", err)
+		}
+		var ghToken []string
+		for _, kv := range cmd.Env {
+			if strings.HasPrefix(kv, "GH_TOKEN=") {
+				ghToken = append(ghToken, kv)
+			}
+		}
+		if token == "" {
+			if cmd.Env != nil {
+				t.Fatalf("without a token gh got its own environment %v", ghToken)
+			}
+			continue
+		}
+		if len(ghToken) == 0 || ghToken[len(ghToken)-1] != "GH_TOKEN="+token {
+			t.Fatalf("gh environment GH_TOKEN entries %v, want the integration's token last", ghToken)
+		}
+	}
+}

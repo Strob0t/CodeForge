@@ -33,14 +33,28 @@ var publicPaths = map[string]bool{
 	"/api/v1/auth/setup":           true,
 	"/api/v1/auth/forgot-password": true,
 	"/api/v1/auth/reset-password":  true,
-	"/api/v1/auth/github":          true,
+	// GitHub's OAuth redirect back carries no session; the flow's start
+	// (POST /api/v1/auth/github) is authenticated and binds the state to
+	// the caller's tenant.
 	"/api/v1/auth/github/callback": true,
+	// The WebSocket upgrade authenticates with a single-use ticket from
+	// POST /api/v1/ws/ticket, which the WebSocket hub redeems itself.
+	// Credentials never travel in the URL (CWE-598).
+	"/ws": true,
+	// The A2A routes authenticate with A2A API keys (A2AAuth, KI-15); the
+	// AgentCard is public only with a2a.allow_open.
+	"/a2a":                         true,
+	"/.well-known/agent-card.json": true,
 }
 
+// webhookPathPrefix is where the inbound webhooks are: they authenticate
+// with the key or secret of the channel or webhook their URL names, which
+// also names their tenant.
+const webhookPathPrefix = "/api/v1/webhooks/"
+
 // publicPrefixes are path prefixes exempt from authentication.
-// Webhook endpoints use their own HMAC/token verification middleware.
 var publicPrefixes = []string{
-	"/api/v1/webhooks/",
+	webhookPathPrefix,
 }
 
 // passwordChangeExempt paths are allowed even when MustChangePassword is true.
@@ -101,36 +115,6 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 				}
 			}
 
-			// WebSocket auth via ?token= query parameter (P1-5).
-			//
-			// ACCEPTED RISK (CWE-598): Token is passed in the URL query string because
-			// browsers cannot set custom headers (Authorization) on WebSocket upgrade
-			// requests. This exposes the token in:
-			//   - Server access logs (if URL logging is enabled)
-			//   - Browser history and address bar
-			//   - Proxy/CDN logs along the request path
-			//
-			// Mitigations in place:
-			//   1. Short-lived access tokens (default: 15min TTL) limit exposure window
-			//   2. HTTPS in production encrypts the URL in transit (HSTS enforced)
-			//   3. Token is validated server-side on every connection
-			//   4. WebSocket connections are long-lived, so the token is sent only once
-			//
-			// Re-evaluate if:
-			//   - Token lifetime is extended beyond 30min
-			//   - Non-HTTPS deployments become supported
-			//   - URL logging is enabled in production reverse proxies
-			if path == "/ws" {
-				u := validateWSToken(authSvc, w, r)
-				if u == nil {
-					return
-				}
-				ctx := context.WithValue(r.Context(), authUserCtxKey{}, u)
-				ctx = withUserID(ctx, u.ID)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-
 			// Try X-API-Key header first.
 			if apiKey := r.Header.Get("X-API-Key"); apiKey != "" {
 				u, key := validateAPIKey(r.Context(), authSvc, internalKeyVal, apiKey)
@@ -164,29 +148,6 @@ func Auth(authSvc *service.AuthService, authEnabled bool, internalKey ...string)
 			ctx = withUserID(ctx, u.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	}
-}
-
-// validateWSToken validates a WebSocket ?token= query parameter.
-// Returns the authenticated user or nil if validation fails.
-func validateWSToken(authSvc *service.AuthService, w http.ResponseWriter, r *http.Request) *user.User {
-	tokenParam := r.URL.Query().Get("token")
-	if tokenParam == "" {
-		writeJSONError(w, http.StatusUnauthorized, "authorization required")
-		return nil
-	}
-	claims, err := authSvc.ValidateAccessToken(tokenParam)
-	if err != nil {
-		writeJSONError(w, http.StatusUnauthorized, "invalid token")
-		return nil
-	}
-	return &user.User{
-		ID:       claims.UserID,
-		Email:    claims.Email,
-		Name:     claims.Name,
-		Role:     claims.Role,
-		TenantID: claims.TenantID,
-		Enabled:  true,
 	}
 }
 

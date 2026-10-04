@@ -1,0 +1,14 @@
+# Test override of docker-compose.prod.yml for the Docker tenant-isolation
+# suite (workers/tests/test_tenant_isolation_docker.py, KI-96). Everything
+# else of the worker service stays the production definition: started as
+# root with SETUID, SETGID and KILL only, no-new-privileges, read-only root,
+# the workspaces and tool_homes volumes, /tmp 1771, the secrets tmpfs.
+# This file only selects the image under test and mounts the checks.
+services:
+  worker:
+    image: ${CODEFORGE_TEST_WORKER_IMAGE:?set CODEFORGE_TEST_WORKER_IMAGE to the worker image under test}
+    volumes:
+      - ./workers/tests:/app/workers/tests:ro
+    environment:
+      PYTHONPATH: /app/workers
+      PYTHONDONTWRITEBYTECODE: "1"

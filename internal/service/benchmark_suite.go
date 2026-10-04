@@ -2,10 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,13 +20,13 @@ import (
 
 // BenchmarkSuiteService manages benchmark suite CRUD and dataset listing.
 type BenchmarkSuiteService struct {
-	store       database.Store
-	datasetsDir string
+	store    database.Store
+	datasets operatorDir // benchmark.datasets_dir (KI-107)
 }
 
 // NewBenchmarkSuiteService creates a suite service.
 func NewBenchmarkSuiteService(store database.Store, datasetsDir string) *BenchmarkSuiteService {
-	return &BenchmarkSuiteService{store: store, datasetsDir: datasetsDir}
+	return &BenchmarkSuiteService{store: store, datasets: newOperatorDir(datasetsDir)}
 }
 
 // SeedDefaultSuites creates built-in benchmark suites if they don't exist.
@@ -98,38 +99,44 @@ func (s *BenchmarkSuiteService) DeleteSuite(ctx context.Context, id string) erro
 
 // ListDatasets scans the datasets directory for YAML files and returns metadata.
 func (s *BenchmarkSuiteService) ListDatasets() ([]benchmark.DatasetInfo, error) {
-	if s.datasetsDir == "" {
+	root, err := s.datasets.open()
+	if errors.Is(err, errNoOperatorDir) || errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, fmt.Errorf("open datasets dir: %w", err)
+	}
+	defer func() { _ = root.Close() }()
 
+	// Walked and read inside the directory (KI-107): a symlink out of it is
+	// neither followed nor read.
 	var datasets []benchmark.DatasetInfo
-	err := filepath.WalkDir(s.datasetsDir, func(path string, d fs.DirEntry, err error) error {
+	err = root.WalkDir(".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip inaccessible files
 		}
 		if d.IsDir() {
 			return nil
 		}
-		ext := strings.ToLower(filepath.Ext(path))
+		ext := strings.ToLower(path.Ext(name))
 		if ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
 
-		data, err := os.ReadFile(filepath.Clean(path)) //nolint:gosec // path is from WalkDir within datasetsDir
+		data, _, err := root.ReadFile(name, maxDatasetFileSize)
 		if err != nil {
-			return nil // skip unreadable files
+			return nil // skip unreadable files and symlinks out of the directory
 		}
 		var df datasetFile
 		if err := yaml.Unmarshal(data, &df); err != nil {
 			return nil // skip invalid files
 		}
 
-		rel, _ := filepath.Rel(s.datasetsDir, path)
 		datasets = append(datasets, benchmark.DatasetInfo{
 			Name:        df.Name,
 			Description: df.Description,
 			TaskCount:   len(df.Tasks),
-			Path:        rel,
+			Path:        filepath.FromSlash(name),
 		})
 		return nil
 	})

@@ -35,6 +35,7 @@ def _make_client(js: MagicMock | None = None) -> RuntimeClient:
         js = _make_js_mock()
     return RuntimeClient(
         js=js,
+        notifications=js,
         run_id="run-123",
         task_id="task-456",
         project_id="proj-789",
@@ -203,6 +204,74 @@ async def test_request_tool_call_publishes_request_and_returns_decision() -> Non
     assert decision.decision == "allow"
     assert decision.call_id is not None
     assert decision.call_id != ""
+
+
+async def _published_tool_call_request(client: RuntimeClient, js: MagicMock, **kwargs: str) -> dict[str, object]:
+    """Send a tool call request and return the JSON payload published to NATS."""
+    mock_sub = AsyncMock()
+    mock_sub.unsubscribe = AsyncMock()
+    published: dict[str, object] = {}
+
+    async def _capture_publish(subject, data):
+        if subject == SUBJECT_TOOLCALL_REQUEST:
+            published.update(json.loads(data))
+            mock_sub.next_msg.return_value = MagicMock(
+                data=json.dumps({"call_id": published["call_id"], "decision": "allow", "reason": ""}).encode()
+            )
+
+    js.publish = AsyncMock(side_effect=_capture_publish)
+    js.subscribe = AsyncMock(return_value=mock_sub)
+    await client.request_tool_call(**kwargs)
+    return published
+
+
+async def test_request_tool_call_payload_contract() -> None:
+    """The runs.toolcall.request payload matches Go's ToolCallRequestPayload."""
+    js = _make_js_mock()
+    client = RuntimeClient(
+        js=js,
+        notifications=js,
+        run_id="conv-1",
+        task_id="conv-1",
+        project_id="proj-1",
+        termination=TerminationConfig(max_steps=50, timeout_seconds=600, max_cost=5.0),
+        tenant_id="tenant-1",
+        mode_id="architect",
+        turn_id="turn-1",
+    )
+    payload = await _published_tool_call_request(
+        client, js, tool="bash", command="go test ./...", path="", arguments_preview='{"command": "go test ./..."}'
+    )
+
+    assert set(payload) == {
+        "run_id",
+        "call_id",
+        "tenant_id",
+        "tool",
+        "command",
+        "path",
+        "mode_id",
+        "turn_id",
+        "arguments_preview",
+    }
+    assert payload["tenant_id"] == "tenant-1"
+    assert payload["run_id"] == "conv-1"
+    assert payload["tool"] == "bash"
+    assert payload["command"] == "go test ./..."
+    assert payload["path"] == ""
+    assert payload["mode_id"] == "architect"
+    assert payload["arguments_preview"] == '{"command": "go test ./..."}'
+    # The conversation run's turn: Go rejects calls of a stopped run by it.
+    assert payload["turn_id"] == "turn-1"
+
+
+async def test_request_tool_call_mode_id_defaults_to_empty() -> None:
+    js = _make_js_mock()
+    payload = await _published_tool_call_request(_make_client(js), js, tool="read_file", path="src/x.go")
+    assert payload["mode_id"] == ""
+    assert payload["turn_id"] == ""
+    assert payload["path"] == "src/x.go"
+    assert payload["arguments_preview"] == ""
 
 
 async def test_request_tool_call_when_cancelled_returns_deny() -> None:

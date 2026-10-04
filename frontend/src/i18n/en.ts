@@ -103,14 +103,6 @@ const en = {
   "dashboard.form.path": "Project Path",
   "dashboard.form.pathPlaceholder": "/path/to/your/project",
   "dashboard.form.descriptionPlaceholder": "A brief description...",
-  "dashboard.form.advanced": "Advanced Settings",
-  "dashboard.form.autonomyLevel": "Autonomy Level",
-  "dashboard.form.autonomy.1": "1: Supervised",
-  "dashboard.form.autonomy.2": "2: Semi-Auto",
-  "dashboard.form.autonomy.3": "3: Auto-Edit",
-  "dashboard.form.autonomy.4": "4: Full-Auto",
-  "dashboard.form.autonomy.5": "5: Headless",
-  "dashboard.form.autonomyPlaceholder": "Select level...",
   "dashboard.form.branch": "Branch",
   "dashboard.form.branchPlaceholder": "Default branch",
   "dashboard.form.branchLoading": "Loading branches...",
@@ -230,6 +222,7 @@ const en = {
   // -- Models ---------------------------------------------------------------
   "models.title": "LLM Models",
   "models.addModel": "Add Model",
+  "models.platformAdminOnly": "Only platform admins can add or remove models.",
   "models.form.displayName": "Display Name",
   "models.form.litellmModel": "LiteLLM Model",
   "models.form.apiBase": "API Base (optional)",
@@ -455,6 +448,7 @@ const en = {
   "policy.storage": "Storage:",
   "policy.network": "Network:",
   "policy.testEval": "Test Evaluation",
+  "policy.allowAlwaysFailed": "Allowed once, but the allow-always rule was not saved: {{error}}",
   "policy.toolPlaceholder": "Tool (e.g. Bash)",
   "policy.commandPlaceholder": "Command (optional)",
   "policy.pathPlaceholder": "Path (optional)",
@@ -696,16 +690,12 @@ const en = {
   "trajectory.noRuns": "No runs found for this project.",
   "trajectory.runLabel": "Run",
   "detail.settings.title": "Project Settings",
-  "detail.settings.autonomyLevel": "Autonomy Level",
-  "detail.settings.autonomyPlaceholder": "Select level...",
-  "detail.settings.save": "Save Settings",
-  "detail.settings.saving": "Saving...",
+  "detail.settings.autonomyFromMode":
+    "Autonomy comes from the selected mode (see Modes), not from the project.",
   "detail.settings.gearTooltip": "Project Settings",
   "detail.roadmap.collapse": "Collapse Roadmap",
   "detail.roadmap.expand": "Expand Roadmap",
   "detail.settings.costSummary": "Cost Summary",
-  "detail.toast.settingsSaved": "Project settings saved",
-  "detail.toast.settingsFailed": "Failed to save project settings",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",
@@ -1136,6 +1126,7 @@ const en = {
   "settings.vcs.orOAuth": "or",
   "settings.vcs.connectGitHub": "Connect GitHub",
   "settings.vcs.oauthFailed": "GitHub OAuth failed",
+  "settings.vcs.oauthConnected": "GitHub account connected",
   "settings.vcs.test": "Test",
   "settings.vcs.testing": "Testing...",
   "settings.vcs.testSuccess": "Connection successful",
@@ -1187,6 +1178,8 @@ const en = {
   // -- Subscription Providers ---------------------------------------------------
   "settings.subscriptionProviders.title": "Subscription Providers",
   "settings.subscriptionProviders.subtitle": "Connect existing subscriptions to use their models",
+  "settings.subscriptionProviders.platformAdminOnly":
+    "Only platform admins can connect or disconnect providers.",
   "settings.subscriptionProviders.connect": "Connect",
   "settings.subscriptionProviders.disconnect": "Disconnect",
   "settings.subscriptionProviders.connected": "Connected",
@@ -1254,8 +1247,10 @@ const en = {
   "mcp.form.commandPlaceholder": "e.g. npx -y @modelcontextprotocol/server-filesystem",
   "mcp.form.args": "Arguments (one per line)",
   "mcp.form.argsPlaceholder": "/path/to/allowed/dir",
+  "mcp.form.argsHint":
+    "Use env variables for secrets; arguments are visible to all users of the tenant.",
   "mcp.form.url": "Server URL",
-  "mcp.form.urlPlaceholder": "http://localhost:3001/sse",
+  "mcp.form.urlPlaceholder": "https://mcp.example.com/sse",
   "mcp.form.env": "Environment Variables",
   "mcp.form.envKey": "Key",
   "mcp.form.envValue": "Value",
@@ -1279,6 +1274,8 @@ const en = {
   "mcp.testFailedTitle": "Connection Test Failed",
   "mcp.testFailedMessage": "Connection test failed: {{error}}. Save anyway?",
   "mcp.testFailedSaveAnyway": "Save Anyway",
+  "mcp.stdioNoTest":
+    "stdio servers run in the worker as the tool user and cannot be tested here; they start with the first run that uses them.",
   "mcp.toast.createdWithTools": "MCP server created — {{count}} tools discovered",
   "mcp.testAria": "Test connection for {{name}}",
   "mcp.editAria": "Edit server {{name}}",
@@ -1293,6 +1290,19 @@ const en = {
   "mcp.tools.inputSchema": "Input Schema",
 
   // -- Not Found / Error pages ------------------------------------------------
+  "approval.title": "Tool approval",
+  "approval.notPending":
+    "This tool call is no longer waiting for a decision (answered, timed out or the run ended), or it is not yours to decide.",
+  "approval.run": "Run",
+  "approval.tool": "Tool",
+  "approval.command": "Command",
+  "approval.path": "Path",
+  "approval.profile": "Policy profile",
+  "approval.arguments": "Arguments",
+  "approval.approve": "Approve",
+  "approval.deny": "Deny",
+  "approval.approved": "Approved.",
+  "approval.denied": "Denied.",
   "notFound.title": "Page not found",
   "notFound.message": "The page you are looking for does not exist or has been moved.",
   "notFound.backToDashboard": "Back to Dashboard",
@@ -1445,9 +1455,13 @@ const en = {
   "benchmark.metrics": "Metrics",
   "benchmark.benchmarkType": "Benchmark Type",
   "benchmark.execMode": "Execution Mode",
+  "benchmark.execModeUnavailable": "not available yet",
+  "benchmark.execModeUnavailableHelp":
+    "Sandbox and hybrid are not available yet: tools would run without isolation (KI-13).",
   "benchmark.startRun": "Start Run",
   "benchmark.taskName": "Task",
   "benchmark.scores": "Scores",
+  "benchmark.evaluationError": "evaluation error",
   "benchmark.cost": "Cost",
   "benchmark.duration": "Duration",
   "benchmark.noResults": "No results recorded for this run.",
@@ -1672,6 +1686,9 @@ const en = {
   "chat.attachFile": "Attach file",
   "chat.attachSuccess": "File written to workspace",
   "chat.attachFailed": "Failed to attach file",
+  "chat.runInProgress":
+    "A run is still in progress. Wait for it to finish or stop it, then send again.",
+  "chat.sendFailed": "The message could not be sent.",
 
   // -- Onboarding progress ---------------------------------------------------
   "onboarding.repoCloned": "Repo cloned",
@@ -1743,7 +1760,6 @@ const en = {
   "quarantine.detail.reviewedAt": "Reviewed At",
   "quarantine.action.approve": "Approve",
   "quarantine.action.reject": "Reject",
-  "quarantine.action.reviewerName": "Your name",
   "quarantine.action.note": "Review note",
   "quarantine.toast.approved": "Message approved and dispatched.",
   "quarantine.toast.rejected": "Message rejected.",
@@ -1836,6 +1852,64 @@ const en = {
   "routing.error.refreshFailed": "Failed to refresh stats.",
   "routing.error.seedFailed": "Failed to seed from benchmarks.",
   "routing.error.recordFailed": "Failed to record outcome.",
+  // -- Privacy policy page --------------------------------------------------
+  "privacy.title": "Privacy Policy",
+  "privacy.controller.title": "Data Controller",
+  "privacy.controller.body":
+    "This CodeForge instance is self-hosted. The operator of this instance is the data controller responsible for your personal data under GDPR Art. 4(7).",
+  "privacy.collect.title": "Data We Collect",
+  "privacy.collect.account": "Account information (email address, name, role)",
+  "privacy.collect.auth": "Authentication tokens and session data",
+  "privacy.collect.projects": "Project and repository metadata",
+  "privacy.collect.conversations": "Conversation history with AI agents",
+  "privacy.collect.usage": "Usage metrics and cost tracking data",
+  "privacy.dpo.title": "Data Protection Officer",
+  "privacy.dpo.body":
+    "Contact the instance operator's Data Protection Officer for privacy inquiries. Self-hosted operators should configure DPO contact details in the instance settings.",
+  "privacy.basis.title": "Purpose & Legal Basis",
+  "privacy.basis.service":
+    "Service delivery (account, projects, conversations) -- GDPR Art. 6(1)(b) contract",
+  "privacy.basis.llm":
+    "External LLM processing (prompts sent to providers) -- GDPR Art. 6(1)(a) consent",
+  "privacy.basis.security":
+    "System security (audit logs, rate limiting) -- GDPR Art. 6(1)(f) legitimate interest",
+  "privacy.basis.cost": "Cost tracking and billing -- GDPR Art. 6(1)(b) contract",
+  "privacy.processors.title": "Subprocessors",
+  "privacy.processors.body":
+    "When external LLM providers are configured, user prompts and code context may be transmitted to these subprocessors. Local models process data entirely on-premises.",
+  "privacy.processors.openai": "OpenAI (Microsoft) -- LLM inference, US (EU DPA + SCCs)",
+  "privacy.processors.anthropic": "Anthropic -- LLM inference, US (EU DPA + SCCs)",
+  "privacy.processors.google": "Google (Vertex AI) -- LLM inference, EU (Frankfurt)",
+  "privacy.processors.local": "Ollama / LM Studio -- local inference, no data transfer",
+  "privacy.processors.note":
+    "Active providers depend on instance configuration. Consent is required before external processing (see consent settings).",
+  "privacy.retention.title": "Data Retention",
+  "privacy.retention.account":
+    "Account data -- kept while the account exists; erased immediately when you request erasure or the account is deleted. Database backups that still contain it are rotated out after about five weeks.",
+  "privacy.retention.conversations":
+    "Conversations and their messages -- 1 year after last activity (configurable)",
+  "privacy.retention.sessions": "Agent sessions -- 30 days after last activity (configurable)",
+  "privacy.retention.runs":
+    "Agent runs with their cost/usage data -- 1 year after last activity (configurable)",
+  "privacy.retention.audit":
+    "Audit log entries -- 7 years (action/resource preserved, PII anonymized)",
+  "privacy.retention.auditIp": "IP addresses in audit logs -- 180 days (per CNIL guidance)",
+  "privacy.retention.consent":
+    "Consent records -- indefinite (proof-of-consent per GDPR Art. 7(1))",
+  "privacy.retention.consentIp":
+    "IP addresses and browser user agents in consent records -- 180 days",
+  "privacy.rights.title": "Your Rights",
+  "privacy.rights.access":
+    "Right of access (Art. 15) -- export your data via Settings > Privacy > Export",
+  "privacy.rights.rectification":
+    "Right to rectification (Art. 16) -- update your profile in Settings",
+  "privacy.rights.erasure":
+    "Right to erasure (Art. 17) -- delete your account via Settings > Privacy > Delete",
+  "privacy.rights.portability":
+    "Right to data portability (Art. 20) -- JSON export of all your data",
+  "privacy.rights.object":
+    "Right to object (Art. 21) -- withdraw consent for external LLM processing",
+  "privacy.rights.complaint": "Right to lodge a complaint with a supervisory authority (Art. 77)",
 } as const;
 
 export type TranslationKey = keyof typeof en;

@@ -10,7 +10,11 @@ import {
 import { Portal } from "solid-js/web";
 
 import { api } from "~/api/client";
+import { useAuth } from "~/components/AuthProvider";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { Backdrop, Button, Spinner } from "~/ui";
+
+import { addMessage, parseChannelMessageEvent } from "./channelEvents";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,17 +34,6 @@ export interface ThreadPanelProps {
   parentMessage: ThreadParentMessage;
   visible: boolean;
   onClose: () => void;
-}
-
-/** Shape returned by the channel messages API. */
-interface ChannelMessage {
-  id: string;
-  channel_id: string;
-  sender_type: string;
-  sender_name: string;
-  content: string;
-  parent_id: string;
-  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,15 +64,35 @@ function senderInitial(name: string): string {
 export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
   const [replyText, setReplyText] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  const [sendError, setSendError] = createSignal("");
+  // Replies need the editor or admin role; viewers read the thread only.
+  const { hasRole } = useAuth();
+  const canReply = () => hasRole("admin", "editor");
 
   // Fetch thread replies — re-fetches whenever the parent message id changes.
-  const [replies, { refetch }] = createResource(
+  // The API lists newest first; a thread reads oldest first.
+  const [replies, { mutate }] = createResource(
     () => (props.visible ? { parentId: props.parentMessage.id, channelId: props.channelId } : null),
     async (source) => {
       const allMessages = await api.channels.messages(source.channelId);
-      return allMessages.filter((m: ChannelMessage) => m.parent_id === source.parentId);
+      return allMessages.filter((m) => m.parent_id === source.parentId).reverse();
     },
   );
+
+  // Replies from other users, agents and webhooks arrive as channel.message;
+  // listen while the panel is open, for the thread it shows.
+  const { onMessage } = useWebSocket();
+  createEffect(() => {
+    if (!props.visible) return;
+    const channelId = props.channelId;
+    const parentId = props.parentMessage.id;
+    const unsubscribe = onMessage((msg) => {
+      const incoming = parseChannelMessageEvent(msg);
+      if (incoming?.channel_id !== channelId || incoming.parent_id !== parentId) return;
+      mutate((prev) => addMessage(prev, incoming, "end"));
+    });
+    onCleanup(unsubscribe);
+  });
 
   // Close on Escape key
   createEffect(() => {
@@ -101,14 +114,18 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
     if (!content || sending()) return;
 
     setSending(true);
+    setSendError("");
     try {
-      await api.channels.sendThreadReply(props.channelId, props.parentMessage.id, {
+      const reply = await api.channels.sendThreadReply(props.channelId, props.parentMessage.id, {
         sender_name: "You",
         sender_type: "user",
         content,
       });
       setReplyText("");
-      void refetch();
+      mutate((prev) => addMessage(prev, reply, "end"));
+    } catch (err) {
+      // The reply text stays in the input, so it can be sent again.
+      setSendError(err instanceof Error ? err.message : String(err));
     } finally {
       setSending(false);
     }
@@ -207,26 +224,40 @@ export default function ThreadPanel(props: ThreadPanelProps): JSX.Element {
 
           {/* Reply input */}
           <div class="border-t border-cf-border px-4 py-3">
-            <div class="flex gap-2">
-              <input
-                type="text"
-                placeholder="Reply..."
-                value={replyText()}
-                onInput={(e) => setReplyText(e.currentTarget.value)}
-                onKeyDown={handleInputKeyDown}
-                disabled={sending()}
-                class="block flex-1 rounded-cf-md border border-cf-border-input bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder:text-cf-text-muted transition-colors focus:border-cf-accent focus:outline-none focus:ring-2 focus:ring-cf-focus-ring"
-              />
-              <Button
-                variant="primary"
-                size="xs"
-                disabled={replyText().trim() === "" || sending()}
-                loading={sending()}
-                onClick={() => void handleSend()}
-              >
-                Send
-              </Button>
-            </div>
+            <Show when={sendError()}>
+              {(message) => (
+                <p class="mb-2 text-sm text-cf-danger-fg" role="alert">
+                  The reply was not sent: {message()}
+                </p>
+              )}
+            </Show>
+            <Show
+              when={canReply()}
+              fallback={
+                <p class="text-xs text-cf-text-muted">Only editors and admins can reply.</p>
+              }
+            >
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Reply..."
+                  value={replyText()}
+                  onInput={(e) => setReplyText(e.currentTarget.value)}
+                  onKeyDown={handleInputKeyDown}
+                  disabled={sending()}
+                  class="block flex-1 rounded-cf-md border border-cf-border-input bg-cf-bg-surface px-3 py-2 text-sm text-cf-text-primary placeholder:text-cf-text-muted transition-colors focus:border-cf-accent focus:outline-none focus:ring-2 focus:ring-cf-focus-ring"
+                />
+                <Button
+                  variant="primary"
+                  size="xs"
+                  disabled={replyText().trim() === "" || sending()}
+                  loading={sending()}
+                  onClick={() => void handleSend()}
+                >
+                  Send
+                </Button>
+              </div>
+            </Show>
           </div>
         </div>
       </Portal>

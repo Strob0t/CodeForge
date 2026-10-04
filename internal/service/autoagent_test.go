@@ -41,6 +41,13 @@ type autoAgentMockStore struct {
 	getRoadmapErr      error
 	listFeaturesErr    error
 	createMessageErr   error
+
+	// createMessageGate, when set, holds CreateMessage until it is closed or the
+	// context ends, so a run stays "running" for as long as a test needs.
+	createMessageGate chan struct{}
+	// createConversationGate does the same for CreateConversation, the first
+	// store call of a feature, for paths that fail before CreateMessage.
+	createConversationGate chan struct{}
 }
 
 func newAutoAgentMockStore() *autoAgentMockStore {
@@ -159,7 +166,13 @@ func (m *autoAgentMockStore) UpdateAutoAgentProgress(_ context.Context, aa *auto
 }
 
 // Conversation store methods needed by ConversationService.Create.
-func (m *autoAgentMockStore) CreateConversation(_ context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
+func (m *autoAgentMockStore) CreateConversation(ctx context.Context, c *conversation.Conversation) (*conversation.Conversation, error) {
+	if gate := m.createConversationGate; gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.convSeq++
@@ -179,7 +192,13 @@ func (m *autoAgentMockStore) GetConversation(_ context.Context, id string) (*con
 	return c, nil
 }
 
-func (m *autoAgentMockStore) CreateMessage(_ context.Context, msg *conversation.Message) (*conversation.Message, error) {
+func (m *autoAgentMockStore) CreateMessage(ctx context.Context, msg *conversation.Message) (*conversation.Message, error) {
+	if gate := m.createMessageGate; gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.createMessageErr != nil {
@@ -285,6 +304,11 @@ func TestAutoAgentStart_Success(t *testing.T) {
 	seedRoadmapWithFeatures(store, "proj-1", []roadmap.Feature{
 		{ID: "feat-1", Title: "Feature 1", Status: roadmap.FeatureBacklog},
 	})
+	// Keep the loop busy: without a queue its first feature fails at once and
+	// the loop removes its cancel func before the check below can see it.
+	gate := make(chan struct{})
+	store.createConversationGate = gate
+	defer close(gate)
 
 	aa, err := svc.Start(context.Background(), "proj-1")
 	if err != nil {
@@ -300,7 +324,7 @@ func TestAutoAgentStart_Success(t *testing.T) {
 		t.Errorf("expected 1 feature total, got %d", aa.FeaturesTotal)
 	}
 
-	// Wait for the background goroutine to register in the cancels map.
+	// Start registers the loop's cancel func before it returns.
 	waitForCondition(t, time.Second, "cancel func registered", func() bool {
 		svc.mu.Lock()
 		defer svc.mu.Unlock()
@@ -348,6 +372,11 @@ func TestAutoAgentStart_AlreadyRunning(t *testing.T) {
 	seedRoadmapWithFeatures(store, "proj-1", []roadmap.Feature{
 		{ID: "feat-1", Title: "Feature 1", Status: roadmap.FeatureBacklog},
 	})
+	// Keep the first run busy; otherwise it can fail and finish before the
+	// second Start, which then (correctly) succeeds.
+	gate := make(chan struct{})
+	store.createMessageGate = gate
+	defer close(gate)
 
 	_, err := svc.Start(context.Background(), "proj-1")
 	if err != nil {

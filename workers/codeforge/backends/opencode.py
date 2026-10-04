@@ -12,6 +12,9 @@ _DEFAULT_TIMEOUT = DEFAULT_BACKEND_TIMEOUT_SECONDS
 class OpenCodeExecutor(CLIBackendExecutor):
     """Execute tasks using the OpenCode CLI."""
 
+    # OpenCode reads OPENCODE_CONFIG, ...
+    env_prefixes = ("OPENCODE_",)
+
     def __init__(self, cli_path: str | None = None) -> None:
         super().__init__(cli_path, "CODEFORGE_OPENCODE_PATH", "opencode")
 

@@ -10,6 +10,17 @@ import hashlib
 import json
 from collections import Counter, deque
 
+# Every stall error starts with it; the Go Core re-plans a plan step whose run
+# failed with such an error (run.StallMarker, contract:
+# internal/domain/run/testdata/stall_contract.json).
+STALL_ERROR_MARKER = "stall detected:"
+
+
+def stall_error(repeated_action: object, escape_count: object) -> str:
+    """Return the run error of an agent loop aborted for a stall."""
+    return f"{STALL_ERROR_MARKER} repeated {repeated_action} after {escape_count} escape attempts"
+
+
 STALL_ESCAPE_PROMPT = (
     "<SYSTEM: You are repeating the same action without progress. "
     "Stop and try a fundamentally different approach. If you were reading, "

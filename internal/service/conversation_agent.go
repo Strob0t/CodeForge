@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
@@ -78,6 +79,15 @@ func (s *ConversationService) IsAgentic(ctx context.Context, conversationID stri
 	return proj.WorkspacePath != ""
 }
 
+// toolOutputMaxChars returns agent.tool_output_max_chars, or 0 (the
+// worker's default) when agentCfg is nil.
+func (s *ConversationService) toolOutputMaxChars() int {
+	if s.agentCfg != nil {
+		return s.agentCfg.ToolOutputMaxChars
+	}
+	return 0
+}
+
 // summarizeThreshold returns the configured auto-summarization threshold,
 // or 0 (disabled) when agentCfg is nil.
 func (s *ConversationService) summarizeThreshold() int {
@@ -95,14 +105,48 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("unmarshal conversation run complete: %w", err)
 	}
+	return s.completeConversationRun(ctx, &payload, true)
+}
 
-	// Idempotency is handled by unique Nats-Msg-Id headers on the Python side.
-	// No application-level dedup here — RunID equals ConversationID, so a map-based
-	// guard would block legitimate follow-up completions in the same conversation.
-
+// completeConversationRun processes the completion of a conversation turn:
+// the worker's (fromWorker), or one the Go Core reports itself for a turn it
+// ended (the stuck-work watchdog, a dead-lettered start). The worker's
+// completion of a turn is kept once (S2-G fix 2, 2): it is delivered at
+// least once, and a redelivery must not store the turn's messages and cost
+// again. The Go Core's own completion stores nothing and claims nothing, so
+// the worker's late completion of that turn is still kept.
+func (s *ConversationService) completeConversationRun(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload, fromWorker bool) error {
 	// Inject tenant context from NATS payload (background consumer has no tenant).
 	if payload.TenantID != "" {
 		ctx = tenantctx.WithTenant(ctx, payload.TenantID)
+	}
+
+	// The run ended: the conversation takes its next run. Recorded before the
+	// waiters are woken, which may start that run right away.
+	activeRun := s.runTracker != nil && payload.TurnID != "" &&
+		s.runTracker.IsActiveConversationRun(payload.ConversationID, payload.TurnID)
+	if s.runTracker != nil {
+		s.runTracker.EndConversationRun(payload.ConversationID, payload.TurnID)
+	}
+	storedActive, err := s.db.EndConversationTurn(ctx, payload.ConversationID, payload.TurnID)
+	logBestEffort(ctx, err, "EndConversationTurn", slog.String("conversation_id", payload.ConversationID))
+
+	// Only the completion of the conversation's active turn - the turn this
+	// process dispatched, or the stored one (a restart, another replica) - is
+	// processed, once. A turn that already ended (stopped, ended by the
+	// stuck-work watchdog or after its start was dead-lettered) was completed
+	// then; its late completion keeps only the turn's work (see
+	// keepEndedTurnCompletion). A completion without turn (a worker that
+	// sends none) counts as the active turn's.
+	if payload.TurnID != "" && !activeRun && !storedActive {
+		if first, err := s.firstTurnCompletion(ctx, payload, fromWorker); err != nil || !first {
+			return err
+		}
+		s.keepEndedTurnCompletion(ctx, payload)
+		return nil
+	}
+	if first, err := s.firstTurnCompletion(ctx, payload, fromWorker); err != nil || !first {
+		return err
 	}
 
 	slog.Info("conversation run complete received",
@@ -114,7 +158,94 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 		"cost", payload.CostUSD,
 	)
 
-	// Store intermediate tool messages (assistant messages with tool_calls + tool results).
+	s.storeCompletionMessages(ctx, payload)
+
+	// Determine WS status.
+	wsStatus := "completed"
+	if payload.Status != "completed" {
+		wsStatus = "failed"
+	}
+
+	if s.metrics != nil {
+		metricAttrs := []string{"type", "conversation_agentic", "status", wsStatus}
+		if wsStatus == "completed" {
+			s.metrics.RecordRunCompleted(ctx, metricAttrs...)
+		} else {
+			s.metrics.RecordRunFailed(ctx, metricAttrs...)
+		}
+		if payload.CostUSD > 0 {
+			s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
+		}
+	}
+
+	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
+		RunID:     payload.RunID,
+		Status:    wsStatus,
+		Error:     payload.Error,
+		Model:     payload.Model,
+		CostUSD:   payload.CostUSD,
+		TokensIn:  payload.TokensIn,
+		TokensOut: payload.TokensOut,
+		Steps:     payload.StepCount,
+	})
+
+	// Notify in-process waiters (e.g. autoagent).
+	s.notifyCompletionWaiter(payload.ConversationID, CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD})
+
+	// Record prompt scores for evolution tracking.
+	if s.scoreCollector != nil && payload.Model != "" {
+		tenantID := tenantctx.FromContext(ctx)
+		fingerprint := ""
+		if s.promptAssembler != nil {
+			conv, convErr := s.db.GetConversation(ctx, payload.ConversationID)
+			if convErr == nil && conv.Mode != "" {
+				fingerprint = s.promptAssembler.FingerprintForMode(conv.Mode)
+			}
+		}
+		if fingerprint != "" {
+			modelFamily := ExtractModelFamily(payload.Model)
+			succeeded := payload.Status == "completed"
+			if err := s.scoreCollector.RecordSuccessScore(ctx, tenantID, fingerprint,
+				"", modelFamily, payload.RunID, succeeded); err != nil {
+				logBestEffort(ctx, err, "record success score")
+			}
+			if payload.CostUSD > 0 && payload.TokensOut > 0 {
+				qualityPerDollar := float64(payload.TokensOut) / payload.CostUSD
+				if err := s.scoreCollector.RecordCostScore(ctx, tenantID, fingerprint,
+					"", modelFamily, payload.RunID, qualityPerDollar); err != nil {
+					logBestEffort(ctx, err, "record cost score")
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// firstTurnCompletion claims the worker's completion of its turn and
+// reports whether it is the first (see completeConversationRun). A
+// completion without turn (an older worker) and the Go Core's own
+// completion are not claimed; a claim that fails is returned, so the
+// completion is retried.
+func (s *ConversationService) firstTurnCompletion(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload, fromWorker bool) (bool, error) {
+	if !fromWorker || payload.TurnID == "" {
+		return true, nil
+	}
+	first, err := s.db.ClaimConversationTurnCompletion(ctx, payload.ConversationID, payload.TurnID)
+	if err != nil {
+		return false, fmt.Errorf("claim conversation turn completion: %w", err)
+	}
+	if !first {
+		slog.InfoContext(ctx, "repeated completion of a conversation turn, ignored",
+			"conversation_id", payload.ConversationID, "turn_id", payload.TurnID)
+	}
+	return first, nil
+}
+
+// storeCompletionMessages stores what a turn produced: its intermediate tool
+// messages (assistant messages with tool calls, tool results) and its final
+// or partial assistant answer.
+func (s *ConversationService) storeCompletionMessages(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload) {
 	if len(payload.ToolMessages) > 0 {
 		toolMsgs := make([]conversation.Message, 0, len(payload.ToolMessages))
 		for _, tm := range payload.ToolMessages {
@@ -153,121 +284,135 @@ func (s *ConversationService) HandleConversationRunComplete(ctx context.Context,
 			slog.Error("failed to store assistant message", "conversation_id", payload.ConversationID, "error", err)
 		}
 	}
-
-	// Determine WS status.
-	wsStatus := "completed"
-	if payload.Status != "completed" {
-		wsStatus = "failed"
-	}
-
-	if s.metrics != nil {
-		metricAttrs := []string{"type", "conversation_agentic", "status", wsStatus}
-		if wsStatus == "completed" {
-			s.metrics.RecordRunCompleted(ctx, metricAttrs...)
-		} else {
-			s.metrics.RecordRunFailed(ctx, metricAttrs...)
-		}
-		if payload.CostUSD > 0 {
-			s.metrics.RecordRunCost(ctx, payload.CostUSD, metricAttrs...)
-		}
-	}
-
-	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
-		RunID:     payload.RunID,
-		Status:    wsStatus,
-		Error:     payload.Error,
-		Model:     payload.Model,
-		CostUSD:   payload.CostUSD,
-		TokensIn:  payload.TokensIn,
-		TokensOut: payload.TokensOut,
-		Steps:     payload.StepCount,
-	})
-
-	// Notify in-process waiters (e.g. autoagent).
-	s.completionWaitersMu.Lock()
-	if ch, ok := s.completionWaiters[payload.ConversationID]; ok {
-		ch <- CompletionResult{
-			Status:  payload.Status,
-			Error:   payload.Error,
-			CostUSD: payload.CostUSD,
-		}
-	}
-	s.completionWaitersMu.Unlock()
-
-	// Record prompt scores for evolution tracking.
-	if s.scoreCollector != nil && payload.Model != "" {
-		tenantID := tenantctx.FromContext(ctx)
-		fingerprint := ""
-		if s.promptAssembler != nil {
-			conv, convErr := s.db.GetConversation(ctx, payload.ConversationID)
-			if convErr == nil && conv.Mode != "" {
-				fingerprint = s.promptAssembler.FingerprintForMode(conv.Mode)
-			}
-		}
-		if fingerprint != "" {
-			modelFamily := ExtractModelFamily(payload.Model)
-			succeeded := payload.Status == "completed"
-			if err := s.scoreCollector.RecordSuccessScore(ctx, tenantID, fingerprint,
-				"", modelFamily, payload.RunID, succeeded); err != nil {
-				logBestEffort(ctx, err, "record success score")
-			}
-			if payload.CostUSD > 0 && payload.TokensOut > 0 {
-				qualityPerDollar := float64(payload.TokensOut) / payload.CostUSD
-				if err := s.scoreCollector.RecordCostScore(ctx, tenantID, fingerprint,
-					"", modelFamily, payload.RunID, qualityPerDollar); err != nil {
-					logBestEffort(ctx, err, "record cost score")
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
-// WaitForCompletion blocks until the conversation run finishes or the context is cancelled.
-func (s *ConversationService) WaitForCompletion(ctx context.Context, conversationID string) (CompletionResult, error) {
-	ch := make(chan CompletionResult, 1)
-
-	s.completionWaitersMu.Lock()
-	if _, exists := s.completionWaiters[conversationID]; exists {
-		s.completionWaitersMu.Unlock()
-		return CompletionResult{}, fmt.Errorf("a waiter already exists for conversation %s", conversationID)
+// keepEndedTurnCompletion handles the completion of a turn that already
+// ended (S2-G fix, 5): stopped, ended by the stuck-work watchdog or after
+// its start was dead-lettered. The end was announced then and the
+// conversation released, so nothing is broadcast, no waiter is woken and no
+// turn becomes active. While no newer turn has started, the turn's messages
+// (the work it did before it ended) and its cost are kept; once a newer
+// turn is active, only its cost is: its messages would land after the
+// newer turn's.
+func (s *ConversationService) keepEndedTurnCompletion(ctx context.Context, payload *messagequeue.ConversationRunCompletePayload) {
+	newer := s.newerTurnActive(ctx, payload.ConversationID)
+	slog.Info("completion of a conversation turn that already ended",
+		"conversation_id", payload.ConversationID, "turn_id", payload.TurnID, "status", payload.Status,
+		"messages_kept", !newer, "cost", payload.CostUSD)
+	if !newer {
+		s.storeCompletionMessages(ctx, payload)
 	}
-	s.completionWaiters[conversationID] = ch
-	s.completionWaitersMu.Unlock()
+	if s.metrics != nil && payload.CostUSD > 0 {
+		s.metrics.RecordRunCost(ctx, payload.CostUSD, "type", "conversation_agentic", "status", payload.Status)
+	}
+}
 
-	defer func() {
-		s.completionWaitersMu.Lock()
-		delete(s.completionWaiters, conversationID)
-		s.completionWaitersMu.Unlock()
-	}()
+// newerTurnActive reports whether a turn of the conversation is active,
+// dispatched by this process or stored; it is called for a turn that is
+// not, so an active turn is a newer one. A conversation that cannot be read
+// counts as having one: messages are dropped rather than stored out of
+// order.
+func (s *ConversationService) newerTurnActive(ctx context.Context, conversationID string) bool {
+	if s.runTracker != nil && s.runTracker.ActiveConversationRun(conversationID) != "" {
+		return true
+	}
+	conv, err := s.db.GetConversation(ctx, conversationID)
+	if err != nil {
+		logBestEffort(ctx, err, "GetConversation", slog.String("conversation_id", conversationID))
+		return true
+	}
+	return conv.ActiveTurnID != ""
+}
 
+// CompletionWaiter receives the end of a conversation's next run. Register
+// it with ExpectCompletion before the run is dispatched, so that a run that
+// ends before the caller waits is not missed (KI-76); Close releases it.
+type CompletionWaiter struct {
+	svc            *ConversationService
+	conversationID string
+	ch             chan CompletionResult
+	closeOnce      sync.Once
+}
+
+// ExpectCompletion registers a waiter for the end of the conversation's next
+// run. A conversation has one waiter at a time.
+func (s *ConversationService) ExpectCompletion(conversationID string) (*CompletionWaiter, error) {
+	w := &CompletionWaiter{svc: s, conversationID: conversationID, ch: make(chan CompletionResult, 1)}
+	s.completionWaitersMu.Lock()
+	defer s.completionWaitersMu.Unlock()
+	if _, exists := s.completionWaiters[conversationID]; exists {
+		return nil, fmt.Errorf("a waiter already exists for conversation %s", conversationID)
+	}
+	s.completionWaiters[conversationID] = w.ch
+	return w, nil
+}
+
+// Wait blocks until the run ended or ctx is done.
+func (w *CompletionWaiter) Wait(ctx context.Context) (CompletionResult, error) {
 	select {
-	case result := <-ch:
+	case result := <-w.ch:
 		return result, nil
 	case <-ctx.Done():
 		return CompletionResult{}, ctx.Err()
 	}
 }
 
-// StopConversation cancels an active agentic run by publishing a cancel message to NATS.
+// Close releases the waiter; safe to call more than once.
+func (w *CompletionWaiter) Close() {
+	w.closeOnce.Do(func() {
+		w.svc.completionWaitersMu.Lock()
+		defer w.svc.completionWaitersMu.Unlock()
+		if w.svc.completionWaiters[w.conversationID] == w.ch {
+			delete(w.svc.completionWaiters, w.conversationID)
+		}
+	})
+}
+
+// notifyCompletionWaiter hands result to the conversation's waiter. A waiter
+// takes one result; a further one is dropped instead of blocking under the
+// lock.
+func (s *ConversationService) notifyCompletionWaiter(conversationID string, result CompletionResult) {
+	s.completionWaitersMu.Lock()
+	defer s.completionWaitersMu.Unlock()
+	if ch, ok := s.completionWaiters[conversationID]; ok {
+		select {
+		case ch <- result:
+		default:
+		}
+	}
+}
+
+// StopConversation cancels an active agentic run by publishing a cancel
+// message to NATS. The conversation must be one of the caller's tenant
+// (the store is tenant-scoped): the cancel reaches every worker by ID.
 func (s *ConversationService) StopConversation(ctx context.Context, conversationID string) error {
 	if s.queue == nil {
 		return errors.New("stop requires NATS queue")
 	}
-
-	payload := struct {
-		RunID string `json:"run_id"`
-	}{
-		RunID: conversationID,
-	}
-	data, err := json.Marshal(payload)
+	conv, err := s.db.GetConversation(ctx, conversationID)
 	if err != nil {
-		return fmt.Errorf("marshal cancel payload: %w", err)
+		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunCancel, data); err != nil {
-		return fmt.Errorf("publish conversation run cancel: %w", err)
+	if err := s.publishConversationCancel(ctx, conversationID); err != nil {
+		return err
+	}
+	// The run ends now: its remaining tool calls are rejected and the
+	// conversation takes its next message. Its own completion no longer
+	// reaches a waiter (it is not the active run), so the stop ends the wait.
+	// Only the stopped run's stored turn ends: a run that begins meanwhile
+	// keeps its own. Without a run dispatched here (a restart), the stored
+	// turn read above is the stopped one.
+	stopped := conv.ActiveTurnID
+	if s.runTracker != nil {
+		if turn := s.runTracker.MarkConversationRunCancelled(conversationID); turn != "" {
+			stopped = turn
+		}
+	}
+	s.notifyCompletionWaiter(conversationID, CompletionResult{Status: "cancelled", Error: "stopped"})
+	if stopped != "" {
+		_, endErr := s.db.EndConversationTurn(ctx, conversationID, stopped)
+		logBestEffort(ctx, endErr, "EndConversationTurn", slog.String("conversation_id", conversationID))
 	}
 
 	s.hub.BroadcastEvent(ctx, event.AGUIRunFinished, event.AGUIRunFinishedEvent{
@@ -276,6 +421,20 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 	})
 
 	slog.Info("conversation run cancel requested", "conversation_id", conversationID)
+	return nil
+}
+
+// publishConversationCancel tells the workers to stop the conversation's run.
+func (s *ConversationService) publishConversationCancel(ctx context.Context, conversationID string) error {
+	data, err := json.Marshal(struct {
+		RunID string `json:"run_id"`
+	}{RunID: conversationID})
+	if err != nil {
+		return fmt.Errorf("marshal cancel payload: %w", err)
+	}
+	if err := s.queue.Publish(ctx, messagequeue.SubjectConversationRunCancel, data); err != nil {
+		return fmt.Errorf("publish conversation run cancel: %w", err)
+	}
 	return nil
 }
 

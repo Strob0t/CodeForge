@@ -2,13 +2,36 @@
 
 from __future__ import annotations
 
+import functools
 import json
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 import structlog
+from pydantic import ValidationError
 
-from codeforge.consumer._subjects import HEADER_REQUEST_ID, HEADER_RETRY_COUNT, SUBJECT_OUTPUT
+from codeforge.consumer._cancel_registry import (
+    CancelRegistry,
+    conversation_key,
+    record_cancels,
+    run_key,
+    task_key,
+)
+from codeforge.consumer._delivery import delivery_attempt, dlq_headers, is_last_attempt, message_identity
+from codeforge.consumer._in_flight import InFlightWork
+from codeforge.consumer._subjects import (
+    ACCEPT_ATTEMPTS,
+    ACK_SYNC_TIMEOUT_SECONDS,
+    DLQ_SUFFIX,
+    HEADER_REQUEST_ID,
+    NAK_DELAY_SECONDS,
+    SUBJECT_CONVERSATION_RUN_CANCEL,
+    SUBJECT_OUTPUT,
+    SUBJECT_RUN_CANCEL,
+    SUBJECT_TASK_CANCEL,
+)
+from codeforge.nats_publish import publish_with_retry
+from codeforge.runtime import notification_consumer
 from codeforge.trust.middleware import stamp_outgoing
 
 if TYPE_CHECKING:
@@ -18,6 +41,8 @@ if TYPE_CHECKING:
     from nats.js.client import JetStreamContext
     from pydantic import BaseModel
 
+    from codeforge.notifications import Notifications, NotificationSubscription
+
 logger = structlog.get_logger()
 
 RequestT = TypeVar("RequestT", bound="BaseModel")
@@ -26,11 +51,25 @@ ResultT = TypeVar("ResultT", bound="BaseModel")
 _PROCESSED_IDS_MAX = 10_000
 
 
+def _echo_tenant[ModelT: BaseModel](request: BaseModel, result: ModelT) -> ModelT:
+    """Copy the request's tenant_id into a result that has the field but no value.
+
+    The Go core scopes store writes and WebSocket events to the tenant carried in
+    worker results and drops events without one.
+    """
+    tenant_id = getattr(request, "tenant_id", "")
+    if not tenant_id or "tenant_id" not in type(result).model_fields or getattr(result, "tenant_id", ""):
+        return result
+    return result.model_copy(update={"tenant_id": tenant_id})
+
+
 class ConsumerBaseMixin:
     """Shared helper methods inherited by the TaskConsumer via mixin pattern."""
 
     # These attributes are set on the concrete TaskConsumer class.
     _js: JetStreamContext | None
+    # Cancels and tool-call decisions (the NotificationHub, set by start()).
+    _notifications: Notifications | None = None
     _litellm_url: str
     _litellm_key: str
 
@@ -57,74 +96,169 @@ class ConsumerBaseMixin:
     @classmethod
     def _clear_processed(cls, msg_id: str) -> None:
         """Remove a message ID so it can be reprocessed (e.g. after a failure)."""
-        cls._processed_ids.discard(msg_id)
+        cls._processed_ids.pop(msg_id, None)
 
-    @staticmethod
-    def _retry_count(msg: nats.aio.msg.Msg) -> int:
-        """Extract the Retry-Count header value, defaulting to 0."""
-        if msg.headers and HEADER_RETRY_COUNT in msg.headers:
-            try:
-                return int(msg.headers[HEADER_RETRY_COUNT])
-            except (ValueError, TypeError):
-                return 0
-        return 0
+    async def _move_to_dlq(self, msg: nats.aio.msg.Msg, *, terminate: bool = False) -> None:
+        """Copy *msg* to ``{subject}.dlq``, then settle it: term if *terminate*, else ack.
 
-    async def _move_to_dlq(self, msg: nats.aio.msg.Msg) -> None:
-        """Publish message to DLQ subject and ack the original."""
+        If no copy was stored (publish error, or a duplicate PubAck) the message
+        is NAK'd instead, so it is never acknowledged without a dead-letter copy
+        (after the last attempt JetStream keeps it unacknowledged instead of
+        redelivering it).
+        """
         if self._js is None:
             return
-        dlq_subject = msg.subject + ".dlq"
-        headers = dict(msg.headers) if msg.headers else {}
+        dlq_subject = msg.subject + DLQ_SUFFIX
         try:
-            await self._js.publish(dlq_subject, msg.data, headers=headers or None)
-            logger.warning("message moved to DLQ", dlq_subject=dlq_subject)
+            ack = await self._js.publish(dlq_subject, msg.data, headers=dlq_headers(msg.headers))
+            # PubAck.duplicate is None unless the stream discarded the message.
+            if ack.duplicate is True:
+                reason = "dead-letter copy discarded as a duplicate"
+                raise RuntimeError(reason)
         except Exception as exc:
-            logger.exception("failed to publish to DLQ", dlq_subject=dlq_subject, error=str(exc))
-        await msg.ack()
+            logger.exception("failed to publish to DLQ, keeping the message", dlq_subject=dlq_subject, error=str(exc))
+            await msg.nak(delay=NAK_DELAY_SECONDS)
+            return
+        logger.warning("message moved to DLQ", dlq_subject=dlq_subject, attempt=delivery_attempt(msg))
+        if terminate:
+            await msg.term()
+        else:
+            await msg.ack()
+
+    @functools.cached_property
+    def _cancels(self) -> CancelRegistry:
+        """The cancels this worker has seen, for work whose start may still wait in NATS (KI-65)."""
+        return CancelRegistry()
+
+    async def _start_cancel_registry(self) -> None:
+        """Record every task, run and conversation run cancel from now on.
+
+        The listeners run until the worker aborts its background tasks.
+        """
+        if self._notifications is None:
+            return
+        sources: list[tuple[str, Callable[[str, str], str]]] = [
+            (SUBJECT_TASK_CANCEL, lambda _run_id, task_id: task_key(task_id)),
+            (SUBJECT_RUN_CANCEL, lambda run_id, _task_id: run_key(run_id)),
+            (SUBJECT_CONVERSATION_RUN_CANCEL, lambda run_id, _task_id: conversation_key(run_id)),
+        ]
+        for subject, key_of in sources:
+            sub = await self._notifications.subscribe(subject, config=notification_consumer())
+            self._in_flight.start_background(self._record_cancels(sub, key_of), name=f"cancel registry {subject}")
+
+    async def _record_cancels(self, sub: NotificationSubscription, key_of: Callable[[str, str], str]) -> None:
+        try:
+            await record_cancels(sub, self._cancels, key_of)
+        finally:
+            try:
+                await sub.unsubscribe()
+            except Exception as exc:
+                logger.warning("cancel registry unsubscribe failed", error=str(exc))
+
+    @functools.cached_property
+    def _in_flight(self) -> InFlightWork:
+        """Accepted at-most-once work and background tasks, failed and cancelled if the worker must stop."""
+        return InFlightWork()
+
+    async def _accept(self, msg: nats.aio.msg.Msg) -> bool:
+        """Ack an at-most-once message before its work starts; False if the ack was not confirmed.
+
+        A plain ack is fire-and-forget: if it were lost, JetStream would hand the
+        running work to a second worker after the ack wait. A confirmed (double)
+        ack rules that out. An unanswered double ack is repeated: the server
+        confirms an ack it already applied. If none is confirmed, the work is
+        not started and the message is NAK'd, so a message whose ack never
+        arrived goes to the next worker at once (the server ignores the NAK of
+        a message whose ack did arrive; that run is ended by the Go Core,
+        ADR-016 section 6). On the last delivery nothing would redeliver it:
+        the message is dead-lettered (copy, then term) instead, so the Go
+        Core's dead-letter subscribers end its work.
+        """
+        for attempt in range(1, ACCEPT_ATTEMPTS + 1):
+            try:
+                await msg.ack_sync(timeout=ACK_SYNC_TIMEOUT_SECONDS)
+            except Exception as exc:
+                logger.warning("ack on accept not confirmed", subject=msg.subject, attempt=attempt, error=str(exc))
+            else:
+                return True
+        if is_last_attempt(msg):
+            logger.error("ack on accept not confirmed on the last delivery, dead-lettering", subject=msg.subject)
+            await self._move_to_dlq(msg, terminate=True)
+            return False
+        logger.error("ack on accept not confirmed, releasing the message", subject=msg.subject)
+        try:
+            await msg.nak()
+        except Exception as exc:
+            logger.warning("releasing the unaccepted message failed", subject=msg.subject, error=str(exc))
+        return False
+
+    async def _reject_invalid(self, msg: nats.aio.msg.Msg, error: str) -> None:
+        """Dead-letter a payload that can never be processed and stop its redelivery."""
+        logger.error("invalid message payload", subject=msg.subject, error=error)
+        await self._move_to_dlq(msg, terminate=True)
+
+    async def _retry_or_dead_letter(self, msg: nats.aio.msg.Msg) -> None:
+        """Settle a failed message: retry it later, or dead-letter it on the last attempt."""
+        if is_last_attempt(msg):
+            await self._move_to_dlq(msg)
+        else:
+            await msg.nak(delay=NAK_DELAY_SECONDS)
+
+    async def _parse_json_object(self, msg: nats.aio.msg.Msg) -> dict[str, object] | None:
+        """Decode a JSON object payload; dead-letter the message and return None if it is not one."""
+        try:
+            payload = json.loads(msg.data)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            await self._reject_invalid(msg, str(exc))
+            return None
+        if not isinstance(payload, dict):
+            await self._reject_invalid(msg, f"expected a JSON object, got {type(payload).__name__}")
+            return None
+        return payload
 
     @staticmethod
     def _stamp_trust(payload: dict, source_id: str = "python-worker") -> dict:
         """Add trust annotation to an outgoing NATS payload."""
         return stamp_outgoing(payload, source_id=source_id)
 
-    async def _publish_output(self, task_id: str, line: str, stream: str = "stdout", request_id: str = "") -> None:
-        """Publish a streaming output line for a task."""
+    async def _publish_output(
+        self,
+        task_id: str,
+        line: str,
+        stream: str = "stdout",
+        request_id: str = "",
+        tenant_id: str = "",
+    ) -> None:
+        """Publish a streaming output line for a task, tagged with the task's tenant."""
         if self._js is None:
             return
-        payload = json.dumps({"task_id": task_id, "line": line, "stream": stream})
+        payload = json.dumps({"task_id": task_id, "tenant_id": tenant_id, "line": line, "stream": stream})
         headers: dict[str, str] = {}
         if request_id:
             headers[HEADER_REQUEST_ID] = request_id
         await self._js.publish(SUBJECT_OUTPUT, payload.encode(), headers=headers or None)
 
-    async def _publish_error(self, result: BaseModel, subject: str) -> None:
-        """Publish a pre-built error result model to NATS."""
-        try:
-            if self._js is not None:
-                await self._js.publish(subject, result.model_dump_json().encode())
-        except Exception as exc:
-            logger.exception("failed to publish error result", subject=subject, error=str(exc))
+    async def _publish_result(self, result: BaseModel, subject: str) -> None:
+        """Publish the result or completion of accepted work, retrying transient failures.
 
-    async def _publish_error_result(
-        self,
-        msg: nats.aio.msg.Msg,
-        request_model: type,
-        result_model: type,
-        subject: str,
-    ) -> None:
-        """Publish an error result so the Go waiter gets an immediate response, then nak."""
+        Accepted work is never redelivered, so this is the only way the Go Core
+        learns its outcome; a result that could not be published is logged.
+        """
+        if self._js is None:
+            logger.error("JetStream not available, result not published", subject=subject)
+            return
         try:
-            req = request_model.model_validate_json(msg.data)
-            error_result = result_model(
-                project_id=req.project_id,
-                query=req.query,
-                request_id=req.request_id,
-                error="internal worker error",
-            )
-            await self._publish_error(error_result, subject)
+            await publish_with_retry(self._js, subject, result.model_dump_json().encode())
         except Exception as exc:
-            logger.exception("failed to publish error result", subject=subject, error=str(exc))
-        await msg.nak()
+            logger.exception("failed to publish result", subject=subject, error=str(exc))
+
+    async def _parse_request(self, msg: nats.aio.msg.Msg, request_model: type[RequestT]) -> RequestT | None:
+        """Validate the payload; dead-letter the message and return None if it is invalid."""
+        try:
+            return request_model.model_validate_json(msg.data)
+        except ValidationError as exc:
+            await self._reject_invalid(msg, str(exc))
+            return None
 
     async def _handle_request(
         self,
@@ -134,27 +268,74 @@ class ConsumerBaseMixin:
         handler: Callable[[RequestT, structlog.BoundLogger], Awaitable[ResultT | None]],
         result_subject: str | None = None,
         log_context: Callable[[RequestT], dict[str, Any]] | None = None,
+        *,
+        ack_on_accept: bool = False,
+        cancelled: Callable[[RequestT], bool] | None = None,
+        report_skipped: Callable[[RequestT, structlog.BoundLogger], Awaitable[None]] | None = None,
     ) -> None:
-        """Generic NATS handler with dedup, processing, and error handling."""
-        try:
-            request = request_model.model_validate_json(msg.data)
-            bind_kwargs = log_context(request) if log_context else {}
-            log = logger.bind(**bind_kwargs)
+        """Generic NATS handler with validation, dedup, processing, and delivery settlement.
 
-            key = dedup_key(request)
-            if self._is_duplicate(key):
-                log.warning("duplicate request, skipping", dedup_key=key)
-                await msg.ack()
-                return
+        Default (at-least-once): the message is acked after the handler
+        succeeded; a failure is retried until the last JetStream delivery and
+        then dead-lettered. With *ack_on_accept* (at-most-once, for runs that
+        are not safe to execute twice) the message is acked before the handler
+        runs and a failure is not retried; the Go Core owns the run's outcome.
 
-            result = await handler(request, log)
+        Duplicates: at-least-once work is deduplicated per message (its
+        redeliveries), so a second request with the same *dedup_key* (a new
+        repo map for the same project) runs again (KI-66); its handler is
+        idempotent. At-most-once work is deduplicated by *dedup_key* (the run
+        ID), so no second message ever executes the same run.
 
-            if result is not None and result_subject and self._js is not None:
-                await self._js.publish(result_subject, result.model_dump_json().encode())
+        A request for which *cancelled* is true (its work was stopped while
+        the message waited in NATS) is not handled: *report_skipped* tells the
+        Go Core (a cancelled completion), then the message is acked. If that
+        report fails, the message is released for a retry (dead-lettered on
+        its last delivery), so the skip is never lost.
+        """
+        request = await self._parse_request(msg, request_model)
+        if request is None:
+            return
+        log = logger.bind(**(log_context(request) if log_context else {}))
 
+        key = dedup_key(request)
+        if not ack_on_accept:
+            key = f"{key}@{message_identity(msg)}"
+        if self._is_duplicate(key):
+            log.warning("duplicate request, skipping", dedup_key=key)
             await msg.ack()
-            log.info("request processed", dedup_key=key)
+            return
 
+        if cancelled is not None and cancelled(request):
+            log.info("request cancelled while it waited for a worker, skipping", dedup_key=key)
+            if report_skipped is not None:
+                try:
+                    await report_skipped(request, log)
+                except Exception as exc:
+                    log.exception("could not report the skipped request", error=str(exc))
+                    self._clear_processed(key)
+                    await self._retry_or_dead_letter(msg)
+                    return
+            await msg.ack()
+            return
+
+        if ack_on_accept and not await self._accept(msg):
+            self._clear_processed(key)
+            return
+
+        try:
+            result = await handler(request, log)
+            if result is not None and result_subject and self._js is not None:
+                result = _echo_tenant(request, result)
+                await self._js.publish(result_subject, result.model_dump_json().encode())
         except Exception as exc:
-            logger.exception("failed to process request", error=str(exc))
-            await msg.nak()
+            log.exception("failed to process request", error=str(exc), attempt=delivery_attempt(msg))
+            if not ack_on_accept:
+                # Not processed: the redelivery must not be skipped as a duplicate.
+                self._clear_processed(key)
+                await self._retry_or_dead_letter(msg)
+            return
+
+        if not ack_on_accept:
+            await msg.ack()
+        log.info("request processed", dedup_key=key)

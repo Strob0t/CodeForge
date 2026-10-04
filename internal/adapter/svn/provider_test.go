@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,8 +118,8 @@ func TestSVN_AuthFlagsOmittedWhenEmpty(t *testing.T) {
 
 	_, _ = p.runSVN(context.Background(), "", "status")
 
-	if len(capturedArgs) != 1 || capturedArgs[0] != "status" {
-		t.Fatalf("expected only ['status'] without auth flags, got %v", capturedArgs)
+	if capturedArgs[len(capturedArgs)-1] != "status" || slices.Contains(capturedArgs, "--username") || slices.Contains(capturedArgs, "--password") {
+		t.Fatalf("expected status without auth flags, got %v", capturedArgs)
 	}
 }
 
@@ -134,7 +135,7 @@ func TestStatusWithMock(t *testing.T) {
 	p := NewProvider(nil)
 	p.execCommand = mockExecCommand("42")
 
-	dir := t.TempDir()
+	dir := newWorkingCopy(t)
 	status, err := p.Status(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -186,6 +187,14 @@ func skipIfNoSVN(t *testing.T) {
 	}
 }
 
+// newLocalRepoProvider is a provider that may use the tests' file://
+// repositories (allow_file_urls).
+func newLocalRepoProvider() *Provider {
+	p := NewProvider(nil)
+	p.allowFileURLs = true
+	return p
+}
+
 // initTestSVNRepo creates a local SVN repository with trunk/branches structure,
 // imports a file, and returns the file:// URL to the repo.
 func initTestSVNRepo(t *testing.T) string {
@@ -235,7 +244,7 @@ func TestSVN_CloneAndStatus(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 	if err := p.Clone(ctx, repoURL+"/trunk", cloneDir); err != nil {
@@ -260,7 +269,7 @@ func TestSVN_CloneIdempotent(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 
 	// First clone.
@@ -289,7 +298,7 @@ func TestSVN_CloneRecloneDifferentURL(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 
 	// Clone trunk.
@@ -317,7 +326,7 @@ func TestSVN_CloneWithBranch(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 
 	// Clone with branch option — should resolve to /branches/feature-x.
@@ -340,7 +349,7 @@ func TestSVN_ListBranches(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 	if err := p.Clone(ctx, repoURL+"/trunk", cloneDir); err != nil {
 		t.Fatal(err)
@@ -373,7 +382,7 @@ func TestSVN_Checkout(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 	if err := p.Clone(ctx, repoURL+"/trunk", cloneDir); err != nil {
 		t.Fatal(err)
@@ -411,7 +420,7 @@ func TestSVN_DirtyStatus(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 	if err := p.Clone(ctx, repoURL+"/trunk", cloneDir); err != nil {
 		t.Fatal(err)
@@ -453,7 +462,7 @@ func TestSVN_Pull(t *testing.T) {
 	ctx := context.Background()
 	repoURL := initTestSVNRepo(t)
 
-	p := NewProvider(nil)
+	p := newLocalRepoProvider()
 	cloneDir := filepath.Join(t.TempDir(), "wc")
 	if err := p.Clone(ctx, repoURL+"/trunk", cloneDir); err != nil {
 		t.Fatal(err)
@@ -462,5 +471,62 @@ func TestSVN_Pull(t *testing.T) {
 	// Pull should succeed (no new revisions, but no error either).
 	if err := p.Pull(ctx, cloneDir); err != nil {
 		t.Fatalf("Pull failed: %v", err)
+	}
+}
+
+// TestSVN_PullRefusesALocalRepository: a working copy of a local (file://)
+// repository - e.g. one an agent relocated to another tenant's repository by
+// rewriting .svn/wc.db - is not updated unless the operator allows file://.
+func TestSVN_PullRefusesALocalRepository(t *testing.T) {
+	skipIfNoSVN(t)
+	ctx := context.Background()
+	repoURL := initTestSVNRepo(t)
+	wc := filepath.Join(t.TempDir(), "wc")
+	runSVNCmd(t, "", "svn", "checkout", "--non-interactive", repoURL+"/trunk", wc)
+	other := filepath.Join(t.TempDir(), "other")
+	runSVNCmd(t, "", "svn", "checkout", "--non-interactive", repoURL+"/trunk", other)
+	if err := os.WriteFile(filepath.Join(other, "hello.txt"), []byte("new revision"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runSVNCmd(t, other, "svn", "commit", "--non-interactive", "-m", "change")
+
+	p := NewProvider(nil)
+	if err := p.Pull(ctx, wc); err == nil {
+		t.Fatal("Pull from a file:// repository succeeded without allow_file_urls")
+	}
+	if _, err := p.ListBranches(ctx, wc); err == nil {
+		t.Fatal("ListBranches of a file:// repository succeeded without allow_file_urls")
+	}
+	if data, _ := os.ReadFile(filepath.Join(wc, "hello.txt")); string(data) != "hello" { //nolint:gosec // test file
+		t.Fatalf("working copy updated: hello.txt = %q", data)
+	}
+}
+
+// TestSVN_PullIgnoresExternalsSetInTheWorkingCopy: an agent can define
+// svn:externals in the working copy; svn must not fetch them (another
+// tenant's repository) into the workspace.
+func TestSVN_PullIgnoresExternalsSetInTheWorkingCopy(t *testing.T) {
+	skipIfNoSVN(t)
+	ctx := context.Background()
+	repoURL := initTestSVNRepo(t)
+	otherTenant := initTestSVNRepo(t)
+	p := newLocalRepoProvider()
+	wc := filepath.Join(t.TempDir(), "wc")
+	if err := p.Clone(ctx, repoURL+"/trunk", wc); err != nil {
+		t.Fatal(err)
+	}
+	runSVNCmd(t, wc, "svn", "propset", "--non-interactive", "svn:externals", otherTenant+"/trunk stolen", ".")
+
+	if err := p.Pull(ctx, wc); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wc, "stolen")); err == nil {
+		t.Fatal("svn fetched an external the working copy defines")
+	}
+	if err := p.Checkout(ctx, wc, "feature-x"); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wc, "stolen")); err == nil {
+		t.Fatal("svn switch fetched an external the working copy defines")
 	}
 }

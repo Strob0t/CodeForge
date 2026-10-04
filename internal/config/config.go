@@ -3,71 +3,16 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
-	"log/slog"
-	"sync"
+	"net/netip"
+	"regexp"
+	"strings"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
-
-// ConfigHolder provides thread-safe access to a Config with hot-reload support.
-// Services that hold pointers into the Config (e.g., &cfg.Runtime) will see
-// updated values after a reload because fields are swapped in-place.
-type ConfigHolder struct {
-	mu       sync.RWMutex
-	cfg      Config
-	yamlPath string
-}
-
-// NewHolder creates a ConfigHolder from an initial Config and the YAML path
-// used for reloading.
-func NewHolder(cfg *Config, yamlPath string) *ConfigHolder {
-	return &ConfigHolder{cfg: *cfg, yamlPath: yamlPath}
-}
-
-// Get returns a pointer to the Config. Callers must not store the pointer
-// long-term; read values immediately and release.
-func (h *ConfigHolder) Get() *Config {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return &h.cfg
-}
-
-// Reload re-reads the YAML file and environment variables, validates, and
-// swaps the config in-place. If validation fails, the old config is preserved.
-// Fields that cannot be hot-reloaded (Server.Port, Postgres.DSN, NATS.URL) are
-// logged as warnings if they differ.
-func (h *ConfigHolder) Reload() error {
-	newCfg, err := LoadFrom(h.yamlPath)
-	if err != nil {
-		return fmt.Errorf("reload config: %w", err)
-	}
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Warn about non-hot-reloadable fields.
-	if newCfg.Server.Port != h.cfg.Server.Port {
-		slog.Warn("config reload: server.port changed but requires restart",
-			"old", h.cfg.Server.Port, "new", newCfg.Server.Port)
-	}
-	if newCfg.Postgres.DSN != h.cfg.Postgres.DSN {
-		slog.Warn("config reload: postgres.dsn changed but requires restart",
-			"old", "***", "new", "***")
-	}
-	if newCfg.NATS.URL != h.cfg.NATS.URL {
-		slog.Warn("config reload: nats.url changed but requires restart",
-			"old", h.cfg.NATS.URL, "new", newCfg.NATS.URL)
-	}
-
-	// Log level change notification.
-	if newCfg.Logging.Level != h.cfg.Logging.Level {
-		slog.Info("config reload: logging level changed",
-			"old", h.cfg.Logging.Level, "new", newCfg.Logging.Level)
-	}
-
-	h.cfg = *newCfg
-	return nil
-}
 
 // Config holds all runtime configuration for the CodeForge core service.
 type Config struct {
@@ -84,7 +29,6 @@ type Config struct {
 	Policy       Policy       `yaml:"policy"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Orchestrator Orchestrator `yaml:"orchestrator"`
-	Cache        Cache        `yaml:"cache"`
 	Idempotency  Idempotency  `yaml:"idempotency"`
 	Webhook      Webhook      `yaml:"webhook"`
 	Notification Notification `yaml:"notification"`
@@ -95,6 +39,7 @@ type Config struct {
 	LSP          LSP          `yaml:"lsp"`
 	Auth         Auth         `yaml:"auth"`
 	Workspace    Workspace    `yaml:"workspace"`
+	Knowledge    Knowledge    `yaml:"knowledge"`
 	Agent        Agent        `yaml:"agent"`
 	Benchmark    Benchmark    `yaml:"benchmark"`
 	Copilot      Copilot      `yaml:"copilot"`
@@ -105,17 +50,22 @@ type Config struct {
 	Routing      Routing      `yaml:"routing"`
 	Ollama       Ollama       `yaml:"ollama"`
 	Plane        Plane        `yaml:"plane"`
+	PM           PM           `yaml:"pm"`
 	Retention    Retention    `yaml:"retention"`
 	EnvFile      string       `yaml:"env_file"` // Path to .env file for OAuth device flow
 }
 
-// Retention holds data retention policy durations (GDPR Article 5(1)(e)).
-// Zero duration means no automatic cleanup for that category.
+// Retention holds the data retention policy (GDPR Article 5(1)(e),
+// docs/data-retention.md) that the retention job applies to all tenants.
+// A zero period keeps that category forever; a zero interval disables the job.
 type Retention struct {
-	Sessions      time.Duration `yaml:"sessions"`      // Max age for sessions (default: 30 days)
-	Conversations time.Duration `yaml:"conversations"` // Max age for conversations + messages (default: 365 days)
-	CostRecords   time.Duration `yaml:"cost_records"`  // Max age for run cost records (default: 365 days)
-	AuditEntries  time.Duration `yaml:"audit_entries"` // Max age for audit log entries (default: 730 days / 2 years)
+	Interval           time.Duration `yaml:"interval"`             // How often the retention job runs (default: 24h; 0 disables it)
+	Sessions           time.Duration `yaml:"sessions"`             // Max idle age of agent sessions (default: 30 days)
+	Conversations      time.Duration `yaml:"conversations"`        // Max idle age of conversations + messages (default: 8760h, 1 year)
+	CostRecords        time.Duration `yaml:"cost_records"`         // Max idle age of runs with their cost records (default: 8760h, 1 year)
+	AuditEntries       time.Duration `yaml:"audit_entries"`        // Max age of audit log entries (default: 61320h, 7 years)
+	AuditIPAddresses   time.Duration `yaml:"audit_ip_addresses"`   // Max age of IP addresses in audit entries (default: 180 days)
+	ConsentIPAddresses time.Duration `yaml:"consent_ip_addresses"` // Max age of IP addresses + user agents in consent records (default: 180 days)
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).
@@ -162,16 +112,41 @@ type Ollama struct {
 // Plane holds Plane.so project management integration configuration.
 type Plane struct {
 	APIToken string `yaml:"api_token" json:"-"` // Plane.so API token for PM sync
+	// BaseURL is the Plane API the token belongs to; the token is never sent
+	// to another host (a project's plane_base_url must match it).
+	BaseURL string `yaml:"base_url"`
 }
+
+// PM holds settings of the PM syncs (roadmap import, manual and webhook
+// syncs).
+type PM struct {
+	// AllowedPrivateHosts are the host names, IP addresses and CIDR prefixes
+	// whose private addresses (RFC 1918, ULA, CGNAT) the GitLab PM provider
+	// may connect to: its base URL is the host of a project's repo_url or a
+	// manual sync's base_url, both chosen by tenants (KI-85 review; default
+	// none, so a self-hosted GitLab on a private network must be listed).
+	// Loopback needs an explicit entry (localhost, 127.0.0.1, ::1, a loopback
+	// CIDR); link-local, metadata, unspecified, multicast and reserved
+	// addresses stay refused. Separate from mcp.allowed_private_hosts: each
+	// list opens private hosts for its own feature only.
+	AllowedPrivateHosts []string `yaml:"allowed_private_hosts"`
+}
+
+// maxToolOutputMaxChars bounds agent.tool_output_max_chars. A quality gate
+// result carries two outputs of up to this many characters, and a
+// character takes at most 6 bytes in JSON (a \u escape): 2 * 6 * 80,000 =
+// 960,000 bytes stay below the NATS default max payload of 1 MiB, which
+// configs/nats/nats-server.conf keeps. The worker clamps to the same bound
+// (MAX_TOOL_OUTPUT_MAX_CHARS in workers/codeforge/constants.py).
+const maxToolOutputMaxChars = 80_000
 
 // Agent holds agentic conversation loop configuration.
 type Agent struct {
-	BuiltinTools             []string       `yaml:"builtin_tools"`              // Built-in tools to enable (default: all)
 	DefaultModel             string         `yaml:"default_model"`              // Default LLM model for agentic loops
 	MaxContextTokens         int            `yaml:"max_context_tokens"`         // Max tokens for context window (default: 128000)
 	MaxLoopIterations        int            `yaml:"max_loop_iterations"`        // Max tool-use loop iterations (default: 50)
 	AgenticByDefault         bool           `yaml:"agentic_by_default"`         // Enable agentic mode by default for conversations
-	ToolOutputMaxChars       int            `yaml:"tool_output_max_chars"`      // Max chars for tool output before truncation (default: 10000)
+	ToolOutputMaxChars       int            `yaml:"tool_output_max_chars"`      // Max chars for tool output before truncation (default: 10000; 0 = the worker default; at most maxToolOutputMaxChars)
 	ContextEnabled           bool           `yaml:"context_enabled"`            // Enable context optimizer for conversations (default: true)
 	ContextBudget            int            `yaml:"context_budget"`             // Token budget for conversation context (default: 2048)
 	ContextPromptReserve     int            `yaml:"context_prompt_reserve"`     // Tokens reserved for prompt in conversation context (default: 512)
@@ -193,13 +168,41 @@ type Auth struct {
 	InitialPasswordFile         string        `yaml:"initial_password_file"`              // Path for generated password (default: data/initial_admin_password)
 	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`              // Setup wizard timeout in minutes (default: 5)
 	LLMKeyEncryptionSecret      string        `yaml:"llm_key_encryption_secret" json:"-"` // Separate encryption key for LLM user keys (falls back to JWTSecret)
+
+	jwtSecretGenerated bool // JWTSecret was generated at load time, not configured
 }
 
-// Webhook holds VCS/PM webhook verification configuration.
+// Webhook configures the inbound VCS and PM webhooks. They are registered
+// per project (POST /api/v1/projects/{id}/webhooks) with their own secrets
+// (KI-85).
 type Webhook struct {
-	GitHubSecret string `yaml:"github_secret" json:"-"` // HMAC-SHA256 secret for GitHub webhooks
-	GitLabToken  string `yaml:"gitlab_token" json:"-"`  // Static token for GitLab webhooks
-	PlaneSecret  string `yaml:"plane_secret" json:"-"`  // HMAC secret for Plane.so webhooks
+	// DeliveryRetention is how long a webhook remembers a delivery (its body
+	// and delivery ID): within it, a provider's redelivery and a replay of a
+	// signed delivery under any delivery ID are handled once (default 168h).
+	DeliveryRetention time.Duration `yaml:"delivery_retention"`
+
+	// Removed with KI-85 (the global webhook routes they verified are
+	// gone). They still load, so older files and environments keep
+	// working, and a set one is reported at startup.
+	GitHubSecret string `yaml:"github_secret" json:"-"`
+	GitLabToken  string `yaml:"gitlab_token" json:"-"`
+	PlaneSecret  string `yaml:"plane_secret" json:"-"`
+}
+
+// RemovedGlobalSecrets names the removed global webhook secrets that are
+// still set.
+func (w *Webhook) RemovedGlobalSecrets() []string {
+	var set []string
+	for _, s := range []struct{ key, value string }{
+		{"webhook.github_secret", w.GitHubSecret},
+		{"webhook.gitlab_token", w.GitLabToken},
+		{"webhook.plane_secret", w.PlaneSecret},
+	} {
+		if s.value != "" {
+			set = append(set, s.key)
+		}
+	}
+	return set
 }
 
 // Notification holds notification provider configuration.
@@ -211,6 +214,17 @@ type Notification struct {
 	SMTPPort          int      `yaml:"smtp_port"`              // SMTP server port (default: 587)
 	SMTPFrom          string   `yaml:"smtp_from"`              // Sender email address
 	SMTPPassword      string   `yaml:"smtp_password" json:"-"` // SMTP authentication password
+	// ApprovalRecipients receive an email for each tool call awaiting
+	// approval (with smtp_host and web_ui_url set; default: none).
+	ApprovalRecipients []string `yaml:"approval_recipients"`
+	// WebUIURL is the base URL of the web UI; approval emails and Slack
+	// approval messages link to its approval page
+	// (<web_ui_url>/approvals/<run>/<call>).
+	WebUIURL string `yaml:"web_ui_url"`
+	// ApprovalTenants are the tenants (IDs) whose approval requests reach the
+	// operator's approval channels, the Slack channel and the approval email
+	// recipients (KI-84; default: the default tenant; empty: none).
+	ApprovalTenants []string `yaml:"approval_tenants"`
 }
 
 // Copilot holds GitHub Copilot token exchange configuration.
@@ -219,11 +233,21 @@ type Copilot struct {
 	HostsFilePath string `yaml:"hosts_file_path"` // Path to hosts.json (default: ~/.config/github-copilot/hosts.json)
 }
 
-// GitHub holds GitHub OAuth integration configuration.
+// GitHub holds GitHub OAuth integration configuration. ClientID alone
+// enables the device flow; ClientID, ClientSecret and CallbackURL together
+// enable the web flow that connects a GitHub account as a VCS account.
 type GitHub struct {
-	ClientID     string `yaml:"client_id"`              // OAuth client ID for GitHub device flow
-	ClientSecret string `yaml:"client_secret" json:"-"` // OAuth client secret for GitHub device flow
-	CallbackURL  string `yaml:"callback_url"`           // OAuth callback URL for GitHub device flow
+	ClientID     string `yaml:"client_id"`              // OAuth app client ID
+	ClientSecret string `yaml:"client_secret" json:"-"` // OAuth app client secret (web flow)
+	// CallbackURL is the web flow's redirect URI - the only one sent to
+	// GitHub: https (http only on loopback), path /api/v1/auth/github/callback
+	// on the origin the web UI uses for the API.
+	CallbackURL string `yaml:"callback_url"`
+}
+
+// WebFlowConfigured reports whether the GitHub OAuth web flow is configured.
+func (g *GitHub) WebFlowConfigured() bool {
+	return g.ClientID != "" && g.ClientSecret != "" && g.CallbackURL != ""
 }
 
 // Experience holds experience pool configuration.
@@ -274,19 +298,48 @@ type Orchestrator struct {
 // Runtime holds agent execution engine configuration.
 type Runtime struct {
 	StallThreshold         int           `yaml:"stall_threshold"`
-	StallMaxRetries        int           `yaml:"stall_max_retries"` // Max re-plan attempts on stall (default: 2)
+	StallMaxRetries        int           `yaml:"stall_max_retries"` // New runs a plan step gets after stalled runs; 0 = none (default: 2)
 	QualityGateTimeout     time.Duration `yaml:"quality_gate_timeout"`
 	DefaultDeliverMode     string        `yaml:"default_deliver_mode"`
-	DefaultTestCommand     string        `yaml:"default_test_command"`
-	DefaultLintCommand     string        `yaml:"default_lint_command"`
+	DefaultTestCommand     string        `yaml:"default_test_command"` // Gate test command for projects without test_command whose language has no default ("" = none)
+	DefaultLintCommand     string        `yaml:"default_lint_command"` // Gate lint command for projects without lint_command whose language has no default ("" = none)
 	DeliveryCommitPrefix   string        `yaml:"delivery_commit_prefix"`
 	HeartbeatInterval      time.Duration `yaml:"heartbeat_interval"`       // Worker heartbeat send interval (default: 30s)
 	HeartbeatTimeout       time.Duration `yaml:"heartbeat_timeout"`        // Max time without heartbeat before kill (default: 120s)
 	ApprovalTimeoutSeconds int           `yaml:"approval_timeout_seconds"` // HITL approval timeout in seconds (default: 60)
 	StaleCheckInterval     time.Duration `yaml:"stale_check_interval"`     // How often to check for stale work (default: 60s)
-	StaleWorkThreshold     time.Duration `yaml:"stale_work_threshold"`     // Max age before work is considered stale (default: 30m)
+	TaskAcceptTimeout      time.Duration `yaml:"task_accept_timeout"`      // How long a dispatched backend task may wait for a worker before it fails (default: 1h, 0 = never)
 	Sandbox                SandboxConfig `yaml:"sandbox"`
 	Hybrid                 HybridConfig  `yaml:"hybrid"`
+}
+
+// defaultApprovalTimeoutSeconds is the HITL approval timeout when none is configured.
+const defaultApprovalTimeoutSeconds = 60
+
+// DefaultWorkerHeartbeatInterval is the worker heartbeat interval when
+// runtime.heartbeat_interval is not set, and the interval of a worker that
+// does not read heartbeat_seconds from its start message.
+const DefaultWorkerHeartbeatInterval = 30 * time.Second
+
+// WorkerHeartbeatInterval is how often a worker reports the work it executes
+// as alive. It is sent to the worker with every start (heartbeat_seconds).
+// A nil config or a value <= 0 means the default.
+func (r *Runtime) WorkerHeartbeatInterval() time.Duration {
+	if r == nil || r.HeartbeatInterval <= 0 {
+		return DefaultWorkerHeartbeatInterval
+	}
+	return r.HeartbeatInterval
+}
+
+// ApprovalTimeout is how long a tool call waits for a HITL decision. It is
+// the single source for the Go approval wait and for the worker, which gets
+// it with every run start and waits for the policy response at least this
+// long. A nil config or a value <= 0 means the default.
+func (r *Runtime) ApprovalTimeout() time.Duration {
+	if r == nil || r.ApprovalTimeoutSeconds <= 0 {
+		return defaultApprovalTimeoutSeconds * time.Second
+	}
+	return time.Duration(r.ApprovalTimeoutSeconds) * time.Second
 }
 
 // HybridConfig holds settings for the hybrid execution mode.
@@ -307,23 +360,58 @@ type SandboxConfig struct {
 	Image       string `yaml:"image"`
 }
 
-// Cache holds tiered cache configuration.
-type Cache struct {
-	L1MaxSizeMB int64         `yaml:"l1_max_size_mb"`
-	L2Bucket    string        `yaml:"l2_bucket"`
-	L2TTL       time.Duration `yaml:"l2_ttl"`
-}
-
 // Policy holds policy engine configuration.
 type Policy struct {
 	DefaultProfile string `yaml:"default_profile"`
-	CustomDir      string `yaml:"custom_dir"`
+	CustomDir      string `yaml:"custom_dir"` // Custom profiles, API and Allow-Always writes (default: data/policies; "" = memory only)
+}
+
+// Knowledge holds the knowledge-base content configuration (KI-105).
+type Knowledge struct {
+	// ContentRoot is the operator directory knowledge-base content lives in,
+	// one area per tenant (<content_root>/<tenant_id>/); content_path values
+	// are stored relative to the tenant's area and resolved inside it (no
+	// symlink out of it). The worker indexes below its own root with the same
+	// setting (default: data/knowledge).
+	ContentRoot string `yaml:"content_root"`
 }
 
 // Workspace holds workspace directory configuration.
 type Workspace struct {
 	Root        string `yaml:"root"`         // Base directory for cloned repos (default: data/workspaces)
 	PipelineDir string `yaml:"pipeline_dir"` // Custom pipeline YAML directory
+	// AdoptRoots are absolute directories whose subdirectories admins may
+	// adopt as workspaces (local_path, POST /projects/{id}/adopt) or clone
+	// local repositories from; everyone else only adopts inside their
+	// tenant's directory of Root. Default: none.
+	AdoptRoots []string `yaml:"adopt_roots"`
+	// ToolACLs selects per-tenant tool identities (KI-96, ADR-018): with
+	// "required" (the Core image, docker-compose.prod.yml) the Core gives
+	// every tenant directory POSIX ACLs for the tenant's tool UID and sends
+	// the UID (tool_uid) on every payload that starts tool processes; "off"
+	// (the default: development, macOS, WSL2 drvfs) keeps plain directories
+	// and sends none. Any other value counts as "required".
+	ToolACLs string `yaml:"tool_acls"`
+}
+
+// Values of workspace.tool_acls.
+const (
+	ToolACLsOff      = "off"
+	ToolACLsRequired = "required"
+)
+
+// ToolACLsRequired reports whether workspace.tool_acls selects per-tenant
+// tool identities, and whether the value was one of the known ones (an
+// unknown value fails closed: required).
+func (w *Workspace) ToolACLsRequired() (required, known bool) {
+	switch strings.ToLower(strings.TrimSpace(w.ToolACLs)) {
+	case "", ToolACLsOff:
+		return false, true
+	case ToolACLsRequired:
+		return true, true
+	default:
+		return true, false
+	}
 }
 
 // Server holds HTTP server configuration.
@@ -337,6 +425,27 @@ type Server struct {
 	ForceSecureCookies bool          `yaml:"force_secure_cookies"` // Unconditionally set Secure=true on cookies (default: false)
 	TLSCertFile        string        `yaml:"tls_cert_file"`        // Path to TLS certificate file (PEM). Empty = plain HTTP.
 	TLSKeyFile         string        `yaml:"tls_key_file"`         // Path to TLS private key file (PEM). Empty = plain HTTP.
+	// TrustedProxies lists reverse proxies (IPs or CIDR prefixes) whose X-Forwarded-For /
+	// X-Real-IP headers identify the client. Empty = forwarding headers are ignored.
+	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// TrustedProxyPrefixes parses TrustedProxies; a bare IP becomes a single-address prefix.
+func (s *Server) TrustedProxyPrefixes() ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(s.TrustedProxies))
+	for _, entry := range s.TrustedProxies {
+		if prefix, err := netip.ParsePrefix(entry); err == nil {
+			prefixes = append(prefixes, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy %q: want an IP or CIDR prefix", entry)
+		}
+		addr = addr.Unmap()
+		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return prefixes, nil
 }
 
 // Postgres holds PostgreSQL connection configuration.
@@ -351,7 +460,8 @@ type Postgres struct {
 
 // NATS holds NATS JetStream configuration.
 type NATS struct {
-	URL string `yaml:"url"`
+	URL            string `yaml:"url"`
+	StreamMaxBytes int64  `yaml:"stream_max_bytes"` // Storage cap of the CODEFORGE JetStream stream (default: 10 GiB)
 }
 
 // LiteLLM holds LiteLLM proxy configuration.
@@ -396,7 +506,7 @@ type OTEL struct {
 	Enabled     bool    `yaml:"enabled"`      // Enable OTEL tracing + metrics (default: false)
 	Endpoint    string  `yaml:"endpoint"`     // OTLP gRPC endpoint (default: "localhost:4317")
 	ServiceName string  `yaml:"service_name"` // Service name for traces (default: "codeforge-core")
-	Insecure    bool    `yaml:"insecure"`     // Use insecure gRPC connection (default: true)
+	Insecure    bool    `yaml:"insecure"`     // Plaintext gRPC instead of TLS, e.g. for the dev Jaeger (default: false)
 	SampleRate  float64 `yaml:"sample_rate"`  // Trace sampling rate 0.0-1.0 (default: 1.0)
 }
 
@@ -404,11 +514,74 @@ type OTEL struct {
 type A2A struct {
 	Enabled   bool     `yaml:"enabled"`           // Enable A2A endpoints (default: false)
 	BaseURL   string   `yaml:"base_url"`          // Public URL for AgentCard (default: auto-detect from Server.Port)
-	APIKeys   []string `yaml:"api_keys" json:"-"` // Allowed API keys for incoming A2A requests (empty = open)
+	APIKeys   []string `yaml:"api_keys" json:"-"` // API keys of incoming A2A requests: "<key>" (default tenant) or "<tenant-uuid>:<key>"; none = every A2A request is refused
 	Transport string   `yaml:"transport"`         // "jsonrpc" (default) | "rest"
 	MaxTasks  int      `yaml:"max_tasks"`         // Max concurrent A2A tasks (default: 100)
 	AllowOpen bool     `yaml:"allow_open"`        // Allow unauthenticated AgentCard discovery (default: true)
 	Streaming bool     `yaml:"streaming"`         // FIX-109: Advertise streaming capability in AgentCard (default: false)
+}
+
+// A2AAPIKey is an A2A API key and the tenant its callers act in.
+type A2AAPIKey struct {
+	Key      string
+	TenantID string
+	// ID identifies the key without revealing it (a SHA-256 prefix of the
+	// key): the inbound A2A tasks a key creates record it, and the A2A
+	// protocol handler shows a caller only its own tasks.
+	ID string
+}
+
+// a2aKeyID is the stable ID of an A2A API key.
+func a2aKeyID(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return "key-" + hex.EncodeToString(sum[:8])
+}
+
+// tenantIDPattern matches a tenant ID (a UUID, lower case).
+var tenantIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// looksLikeUUID reports whether s has the shape of a UUID (36 characters,
+// dashes after 8, 13, 18 and 23), whatever its characters.
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for _, i := range []int{8, 13, 18, 23} {
+		if s[i] != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// ParsedAPIKeys returns the A2A API keys with their tenants (KI-15). An entry
+// "<tenant-uuid>:<key>" maps its key to that tenant (the UUID in any case,
+// stored lowercase); any other entry is a key of the default tenant. An empty
+// key, a key listed twice (its tenant would be ambiguous) and a tenant shaped
+// like a UUID that is none are errors.
+func (a *A2A) ParsedAPIKeys() ([]A2AAPIKey, error) {
+	keys := make([]A2AAPIKey, 0, len(a.APIKeys))
+	seen := make(map[string]bool, len(a.APIKeys))
+	for i, entry := range a.APIKeys {
+		k := A2AAPIKey{Key: strings.TrimSpace(entry), TenantID: tenantctx.DefaultTenantID}
+		if tenant, key, ok := strings.Cut(k.Key, ":"); ok && looksLikeUUID(tenant) {
+			tenant = strings.ToLower(tenant)
+			if !tenantIDPattern.MatchString(tenant) {
+				return nil, fmt.Errorf("entry %d: tenant %q is not a UUID", i+1, tenant)
+			}
+			k = A2AAPIKey{Key: key, TenantID: tenant}
+		}
+		if k.Key == "" {
+			return nil, fmt.Errorf("entry %d has an empty key", i+1)
+		}
+		if seen[k.Key] {
+			return nil, fmt.Errorf("entry %d repeats a key", i+1)
+		}
+		seen[k.Key] = true
+		k.ID = a2aKeyID(k.Key)
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 // AGUI holds AG-UI (Agent-User Interaction) protocol configuration.
@@ -422,6 +595,19 @@ type MCP struct {
 	ServersDir string `yaml:"servers_dir"`      // Directory with MCP server YAML definitions
 	ServerPort int    `yaml:"server_port"`      // Port for the built-in MCP server (default: 3001)
 	APIKey     string `yaml:"api_key" json:"-"` // API key for MCP server authentication (empty = unauthenticated)
+	// AllowedPrivateHosts are the host names, IP addresses and CIDR prefixes
+	// whose private addresses (RFC 1918, ULA, CGNAT) sse and streamable_http
+	// MCP servers may use (KI-100; default none). Loopback needs an explicit
+	// entry (localhost, 127.0.0.1, ::1, a loopback CIDR); link-local, metadata,
+	// unspecified, multicast and reserved addresses stay refused. Only the
+	// platform operator sets it.
+	AllowedPrivateHosts []string `yaml:"allowed_private_hosts"`
+	// UseProxy sends sse and streamable_http MCP connections (the core's
+	// connection test, the worker's runs) through the proxy of the
+	// environment (HTTPS_PROXY, HTTP_PROXY, NO_PROXY; default false). The
+	// url's host is still checked before connecting, but the address cannot
+	// be pinned, so DNS rebinding is left to the proxy's egress policy.
+	UseProxy bool `yaml:"use_proxy"`
 }
 
 // LSP holds Language Server Protocol integration configuration.
@@ -454,7 +640,8 @@ func Defaults() Config {
 			HealthCheck:     30 * time.Second,
 		},
 		NATS: NATS{
-			URL: "nats://localhost:4222",
+			URL:            "nats://localhost:4222",
+			StreamMaxBytes: 10 << 30,
 		},
 		LiteLLM: LiteLLM{
 			URL:                "http://localhost:4000",
@@ -482,23 +669,27 @@ func Defaults() Config {
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",
+			CustomDir:      "data/policies",
 		},
 		Workspace: Workspace{
 			Root: "data/workspaces",
+		},
+		Knowledge: Knowledge{
+			ContentRoot: "data/knowledge",
 		},
 		Runtime: Runtime{
 			StallThreshold:         5,
 			StallMaxRetries:        2,
 			QualityGateTimeout:     60 * time.Second,
 			DefaultDeliverMode:     "",
-			DefaultTestCommand:     "go test ./...",
-			DefaultLintCommand:     "golangci-lint run ./...",
+			DefaultTestCommand:     "",
+			DefaultLintCommand:     "",
 			DeliveryCommitPrefix:   "codeforge:",
 			HeartbeatInterval:      30 * time.Second,
 			HeartbeatTimeout:       120 * time.Second,
-			ApprovalTimeoutSeconds: 60,
+			ApprovalTimeoutSeconds: defaultApprovalTimeoutSeconds,
 			StaleCheckInterval:     60 * time.Second,
-			StaleWorkThreshold:     30 * time.Minute,
+			TaskAcceptTimeout:      time.Hour,
 			Sandbox: SandboxConfig{
 				MemoryMB:    512,
 				CPUQuota:    1000,
@@ -511,11 +702,6 @@ func Defaults() Config {
 				CommandImage: "",
 				MountMode:    "rw",
 			},
-		},
-		Cache: Cache{
-			L1MaxSizeMB: 100,
-			L2Bucket:    "CACHE",
-			L2TTL:       10 * time.Minute,
 		},
 		Idempotency: Idempotency{
 			Bucket: "IDEMPOTENCY",
@@ -550,8 +736,9 @@ func Defaults() Config {
 			GraphTopK:                 10,
 			GraphHopDecay:             0.7,
 		},
-		Webhook:      Webhook{},
-		Notification: Notification{},
+		Webhook:      Webhook{DeliveryRetention: 7 * 24 * time.Hour},
+		Notification: Notification{SMTPPort: 587, ApprovalTenants: []string{tenantctx.DefaultTenantID}},
+		Plane:        Plane{BaseURL: "https://api.plane.so"},
 		OTEL: OTEL{
 			Enabled:     false,
 			Endpoint:    "localhost:4317",
@@ -627,11 +814,15 @@ func Defaults() Config {
 		Routing: Routing{
 			Enabled: true,
 		},
+		// Whole 365-day years count as calendar years (RetentionService).
 		Retention: Retention{
-			Sessions:      30 * 24 * time.Hour,  // 30 days
-			Conversations: 365 * 24 * time.Hour, // 1 year
-			CostRecords:   365 * 24 * time.Hour, // 1 year
-			AuditEntries:  730 * 24 * time.Hour, // 2 years
+			Interval:           24 * time.Hour,
+			Sessions:           30 * 24 * time.Hour,      // 30 days
+			Conversations:      365 * 24 * time.Hour,     // 1 year
+			CostRecords:        365 * 24 * time.Hour,     // 1 year
+			AuditEntries:       7 * 365 * 24 * time.Hour, // 7 years (SOC 2)
+			AuditIPAddresses:   180 * 24 * time.Hour,     // 180 days (CNIL)
+			ConsentIPAddresses: 180 * 24 * time.Hour,     // 180 days, like audit IP addresses
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,

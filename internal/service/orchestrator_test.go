@@ -10,9 +10,11 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -36,6 +38,16 @@ func (m *orchMockStore) CreatePlan(_ context.Context, p *plan.ExecutionPlan) err
 		s.PlanID = p.ID
 		if s.ID == "" {
 			s.ID = fmt.Sprintf("step-%d-%d", len(m.plans)+1, i)
+		}
+	}
+	// Like the store: dependencies given as step indices become step IDs.
+	for i := range p.Steps {
+		s := &p.Steps[i]
+		for j, dep := range s.DependsOn {
+			var idx int
+			if _, err := fmt.Sscanf(dep, "%d", &idx); err == nil && idx >= 0 && idx < len(p.Steps) {
+				s.DependsOn[j] = p.Steps[idx].ID
+			}
 		}
 		m.steps = append(m.steps, *s)
 	}
@@ -80,6 +92,9 @@ func (m *orchMockStore) UpdatePlanStatus(_ context.Context, id string, status pl
 	defer m.mu.Unlock()
 	for i := range m.plans {
 		if m.plans[i].ID == id {
+			if m.plans[i].Status.IsTerminal() {
+				return fmt.Errorf("mock: plan already ended: %w", domain.ErrConflict)
+			}
 			m.plans[i].Status = status
 			return nil
 		}
@@ -130,7 +145,8 @@ func (m *orchMockStore) GetPlanStepByRunID(_ context.Context, runID string) (*pl
 	defer m.mu.Unlock()
 	for i := range m.steps {
 		if m.steps[i].RunID == runID {
-			return &m.steps[i], nil
+			step := m.steps[i] // a copy, like the store
+			return &step, nil
 		}
 	}
 	return nil, fmt.Errorf("get plan step by run %s: %w", runID, domain.ErrNotFound)
@@ -156,7 +172,7 @@ func (m *orchMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*qua
 func (m *orchMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (m *orchMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (m *orchMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -176,10 +192,30 @@ func (m *orchMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]a
 func (m *orchMockStore) MarkInboxRead(_ context.Context, _ string) error { return nil }
 
 func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
+	store, orchSvc, _ := newOrchRuntimeSetup()
+	return store, orchSvc
+}
+
+// newOrchRuntimeSetup is newOrchTestSetup that also returns the runtime whose
+// run completions advance the plans.
+func newOrchRuntimeSetup() (*orchMockStore, *service.OrchestratorService, *service.RuntimeService) {
+	store := newOrchStore()
+	orchSvc, runtimeSvc := newOrchRuntimeSetupWithStore(store)
+	return store, orchSvc, runtimeSvc
+}
+
+// newOrchStore returns the plan store with the project, agents and tasks the
+// test plans use.
+func newOrchStore() *orchMockStore {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3")
 	store.tasks = newPendingTasks("t1", "t2", "t3")
+	return store
+}
 
+// newOrchRuntimeSetupWithStore wires an orchestrator and its runtime to store.
+func newOrchRuntimeSetupWithStore(store database.Store) (*service.OrchestratorService, *service.RuntimeService) {
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
 	queue := &runtimeMockQueue{}
@@ -198,13 +234,19 @@ func newOrchTestSetup() (*orchMockStore, *service.OrchestratorService) {
 	orchSvc := service.NewOrchestratorService(store, bc, es, runtimeSvc, orchCfg)
 	runtimeSvc.SetOnRunComplete(orchSvc.HandleRunCompleted)
 
-	return store, orchSvc
+	return orchSvc, runtimeSvc
+}
+
+// newOrchProjects returns the project the test plans belong to: starting a
+// step's run loads it to resolve the execution mode and requires its workspace.
+func newOrchProjects() []project.Project {
+	return []project.Project{{ID: "proj-1", Name: "orchestrator test", WorkspacePath: "/tmp/orchestrator-test"}}
 }
 
 func newIdleAgents(ids ...string) []agent.Agent {
 	var agents []agent.Agent
 	for _, id := range ids {
-		agents = append(agents, agent.Agent{ID: id, Status: agent.StatusIdle, Backend: "aider"})
+		agents = append(agents, agent.Agent{ID: id, ProjectID: "proj-1", Status: agent.StatusIdle, Backend: "aider"})
 	}
 	return agents
 }
@@ -212,7 +254,7 @@ func newIdleAgents(ids ...string) []agent.Agent {
 func newPendingTasks(ids ...string) []task.Task {
 	var tasks []task.Task
 	for _, id := range ids {
-		tasks = append(tasks, task.Task{ID: id, Status: task.StatusPending, Title: "Task " + id})
+		tasks = append(tasks, task.Task{ID: id, ProjectID: "proj-1", Status: task.StatusPending, Title: "Task " + id})
 	}
 	return tasks
 }
@@ -389,6 +431,7 @@ func TestParallel_AllStart(t *testing.T) {
 
 func TestParallel_MaxParallelRespected(t *testing.T) {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3", "a4", "a5")
 	store.tasks = newPendingTasks("t1", "t2", "t3", "t4", "t5")
 
@@ -586,6 +629,7 @@ func TestCancelPlan(t *testing.T) {
 
 func newOrchTestSetupWithDebate() *service.OrchestratorService {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1", "a2", "a3")
 	store.tasks = newPendingTasks("t1", "t2", "t3")
 
@@ -671,6 +715,7 @@ func TestDebate_DebateRoundsConfig(t *testing.T) {
 
 func TestDebate_DebateRoundsClampedToMax3(t *testing.T) {
 	store := &orchMockStore{}
+	store.projects = newOrchProjects()
 	store.agents = newIdleAgents("a1")
 	store.tasks = newPendingTasks("t1")
 	bc := &runtimeMockBroadcaster{}

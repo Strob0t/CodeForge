@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
+from codeforge.subprocess_env import tool_env
+from codeforge.tool_process import start_tool_process
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -14,9 +17,22 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT = MAX_OUTPUT_CHARS
 HALF_OUTPUT = MAX_OUTPUT // 2
 
+# "rm -rf" targeting the root itself ("/", "/*", "//", "/.", ...) or a top-level
+# system directory ("/etc", "/usr/", "/home/*", ...), ended by whitespace, a shell
+# separator, a quote or the end of the command. Deeper paths such as
+# "rm -rf /tmp/build" stay allowed (a plain substring match blocked them too).
+_SYSTEM_DIRS = "bin|boot|dev|etc|home|lib|lib32|lib64|opt|proc|root|sbin|srv|sys|usr|var"
+_RM_ROOT_RE = re.compile(rf"rm -(?:rf|fr) /(?:[/.*]*|(?:{_SYSTEM_DIRS})/?\*?)(?=$|[\s;&|<>)'\"`])")
+
 DEFINITION = ToolDefinition(
     name="bash",
-    description="Execute a bash command and return stdout and stderr. Runs in the workspace directory.",
+    description=(
+        "Execute a bash command and return stdout and stderr. Runs in the workspace directory. "
+        "On isolated deployments the command is sandboxed: it can write only the workspace and its HOME "
+        "(TMPDIR is below HOME, /tmp is not usable) and cannot see other processes, so ps, pgrep, pkill, top, "
+        "df and ss do not work; stop your own background jobs with kill <pid> or kill %1. Do not rely on "
+        "background processes outliving the current task: they may be stopped when it ends."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -41,6 +57,7 @@ DEFINITION = ToolDefinition(
         "Running interactive commands that wait for input (use non-interactive flags)",
         "Forgetting timeout for long-running commands — set timeout explicitly",
         "Using bash for file reading/searching when read_file or search_files would be better",
+        "Writing to /tmp or calling ps/pkill on an isolated deployment (use $TMPDIR and kill <pid>)",
     ],
     examples=[
         ToolExample(
@@ -78,12 +95,11 @@ def _check_dangerous_command(command: str) -> str | None:
     # Normalize for matching: strip leading whitespace, lowercase.
     normalized = command.strip().lower()
 
+    if match := _RM_ROOT_RE.search(normalized):
+        return f"blocked by safety filter: recursive deletion of root or a system directory ({match.group(0)!r})"
+
     # Patterns that are dangerous regardless of context.
     blocked_patterns: list[tuple[str, str]] = [
-        ("rm -rf /", "recursive deletion of root filesystem"),
-        ("rm -rf /*", "recursive deletion of root filesystem"),
-        ("rm -fr /", "recursive deletion of root filesystem"),
-        ("rm -fr /*", "recursive deletion of root filesystem"),
         ("mkfs.", "filesystem formatting"),
         ("dd if=", "raw disk write"),
         (":(){:|:&};:", "fork bomb"),
@@ -115,13 +131,14 @@ class BashTool(ToolExecutor):
             return ToolResult(output="", error=block_reason, success=False)
 
         try:
-            proc = await asyncio.create_subprocess_exec(
+            proc = await start_tool_process(
                 "bash",
                 "-c",
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_path,
+                env=tool_env(),
             )
         except OSError as exc:
             return ToolResult(output="", error=str(exc), success=False)

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 // satisfaction and overrides the five microagent methods with in-memory logic.
 type fakeMicroagentStore struct {
 	mockStore
+	mu     sync.Mutex // parallel subtests share one store
 	agents map[string]*microagent.Microagent
 	nextID int
 }
@@ -29,6 +31,8 @@ func newFakeMicroagentStore() *fakeMicroagentStore {
 }
 
 func (f *fakeMicroagentStore) CreateMicroagent(_ context.Context, m *microagent.Microagent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.nextID++
 	m.ID = "ma-" + strings.Repeat("0", 3) + string(rune('0'+f.nextID))
 	now := time.Now()
@@ -40,6 +44,8 @@ func (f *fakeMicroagentStore) CreateMicroagent(_ context.Context, m *microagent.
 }
 
 func (f *fakeMicroagentStore) GetMicroagent(_ context.Context, id string) (*microagent.Microagent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	m, ok := f.agents[id]
 	if !ok {
 		return nil, domain.ErrNotFound
@@ -49,6 +55,8 @@ func (f *fakeMicroagentStore) GetMicroagent(_ context.Context, id string) (*micr
 }
 
 func (f *fakeMicroagentStore) ListMicroagents(_ context.Context, projectID string) ([]microagent.Microagent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	var result []microagent.Microagent
 	for _, m := range f.agents {
 		if m.ProjectID == projectID || m.ProjectID == "" {
@@ -59,6 +67,8 @@ func (f *fakeMicroagentStore) ListMicroagents(_ context.Context, projectID strin
 }
 
 func (f *fakeMicroagentStore) UpdateMicroagent(_ context.Context, m *microagent.Microagent) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if _, ok := f.agents[m.ID]; !ok {
 		return domain.ErrNotFound
 	}
@@ -69,6 +79,8 @@ func (f *fakeMicroagentStore) UpdateMicroagent(_ context.Context, m *microagent.
 }
 
 func (f *fakeMicroagentStore) DeleteMicroagent(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if _, ok := f.agents[id]; !ok {
 		return domain.ErrNotFound
 	}

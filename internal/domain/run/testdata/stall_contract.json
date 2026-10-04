@@ -1,0 +1,6 @@
+{
+  "marker": "stall detected:",
+  "worker_error": "stall detected: repeated read_file after 2 escape attempts",
+  "worker_repeated_action": "read_file",
+  "worker_escape_count": 2
+}

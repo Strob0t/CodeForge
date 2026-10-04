@@ -1,4 +1,4 @@
-"""Routing helpers for conversation handler: HybridRouter setup, model discovery, fallback chain."""
+"""Routing helpers for conversation runs and runs: HybridRouter setup, model discovery, fallback chain."""
 
 from __future__ import annotations
 
@@ -10,9 +10,58 @@ import structlog
 from codeforge.config import get_settings
 
 if TYPE_CHECKING:
+    from codeforge.llm import RoutingResult
     from codeforge.routing.router import HybridRouter
 
 logger = structlog.get_logger()
+
+
+async def resolve_model_and_fallbacks(
+    litellm_url: str,
+    litellm_key: str,
+    *,
+    prompt: str,
+    scenario: str,
+    explicit_model: str,
+    max_cost: float,
+    log: structlog.stdlib.BoundLogger,
+) -> tuple[str, RoutingResult, list[str]]:
+    """Resolve the primary model via routing and build its fallback chain.
+
+    An explicit model wins over the routed one; without either (routing off,
+    no model in the config) the default model is resolved here, so that the
+    run's tool capability is that of the model it calls (KI-125). Returns
+    (primary_model, routing_result, fallback_models).
+    """
+    from codeforge.llm import resolve_model_with_routing
+    from codeforge.model_resolver import resolve_model
+
+    router = await get_hybrid_router(litellm_url, litellm_key)
+    routing = await asyncio.to_thread(
+        resolve_model_with_routing,
+        prompt=prompt,
+        scenario=scenario,
+        router=router,
+        max_cost=max_cost if max_cost > 0 else None,
+    )
+    primary_model = explicit_model or routing.model
+    if explicit_model and routing.model and routing.model != explicit_model:
+        log.info("explicit model overrides routing", explicit=explicit_model, routed=routing.model)
+    elif not explicit_model and routing.model:
+        log.info("routing selected model", model=routing.model, scenario=scenario)
+    if not primary_model:
+        primary_model = await asyncio.to_thread(resolve_model)
+        log.info("default model selected", model=primary_model)
+
+    fallback_models = await build_fallback_chain(
+        router,
+        prompt,
+        primary_model,
+        max_cost,
+        routing,
+        lambda: get_available_models(litellm_url, litellm_key),
+    )
+    return primary_model, routing, fallback_models
 
 
 async def get_hybrid_router(  # noqa: C901

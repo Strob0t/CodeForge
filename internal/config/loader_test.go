@@ -135,6 +135,26 @@ func TestValidateRequired(t *testing.T) {
 			modify: func(c *Config) { c.Rate.Burst = 0 },
 			errMsg: "rate.burst must be >= 1",
 		},
+		{
+			name:   "zero quality gate timeout",
+			modify: func(c *Config) { c.Runtime.QualityGateTimeout = 0 },
+			errMsg: "runtime.quality_gate_timeout must be >= 1s",
+		},
+		{
+			name:   "sub-second quality gate timeout",
+			modify: func(c *Config) { c.Runtime.QualityGateTimeout = 999 * time.Millisecond },
+			errMsg: "runtime.quality_gate_timeout must be >= 1s",
+		},
+		{
+			name:   "negative quality gate timeout",
+			modify: func(c *Config) { c.Runtime.QualityGateTimeout = -time.Minute },
+			errMsg: "runtime.quality_gate_timeout must be >= 1s",
+		},
+		{
+			name:   "zero stale check interval",
+			modify: func(c *Config) { c.Runtime.StaleCheckInterval = 0 },
+			errMsg: "runtime.stale_check_interval must be > 0",
+		},
 	}
 
 	for _, tt := range tests {
@@ -279,8 +299,11 @@ func TestPolicyDefaults(t *testing.T) {
 	if cfg.Policy.DefaultProfile != "headless-safe-sandbox" {
 		t.Errorf("expected default profile 'headless-safe-sandbox', got %q", cfg.Policy.DefaultProfile)
 	}
-	if cfg.Policy.CustomDir != "" {
-		t.Errorf("expected empty custom dir, got %q", cfg.Policy.CustomDir)
+	// Zero-config (review finding 12): an empty default disabled Allow-Always
+	// (409) and kept API-created profiles in memory only. The default sits
+	// next to the other persistent data (data/workspaces).
+	if cfg.Policy.CustomDir != "data/policies" {
+		t.Errorf("expected custom dir 'data/policies', got %q", cfg.Policy.CustomDir)
 	}
 }
 
@@ -463,6 +486,16 @@ func TestReviewRouterEnvOverride(t *testing.T) {
 	}
 	if cfg.Orchestrator.ReviewRouterModel != "gpt-4o" {
 		t.Errorf("expected review_router_model=gpt-4o, got %s", cfg.Orchestrator.ReviewRouterModel)
+	}
+}
+
+// A local-only installation sets its embedding model without YAML (KI-130).
+func TestEmbeddingModelEnvOverride(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_ORCH_EMBEDDING_MODEL", "ollama/nomic-embed-text")
+	loadEnv(&cfg)
+	if cfg.Orchestrator.DefaultEmbeddingModel != "ollama/nomic-embed-text" {
+		t.Errorf("default_embedding_model = %q, want the env value", cfg.Orchestrator.DefaultEmbeddingModel)
 	}
 }
 
@@ -801,5 +834,41 @@ func TestSSLModeRejectedInStaging(t *testing.T) {
 				t.Errorf("unexpected error for %s: %v", tt.name, err)
 			}
 		})
+	}
+}
+
+func TestTrustedProxiesFromEnv(t *testing.T) {
+	cfg := Defaults()
+	t.Setenv("CODEFORGE_TRUSTED_PROXIES", "10.0.0.0/8, 192.0.2.10 ,::1")
+	loadEnv(&cfg)
+	prefixes, err := cfg.Server.TrustedProxyPrefixes()
+	if err != nil {
+		t.Fatalf("TrustedProxyPrefixes: %v", err)
+	}
+	want := []string{"10.0.0.0/8", "192.0.2.10/32", "::1/128"}
+	if len(prefixes) != len(want) {
+		t.Fatalf("got %v, want %v", prefixes, want)
+	}
+	for i, p := range prefixes {
+		if p.String() != want[i] {
+			t.Errorf("prefix %d = %s, want %s", i, p, want[i])
+		}
+	}
+}
+
+func TestTrustedProxiesDefaultEmpty(t *testing.T) {
+	cfg := Defaults()
+	prefixes, err := cfg.Server.TrustedProxyPrefixes()
+	if err != nil || len(prefixes) != 0 {
+		t.Fatalf("got %v, %v; want no prefixes", prefixes, err)
+	}
+}
+
+func TestValidateRejectsInvalidTrustedProxy(t *testing.T) {
+	cfg := Defaults()
+	cfg.Server.TrustedProxies = []string{"not-an-ip"}
+	err := validate(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "server.trusted_proxies") {
+		t.Fatalf("validate error = %v, want server.trusted_proxies error", err)
 	}
 }

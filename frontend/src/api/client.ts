@@ -16,6 +16,7 @@ import {
   createAuditResource,
   createAutoAgentResource,
   createChannelsResource,
+  createCommandsResource,
   createDashboardResource,
   createDevResource,
   createGoalsResource,
@@ -98,4 +99,5 @@ export const api = {
   audit: createAuditResource(core),
   quarantine: createQuarantineResource(core),
   routing: createRoutingResource(core),
+  commands: createCommandsResource(core),
 };

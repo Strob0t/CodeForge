@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
@@ -72,6 +73,7 @@ type convStore interface {
 
 // ConversationService manages conversations and LLM interactions.
 type ConversationService struct {
+	toolUIDSource
 	db              convStore
 	hub             broadcast.Broadcaster
 	queue           messagequeue.Queue
@@ -83,7 +85,9 @@ type ConversationService struct {
 	microagentSvc   convMicroagentMatcher
 	goalSvc         convGoalProvider
 	sessionSvc      convSessionProvider
+	runTracker      convRunTracker
 	agentCfg        *config.Agent
+	runtimeCfg      *config.Runtime
 	routingCfg      *config.Routing
 	appEnv          string
 	metrics         cfmetrics.Recorder
@@ -122,8 +126,59 @@ func NewConversationService(
 // SetQueue configures the NATS queue for agentic message dispatch.
 func (s *ConversationService) SetQueue(q messagequeue.Queue) { s.queue = q }
 
+// SetRunTracker configures the runtime that is told when a new run of a
+// conversation starts.
+func (s *ConversationService) SetRunTracker(t convRunTracker) { s.runTracker = t }
+
+// ErrConversationRunInProgress refuses a new run of a conversation while one
+// of its runs is active: conversation runs share the conversation ID as run
+// ID, the worker runs one run per ID, and the new run's start would leave the
+// active run burning tokens with its tool calls denied. Stop the active run
+// first.
+var ErrConversationRunInProgress = fmt.Errorf("conversation run in progress: %w", domain.ErrConflict)
+
+// beginRun makes a new run with a new turn the conversation's active run,
+// before anything is stored or dispatched for it, so that the run's tool
+// calls are recognized from its first one on. It returns
+// ErrConversationRunInProgress while another run is active. The caller calls
+// finish(true) once the run's start was published (an earlier stop's mark is
+// then cleared) and finish(false) otherwise (the conversation is released and
+// the mark stays).
+//
+// The turn is also stored as the conversation's active turn before the start
+// is published, so the stuck-work watchdog can end the run if its worker
+// dies (KI-65); an undispatched run's stored turn ends with it.
+func (s *ConversationService) beginRun(ctx context.Context, conversationID string) (turnID string, finish func(dispatched bool), err error) {
+	turnID = uuid.New().String()
+	if s.runTracker != nil {
+		if err := s.runTracker.BeginConversationRun(conversationID, turnID); err != nil {
+			return "", nil, err
+		}
+	}
+	logBestEffort(ctx, s.db.BeginConversationTurn(ctx, conversationID, turnID), "BeginConversationTurn",
+		slog.String("conversation_id", conversationID))
+	return turnID, func(dispatched bool) {
+		if !dispatched {
+			_, endErr := s.db.EndConversationTurn(ctx, conversationID, turnID)
+			logBestEffort(ctx, endErr, "EndConversationTurn", slog.String("conversation_id", conversationID))
+		}
+		if s.runTracker == nil {
+			return
+		}
+		if dispatched {
+			s.runTracker.ConversationRunDispatched(conversationID, turnID)
+		} else {
+			s.runTracker.AbortConversationRun(conversationID, turnID)
+		}
+	}, nil
+}
+
 // SetAgentConfig configures agent loop defaults.
 func (s *ConversationService) SetAgentConfig(cfg *config.Agent) { s.agentCfg = cfg }
+
+// SetRuntimeConfig sets the runtime config; its approval timeout is sent to
+// the worker with every agentic run.
+func (s *ConversationService) SetRuntimeConfig(cfg *config.Runtime) { s.runtimeCfg = cfg }
 
 // SetMCPService configures MCP server resolution for agentic runs.
 func (s *ConversationService) SetMCPService(mcp convMCPResolver) { s.mcpSvc = mcp }
@@ -220,9 +275,15 @@ func (s *ConversationService) ListByProject(ctx context.Context, projectID strin
 	return s.db.ListConversationsByProject(ctx, projectID)
 }
 
-// Delete removes a conversation.
+// Delete removes a conversation and the run state held for it.
 func (s *ConversationService) Delete(ctx context.Context, id string) error {
-	return s.db.DeleteConversation(ctx, id)
+	if err := s.db.DeleteConversation(ctx, id); err != nil {
+		return err
+	}
+	if s.runTracker != nil {
+		s.runTracker.ForgetConversation(id)
+	}
+	return nil
 }
 
 // ListMessages returns all messages in a conversation.
@@ -264,6 +325,19 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
 	}
+	// The worker refuses a run start without the tenant's tool UID when it
+	// isolates tenants (KI-96), also for a chat without tools.
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("tool uid: %w", err)
+	}
+
+	turnID, finishRun, err := s.beginRun(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	dispatched := false
+	defer func() { finishRun(dispatched) }()
 
 	// Store user message.
 	userMsg := &conversation.Message{
@@ -309,7 +383,11 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 			MaxSteps:       1,
 			TimeoutSeconds: 120,
 		},
-		RoutingEnabled: s.routingCfg != nil && s.routingCfg.Enabled,
+		RoutingEnabled:     s.routingCfg != nil && s.routingCfg.Enabled,
+		TenantID:           outgoingTenant(ctx, "conversation.run.start"),
+		TurnID:             turnID,
+		ToolOutputMaxChars: s.toolOutputMaxChars(),
+		ToolUID:            toolUID,
 	}
 
 	data, err := json.Marshal(payload)
@@ -333,6 +411,7 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 		})
 		return nil, fmt.Errorf("publish conversation run start: %w", err)
 	}
+	dispatched = true
 
 	if s.metrics != nil {
 		s.metrics.RecordRunStarted(ctx, "type", "conversation", "project.id", conv.ProjectID)
@@ -362,7 +441,7 @@ func (s *ConversationService) CompactConversation(ctx context.Context, conversat
 	}
 	payload := map[string]string{
 		"conversation_id": conversationID,
-		"tenant_id":       tenantctx.FromContext(ctx),
+		"tenant_id":       outgoingTenant(ctx, "conversation.compact.request"),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

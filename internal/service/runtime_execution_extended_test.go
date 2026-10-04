@@ -361,7 +361,7 @@ func TestHandleConversationToolCall_HITLAsk(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Resolve the approval with "allow".
-	ok := svc.ResolveApproval("conv-hitl", "call-hitl-1", "allow")
+	ok := svc.ResolveApproval(context.Background(), "conv-hitl", "call-hitl-1", "allow")
 	if !ok {
 		// If ResolveApproval returns false, the approval channel may not have been
 		// registered yet or it timed out. In either case, wait for the result.

@@ -16,6 +16,23 @@ import (
 
 // --- Tenant Endpoints ---
 
+// tenantWithToolUID is a tenant as platform admins see it: with its tool
+// UID (KI-96), null while it has none. Operators need it for the setfacl
+// command of an adopted workspace.
+type tenantWithToolUID struct {
+	tenant.Tenant
+	ToolUID *int `json:"tool_uid"`
+}
+
+// writeTenant writes t, with its tool UID for platform admins only.
+func writeTenant(w http.ResponseWriter, r *http.Request, status int, t *tenant.Tenant) {
+	if isPlatformAdmin(r) {
+		writeJSON(w, status, tenantWithToolUID{Tenant: *t, ToolUID: t.ToolUID})
+		return
+	}
+	writeJSON(w, status, t)
+}
+
 // ListTenants handles GET /api/v1/tenants
 func (h *Handlers) ListTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := h.Tenants.List(r.Context())
@@ -23,10 +40,18 @@ func (h *Handlers) ListTenants(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	writeJSONList(w, http.StatusOK, tenants)
+	if !isPlatformAdmin(r) {
+		writeJSONList(w, http.StatusOK, tenants)
+		return
+	}
+	views := make([]tenantWithToolUID, 0, len(tenants))
+	for i := range tenants {
+		views = append(views, tenantWithToolUID{Tenant: tenants[i], ToolUID: tenants[i].ToolUID})
+	}
+	writeJSONList(w, http.StatusOK, views)
 }
 
-// CreateTenant handles POST /api/v1/tenants
+// CreateTenant handles POST /api/v1/tenants (platform admins only)
 func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 	req, ok := readJSON[tenant.CreateRequest](w, r, h.Limits.MaxRequestBodySize)
 	if !ok {
@@ -38,7 +63,7 @@ func (h *Handlers) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "create tenant failed")
 		return
 	}
-	writeJSON(w, http.StatusCreated, t)
+	writeTenant(w, r, http.StatusCreated, t)
 }
 
 // GetTenant handles GET /api/v1/tenants/{id}
@@ -49,7 +74,7 @@ func (h *Handlers) GetTenant(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "tenant not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeTenant(w, r, http.StatusOK, t)
 }
 
 // UpdateTenant handles PUT /api/v1/tenants/{id}
@@ -66,58 +91,7 @@ func (h *Handlers) UpdateTenant(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err, "tenant not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
-}
-
-// --- VCS Webhooks ---
-
-// HandleGitHubWebhook handles POST /api/v1/webhooks/vcs/github
-func (h *Handlers) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-GitHub-Event")
-	switch eventType {
-	case "push":
-		ev, err := h.VCSWebhook.HandleGitHubPush(r.Context(), body)
-		if err != nil {
-			writeDomainError(w, err, "webhook processing failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, ev)
-	case "pull_request":
-		ev, err := h.VCSWebhook.HandleGitHubPullRequest(r.Context(), body)
-		if err != nil {
-			writeDomainError(w, err, "webhook processing failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, ev)
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-	}
-}
-
-// HandleGitLabWebhook handles POST /api/v1/webhooks/vcs/gitlab
-func (h *Handlers) HandleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-Gitlab-Event")
-	switch eventType {
-	case "Push Hook":
-		ev, err := h.VCSWebhook.HandleGitLabPush(r.Context(), body)
-		if err != nil {
-			writeDomainError(w, err, "webhook processing failed")
-			return
-		}
-		writeJSON(w, http.StatusOK, ev)
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-	}
+	writeTenant(w, r, http.StatusOK, t)
 }
 
 // --- Bidirectional Sync ---
@@ -150,65 +124,6 @@ func (h *Handlers) SyncRoadmap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-// --- PM Webhooks ---
-
-// HandleGitHubIssueWebhook handles POST /api/v1/webhooks/pm/github
-func (h *Handlers) HandleGitHubIssueWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-GitHub-Event")
-	if eventType != "issues" {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-		return
-	}
-
-	ev, err := h.PMWebhook.HandleGitHubIssueWebhook(r.Context(), body)
-	if err != nil {
-		writeDomainError(w, err, "webhook processing failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, ev)
-}
-
-// HandleGitLabIssueWebhook handles POST /api/v1/webhooks/pm/gitlab
-func (h *Handlers) HandleGitLabIssueWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
-	if body == nil {
-		return
-	}
-
-	eventType := r.Header.Get("X-Gitlab-Event")
-	if eventType != "Issue Hook" {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored", "event": eventType})
-		return
-	}
-
-	ev, err := h.PMWebhook.HandleGitLabIssueWebhook(r.Context(), body)
-	if err != nil {
-		writeDomainError(w, err, "webhook processing failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, ev)
-}
-
-// HandlePlaneWebhook handles POST /api/v1/webhooks/pm/plane
-func (h *Handlers) HandlePlaneWebhook(w http.ResponseWriter, r *http.Request) {
-	body := readBody(w, r, 10<<20) // 10 MB
-	if body == nil {
-		return
-	}
-
-	ev, err := h.PMWebhook.HandlePlaneWebhook(r.Context(), body)
-	if err != nil {
-		writeDomainError(w, err, "webhook processing failed")
-		return
-	}
-	writeJSON(w, http.StatusOK, ev)
 }
 
 // --- Review Policies & Reviews (Phase 12I) ---

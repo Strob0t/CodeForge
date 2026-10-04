@@ -48,4 +48,9 @@ type ConsentStore interface {
 
 	// GetConsentPurpose returns a specific consent purpose.
 	GetConsentPurpose(ctx context.Context, purposeID string) (*ConsentPurpose, error)
+
+	// AnonymizeConsentsForUser clears the IP address and user agent of the
+	// user's consent records (GDPR erasure, before the user row is deleted;
+	// the records stay as proof of consent) and returns how many it changed.
+	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
 }

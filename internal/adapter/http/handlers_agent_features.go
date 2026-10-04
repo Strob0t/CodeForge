@@ -17,6 +17,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/quarantine"
 	"github.com/Strob0t/CodeForge/internal/domain/skill"
+	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
@@ -471,8 +472,10 @@ func (h *Handlers) DeleteSkill(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HandleFeedbackCallback handles POST /api/v1/feedback/{run_id}/{call_id}.
-// This is the callback endpoint for email/Slack approval links.
+// HandleFeedbackCallback handles POST /api/v1/feedback/{run_id}/{call_id}:
+// the decision of the web UI's approval page (approval emails link there).
+// Only a call pending in the caller's tenant is decided; the audit entry
+// names the tool and the deciding user.
 func (h *Handlers) HandleFeedbackCallback(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "run_id")
 	callID := chi.URLParam(r, "call_id")
@@ -483,14 +486,22 @@ func (h *Handlers) HandleFeedbackCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	resolved := h.Runtime.ResolveApproval(runID, callID, decision)
+	pending, err := h.Runtime.PendingApproval(r.Context(), runID, callID)
+	if err != nil {
+		writeDomainError(w, err, "no pending approval for this run/call")
+		return
+	}
+	resolved := h.Runtime.ResolveApproval(r.Context(), runID, callID, decision)
 	if !resolved {
 		writeError(w, http.StatusNotFound, "no pending approval for this run/call")
 		return
 	}
 
-	// Log audit entry via RuntimeService.
-	if err := h.Runtime.LogFeedbackAudit(r.Context(), runID, callID, "", "web_callback", decision, ""); err != nil {
+	responder := ""
+	if u := middleware.UserFromContext(r.Context()); u != nil {
+		responder = u.Email
+	}
+	if err := h.Runtime.LogFeedbackAudit(r.Context(), runID, callID, pending.Tool, "web_callback", decision, responder); err != nil {
 		slog.Error("failed to write feedback audit", "run_id", runID, "call_id", callID, "error", err)
 	}
 

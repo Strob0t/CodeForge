@@ -21,6 +21,7 @@ import httpx
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
+from codeforge.history import DEFAULT_TOOL_OUTPUT_MAX_CHARS
 from codeforge.json_utils import safe_json_loads
 from codeforge.llm import LLMError, classify_error_type, is_fallback_eligible
 from codeforge.loop_helpers import (
@@ -39,6 +40,7 @@ from codeforge.models import (
     AgentLoopResult,
     ConversationMessagePayload,
 )
+from codeforge.policy_args import canonical_tool
 from codeforge.pricing import resolve_cost
 from codeforge.quality_tracking import (
     IterationQualityTracker,
@@ -48,15 +50,16 @@ from codeforge.quality_tracking import (
 )
 from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
-from codeforge.stall_detection import StallDetector
+from codeforge.stall_detection import StallDetector, stall_error
+from codeforge.subprocess_env import tool_env
 from codeforge.tool_executor import ToolExecutor
-from codeforge.tools.capability import TOOLS_BY_CAPABILITY, CapabilityLevel
+from codeforge.tool_process import start_tool_process
+from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY, CapabilityLevel
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
 if TYPE_CHECKING:
     from codeforge.llm import ChatCompletionResponse, LiteLLMClient, ToolCallPart
-    from codeforge.memory.experience import ExperiencePool
     from codeforge.models import ToolCallDecision
     from codeforge.plan_act import PlanActController
     from codeforge.routing.models import RoutingConfig, RoutingMetadata
@@ -127,6 +130,9 @@ class LoopConfig:
     top_p: float | None = None
     extra_body: dict[str, object] | None = None
     selected_tools: list[str] | None = None
+    # agent.tool_output_max_chars: tool results added in the loop are
+    # truncated to it (0 = DEFAULT_TOOL_OUTPUT_MAX_CHARS).
+    tool_output_max_chars: int = 0
 
 
 @dataclass
@@ -145,6 +151,7 @@ class _LoopState:
     quality_tracker: IterationQualityTracker | None = None
     files_read: set[str] = field(default_factory=set)
     writes_since_verify: int = 0
+    tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS
 
 
 # ---------------------------------------------------------------------------
@@ -211,13 +218,11 @@ class AgentLoopExecutor:
         tool_registry: ToolRegistry,
         runtime: RuntimeClient,
         workspace_path: str,
-        experience_pool: ExperiencePool | None = None,
     ) -> None:
         self._llm = llm
         self._tools = tool_registry
         self._runtime = runtime
         self._workspace = workspace_path
-        self._experience_pool = experience_pool
         self._tool_executor = ToolExecutor(tool_registry, runtime, workspace_path)
 
     _MCP_READONLY_KEYWORDS: frozenset[str] = frozenset({"search", "list", "find", "get", "fetch_url"})
@@ -229,21 +234,23 @@ class AgentLoopExecutor:
         mode_tools: frozenset[str] | None = None,
         selected_tools: list[str] | None = None,
     ) -> list[dict[str, object]]:
-        """Filter tools based on model capability level and ToolRouter selection."""
+        """Filter tools based on model capability level and ToolRouter selection.
+
+        The mode's tools and ALWAYS_OFFERED_TOOLS are always offered on top.
+        Go sends the mode's tools as canonical policy names (Read, Edit,
+        Bash, ...), so they are compared canonically.
+        """
         if selected_tools is not None:
             allowed: frozenset[str] = frozenset(selected_tools)
-            if mode_tools:
-                allowed = allowed | mode_tools
         else:
             allowed = TOOLS_BY_CAPABILITY.get(capability, frozenset())
             if not allowed:
                 return tools_array
-            if mode_tools:
-                allowed = allowed | mode_tools
+        mode_canonical = frozenset(canonical_tool(t) for t in mode_tools or ())
 
         def _is_allowed(tool: dict[str, object]) -> bool:
             name = tool.get("function", {}).get("name", "")
-            if name in allowed:
+            if name in allowed or name in ALWAYS_OFFERED_TOOLS or canonical_tool(name) in mode_canonical:
                 return True
             if selected_tools is None and name.startswith("mcp__"):
                 tool_action = name.rsplit("__", 1)[-1]
@@ -251,20 +258,6 @@ class AgentLoopExecutor:
             return False
 
         return [t for t in tools_array if _is_allowed(t)]
-
-    @staticmethod
-    def _extract_user_prompt(messages: list[dict[str, object]]) -> str:
-        """Extract the last user message content from the conversation."""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    return content
-                if isinstance(content, list):
-                    text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"]
-                    return " ".join(text_parts).strip()
-                return str(content)
-        return ""
 
     async def _publish_routing_decision(self, cfg: LoopConfig) -> None:
         """Publish a trajectory.routing_decision event if routing is active (C1.7)."""
@@ -377,46 +370,21 @@ class AgentLoopExecutor:
             )
         return await self._try_model_fallback(cfg, state, exc)
 
-    async def _check_experience_cache(self, user_prompt: str, model: str) -> AgentLoopResult | None:
-        """Return a cached result from the experience pool, or None."""
-        if not self._experience_pool or not user_prompt:
-            return None
-        try:
-            cached = await self._experience_pool.lookup(user_prompt, self._runtime.project_id)
-            if cached:
-                logger.info("experience cache hit, entry_id=%s similarity=%.3f", cached["id"], cached["similarity"])
-                return AgentLoopResult(
-                    final_content=cached["result_output"],
-                    tool_messages=[],
-                    total_cost=0.0,
-                    total_tokens_in=0,
-                    total_tokens_out=0,
-                    step_count=0,
-                    model=model,
-                    error="",
-                )
-        except (ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning("experience cache lookup failed (transient): %s", exc)
-        except ValueError as exc:
-            logger.error("experience cache data corruption: %s", exc)
-        except Exception as exc:
-            logger.error("unexpected experience cache error: %s", type(exc).__name__, exc_info=True)
-        return None
-
     @_tracer.trace_agent("agent_loop")
     async def run(self, messages: list[dict[str, object]], config: LoopConfig | None = None) -> AgentLoopResult:  # noqa: C901
         """Execute the agentic loop until the LLM stops or limits are hit."""
         cfg = config or LoopConfig()
         quality_tracker = IterationQualityTracker()
-        state = _LoopState(model=cfg.model, quality_tracker=quality_tracker)
+        state = _LoopState(
+            model=cfg.model,
+            quality_tracker=quality_tracker,
+            tool_output_max_chars=cfg.tool_output_max_chars or DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+        )
         stall_detector = StallDetector()
         error_tracker = ToolErrorTracker()
 
-        user_prompt = self._extract_user_prompt(messages)
-        cached_result = await self._check_experience_cache(user_prompt, cfg.model)
-        if cached_result is not None:
-            return cached_result
-
+        # No experience cache here: an agentic turn's result is the work it
+        # does in the workspace, which a cached answer cannot replace (KI-16).
         plan_act = init_plan_act(cfg, messages)
         tools_array = self._tools.get_openai_tools()
         cap_level = CapabilityLevel(cfg.capability_level) if cfg.capability_level else CapabilityLevel.FULL
@@ -488,19 +456,6 @@ class AgentLoopExecutor:
 
         if cfg.output_schema and state.final_content and not state.error:
             state = await self._validate_output_schema(cfg, state, messages)
-
-        if self._experience_pool and not state.error and state.final_content and user_prompt:
-            try:
-                await self._experience_pool.store(
-                    task_desc=user_prompt,
-                    project_id=self._runtime.project_id,
-                    result_output=state.final_content,
-                    result_cost=state.total_cost,
-                    result_status="completed",
-                    run_id=self._runtime.run_id,
-                )
-            except (ConnectionError, TimeoutError, OSError, ValueError) as exc:
-                logger.warning("experience pool store failed: %s", exc)
 
         try:
             await self._runtime.publish_trajectory_event(
@@ -595,10 +550,7 @@ class AgentLoopExecutor:
         """Check for stall and handle abort or escape injection. Returns True to break."""
         if stall_detector.should_abort():
             abort_info = stall_detector.get_abort_info()
-            state.error = (
-                f"stall detected: repeated {abort_info['repeated_action']} "
-                f"after {abort_info['escape_count']} escape attempts"
-            )
+            state.error = stall_error(abort_info["repeated_action"], abort_info["escape_count"])
             logger.warning("agent loop aborted due to stall: %s", state.error)
             try:
                 await self._runtime.publish_trajectory_event(
@@ -873,14 +825,16 @@ class AgentLoopExecutor:
 async def _run_git(workspace_path: str, *args: str) -> None:
     """Run a git sub-command and raise on non-zero exit.
 
-    Uses create_subprocess_exec (no shell) to avoid injection risks.
+    No shell, to avoid injection risks; git runs as a tool process (it
+    executes the workspace's hooks and config).
     """
-    proc = await asyncio.create_subprocess_exec(
+    proc = await start_tool_process(
         "git",
         *args,
         cwd=workspace_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=tool_env(),
     )
     _, stderr = await proc.communicate()
     if proc.returncode:

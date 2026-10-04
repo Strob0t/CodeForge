@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/orchestration"
 )
 
 // IncrementAgentStats atomically updates run count, cost, and success rate for an agent.
@@ -101,4 +103,67 @@ func (s *Store) MarkInboxRead(ctx context.Context, messageID string) error {
 	const q = `UPDATE agent_inbox SET read = true WHERE id = $1 AND tenant_id = $2`
 	tag, err := s.pool.Exec(ctx, q, messageID, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "mark inbox message %s as read", messageID)
+}
+
+// ClaimHandoff claims the stage of the handoff handoffID in the caller's
+// tenant (see database.AgentStore): a new claim, or one never done and
+// older than lease, is (re)claimed in one statement.
+func (s *Store) ClaimHandoff(ctx context.Context, handoffID, stage string, lease time.Duration) (orchestration.HandoffClaim, error) {
+	tenantID := tenantFromCtx(ctx)
+	var taskID *string
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO handoff_claims (tenant_id, handoff_id, stage) VALUES ($1, $2, $3)
+		 ON CONFLICT (tenant_id, handoff_id, stage) DO UPDATE SET claimed_at = now()
+		 WHERE handoff_claims.done_at IS NULL AND handoff_claims.claimed_at < now() - $4::interval
+		 RETURNING task_id`,
+		tenantID, handoffID, stage, lease).Scan(&taskID)
+	switch {
+	case err == nil:
+		claim := orchestration.HandoffClaim{Claimed: true}
+		if taskID != nil {
+			claim.TaskID = *taskID
+		}
+		return claim, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return orchestration.HandoffClaim{}, fmt.Errorf("claim handoff %s: %w", handoffID, err)
+	}
+	var done bool
+	var ageSeconds float64
+	if err := s.pool.QueryRow(ctx,
+		`SELECT done_at IS NOT NULL, EXTRACT(EPOCH FROM now() - claimed_at)::float8 FROM handoff_claims
+		 WHERE tenant_id = $1 AND handoff_id = $2 AND stage = $3`,
+		tenantID, handoffID, stage).Scan(&done, &ageSeconds); err != nil {
+		return orchestration.HandoffClaim{}, fmt.Errorf("read claim of handoff %s: %w", handoffID, err)
+	}
+	return orchestration.HandoffClaim{Done: done, Age: time.Duration(ageSeconds * float64(time.Second))}, nil
+}
+
+// FinishHandoff marks the caller's tenant's claim of a handoff stage done.
+func (s *Store) FinishHandoff(ctx context.Context, handoffID, stage string) error {
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE handoff_claims SET done_at = now() WHERE tenant_id = $1 AND handoff_id = $2 AND stage = $3`,
+		tenantFromCtx(ctx), handoffID, stage); err != nil {
+		return fmt.Errorf("finish handoff %s: %w", handoffID, err)
+	}
+	return nil
+}
+
+// ReleaseHandoff makes the caller's tenant's claim of a handoff stage
+// claimable at once (a transient failure); it keeps its task.
+func (s *Store) ReleaseHandoff(ctx context.Context, handoffID, stage string) error {
+	if _, err := s.pool.Exec(ctx,
+		`UPDATE handoff_claims SET claimed_at = '-infinity' WHERE tenant_id = $1 AND handoff_id = $2 AND stage = $3`,
+		tenantFromCtx(ctx), handoffID, stage); err != nil {
+		return fmt.Errorf("release handoff %s: %w", handoffID, err)
+	}
+	return nil
+}
+
+// SetHandoffTask records the task of the caller's tenant's claim of a
+// handoff stage.
+func (s *Store) SetHandoffTask(ctx context.Context, handoffID, stage, taskID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE handoff_claims SET task_id = $4 WHERE tenant_id = $1 AND handoff_id = $2 AND stage = $3`,
+		tenantFromCtx(ctx), handoffID, stage, taskID)
+	return execExpectOne(tag, err, "set task of handoff %s", handoffID)
 }

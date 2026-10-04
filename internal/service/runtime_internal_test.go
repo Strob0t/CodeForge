@@ -32,12 +32,22 @@ func TestIsFileModifyingTool(t *testing.T) {
 		{"execute", true},
 		{"write_file", true},
 		{"edit_file", true},
+		// Worker and Claude Code names that modify files map to Edit/Write/Bash
+		// (policy.CanonicalTool); previously only exact names matched and the
+		// worker's bash, MultiEdit and NotebookEdit got no checkpoint.
+		{"bash", true},
+		{"MultiEdit", true},
+		{"NotebookEdit", true},
+		{"file:write", true},
+		{"command:execute", true},
+		{"edit", true}, // canonical names are case-insensitive
 		{"Read", false},
+		{"read_file", false},
 		{"Search", false},
 		{"Glob", false},
 		{"ListDir", false},
+		{"mcp__fs__write", false},
 		{"", false},
-		{"edit", false}, // case-sensitive
 	}
 
 	for _, tc := range tests {
@@ -487,9 +497,9 @@ func TestSendToolCallResponse_BasicPath(t *testing.T) {
 
 // TestApprovalKey verifies the approval key format.
 func TestApprovalKey(t *testing.T) {
-	key := approvalKey("run-123", "call-456")
-	if key != "run-123:call-456" {
-		t.Errorf("expected 'run-123:call-456', got %q", key)
+	key := approvalKey("tenant-1", "run-123", "call-456")
+	if key != "run-123:call-456@tenant-1" {
+		t.Errorf("expected 'run-123:call-456@tenant-1', got %q", key)
 	}
 }
 
@@ -508,7 +518,7 @@ func TestWaitForApproval_DefaultTimeout(t *testing.T) {
 	defer cancel()
 
 	// Context cancel should fire before the default 60s timeout
-	decision := svc.waitForApproval(ctx, "run-def", "call-def", "Read", "", "")
+	decision := svc.waitForApproval(ctx, &event.AGUIPermissionRequestEvent{RunID: "run-def", CallID: "call-def", Tool: "Read"})
 	if decision != policy.DecisionDeny {
 		t.Errorf("expected deny on context cancel, got %s", decision)
 	}
@@ -528,13 +538,13 @@ func TestWaitForApproval_ResolveBeforeTimeout(t *testing.T) {
 
 	resultCh := make(chan policy.Decision, 1)
 	go func() {
-		resultCh <- svc.waitForApproval(context.Background(), "run-resolve", "call-resolve", "Bash", "test", "")
+		resultCh <- svc.waitForApproval(context.Background(), &event.AGUIPermissionRequestEvent{RunID: "run-resolve", CallID: "call-resolve", Tool: "Bash", Command: "test"})
 	}()
 
 	// Give goroutine time to register the channel
 	time.Sleep(50 * time.Millisecond)
 
-	ok := svc.ResolveApproval("run-resolve", "call-resolve", "allow")
+	ok := svc.ResolveApproval(context.Background(), "run-resolve", "call-resolve", "allow")
 	if !ok {
 		t.Fatal("ResolveApproval returned false")
 	}

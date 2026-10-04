@@ -75,7 +75,13 @@
       "headers": {
         "Authorization": "Bearer tok_sample"
       },
-      "enabled": true
+      "enabled": true,
+      "allowed_private_hosts": [
+        "docs-mcp",
+        "10.20.0.0/16"
+      ],
+      "trusted": true,
+      "use_proxy": true
     }
   ],
   "tools": [
@@ -97,5 +103,10 @@
   "agentic": true,
   "provider_api_key": "sk-user-key-abc123",
   "rollout_count": 3,
-  "summarize_threshold": 50
+  "summarize_threshold": 50,
+  "tool_output_max_chars": 20000,
+  "turn_id": "550e8400-e29b-41d4-a716-446655440005",
+  "tool_uid": 20000,
+  "approval_timeout_seconds": 60,
+  "heartbeat_seconds": 30
 }

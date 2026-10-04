@@ -65,12 +65,15 @@ test.describe("LLM E2E — Model Management", () => {
       expect(listRes.status()).toBe(200);
       const models = await listRes.json();
       expect(Array.isArray(models)).toBe(true);
-      const found = models.some((m: { model_name?: string }) => m.model_name === testModelName);
-      expect(found).toBe(true);
+      const added = models.find((m: { model_name?: string }) => m.model_name === testModelName) as
+        | { model_id?: string; model_info?: { id?: string } }
+        | undefined;
+      expect(added).toBeDefined();
 
-      const delRes = await request.post(`${API_BASE}/llm/models/delete`, {
+      // LiteLLM deletes by deployment ID, not by model name.
+      const modelId = added?.model_id || added?.model_info?.id || testModelName;
+      const delRes = await request.delete(`${API_BASE}/llm/models/${encodeURIComponent(modelId)}`, {
         headers: headers(),
-        data: { id: testModelName },
       });
       expect([200, 502]).toContain(delRes.status());
 

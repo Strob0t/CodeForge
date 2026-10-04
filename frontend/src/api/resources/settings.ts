@@ -55,9 +55,10 @@ export function createPoliciesResource(c: CoreClient) {
     delete: (name: string) => c.del<undefined>(url`/policies/${name}`),
     evaluate: (name: string, call: PolicyToolCall) =>
       c.post<EvaluationResult>(url`/policies/${name}/evaluate`, call),
-    allowAlways: (projectId: string, tool: string, command?: string) =>
+    allowAlways: (projectId: string, tool: string, command?: string, profile?: string) =>
       c.post<PolicyProfile>("/policies/allow-always", {
         project_id: projectId,
+        profile,
         tool,
         command,
       }),

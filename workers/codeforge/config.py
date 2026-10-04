@@ -11,9 +11,14 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from codeforge.tool_identity import DEFAULT_HOME_BASE, DEFAULT_TOOL_PATH
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_FILE = "codeforge.yaml"
+
+# LiteLLM master key of the development compose file; never valid in production.
+DEV_LITELLM_MASTER_KEY = "sk-codeforge-dev"
 
 
 def _find_config_file() -> Path | None:
@@ -61,6 +66,44 @@ def _resolve_str(env_key: str, yaml_value: object, default: str) -> str:
     return default
 
 
+FILE_ENV_SUFFIX = "_FILE"
+
+# Contents of the secret files read so far. A secret file is read once: the
+# worker locks its secrets directory after startup (codeforge.secrets), and
+# settings built later must still see the values.
+_secret_file_values: dict[str, str] = {}
+
+
+def read_secret_file(path: str) -> str:
+    """Return the content of a secret file without surrounding whitespace (read once, then cached)."""
+    if path not in _secret_file_values:
+        value = Path(path).read_text().strip()
+        if not value:
+            msg = f"secret file {path} is empty"
+            raise ValueError(msg)
+        _secret_file_values[path] = value
+    return _secret_file_values[path]
+
+
+def _resolve_secret(env_key: str, yaml_value: object, default: str) -> str:
+    """Resolve a secret: <env_key>_FILE (a Docker secret file) or env var > YAML > default.
+
+    Like the Go Core, a secret set both directly and as a file is rejected.
+    """
+    file_key = env_key + FILE_ENV_SUFFIX
+    path = os.environ.get(file_key, "")
+    if not path:
+        return _resolve_str(env_key, yaml_value, default)
+    if os.environ.get(env_key, ""):
+        msg = f"both {env_key} and {file_key} are set, set only one"
+        raise ValueError(msg)
+    try:
+        return read_secret_file(path)
+    except (OSError, ValueError) as exc:
+        msg = f"{file_key}: {exc}"
+        raise ValueError(msg) from exc
+
+
 def _resolve_bool(env_key: str, yaml_value: object, default: bool) -> bool:
     """Resolve a bool setting: env var > YAML > default."""
     env = os.environ.get(env_key, "")
@@ -97,6 +140,42 @@ def _resolve_float(env_key: str, yaml_value: object, default: float) -> float:
     return default
 
 
+MODEL_CAPABILITIES_ENV = "CODEFORGE_MODEL_CAPABILITIES"
+# The levels of codeforge.tools.capability.CapabilityLevel (not imported here: that package imports this module).
+_CAPABILITY_LEVELS = frozenset({"full", "api_with_tools", "pure_completion"})
+
+
+def _resolve_model_capabilities(yaml_value: object) -> tuple[tuple[str, str], ...]:
+    """Resolve the operator's tool-capability overrides: env var > YAML > none.
+
+    The env var holds ``pattern=level`` entries separated by commas, the YAML
+    key (``litellm.model_capabilities``) a mapping of pattern to level.
+    Patterns are shell-style globs on the model name; the first match wins.
+    An entry without a pattern or with an unknown level is refused.
+    """
+    env = os.environ.get(MODEL_CAPABILITIES_ENV, "")
+    entries: list[tuple[str, str]] = []
+    if env.strip():
+        for item in env.split(","):
+            if not item.strip():
+                continue
+            pattern, sep, level = item.partition("=")
+            if not sep:
+                msg = f"{MODEL_CAPABILITIES_ENV}: entry {item.strip()!r} is not pattern=level"
+                raise ValueError(msg)
+            entries.append((pattern.strip(), level.strip()))
+    elif isinstance(yaml_value, dict):
+        entries = [(str(pattern).strip(), str(level).strip()) for pattern, level in yaml_value.items()]
+    for pattern, level in entries:
+        if not pattern or level not in _CAPABILITY_LEVELS:
+            msg = (
+                f"{MODEL_CAPABILITIES_ENV} / litellm.model_capabilities: entry {pattern!r}={level!r} needs a "
+                f"pattern and one of the levels {', '.join(sorted(_CAPABILITY_LEVELS))}"
+            )
+            raise ValueError(msg)
+    return tuple(entries)
+
+
 def resolve_backend_path(explicit: str | None, env_var: str, default: str) -> str:
     """Resolve a backend CLI/URL path using explicit value, env var, or default."""
     if explicit:
@@ -125,10 +204,22 @@ class WorkerSettings:
     app_env: str
     database_url: str
     workspace: str
+    workspace_root: str
     config_file: str
+
+    # Tool isolation (KI-71, KI-96: codeforge.tool_process, codeforge.tool_identity)
+    tool_isolation: str
+    workspace_gid: int
+    tool_home_base: str
+    tool_path: str
+    tool_landlock: str
+    tool_landlock_min_abi: int
+    tool_read_paths: str
+    tool_cache_max_mb: int
 
     # LLM
     default_model: str
+    model_capabilities: tuple[tuple[str, str], ...]
 
     # Consumer
     consumer_max_errors: int
@@ -152,6 +243,9 @@ class WorkerSettings:
     benchmark_max_parallel: int
     benchmark_datasets_dir: str
 
+    # Knowledge bases: indexed below this directory only (KI-105)
+    knowledge_content_root: str
+
     # OpenTelemetry
     otel_enabled: bool
     otel_endpoint: str
@@ -161,6 +255,11 @@ class WorkerSettings:
 
     # Plan/Act
     plan_act_max_iterations: int
+
+    # Experience pool (same keys and env vars as the Go config)
+    experience_enabled: bool
+    experience_confidence_threshold: float
+    experience_max_entries: int
 
     # Evaluation
     judge_model: str
@@ -183,11 +282,12 @@ class WorkerSettings:
         routing_cfg: dict = yaml_cfg.get("routing", {}) if isinstance(yaml_cfg.get("routing"), dict) else {}
         trust_cfg: dict = yaml_cfg.get("trust", {}) if isinstance(yaml_cfg.get("trust"), dict) else {}
 
-        self.nats_url = _resolve_str("NATS_URL", nats_cfg.get("url"), "nats://localhost:4222")
+        self.nats_url = _resolve_secret("NATS_URL", nats_cfg.get("url"), "nats://localhost:4222")
         self.litellm_url = _resolve_str("LITELLM_BASE_URL", litellm_cfg.get("url"), "http://localhost:4000")
-        self.litellm_api_key = _resolve_str("LITELLM_MASTER_KEY", litellm_cfg.get("master_key"), "sk-codeforge-dev")
-        if self.litellm_api_key == "sk-codeforge-dev":
-            logger.warning("using default LiteLLM key 'sk-codeforge-dev' - set LITELLM_MASTER_KEY for production")
+        # The worker entry point warns about the development key once logging is set up.
+        self.litellm_api_key = _resolve_secret(
+            "LITELLM_MASTER_KEY", litellm_cfg.get("master_key"), DEV_LITELLM_MASTER_KEY
+        )
         self.log_level = _resolve_str("CODEFORGE_WORKER_LOG_LEVEL", logging_cfg.get("level"), "info")
         self.log_service = _resolve_str("CODEFORGE_WORKER_LOG_SERVICE", None, "codeforge-worker")
         self.health_port = _resolve_int("CODEFORGE_WORKER_HEALTH_PORT", None, 8081)
@@ -198,18 +298,40 @@ class WorkerSettings:
         # --- Core / Infrastructure ---
         core_cfg: dict = yaml_cfg.get("core", {}) if isinstance(yaml_cfg.get("core"), dict) else {}
         self.core_url = _resolve_str("CODEFORGE_CORE_URL", core_cfg.get("url"), "http://localhost:8080")
-        self.internal_key = _resolve_str("CODEFORGE_INTERNAL_KEY", core_cfg.get("internal_key"), "")
+        self.internal_key = _resolve_secret("CODEFORGE_INTERNAL_KEY", core_cfg.get("internal_key"), "")
         self.app_env = _resolve_str("APP_ENV", yaml_cfg.get("app_env"), "")
-        self.database_url = _resolve_str(
+        self.database_url = _resolve_secret(
             "DATABASE_URL",
             yaml_cfg.get("postgres", {}).get("dsn") if isinstance(yaml_cfg.get("postgres"), dict) else None,
             "postgresql://codeforge:codeforge_dev@localhost:5432/codeforge",
         )
         self.workspace = _resolve_str("CODEFORGE_WORKSPACE", None, "/workspaces/CodeForge")
+        # The Go Core's workspace root (same variable); with tool isolation the
+        # worker opens workspaces created before it to the workspace group.
+        self.workspace_root = _resolve_str("CODEFORGE_WORKSPACE_ROOT", None, "")
         self.config_file = os.environ.get("CODEFORGE_CONFIG_FILE", "")
+
+        # --- Tool isolation (KI-71, KI-96): who agent tool processes run as ---
+        # "required" in the worker image and docker-compose.prod.yml, "off" elsewhere.
+        # With it every tenant's tool processes run as the tenant's tool UID (the
+        # Go Core sends it), with a HOME below the base and the tool PATH.
+        self.tool_isolation = _resolve_str("CODEFORGE_TOOL_ISOLATION", None, "off")
+        self.workspace_gid = _resolve_int("CODEFORGE_WORKSPACE_GID", None, 10010)
+        self.tool_home_base = _resolve_str("CODEFORGE_TOOL_HOME_BASE", None, DEFAULT_HOME_BASE)
+        self.tool_path = _resolve_str("CODEFORGE_TOOL_PATH", None, DEFAULT_TOOL_PATH)
+        # Landlock per tool call (KI-96 D6): unset follows CODEFORGE_TOOL_ISOLATION;
+        # "off" is refused with APP_ENV=production. Read paths: operator
+        # toolchains tools may read and run (colon-separated, validated).
+        self.tool_landlock = _resolve_str("CODEFORGE_TOOL_LANDLOCK", None, "")
+        self.tool_landlock_min_abi = _resolve_int("CODEFORGE_TOOL_LANDLOCK_MIN_ABI", None, 2)
+        self.tool_read_paths = _resolve_str("CODEFORGE_TOOL_READ_PATHS", None, "")
+        # A tenant's HOME cache (<HOME>/.cache) larger than this is removed when the tenant goes idle.
+        self.tool_cache_max_mb = _resolve_int("CODEFORGE_TOOL_CACHE_MAX_MB", None, 4096)
 
         # --- LLM ---
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")
+        # Tool capability per model, above LiteLLM's metadata and the name patterns (KI-125).
+        self.model_capabilities = _resolve_model_capabilities(litellm_cfg.get("model_capabilities"))
 
         # --- Consumer ---
         consumer_cfg: dict = yaml_cfg.get("consumer", {}) if isinstance(yaml_cfg.get("consumer"), dict) else {}
@@ -232,6 +354,16 @@ class WorkerSettings:
         self.claudecode_timeout = _resolve_int("CODEFORGE_CLAUDECODE_TIMEOUT", claude_cfg.get("timeout"), 300)
         self.claudecode_tiers = _resolve_str("CODEFORGE_CLAUDECODE_TIERS", claude_cfg.get("tiers"), "COMPLEX,REASONING")
 
+        # --- Experience pool ---
+        experience_cfg: dict = yaml_cfg.get("experience", {}) if isinstance(yaml_cfg.get("experience"), dict) else {}
+        self.experience_enabled = _resolve_bool("CODEFORGE_EXPERIENCE_ENABLED", experience_cfg.get("enabled"), False)
+        self.experience_confidence_threshold = _resolve_float(
+            "CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD", experience_cfg.get("confidence_threshold"), 0.85
+        )
+        self.experience_max_entries = _resolve_int(
+            "CODEFORGE_EXPERIENCE_MAX_ENTRIES", experience_cfg.get("max_entries"), 1000
+        )
+
         # --- Routing ---
         self.effective_models_cache_ttl = _resolve_float(
             "CODEFORGE_EFFECTIVE_MODELS_CACHE_TTL", routing_cfg.get("effective_models_cache_ttl"), 5.0
@@ -248,6 +380,12 @@ class WorkerSettings:
             "CODEFORGE_BENCHMARK_DATASETS_DIR", bench_cfg.get("datasets_dir"), "configs/benchmarks"
         )
 
+        # --- Knowledge bases (same key and env var as the Go config, KI-105) ---
+        knowledge_cfg: dict = yaml_cfg.get("knowledge", {}) if isinstance(yaml_cfg.get("knowledge"), dict) else {}
+        self.knowledge_content_root = _resolve_str(
+            "CODEFORGE_KNOWLEDGE_CONTENT_ROOT", knowledge_cfg.get("content_root"), "data/knowledge"
+        )
+
         # --- OpenTelemetry ---
         otel_cfg: dict = yaml_cfg.get("otel", {}) if isinstance(yaml_cfg.get("otel"), dict) else {}
         self.otel_enabled = _resolve_bool("CODEFORGE_OTEL_ENABLED", otel_cfg.get("enabled"), False)
@@ -255,7 +393,8 @@ class WorkerSettings:
         self.otel_service_name = _resolve_str(
             "CODEFORGE_OTEL_SERVICE_NAME", otel_cfg.get("service_name"), "codeforge-worker"
         )
-        self.otel_insecure = _resolve_bool("CODEFORGE_OTEL_INSECURE", otel_cfg.get("insecure"), True)
+        # Same default as the Go core (TLS); the dev Jaeger needs CODEFORGE_OTEL_INSECURE=true.
+        self.otel_insecure = _resolve_bool("CODEFORGE_OTEL_INSECURE", otel_cfg.get("insecure"), False)
         self.otel_sample_rate = _resolve_float("CODEFORGE_OTEL_SAMPLE_RATE", otel_cfg.get("sample_rate"), 1.0)
 
         # --- Plan/Act ---

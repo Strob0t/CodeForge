@@ -3,10 +3,10 @@ package http
 import (
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/version"
@@ -39,8 +39,17 @@ func WithAuditStore(s auditDB) RouteOption {
 	return func(o *routeOptions) { o.auditStore = s }
 }
 
-// auditFunc is the type for the audit middleware factory used across mount functions.
-type auditFunc func(action, resource string) func(http.Handler) http.Handler
+// auditFunc is the type for the audit middleware factory used across mount
+// functions. The entry names the resource of the {id} URL parameter; with
+// auditByHandler the handler names it (middleware.RecordAudit).
+type auditFunc func(action, resource string, opts ...auditOption) func(http.Handler) http.Handler
+
+// auditOption changes how an audit entry is made.
+type auditOption int
+
+// auditByHandler: the handler names the audited resource from what it
+// decoded and acts on (middleware.AuditLogByHandler).
+const auditByHandler auditOption = 1
 
 // MountRoutes registers all API routes on the given chi router.
 //
@@ -55,8 +64,8 @@ type auditFunc func(action, resource string) func(http.Handler) http.Handler
 // for JSON API-only endpoints (no form posts). If HTML form support is added in
 // the future, add a CSRF token middleware.
 //
-// TODO: FIX-098: Some DELETE operations use POST (e.g., /llm/models/delete,
-// /projects/batch/delete). Migrate to proper HTTP DELETE in v2 (breaking change).
+// TODO: FIX-098: Some DELETE operations use POST (e.g., /projects/batch/delete).
+// Migrate to proper HTTP DELETE in v2 (breaking change).
 //
 // TODO: FIX-100: Partial updates should use PATCH, not PUT. Audit endpoints
 // that accept partial payloads and migrate to PATCH in v2 (breaking change).
@@ -70,7 +79,7 @@ type auditFunc func(action, resource string) func(http.Handler) http.Handler
 //
 // MIGRATION PLAN: These will be addressed in API v2. v1 routes remain stable
 // with Deprecation headers. Track: https://github.com/Strob0t/CodeForge/issues/XXX
-func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...RouteOption) {
+func MountRoutes(r chi.Router, h *Handlers, opts ...RouteOption) {
 	var ro routeOptions
 	for _, o := range opts {
 		o(&ro)
@@ -78,14 +87,17 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 
 	// audit returns AuditLog middleware when an audit store is configured,
 	// or a pass-through no-op otherwise.
-	audit := auditFunc(func(action, resource string) func(http.Handler) http.Handler {
+	audit := auditFunc(func(action, resource string, opts ...auditOption) func(http.Handler) http.Handler {
 		if ro.auditStore == nil {
 			return func(next http.Handler) http.Handler { return next }
+		}
+		if slices.Contains(opts, auditByHandler) {
+			return middleware.AuditLogByHandler(ro.auditStore, action, resource)
 		}
 		return middleware.AuditLog(ro.auditStore, action, resource)
 	})
 
-	mountWebhookRoutes(r, h, webhookCfg)
+	mountWebhookRoutes(r, h)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Version
@@ -110,7 +122,7 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 		mountIntelligenceRoutes(r, h)
 		mountBenchmarkRoutes(r, h)
 		mountSecurityRoutes(r, h, &ro, audit)
-		mountDevToolRoutes(r, h)
+		mountDevToolRoutes(r, h, audit)
 		mountChannelRoutes(r, h)
 		mountA2ARoutes(r, h)
 		mountGoalRoutes(r, h)
@@ -119,19 +131,20 @@ func MountRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook, opts ...R
 	})
 }
 
-// mountWebhookRoutes registers VCS/PM webhook endpoints (outside auth, use HMAC/token verification).
-func mountWebhookRoutes(r chi.Router, h *Handlers, webhookCfg config.Webhook) {
+// mountWebhookRoutes registers the inbound webhook endpoints. They are
+// outside authentication: a channel webhook presents its channel's key
+// (KI-73), a VCS or PM webhook is signed with the secret of the webhook its
+// URL names, which also names its tenant and project (KI-85).
+func mountWebhookRoutes(r chi.Router, h *Handlers) {
 	r.Route("/api/v1/webhooks", func(r chi.Router) {
-		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
-			Post("/vcs/github", h.HandleGitHubWebhook)
-		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
-			Post("/vcs/gitlab", h.HandleGitLabWebhook)
-		r.With(middleware.WebhookHMAC(webhookCfg.GitHubSecret, "X-Hub-Signature-256")).
-			Post("/pm/github", h.HandleGitHubIssueWebhook)
-		r.With(middleware.WebhookToken(webhookCfg.GitLabToken, "X-Gitlab-Token")).
-			Post("/pm/gitlab", h.HandleGitLabIssueWebhook)
-		r.With(middleware.WebhookHMAC(webhookCfg.PlaneSecret, "X-Plane-Signature")).
-			Post("/pm/plane", h.HandlePlaneWebhook)
+		r.Post("/channels/{id}", h.WebhookMessage)
+		r.Post("/vcs/{provider}/{webhookId}", h.ReceiveVCSWebhook)
+		r.Post("/pm/{provider}/{webhookId}", h.ReceivePMWebhook)
+		// The global routes (one operator secret, the default tenant) were
+		// removed with KI-85; they answer 410 and name the migration.
+		for _, old := range []string{"/vcs/github", "/vcs/gitlab", "/pm/github", "/pm/gitlab", "/pm/plane"} {
+			r.Post(old, h.RemovedWebhookRoute)
+		}
 	})
 }
 
@@ -141,6 +154,17 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Get("/projects", h.Project.ListProjects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("create", "project")).Post("/projects", h.Project.CreateProject)
 	r.Get("/projects/remote-branches", h.Project.ListRemoteBranches)
+
+	// Inbound webhooks of a project (KI-85): admins register, rotate,
+	// change the token of and delete them; editors list them (no secrets).
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("create", "webhook")).Post("/projects/{id}/webhooks", h.RegisterWebhook)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Get("/projects/{id}/webhooks", h.ListWebhooks)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("rotate", "webhook", auditByHandler)).
+		Post("/projects/{id}/webhooks/{webhookId}/rotate", h.RotateWebhookSecret)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("update", "webhook", auditByHandler)).
+		Put("/projects/{id}/webhooks/{webhookId}/api-token", h.SetWebhookAPIToken)
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "webhook", auditByHandler)).
+		Delete("/projects/{id}/webhooks/{webhookId}", h.DeleteWebhook)
 
 	// Batch project operations
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/delete", h.BatchDeleteProjects)
@@ -303,6 +327,8 @@ func mountRunRoutes(r chi.Router, h *Handlers) {
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/runs/{id}/approve/{callId}", h.ApproveToolCall)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
+		Get("/runs/{id}/approvals/{callId}", h.GetPendingApproval)
+	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/runs/{id}/revert/{callId}", h.RevertToolCall)
 
 	// Trajectory (nested under runs)
@@ -417,8 +443,9 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// LLM management (proxied to LiteLLM)
 	r.Get("/llm/models", h.ListLLMModels)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/llm/models", h.AddLLMModel)
-	r.With(middleware.RequireRole(user.RoleAdmin)).Post("/llm/models/delete", h.DeleteLLMModel)
+	// All tenants share the LiteLLM proxy: only platform admins change its models (KI-75).
+	r.With(middleware.RequirePlatformAdmin, audit("create", "llm_model")).Post("/llm/models", h.AddLLMModel)
+	r.With(middleware.RequirePlatformAdmin, audit("delete", "llm_model")).Delete("/llm/models/{id}", h.DeleteLLMModel)
 	r.Get("/llm/health", h.LLMHealth)
 	r.Get("/llm/discover", h.DiscoverLLMModels)
 
@@ -426,8 +453,9 @@ func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Get("/llm/available", h.AvailableLLMModels)
 	r.Post("/llm/refresh", h.RefreshLLMModels)
 
-	// Copilot Token Exchange (Phase 22A)
-	r.Post("/copilot/exchange", h.HandleCopilotExchange)
+	// Copilot Token Exchange (Phase 22A): checks the platform credential; the
+	// token itself is never returned (KI-80).
+	r.With(middleware.RequirePlatformAdmin).Post("/copilot/exchange", h.HandleCopilotExchange)
 
 	// LLM Keys
 	r.Get("/llm-keys", h.ListLLMKeys)
@@ -476,6 +504,7 @@ func mountReviewRoutes(r chi.Router, h *Handlers) {
 	// Review/Refactor (Phase 31)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/projects/{id}/review-refactor", h.TriggerReviewRefactor)
+	r.Get("/projects/{id}/review/pending", h.ListPendingReviewDecisions)
 
 	// Review Policies & Reviews (Phase 12I)
 	r.Get("/projects/{id}/review-policies", h.ListReviewPolicies)
@@ -528,11 +557,13 @@ func mountIntelligenceRoutes(r chi.Router, h *Handlers) {
 
 	// Knowledge Bases
 	r.Get("/knowledge-bases", h.ListKnowledgeBases)
-	r.Post("/knowledge-bases", h.CreateKnowledgeBase)
+	// KI-105: knowledge-base content is read from the operator's content root,
+	// so creating, changing, deleting and indexing a KB need admin.
+	r.With(middleware.RequireRole(user.RoleAdmin)).Post("/knowledge-bases", h.CreateKnowledgeBase)
 	r.Get("/knowledge-bases/{id}", h.GetKnowledgeBase)
-	r.Put("/knowledge-bases/{id}", h.UpdateKnowledgeBase)
-	r.Delete("/knowledge-bases/{id}", h.DeleteKnowledgeBase)
-	r.Post("/knowledge-bases/{id}/index", h.IndexKnowledgeBase)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Put("/knowledge-bases/{id}", h.UpdateKnowledgeBase)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/knowledge-bases/{id}", h.DeleteKnowledgeBase)
+	r.With(middleware.RequireRole(user.RoleAdmin)).Post("/knowledge-bases/{id}/index", h.IndexKnowledgeBase)
 
 	// Memories (Phase 22B)
 	r.Get("/projects/{id}/memories", h.ListMemories)
@@ -604,7 +635,7 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(ro.authRateLimiter.Handler, audit("setup", "auth")).Post("/auth/setup", h.InitialSetup)
 		r.With(ro.authRateLimiter.Handler, audit("forgot_password", "auth")).Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.With(ro.authRateLimiter.Handler, audit("reset_password", "auth")).Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Get("/auth/github", h.StartGitHubOAuth)
+		r.Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	} else {
 		r.With(audit("login", "auth")).Post("/auth/login", h.Login)
@@ -613,7 +644,7 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(audit("setup", "auth")).Post("/auth/setup", h.InitialSetup)
 		r.With(audit("forgot_password", "auth")).Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.With(audit("reset_password", "auth")).Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Get("/auth/github", h.StartGitHubOAuth)
+		r.Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	}
 
@@ -641,11 +672,13 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	r.Get("/me/consent", h.GetMyConsentStatus)
 	r.Put("/me/consent/{purposeID}", h.SetMyConsent)
 
-	// Subscription Providers (OAuth device flow connect)
+	// Subscription Providers (OAuth device flow connect). Connecting writes
+	// the platform's .env, which LiteLLM uses for all tenants: platform
+	// admins only (KI-75).
 	r.Get("/auth/providers", h.ListSubscriptionProviders)
-	r.Post("/auth/providers/{provider}/connect", h.StartProviderConnect)
+	r.With(middleware.RequirePlatformAdmin).Post("/auth/providers/{provider}/connect", h.StartProviderConnect)
 	r.Get("/auth/providers/{provider}/status", h.GetProviderStatus)
-	r.Delete("/auth/providers/{provider}/disconnect", h.DisconnectProvider)
+	r.With(middleware.RequirePlatformAdmin).Delete("/auth/providers/{provider}/disconnect", h.DisconnectProvider)
 
 	// VCS Accounts
 	r.Get("/vcs-accounts", h.ListVCSAccounts)
@@ -666,18 +699,19 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(audit("delete", "user_data")).Delete("/{id}/data", h.DeleteUserData)
 	})
 
-	// Tenants (admin only)
+	// Tenants (admin only). Creating one is for platform admins: every tenant
+	// that runs tools takes a tool UID of the deployment's range (KI-96).
 	r.Route("/tenants", func(r chi.Router) {
 		r.Use(middleware.RequireRole(user.RoleAdmin))
 		r.Get("/", h.ListTenants)
-		r.Post("/", h.CreateTenant)
+		r.With(middleware.RequirePlatformAdmin).Post("/", h.CreateTenant)
 		r.Get("/{id}", h.GetTenant)
 		r.Put("/{id}", h.UpdateTenant)
 	})
 }
 
 // mountDevToolRoutes registers LSP, MCP, and project MCP server endpoints.
-func mountDevToolRoutes(r chi.Router, h *Handlers) {
+func mountDevToolRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// LSP (Language Server Protocol)
 	r.Post("/projects/{id}/lsp/start", h.StartLSP)
 	r.Post("/projects/{id}/lsp/stop", h.StopLSP)
@@ -688,18 +722,30 @@ func mountDevToolRoutes(r chi.Router, h *Handlers) {
 	r.Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
 	r.Post("/projects/{id}/lsp/hover", h.LSPHover)
 
-	// MCP Servers (Phase 15C + 19H)
+	// MCP Servers (Phase 15C + 19H). Every user of a tenant reads its
+	// servers (env and header values redacted). A server definition names a
+	// command the worker runs for agents (stdio) or an endpoint it connects
+	// to; servers belong to a tenant and are assigned only to projects of
+	// it. A tenant's admins create, change, delete, test and assign them
+	// (KI-71 review, ADR-017): stdio servers run as the tool user, with the
+	// rights the agents' Bash tool already has in that tenant's runs, never
+	// as the worker or in the Go Core.
+	adminOnly := middleware.RequireRole(user.RoleAdmin)
 	r.Get("/mcp/servers", h.ListMCPServers)
-	r.Post("/mcp/servers", h.CreateMCPServer)
-	r.Post("/mcp/servers/test", h.TestMCPServerConnection) // pre-save test (no ID)
+	r.With(adminOnly, audit("create", "mcp_server")).Post("/mcp/servers", h.CreateMCPServer)
+	r.With(adminOnly).Post("/mcp/servers/test", h.TestMCPServerConnection) // pre-save test (no ID)
 	r.Get("/mcp/servers/{id}", h.GetMCPServer)
-	r.Put("/mcp/servers/{id}", h.UpdateMCPServer)
-	r.Delete("/mcp/servers/{id}", h.DeleteMCPServer)
-	r.Post("/mcp/servers/{id}/test", h.TestMCPServer)
+	r.With(adminOnly, audit("update", "mcp_server")).Put("/mcp/servers/{id}", h.UpdateMCPServer)
+	r.With(adminOnly, audit("delete", "mcp_server")).Delete("/mcp/servers/{id}", h.DeleteMCPServer)
+	r.With(adminOnly).Post("/mcp/servers/{id}/test", h.TestMCPServer)
 	r.Get("/mcp/servers/{id}/tools", h.ListMCPServerTools)
 	r.Get("/projects/{id}/mcp-servers", h.ListProjectMCPServers)
-	r.Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
-	r.Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
+	// Audited as actions on the server, with the project; the handlers name
+	// what they decoded and refuse the change when no entry can be written.
+	r.With(adminOnly, audit("assign", "mcp_server", auditByHandler)).
+		Post("/projects/{id}/mcp-servers", h.AssignMCPServerToProject)
+	r.With(adminOnly, audit("unassign", "mcp_server", auditByHandler)).
+		Delete("/projects/{id}/mcp-servers/{serverId}", h.UnassignMCPServerFromProject)
 }
 
 // mountChannelRoutes registers real-time channel endpoints.
@@ -717,7 +763,10 @@ func mountChannelRoutes(r chi.Router, h *Handlers) {
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Post("/{id}/messages/{mid}/thread", h.SendThreadReply)
 		r.Put("/{id}/members/{uid}", h.UpdateMemberNotify)
-		r.Post("/{id}/webhook", h.WebhookMessage)
+		r.With(middleware.RequireRole(user.RoleAdmin)).
+			Post("/{id}/webhook-key", h.RegenerateChannelWebhookKey)
+		r.Post("/{id}/read", h.MarkChannelRead)
+		r.Get("/{id}/read", h.ListChannelReadStates)
 	})
 }
 

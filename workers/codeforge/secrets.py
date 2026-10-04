@@ -36,3 +36,23 @@ def get_secret(key: str, default: str = "") -> str:
     if value:
         logger.debug("loaded secret from env: %s", key)
     return value
+
+
+def lock_secrets_dir(directory: Path = SECRETS_DIR) -> bool:
+    """Remove the worker's own access to its secrets directory, once every secret was read (KI-71).
+
+    Tool processes cannot enter the directory (docker-compose.prod.yml mounts
+    it as a tmpfs only the worker user may enter), but the worker reads
+    workspace files on an agent's behalf (file tools, indexers), and a symlink
+    an agent planted could point there. Only a directory the worker owns is
+    locked; returns whether it was. get_secret() cannot read files from it
+    afterwards; settings keep the values they read (codeforge.config).
+    """
+    try:
+        info = directory.stat()
+    except FileNotFoundError:
+        return False
+    if info.st_uid != os.getuid():
+        return False
+    directory.chmod(0)
+    return True

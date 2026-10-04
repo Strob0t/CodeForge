@@ -15,13 +15,28 @@ MAX_TOOL_RESULTS = 500  # Glob tool: max file paths returned.
 MAX_DIR_ENTRIES = 500  # ListDirectory tool: max entries.
 MAX_LIST_DEPTH = 3  # ListDirectory tool: max recursive depth.
 MAX_SEARCH_MATCHES = 100  # SearchFiles tool: max grep matches.
+# Largest agent.tool_output_max_chars the worker uses (a larger value is
+# clamped to it, a negative one to 0 = the default). The Go Core refuses
+# larger values at startup (maxToolOutputMaxChars in internal/config): two
+# gate outputs of this size stay below the NATS max payload of 1 MiB.
+MAX_TOOL_OUTPUT_MAX_CHARS = 80_000
+# Largest workspace file the worker reads into memory (read_file, edit_file,
+# benchmark snapshots); the Go Core's file API uses the same cap (KI-95).
+MAX_WORKSPACE_FILE_BYTES = 10 * 1024 * 1024
 
 # -- Backend execution -------------------------------------------------------
 DEFAULT_BACKEND_TIMEOUT_SECONDS = 600  # 10 minutes per backend task.
 DEFAULT_QG_TIMEOUT_SECONDS = 120  # Quality gate command timeout.
 
-# -- NATS protocol -----------------------------------------------------------
-NATS_RESPONSE_TIMEOUT_SECONDS = 30  # Timeout waiting for policy response.
+# -- Tool call policy decisions ----------------------------------------------
+# The Go Core owns the HITL approval timeout (runtime.approval_timeout_seconds)
+# and sends it with every run start; a policy response is awaited at least that
+# long plus a margin (KI-21). The default mirrors the Go default and applies
+# when a run start carries no timeout (a core that predates the field).
+DEFAULT_APPROVAL_TIMEOUT_SECONDS = 60
+# Time Go may need after its approval wait to answer (policy evaluation, store
+# writes, publishing the response).
+APPROVAL_RESPONSE_MARGIN_SECONDS = 15
 
 # -- CLI availability checks -------------------------------------------------
 CLI_CHECK_TIMEOUT_SECONDS = 10  # Timeout for `--version` probes.

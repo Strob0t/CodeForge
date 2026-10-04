@@ -2,17 +2,23 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
-	"github.com/Strob0t/CodeForge/internal/domain/task"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
 )
@@ -28,7 +34,7 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		)
 	}()
 
-	r, err := s.store.GetRun(ctx, req.RunID)
+	ctx, r, err := s.loadRunScoped(ctx, req.RunID, req.TenantID)
 	if err != nil {
 		// The run_id might be a conversation_id (agentic conversation mode
 		// reuses the conversation ID as the run ID without creating a run record).
@@ -40,31 +46,37 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "run is not running")
 	}
 
-	// Load policy profile for termination checks
-	profile, ok := s.policy.GetProfile(r.PolicyProfile)
+	// Load policy profile for termination checks: the run's profile, or the
+	// project's Allow-Always clone of it.
+	profileName := effectivePolicyProfile(ctx, s.policy, r.PolicyProfile, r.ProjectID)
+	profile, ok := s.policy.GetProfile(ctx, profileName)
 	if !ok {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "unknown policy profile")
 	}
 
 	// Check termination conditions
 	if reason := s.checkTermination(r, &profile); reason != "" {
-		// Terminate the run
-		logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
-		s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-			"status": string(run.StatusTimeout),
-			"reason": reason,
-		})
-		s.broadcastRunStatus(ctx, r, run.StatusTimeout)
+		logRunUpdate(ctx, s.stopRun(ctx, r, run.StatusTimeout, reason), "stopRun", r.ID)
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), reason)
 	}
 
-	// Evaluate policy with reason tracking
+	// Evaluate policy with reason tracking. Paths are resolved against the
+	// project workspace and the run's mode restricts the tools it may use.
+	workspace := ""
+	proj, projErr := s.store.GetProject(ctx, r.ProjectID)
+	if projErr == nil {
+		workspace = proj.WorkspacePath
+	}
+	m, modeErr := s.resolveMode(r.ModeID)
+	if modeErr != nil {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), modeErr.Error())
+	}
 	call := policy.ToolCall{
 		Tool:    req.Tool,
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, r.PolicyProfile, call)
+	result, err := s.policy.EvaluateWithReason(ctx, profileName, call, s.policyEvalOptions(workspace, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -88,16 +100,37 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 				"run_id", r.ID,
 				"call_id", req.CallID,
 				"tool", req.Tool,
-				"profile", r.PolicyProfile,
+				"profile", profileName,
 			)
 		} else {
-			decision = s.waitForApproval(ctx, r.ID, req.CallID, req.Tool, req.Command, req.Path)
+			decision = s.waitForApproval(ctx, permissionRequest(r.ID, req, r.PolicyProfile))
 			slog.Info("HITL approval resolved",
 				"run_id", r.ID,
 				"call_id", req.CallID,
 				"tool", req.Tool,
 				"decision", decision,
 			)
+		}
+	}
+
+	// Count the step; only a running run counts steps and its usage counters
+	// are not touched. A run that ended or moved to its quality gate while the
+	// call waited for approval stays where it is, and its call is denied
+	// without a policy verdict (KI-31).
+	err = s.store.CountRunStep(ctx, r.ID)
+	if errors.Is(err, domain.ErrConflict) {
+		slog.Info("run no longer running after the tool call was pending, denying", "run_id", r.ID, "call_id", req.CallID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "run is no longer running")
+	}
+	logBestEffort(ctx, err, "CountRunStep", slog.String("run_id", r.ID))
+
+	// The run's checkpoint comes before a file-modifying call executes; a
+	// run that may have to be rolled back or delivered does not change its
+	// workspace without one (fail closed).
+	if decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) {
+		if denial := s.checkpointToolCall(ctx, r, &profile, proj, projErr, req); denial != "" {
+			decision = policy.DecisionDeny
+			result.Decision, result.Reason = policy.DecisionDeny, denial
 		}
 	}
 
@@ -133,21 +166,44 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 		s.metrics.RecordToolCall(ctx, "tool", req.Tool, "decision", string(decision))
 	}
 
-	// Create checkpoint for file-modifying tools
-	if s.checkpoint != nil && decision == policy.DecisionAllow && isFileModifyingTool(req.Tool) {
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		if projErr == nil {
-			if cpErr := s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID); cpErr != nil {
-				slog.Warn("checkpoint creation failed", "run_id", r.ID, "error", cpErr)
-			}
-		}
+	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
+}
+
+// checkpointToolCall records the workspace as the run's next checkpoint
+// before an allowed file-modifying call executes and returns why the call
+// must be denied, "" when it may run (S3 follow-up 1b). A run whose failed
+// quality gate rolls the workspace back, or that delivers its change, needs
+// the checkpoint: without it the call is denied. A workspace without a git
+// repository has no rollback base at all; its calls run, and the run's audit
+// trail says so once. Without a checkpoint service there is nothing to do.
+func (s *RuntimeService) checkpointToolCall(ctx context.Context, r *run.Run, profile *policy.PolicyProfile, proj *project.Project, projErr error, req *messagequeue.ToolCallRequestPayload) string {
+	if s.checkpoint == nil {
+		return ""
 	}
-
-	// Increment step count
-	newSteps := r.StepCount + 1
-	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, newSteps, r.CostUSD, r.TokensIn, r.TokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
-
-	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
+	needsBase := profile.QualityGate.RollbackOnGateFail || (r.DeliverMode != "" && r.DeliverMode != run.DeliverModeNone)
+	var err error
+	if projErr != nil {
+		err = fmt.Errorf("project unavailable: %w", projErr)
+	} else {
+		err = s.checkpoint.CreateCheckpoint(ctx, r.ID, proj.WorkspacePath, req.Tool, req.CallID)
+	}
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, git.ErrNotRepository):
+		if _, recorded := s.noRollbackBase.LoadOrStore(r.ID, struct{}{}); !recorded {
+			slog.Warn("workspace without git: the run has no rollback base", "run_id", r.ID)
+			s.appendAudit(ctx, r, "checkpoint.unavailable",
+				"The workspace is not a git repository: the run has no checkpoint, it cannot be rolled back and its change cannot be delivered")
+		}
+		return ""
+	case !needsBase:
+		slog.Warn("checkpoint creation failed", "run_id", r.ID, "call_id", req.CallID, "error", err)
+		return ""
+	default:
+		slog.Error("checkpoint creation failed, denying the call", "run_id", r.ID, "call_id", req.CallID, "error", err)
+		return "the workspace could not be checkpointed, and this run may have to be rolled back or delivered: " + err.Error()
+	}
 }
 
 // handleConversationToolCall handles tool call requests for conversation-based runs
@@ -164,8 +220,19 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		)
 	}()
 
-	// Fast-reject: if this conversation run was cancelled, deny immediately.
-	if s.state.IsConversationCancelled(req.RunID) {
+	// Conversation runs reuse the conversation ID as run ID; the worker reports
+	// the run's turn. A call of the conversation's active run is evaluated,
+	// also while an earlier stop's mark still holds (the run is recognized
+	// before its start is published). A call of another run is rejected: that
+	// run was stopped or replaced. Calls without a turn, and calls of a
+	// conversation without an active run here (a restart, another replica),
+	// are rejected while a stop's mark holds.
+	turn, active := s.state.ActiveConversationTurn(req.RunID)
+	ofActiveRun := active && req.TurnID != "" && req.TurnID == turn
+	if active && req.TurnID != "" && !ofActiveRun {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run ended")
+	}
+	if !ofActiveRun && s.state.IsConversationCancelled(req.RunID) {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run cancelled")
 	}
 
@@ -179,29 +246,45 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	if conv == nil {
 		return fmt.Errorf("conversation not found: %s", req.RunID)
 	}
+	// A call of a turn this process does not know as the active run is
+	// evaluated only if it is the stored active turn (a restart, another
+	// replica). Any other turn ended - stopped, or ended by the stuck-work
+	// watchdog while its worker was cut off - and its worker must not go on
+	// editing the workspace.
+	if !ofActiveRun && req.TurnID != "" && req.TurnID != conv.ActiveTurnID {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation run ended")
+	}
+	ctx = withEntityTenant(ctx, conv.TenantID)
 
-	// Resolve policy profile from the conversation's project.
-	policyProfile := ""
-	proj, projErr := s.store.GetProject(ctx, conv.ProjectID)
-	if projErr == nil {
-		policyProfile = proj.PolicyProfile
-		// Fall back to config["policy_preset"] if dedicated field is empty.
-		if policyProfile == "" {
-			if preset, ok := proj.Config["policy_preset"]; ok && preset != "" {
-				policyProfile = preset
-			}
-		}
+	proj, err := s.store.GetProject(ctx, conv.ProjectID)
+	if err != nil {
+		slog.Warn("project of conversation not found, denying tool call", "conversation_id", req.RunID, "project_id", conv.ProjectID, "error", err)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), "conversation project not found")
 	}
 
-	// If no policy profile is set, use the service default.
-	if policyProfile == "" {
-		policyProfile = s.policy.DefaultProfile()
+	// The worker reports the mode it was started with; without it, resolve the
+	// mode the same way the dispatch does.
+	modeID := req.ModeID
+	if modeID == "" {
+		modeID = conv.Mode
 	}
+	if modeID == "" {
+		modeID = defaultConversationMode
+	}
+	m, modeErr := s.resolveMode(modeID)
+	if modeErr != nil {
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), modeErr.Error())
+	}
+	modeAutonomy := 0
+	if m != nil {
+		modeAutonomy = m.Autonomy
+	}
+	baseProfile := conversationPolicyProfile(proj, modeAutonomy, s.policy.DefaultProfile())
+	policyProfile := effectivePolicyProfile(ctx, s.policy, baseProfile, proj.ID)
 
-	if _, ok := s.policy.GetProfile(policyProfile); !ok {
-		// Unknown profile — allow the call to proceed rather than blocking.
-		slog.Warn("unknown policy profile for conversation, allowing", "profile", policyProfile, "conversation_id", req.RunID)
-		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionAllow), "")
+	if _, ok := s.policy.GetProfile(ctx, policyProfile); !ok {
+		slog.Warn("unknown policy profile for conversation, denying", "profile", policyProfile, "conversation_id", req.RunID)
+		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), fmt.Sprintf("unknown policy profile %q", policyProfile))
 	}
 
 	// Evaluate policy.
@@ -210,7 +293,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 		Command: req.Command,
 		Path:    req.Path,
 	}
-	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call)
+	result, err := s.policy.EvaluateWithReason(ctx, policyProfile, call, s.policyEvalOptions(proj.WorkspacePath, m, req.Trust)...)
 	if err != nil {
 		return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(policy.DecisionDeny), err.Error())
 	}
@@ -219,8 +302,11 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	slog.Debug("conversation policy evaluation",
 		"conversation_id", req.RunID,
 		"tool", req.Tool,
+		"mode", modeID,
 		"decision", decision,
 		"profile", result.Profile,
+		"rule_index", result.RuleIndex,
+		"reason", result.Reason,
 	)
 
 	// HITL: when policy says "ask", check bypass / auto-approval before blocking.
@@ -232,7 +318,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 				"call_id", req.CallID,
 				"tool", req.Tool,
 			)
-		} else if profile, profileOK := s.policy.GetProfile(policyProfile); profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
+		} else if profile, profileOK := s.policy.GetProfile(ctx, policyProfile); profileOK && (profile.Mode == policy.ModeAcceptEdits || profile.Mode == policy.ModeDelegate) {
 			decision = policy.DecisionAllow
 			slog.Info("conversation HITL auto-approved (full-auto profile)",
 				"conversation_id", req.RunID,
@@ -241,7 +327,7 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 				"profile", policyProfile,
 			)
 		} else {
-			decision = s.waitForApproval(ctx, req.RunID, req.CallID, req.Tool, req.Command, req.Path)
+			decision = s.waitForApproval(ctx, permissionRequest(req.RunID, req, baseProfile))
 			slog.Info("conversation HITL resolved",
 				"conversation_id", req.RunID,
 				"call_id", req.CallID,
@@ -254,12 +340,131 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	// Broadcast WS tool call status.
 	s.broadcastToolCallStatus(ctx, req.RunID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
-	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), "")
+	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
+}
+
+// resolveMode loads the agent mode a tool call runs in. It returns nil
+// without error when no mode is set or no mode service is configured, and an
+// error for an unknown mode, so that the call is denied (fail closed).
+func (s *RuntimeService) resolveMode(modeID string) (*mode.Mode, error) {
+	if modeID == "" || s.modes == nil {
+		return nil, nil
+	}
+	m, err := s.modes.Get(modeID)
+	if err != nil {
+		return nil, fmt.Errorf("unknown mode %q", modeID)
+	}
+	return m, nil
+}
+
+// denialReason tells the worker (and through it the agent) why a tool call
+// was not allowed.
+func denialReason(decision policy.Decision, result *policy.EvaluationResult) string {
+	switch {
+	case decision == policy.DecisionAllow:
+		return ""
+	case result.Decision == policy.DecisionAsk:
+		return "not approved by a human reviewer"
+	default:
+		return result.Reason
+	}
+}
+
+// maxArgumentsPreviewBytes caps the arguments preview a worker sends (1000
+// characters, up to 4 bytes each), so a misbehaving worker cannot flood the
+// WebSocket clients.
+const maxArgumentsPreviewBytes = 4096
+
+// permissionRequest builds the HITL permission request for a tool call that
+// the policy profile asks about. profile is the profile the call resolved to
+// before the project's Allow-Always clone was applied: Allow-Always extends
+// the project's clone of it.
+func permissionRequest(runID string, req *messagequeue.ToolCallRequestPayload, profile string) *event.AGUIPermissionRequestEvent {
+	preview := req.ArgumentsPreview
+	if len(preview) > maxArgumentsPreviewBytes {
+		preview = truncateUTF8(preview, maxArgumentsPreviewBytes-len("...")) + "..."
+	}
+	return &event.AGUIPermissionRequestEvent{
+		RunID:            runID,
+		CallID:           req.CallID,
+		Tool:             req.Tool,
+		Command:          req.Command,
+		Path:             req.Path,
+		Profile:          profile,
+		ArgumentsPreview: preview,
+	}
+}
+
+// policyEvalOptions returns the policy evaluation options for a tool call:
+// the workspace that paths are resolved against (and its real path, for the
+// files a command redirects to), the trust annotation of the request (allow
+// rules with a trust minimum need one) and the mode's tool lists.
+func (s *RuntimeService) policyEvalOptions(workspace string, m *mode.Mode, ann *trust.Annotation) []policy.EvalOption {
+	opts := []policy.EvalOption{
+		policy.WithWorkspace(workspace),
+		policy.WithWorkspaceRealPath(s.workspaceRealPath(workspace)),
+		policy.WithTrust(ann),
+	}
+	if m != nil {
+		opts = append(opts, policy.WithModeTools(m.ID, m.Tools, m.DeniedTools))
+	}
+	return opts
+}
+
+// workspaceRealPath returns the workspace path with its symlinks resolved;
+// "" for a workspace that is not an absolute path or cannot be resolved (it
+// does not exist yet), which is then only checked in its given form.
+//
+// A resolution is cached per workspace path together with the directory it
+// led to, and reused only while the path still leads to that directory and
+// the resolved path still names it (two stat calls per tool call, instead of
+// a walk over every path component): a retargeted symlink or a moved
+// directory is resolved again. A failed resolution of an existing directory
+// is cached the same way; a missing one costs a single stat.
+func (s *RuntimeService) workspaceRealPath(workspace string) string {
+	if !filepath.IsAbs(workspace) {
+		return ""
+	}
+	dir, err := os.Stat(workspace)
+	if err != nil {
+		return ""
+	}
+	if cached, ok := s.workspaceRealPaths.Load(workspace); ok {
+		if entry, isEntry := cached.(realPathEntry); isEntry && entry.stillValid(dir) {
+			return entry.resolved
+		}
+	}
+	resolved, err := filepath.EvalSymlinks(workspace)
+	if err != nil {
+		resolved = ""
+	}
+	s.workspaceRealPaths.Store(workspace, realPathEntry{dir: dir, resolved: resolved})
+	return resolved
+}
+
+// realPathEntry is a cached workspace resolution: the directory the
+// workspace path led to and its real path ("" when it could not be resolved).
+type realPathEntry struct {
+	dir      os.FileInfo
+	resolved string
+}
+
+// stillValid reports whether the workspace path still leads to the cached
+// directory (dir is its current stat) and the real path still names it.
+func (e realPathEntry) stillValid(dir os.FileInfo) bool {
+	if !os.SameFile(e.dir, dir) {
+		return false
+	}
+	if e.resolved == "" {
+		return true
+	}
+	current, err := os.Stat(e.resolved)
+	return err == nil && os.SameFile(current, dir)
 }
 
 // HandleToolCallResult processes the outcome of an executed tool call.
 func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messagequeue.ToolCallResultPayload) error {
-	r, err := s.store.GetRun(ctx, result.RunID)
+	ctx, r, err := s.loadRunScoped(ctx, result.RunID, result.TenantID)
 	if err != nil {
 		// Conversation-based runs don't have a run record.
 		// Cost/token tracking for conversations happens via WebSocket events.
@@ -267,14 +472,32 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		return nil
 	}
 
-	// Accumulate cost and tokens
-	newCost := r.CostUSD + result.CostUSD
-	newTokensIn := r.TokensIn + result.TokensIn
-	newTokensOut := r.TokensOut + result.TokensOut
-	logBestEffort(ctx, s.store.UpdateRunStatus(ctx, r.ID, r.Status, r.StepCount, newCost, newTokensIn, newTokensOut), "UpdateRunStatus", slog.String("run_id", r.ID))
+	// A result delivered again (at-least-once) was handled already.
+	if r.Status == run.StatusRunning && !s.state.FirstToolResult(r.ID, result.CallID) {
+		slog.Info("tool call result already handled, skipped", "run_id", r.ID, "call_id", result.CallID)
+		return nil
+	}
+
+	counted, running := s.countToolUsage(ctx, r, result)
+	newCost := counted.CostUSD
+
+	// The per-tool usage record (cost by tool), kept for every executed call.
+	s.appendRunEventWithTokens(ctx, event.TypeToolCallResultEv, r, map[string]string{
+		"call_id": result.CallID,
+		"tool":    result.Tool,
+		"success": fmt.Sprintf("%t", result.Success),
+		"cost":    fmt.Sprintf("%.6f", result.CostUSD),
+	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
+
+	// A run that ended (or waits for its quality gate) gets no budget or stall
+	// decision and no live events after its run_finished.
+	if !running {
+		slog.Info("tool call result for a run that is not running, usage in the worker's totals", "run_id", r.ID)
+		return nil
+	}
 
 	// Budget alert checks (80% and 90% thresholds) + post-execution budget enforcement
-	profile, profileOK := s.policy.GetProfile(r.PolicyProfile)
+	profile, profileOK := s.policy.GetProfile(ctx, r.PolicyProfile)
 	if profileOK && profile.Termination.MaxCost > 0 {
 		maxCost := profile.Termination.MaxCost
 		pct := (newCost / maxCost) * 100
@@ -285,24 +508,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		if newCost >= maxCost {
 			reason := fmt.Sprintf("budget exceeded after tool execution ($%.2f/$%.2f)", newCost, maxCost)
 			slog.Warn("post-execution budget exceeded, terminating run", "run_id", r.ID, "cost", newCost, "max_cost", maxCost)
-			logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusTimeout, Error: reason, CostUSD: newCost, StepCount: r.StepCount, TokensIn: newTokensIn, TokensOut: newTokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
-			s.cleanupRunState(r.ID)
-			s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-				"status": string(run.StatusTimeout),
-				"reason": reason,
-			})
 			s.appendAudit(ctx, r, "budget.exceeded", reason)
-			// Use a temporary copy with updated cost/tokens for the broadcast.
-			budgetRun := *r
-			budgetRun.CostUSD = newCost
-			budgetRun.TokensIn = newTokensIn
-			budgetRun.TokensOut = newTokensOut
-			s.broadcastRunStatus(ctx, &budgetRun, run.StatusTimeout)
-			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-			if s.onRunComplete != nil {
-				s.onRunComplete(ctx, r.ID, run.StatusTimeout)
-			}
+			logRunUpdate(ctx, s.stopRun(ctx, counted, run.StatusTimeout, reason), "stopRun", r.ID)
 			return nil
 		}
 
@@ -327,34 +534,15 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	// Check stall detection
 	if st, ok := s.state.GetStallTracker(r.ID); ok {
 		if st.RecordStep(result.Tool, result.Success, result.Output) {
-			// Stall detected — terminate run
 			slog.Warn("stall detected, terminating run", "run_id", r.ID, "tool", result.Tool)
-			logBestEffort(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusFailed, Error: "stall detected: agent not making progress", CostUSD: newCost, StepCount: r.StepCount, TokensIn: newTokensIn, TokensOut: newTokensOut, Model: r.Model}), "CompleteRun", slog.String("run_id", r.ID))
-			s.state.DeleteStallTracker(r.ID)
 			s.appendRunEvent(ctx, event.TypeStallDetected, r, map[string]string{
 				"tool":       result.Tool,
 				"step_count": fmt.Sprintf("%d", r.StepCount),
 			})
-			// Use a temporary copy with updated cost/tokens for the broadcast.
-			stallRun := *r
-			stallRun.CostUSD = newCost
-			stallRun.TokensIn = newTokensIn
-			stallRun.TokensOut = newTokensOut
-			s.broadcastRunStatus(ctx, &stallRun, run.StatusFailed)
-			// Set agent idle, task failed
-			logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-			logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusFailed), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
+			logRunUpdate(ctx, s.stopRun(ctx, counted, run.StatusFailed, run.StallDetectedError), "stopRun", r.ID)
 			return nil
 		}
 	}
-
-	// Record event with per-tool token data
-	s.appendRunEventWithTokens(ctx, event.TypeToolCallResultEv, r, map[string]string{
-		"call_id": result.CallID,
-		"tool":    result.Tool,
-		"success": fmt.Sprintf("%t", result.Success),
-		"cost":    fmt.Sprintf("%.6f", result.CostUSD),
-	}, result.Tool, result.Model, result.TokensIn, result.TokensOut, result.CostUSD)
 
 	// Broadcast WS with token data
 	s.broadcastToolCallStatus(ctx, r.ID, result.CallID, result.Tool, "result", "")
@@ -373,6 +561,32 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	})
 
 	return nil
+}
+
+// countToolUsage adds a tool call's usage to the counters of a running run
+// and returns the run as stored afterwards and whether it still runs. Once
+// the worker reported its totals (quality gate, completion) or the run ended,
+// the totals include the call - RaiseRunUsage keeps them after a stop - and
+// the store refuses the addition, so the call is not counted twice.
+func (s *RuntimeService) countToolUsage(ctx context.Context, r *run.Run, result *messagequeue.ToolCallResultPayload) (*run.Run, bool) {
+	if r.Status != run.StatusRunning {
+		return r, false
+	}
+	stored, err := s.store.AddRunUsage(ctx, r.ID, &run.Usage{CostUSD: result.CostUSD, TokensIn: result.TokensIn, TokensOut: result.TokensOut})
+	switch {
+	case errors.Is(err, domain.ErrConflict):
+		s.state.ForgetToolResult(r.ID, result.CallID)
+		return r, false
+	case err != nil:
+		// Not stored: decide on the run's counters with the call added.
+		logBestEffort(ctx, err, "AddRunUsage", slog.String("run_id", r.ID))
+		estimate := *r
+		estimate.CostUSD += result.CostUSD
+		estimate.TokensIn += result.TokensIn
+		estimate.TokensOut += result.TokensOut
+		return &estimate, true
+	}
+	return stored, stored.Status == run.StatusRunning
 }
 
 // cleanupRunState removes heartbeat, stall tracker, and timeout goroutine for a run.

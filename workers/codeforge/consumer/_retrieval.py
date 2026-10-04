@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 import structlog
@@ -19,15 +20,33 @@ from codeforge.models import (
     SubAgentSearchRequest,
     SubAgentSearchResult,
 )
+from codeforge.workspace_fs import PathLeavesWorkspaceError, WorkspaceRoot
 
 if TYPE_CHECKING:
     import nats.aio.msg
 
 logger = structlog.get_logger()
 
+# The one answer for a knowledge_path outside the tenant's area or missing (KI-105).
+_KNOWLEDGE_UNAVAILABLE = (
+    "knowledge_path is not available in this tenant's knowledge area (knowledge.content_root/<tenant>)"
+)
+
+
+def _is_tenant_id(value: str) -> bool:
+    """Whether *value* is a tenant ID in canonical UUID form (one path component)."""
+    try:
+        return str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
+
 
 class RetrievalHandlerMixin:
     """Handles retrieval.index, retrieval.search, and retrieval.subagent messages."""
+
+    # Knowledge bases are indexed below this directory only (KI-105); the
+    # consumer sets it from knowledge.content_root.
+    _knowledge_content_root: str = ""
 
     async def _handle_retrieval_index(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval index request: build index and publish result."""
@@ -44,12 +63,32 @@ class RetrievalHandlerMixin:
         self, request: RetrievalIndexRequest, log: structlog.BoundLogger
     ) -> RetrievalIndexResult:
         """Business logic for retrieval index building."""
-        log.info("received retrieval index request", workspace=request.workspace_path)
+        log.info(
+            "received retrieval index request",
+            workspace=request.workspace_path,
+            knowledge_path=request.knowledge_path,
+        )
+        workspace_path, below = request.workspace_path, "."
+        if request.project_id.startswith("kb:") or request.knowledge_path:
+            refusal = self._knowledge_refusal(request)
+            if refusal:
+                log.warning("knowledge index refused", reason=refusal)
+                return RetrievalIndexResult(project_id=request.project_id, status="error", error=refusal)
+            workspace_path, tenant, below = self._knowledge_content_root, request.tenant_id, request.knowledge_path
+        elif not workspace_path.strip():
+            # An empty path would index the worker's working directory.
+            refusal = "workspace_path is required for a project index"
+            log.warning("retrieval index refused", reason=refusal)
+            return RetrievalIndexResult(project_id=request.project_id, status="error", error=refusal)
+        else:
+            tenant = ""
         status = await self._retriever.build_index(
             project_id=request.project_id,
-            workspace_path=request.workspace_path,
+            workspace_path=workspace_path,
             embedding_model=request.embedding_model,
             file_extensions=request.file_extensions or None,
+            tenant=tenant,
+            below=below,
         )
         return RetrievalIndexResult(
             project_id=status.project_id,
@@ -62,6 +101,43 @@ class RetrievalHandlerMixin:
             files_changed=status.files_changed,
             files_unchanged=status.files_unchanged,
         )
+
+    def _knowledge_refusal(self, request: RetrievalIndexRequest) -> str:
+        """Why a knowledge-base index request is refused, or "" (KI-105).
+
+        A knowledge base is indexed from knowledge_path inside its tenant's
+        area <content root>/<tenant_id>/ of the worker's own knowledge content
+        root, never from a workspace_path or a path (or a symlink) leading out
+        of that area. A path outside the area and a missing one get the same
+        answer, so nothing can be probed.
+        """
+        if not request.project_id.startswith("kb:"):
+            return "knowledge_path is only accepted for knowledge bases"
+        if request.workspace_path:
+            return "knowledge bases are indexed below the knowledge content root, not from workspace_path"
+        if not request.knowledge_path:
+            return "knowledge_path is required"
+        if not _is_tenant_id(request.tenant_id):
+            return "a knowledge index request needs the tenant_id of its knowledge base"
+        if not self._knowledge_content_root:
+            return "no knowledge content root is configured (knowledge.content_root)"
+        try:
+            if request.knowledge_path.startswith("/"):
+                raise PathLeavesWorkspaceError(request.knowledge_path)
+            with (
+                WorkspaceRoot.operator_dir(self._knowledge_content_root) as content,
+                content.subroot(request.tenant_id) as area,
+            ):
+                area.resolve(request.knowledge_path)
+        except OSError as exc:
+            logger.info(
+                "knowledge path refused",
+                tenant_id=request.tenant_id,
+                knowledge_path=request.knowledge_path,
+                reason=str(exc),
+            )
+            return _KNOWLEDGE_UNAVAILABLE
+        return ""
 
     async def _handle_retrieval_search(self, msg: nats.aio.msg.Msg) -> None:
         """Process a retrieval search request: search index and publish result."""
@@ -93,19 +169,15 @@ class RetrievalHandlerMixin:
                 semantic_weight=request.semantic_weight,
             )
         except Exception as exc:
-            # Publish error result so the Go waiter gets a response, then re-raise
-            # so _handle_request performs the nak.
+            # The error result answers the Go waiter and settles the request:
+            # repeating the search after Go got its answer would only cost money.
             logger.error("retrieval search failed", error=str(exc))
-            await self._publish_error(
-                RetrievalSearchResult(
-                    project_id=request.project_id,
-                    query=request.query,
-                    request_id=request.request_id,
-                    error="internal worker error",
-                ),
-                SUBJECT_RETRIEVAL_SEARCH_RESULT,
+            return RetrievalSearchResult(
+                project_id=request.project_id,
+                query=request.query,
+                request_id=request.request_id,
+                error="internal worker error",
             )
-            raise
 
         result = RetrievalSearchResult(
             project_id=request.project_id,
@@ -149,19 +221,15 @@ class RetrievalHandlerMixin:
                 expansion_prompt=request.expansion_prompt,
             )
         except Exception as exc:
-            # Publish error result so the Go waiter gets a response, then re-raise
-            # so _handle_request performs the nak.
+            # The error result answers the Go waiter and settles the request:
+            # repeating the LLM query expansion after Go got its answer would only cost money.
             logger.error("subagent search failed", error=str(exc))
-            await self._publish_error(
-                SubAgentSearchResult(
-                    project_id=request.project_id,
-                    query=request.query,
-                    request_id=request.request_id,
-                    error="internal worker error",
-                ),
-                SUBJECT_SUBAGENT_SEARCH_RESULT,
+            return SubAgentSearchResult(
+                project_id=request.project_id,
+                query=request.query,
+                request_id=request.request_id,
+                error="internal worker error",
             )
-            raise
 
         cost = self._subagent.last_cost
 

@@ -7,138 +7,172 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/port/database"
-	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
-// retentionBatchSize limits the number of rows deleted per batch to avoid
-// long-running transactions and lock contention.
+// retentionBatchSize limits the rows one statement changes, so the job never
+// holds long locks; a backlog is worked off in several statements.
 const retentionBatchSize = 1000
 
-// RetentionService enforces data retention policies by periodically removing
-// records older than configured durations (GDPR Article 5(1)(e) — storage limitation).
+// retentionConversationBatch limits the conversations one transaction deletes
+// with all their messages (at most retentionBatchSize per statement).
+const retentionConversationBatch = 100
+
+// RetentionService enforces the data retention policy (GDPR Art. 5(1)(e),
+// docs/data-retention.md): it deletes data older than the configured periods
+// and anonymizes the IP addresses of old audit entries and the IP addresses and
+// user agents of old consent records. The policy is one configuration for the
+// whole instance, so a sweep covers all tenants. Agent events and benchmark
+// results are not purged: their retention needs a decision about trajectories.
 type RetentionService struct {
-	store  database.Store
+	store  database.RetentionStore
 	config config.Retention
+	now    func() time.Time
 }
 
-// NewRetentionService creates a retention service with the given store and config.
-func NewRetentionService(store database.Store, cfg config.Retention) *RetentionService {
-	return &RetentionService{store: store, config: cfg}
+// NewRetentionService creates a retention service with the given store and policy.
+func NewRetentionService(store database.RetentionStore, cfg config.Retention) *RetentionService {
+	return &RetentionService{store: store, config: cfg, now: time.Now}
 }
 
-// RunCleanup deletes expired records across all retention categories for every tenant.
-// Each category is processed independently so a failure in one does not
-// block the others. Deletions are batched (LIMIT 1000) to avoid long locks.
-func (s *RetentionService) RunCleanup(ctx context.Context) error {
-	tenants, err := s.store.ListTenants(ctx)
-	if err != nil {
-		slog.Error("retention: failed to list tenants", "error", err)
-		// Fall back to default tenant so cleanup still runs for single-tenant deployments.
-		tenants = nil
+// retentionCategory is one kind of data with its retention period.
+type retentionCategory struct {
+	name   string
+	action string // what happens to expired rows: "deleted" or "anonymized"
+	maxAge time.Duration
+	batch  int // rows (conversations: conversations) per call
+	apply  func(ctx context.Context, before time.Time, batchSize int) (int64, error)
+}
+
+func (s *RetentionService) categories(purge database.RetentionPurger) []retentionCategory {
+	deleteConversations := func(ctx context.Context, before time.Time, batchSize int) (int64, error) {
+		return purge.DeleteExpiredConversations(ctx, before, batchSize, retentionBatchSize)
 	}
+	return []retentionCategory{
+		{"sessions", "deleted", s.config.Sessions, retentionBatchSize, purge.DeleteExpiredSessions},
+		{"conversations", "deleted", s.config.Conversations, retentionConversationBatch, deleteConversations},
+		{"runs", "deleted", s.config.CostRecords, retentionBatchSize, purge.DeleteExpiredRuns},
+		{"audit_entries", "deleted", s.config.AuditEntries, retentionBatchSize, purge.DeleteExpiredAuditEntries},
+		{"audit_ip_addresses", "anonymized", s.config.AuditIPAddresses, retentionBatchSize, purge.AnonymizeExpiredIPAddresses},
+		{"consent_ip_addresses", "anonymized", s.config.ConsentIPAddresses, retentionBatchSize, purge.AnonymizeExpiredConsentIPAddresses},
+	}
+}
 
-	// Build list of tenant IDs to iterate. Always include the default tenant
-	// in case data exists outside explicitly-created tenants.
-	tenantIDs := make([]string, 0, len(tenants)+1)
-	seen := make(map[string]struct{}, len(tenants)+1)
-	for i := range tenants {
-		if _, ok := seen[tenants[i].ID]; !ok {
-			tenantIDs = append(tenantIDs, tenants[i].ID)
-			seen[tenants[i].ID] = struct{}{}
+// RunCleanup sweeps once if this replica gets the retention lock; while
+// another replica (or blue-green color) sweeps, it skips. A cancelled context
+// (shutdown) ends it without an error.
+func (s *RetentionService) RunCleanup(ctx context.Context) {
+	acquired, err := s.store.WithRetentionLock(ctx, s.sweep)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		slog.Info("retention: sweep stopped", "error", err)
+	case err != nil:
+		slog.Error("retention: sweep skipped, lock failed", "error", err)
+	case !acquired:
+		slog.Info("retention: sweep skipped, another replica is sweeping")
+	}
+}
+
+// sweep applies every category with a positive period once. A failing
+// category is logged and does not stop the others; a cancelled context ends
+// the sweep. The logs carry only categories, row counts and cutoffs.
+func (s *RetentionService) sweep(ctx context.Context, purge database.RetentionPurger) {
+	now := s.now().UTC()
+	for _, c := range s.categories(purge) {
+		if c.maxAge <= 0 {
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		before := retentionCutoff(now, c.maxAge)
+		n, err := applyInBatches(ctx, before, c.batch, c.apply)
+		if n > 0 {
+			slog.Info("retention: purged expired data",
+				"category", c.name, "action", c.action, "rows", n, "older_than", before.Format(time.RFC3339))
+		}
+		if err != nil && ctx.Err() == nil {
+			slog.Error("retention: purge failed", "category", c.name, "error", err)
 		}
 	}
-	if _, ok := seen[tenantctx.DefaultTenantID]; !ok {
-		tenantIDs = append(tenantIDs, tenantctx.DefaultTenantID)
-	}
-
-	now := time.Now().UTC()
-	for _, tid := range tenantIDs {
-		tctx := tenantctx.WithTenant(ctx, tid)
-		s.cleanupSessions(tctx, now)
-		s.cleanupConversations(tctx, now)
-		s.cleanupRuns(tctx, now)
-		s.cleanupAuditEntries(tctx, now)
-	}
-
-	// Cross-tenant: anonymize expired IP addresses in audit log (GDPR/CNIL: 180 days).
-	ipCutoff := now.AddDate(0, 0, -180)
-	n, err := s.store.AnonymizeExpiredIPAddresses(context.Background(), ipCutoff, retentionBatchSize)
-	if err != nil {
-		slog.Error("retention: ip anonymization failed", "error", err)
-	} else if n > 0 {
-		slog.Info("retention: anonymized expired IP addresses", "rows", n, "older_than", ipCutoff.Format(time.RFC3339))
-	}
-
-	return nil
+	s.systemSteps(ctx, purge)
 }
 
-func (s *RetentionService) cleanupSessions(ctx context.Context, now time.Time) {
-	if s.config.Sessions <= 0 {
+// systemSteps remove data that has its own expiry, whatever the retention
+// periods: the OAuth states of abandoned flows (S3-F review C8; no longer
+// on the request path).
+func (s *RetentionService) systemSteps(ctx context.Context, purge database.RetentionPurger) {
+	if ctx.Err() != nil {
 		return
 	}
-	before := now.Add(-s.config.Sessions)
-	total := s.deleteBatched(ctx, "sessions", before, s.store.DeleteExpiredSessions)
-	if total > 0 {
-		slog.Info("retention: cleaned up expired sessions", "deleted", total, "older_than", before.Format(time.RFC3339))
+	n, err := purge.DeleteExpiredOAuthStates(ctx)
+	if n > 0 {
+		slog.Info("retention: purged expired data", "category", "oauth_states", "action", "deleted", "rows", n)
+	}
+	if err != nil && ctx.Err() == nil {
+		slog.Error("retention: purge failed", "category", "oauth_states", "error", err)
 	}
 }
 
-func (s *RetentionService) cleanupConversations(ctx context.Context, now time.Time) {
-	if s.config.Conversations <= 0 {
-		return
+// retentionYear is the 365-day year in which the configuration states
+// periods of years (8760h = 1 year, 61320h = 7 years).
+const retentionYear = 365 * 24 * time.Hour
+
+// retentionCutoff is the time before which data of the given maximum age has
+// expired. A period of whole 365-day years counts calendar years - the same
+// date that many years back - so the data is kept exactly that long, leap
+// days included; any other period is subtracted as a duration. On 29
+// February the date may not exist that many years back: AddDate would
+// normalise it to 1 March and purge a day early, so the cutoff is 28 February
+// of that year instead (kept a day longer, never shorter).
+func retentionCutoff(now time.Time, maxAge time.Duration) time.Time {
+	if maxAge%retentionYear == 0 {
+		cutoff := now.AddDate(-int(maxAge/retentionYear), 0, 0)
+		if cutoff.Day() != now.Day() { // 29 February normalised into March
+			cutoff = cutoff.AddDate(0, 0, -cutoff.Day())
+		}
+		return cutoff
 	}
-	before := now.Add(-s.config.Conversations)
-	total := s.deleteBatched(ctx, "conversations", before, s.store.DeleteExpiredConversations)
-	if total > 0 {
-		slog.Info("retention: cleaned up expired conversations", "deleted", total, "older_than", before.Format(time.RFC3339))
-	}
+	return now.Add(-maxAge)
 }
 
-func (s *RetentionService) cleanupRuns(ctx context.Context, now time.Time) {
-	if s.config.CostRecords <= 0 {
-		return
-	}
-	before := now.Add(-s.config.CostRecords)
-	total := s.deleteBatched(ctx, "runs", before, s.store.DeleteExpiredRuns)
-	if total > 0 {
-		slog.Info("retention: cleaned up expired runs", "deleted", total, "older_than", before.Format(time.RFC3339))
-	}
-}
-
-func (s *RetentionService) cleanupAuditEntries(ctx context.Context, now time.Time) {
-	if s.config.AuditEntries <= 0 {
-		return
-	}
-	before := now.Add(-s.config.AuditEntries)
-	total := s.deleteBatched(ctx, "audit_entries", before, s.store.DeleteExpiredAuditEntries)
-	if total > 0 {
-		slog.Info("retention: cleaned up expired audit entries", "deleted", total, "older_than", before.Format(time.RFC3339))
-	}
-}
-
-// deleteBatched repeatedly calls the delete function in batches until no more
-// rows are affected or the context is cancelled.
-func (s *RetentionService) deleteBatched(
+// applyInBatches calls apply until a batch comes back short and returns the
+// rows changed in total.
+func applyInBatches(
 	ctx context.Context,
-	table string,
 	before time.Time,
-	deleteFn func(ctx context.Context, before time.Time, batchSize int) (int64, error),
-) int64 {
+	batchSize int,
+	apply func(ctx context.Context, before time.Time, batchSize int) (int64, error),
+) (int64, error) {
 	var total int64
 	for {
-		if ctx.Err() != nil {
-			slog.Warn("retention: context cancelled during cleanup", "table", table, "deleted_so_far", total)
-			break
+		if err := ctx.Err(); err != nil {
+			return total, err
 		}
-		n, err := deleteFn(ctx, before, retentionBatchSize)
-		if err != nil {
-			slog.Error("retention: batch delete failed", "table", table, "error", err)
-			break
-		}
+		n, err := apply(ctx, before, batchSize)
 		total += n
-		if n < int64(retentionBatchSize) {
-			break
+		if err != nil || n < int64(batchSize) {
+			return total, err
 		}
 	}
-	return total
+}
+
+// Start sweeps now and then every retention.interval until ctx ends or the
+// returned stop is called; stop cancels a sweep under way and waits for it to
+// end. The first sweep runs at start so that restarts cannot postpone the
+// purge. An interval of 0 disables the job.
+func (s *RetentionService) Start(ctx context.Context) (stop func()) {
+	if s.config.Interval <= 0 {
+		slog.Warn("retention.interval is 0: the retention job is disabled and expired data is kept")
+		return func() {}
+	}
+	slog.Info("retention job started",
+		"interval", s.config.Interval,
+		"sessions", s.config.Sessions,
+		"conversations", s.config.Conversations,
+		"cost_records", s.config.CostRecords,
+		"audit_entries", s.config.AuditEntries,
+		"audit_ip_addresses", s.config.AuditIPAddresses,
+		"consent_ip_addresses", s.config.ConsentIPAddresses,
+	)
+	return startPeriodic(ctx, s.config.Interval, true, s.RunCleanup)
 }

@@ -16,6 +16,15 @@ type MCPServerDefPayload struct {
 	Env         map[string]string `json:"env,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Enabled     bool              `json:"enabled"`
+	// AllowedPrivateHosts is mcp.allowed_private_hosts for sse and
+	// streamable_http servers: the worker refuses other private addresses (KI-100).
+	AllowedPrivateHosts []string `json:"allowed_private_hosts,omitempty"`
+	// Trusted marks an operator server (servers_dir): the worker lets it use
+	// private and loopback addresses. Servers stored by tenants never are.
+	Trusted bool `json:"trusted,omitempty"`
+	// UseProxy is mcp.use_proxy for sse and streamable_http servers: the
+	// worker connects through the proxy of its environment, unpinned.
+	UseProxy bool `json:"use_proxy,omitempty"`
 }
 
 // --- Conversation run payloads (Phase 17C) ---
@@ -77,6 +86,23 @@ type ConversationRunStartPayload struct {
 	PlanActEnabled     bool                         `json:"plan_act_enabled,omitempty"`    // Plan/Act mode toggle (A3)
 	RolloutCount       int                          `json:"rollout_count,omitempty"`       // Multi-rollout count for inference-time scaling (Phase 4 A4)
 	SummarizeThreshold int                          `json:"summarize_threshold,omitempty"` // Message count threshold for auto-summarization (Phase 3)
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker truncates
+	// longer tool results in the history (0 = the worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
+	// TurnID identifies this run of the conversation (runs reuse the
+	// conversation ID as run ID); the worker echoes it on every tool call so
+	// that calls of a stopped run are rejected after the next run started.
+	TurnID string `json:"turn_id,omitempty"`
+	// ToolUID is the tenant's tool UID: the worker runs the turn's tool
+	// processes as it (KI-96; 0/omitted with workspace.tool_acls off).
+	ToolUID int `json:"tool_uid,omitempty"`
+	// ApprovalTimeoutSeconds is how long Go waits for a HITL decision on a
+	// tool call of an agentic run; the worker waits for policy responses
+	// longer than that (0 = the worker's default).
+	ApprovalTimeoutSeconds int `json:"approval_timeout_seconds,omitempty"`
+	// HeartbeatSeconds is how often the worker reports the run alive
+	// (config runtime.heartbeat_interval; 0 = the worker's default, 30 s).
+	HeartbeatSeconds int `json:"heartbeat_seconds,omitempty"`
 }
 
 // SessionMetaPayload carries session operation context for resumed/forked/rewound sessions.
@@ -103,6 +129,9 @@ type ConversationRunCompletePayload struct {
 	StepCount        int                          `json:"step_count"`
 	Model            string                       `json:"model"`
 	TenantID         string                       `json:"tenant_id,omitempty"`
+	// TurnID is the turn of the run start this completion ends; Go ends the
+	// conversation's run only when it is the conversation's current turn.
+	TurnID string `json:"turn_id,omitempty"`
 }
 
 // ConversationCompactCompletePayload is the schema for conversation.compact.complete messages.
@@ -113,4 +142,32 @@ type ConversationCompactCompletePayload struct {
 	Summary        string `json:"summary"`
 	OriginalCount  int    `json:"original_count"`
 	Status         string `json:"status"`
+}
+
+// WorkspaceTestRequestPayload is the schema for conversation.test.request:
+// the auto-agent's post-verification asks the worker to run one pytest file
+// of a workspace (KI-81: the Go Core does not execute workspace code).
+type WorkspaceTestRequestPayload struct {
+	RequestID      string `json:"request_id"`
+	TenantID       string `json:"tenant_id"`
+	ProjectID      string `json:"project_id"`
+	ConversationID string `json:"conversation_id"`
+	WorkspacePath  string `json:"workspace_path"`
+	// TestFile is a file name matching test_<word>.py in the workspace root.
+	TestFile       string `json:"test_file"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	// ToolUID is the tenant's tool UID: the test runs as it (KI-96).
+	ToolUID int `json:"tool_uid,omitempty"`
+}
+
+// WorkspaceTestResultPayload is the schema for conversation.test.result.
+// Passed is the test run's verdict (pytest's exit status); nil when the
+// tests could not run or did not finish, with the reason in Error.
+type WorkspaceTestResultPayload struct {
+	RequestID      string `json:"request_id"`
+	TenantID       string `json:"tenant_id,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	Passed         *bool  `json:"passed,omitempty"`
+	Output         string `json:"output"`
+	Error          string `json:"error,omitempty"`
 }

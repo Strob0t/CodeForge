@@ -2,6 +2,7 @@ package service
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,10 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 	})
 
 	t.Run("ContextPropagation", func(t *testing.T) {
+		// The NATS handlers are spread over the runtime*.go files since the
+		// RuntimeService decomposition (HandleRunComplete and
+		// HandleQualityGateResult live in runtime_completion.go).
+		runtimeSources := readRuntimeSources(t)
 		methods := []string{
 			"HandleToolCallRequest",
 			"HandleToolCallResult",
@@ -43,7 +48,7 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 			"HandleQualityGateResult",
 		}
 		for _, m := range methods {
-			if !strings.Contains(content, m+"(ctx context.Context") {
+			if !strings.Contains(runtimeSources, "func (s *RuntimeService) "+m+"(ctx context.Context") {
 				t.Errorf("%s must accept ctx context.Context as first parameter", m)
 			}
 		}
@@ -54,6 +59,28 @@ func TestRuntimeExecution_SourceQuality(t *testing.T) {
 			t.Error("runtime_execution.go should log errors via slog")
 		}
 	})
+}
+
+// readRuntimeSources returns the concatenated non-test runtime*.go sources of
+// this package, where the RuntimeService methods are defined.
+func readRuntimeSources(t *testing.T) string {
+	t.Helper()
+	files, err := filepath.Glob("runtime*.go")
+	if err != nil {
+		t.Fatalf("glob runtime sources: %v", err)
+	}
+	var sb strings.Builder
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name) //nolint:gosec // test reads known package sources
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", name, err)
+		}
+		sb.Write(src)
+	}
+	return sb.String()
 }
 
 // Tests below supplement the existing runtime_internal_test.go tests.

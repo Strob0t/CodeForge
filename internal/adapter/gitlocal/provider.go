@@ -2,11 +2,10 @@
 package gitlocal
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -80,13 +79,18 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 // If it contains a git repo with a matching remote, it fetches + resets.
 // Otherwise it removes the directory and does a fresh clone.
 func (p *Provider) reclone(ctx context.Context, url, absPath string, o gitprovider.CloneOptions) error {
-	// Check if it's a git repo by running git rev-parse.
-	if _, err := runGit(ctx, absPath, "rev-parse", "--git-dir"); err == nil {
+	// A repository git must not run in is reported, never deleted.
+	repo, err := git.OpenRepo(ctx, absPath)
+	if errors.Is(err, git.ErrUnsafeRepository) {
+		return fmt.Errorf("gitlocal: %w", err)
+	}
+	if err == nil {
 		// It's a git repo — check if the remote matches.
-		remote, _ := runGit(ctx, absPath, "remote", "get-url", "origin")
+		remote, _ := repo.Run(ctx, nil, "remote", "get-url", "origin")
 		if strings.TrimSpace(remote) == url {
-			// Same remote: fetch + reset to latest.
-			if _, err := runGit(ctx, absPath, "fetch", "origin"); err != nil {
+			// Same remote: fetch + reset to latest, from the clone URL (which
+			// may be a local path) rather than the agent-writable remote.
+			if err := repo.FetchFrom(ctx, url); err != nil {
 				return fmt.Errorf("gitlocal: fetch: %w", err)
 			}
 
@@ -174,7 +178,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 		}
 
 		// Porcelain status for modified/untracked
-		porcelain, err := runGit(ctx, repoPath, "status", "--porcelain")
+		porcelain, err := runGit(ctx, repoPath, "status", "--porcelain", "--ignore-submodules=all")
 		if err != nil {
 			return fmt.Errorf("gitlocal: porcelain status: %w", err)
 		}
@@ -211,7 +215,7 @@ func (p *Provider) Status(ctx context.Context, repoPath string) (*project.GitSta
 // Pull fetches and merges updates for the given repository.
 func (p *Provider) Pull(ctx context.Context, repoPath string) error {
 	return p.pool.Run(ctx, func() error {
-		if _, err := runGit(ctx, repoPath, "pull"); err != nil {
+		if _, err := runGit(ctx, repoPath, "pull", "--no-recurse-submodules"); err != nil {
 			return fmt.Errorf("gitlocal: pull: %w", err)
 		}
 		return nil
@@ -257,19 +261,9 @@ func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error 
 	})
 }
 
-// runGit executes a git command and returns its combined stdout.
+// runGit runs git hardened in the workspace repository at dir, or outside any
+// repository when dir is "" (clone): workspaces are agent-writable, their
+// hooks, filters and drivers must not run in the Go Core (KI-77).
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
-	}
-	return stdout.String(), nil
+	return git.RunIn(ctx, dir, args...)
 }

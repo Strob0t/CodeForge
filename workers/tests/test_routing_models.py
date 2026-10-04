@@ -163,7 +163,8 @@ def test_model_stats_all_fields() -> None:
 
 def test_routing_config_defaults() -> None:
     rc = RoutingConfig()
-    assert rc.enabled is False
+    # Enabled by default since FIX-040, matching load_routing_config() and the Go Core default.
+    assert rc.enabled is True
     assert rc.complexity_enabled is True
     assert rc.mab_enabled is True
     assert rc.llm_meta_enabled is True

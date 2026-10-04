@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
+	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
 // --- Agent Teams ---
@@ -94,11 +96,46 @@ func (s *Store) ListTeamsByProject(ctx context.Context, projectID string) ([]age
 	return teams, nil
 }
 
+// teamTerminalStatuses parameterizes the status predicate of team updates.
+var teamTerminalStatuses = statusStrings(agent.TerminalTeamStatuses())
+
+const teamExistsSQL = `SELECT EXISTS (SELECT 1 FROM agent_teams WHERE id = $1 AND tenant_id = $2)`
+
+// UpdateTeamStatus sets the status of a team that has not ended. It returns
+// domain.ErrConflict when the team already ended.
 func (s *Store) UpdateTeamStatus(ctx context.Context, id string, status agent.TeamStatus) error {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE agent_teams SET status = $2 WHERE id = $1 AND tenant_id = $3`,
-		id, string(status), tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "update team status %s", id)
+		`UPDATE agent_teams SET status = $2 WHERE id = $1 AND tenant_id = $3 AND status <> ALL($4)`,
+		id, string(status), tenantFromCtx(ctx), teamTerminalStatuses)
+	return s.guardedUpdateResult(ctx, tag, err, teamExistsSQL, "update team status", id)
+}
+
+// ListEndedTeams returns up to limit teams that have not ended although
+// every execution plan of theirs has - a cancelled plan, or one that ended
+// while Go Core was down, ends no team otherwise. A team without plans is
+// left alone: a plan may still be created for it.
+//
+// INTENTIONALLY CROSS-TENANT: the stuck-work watchdog ends such teams in
+// every tenant. Each row carries its tenant_id, and the caller ends each team
+// in its tenant's context.
+func (s *Store) ListEndedTeams(ctx context.Context, limit int) ([]database.EndedTeam, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.tenant_id, bool_or(p.status <> $3)
+		 FROM agent_teams t
+		 JOIN execution_plans p ON p.team_id = t.id AND p.tenant_id = t.tenant_id
+		 WHERE t.status <> ALL($1)
+		 GROUP BY t.id, t.tenant_id
+		 HAVING bool_and(p.status = ANY($2))
+		 LIMIT $4`,
+		teamTerminalStatuses, planTerminalStatuses, string(plan.StatusCompleted), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list ended teams: %w", err)
+	}
+	return scanRows(rows, func(r pgx.Rows) (database.EndedTeam, error) {
+		var t database.EndedTeam
+		err := r.Scan(&t.ID, &t.TenantID, &t.Failed)
+		return t, err
+	})
 }
 
 func (s *Store) DeleteTeam(ctx context.Context, id string) error {

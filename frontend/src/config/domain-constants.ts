@@ -21,15 +21,6 @@ export const AUTONOMY_LEVELS = [
   { value: "headless", label: "5 - Headless" },
 ] as const;
 
-/** Autonomy levels with numeric values and i18n keys (used in per-project settings). */
-export const AUTONOMY_LEVELS_NUMERIC = [
-  { value: "1", labelKey: "dashboard.form.autonomy.1" as const },
-  { value: "2", labelKey: "dashboard.form.autonomy.2" as const },
-  { value: "3", labelKey: "dashboard.form.autonomy.3" as const },
-  { value: "4", labelKey: "dashboard.form.autonomy.4" as const },
-  { value: "5", labelKey: "dashboard.form.autonomy.5" as const },
-] as const;
-
 /** Common denied actions for mode configuration (suggestions, not exhaustive). */
 export const COMMON_DENIED_ACTIONS = [
   "rm",

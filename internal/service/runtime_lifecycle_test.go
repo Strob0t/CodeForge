@@ -485,9 +485,10 @@ type lifecycleTestStoreEx struct {
 		cost    float64
 		success bool
 	}
-	taskResults   map[string]task.Result
-	taskStatuses  map[string]task.Status
-	agentStatuses map[string]agent.Status
+	taskResults       map[string]task.Result
+	taskStatuses      map[string]task.Status
+	taskStatusPatches map[string]task.Status
+	agentStatuses     map[string]agent.Status
 }
 
 func newLifecycleTestStoreEx() *lifecycleTestStoreEx {
@@ -500,9 +501,10 @@ func newLifecycleTestStoreEx() *lifecycleTestStoreEx {
 			cost    float64
 			success bool
 		}),
-		taskResults:   make(map[string]task.Result),
-		taskStatuses:  make(map[string]task.Status),
-		agentStatuses: make(map[string]agent.Status),
+		taskResults:       make(map[string]task.Result),
+		taskStatuses:      make(map[string]task.Status),
+		taskStatusPatches: make(map[string]task.Status),
+		agentStatuses:     make(map[string]agent.Status),
 	}
 }
 
@@ -511,13 +513,16 @@ func (s *lifecycleTestStoreEx) UpdateAgentStatus(_ context.Context, id string, s
 	return nil
 }
 
+// UpdateTaskStatus records status writes separate from the result: the
+// completion path writes the task's status with its result (UpdateTaskResult).
 func (s *lifecycleTestStoreEx) UpdateTaskStatus(_ context.Context, id string, status task.Status) error {
-	s.taskStatuses[id] = status
+	s.taskStatusPatches[id] = status
 	return nil
 }
 
-func (s *lifecycleTestStoreEx) UpdateTaskResult(_ context.Context, id string, result task.Result, _ float64) error {
+func (s *lifecycleTestStoreEx) UpdateTaskResult(_ context.Context, id string, status task.Status, result task.Result, _ float64) error {
 	s.taskResults[id] = result
+	s.taskStatuses[id] = status
 	return nil
 }
 
@@ -541,6 +546,7 @@ func TestFinalizeRun(t *testing.T) {
 		wantTaskStatus    task.Status
 		wantAgentStatus   agent.Status
 		wantAgentSuccess  bool
+		wantNoAgentStats  bool // a cancel does not count in the agent's statistics
 		wantBroadcastMin  int  // minimum number of broadcast events
 		wantCallbackFired bool // onRunComplete called
 	}{
@@ -629,9 +635,9 @@ func TestFinalizeRun(t *testing.T) {
 				StepCount: 1,
 			},
 			wantRunStatus:     run.StatusCancelled,
-			wantTaskStatus:    task.StatusCompleted, // cancelled is not failed/timeout
+			wantTaskStatus:    task.StatusCancelled, // same as a user cancel (KI-30)
 			wantAgentStatus:   agent.StatusIdle,
-			wantAgentSuccess:  false,
+			wantNoAgentStats:  true,
 			wantBroadcastMin:  3,
 			wantCallbackFired: true,
 		},
@@ -701,6 +707,9 @@ func TestFinalizeRun(t *testing.T) {
 			} else if got != tt.wantTaskStatus {
 				t.Errorf("expected task status %q, got %q", tt.wantTaskStatus, got)
 			}
+			if patched, ok := store.taskStatusPatches[tt.run.TaskID]; ok {
+				t.Errorf("task status patched to %q after the result: want it written with the result", patched)
+			}
 
 			// Verify agent set to idle.
 			if got, ok := store.agentStatuses[tt.run.AgentID]; !ok {
@@ -710,7 +719,11 @@ func TestFinalizeRun(t *testing.T) {
 			}
 
 			// Verify agent stats incremented.
-			if stats, ok := store.agentStats[tt.run.AgentID]; !ok {
+			if stats, ok := store.agentStats[tt.run.AgentID]; tt.wantNoAgentStats {
+				if ok {
+					t.Errorf("expected no agent stats for a cancelled run, got %+v", stats)
+				}
+			} else if !ok {
 				t.Error("expected agent stats to be incremented")
 			} else if stats.success != tt.wantAgentSuccess {
 				t.Errorf("expected agent stats success=%v, got %v", tt.wantAgentSuccess, stats.success)

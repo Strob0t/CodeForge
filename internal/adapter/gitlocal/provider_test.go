@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "github.com/Strob0t/CodeForge/internal/adapter/gitlocal"
@@ -247,4 +248,69 @@ func runGitCmd(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
+}
+
+// TestProvider_PlantedGitConfigNeverRuns: the git status/branch/checkout API
+// runs git in agent-writable workspaces; planted config, attributes and hooks
+// must not run in the Go Core, and pull must not reach another workspace
+// through an agent-set remote (KI-77).
+func TestProvider_PlantedGitConfigNeverRuns(t *testing.T) {
+	ctx := context.Background()
+	dir := initTestRepo(t)
+	other := initTestRepo(t)
+	markerDir := t.TempDir()
+	marker := filepath.Join(markerDir, "marker")
+	program := filepath.Join(markerDir, "evil.sh")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\necho \"$*\" >> "+marker+"\ncat\n"), 0o755); err != nil { //nolint:gosec // executable test program
+		t.Fatal(err)
+	}
+	branch := currentBranch(t, dir)
+	runGitCmd(t, dir, "config", "core.fsmonitor", program)
+	runGitCmd(t, dir, "config", "filter.x.clean", program)
+	runGitCmd(t, dir, "config", "filter.x.smudge", program)
+	runGitCmd(t, dir, "remote", "add", "origin", other)
+	runGitCmd(t, dir, "config", "branch."+branch+".remote", "origin")
+	runGitCmd(t, dir, "config", "branch."+branch+".merge", "refs/heads/"+currentBranch(t, other))
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("* filter=x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(dir, ".git", "hooks", "post-checkout")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\n"+program+" hook\n"), 0o755); err != nil { //nolint:gosec // executable hook
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := gitprovider.New("local", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Status(ctx, dir); err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if _, err := p.ListBranches(ctx, dir); err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
+	runGitCmd(t, dir, "branch", "feature")
+	if err := p.Checkout(ctx, dir, "feature"); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	if err := p.Pull(ctx, dir); err == nil {
+		t.Fatal("Pull from a local path (another workspace) through the agent-set remote succeeded")
+	}
+	if data, err := os.ReadFile(marker); err == nil { //nolint:gosec // test marker
+		t.Fatalf("a program planted in the workspace ran: %s", data)
+	}
+}
+
+func currentBranch(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
 }

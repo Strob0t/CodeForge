@@ -1,6 +1,6 @@
 # ADR-007: Policy Layer -- Permission Rules, Quality Gates, and Termination Conditions
 
-> **Status:** accepted
+> **Status:** accepted; deny-list semantics and tool names amended by [ADR-015](015-policy-deny-lists-and-tool-names.md) (2026-09-30)
 > **Date:** 2026-02-17
 > **Deciders:** Project lead + Claude Code analysis
 
@@ -110,6 +110,8 @@ Custom profiles are loaded on startup from YAML files and can be created/deleted
 - Sandbox (resources): ResourceLimits merged into Docker container flags
 - Frontend: PolicyPanel with list/detail/editor views and evaluate tester
 
+> **Implementation status (2026-09-30):** Implemented as amended by [ADR-015](015-policy-deny-lists-and-tool-names.md): canonical tool names, deny lists win regardless of rule order, workspace-relative paths, shell-aware command matching, fail closed on unknown profiles and modes (KI-4..KI-10 fixed). Current presets are in `internal/domain/policy/presets.go`; profiles created via the API and Allow-Always clones persist in `policy.custom_dir` (default `data/policies`). The text below describes the defects as found on 2026-09-29. Deny lists did not deny then: a `PathDeny`/`CommandDeny` match only skips that rule, so evaluation falls through to later rules and finally to the mode default (`allow` under `acceptEdits`); paths are only `filepath.Clean`ed and calls without a path skip deny lists (`internal/service/policy.go`), see [Known Issues](../../todo.md#known-issues) KI-5. Only a rule with `decision: deny` plus `path_allow` (as in `trusted-mount-autonomous`) denies a path. Rules also never match real tool calls, because the workers send `read_file`/`bash`-style names with the JSON arguments as command and no path (KI-4); command matching is shell-unaware prefix matching (KI-6). Current presets (`internal/domain/policy/presets.go`): `plan-readonly` allows Read/Glob/Grep (no `LLM` rule); `headless-safe-sandbox` allows LLM/Read/Glob/Grep/propose_goal, Edit with PathDeny (.env, secrets, credentials) and Bash only for git status/diff/log and test/lint commands, and has no Write rule (asks); `headless-permissive-sandbox` uses mode `acceptEdits`; `supervised-ask-all` allows Read, asks for everything else and only limits steps (50). The runtime calls `PolicyService.EvaluateWithReason()` (decision, matched rule, reason); rollback on gate failure calls `CheckpointService.RewindToFirst()`. Profiles created via the REST API stay in memory (`PolicyDir` is not set) and the conversation path allows calls under an unknown profile (KI-7); the profile map is not synchronized (KI-8); `POST /policies` can overwrite built-in presets (KI-9).
+
 ### Consequences
 
 #### Positive
@@ -122,8 +124,8 @@ Custom profiles are loaded on startup from YAML files and can be created/deleted
 
 #### Negative
 
-- No scope hierarchy yet: Policies are flat (per-run), not layered (global to project to run override). Mitigation: deferred to future work; single-level policies are sufficient for current use cases.
-- No "why matched" explanation: The evaluate endpoint returns the decision but not which rule matched. Mitigation: deferred; useful for debugging but not critical for operation.
+- No rule-level scope hierarchy: profile selection is layered (run override -> project -> global default via `PolicyService.ResolveProfile`), but rules are not merged across levels; each evaluation uses exactly one profile. Mitigation: single-level profiles are sufficient for current use cases.
+- "Why matched" explanation (resolved): the evaluate endpoint returns the decision together with `rule_index`, `matched_rule`, `reason` and `scope` (`internal/domain/policy/evaluation.go`).
 - Rule ordering matters: First-match-wins means rule order is semantically significant, so reordering rules can change behavior. Mitigation: presets are carefully ordered; custom policies must be reviewed by the user.
 
 #### Neutral
@@ -149,6 +151,6 @@ Custom profiles are loaded on startup from YAML files and can be created/deleted
 - `internal/domain/policy/loader.go` -- YAML loading + SaveToFile
 - `internal/service/policy.go` -- PolicyService with first-match-wins evaluation
 - `internal/service/policy_test.go` -- 38 test functions
-- `internal/adapter/http/handlers.go` -- REST API handlers (list, get, evaluate, create, delete)
+- `internal/adapter/http/handlers_policy_crud.go` -- REST API handlers (list, get, evaluate, create, delete, allow-always)
 - `frontend/src/features/project/PolicyPanel.tsx` -- Frontend UI component
 - `docs/features/04-agent-orchestration.md` -- Policy System section

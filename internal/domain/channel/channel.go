@@ -1,6 +1,15 @@
 package channel
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrReadStateNotTracked reports that read positions are not kept for the
+// user: it has no account row (the default user while auth is disabled, the
+// internal service key user), and one identity shared by every such request
+// has no personal read position.
+var ErrReadStateNotTracked = errors.New("read state is not tracked for a user without an account")
 
 // ChannelType distinguishes project channels from bot channels.
 type ChannelType string
@@ -46,10 +55,27 @@ type Channel struct {
 	Name        string      `json:"name"`
 	Type        ChannelType `json:"type"`
 	Description string      `json:"description"`
-	WebhookKey  string      `json:"webhook_key,omitempty"`
-	CreatedBy   string      `json:"created_by,omitempty"`
-	CreatedAt   time.Time   `json:"created_at"`
+	// HasWebhookKey reports whether a webhook key was generated; the key
+	// itself is shown once and only its hash is stored.
+	HasWebhookKey bool      `json:"has_webhook_key"`
+	CreatedBy     string    `json:"created_by,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	// UnreadCount is the number of top-level messages of others after the
+	// calling user's read position (only set when channels are listed for a user).
+	UnreadCount int `json:"unread_count"`
 }
+
+// ReadState is a user's read position in a channel.
+type ReadState struct {
+	ChannelID         string    `json:"channel_id"`
+	UserID            string    `json:"user_id"`
+	LastReadMessageID string    `json:"last_read_message_id,omitempty"`
+	LastReadAt        time.Time `json:"last_read_at"`
+}
+
+// ErasedSenderName replaces the sender name of the messages of a user whose
+// data was erased (GDPR Art. 17); the messages stay in the channel.
+const ErasedSenderName = "Deleted user"
 
 // Message represents a message in a channel.
 type Message struct {

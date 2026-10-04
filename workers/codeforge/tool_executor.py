@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from opentelemetry import trace
 from opentelemetry.trace import StatusCode
 
+from codeforge.history import truncate_tool_result
 from codeforge.json_utils import safe_json_loads
 from codeforge.loop_helpers import (
     ToolErrorTracker,
@@ -21,6 +22,8 @@ from codeforge.loop_helpers import (
     build_tool_result_message,
     build_tool_result_text,
 )
+from codeforge.policy_args import policy_request_args
+from codeforge.runtime import arguments_preview
 from codeforge.tracing import metrics as otel_metrics
 
 if TYPE_CHECKING:
@@ -72,8 +75,10 @@ class ToolExecutor:
     ) -> None:
         """Execute a single tool call with policy check and error handling."""
         arguments: dict = safe_json_loads(tc.arguments, {}) if tc.arguments else {}
+        policy_args = arguments if isinstance(arguments, dict) else {}
+        command, path = policy_request_args(tc.name, policy_args, self._workspace)
         decision = await self._runtime.request_tool_call(
-            tool=tc.name, command=tc.arguments[:200] if tc.arguments else ""
+            tool=tc.name, command=command, path=path, arguments_preview=arguments_preview(policy_args)
         )
 
         if decision.decision != "allow":
@@ -201,8 +206,12 @@ class ToolExecutor:
         messages: list[dict[str, object]],
         state: _LoopState,
     ) -> None:
-        """Build and append a tool result message to state and messages."""
-        msg = build_tool_result_message(tc, content)
+        """Build and append a tool result message to state and messages.
+
+        The result is truncated to the run's tool_output_max_chars (head and
+        tail kept), like the tool results of earlier turns in the history.
+        """
+        msg = build_tool_result_message(tc, truncate_tool_result(content, state.tool_output_max_chars))
         state.tool_messages.append(msg)
         messages.append(_payload_to_dict(msg))
 

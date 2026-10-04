@@ -70,7 +70,7 @@ func (ph *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request)
 
 	// If local_path provided, adopt the workspace in the same request.
 	if req.LocalPath != "" {
-		adopted, adoptErr := ph.Projects.Adopt(r.Context(), p.ID, req.LocalPath)
+		adopted, adoptErr := ph.Projects.Adopt(r.Context(), p.ID, req.LocalPath, isPlatformAdmin(r))
 		if adoptErr != nil {
 			writeDomainError(w, adoptErr, "project created but workspace adoption failed")
 			return
@@ -197,7 +197,7 @@ func (ph *ProjectHandlers) AdoptProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	p, err := ph.Projects.Adopt(r.Context(), id, cleanPath)
+	p, err := ph.Projects.Adopt(r.Context(), id, cleanPath, isPlatformAdmin(r))
 	if err != nil {
 		writeDomainError(w, err, "adopt failed")
 		return
@@ -290,7 +290,7 @@ func (ph *ProjectHandlers) DetectStackByPath(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "path must be absolute")
 		return
 	}
-	result, err := ph.Projects.DetectStackByPath(r.Context(), cleanPath)
+	result, err := ph.Projects.DetectStackByPath(r.Context(), cleanPath, isPlatformAdmin(r))
 	if err != nil {
 		writeDomainError(w, err, "stack detection failed")
 		return
@@ -379,4 +379,13 @@ func (ph *ProjectHandlers) ListRemoteBranches(w http.ResponseWriter, r *http.Req
 		branches = []string{}
 	}
 	writeJSON(w, http.StatusOK, map[string][]string{"branches": branches})
+}
+
+// isPlatformAdmin reports whether the request's user is a platform admin (an
+// admin of the default tenant): only they may adopt
+// directories from the configured workspace.adopt_roots (S3 follow-up 1f,
+// S3-F review C4).
+func isPlatformAdmin(r *http.Request) bool {
+	u := middleware.UserFromContext(r.Context())
+	return u != nil && u.IsPlatformAdmin()
 }

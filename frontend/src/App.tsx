@@ -397,6 +397,19 @@ const KNOWN_ROUTES = new Set([
   "/routing",
 ]);
 
+/**
+ * The WebSocket follows the session: one socket per logged-in user, none while
+ * logged out or while the password must be changed. Token refreshes keep it.
+ */
+function SessionWebSocketProvider(props: { children: JSX.Element }): JSX.Element {
+  const { user, mustChangePassword } = useAuth();
+  const sessionUserID = (): string | null => {
+    const u = user();
+    return u && !mustChangePassword() ? u.id : null;
+  };
+  return <WebSocketProvider sessionUserID={sessionUserID}>{props.children}</WebSocketProvider>;
+}
+
 /** Inner component rendered inside AuthProvider so the WS has access to the auth token. */
 function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const [health] = createResource(() => api.health.check());
@@ -435,7 +448,8 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
   const isKnownRoute = (): boolean =>
     isPublicPage() ||
     KNOWN_ROUTES.has(location.pathname) ||
-    location.pathname.startsWith("/projects/");
+    location.pathname.startsWith("/projects/") ||
+    location.pathname.startsWith("/approvals/");
 
   return (
     <ToastProvider>
@@ -465,11 +479,11 @@ export default function App(props: RouteSectionProps) {
       <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
         <ThemeProvider>
           <AuthProvider>
-            <WebSocketProvider>
+            <SessionWebSocketProvider>
               <ConversationRunProvider>
                 <AuthenticatedApp>{props.children}</AuthenticatedApp>
               </ConversationRunProvider>
-            </WebSocketProvider>
+            </SessionWebSocketProvider>
           </AuthProvider>
         </ThemeProvider>
       </ErrorBoundary>

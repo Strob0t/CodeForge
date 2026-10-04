@@ -27,12 +27,12 @@ func (s *Store) CreateA2ATask(ctx context.Context, t *a2adomain.A2ATask) error {
 		INSERT INTO a2a_tasks (id, context_id, state, direction, skill_id,
 			trust_origin, trust_level, source_addr, project_id, remote_agent_id,
 			tenant_id, metadata, history, artifacts, error_message, version,
-			created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+			created_at, updated_at, caller_key_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		t.ID, t.ContextID, string(t.State), string(t.Direction), t.SkillID,
 		t.TrustOrigin, t.TrustLevel, t.SourceAddr, t.ProjectID, t.RemoteAgentID,
 		tenantFromCtx(ctx), metaJSON, t.History, t.Artifacts, t.ErrorMessage,
-		t.Version, now, now,
+		t.Version, now, now, t.CallerKeyID,
 	)
 	if err != nil {
 		return fmt.Errorf("create a2a task: %w", err)
@@ -50,12 +50,12 @@ func (s *Store) GetA2ATask(ctx context.Context, id string) (*a2adomain.A2ATask, 
 		SELECT id, context_id, state, direction, skill_id,
 			trust_origin, trust_level, source_addr, project_id, remote_agent_id,
 			tenant_id, metadata, history, artifacts, error_message, version,
-			created_at, updated_at
+			created_at, updated_at, caller_key_id
 		FROM a2a_tasks WHERE id=$1 AND tenant_id=$2`, id, tenantFromCtx(ctx)).Scan(
 		&t.ID, &t.ContextID, &state, &direction, &t.SkillID,
 		&t.TrustOrigin, &t.TrustLevel, &t.SourceAddr, &t.ProjectID, &t.RemoteAgentID,
 		&t.TenantID, &metaJSON, &t.History, &t.Artifacts, &t.ErrorMessage, &t.Version,
-		&t.CreatedAt, &t.UpdatedAt,
+		&t.CreatedAt, &t.UpdatedAt, &t.CallerKeyID,
 	)
 	if err != nil {
 		return nil, notFoundWrap(err, "a2a task %s", id)
@@ -119,6 +119,11 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 			args = append(args, filter.ProjectID)
 			idx++
 		}
+		if filter.CallerKeyID != "" {
+			conditions = append(conditions, fmt.Sprintf("caller_key_id=$%d", idx))
+			args = append(args, filter.CallerKeyID)
+			idx++
+		}
 	}
 
 	where := "WHERE " + strings.Join(conditions, " AND ")
@@ -130,7 +135,7 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 	// SAFETY: 'where' is built from controlled field names only (see above).
 	// User values are ALWAYS passed as parameterized $N placeholders in 'args'.
 	// Do NOT interpolate user input into the 'where' string.
-	query := fmt.Sprintf("SELECT id,context_id,state,direction,skill_id,trust_origin,trust_level,source_addr,project_id,remote_agent_id,tenant_id,metadata,history,artifacts,error_message,version,created_at,updated_at FROM a2a_tasks %s ORDER BY created_at DESC LIMIT $%d", where, idx)
+	query := fmt.Sprintf("SELECT id,context_id,state,direction,skill_id,trust_origin,trust_level,source_addr,project_id,remote_agent_id,tenant_id,metadata,history,artifacts,error_message,version,created_at,updated_at,caller_key_id FROM a2a_tasks %s ORDER BY created_at DESC LIMIT $%d", where, idx)
 	args = append(args, limit)
 
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -145,7 +150,7 @@ func (s *Store) ListA2ATasks(ctx context.Context, filter *database.A2ATaskFilter
 			&t.ID, &t.ContextID, &state, &direction, &t.SkillID,
 			&t.TrustOrigin, &t.TrustLevel, &t.SourceAddr, &t.ProjectID, &t.RemoteAgentID,
 			&t.TenantID, &metaJSON, &t.History, &t.Artifacts, &t.ErrorMessage, &t.Version,
-			&t.CreatedAt, &t.UpdatedAt,
+			&t.CreatedAt, &t.UpdatedAt, &t.CallerKeyID,
 		); err != nil {
 			return t, err
 		}

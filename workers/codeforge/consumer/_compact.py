@@ -21,23 +21,24 @@ class CompactHandlerMixin:
 
     async def _handle_conversation_compact(self, msg: nats.aio.msg.Msg) -> None:
         """Compact a conversation's message history using LLM summarization."""
-        try:
-            payload = json.loads(msg.data)
-            conversation_id = payload.get("conversation_id", "")
-            tenant_id = payload.get("tenant_id", "")
-            log = logger.bind(conversation_id=conversation_id, tenant_id=tenant_id)
-            log.info("received conversation compact request")
+        payload = await self._parse_json_object(msg)
+        if payload is None:
+            return
+        conversation_id = payload.get("conversation_id", "")
+        if not conversation_id:
+            await self._reject_invalid(msg, "missing conversation_id in compact request")
+            return
+        tenant_id = payload.get("tenant_id", "")
+        log = logger.bind(conversation_id=conversation_id, tenant_id=tenant_id)
 
-            if not conversation_id:
-                log.error("missing conversation_id in compact request")
-                await msg.ack()
-                return
+        # Acked exactly once in `finally`; failures are logged, not retried.
+        try:
+            log.info("received conversation compact request")
 
             # Fetch conversation messages from the Go Core API
             messages = await self._fetch_conversation_messages(conversation_id, tenant_id, log)
             if not messages:
                 log.info("no messages to compact")
-                await msg.ack()
                 return
 
             # Build summarization prompt

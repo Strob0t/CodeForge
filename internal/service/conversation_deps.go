@@ -12,11 +12,11 @@ import (
 
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
-	"github.com/Strob0t/CodeForge/internal/domain/mcp"
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // convModelResolver is the subset of ModelRegistry used by ConversationService.
@@ -32,13 +32,13 @@ type convModeProvider interface {
 
 // convPolicyEvaluator is the subset of PolicyService used by ConversationService.
 type convPolicyEvaluator interface {
-	GetProfile(name string) (policy.PolicyProfile, bool)
-	ResolveProfile(runProfile, projectProfile string) string
+	GetProfile(ctx context.Context, name string) (policy.PolicyProfile, bool)
+	DefaultProfile() string
 }
 
 // convMCPResolver is the subset of MCPService used by ConversationService.
 type convMCPResolver interface {
-	ResolveForRun(projectID, modeID string) []mcp.ServerDef
+	RunServerPayloads(ctx context.Context, projectID, modeID string) []messagequeue.MCPServerDefPayload
 }
 
 // convMicroagentMatcher is the subset of MicroagentService used by ConversationService.
@@ -70,4 +70,17 @@ type convLLMKeyResolver interface {
 type convScoreRecorder interface {
 	RecordSuccessScore(ctx context.Context, tenantID, fingerprint, modeID, modelFamily, runID string, succeeded bool) error
 	RecordCostScore(ctx context.Context, tenantID, fingerprint, modeID, modelFamily, runID string, qualityPerDollar float64) error
+}
+
+// convRunTracker is the subset of RuntimeService used by ConversationService:
+// the run state of a conversation (one active run, identified by its turn).
+type convRunTracker interface {
+	BeginConversationRun(conversationID, turnID string) error
+	ConversationRunDispatched(conversationID, turnID string)
+	AbortConversationRun(conversationID, turnID string)
+	EndConversationRun(conversationID, turnID string)
+	MarkConversationRunCancelled(conversationID string) string
+	IsActiveConversationRun(conversationID, turnID string) bool
+	ActiveConversationRun(conversationID string) string
+	ForgetConversation(conversationID string)
 }

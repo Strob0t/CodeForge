@@ -1,7 +1,7 @@
 # Feature: Multi-LLM Provider (Pillar 3)
 
-> Status: Foundation implemented (Phase 1-2), Cost Transparency (Phase 7)
-> Priority: Phase 1 (Foundation) + Phase 2 (MVP) completed; Phase 7 (Cost) completed
+> Status: Implemented -- Foundation (Phase 1-2), Cost Transparency (Phase 7), Intelligent Routing (Phase 29), LLM Retry & Rate-Limit Awareness (Phase 30)
+> Priority: Phase 1 (Foundation) + Phase 2 (MVP) completed; Phase 7 (Cost), Phase 29 and Phase 30 completed
 > Architecture reference: [architecture.md](../architecture.md) -- "LLM Integration: LiteLLM Proxy as Sidecar"
 
 ### Purpose
@@ -28,13 +28,17 @@ CodeForge does not build its own LLM abstraction layer. LiteLLM Proxy handles 12
 
 | Component | Layer | Description |
 |---|---|---|
-| LiteLLM Config Manager | Go Core | Generates `litellm_config.yaml` from DB. CRUD for models/deployments/keys. |
-| User-Key Mapping | Go Core | CodeForge user to LiteLLM Virtual Keys. Secure key storage. |
-| **Scenario Router** | Go Core | Task type to LiteLLM tag. Routes tasks to appropriate models. |
-| Cost Dashboard | Frontend | Queries LiteLLM Spend API. Visualization per project/user/agent. |
-| Local Model Discovery | Go Core | Auto-discover Ollama/LM Studio models, add to LiteLLM config. |
-| Copilot Token Exchange | Go Core | GitHub OAuth to Copilot bearer token for free model access. |
-| **Subscription Connect** | Go Core | OAuth device flow for Claude Max + GitHub Copilot. Produces API keys stored in `.env`. |
+| LiteLLM Config Manager | Go Core | Lists/adds/deletes model deployments via the LiteLLM admin API (`internal/adapter/litellm/`); `litellm/config.yaml` is a static file. Planned: generating the config from the DB, key CRUD. |
+| User-Key Mapping | Go Core | Encrypted per-user provider API keys (`/api/v1/llm-keys`, `internal/domain/llmkey/`), injected into conversation runs. Planned: mapping CodeForge users to LiteLLM Virtual Keys. |
+| **Scenario Router** | Python Workers | Mode scenario (set in Go mode presets, forwarded in the run payload) to LiteLLM tag via `resolve_scenario()` in `workers/codeforge/llm.py`. |
+| Cost Dashboard | Frontend | Aggregates run costs stored by CodeForge (from LiteLLM's `x-litellm-response-cost`) per project/model/tool/day (`internal/service/cost.go`). Planned: LiteLLM Spend API queries, per-user/agent views. |
+| Local Model Discovery | Go Core | Discovers LiteLLM and Ollama models (`GET /api/v1/llm/discover`); they are served through the `ollama/*` and `lm_studio/*` wildcards instead of being added to the LiteLLM config. |
+| Copilot Token Exchange | Go Core | GitHub OAuth to Copilot bearer token. `POST /api/v1/copilot/exchange` is a platform-admin connection check that returns only status and expiry; the token never leaves the server. |
+| **Subscription Connect** | Go Core | OAuth device flow for Claude Max + GitHub Copilot. Produces API keys stored in `.env` (shared by all tenants): connect/disconnect are platform-admin only. |
+
+### Shared Models and Platform Admins
+
+All tenants share one LiteLLM proxy, its models and the subscription credentials, so only a **platform admin** may change them: a user with the admin role in the default (bootstrap) tenant (`user.User.IsPlatformAdmin()` in `internal/domain/user/user.go`; the user JSON carries the derived `is_platform_admin` flag for the frontend). Routes guarded by `middleware.RequirePlatformAdmin` (`internal/middleware/rbac.go`): `POST /api/v1/llm/models` and `DELETE /api/v1/llm/models/{id}` (KI-75), `POST /api/v1/copilot/exchange` (`internal/adapter/copilot/client.go`; returns status and expiry, never the token), `POST /api/v1/auth/providers/{provider}/connect` and `DELETE .../disconnect`, and tenant creation. Every user may list the models: `GET /api/v1/llm/models` strips credential parameters (names per `secrets.IsCredentialName`, URL userinfo and credential query values) before answering (`redactCredentials` in `internal/adapter/http/handlers_llm.go`).
 
 ### Scenario-Based Routing
 
@@ -57,23 +61,28 @@ Requests without a scenario tag route to **all models** (no tag filtering). Spec
 | API with Tool Support | OpenAI, Claude API, Gemini | Context Layer + Routing + Tool Definitions |
 | Pure Completion | Ollama, LM Studio | Everything: Context, Tools, Prompts, Quality Layer |
 
+**How the worker decides a model's level (S8-A, KI-125):** first an operator override (`litellm.model_capabilities` / `CODEFORGE_MODEL_CAPABILITIES`, `pattern=level`, first match wins), then LiteLLM's `/model/info` `supports_function_calling` (cached 60 s per worker client; a model added in the UI with `model_info.supports_function_calling` counts here), then name heuristics. The model is resolved before this check, so a run without a configured model gets the default model's level. Local models served by Ollama report their tool support through LiteLLM; the `ollama/*` route uses Ollama's OpenAI-compatible `/v1` endpoint so tool calls stay structured. Pure-completion models still get no tools: a text tool-call protocol for them is a product question (`docs/testing/live-e2e-findings.md`).
+
+**Model list:** `GET /llm/models` and `GET /llm/discover` show local models one by one and each cloud catalogue route once (for example `groq/*`), instead of the hundreds of models LiteLLM expands from its catalogue without a key; models of a route can still be used by name. Routes with an `api_base` (Ollama, LM Studio, other OpenAI-compatible servers) keep the models their server reports. The default model is never a wildcard route.
+
 ### Docker Compose Configuration
 
 LiteLLM Proxy runs as a Docker sidecar in both dev and production environments.
 
 ```yaml
-# docker-compose.yml (dev)
+# docker-compose.yml (dev, abridged)
 services:
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    image: docker.litellm.ai/berriai/litellm:main-stable   # prod: ghcr.io/berriai/litellm:v1.63.2 (docker-compose.prod.yml)
     ports:
       - "4000:4000"
     volumes:
       - ${HOST_PROJECT_PATH:-.}/litellm:/app/data
     command: ["--config", "/app/data/config.yaml", "--port", "4000"]
     environment:
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
-      - DATABASE_URL=postgresql://codeforge:${POSTGRES_PASSWORD}@postgres:5432/codeforge
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-codeforge-dev}
+      DATABASE_URL: postgresql://codeforge:${POSTGRES_PASSWORD:-codeforge_dev}@postgres:5432/codeforge
+      # plus provider API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, ...), OLLAMA_API_BASE, LM_STUDIO_API_BASE
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,12 +95,12 @@ services:
 - [x] LiteLLM service in `docker-compose.yml` with health check, depends_on, shared PostgreSQL.
 - [x] Initial `litellm/config.yaml` with provider configuration.
 - [x] Health check integration from Go Core (`/health/ready` pings LiteLLM).
-- [x] Basic LLM call through proxy (Python workers via `litellm` client library).
+- [x] Basic LLM call through the proxy (Python workers use `httpx` against LiteLLM's OpenAI-compatible API; no LiteLLM SDK).
 
 ### Completed (Phase 2)
 
 - [x] LiteLLM Config Manager via admin API (`internal/adapter/litellm/`).
-- [x] Frontend: Provider configuration UI (ModelsPage -- add/delete models, health status).
+- [x] Frontend: Provider configuration UI (ModelsPage -- add/delete models, health status). Delete uses `DELETE /api/v1/llm/models/{id}` (admin, audited) with the LiteLLM deployment ID (`model_info.id`); models are shared by all tenants (KI-75).
 
 ### Completed (Phase 7 -- Cost and Token Transparency)
 
@@ -126,18 +135,24 @@ Replaces manual tag-based routing with a three-layer intelligent cascade.
 
 **Fallback:** If all layers fail or routing disabled, tag-based routing via `resolve_scenario()` still works.
 
-**LiteLLM Config:** Simplified from 38 individual model entries to 6 provider-level wildcards:
+**LiteLLM Config:** Provider-level wildcards replace the former 38 individual model entries, plus an explicit `openai/container` alias for LM Studio (see `litellm/config.yaml`):
 ```yaml
 model_list:
-  - model_name: "openai/*"     # All OpenAI models
-  - model_name: "anthropic/*"  # All Anthropic models
-  - model_name: "groq/*"       # All Groq models
-  - model_name: "gemini/*"     # All Google Gemini models
-  - model_name: "ollama/*"     # Local Ollama models
-  - model_name: "mistral/*"    # All Mistral AI models
+  - model_name: "ollama/*"       # Local Ollama models
+  - model_name: "lm_studio/*"    # Local LM Studio models
+  - model_name: "openai/container"
+  - model_name: "openai/*"
+  - model_name: "anthropic/*"
+  - model_name: "gemini/*"
+  - model_name: "groq/*"
+  - model_name: "mistral/*"
+  - model_name: "openrouter/*"
+  - model_name: "cerebras/*"
+  - model_name: "chutes/*"
+  - model_name: "aihubmix/*"
 ```
 
-**Config:** Set `CODEFORGE_ROUTING_ENABLED=true` to activate intelligent routing.
+**Config:** Intelligent routing is enabled by default; set `CODEFORGE_ROUTING_ENABLED=false` to fall back to tag-based routing via `resolve_scenario()`.
 
 **Supporting Components:**
 
@@ -146,9 +161,9 @@ model_list:
 | **Model Blocklist** | `workers/codeforge/routing/blocklist.py` | TTL-based model blocklist for temporarily disabling failing models |
 | **Rate Limit Tracker** | `workers/codeforge/routing/rate_tracker.py` | Per-provider rate limit tracking for intelligent request routing |
 
-- [x] Python routing package: `workers/codeforge/routing/` (11 modules, 164 tests)
+- [x] Python routing package: `workers/codeforge/routing/` (11 modules, ~280 tests in `workers/tests/test_routing_*.py`)
 - [x] Integration: `resolve_model_with_routing()` in llm.py, conversation handler, executor
-- [x] LiteLLM wildcard config: 6 provider entries replace 38 individual models
+- [x] LiteLLM wildcard config: provider-level wildcard entries (11 providers + `openai/container`) replace 38 individual models
 - [x] Task-type complexity boost: inherent task difficulty (PLAN/REVIEW/REFACTOR etc.) shifts tier classification (29K)
 - [x] Model auto-discovery: `model_resolver.py` (Python, cached 60s TTL) + `ModelRegistry.BestModel()` (Go) — no hardcoded model defaults
 - [x] NATS runtime fix: `DeliverPolicy.NEW` prevents 30s timeout from replaying old JetStream messages

@@ -263,20 +263,21 @@ func TestHandleConversationRunComplete_Waiters(t *testing.T) {
 		svc, _, _ := newConvRunCompleteEnv()
 		ctx := context.Background()
 
+		// Registered before the run ends, so the result cannot be missed.
+		waiter, err := svc.ExpectCompletion("conv-wait-1")
+		if err != nil {
+			t.Fatalf("ExpectCompletion: %v", err)
+		}
+		defer waiter.Close()
 		resultCh := make(chan service.CompletionResult, 1)
-
-		// Start waiting in a goroutine.
 		go func() {
-			result, err := svc.WaitForCompletion(ctx, "conv-wait-1")
+			result, err := waiter.Wait(ctx)
 			if err != nil {
 				resultCh <- service.CompletionResult{Status: "error", Error: err.Error()}
 				return
 			}
 			resultCh <- result
 		}()
-
-		// Give the goroutine time to register.
-		time.Sleep(50 * time.Millisecond)
 
 		// Complete the run.
 		payload := messagequeue.ConversationRunCompletePayload{
@@ -346,20 +347,22 @@ func TestHandleConversationRunComplete_Concurrent(t *testing.T) {
 	// If we get here without a data race (run with -race), the test passes.
 }
 
-// --- TestWaitForCompletion_ContextCancelled ---
+// --- TestCompletionWaiter_ContextCancelled ---
 
-func TestWaitForCompletion_ContextCancelled(t *testing.T) {
+func TestCompletionWaiter_ContextCancelled(t *testing.T) {
 	svc, _, _ := newConvRunCompleteEnv()
 	ctx, cancel := context.WithCancel(context.Background())
 
+	waiter, err := svc.ExpectCompletion("conv-cancel")
+	if err != nil {
+		t.Fatalf("ExpectCompletion: %v", err)
+	}
+	defer waiter.Close()
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := svc.WaitForCompletion(ctx, "conv-cancel")
+		_, err := waiter.Wait(ctx)
 		resultCh <- err
 	}()
-
-	// Give time for registration.
-	time.Sleep(50 * time.Millisecond)
 
 	cancel()
 
@@ -369,6 +372,6 @@ func TestWaitForCompletion_ContextCancelled(t *testing.T) {
 			t.Errorf("expected context.Canceled, got %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("WaitForCompletion did not return within 5s after context cancel")
+		t.Fatal("Wait did not return within 5s after context cancel")
 	}
 }

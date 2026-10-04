@@ -1,88 +1,172 @@
-# Blue-Green deployment overlay for CodeForge
-# Usage: docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml up -d
-# Requires: traefik/traefik.yaml (static config) in the project root.
-# TODO: Add TLS certificate configuration and dynamic routing rules for production.
+# Blue-green deployment overlay for CodeForge
+#
+# Usage (ACME_EMAIL and CODEFORGE_DOMAIN from the environment or .env):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.blue-green.yml up -d
+#     starts the infrastructure, the worker and Traefik (no color yet)
+#   ./scripts/deploy-blue-green.sh [blue|green]
+#     starts the inactive (or given) color, waits until it is healthy and
+#     stops the active one; DRY_RUN=1 only prints what it would do
+#
+# Traefik is the only service that publishes ports (80, 443). It terminates
+# TLS for CODEFORGE_DOMAIN with a Let's Encrypt certificate (HTTP challenge)
+# and routes /api, /health, /ws, /.well-known and /a2a to core-<color> and
+# everything else to frontend-<color>; it follows the running containers.
+#
+# The colored services (profiles "blue" and "green", so a plain `up -d`
+# starts neither) extend the prod services from their file and drop their
+# published ports (`ports: !reset []` on each service; the Compose tags
+# !reset and !override make check-yaml parse this file with --unsafe). Each
+# frontend proxies to the core of its own color (CORE_UPSTREAM). Both cores
+# carry the network alias "core", which the worker (CODEFORGE_CORE_URL)
+# uses; during a switch it resolves to both. The prod "core" and "frontend"
+# services are not started (profile "donotstart").
+
+x-core-color: &core-color
+  extends:
+    file: docker-compose.prod.yml
+    service: core
+  networks:
+    public:
+      aliases:
+        - core
+    internal:
+      aliases:
+        - core
+
+x-frontend-color: &frontend-color
+  extends:
+    file: docker-compose.prod.yml
+    service: frontend
 
 services:
   traefik:
-    image: traefik:v3.3
+    # v3.6 or later: the Docker provider of older releases speaks API 1.24,
+    # which Docker Engine 29 refuses.
+    image: traefik:v3.6
     restart: unless-stopped
+    # Static configuration as flags: Traefik reads a static configuration file
+    # verbatim (no environment expansion), Compose expands these.
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=codeforge-public
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?set ACME_EMAIL to the Let's Encrypt account email}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --ping=true
+      - --api.dashboard=false
+      - --accesslog=true
+      - --accesslog.format=json
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.headers.names.User-Agent=keep
+      - --accesslog.fields.headers.names.Authorization=redact
+      - --log.level=INFO
+      - --log.format=json
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yaml:/etc/traefik/traefik.yaml:ro
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
       - acme_data:/acme
     healthcheck:
-      test: ["CMD", "traefik", "healthcheck"]
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 10s
       timeout: 5s
       retries: 3
+    networks:
+      - public
 
   core-blue:
-    extends:
-      service: core
+    <<: *core-color
+    # Only Traefik publishes ports. !reset works on the service itself only,
+    # not through the merge key above.
+    ports: !reset []
+    profiles:
+      - blue
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.core-blue.rule=PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ws`) || PathPrefix(`/.well-known`) || PathPrefix(`/a2a`)"
+      - "traefik.http.routers.core-blue.rule=Host(`${CODEFORGE_DOMAIN:?set CODEFORGE_DOMAIN to the public host name}`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ws`) || PathPrefix(`/.well-known`) || PathPrefix(`/a2a`))"
       - "traefik.http.routers.core-blue.entrypoints=websecure"
       - "traefik.http.routers.core-blue.tls.certresolver=letsencrypt"
       - "traefik.http.routers.core-blue.middlewares=rate-limit@file,security-headers@file"
       - "traefik.http.services.core-blue.loadbalancer.server.port=8080"
       - "traefik.http.routers.core-blue.priority=20"
-    ports: []
 
   core-green:
-    extends:
-      service: core
+    <<: *core-color
+    ports: !reset []
+    profiles:
+      - green
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.core-green.rule=PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ws`) || PathPrefix(`/.well-known`) || PathPrefix(`/a2a`)"
+      - "traefik.http.routers.core-green.rule=Host(`${CODEFORGE_DOMAIN:?set CODEFORGE_DOMAIN to the public host name}`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/ws`) || PathPrefix(`/.well-known`) || PathPrefix(`/a2a`))"
       - "traefik.http.routers.core-green.entrypoints=websecure"
       - "traefik.http.routers.core-green.tls.certresolver=letsencrypt"
       - "traefik.http.routers.core-green.middlewares=rate-limit@file,security-headers@file"
       - "traefik.http.services.core-green.loadbalancer.server.port=8080"
       - "traefik.http.routers.core-green.priority=10"
-    ports: []
 
   frontend-blue:
-    extends:
-      service: frontend
+    <<: *frontend-color
+    ports: !reset []
+    profiles:
+      - blue
+    environment:
+      CORE_UPSTREAM: core-blue:8080
+    depends_on: !override
+      core-blue:
+        condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend-blue.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend-blue.rule=Host(`${CODEFORGE_DOMAIN:?set CODEFORGE_DOMAIN to the public host name}`)"
       - "traefik.http.routers.frontend-blue.entrypoints=websecure"
       - "traefik.http.routers.frontend-blue.tls.certresolver=letsencrypt"
       - "traefik.http.routers.frontend-blue.middlewares=security-headers@file"
-      - "traefik.http.services.frontend-blue.loadbalancer.server.port=80"
+      - "traefik.http.services.frontend-blue.loadbalancer.server.port=8080"
       - "traefik.http.routers.frontend-blue.priority=5"
-    ports: []
 
   frontend-green:
-    extends:
-      service: frontend
+    <<: *frontend-color
+    ports: !reset []
+    profiles:
+      - green
+    environment:
+      CORE_UPSTREAM: core-green:8080
+    depends_on: !override
+      core-green:
+        condition: service_healthy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend-green.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend-green.rule=Host(`${CODEFORGE_DOMAIN:?set CODEFORGE_DOMAIN to the public host name}`)"
       - "traefik.http.routers.frontend-green.entrypoints=websecure"
       - "traefik.http.routers.frontend-green.tls.certresolver=letsencrypt"
       - "traefik.http.routers.frontend-green.middlewares=security-headers@file"
-      - "traefik.http.services.frontend-green.loadbalancer.server.port=80"
+      - "traefik.http.services.frontend-green.loadbalancer.server.port=8080"
       - "traefik.http.routers.frontend-green.priority=1"
-    ports: []
 
-  # Override original services to not expose ports (Traefik handles routing)
+  # The single-color services of the prod file are replaced by the colors.
   core:
-    ports: []
     profiles:
       - donotstart
 
   frontend:
-    ports: []
     profiles:
       - donotstart
+
+networks:
+  # A fixed name, so Traefik (--providers.docker.network) reaches the colors
+  # on it whatever the Compose project is called.
+  public:
+    name: codeforge-public
 
 volumes:
   acme_data:

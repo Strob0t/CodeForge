@@ -33,10 +33,12 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
     msg.headers = {"X-Request-ID": "req-abc-123"}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     backend_result = BackendTaskResult(status="completed", output="Done")
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._backend_router = MagicMock()
     consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
@@ -46,29 +48,33 @@ async def test_handle_message_success(consumer: TaskConsumer) -> None:
     call_kwargs = consumer._backend_router.execute.call_args.kwargs
     assert call_kwargs["backend_name"] == "aider"
     assert call_kwargs["task_id"] == "task-1"
-    # Two publishes: one output line ("Starting task: ...") + one result
-    assert consumer._js.publish.call_count == 2
-    subjects = [call.args[0] for call in consumer._js.publish.call_args_list]
-    assert "tasks.output" in subjects
-    assert "tasks.result" in subjects
-    msg.ack.assert_called_once()
+    # One output line ("Starting task: ...") and one result, besides the
+    # task's heartbeats (KI-65).
+    subjects = [call.args[0] for call in consumer._js.publish.call_args_list if call.args[0] != "tasks.heartbeat"]
+    assert sorted(subjects) == ["tasks.output", "tasks.result"]
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
     msg.nak.assert_not_called()
 
 
 async def test_handle_message_invalid_json(consumer: TaskConsumer) -> None:
-    """_handle_message should nack on invalid JSON."""
+    """_handle_message dead-letters invalid JSON and terminates it (a NAK would loop forever)."""
     msg = MagicMock()
     msg.data = b"not valid json"
     msg.subject = "tasks.agent.aider"
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
+    msg.term = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
 
     await consumer._handle_message(msg)
 
-    msg.nak.assert_called_once()
+    consumer._js.publish.assert_awaited_once_with("tasks.agent.aider.dlq", b"not valid json", headers=None)
+    msg.term.assert_awaited_once()
+    msg.nak.assert_not_called()
     msg.ack.assert_not_called()
 
 
@@ -89,16 +95,18 @@ async def test_handle_message_executor_failure(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     backend_result = BackendTaskResult(status="failed", error="LLM timeout")
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._backend_router = MagicMock()
     consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
     await consumer._handle_message(msg)
 
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
     msg.nak.assert_not_called()
 
 
@@ -119,10 +127,12 @@ async def test_handle_message_request_id_propagated(consumer: TaskConsumer) -> N
     msg.headers = {"X-Request-ID": "req-propagated-456"}
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     backend_result = BackendTaskResult(status="completed", output="OK")
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._backend_router = MagicMock()
     consumer._backend_router.execute = AsyncMock(return_value=backend_result)
 
@@ -151,8 +161,10 @@ async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
 
@@ -165,7 +177,7 @@ async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
     assert "src/auth.py" in task_arg.prompt
     assert "def login(): pass" in task_arg.prompt
     assert "step-1 completed OK" in task_arg.prompt
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
 
 
 async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
@@ -182,8 +194,10 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
     msg.headers = None
     msg.ack = AsyncMock()
     msg.nak = AsyncMock()
+    msg.ack_sync = AsyncMock()
 
     consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
     consumer._executor = MagicMock()
     consumer._executor.execute_with_runtime = AsyncMock()
 
@@ -193,4 +207,61 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
     task_arg = call_args.args[0]
     assert task_arg.prompt == "Refactor utils module"
     assert "--- Relevant Context ---" not in task_arg.prompt
-    msg.ack.assert_called_once()
+    msg.ack_sync.assert_awaited_once()  # accepted with a confirmed ack (ADR-016)
+
+
+async def test_handle_run_start_passes_workspace_and_backend(consumer: TaskConsumer) -> None:
+    """The run's tools work in the project workspace named by the run start (KI-23)."""
+    run_msg = RunStartMessage(
+        run_id="run-3",
+        task_id="task-3",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="Add a test",
+        workspace_path="/data/workspaces/proj-1",
+        backend="aider",
+    )
+    msg = MagicMock()
+    msg.data = run_msg.model_dump_json().encode()
+    msg.headers = None
+    msg.ack_sync = AsyncMock()
+
+    consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = AsyncMock()
+
+    await consumer._handle_run_start(msg)
+
+    task_arg = consumer._executor.execute_with_runtime.call_args.args[0]
+    assert task_arg.workspace_path == "/data/workspaces/proj-1"
+    assert task_arg.backend == "aider"
+    assert task_arg.agent_id == "agent-1"
+
+
+async def test_handle_run_start_passes_mcp_servers(consumer: TaskConsumer) -> None:
+    """The MCP servers of the run start are merged into the run's tools (KI-21)."""
+    from codeforge.mcp_models import MCPServerDef
+
+    server = MCPServerDef(id="mcp-1", name="docs", transport="stdio", command="docs-mcp")
+    run_msg = RunStartMessage(
+        run_id="run-4",
+        task_id="task-4",
+        project_id="proj-1",
+        agent_id="agent-1",
+        prompt="Look it up",
+        mcp_servers=[server],
+    )
+    msg = MagicMock()
+    msg.data = run_msg.model_dump_json().encode()
+    msg.headers = None
+    msg.ack_sync = AsyncMock()
+
+    consumer._js = AsyncMock()
+    consumer._notifications = consumer._js
+    consumer._executor = MagicMock()
+    consumer._executor.execute_with_runtime = AsyncMock()
+
+    await consumer._handle_run_start(msg)
+
+    assert consumer._executor.execute_with_runtime.call_args.kwargs["mcp_servers"] == [server]

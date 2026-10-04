@@ -3,7 +3,9 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -51,6 +53,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // --- Mocks ---
@@ -66,6 +69,16 @@ type runtimeMockStore struct {
 	teams          []agent.Team
 	contextPacks   []cfcontext.ContextPack
 	sharedContexts []cfcontext.SharedContext
+	// Worker heartbeats (KI-65), see heartbeat_mock_store_test.go.
+	runBeats  map[string]runBeat
+	turnBeats []turnBeat
+	turns     map[string]activeTurn
+	// turnCompletions are the turns whose completion was claimed.
+	turnCompletions map[string]bool
+	taskBeats       map[string]runBeat
+	// endTurnHook, if set, runs at the start of EndConversationTurn, outside
+	// the lock: a test injects what happens concurrently with the end.
+	endTurnHook func(conversationID, turnID string)
 }
 
 func (m *runtimeMockStore) ListProjects(_ context.Context) ([]project.Project, error) {
@@ -149,8 +162,21 @@ func (m *runtimeMockStore) UpdateTaskStatus(_ context.Context, id string, status
 	}
 	return errMockNotFound
 }
-func (m *runtimeMockStore) UpdateTaskResult(_ context.Context, _ string, _ task.Result, _ float64) error {
-	return nil
+
+// UpdateTaskResult stores the result and sets the task's status like the
+// store, which writes both in one statement.
+func (m *runtimeMockStore) UpdateTaskResult(_ context.Context, id string, status task.Status, result task.Result, costUSD float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.tasks {
+		if m.tasks[i].ID == id {
+			m.tasks[i].Status = status
+			m.tasks[i].Result = &result
+			m.tasks[i].CostUSD = costUSD
+			return nil
+		}
+	}
+	return errMockNotFound
 }
 
 func (m *runtimeMockStore) CreateRun(_ context.Context, r *run.Run) error {
@@ -164,12 +190,101 @@ func (m *runtimeMockStore) CreateRun(_ context.Context, r *run.Run) error {
 	m.runs = append(m.runs, *r)
 	return nil
 }
+
+// errMockRunTransition mirrors the store: status writes follow run.SourceStatuses.
+var errMockRunTransition = fmt.Errorf("mock: run status transition refused: %w", domain.ErrConflict)
+
+// runIndex returns the index of run id; the caller holds m.mu.
+func (m *runtimeMockStore) runIndex(id string) (int, bool) {
+	for i := range m.runs {
+		if m.runs[i].ID == id {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (m *runtimeMockStore) EnterQualityGate(_ context.Context, req *run.CompletionRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(req.ID)
+	if !ok {
+		return errMockNotFound
+	}
+	if !run.CanTransition(m.runs[i].Status, run.StatusQualityGate) {
+		return errMockRunTransition
+	}
+	r := &m.runs[i]
+	r.Status, r.Output, r.Error, r.Model = run.StatusQualityGate, req.Output, req.Error, req.Model
+	r.UpdatedAt = time.Now()
+	raiseUsage(r, req)
+	return nil
+}
+
+// raiseUsage sets the reported counters without lowering them, like the store.
+func raiseUsage(r *run.Run, req *run.CompletionRequest) {
+	r.CostUSD = max(r.CostUSD, req.CostUSD)
+	r.StepCount = max(r.StepCount, req.StepCount)
+	r.TokensIn = max(r.TokensIn, req.TokensIn)
+	r.TokensOut = max(r.TokensOut, req.TokensOut)
+}
+
+func (m *runtimeMockStore) CountRunStep(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(id)
+	if !ok {
+		return errMockNotFound
+	}
+	if m.runs[i].Status != run.StatusRunning {
+		return errMockRunTransition
+	}
+	m.runs[i].StepCount++
+	return nil
+}
+
+func (m *runtimeMockStore) AddRunUsage(_ context.Context, id string, usage *run.Usage) (*run.Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(id)
+	if !ok {
+		return nil, errMockNotFound
+	}
+	if m.runs[i].Status != run.StatusRunning {
+		return nil, errMockRunTransition
+	}
+	r := &m.runs[i]
+	r.StepCount += usage.Steps
+	r.CostUSD += usage.CostUSD
+	r.TokensIn += usage.TokensIn
+	r.TokensOut += usage.TokensOut
+	stored := *r
+	return &stored, nil
+}
+
+func (m *runtimeMockStore) RaiseRunUsage(_ context.Context, id string, totals *run.Usage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i, ok := m.runIndex(id)
+	if !ok {
+		return errMockNotFound
+	}
+	r := &m.runs[i]
+	r.StepCount = max(r.StepCount, totals.Steps)
+	r.CostUSD = max(r.CostUSD, totals.CostUSD)
+	r.TokensIn = max(r.TokensIn, totals.TokensIn)
+	r.TokensOut = max(r.TokensOut, totals.TokensOut)
+	return nil
+}
+
+// GetRun returns a copy, like the store: callers never share the mock's rows.
 func (m *runtimeMockStore) GetRun(_ context.Context, id string) (*run.Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range m.runs {
 		if m.runs[i].ID == id {
-			return &m.runs[i], nil
+			r := m.runs[i]
+			return &r, nil
 		}
 	}
 	return nil, errMockNotFound
@@ -180,6 +295,9 @@ func (m *runtimeMockStore) UpdateRunStatus(_ context.Context, id string, status 
 	for i := range m.runs {
 		if m.runs[i].ID != id {
 			continue
+		}
+		if !run.CanTransition(m.runs[i].Status, status) {
+			return errMockRunTransition
 		}
 		m.runs[i].Status = status
 		m.runs[i].StepCount = stepCount
@@ -197,16 +315,20 @@ func (m *runtimeMockStore) CompleteRun(_ context.Context, req *run.CompletionReq
 		if m.runs[i].ID != req.ID {
 			continue
 		}
+		if !req.Status.IsTerminal() {
+			return fmt.Errorf("mock: complete run with %q: %w", req.Status, domain.ErrValidation)
+		}
+		if !run.CanTransition(m.runs[i].Status, req.Status) {
+			return errMockRunTransition
+		}
 		m.runs[i].Status = req.Status
 		m.runs[i].Output = req.Output
 		m.runs[i].Error = req.Error
-		m.runs[i].CostUSD = req.CostUSD
-		m.runs[i].StepCount = req.StepCount
-		m.runs[i].TokensIn = req.TokensIn
-		m.runs[i].TokensOut = req.TokensOut
+		raiseUsage(&m.runs[i], req)
 		m.runs[i].Model = req.Model
 		now := time.Now()
 		m.runs[i].CompletedAt = &now
+		m.runs[i].UpdatedAt = now
 		return nil
 	}
 	return errMockNotFound
@@ -224,6 +346,35 @@ func (m *runtimeMockStore) ListRunsByTask(_ context.Context, taskID string) ([]r
 		}
 	}
 	return result, nil
+}
+
+// ListStaleRuns filters like the store: status, last update older than
+// idleFor, oldest first, at most limit.
+func (m *runtimeMockStore) ListStaleRuns(_ context.Context, status run.Status, idleFor time.Duration, limit int) ([]run.Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cutoff := time.Now().Add(-idleFor)
+	var stale []run.Run
+	for i := range m.runs {
+		if m.runs[i].Status == status && m.runs[i].UpdatedAt.Before(cutoff) {
+			stale = append(stale, m.runs[i])
+		}
+	}
+	slices.SortFunc(stale, func(a, b run.Run) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
+	if len(stale) > limit {
+		stale = stale[:limit]
+	}
+	return stale, nil
+}
+func (m *runtimeMockStore) TouchRun(_ context.Context, id string, status run.Status) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.runs {
+		if m.runs[i].ID == id && m.runs[i].Status == status {
+			m.runs[i].UpdatedAt = time.Now()
+		}
+	}
+	return nil
 }
 
 // --- Plan stub methods (satisfy database.Store interface) ---
@@ -303,6 +454,9 @@ func (m *runtimeMockStore) UpdateTeamStatus(_ context.Context, id string, status
 	defer m.mu.Unlock()
 	for i := range m.teams {
 		if m.teams[i].ID == id {
+			if m.teams[i].Status.IsTerminal() {
+				return fmt.Errorf("mock: team already ended: %w", domain.ErrConflict)
+			}
 			m.teams[i].Status = status
 			return nil
 		}
@@ -566,6 +720,12 @@ func (m *runtimeMockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenan
 }
 func (m *runtimeMockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
 func (m *runtimeMockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
+func (m *runtimeMockStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
+	return tenant.ToolUIDMin, nil
+}
+func (m *runtimeMockStore) AdvanceToolUIDSequence(_ context.Context, _ int) (bool, error) {
+	return false, nil
+}
 
 // Branch Protection Rule stubs
 func (m *runtimeMockStore) CreateBranchProtectionRule(_ context.Context, _ bp.CreateRuleRequest) (*bp.ProtectionRule, error) {
@@ -727,17 +887,13 @@ func (m *runtimeMockStore) DeleteVCSAccount(_ context.Context, _ string) error {
 func (m *runtimeMockStore) CreateOAuthState(_ context.Context, _ *vcsaccount.OAuthState) error {
 	return nil
 }
-func (m *runtimeMockStore) GetOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
+func (m *runtimeMockStore) ConsumeOAuthState(_ context.Context, _ string) (*vcsaccount.OAuthState, error) {
 	return nil, nil
 }
 func (m *runtimeMockStore) DeleteOAuthState(_ context.Context, _ string) error        { return nil }
 func (m *runtimeMockStore) DeleteExpiredOAuthStates(_ context.Context) (int64, error) { return 0, nil }
 
 // Project repo lookup
-func (m *runtimeMockStore) GetProjectByRepoName(_ context.Context, _ string) (*project.Project, error) {
-	return nil, nil
-}
-
 // Review Policy stubs
 func (m *runtimeMockStore) CreateReviewPolicy(_ context.Context, _ *review.ReviewPolicy) error {
 	return nil
@@ -959,7 +1115,7 @@ func (m *runtimeMockStore) GetQuarantinedMessage(_ context.Context, _ string) (*
 func (m *runtimeMockStore) ListQuarantinedMessages(_ context.Context, _ string, _ quarantine.Status, _, _ int) ([]*quarantine.Message, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _, _ string) error {
+func (m *runtimeMockStore) UpdateQuarantineStatus(_ context.Context, _ string, _ quarantine.Status, _ *quarantine.Review) error {
 	return nil
 }
 
@@ -973,6 +1129,13 @@ func (m *runtimeMockStore) UpdateAgentState(_ context.Context, _ string, _ map[s
 func (m *runtimeMockStore) SendAgentMessage(_ context.Context, _ *agent.InboxMessage) error {
 	return nil
 }
+
+func (m *runtimeMockStore) ClaimHandoff(_ context.Context, _, _ string, _ time.Duration) (orchestration.HandoffClaim, error) {
+	return orchestration.HandoffClaim{Claimed: true}, nil
+}
+func (m *runtimeMockStore) FinishHandoff(_ context.Context, _, _ string) error     { return nil }
+func (m *runtimeMockStore) SetHandoffTask(_ context.Context, _, _, _ string) error { return nil }
+func (m *runtimeMockStore) ReleaseHandoff(_ context.Context, _, _ string) error    { return nil }
 func (m *runtimeMockStore) ListAgentInbox(_ context.Context, _ string, _ bool) ([]agent.InboxMessage, error) {
 	return nil, nil
 }
@@ -983,9 +1146,6 @@ func (m *runtimeMockStore) ListActiveWork(_ context.Context, _ string) ([]task.A
 	return nil, nil
 }
 func (m *runtimeMockStore) ClaimTask(_ context.Context, _, _ string, _ int) (*task.ClaimResult, error) {
-	return nil, nil
-}
-func (m *runtimeMockStore) ReleaseStaleWork(_ context.Context, _ time.Duration) ([]task.Task, error) {
 	return nil, nil
 }
 
@@ -1034,12 +1194,20 @@ type runtimeMockBroadcaster struct {
 type broadcastedEvent struct {
 	EventType string
 	Data      any
+	Tenant    string // tenant carried by the broadcast context ("" = none, dropped by the hub)
 }
 
-func (m *runtimeMockBroadcaster) BroadcastEvent(_ context.Context, eventType string, data any) {
+func (m *runtimeMockBroadcaster) BroadcastEvent(ctx context.Context, eventType string, data any) {
+	tenantID, _ := tenantctx.Lookup(ctx)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.events = append(m.events, broadcastedEvent{EventType: eventType, Data: data})
+	m.events = append(m.events, broadcastedEvent{EventType: eventType, Data: data, Tenant: tenantID})
+}
+
+func (m *runtimeMockBroadcaster) snapshot() []broadcastedEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]broadcastedEvent(nil), m.events...)
 }
 
 type runtimeMockEventStore struct{}
@@ -1076,6 +1244,11 @@ func (m *runtimeMockEventStore) LoadAudit(_ context.Context, _ *event.AuditFilte
 // --- Helper ---
 
 func newRuntimeTestEnv() (*service.RuntimeService, *runtimeMockStore, *runtimeMockQueue, *runtimeMockBroadcaster) {
+	return newRuntimeTestEnvWithPolicy(service.NewPolicyService("headless-safe-sandbox", nil))
+}
+
+// newRuntimeTestEnvWithPolicy is newRuntimeTestEnv with a caller-supplied policy service.
+func newRuntimeTestEnvWithPolicy(policySvc *service.PolicyService) (*service.RuntimeService, *runtimeMockStore, *runtimeMockQueue, *runtimeMockBroadcaster) {
 	store := &runtimeMockStore{
 		projects: []project.Project{
 			{ID: "proj-1", Name: "test-project", WorkspacePath: "/tmp/test-workspace"},
@@ -1090,7 +1263,6 @@ func newRuntimeTestEnv() (*service.RuntimeService, *runtimeMockStore, *runtimeMo
 	queue := &runtimeMockQueue{}
 	bc := &runtimeMockBroadcaster{}
 	es := &runtimeMockEventStore{}
-	policySvc := service.NewPolicyService("headless-safe-sandbox", nil)
 	runtimeCfg := config.Runtime{
 		StallThreshold:       5,
 		QualityGateTimeout:   60 * time.Second,
@@ -1242,6 +1414,10 @@ func TestStartRun_UnknownPolicyProfile(t *testing.T) {
 	_, err := svc.StartRun(ctx, &req)
 	if err == nil {
 		t.Fatal("expected error for unknown policy profile")
+	}
+	// S2-G fix 2, 1: a refusal, not a failure a retry may cure.
+	if !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("error = %v, want domain.ErrValidation", err)
 	}
 }
 
@@ -2082,8 +2258,10 @@ func TestStartSubscribers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSubscribers failed: %v", err)
 	}
-	if len(cancels) != 7 {
-		t.Fatalf("expected 7 cancel functions (7 subscriptions), got %d", len(cancels))
+	// 8: tool call request/result, run complete, gate result, heartbeat,
+	// output, trajectory events and dead-lettered run starts (KI-76).
+	if len(cancels) != 8 {
+		t.Fatalf("expected 8 cancel functions (8 subscriptions), got %d", len(cancels))
 	}
 
 	// Call all cancel functions to ensure no panics
@@ -2289,29 +2467,19 @@ func TestStartRun_TrustAutoStamp(t *testing.T) {
 }
 
 func TestCreateHandoff_TrustAutoStamp(t *testing.T) {
-	store := &runtimeMockStore{}
-	queue := &runtimeMockQueue{}
-	handoffSvc := service.NewHandoffService(store, queue)
-	ctx := context.Background()
+	env := newHandoffEnv(t, false)
 
 	msg := &orchestration.HandoffMessage{
+		ProjectID:     "proj-1",
 		SourceAgentID: "agent-a",
-		TargetAgentID: "agent-b",
+		TargetAgentID: "agent-tgt",
 		Context:       "Continue debugging the null pointer issue",
 	}
-	if err := handoffSvc.CreateHandoff(ctx, msg); err != nil {
+	if err := env.svc.CreateHandoff(handoffCtx(), msg); err != nil {
 		t.Fatalf("CreateHandoff failed: %v", err)
 	}
 
-	published, ok := queue.lastMessage("handoff.request")
-	if !ok {
-		t.Fatal("expected handoff request on NATS")
-	}
-	var got orchestration.HandoffMessage
-	if err := json.Unmarshal(published.Data, &got); err != nil {
-		t.Fatalf("unmarshal handoff: %v", err)
-	}
-
+	got := msg
 	if got.Trust == nil {
 		t.Fatal("expected Trust annotation on handoff message, got nil")
 	}
@@ -2418,7 +2586,20 @@ func (m *runtimeMockStore) CreateChannel(_ context.Context, _ *channel.Channel) 
 func (m *runtimeMockStore) GetChannel(_ context.Context, _ string) (*channel.Channel, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) ListChannels(_ context.Context, _ string) ([]channel.Channel, error) {
+func (m *runtimeMockStore) ListChannels(_ context.Context, _, _ string) ([]channel.Channel, error) {
+	return nil, nil
+}
+
+func (m *runtimeMockStore) SetChannelWebhookKeyHash(_ context.Context, _ string, _ []byte) error {
+	return nil
+}
+func (m *runtimeMockStore) GetChannelWebhookKeyHash(_ context.Context, _ string) (tenantID string, hash []byte, err error) {
+	return "", nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) MarkChannelRead(_ context.Context, _, _, _ string) (*channel.ReadState, error) {
+	return nil, domain.ErrNotFound
+}
+func (m *runtimeMockStore) ListChannelReadStates(_ context.Context, _ string) ([]channel.ReadState, error) {
 	return nil, nil
 }
 func (m *runtimeMockStore) DeleteChannel(_ context.Context, _ string) error { return nil }
@@ -2446,9 +2627,6 @@ func (m *runtimeMockStore) DeleteProjectBoundaries(_ context.Context, _ string) 
 func (m *runtimeMockStore) CreateReviewTrigger(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *runtimeMockStore) FindRecentReviewTrigger(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
-	return false, nil
-}
 func (m *runtimeMockStore) InsertAuditEntry(_ context.Context, _ *database.AuditEntry) error {
 	return nil
 }
@@ -2458,23 +2636,38 @@ func (m *runtimeMockStore) ListAuditEntries(_ context.Context, _ string, _, _ in
 func (m *runtimeMockStore) ListAuditEntriesByAdmin(_ context.Context, _ string, _ int) ([]database.AuditEntry, error) {
 	return nil, nil
 }
-func (m *runtimeMockStore) DeleteExpiredSessions(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *runtimeMockStore) DeleteExpiredConversations(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *runtimeMockStore) DeleteExpiredRuns(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
-func (m *runtimeMockStore) DeleteExpiredAuditEntries(_ context.Context, _ time.Time, _ int) (int64, error) {
-	return 0, nil
-}
 func (m *runtimeMockStore) AnonymizeAuditLogForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
-func (m *runtimeMockStore) AnonymizeExpiredIPAddresses(_ context.Context, _ time.Time, _ int) (int64, error) {
+
+// GDPR erasure and retention stubs
+
+// WithRetentionLock reports the lock as held by another replica: no test
+// here sweeps.
+func (m *runtimeMockStore) WithRetentionLock(context.Context, func(context.Context, database.RetentionPurger)) (bool, error) {
+	return false, nil
+}
+
+func (m *runtimeMockStore) TouchSession(_ context.Context, _ string) error { return nil }
+
+func (m *runtimeMockStore) AnonymizeConsentsForUser(_ context.Context, _ string) (int64, error) {
 	return 0, nil
+}
+
+func (m *runtimeMockStore) AnonymizeChannelMessagesForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *runtimeMockStore) AnonymizeQuarantineReviewsForUser(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+func (m *runtimeMockStore) UnconsumedQuarantineRelease(_ context.Context, _ string, _ []byte) (string, error) {
+	return "", domain.ErrNotFound
+}
+
+func (m *runtimeMockStore) ConsumeQuarantineRelease(_ context.Context, _ string) error {
+	return domain.ErrNotFound
 }
 
 // Consent stubs (GDPR)

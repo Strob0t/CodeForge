@@ -3,16 +3,19 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/goal"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/trust"
@@ -29,6 +32,7 @@ import (
 // RuntimeService orchestrates the step-by-step execution protocol between
 // Go (control plane) and Python (execution plane).
 type RuntimeService struct {
+	toolUIDSource
 	store         database.Store
 	queue         messagequeue.Queue
 	hub           broadcast.Broadcaster
@@ -38,10 +42,12 @@ type RuntimeService struct {
 	deliver       runtimeDeliverer
 	contextOpt    runtimeContextOptimizer
 	checkpoint    runtimeCheckpointer
+	backlog       runtimeBacklogProbe
 	sandbox       runtimeSandboxManager
 	mcpSvc        runtimeMCPResolver
 	microagentSvc runtimeMicroagentMatcher
 	onRunComplete func(ctx context.Context, runID string, status run.Status)
+	workerStops   workerStops
 	runtimeCfg    *config.Runtime
 	state         *RunStateManager
 	quarantine    runtimeQuarantineEvaluator
@@ -50,6 +56,25 @@ type RuntimeService struct {
 	feedbackProviders   []feedbackPort.Provider
 	metrics             cfmetrics.Recorder
 	goalSvc             runtimeGoalCreator
+
+	// noRollbackBase holds the runs whose workspace has no git repository
+	// and whose audit trail already says so (checkpointToolCall).
+	noRollbackBase sync.Map
+
+	// workspaceRealPaths caches the real path (symlinks resolved) of each
+	// workspace path the policy checks tool calls against (realPathEntry,
+	// revalidated per call by workspaceRealPath).
+	workspaceRealPaths sync.Map
+
+	// toolOutputMaxChars is agent.tool_output_max_chars, sent on runs.start
+	// (0 = the worker's default).
+	toolOutputMaxChars int
+}
+
+// SetToolOutputMaxChars sets agent.tool_output_max_chars, the length the
+// worker truncates the tool results of a run to (0 = the worker's default).
+func (s *RuntimeService) SetToolOutputMaxChars(n int) {
+	s.toolOutputMaxChars = n
 }
 
 // NewRuntimeService creates a RuntimeService with all dependencies.
@@ -89,12 +114,62 @@ func (s *RuntimeService) SetOnRunComplete(fn func(context.Context, string, run.S
 }
 
 // MarkConversationRunCancelled records that a conversation-based run has been
-// cancelled so that subsequent tool-call requests are rejected immediately
-// without waiting for policy evaluation.
-func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) {
-	s.state.SetCancelledConversation(conversationID)
+// cancelled so that its remaining tool-call requests are rejected immediately
+// without waiting for policy evaluation, until the next run's start of the
+// conversation is published or the stopped run reports its end. The
+// conversation has no active run afterwards. It returns the turn of the run
+// it stopped ("" when this process had no active run of the conversation).
+func (s *RuntimeService) MarkConversationRunCancelled(conversationID string) string {
+	stopped := s.state.SetCancelledConversation(conversationID)
 	s.cleanupRunState(conversationID)
-	slog.Info("conversation run marked cancelled", "conversation_id", conversationID)
+	slog.Info("conversation run marked cancelled", "conversation_id", conversationID, "turn_id", stopped)
+	return stopped
+}
+
+// BeginConversationRun makes the run with turnID the conversation's active
+// run before its start is dispatched. A conversation runs one run at a time:
+// while another run is active it returns ErrConversationRunInProgress.
+// Conversation runs reuse the conversation ID as run ID; the turn tells the
+// active run's tool calls from those of a stopped run (KI-24).
+func (s *RuntimeService) BeginConversationRun(conversationID, turnID string) error {
+	if !s.state.BeginConversationRun(conversationID, turnID) {
+		return ErrConversationRunInProgress
+	}
+	return nil
+}
+
+// ConversationRunDispatched records that the run's start was published: the
+// mark of an earlier stop is cleared (the stopped run's calls report another
+// turn and stay rejected).
+func (s *RuntimeService) ConversationRunDispatched(conversationID, turnID string) {
+	s.state.ConversationRunDispatched(conversationID, turnID)
+}
+
+// AbortConversationRun releases a run whose start was not published.
+func (s *RuntimeService) AbortConversationRun(conversationID, turnID string) {
+	s.state.AbortConversationRun(conversationID, turnID)
+}
+
+// EndConversationRun records a conversation run's reported end.
+func (s *RuntimeService) EndConversationRun(conversationID, turnID string) {
+	s.state.EndConversationRun(conversationID, turnID)
+}
+
+// IsActiveConversationRun reports whether the run with turnID is the
+// conversation's active run.
+func (s *RuntimeService) IsActiveConversationRun(conversationID, turnID string) bool {
+	return s.state.IsActiveConversationRun(conversationID, turnID)
+}
+
+// ActiveConversationRun returns the turn of the conversation's active run
+// dispatched by this process ("" when none).
+func (s *RuntimeService) ActiveConversationRun(conversationID string) string {
+	return s.state.ActiveConversationRun(conversationID)
+}
+
+// ForgetConversation drops the run state of a deleted conversation.
+func (s *RuntimeService) ForgetConversation(conversationID string) {
+	s.state.ForgetConversation(conversationID)
 }
 
 // RegisterFeedbackProvider adds a feedback provider for HITL fan-out.
@@ -119,6 +194,13 @@ func (s *RuntimeService) RegisterFeedbackProvider(p feedbackPort.Provider) {
 // SetCheckpointService sets the checkpoint service for shadow git commits.
 func (s *RuntimeService) SetCheckpointService(cp runtimeCheckpointer) {
 	s.checkpoint = cp
+}
+
+// SetBacklogProbe sets the probe the quality gate watchdog asks whether gate
+// requests or results are still queued (FailStuckQualityGates). Without one
+// only the watchdog's hard cap applies.
+func (s *RuntimeService) SetBacklogProbe(p runtimeBacklogProbe) {
+	s.backlog = p
 }
 
 // SetSandboxService sets the sandbox service for containerized execution.
@@ -173,11 +255,6 @@ func (s *RuntimeService) PersistGoalProposal(ctx context.Context, projectID, kin
 	return err
 }
 
-// SetHeartbeat sets the last heartbeat timestamp for a run. Intended for testing.
-func (s *RuntimeService) SetHeartbeat(runID string, t time.Time) {
-	s.state.SetHeartbeat(runID, t)
-}
-
 // prepareSandbox creates and starts a sandbox or hybrid container for the run.
 // Returns nil if exec mode is mount or if no sandbox service is configured.
 func (s *RuntimeService) prepareSandbox(ctx context.Context, runID, projectID string, execMode run.ExecMode) error {
@@ -220,7 +297,7 @@ func (s *RuntimeService) prepareSandbox(ctx context.Context, runID, projectID st
 // MCP servers, and microagent prompts.
 func (s *RuntimeService) buildRunPayload(
 	ctx context.Context,
-	r *run.Run, t *task.Task, ag *agent.Agent,
+	r *run.Run, proj *project.Project, t *task.Task, ag *agent.Agent,
 	profileName string, profile *policy.PolicyProfile,
 	resolvedMode *messagequeue.ModePayload, modeID string,
 	deliverMode run.DeliverMode,
@@ -230,7 +307,7 @@ func (s *RuntimeService) buildRunPayload(
 		TaskID:        t.ID,
 		ProjectID:     t.ProjectID,
 		AgentID:       ag.ID,
-		TenantID:      tenantctx.FromContext(ctx),
+		TenantID:      outgoingTenant(ctx, "runs.start"),
 		Prompt:        t.Prompt,
 		PolicyProfile: profileName,
 		ExecMode:      string(r.ExecMode),
@@ -242,8 +319,15 @@ func (s *RuntimeService) buildRunPayload(
 			TimeoutSeconds: profile.Termination.TimeoutSeconds,
 			MaxCost:        profile.Termination.MaxCost,
 		},
-		Trust: trust.Internal(ag.ID),
+		Trust:         trust.Internal(ag.ID),
+		WorkspacePath: proj.WorkspacePath,
+		Backend:       ag.Backend,
 	}
+	// The worker waits for policy responses longer than Go waits for a HITL
+	// approval of one of the run's tool calls (KI-21).
+	payload.ApprovalTimeoutSeconds = approvalTimeoutSeconds(s.runtimeCfg)
+	payload.HeartbeatSeconds = heartbeatSeconds(s.runtimeCfg)
+	payload.ToolOutputMaxChars = s.toolOutputMaxChars
 
 	// Build context pack if context optimizer is available.
 	if s.contextOpt != nil {
@@ -257,21 +341,8 @@ func (s *RuntimeService) buildRunPayload(
 
 	// Resolve MCP server definitions for this run.
 	if s.mcpSvc != nil {
-		defs := s.mcpSvc.ResolveForRun(r.ProjectID, modeID)
-		for i := range defs {
-			d := &defs[i]
-			payload.MCPServers = append(payload.MCPServers, messagequeue.MCPServerDefPayload{
-				ID:          d.ID,
-				Name:        d.Name,
-				Description: d.Description,
-				Transport:   string(d.Transport),
-				Command:     d.Command,
-				Args:        d.Args,
-				URL:         d.URL,
-				Env:         d.Env,
-				Headers:     d.Headers,
-				Enabled:     d.Enabled,
-			})
+		if defs := s.mcpSvc.RunServerPayloads(ctx, r.ProjectID, modeID); len(defs) > 0 {
+			payload.MCPServers = defs
 		}
 	}
 
@@ -327,23 +398,40 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 		return nil, fmt.Errorf("validate start request: %w", err)
 	}
 
-	if req.ExecMode == "" {
-		req.ExecMode = run.ExecModeMount
+	proj, err := s.store.GetProject(ctx, req.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
 	}
+	// The run's tools edit this workspace.
+	if err := requireWorkspace(proj); err != nil {
+		return nil, err
+	}
+	execMode, err := resolveExecMode(req.ExecMode, proj)
+	if err != nil {
+		return nil, err
+	}
+	req.ExecMode = execMode
 
-	// Resolve and validate policy profile.
+	// Resolve and validate policy profile: the request's, else the one the
+	// project selects (as for conversations), else the default (KI-69).
 	profileName := req.PolicyProfile
+	if profileName == "" {
+		profileName = projectPolicyProfile(proj)
+	}
 	if profileName == "" {
 		profileName = s.policy.DefaultProfile()
 	}
-	profile, ok := s.policy.GetProfile(profileName)
+	profile, ok := s.policy.GetProfile(ctx, profileName)
 	if !ok {
-		return nil, fmt.Errorf("unknown policy profile %q", profileName)
+		return nil, fmt.Errorf("unknown policy profile %q: %w", profileName, domain.ErrValidation)
 	}
 
 	ag, err := s.store.GetAgent(ctx, req.AgentID)
 	if err != nil {
 		return nil, fmt.Errorf("get agent: %w", err)
+	}
+	if err := requireProject("agent", ag.ID, ag.ProjectID, req.ProjectID); err != nil {
+		return nil, err
 	}
 
 	modeID, resolvedMode := s.resolveRunMode(req.ModeID, ag)
@@ -352,10 +440,21 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
+	if err := requireProject("task", t.ID, t.ProjectID, req.ProjectID); err != nil {
+		return nil, err
+	}
 
 	deliverMode := req.DeliverMode
 	if deliverMode == "" && s.runtimeCfg.DefaultDeliverMode != "" {
 		deliverMode = run.DeliverMode(s.runtimeCfg.DefaultDeliverMode)
+	}
+
+	// The run's tool processes run as its tenant's tool UID (KI-96): computed
+	// in Go from the run's tenant (for handoff runs the claimed tenant), before
+	// the run exists, so a full UID range creates no run.
+	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("tool uid: %w", err)
 	}
 
 	// Create run in DB.
@@ -375,6 +474,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	if err := s.store.UpdateRunStatus(ctx, r.ID, run.StatusRunning, 0, 0, 0, 0); err != nil {
+		s.endPendingRun(ctx, r, err)
 		return nil, fmt.Errorf("update run status: %w", err)
 	}
 	r.Status = run.StatusRunning
@@ -388,10 +488,11 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 
 	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, req.AgentID, agent.StatusRunning), "UpdateAgentStatus", slog.String("agent_id", req.AgentID))
 	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, req.TaskID, task.StatusRunning), "UpdateTaskStatus", slog.String("task_id", req.TaskID))
+	s.broadcastTaskAndAgent(ctx, r, task.StatusRunning, agent.StatusRunning)
 
 	// Start sandbox/hybrid container if applicable.
 	if err := s.prepareSandbox(ctx, r.ID, req.ProjectID, req.ExecMode); err != nil {
-		return nil, err
+		return nil, s.failStartedRun(ctx, r, err)
 	}
 
 	// Create stall tracker if policy enables stall detection.
@@ -404,7 +505,8 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	// Build and publish NATS payload.
-	payload := s.buildRunPayload(ctx, r, t, ag, profileName, &profile, resolvedMode, modeID, deliverMode)
+	payload := s.buildRunPayload(ctx, r, proj, t, ag, profileName, &profile, resolvedMode, modeID, deliverMode)
+	payload.ToolUID = toolUID
 
 	// Quarantine gate: check if message should be held for review.
 	if s.quarantine != nil {
@@ -423,7 +525,7 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	}
 
 	if err := s.publishJSON(ctx, messagequeue.SubjectRunStart, payload); err != nil {
-		return nil, fmt.Errorf("publish run start: %w", err)
+		return nil, s.failStartedRun(ctx, r, fmt.Errorf("publish run start: %w", err))
 	}
 
 	// Record event.
@@ -445,19 +547,22 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	// Start context-level timeout goroutine.
 	if profile.Termination.TimeoutSeconds > 0 {
 		timeoutDur := time.Duration(profile.Termination.TimeoutSeconds) * time.Second
-		timeoutCtx, timeoutCancel := context.WithCancel(context.Background())
+		// The timer outlives the request: keep only the run's tenant so the
+		// lookup, the cancellation and its WebSocket events stay in it.
+		runCtx := detachTenant(ctx)
+		timeoutCtx, timeoutCancel := context.WithCancel(runCtx)
 		s.state.SetRunTimeout(r.ID, timeoutCancel)
 		go func(runID string, timeout time.Duration) { //nolint:gosec // G118: timeout goroutine outlives request; cancel stored in s.state
 			timer := time.NewTimer(timeout)
 			defer timer.Stop()
 			select {
 			case <-timer.C:
-				rr, err := s.store.GetRun(context.Background(), runID)
+				rr, err := s.store.GetRun(runCtx, runID)
 				if err != nil || rr.Status != run.StatusRunning {
 					return
 				}
 				slog.Warn("context-level timeout, cancelling run", "run_id", runID, "timeout", timeout)
-				_ = s.cancelRunWithReason(context.Background(), runID, "context-level timeout")
+				logRunUpdate(runCtx, s.cancelRunWithReason(runCtx, runID, "context-level timeout"), "cancelRunWithReason", runID)
 			case <-timeoutCtx.Done():
 				return
 			}
@@ -470,8 +575,49 @@ func (s *RuntimeService) StartRun(ctx context.Context, req *run.StartRequest) (*
 	return r, nil
 }
 
-// HandleToolCallRequest processes a tool call permission request from a worker.
-// It evaluates termination conditions and policy rules, then publishes a response.
+// startCleanupTimeout bounds the writes that end a run which could not be
+// started.
+const startCleanupTimeout = 30 * time.Second
+
+// startCleanupContext is the context that ends a run which could not be
+// started: the start may have failed because the request's context was
+// cancelled (client gone), and the run must not stay running because of it.
+// It keeps the context's values (tenant).
+func startCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), startCleanupTimeout)
+}
+
+// failStartedRun ends a run that was created and marked running but could not
+// be started (sandbox, dispatch): it goes through the completion path as
+// failed, so that run, task and agent do not stay running. No worker executes
+// it, so none is told to stop, and no agent work happened, so the agent's
+// statistics do not count it. It returns startErr for StartRun to return.
+func (s *RuntimeService) failStartedRun(ctx context.Context, r *run.Run, startErr error) error {
+	ctx, cancel := startCleanupContext(ctx)
+	defer cancel()
+	logRunUpdate(ctx, s.endRun(ctx, r, run.StatusFailed, &messagequeue.RunCompletePayload{
+		RunID:     r.ID,
+		TaskID:    r.TaskID,
+		ProjectID: r.ProjectID,
+		Status:    string(run.StatusFailed),
+		Error:     "run could not be started: " + startErr.Error(),
+	}, runEnd{}), "endRun", r.ID)
+	return startErr
+}
+
+// endPendingRun ends a run that was created but could not be marked running:
+// only its record is ended as failed, since its task and agent were not
+// touched yet and nothing was announced for it.
+func (s *RuntimeService) endPendingRun(ctx context.Context, r *run.Run, startErr error) {
+	ctx, cancel := startCleanupContext(ctx)
+	defer cancel()
+	logRunUpdate(ctx, s.store.CompleteRun(ctx, &run.CompletionRequest{
+		ID: r.ID, Status: run.StatusFailed, Error: "run could not be started: " + startErr.Error(),
+	}), "CompleteRun", r.ID)
+}
+
+// CancelRun cancels an active run on the user's request and tells the worker
+// to stop it.
 func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 	r, err := s.store.GetRun(ctx, runID)
 	if err != nil {
@@ -482,60 +628,23 @@ func (s *RuntimeService) CancelRun(ctx context.Context, runID string) error {
 		return fmt.Errorf("run %s is not active (status: %s)", runID, r.Status)
 	}
 
-	// Clean up all run-associated state
-	s.cleanupRunState(runID)
-
-	// Update DB
-	if err := s.store.CompleteRun(ctx, &run.CompletionRequest{ID: r.ID, Status: run.StatusCancelled, Error: "cancelled by user", CostUSD: r.CostUSD, StepCount: r.StepCount, TokensIn: r.TokensIn, TokensOut: r.TokensOut, Model: r.Model}); err != nil {
-		return fmt.Errorf("complete run: %w", err)
-	}
-
-	// Set agent idle
-	logBestEffort(ctx, s.store.UpdateAgentStatus(ctx, r.AgentID, agent.StatusIdle), "UpdateAgentStatus", slog.String("agent_id", r.AgentID))
-	logBestEffort(ctx, s.store.UpdateTaskStatus(ctx, r.TaskID, task.StatusCancelled), "UpdateTaskStatus", slog.String("task_id", r.TaskID))
-
-	// Notify worker via NATS
-	cancelPayload := struct {
-		RunID string `json:"run_id"`
-	}{RunID: runID}
-	logBestEffort(ctx, s.publishJSON(ctx, messagequeue.SubjectRunCancel, cancelPayload), "publishJSON", slog.String("subject", messagequeue.SubjectRunCancel))
-
-	// Record event
-	s.appendRunEvent(ctx, event.TypeRunCompleted, r, map[string]string{
-		"status": string(run.StatusCancelled),
-		"reason": "cancelled by user",
-	})
-
-	// Broadcast WS
-	s.broadcastRunStatus(ctx, r, run.StatusCancelled)
-
-	// Clean up checkpoints
-	if s.checkpoint != nil {
-		proj, projErr := s.store.GetProject(ctx, r.ProjectID)
-		if projErr == nil {
-			if cpErr := s.checkpoint.CleanupCheckpoints(ctx, r.ID, proj.WorkspacePath); cpErr != nil {
-				slog.Warn("checkpoint cleanup on cancel failed", "run_id", r.ID, "error", cpErr)
-			}
+	if err := s.stopRun(ctx, r, run.StatusCancelled, "cancelled by user"); err != nil {
+		// Another cancel of the run (a double click, a plan cancel) ended it
+		// first: the run is cancelled as requested.
+		if errors.Is(err, domain.ErrConflict) && s.endedCancelled(ctx, runID) {
+			slog.Info("run already cancelled", "run_id", runID)
+			return nil
 		}
+		return err
 	}
-
-	// Clean up sandbox
-	if s.sandbox != nil {
-		if _, ok := s.sandbox.Get(r.ID); ok {
-			if err := s.sandbox.Stop(ctx, r.ID); err != nil {
-				slog.Warn("sandbox stop on cancel failed", "run_id", r.ID, "error", err)
-			}
-			if err := s.sandbox.Remove(ctx, r.ID); err != nil {
-				slog.Warn("sandbox remove on cancel failed", "run_id", r.ID, "error", err)
-			}
-		}
-	}
-
-	// Audit trail
-	s.appendAudit(ctx, r, "run.cancelled", fmt.Sprintf("Run cancelled by user, %d steps completed, cost $%.4f", r.StepCount, r.CostUSD))
-
 	slog.Info("run cancelled", "run_id", runID)
 	return nil
+}
+
+// endedCancelled reports whether the run is stored as cancelled.
+func (s *RuntimeService) endedCancelled(ctx context.Context, runID string) bool {
+	r, err := s.store.GetRun(ctx, runID)
+	return err == nil && r.Status == run.StatusCancelled
 }
 
 // GetRun returns a run by ID.
@@ -566,6 +675,7 @@ func (s *RuntimeService) StartSubscribers(ctx context.Context) ([]func(), error)
 		{messagequeue.SubjectRunHeartbeat, s.handleHeartbeat, "heartbeat"},
 		{messagequeue.SubjectRunOutput, s.handleRunOutput, "run output"},
 		{messagequeue.SubjectTrajectoryEvent, s.handleTrajectoryEvent, "trajectory events"},
+		{messagequeue.SubjectRunStart + deadLetterSuffix, s.handleDeadLetteredRunStart, "dead-lettered run starts"},
 	}
 
 	var cancels []func()
