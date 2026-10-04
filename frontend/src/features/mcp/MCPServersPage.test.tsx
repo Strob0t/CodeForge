@@ -399,6 +399,30 @@ describe("MCP header editor", () => {
     expect(mcp.createServer.mock.calls[0][0]).toMatchObject({ headers: { "X-Api-Key": "k-1" } });
   });
 
+  // S7-G review: "Stored, unchanged" was shown for a "***" under a key that
+  // was not read as "***"; the Go Core has no value for it and refuses.
+  it("does not keep *** under a renamed header", async () => {
+    await editRemote();
+    fireEvent.input(screen.getByLabelText("Header name 1"), { target: { value: "X-Api-Key" } });
+
+    expect(screen.queryByText(STORED_UNCHANGED)).toBeNull();
+    fireEvent.click(screen.getByText("Update Server"));
+    await screen.findByText(/Stored secrets \(\*\*\*\) are kept only/);
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
+  it("does not keep *** typed under a key that was read empty", async () => {
+    mcp.servers = [{ ...remote, env: { API_TOKEN: "***", REGION: "" } }];
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server remote"));
+    fireEvent.input(await screen.findByLabelText("Value 2"), { target: { value: "***" } });
+
+    expect(screen.queryByText(STORED_UNCHANGED)).toBeNull();
+    fireEvent.click(screen.getByText("Update Server"));
+    await screen.findByText(/Stored secrets \(\*\*\*\) are kept only/);
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
   it("refuses *** for a new server, which has no stored value", async () => {
     renderPage();
     fireEvent.click(await screen.findByText("Add Server"));

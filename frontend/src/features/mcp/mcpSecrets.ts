@@ -45,7 +45,10 @@ function sameEndpoint(a: MCPEndpoint, b: MCPEndpoint): boolean {
   );
 }
 
-/** The keys as read, no other, and every value that is not "***" as read. */
+/**
+ * The keys as read, no other; a "***" only under a key read as "***" (the Go
+ * Core has nothing stored for another), every other value as read.
+ */
 function unchangedApartFromRedacted(
   current: Readonly<Record<string, string>>,
   read: Readonly<Record<string, string>>,
@@ -53,7 +56,7 @@ function unchangedApartFromRedacted(
   const keys = Object.keys(current);
   return (
     keys.length === Object.keys(read).length &&
-    keys.every((k) => k in read && (current[k] === REDACTED || current[k] === read[k]))
+    keys.every((k) => k in read && current[k] === read[k])
   );
 }
 

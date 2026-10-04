@@ -63,6 +63,25 @@ describe("keepsStoredSecrets", () => {
     ["a changed header", edited((v) => (v.headers.Authorization = "Bearer new")), false],
     ["an added header", edited((v) => (v.headers["X-Forward-To"] = "evil")), false],
     ["a removed header", edited((v) => delete v.headers.Authorization), false],
+    // S7-G review: a "***" stands only for a value read as "***" under the
+    // same key; the Go Core has nothing stored for another key.
+    ["*** under a key read as empty", edited((v) => (v.env.EMPTY = "***")), false],
+    [
+      "a renamed header that keeps ***",
+      edited((v) => {
+        delete v.headers.Authorization;
+        v.headers["X-Api-Key"] = "***";
+      }),
+      false,
+    ],
+    [
+      "a renamed env variable that keeps ***",
+      edited((v) => {
+        delete v.env.GITHUB_TOKEN;
+        v.env.GH_TOKEN = "***";
+      }),
+      false,
+    ],
   ])("for %s", (_name, current, keeps) => {
     expect(keepsStoredSecrets(read, current)).toBe(keeps);
   });
