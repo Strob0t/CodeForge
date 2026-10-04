@@ -206,6 +206,53 @@ async def test_execute_combined(executor: QualityGateExecutor) -> None:
     assert "lint ok" in result.lint_output
 
 
+def _gate_request(**kw: object) -> QualityGateRequest:
+    return QualityGateRequest(
+        run_id="run-out",
+        project_id="proj-1",
+        workspace_path="/tmp",
+        run_tests=True,
+        run_lint=True,
+        test_command="pytest",
+        lint_command="ruff check .",
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+async def test_failed_check_reports_its_exit_code_and_output(executor: QualityGateExecutor) -> None:
+    """KI-126: a failed check keeps its output, behind its exit code."""
+    with patch(_SPAWN, side_effect=[_proc("FAILED test_a\n1 failed", 2), _proc("All checks passed!", 0)]):
+        result = await executor.execute(_gate_request())
+
+    assert result.tests_passed is False
+    assert result.test_output == "exit code 2\nFAILED test_a\n1 failed"
+    assert result.lint_output == "All checks passed!"
+
+
+async def test_check_output_is_bounded_head_and_tail(executor: QualityGateExecutor) -> None:
+    """KI-126: gate output is bounded by agent.tool_output_max_chars, keeping head and tail
+    (the result must stay below the NATS max payload)."""
+    long = "HEAD\n" + "x" * 50_000 + "\nTAIL"
+    with patch(_SPAWN, side_effect=[_proc(long, 1), _proc(long, 0)]):
+        result = await executor.execute(_gate_request(tool_output_max_chars=1000))
+
+    for output in (result.test_output, result.lint_output):
+        assert len(output) <= 1100
+        assert "characters omitted" in output
+        assert output.endswith("TAIL")
+    assert result.test_output.startswith("exit code 1\nHEAD")
+    assert result.lint_output.startswith("HEAD")
+
+
+async def test_check_output_default_bound(executor: QualityGateExecutor) -> None:
+    from codeforge.history import DEFAULT_TOOL_OUTPUT_MAX_CHARS
+
+    with patch(_SPAWN, side_effect=[_proc("y" * 100_000, 1), _proc("ok", 0)]):
+        result = await executor.execute(_gate_request())
+
+    assert DEFAULT_TOOL_OUTPUT_MAX_CHARS < len(result.test_output) <= DEFAULT_TOOL_OUTPUT_MAX_CHARS + 100
+
+
 async def test_execute_timeout(executor: QualityGateExecutor) -> None:
     """Execute should handle command timeout gracefully."""
     short_executor = QualityGateExecutor(timeout_seconds=1)

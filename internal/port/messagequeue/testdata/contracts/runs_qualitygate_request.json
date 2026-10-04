@@ -9,5 +9,6 @@
   "lint_command": "ruff check .",
   "timeout_seconds": 60,
   "heartbeat_seconds": 30,
-  "tool_uid": 20000
+  "tool_uid": 20000,
+  "tool_output_max_chars": 10000
 }

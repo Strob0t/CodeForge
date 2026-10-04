@@ -250,6 +250,10 @@ type QualityGateRequestPayload struct {
 	HeartbeatSeconds int `json:"heartbeat_seconds"`
 	// ToolUID is the tenant's tool UID: the gate commands run as it (KI-96).
 	ToolUID int `json:"tool_uid,omitempty"`
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker bounds
+	// each check's output to it, keeping head and tail (KI-126; 0 = the
+	// worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
 }
 
 // QualityGateResultPayload is published with the outcome of a quality gate execution.

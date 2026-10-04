@@ -15,6 +15,7 @@ import signal
 import structlog
 
 from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
+from codeforge.history import DEFAULT_TOOL_OUTPUT_MAX_CHARS, truncate_tool_result
 from codeforge.models import QualityGateRequest, QualityGateResult
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_process import start_tool_process
@@ -76,6 +77,11 @@ class QualityGateExecutor:
     ``*_passed`` stays None and the reason goes to ``error``, which fails
     the gate without counting as a failed check - the Go Core then neither
     rolls the workspace back nor counts it against the agent.
+
+    A failed check's output starts with its exit code (KI-126). Each output
+    is bounded to the request's tool_output_max_chars, keeping head and
+    tail: the result must stay below the NATS max payload, or its publish
+    fails and the gate runs again.
     """
 
     def __init__(self, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
@@ -88,20 +94,21 @@ class QualityGateExecutor:
 
         result = QualityGateResult(run_id=request.run_id)
         timeout = request.timeout_seconds or self._timeout
+        max_chars = request.tool_output_max_chars or DEFAULT_TOOL_OUTPUT_MAX_CHARS
         errors: list[str] = []
 
         # A requested check is never skipped: without a command it fails the
         # gate instead of passing it (KI-29).
         if request.run_tests:
             result.tests_passed, result.test_output = await self._run_check(
-                "test", request.test_command, request.workspace_path, log, timeout
+                "test", request.test_command, request.workspace_path, log, timeout, max_chars
             )
             if result.tests_passed is None:
                 errors.append(f"test check could not run: {result.test_output}")
 
         if request.run_lint:
             result.lint_passed, result.lint_output = await self._run_check(
-                "lint", request.lint_command, request.workspace_path, log, timeout
+                "lint", request.lint_command, request.workspace_path, log, timeout, max_chars
             )
             if result.lint_passed is None:
                 errors.append(f"lint check could not run: {result.lint_output}")
@@ -122,12 +129,16 @@ class QualityGateExecutor:
         cwd: str,
         log: structlog.stdlib.BoundLogger,
         timeout_seconds: int,
+        max_chars: int,
     ) -> tuple[bool | None, str]:
         """Run one requested check; a check without a command has no verdict."""
         if not command.strip():
             log.warning("quality gate check has no command", check=check)
             return None, f"no command for the {check} check"
-        return await self._run_command(command, cwd, log, timeout_seconds)
+        passed, output, returncode = await self._run_command(command, cwd, log, timeout_seconds)
+        if passed is False:
+            output = f"exit code {returncode}\n{output}"
+        return passed, truncate_tool_result(output, max_chars)
 
     async def run_command(
         self,
@@ -137,7 +148,8 @@ class QualityGateExecutor:
         timeout_seconds: int | None = None,
     ) -> tuple[bool | None, str]:
         """Run an allowlisted command like a gate check (the auto-agent's workspace tests)."""
-        return await self._run_command(command, cwd, log, timeout_seconds)
+        passed, output, _ = await self._run_command(command, cwd, log, timeout_seconds)
+        return passed, output
 
     async def _run_command(
         self,
@@ -145,8 +157,8 @@ class QualityGateExecutor:
         cwd: str,
         log: structlog.stdlib.BoundLogger,
         timeout_seconds: int | None = None,
-    ) -> tuple[bool | None, str]:
-        """Run a command and return (passed, output); passed is None without a verdict.
+    ) -> tuple[bool | None, str, int | None]:
+        """Run a command and return (passed, output, exit code); passed is None without a verdict.
 
         The command runs in a process group of its own (start_new_session):
         on timeout, and whenever the gate stops waiting for it, the whole group
@@ -157,10 +169,10 @@ class QualityGateExecutor:
         argv = _split_command(command)
         if argv is None:
             log.warning("quality gate command rejected: invalid", command=command)
-            return None, f"invalid command: {command!r}"
+            return None, f"invalid command: {command!r}", None
         if not _is_command_allowed(command):
             log.warning("quality gate command rejected: not on allowlist", command=command)
-            return None, f"command not allowed: {command!r}. Only approved commands may run."
+            return None, f"command not allowed: {command!r}. Only approved commands may run.", None
         log.debug("running gate command", command=command, cwd=cwd, timeout_seconds=timeout)
         try:
             proc = await start_tool_process(
@@ -173,18 +185,18 @@ class QualityGateExecutor:
             )
         except Exception as exc:
             log.error("gate command error", command=command, error=str(exc))
-            return None, f"command could not start: {exc}"
+            return None, f"command could not start: {exc}", None
 
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except TimeoutError:
             log.warning("gate command timed out, killing its process group", command=command, timeout_seconds=timeout)
             await _kill_process_group(proc, log)
-            return None, f"command timed out after {timeout}s"
+            return None, f"command timed out after {timeout}s", None
         except Exception as exc:
             log.error("gate command error", command=command, error=str(exc))
             await _kill_process_group(proc, log)
-            return None, str(exc)
+            return None, str(exc), None
         finally:
             # Cancelled (worker shutdown) or failed while waiting: leave nothing behind.
             if proc.returncode is None:
@@ -193,7 +205,7 @@ class QualityGateExecutor:
         output = stdout.decode(errors="replace") if stdout else ""
         passed = proc.returncode == 0
         log.info("gate command finished", command=command, passed=passed, returncode=proc.returncode)
-        return passed, output
+        return passed, output, proc.returncode
 
 
 # How long a killed gate command may take to release its output pipe.

@@ -616,17 +616,18 @@ func sampleContextRerankResultPayload() mq.ContextRerankResultPayload {
 
 func sampleQualityGateRequestPayload() mq.QualityGateRequestPayload {
 	return mq.QualityGateRequestPayload{
-		RunID:            "550e8400-e29b-41d4-a716-446655440040",
-		ProjectID:        "550e8400-e29b-41d4-a716-446655440001",
-		TenantID:         "550e8400-e29b-41d4-a716-446655440006",
-		ToolUID:          20000,
-		WorkspacePath:    "/workspaces/project",
-		RunTests:         true,
-		RunLint:          true,
-		TestCommand:      "pytest",
-		LintCommand:      "ruff check .",
-		TimeoutSeconds:   60,
-		HeartbeatSeconds: 30,
+		RunID:              "550e8400-e29b-41d4-a716-446655440040",
+		ProjectID:          "550e8400-e29b-41d4-a716-446655440001",
+		TenantID:           "550e8400-e29b-41d4-a716-446655440006",
+		ToolUID:            20000,
+		WorkspacePath:      "/workspaces/project",
+		RunTests:           true,
+		RunLint:            true,
+		TestCommand:        "pytest",
+		LintCommand:        "ruff check .",
+		TimeoutSeconds:     60,
+		HeartbeatSeconds:   30,
+		ToolOutputMaxChars: 10000,
 	}
 }
 
@@ -826,7 +827,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectContextRerankRequest: {"request_id", "project_id", "query"},
 		mq.SubjectContextRerankResult:  {"request_id", "entries"},
 		// Quality gates
-		mq.SubjectQualityGateRequest: {"run_id", "project_id", "tenant_id", "workspace_path", "run_tests", "run_lint", "test_command", "lint_command", "timeout_seconds", "heartbeat_seconds", "tool_uid"},
+		mq.SubjectQualityGateRequest: {"run_id", "project_id", "tenant_id", "workspace_path", "run_tests", "run_lint", "test_command", "lint_command", "timeout_seconds", "heartbeat_seconds", "tool_uid", "tool_output_max_chars"},
 		mq.SubjectQualityGateResult:  {"run_id", "tenant_id", "tests_passed", "lint_passed", "test_output", "lint_output"},
 	}
 

@@ -208,6 +208,9 @@ class QualityGateRequest(BaseModel):
     heartbeat_seconds: int = Field(default=0, ge=0)
     # The tenant's tool UID the gate commands run as (KI-96); 0: none.
     tool_uid: int = Field(default=0, ge=0)
+    # agent.tool_output_max_chars: each check's output is bounded to it
+    # (head and tail, KI-126); 0 = the worker's default.
+    tool_output_max_chars: int = Field(default=0, ge=0)
 
 
 class WorkspaceTestRequest(BaseModel):

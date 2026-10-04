@@ -59,8 +59,9 @@ func (s *RuntimeService) enterQualityGate(ctx context.Context, r *run.Run, gate 
 		TestCommand:   cmds.Test,
 		LintCommand:   cmds.Lint,
 		// Whole seconds, never shorter than configured (KI-28).
-		TimeoutSeconds:   int(math.Ceil(s.runtimeCfg.QualityGateTimeout.Seconds())),
-		HeartbeatSeconds: int(gateHeartbeatInterval / time.Second),
+		TimeoutSeconds:     int(math.Ceil(s.runtimeCfg.QualityGateTimeout.Seconds())),
+		HeartbeatSeconds:   int(gateHeartbeatInterval / time.Second),
+		ToolOutputMaxChars: s.toolOutputMaxChars,
 	}
 	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, gateReq.TenantID)
 	if err != nil {
@@ -248,12 +249,21 @@ func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *
 		Status:    "failed",
 		Error:     errMsg,
 	}
+	details := map[string]string{"error": errMsg}
 	if result != nil {
 		gateEvent.TestsPassed, gateEvent.LintPassed = result.TestsPassed, result.LintPassed
+		// The output of a failed check says why it failed (KI-126); the
+		// worker bounded it to agent.tool_output_max_chars.
+		if failedCheck(result.TestsPassed) && result.TestOutput != "" {
+			details["test_output"] = result.TestOutput
+		}
+		if failedCheck(result.LintPassed) && result.LintOutput != "" {
+			details["lint_output"] = result.LintOutput
+		}
 	}
 	announce := func(ctx context.Context) {
 		s.appendAudit(ctx, r, "qualitygate.failed", errMsg)
-		s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, map[string]string{"error": errMsg})
+		s.appendRunEvent(ctx, event.TypeQualityGateFailed, r, details)
 		s.hub.BroadcastEvent(ctx, event.EventQualityGate, gateEvent)
 	}
 	if !verdict.checkFailed {
@@ -264,6 +274,11 @@ func (s *RuntimeService) failQualityGate(ctx context.Context, r *run.Run, gate *
 		rollBack:    verdict.checkFailed && gate.RollbackOnGateFail,
 		ended:       announce,
 	})
+}
+
+// failedCheck reports whether a gate check ran and failed.
+func failedCheck(passed *bool) bool {
+	return passed != nil && !*passed
 }
 
 // Liveness of a quality gate (KI-28, S3 review finding 4). A run waiting in

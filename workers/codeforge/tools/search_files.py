@@ -135,10 +135,6 @@ class SearchFilesTool(ToolExecutor):
         if proc.returncode == 1 and not output:
             return ToolResult(output="no matches found")
 
-        if proc.returncode not in (0, 1):
-            grep_err = stderr.decode("utf-8", errors="replace").strip()
-            return ToolResult(output="", error=grep_err or f"grep exit code {proc.returncode}", success=False)
-
         # Limit output lines
         lines = output.splitlines()
         if len(lines) > MAX_MATCHES:
@@ -146,5 +142,10 @@ class SearchFilesTool(ToolExecutor):
             output = "\n".join(lines) + f"\n\n... truncated to {MAX_MATCHES} matches"
         else:
             output = "\n".join(lines)
+
+        if proc.returncode not in (0, 1):
+            # An unreadable file makes grep exit 2; keep the matches it found (KI-126).
+            grep_err = stderr.decode("utf-8", errors="replace").strip()
+            return ToolResult(output=output, error=grep_err or f"grep exit code {proc.returncode}", success=False)
 
         return ToolResult(output=output)
