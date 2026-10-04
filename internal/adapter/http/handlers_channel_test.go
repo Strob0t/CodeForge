@@ -30,9 +30,10 @@ func (s *channelMessageStore) CreateChannelMessage(_ context.Context, msg *chann
 	return &cp, nil
 }
 
-func channelRequest(t *testing.T, method, path, body string, params map[string]string, u *user.User) *http.Request {
+// channelRequest builds a POST request to a channel handler as user u (nil: none).
+func channelRequest(t *testing.T, path, body string, params map[string]string, u *user.User) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rctx := chi.NewRouteContext()
 	for k, v := range params {
@@ -68,7 +69,7 @@ func TestChannelMessages_SenderIsTheAuthenticatedUser(t *testing.T) {
 				Limits:   &config.Limits{MaxRequestBodySize: 1 << 20},
 			}
 			w := httptest.NewRecorder()
-			tt.call(h, w, channelRequest(t, http.MethodPost, tt.path, spoof, tt.params, caller))
+			tt.call(h, w, channelRequest(t, tt.path, spoof, tt.params, caller))
 			if w.Code != http.StatusCreated {
 				t.Fatalf("status = %d, want 201 (%s)", w.Code, w.Body.String())
 			}
@@ -90,7 +91,7 @@ func TestChannelMessages_NoUserIsRejected(t *testing.T) {
 		Limits:   &config.Limits{MaxRequestBodySize: 1 << 20},
 	}
 	w := httptest.NewRecorder()
-	h.SendChannelMessage(w, channelRequest(t, http.MethodPost, "/api/v1/channels/c-1/messages", `{"content":"hi"}`, map[string]string{"id": "c-1"}, nil))
+	h.SendChannelMessage(w, channelRequest(t, "/api/v1/channels/c-1/messages", `{"content":"hi"}`, map[string]string{"id": "c-1"}, nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", w.Code)
 	}
@@ -107,7 +108,7 @@ func TestChannelMessages_EmptyContentIs400(t *testing.T) {
 		Limits:   &config.Limits{MaxRequestBodySize: 1 << 20},
 	}
 	w := httptest.NewRecorder()
-	h.SendChannelMessage(w, channelRequest(t, http.MethodPost, "/api/v1/channels/c-1/messages", `{"content":""}`, map[string]string{"id": "c-1"}, &user.User{ID: "u-1", Name: "Alice"}))
+	h.SendChannelMessage(w, channelRequest(t, "/api/v1/channels/c-1/messages", `{"content":""}`, map[string]string{"id": "c-1"}, &user.User{ID: "u-1", Name: "Alice"}))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (%s)", w.Code, w.Body.String())
 	}
@@ -148,7 +149,7 @@ func TestCreateChannel_CreatorIsTheAuthenticatedUser(t *testing.T) {
 				Limits:   &config.Limits{MaxRequestBodySize: 1 << 20},
 			}
 			w := httptest.NewRecorder()
-			h.CreateChannel(w, channelRequest(t, http.MethodPost, "/api/v1/channels", body, nil, tc.caller))
+			h.CreateChannel(w, channelRequest(t, "/api/v1/channels", body, nil, tc.caller))
 			if w.Code != tc.code {
 				t.Fatalf("status = %d, want %d (%s)", w.Code, tc.code, w.Body.String())
 			}
