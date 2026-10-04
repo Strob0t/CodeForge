@@ -156,7 +156,7 @@ func (s *QuarantineService) Approve(ctx context.Context, id string, review *quar
 		return fmt.Errorf("get quarantined message: %w", err)
 	}
 	if msg.Status != quarantine.StatusPending {
-		return fmt.Errorf("message %s is not pending (status: %s)", id, msg.Status)
+		return fmt.Errorf("message %s is not pending (status: %s): %w", id, msg.Status, domain.ErrConflict)
 	}
 	task, waits, err := s.heldA2ATask(ctx, msg)
 	if err != nil {
@@ -205,7 +205,7 @@ func (s *QuarantineService) Reject(ctx context.Context, id string, review *quara
 		return fmt.Errorf("get quarantined message: %w", err)
 	}
 	if msg.Status != quarantine.StatusPending {
-		return fmt.Errorf("message %s is not pending (status: %s)", id, msg.Status)
+		return fmt.Errorf("message %s is not pending (status: %s): %w", id, msg.Status, domain.ErrConflict)
 	}
 
 	if err := s.db.UpdateQuarantineStatus(ctx, id, quarantine.StatusRejected, review); err != nil {

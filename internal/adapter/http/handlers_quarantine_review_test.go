@@ -66,3 +66,33 @@ func TestQuarantineReview_RecordsTheLoggedInReviewer(t *testing.T) {
 		})
 	}
 }
+
+// KI-91 review: a message the expiry sweep (or another reviewer) already
+// resolved is a conflict, not a server error: approving or rejecting it
+// answers 409 and records nothing.
+func TestQuarantineReview_ResolvedMessageIs409(t *testing.T) {
+	for _, status := range []quarantine.Status{quarantine.StatusExpired, quarantine.StatusApproved, quarantine.StatusRejected} {
+		for _, action := range []string{"approve", "reject"} {
+			t.Run(string(status)+"/"+action, func(t *testing.T) {
+				store := &quarantineHTTPStore{
+					mockStore: &mockStore{},
+					msg:       quarantine.Message{ID: "q-1", ProjectID: "proj-1", Subject: "runs.start", Status: status},
+				}
+				router := newTestRouterWithLLM(store.mockStore, service.NewPolicyService("headless-safe-sandbox", nil), "http://localhost:4000",
+					func(h *cfhttp.Handlers) {
+						h.Quarantine = service.NewQuarantineService(store, &mockQueue{}, &mockBroadcaster{}, config.Quarantine{Enabled: true})
+					})
+				admin := &user.User{ID: "user-7", Name: "Ada Admin", Role: user.RoleAdmin, TenantID: channelTestTenant}
+
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, channelRouteRequest(http.MethodPost, "/api/v1/quarantine/q-1/"+action, `{"note":"late"}`, admin))
+				if rec.Code != http.StatusConflict {
+					t.Fatalf("%s of a %s message = %d: %s, want 409", action, status, rec.Code, rec.Body.String())
+				}
+				if len(store.reviews) != 0 {
+					t.Fatalf("reviews = %+v, want none", store.reviews)
+				}
+			})
+		}
+	}
+}
