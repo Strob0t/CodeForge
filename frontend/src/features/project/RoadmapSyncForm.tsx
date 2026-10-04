@@ -50,6 +50,8 @@ export default function RoadmapSyncForm(props: {
   const ready = (): boolean => provider() !== "" && projectRef().trim() !== "" && !syncing();
 
   function chooseProvider(name: string): void {
+    // A token belongs to the provider it was typed for.
+    if (name !== provider()) setToken("");
     setProvider(name);
     setResult(null);
     if (!canWrite(props.providers.find((p) => p.name === name))) setDirection("pull");
@@ -71,6 +73,8 @@ export default function RoadmapSyncForm(props: {
       });
       setResult(res);
       if (!res.dry_run) {
+        // Kept for applying a preview, forgotten once the sync ran.
+        setToken("");
         toast("success", t("roadmap.sync.done"));
         props.onSynced(res);
       }

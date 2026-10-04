@@ -183,6 +183,45 @@ describe("RoadmapSyncForm", () => {
     );
   });
 
+  // S7-G review: the token typed for one provider was sent to the next one
+  // chosen, and it stayed in the form after the sync it was for.
+  it("forgets the token when the provider changes", async () => {
+    renderForm();
+    choose("github-issues");
+    const token = screen.getByLabelText(/^Access token/) as HTMLInputElement;
+    fireEvent.input(token, { target: { value: "ghp_x" } });
+
+    choose("plane", "ws/proj");
+    expect(token.value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+
+    await waitFor(() => expect(roadmap.sync).toHaveBeenCalled());
+    expect(roadmap.sync.mock.calls[0][1]).not.toHaveProperty("provider_config", expect.anything());
+  });
+
+  it("forgets the token after a real sync, keeps it after a preview", async () => {
+    renderForm();
+    choose("github-issues");
+    const token = screen.getByLabelText(/^Access token/) as HTMLInputElement;
+    fireEvent.input(token, { target: { value: "ghp_x" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    await screen.findByText("Preview only: nothing was changed.");
+    expect(token.value).toBe("ghp_x");
+
+    roadmap.sync.mockResolvedValue({
+      direction: "pull",
+      created: 1,
+      updated: 0,
+      skipped: 0,
+      dry_run: false,
+    });
+    fireEvent.click(checkbox(/^Preview only/));
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => expect(onSynced).toHaveBeenCalled());
+    expect(token.value).toBe("");
+  });
+
   it("reports a failed sync", async () => {
     roadmap.sync.mockRejectedValue(new Error("project_ref is required"));
     renderForm();
