@@ -245,6 +245,7 @@
 
 - [ ] Reusable live-test environment: the development stack plus a local Ollama model, started by one script (from the README screenshot run), documented in `docs/testing/e2e-setup.md`.
 - [ ] A live E2E session at the end of every milestone, logged in [docs/testing/live-e2e-findings.md](testing/live-e2e-findings.md) (session 1: 2026-10-03, README screenshots).
+- [ ] S9-C: pure-completion models call tools through a text tool protocol (one JSON object per reply, parsed by the worker, JSON-schema grammar where the server supports it, one repair per malformed reply, results fed back as `<tool_result>` text; no NATS, Go or frontend change); plan: [docs/plans/text-tool-protocol-plan.md](plans/text-tool-protocol-plan.md) (owner decision 2026-10-04).
 - [x] (2026-10-04) Autonomous goal benchmark, preparation: the hidden acceptance suite (80 cases, `testdata/autonomous-goal/mdlinkcheck/acceptance/`), the grader (`grade.py`, `judge_prompt.md`) and a reference solution (kept outside the repository) that scores 100 %; two weak variants score 90 % (acceptance 77.5 %, not a success) and 37 %; a mutation check of 22 spec violations is caught; SPEC.md gained a Details section for the ambiguities found.
 - [ ] Autonomous goal benchmark runs ([docs/testing/autonomous-goal-benchmark.md](testing/autonomous-goal-benchmark.md)): the local model first, then, once the owner provides a key as an environment secret, a cloud model.
 
