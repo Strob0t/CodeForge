@@ -2,6 +2,7 @@ import { useSearchParams } from "@solidjs/router";
 import { createSignal, For, onCleanup, onMount } from "solid-js";
 
 import { useI18n } from "~/i18n";
+import { firstParam } from "~/lib/searchParams";
 import { PageLayout, Section } from "~/ui";
 import { cx } from "~/utils/cx";
 
@@ -31,8 +32,7 @@ export default function SettingsPage() {
   // A link can open a section: /settings?section=privacy (the privacy policy's links).
   const [searchParams] = useSearchParams();
   onMount(() => {
-    const name = searchParams.section;
-    const id = sectionIdFromQuery(Array.isArray(name) ? name[0] : name);
+    const id = sectionIdFromQuery(firstParam(searchParams.section));
     if (!id) return;
     setActiveSection(id);
     document.getElementById(id)?.scrollIntoView();

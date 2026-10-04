@@ -1,16 +1,40 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { A, useNavigate } from "@solidjs/router";
+import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Project } from "~/api/types";
+import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { extractErrorMessage } from "~/lib/errorUtils";
 import { Badge, Card, LoadingState, PageLayout, Tabs } from "~/ui";
 
-import ConversationResults from "./ConversationResults";
+import ConversationResults, { type ConversationResult } from "./ConversationResults";
 
 type SearchTab = "code" | "conversations";
 
+/**
+ * Searches the tenant's projects: code through each project's retrieval index
+ * (POST /search), conversation messages by full text (POST /search/conversations).
+ */
 export default function SearchPage() {
   const { t } = useI18n();
+  const { show: toast } = useToast();
+  const navigate = useNavigate();
+  onMount(() => {
+    document.title = `${t("app.nav.search")} - CodeForge`;
+  });
+
+  // A hit names its conversation but not the project; the conversation does.
+  async function openConversation(result: ConversationResult): Promise<void> {
+    try {
+      const conversation = await api.conversations.get(result.conversation_id);
+      navigate(
+        `/projects/${encodeURIComponent(conversation.project_id)}?conversation=${encodeURIComponent(conversation.id)}`,
+      );
+    } catch (err) {
+      toast("error", extractErrorMessage(err, t("search.error")));
+    }
+  }
 
   const [query, setQuery] = createSignal("");
   const [debouncedQuery, setDebouncedQuery] = createSignal("");
@@ -167,7 +191,7 @@ export default function SearchPage() {
           <div class="mt-2 space-y-2">
             <For each={codeResults()?.results}>
               {(hit) => (
-                <a href={`/projects/${hit.project_id}`} class="block">
+                <A href={`/projects/${encodeURIComponent(hit.project_id)}`} class="block">
                   <Card class="transition-shadow hover:shadow-md">
                     <Card.Body>
                       <div class="flex flex-wrap items-center gap-2">
@@ -187,7 +211,7 @@ export default function SearchPage() {
                       </Show>
                     </Card.Body>
                   </Card>
-                </a>
+                </A>
               )}
             </For>
           </div>
@@ -214,7 +238,10 @@ export default function SearchPage() {
           <p class="mt-4 text-xs text-cf-text-secondary">
             {t("search.results", { count: convResults()?.total ?? 0 })}
           </p>
-          <ConversationResults results={convResults()?.results ?? []} />
+          <ConversationResults
+            results={convResults()?.results ?? []}
+            onOpen={(result) => void openConversation(result)}
+          />
         </Show>
       </Show>
     </PageLayout>

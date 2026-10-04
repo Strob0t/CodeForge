@@ -34,12 +34,16 @@ describe("app routes", () => {
     expect(outside).toEqual([]);
   });
 
-  it.each(["/channels/c-1", "/design-system", "/projects/p-1", "/approvals/r/c", "/settings"])(
-    "renders %s inside the app shell",
-    (path) => {
-      expect(isShellPath(path)).toBe(true);
-    },
-  );
+  it.each([
+    "/channels/c-1",
+    "/design-system",
+    "/projects/p-1",
+    "/approvals/r/c",
+    "/settings",
+    "/search",
+  ])("renders %s inside the app shell", (path) => {
+    expect(isShellPath(path)).toBe(true);
+  });
 
   it.each([
     ...PUBLIC_PATHS,

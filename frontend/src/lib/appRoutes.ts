@@ -19,6 +19,7 @@ const SHELL_PATHS: ReadonlySet<string> = new Set([
   "/benchmarks",
   "/quarantine",
   "/routing",
+  "/search",
   "/design-system",
 ]);
 

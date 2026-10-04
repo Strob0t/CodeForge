@@ -28,6 +28,7 @@ import ProjectDetailPage from "./features/project/ProjectDetailPage.tsx";
 import PromptEditorPage from "./features/prompts/PromptEditorPage.tsx";
 import QuarantinePage from "./features/quarantine/QuarantinePage.tsx";
 import RoutingStatsPage from "./features/routing/RoutingStatsPage.tsx";
+import SearchPage from "./features/search/SearchPage.tsx";
 import SettingsPage from "./features/settings/SettingsPage.tsx";
 
 const root = document.getElementById("root");
@@ -61,6 +62,7 @@ render(
       <Route path="/benchmarks" component={BenchmarkPage} />
       <Route path="/quarantine" component={QuarantinePage} />
       <Route path="/routing" component={RoutingStatsPage} />
+      <Route path="/search" component={SearchPage} />
       <Route path="/channels/:id" component={ChannelView} />
       <Route path="/design-system" component={DesignSystemPage} />
       <Route path="*404" component={NotFoundPage} />

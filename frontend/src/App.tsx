@@ -49,6 +49,7 @@ import {
   PromptsIcon,
   QuarantineIcon,
   RoutingIcon,
+  SearchIcon,
   SettingsIcon,
 } from "~/ui/layout/NavIcons";
 import { updateTabBadge } from "~/utils/tabBadge";
@@ -166,6 +167,9 @@ function AppShell(props: {
                 </NavLink>
                 <NavLink href="/activity" icon={<ActivityIcon />} label={t("app.nav.activity")}>
                   {t("app.nav.activity")}
+                </NavLink>
+                <NavLink href="/search" icon={<SearchIcon />} label={t("app.nav.search")}>
+                  {t("app.nav.search")}
                 </NavLink>
               </NavSection>
               <NavSection label={t("app.nav.section.ai")}>

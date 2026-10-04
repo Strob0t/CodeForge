@@ -1,4 +1,4 @@
-import { useParams } from "@solidjs/router";
+import { useParams, useSearchParams } from "@solidjs/router";
 import {
   createEffect,
   createResource,
@@ -21,6 +21,7 @@ import {
 } from "~/config/constants";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { useI18n } from "~/i18n";
+import { firstParam } from "~/lib/searchParams";
 import { Alert, Badge, Button, ErrorBanner, LoadingState } from "~/ui";
 
 import { CanvasModal } from "../canvas/CanvasModal";
@@ -206,7 +207,12 @@ export default function ProjectDetailPage() {
     | "policy";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
-  const [switchToConversation, setSwitchToConversation] = createSignal<string | null>(null);
+  // A link can open a conversation in the chat: ?conversation=<id> (search hits).
+  const [searchParams] = useSearchParams();
+  const linkedConversation = firstParam(searchParams.conversation) ?? null;
+  const [switchToConversation, setSwitchToConversation] = createSignal<string | null>(
+    linkedConversation,
+  );
 
   // Prefill message for deep-link from panels to chat input
   const [prefillMessage, setPrefillMessage] = createSignal("");
@@ -235,7 +241,10 @@ export default function ProjectDetailPage() {
   const [dragging, setDragging] = createSignal(false);
   const { isMobile, isDesktop } = useBreakpoint();
   type MobileView = "panels" | "chat";
-  const [mobileView, setMobileView] = createSignal<MobileView>("panels");
+  // On a phone a linked conversation opens in the chat view.
+  const [mobileView, setMobileView] = createSignal<MobileView>(
+    linkedConversation ? "chat" : "panels",
+  );
   let containerRef: HTMLDivElement | undefined;
 
   onMount(() => {

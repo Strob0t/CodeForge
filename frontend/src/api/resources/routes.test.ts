@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CoreClient } from "../core";
+import { createConversationsResource } from "./conversations";
 import { createLLMResource } from "./llm";
 import { createMCPResource } from "./misc";
 import { createPrivacyResource } from "./privacy";
@@ -59,6 +60,15 @@ describe("API routes", () => {
       { method: "POST", path: "/projects/p%201/mcp-servers", body: { server_id: "srv-1" } },
       { method: "DELETE", path: "/projects/p%201/mcp-servers/srv%2F1" },
     ]);
+  });
+});
+
+// KI-121: a conversation hit of the search page opens in its project's chat.
+describe("conversation routes", () => {
+  it("gets a conversation with GET /conversations/{id}", async () => {
+    const { client, calls } = recordingClient();
+    await createConversationsResource(client).get("c/1");
+    expect(calls).toEqual([{ method: "GET", path: "/conversations/c%2F1" }]);
   });
 });
 
