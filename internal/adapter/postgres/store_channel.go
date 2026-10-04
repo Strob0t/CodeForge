@@ -11,22 +11,25 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 )
 
-// CreateChannel creates a channel in the caller's tenant. A creator that is
-// one of the synthetic identities without a users row (the default user while
-// auth is disabled, the internal service key user) is not recorded (KI-89);
-// a user whose row is gone gets user.ErrAccountGone (see accountRef).
+// CreateChannel creates a channel in the caller's tenant, without a project
+// or for a project of that tenant (another tenant's project is not found). A
+// creator that is one of the synthetic identities without a users row (the
+// default user while auth is disabled, the internal service key user) is not
+// recorded (KI-89); a user whose row is gone gets user.ErrAccountGone (see
+// accountRef).
 func (s *Store) CreateChannel(ctx context.Context, ch *channel.Channel) (*channel.Channel, error) {
 	tid := tenantFromCtx(ctx)
 	var created channel.Channel
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO channels (tenant_id, project_id, name, type, description, created_by)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		 SELECT $1, $2::uuid, $3, $4, $5, $6
+		 WHERE $2::uuid IS NULL OR EXISTS (SELECT 1 FROM projects p WHERE p.id = $2::uuid AND p.tenant_id = $1)
 		 RETURNING id, tenant_id, COALESCE(project_id::text,''), name, type, description, COALESCE(created_by::text,''), created_at`,
 		tid, nullIfEmpty(ch.ProjectID), ch.Name, ch.Type, ch.Description, accountRef(ch.CreatedBy),
 	).Scan(&created.ID, &created.TenantID, &created.ProjectID, &created.Name,
 		&created.Type, &created.Description, &created.CreatedBy, &created.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("create channel: %w", accountGone(err, "channels_created_by_fkey"))
+		return nil, notFoundWrap(accountGone(err, "channels_created_by_fkey"), "create channel in project %q", ch.ProjectID)
 	}
 	return &created, nil
 }
