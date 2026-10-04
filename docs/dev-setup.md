@@ -1043,7 +1043,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | MISTRAL_API_KEY           | (optional)                               | Mistral AI API Key              |
 | OPENROUTER_API_KEY        | (optional)                               | OpenRouter API Key              |
 | POSTGRES_PASSWORD         | (required)                               | PostgreSQL password              |
-| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama endpoint (local); used by Go model discovery and, as `OLLAMA_API_BASE`, by LiteLLM's `ollama/*` entry |
+| OLLAMA_BASE_URL           | http://host.docker.internal:11434        | Ollama endpoint (local, without `/v1`); used by Go model discovery; the compose files pass it to LiteLLM as `OLLAMA_OPENAI_API_BASE=<url>/v1` (the `ollama/*` route, Ollama's OpenAI-compatible endpoint, which keeps tool calls structured) and as `OLLAMA_API_BASE=<url>` (LiteLLM reads model capabilities and context windows from Ollama) |
 | CODEFORGE_OTEL_ENABLED    | false                                    | Enable OpenTelemetry tracing    |
 | CODEFORGE_OTEL_ENDPOINT   | localhost:4317                              | OTLP gRPC endpoint              |
 | CODEFORGE_OTEL_SERVICE_NAME | codeforge-core                          | OTEL service name               |
@@ -1078,10 +1078,12 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire (stored as `expires_at`; nothing sets the status `expired` yet, [KI-91](todo.md#known-issues)) |
 | CODEFORGE_LSP_ENABLED       | false                                    | Enable LSP integration           |
 | CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED | false                          | Enable confidence-based review routing |
+| CODEFORGE_ORCH_EMBEDDING_MODEL | text-embedding-3-small            | Embedding model for code retrieval (`orchestrator.default_embedding_model`); without a usable model, retrieval runs BM25-only and warns once |
 | CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD | 0.7                      | Steps below this get routed to review |
 | CODEFORGE_ORCH_REVIEW_ROUTER_MODEL |                                  | LLM model for review evaluation  |
 | CODEFORGE_COPILOT_ENABLED   | false                                    | Enable GitHub Copilot token exchange |
 | CODEFORGE_ROUTING_ENABLED   | true                                     | Enable hybrid intelligent routing |
+| CODEFORGE_MODEL_CAPABILITIES | (empty) | Worker: tool capability per model, comma-separated `pattern=level` entries (`litellm.model_capabilities` in YAML); case-sensitive shell globs, first match wins; levels `full`, `api_with_tools`, `pure_completion`; overrides LiteLLM's `supports_function_calling` and the name heuristics; an invalid entry stops the worker at startup |
 | CODEFORGE_EXPERIENCE_ENABLED | false                                   | Enable the experience pool (worker and Go); tenant-scoped, first turn of a simple chat only |
 | CODEFORGE_TEST_DATABASE_URL | (unset)                                  | PostgreSQL URL for the worker's database tests (experience pool, skills); they are skipped when unset |
 | CODEFORGE_A2A_BASE_URL     | `http://localhost:<CODEFORGE_PORT>`      | Public URL for AgentCard         |

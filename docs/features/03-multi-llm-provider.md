@@ -61,6 +61,10 @@ Requests without a scenario tag route to **all models** (no tag filtering). Spec
 | API with Tool Support | OpenAI, Claude API, Gemini | Context Layer + Routing + Tool Definitions |
 | Pure Completion | Ollama, LM Studio | Everything: Context, Tools, Prompts, Quality Layer |
 
+**How the worker decides a model's level (S8-A, KI-125):** first an operator override (`litellm.model_capabilities` / `CODEFORGE_MODEL_CAPABILITIES`, `pattern=level`, first match wins), then LiteLLM's `/model/info` `supports_function_calling` (cached 60 s per worker client; a model added in the UI with `model_info.supports_function_calling` counts here), then name heuristics. The model is resolved before this check, so a run without a configured model gets the default model's level. Local models served by Ollama report their tool support through LiteLLM; the `ollama/*` route uses Ollama's OpenAI-compatible `/v1` endpoint so tool calls stay structured. Pure-completion models still get no tools: a text tool-call protocol for them is a product question (`docs/testing/live-e2e-findings.md`).
+
+**Model list:** `GET /llm/models` and `GET /llm/discover` show local models one by one and each cloud catalogue route once (for example `groq/*`), instead of the hundreds of models LiteLLM expands from its catalogue without a key; models of a route can still be used by name. Routes with an `api_base` (Ollama, LM Studio, other OpenAI-compatible servers) keep the models their server reports. The default model is never a wildcard route.
+
 ### Docker Compose Configuration
 
 LiteLLM Proxy runs as a Docker sidecar in both dev and production environments.

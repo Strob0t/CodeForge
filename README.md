@@ -141,7 +141,7 @@ Then open `http://<your-host>/setup` and create the first admin.
 > [!IMPORTANT]
 > The setup page is open until the first user exists, so whoever reaches it first becomes admin. Create the admin before you expose the host to a network you do not trust ([KI-119](docs/todo.md#known-issues)).
 
-**Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list; no API key is needed. For agent tool calls with Ollama see the [FAQ](#faq).
+**Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list, and models with tool support get the agent tools; no API key is needed.
 
 Upgrading an existing installation, backups and the full list of settings: [Dev Setup](docs/dev-setup.md), [Disaster Recovery](docs/disaster-recovery.md).
 
@@ -228,7 +228,7 @@ Aider, OpenHands, Goose and Claude Code are **agents**: they read code, call a m
 ## FAQ
 
 **Can I run CodeForge without any cloud model?**
-Yes. Point it at Ollama or LM Studio and use only local models; in production the worker has no internet access of its own and reaches models only through the LiteLLM container. One caveat today: for agent tool calls, Ollama has to be reached through its OpenAI-compatible endpoint, and the model must be one CodeForge recognises as tool-capable ([KI-125](docs/todo.md#known-issues)). The screenshots in this README were made that way, with `qwen3:4b-instruct` on four CPU cores and no API key; larger models are faster and better at multi-step work.
+Yes. Point it at Ollama or LM Studio and use only local models; in production the worker has no internet access of its own and reaches models only through the LiteLLM container. Ollama models that support tool calling get the agent tools out of the box (their capability comes from LiteLLM's model metadata; `CODEFORGE_MODEL_CAPABILITIES` overrides it per model). The screenshots in this README were made with `qwen3:4b-instruct` on four CPU cores and no API key; larger models are faster and better at multi-step work. Models without native tool calling cannot use the tools yet.
 
 **What does it cost?**
 CodeForge is free software (AGPL-3.0). You pay only your model providers; local models cost nothing. Every run's cost is tracked, and budgets in the policy profile stop a run that would exceed them.
