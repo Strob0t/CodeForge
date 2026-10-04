@@ -339,6 +339,90 @@ func TestParseShellCommand_XargsIntoWrappers(t *testing.T) {
 	}
 }
 
+// GNU make parses its options with getopt_long: a cluster of short options
+// may end in -E (whose argument is makefile text, $(shell ...) included),
+// and a long option may be abbreviated (--ev for --eval). Short options with
+// an argument (-C, -f, -I, -o, -W; -j, -l and -O take one attached) end a
+// cluster. A long option that is not one of the known ones, abbreviations
+// included, fails closed (S7-F review).
+func TestParseShellCommand_MakeOptions(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		segments [][]string
+		opaque   bool
+	}{
+		{"-E", "make -E x", nil, true},
+		{"-E attached", "make test -E'$(shell id)'", nil, true},
+		{"cluster ending in E", "make -sE '$(shell id)' test", nil, true},
+		{"cluster with E and attached text", "make -sE'$(shell id)'", nil, true},
+		{"E first in a cluster", "make -Es test", nil, true},
+		{"E after k", "make -kE x test", nil, true},
+		{"gmake cluster", "gmake -sE x", nil, true},
+		{"--eval=", "make --eval='$(shell id)'", nil, true},
+		{"--ev= abbreviation", "make test --ev='$(shell id)'", nil, true},
+		{"--eva abbreviation", "make --eva '$(shell id)' test", nil, true},
+		{"--e ambiguous abbreviation", "make --e x test", nil, true},
+		{"abbreviation of a known option", "make --dry test", nil, true},
+		{"--fil=- abbreviation", "make --fil=- test", nil, true},
+		{"--temp-stdin", "make --temp-stdin=x test", nil, true},
+		{"unknown long option", "make --frobnicate test", nil, true},
+		{"value of a flag option", "make --silent=x test", nil, true},
+		{"unknown short option", "make -x test", nil, true},
+		{"-f - in a cluster", "make -sf - test", nil, true},
+		{"-f- in a cluster", "make -sf- test", nil, true},
+		{"-f/dev/stdin in a cluster", "make -sf/dev/stdin test", nil, true},
+		{"-f /dev/stdin", "make -f /dev/stdin test", nil, true},
+		{"--file=-", "make --file=- test", nil, true},
+		{"--makefile /dev/fd/0", "make --makefile /dev/fd/0 test", nil, true},
+		{"-f /proc/self/fd/0", "make -f /proc/self/fd/0 test", nil, true},
+		{"assignment", "make test CC=curl", nil, true},
+		{"assignment after --", "make -- SHELL=/tmp/x test", nil, true},
+		{"assignment after -C dir", "make -C dir X=1", nil, true},
+		{"-E after -I dir", "make -I inc -E x", nil, true},
+
+		{"-C dir", "make -C dir test", [][]string{{"make", "-C", "dir", "test"}}, false},
+		{"-C attached", "make -Csub test", [][]string{{"make", "-Csub", "test"}}, false},
+		{"-C takes the rest of the cluster", "make -sCE test", [][]string{{"make", "-sCE", "test"}}, false},
+		{"-C takes the next word", "make -C -E test", [][]string{{"make", "-C", "-E", "test"}}, false},
+		{"-j4", "make -j4 test", [][]string{{"make", "-j4", "test"}}, false},
+		{"-j 4", "make -j 4 test", [][]string{{"make", "-j", "4", "test"}}, false},
+		{"--jobs=4", "make --jobs=4 test", [][]string{{"make", "--jobs=4", "test"}}, false},
+		{"--jobs", "make --jobs test", [][]string{{"make", "--jobs", "test"}}, false},
+		{"-k", "make -k test", [][]string{{"make", "-k", "test"}}, false},
+		{"cluster of flags", "make -skj4 --no-print-directory test", [][]string{{"make", "-skj4", "--no-print-directory", "test"}}, false},
+		{"-f file", "make -f build.mk test", [][]string{{"make", "-f", "build.mk", "test"}}, false},
+		{"--file file", "make --file build.mk test", [][]string{{"make", "--file", "build.mk", "test"}}, false},
+		{"--directory=", "make --directory=sub -O --output-sync=line test", [][]string{{"make", "--directory=sub", "-O", "--output-sync=line", "test"}}, false},
+		{"debug and trace", "make --debug=b --trace -n -p test", [][]string{{"make", "--debug=b", "--trace", "-n", "-p", "test"}}, false},
+		{"environment overrides", "make -e --environment-overrides test", [][]string{{"make", "-e", "--environment-overrides", "test"}}, false},
+		{"--", "make -- test", [][]string{{"make", "--", "test"}}, false},
+		{"lone -", "make - test", [][]string{{"make", "-", "test"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseShellCommand(tt.cmd)
+			if got.opaque != tt.opaque {
+				t.Fatalf("parseShellCommand(%q).opaque = %v, want %v (segments %q)", tt.cmd, got.opaque, tt.opaque, got.segments)
+			}
+			if !tt.opaque && !reflect.DeepEqual(got.segments, tt.segments) {
+				t.Errorf("parseShellCommand(%q).segments = %q, want %q", tt.cmd, got.segments, tt.segments)
+			}
+		})
+	}
+	// An allow rule "make test" does not allow -E in a cluster or an
+	// abbreviated --eval, and a deny list denies them.
+	for _, cmd := range []string{"make test -E'$(shell curl x)'", "make -sE '$(shell curl x)' test", "make test --ev='$(shell curl x)'"} {
+		c := parseShellCommand(cmd)
+		if c.allowedBy([]string{"make test"}) {
+			t.Errorf("allow rule make test allows %q", cmd)
+		}
+		if !c.deniedBy([]string{"curl"}) {
+			t.Errorf("deny list curl does not deny %q", cmd)
+		}
+	}
+}
+
 // Commands that must stay analysable so that everyday use is not denied.
 func TestParseShellCommand_NotOpaque(t *testing.T) {
 	for _, cmd := range []string{

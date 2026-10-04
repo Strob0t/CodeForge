@@ -397,26 +397,108 @@ func sedTextEnd(s string, p int) int {
 	}
 }
 
-// makeRunsCode: --eval/-E add makefile text, command-line variables can
+// GNU make's options, as its getopt_long parses them (make 4.4). -E/--eval
+// add makefile text and are not listed: they always run code.
+var (
+	// makeFlags are the short options without an argument.
+	makeFlags = "bBdehikLmnpqrRsStvw"
+	// makeShortArg take an argument: the rest of the cluster, else the next
+	// word. makeShortOptionalArg take one only attached (-j4, -Oline).
+	makeShortArg         = "CfIoW"
+	makeShortOptionalArg = "jlO"
+	// makeLongFlags take no argument; makeLongArg take one after '=' or as
+	// the next word, makeLongOptionalArg only after '='. Only these exact
+	// names are known: getopt_long also accepts any unambiguous prefix
+	// (--ev for --eval), so every other long option fails closed, as do
+	// --temp-stdin (a makefile from stdin) and the jobserver internals.
+	makeLongFlags = []string{"always-make", "environment-overrides", "help", "ignore-errors", "keep-going",
+		"check-symlink-times", "just-print", "dry-run", "recon", "print-data-base", "question",
+		"no-builtin-rules", "no-builtin-variables", "silent", "quiet", "no-silent", "no-keep-going", "stop",
+		"touch", "version", "print-directory", "no-print-directory", "trace", "warn-undefined-variables"}
+	makeLongArg         = []string{"directory", "file", "makefile", "include-dir", "old-file", "assume-old", "what-if", "new-file", "assume-new"}
+	makeLongOptionalArg = []string{"debug", "jobs", "load-average", "max-load", "output-sync", "shuffle"}
+)
+
+// makeRunsCode: -E/--eval add makefile text, also at the end of a cluster
+// of short options (-sE) or abbreviated (--ev); command-line variables can
 // override SHELL or the commands of recipes, and a makefile read from stdin
-// cannot be checked.
+// cannot be checked. Options make does not know fail closed.
 func makeRunsCode(args []string) bool {
-	for i, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		var name, value string
+		hasValue := false
 		switch {
-		case strings.HasPrefix(a, "--eval"), a == "-E":
-			return true
-		case !strings.HasPrefix(a, "-") && strings.Contains(a, "="):
-			return true
-		case a == "-f" || a == "--file" || a == "--makefile":
-			if i+1 < len(args) && (args[i+1] == "-" || strings.HasPrefix(args[i+1], "/dev/")) {
+		case a == "--":
+			return slices.ContainsFunc(args[i+1:], func(o string) bool { return strings.Contains(o, "=") })
+		case strings.HasPrefix(a, "--"):
+			name, value, hasValue = strings.Cut(a[2:], "=")
+			switch {
+			case slices.Contains(makeLongFlags, name) && !hasValue, slices.Contains(makeLongOptionalArg, name):
+				continue
+			case !slices.Contains(makeLongArg, name):
+				return true
+			case !hasValue:
+				if i+1 == len(args) {
+					return true
+				}
+				i++
+				value = args[i]
+			}
+		case isShortCluster(a):
+			opt, attached, ok := makeShortCluster(a[1:])
+			switch {
+			case !ok:
+				return true
+			case opt == 0:
+				continue
+			case attached != "":
+				value = attached
+			case i+1 == len(args):
+				return true
+			default:
+				i++
+				value = args[i]
+			}
+			name = string(opt)
+		default: // a target, or a variable assignment
+			if strings.Contains(a, "=") {
 				return true
 			}
-		case hasAnyPrefix(a, "--file=-", "--makefile=-", "--file=/dev/", "--makefile=/dev/"),
-			a == "-f-" || strings.HasPrefix(a, "-f/dev/"):
+			continue
+		}
+		if (name == "f" || name == "file" || name == "makefile") && makefileFromStdin(value) {
 			return true
 		}
 	}
 	return false
+}
+
+// makeShortCluster parses a cluster of make's short options (without the
+// leading '-'). It returns the option that takes an argument (0 when none
+// does) with the argument attached to it, and false when the cluster
+// contains -E or an option make does not know.
+func makeShortCluster(cluster string) (opt byte, attached string, ok bool) {
+	for j := 0; j < len(cluster); j++ {
+		c := cluster[j]
+		switch {
+		case strings.IndexByte(makeFlags, c) >= 0:
+		case strings.IndexByte(makeShortArg, c) >= 0:
+			return c, cluster[j+1:], true
+		case strings.IndexByte(makeShortOptionalArg, c) >= 0:
+			return 0, "", true // the rest of the cluster is its argument
+		default: // includes -E
+			return 0, "", false
+		}
+	}
+	return 0, "", true
+}
+
+// makefileFromStdin reports whether a makefile name reads stdin (or another
+// stream that cannot be checked): -, /dev/stdin, /dev/fd/0,
+// /proc/self/fd/0, ...
+func makefileFromStdin(name string) bool {
+	return name == "-" || hasAnyPrefix(name, "/dev/", "/proc/")
 }
 
 // tarRunsCode: options that pipe archive members or the archive through a
