@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 
@@ -22,9 +23,10 @@ import (
 type orchMockStore struct {
 	runtimeMockStore // embeds run/task/agent mocks
 
-	mu    sync.Mutex
-	plans []plan.ExecutionPlan
-	steps []plan.Step
+	mu           sync.Mutex
+	plans        []plan.ExecutionPlan
+	steps        []plan.Step
+	stallReplans map[string]int // step ID -> stall re-plans (KI-94)
 }
 
 func (m *orchMockStore) CreatePlan(_ context.Context, p *plan.ExecutionPlan) error {
@@ -162,6 +164,21 @@ func (m *orchMockStore) UpdatePlanStepRound(_ context.Context, stepID string, ro
 		}
 	}
 	return domain.ErrNotFound
+}
+
+func (m *orchMockStore) ReplanStalledStep(_ context.Context, stepID string, maxReplans int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	i := slices.IndexFunc(m.steps, func(st plan.Step) bool { return st.ID == stepID })
+	if i < 0 || m.steps[i].Status != plan.StepStatusRunning || m.stallReplans[stepID] >= maxReplans {
+		return false, nil
+	}
+	if m.stallReplans == nil {
+		m.stallReplans = map[string]int{}
+	}
+	m.stallReplans[stepID]++
+	m.steps[i].Status, m.steps[i].Error = plan.StepStatusPending, ""
+	return true, nil
 }
 
 // Quarantine (Phase 23B)

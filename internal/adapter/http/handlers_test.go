@@ -386,6 +386,9 @@ func (m *mockStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step,
 	return nil, errNotFound
 }
 func (m *mockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
+func (m *mockStore) ReplanStalledStep(_ context.Context, _ string, _ int) (bool, error) {
+	return false, nil
+}
 
 // --- Agent Team stub methods (satisfy database.Store interface) ---
 

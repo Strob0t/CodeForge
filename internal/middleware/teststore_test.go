@@ -267,6 +267,9 @@ func (s *testStore) GetPlanStepByRunID(_ context.Context, _ string) (*plan.Step,
 	return nil, domain.ErrNotFound
 }
 func (s *testStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
+func (s *testStore) ReplanStalledStep(_ context.Context, _ string, _ int) (bool, error) {
+	return false, nil
+}
 
 // Team stubs
 func (s *testStore) CreateTeam(_ context.Context, _ agent.CreateTeamRequest) (*agent.Team, error) {

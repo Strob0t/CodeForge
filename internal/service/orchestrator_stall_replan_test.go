@@ -262,3 +262,35 @@ func TestStallReplan_PingPongStallInLaterRounds(t *testing.T) {
 		})
 	}
 }
+
+// KI-94: the stall budget is per plan step. A debate's proponent and
+// moderator (and the step they debate) run the same task with the same
+// agent; one step's stalls must not use up the other's re-plans.
+func TestStallReplan_BudgetPerStep(t *testing.T) {
+	store, orchSvc := newStallReplanSetup(1)
+	ctx := context.Background()
+	p := createPlan(t, orchSvc, plan.ProtocolPingPong, 0, []plan.CreateStepRequest{
+		{TaskID: "t1", AgentID: "a1"}, {TaskID: "t1", AgentID: "a1"},
+	})
+	end := func(i int, status run.Status, errMsg string) {
+		t.Helper()
+		id := planState(t, store, p.ID).Steps[i].RunID
+		if err := store.CompleteRun(ctx, &run.CompletionRequest{ID: id, Status: status, Error: errMsg}); err != nil {
+			t.Fatalf("CompleteRun: %v", err)
+		}
+		orchSvc.HandleRunCompleted(ctx, id, status)
+	}
+
+	end(0, run.StatusFailed, run.StallDetectedError) // step 0 uses its re-plan
+	end(0, run.StatusCompleted, "")
+	end(1, run.StatusFailed, run.StallDetectedError) // step 1 still has its own
+
+	got := planState(t, store, p.ID)
+	if got.Status != plan.StatusRunning || got.Steps[1].Status != plan.StepStatusRunning {
+		t.Fatalf("plan %s, step 1 %s: want step 1 re-planned with its own budget", got.Status, got.Steps[1].Status)
+	}
+	end(1, run.StatusFailed, run.StallDetectedError) // now step 1's budget is used up
+	if got := planState(t, store, p.ID); got.Status != plan.StatusFailed {
+		t.Fatalf("plan %s: want it failed after step 1's second stall", got.Status)
+	}
+}

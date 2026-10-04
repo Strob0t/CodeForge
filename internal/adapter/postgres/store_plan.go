@@ -150,6 +150,20 @@ func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status 
 	return execExpectOne(tag, err, "update plan step status %s", stepID)
 }
 
+// ReplanStalledStep makes a running step pending again and counts the
+// re-plan, unless the step already used maxReplans (KI-94). The run ID is
+// kept: the next run of the step is told why this one stalled.
+func (s *Store) ReplanStalledStep(ctx context.Context, stepID string, maxReplans int) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE plan_steps SET status = $2, error = '', stall_replans = stall_replans + 1
+		 WHERE id = $1 AND tenant_id = $3 AND status = $4 AND stall_replans < $5`,
+		stepID, string(plan.StepStatusPending), tenantFromCtx(ctx), string(plan.StepStatusRunning), maxReplans)
+	if err != nil {
+		return false, fmt.Errorf("re-plan stalled step %s: %w", stepID, err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, plan_id, task_id, agent_id, policy_profile, mode_id, deliver_mode, depends_on, status, run_id, round, error, created_at, updated_at

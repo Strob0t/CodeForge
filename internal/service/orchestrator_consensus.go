@@ -630,43 +630,37 @@ func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) erro
 // replanStalledLocked gives a plan step whose run stalled a new run instead of
 // failing it (MagenticOne stall re-planning, KI-62), at most
 // runtime.stall_max_retries times per step, and reports whether it did. The
-// step's earlier stalls are the stalled runs of its task since the plan was
-// created. The new run gets the step's task prompt and the stall
-// (stallNote). The caller holds s.mu and has not ended the step.
+// store counts the step's re-plans (KI-94: the steps of a debate run the
+// same task and agent, so the task's stalled runs are not the step's). The
+// new run gets the step's task prompt and the stall (stallNote). The caller
+// holds s.mu and has not ended the step.
 func (s *OrchestratorService) replanStalledLocked(ctx context.Context, step *plan.Step, r *run.Run) bool {
-	if !r.Stalled() || s.runtime == nil || s.runtime.runtimeCfg.StallMaxRetries <= 0 {
+	maxRetries := 0
+	if s.runtime != nil {
+		maxRetries = s.runtime.runtimeCfg.StallMaxRetries
+	}
+	if !r.Stalled() || maxRetries <= 0 {
 		return false
 	}
 	p, err := s.store.GetPlan(ctx, step.PlanID)
 	if err != nil || p.Status != plan.StatusRunning {
 		return false
 	}
-	runs, err := s.store.ListRunsByTask(ctx, step.TaskID)
-	if err != nil {
-		slog.Error("count the stalls of a plan step", "step_id", step.ID, "error", err)
-		return false
-	}
-	stalls := 0
-	for i := range runs {
-		if runs[i].Stalled() && !runs[i].CreatedAt.Before(p.CreatedAt) {
-			stalls++
-		}
-	}
-	if stalls > s.runtime.runtimeCfg.StallMaxRetries {
-		slog.Info("stalled plan step not re-planned: stall_max_retries used up",
-			"step_id", step.ID, "stalls", stalls, "max_retries", s.runtime.runtimeCfg.StallMaxRetries)
-		return false
-	}
 
 	// A ping_pong step (a debate's) keeps its round: advancePingPong starts a
 	// pending step whose round began in that round again, so the stalled
 	// round runs once more and the alternation goes on from there (S6-F 3).
-	if err := s.store.UpdatePlanStepStatus(ctx, step.ID, plan.StepStatusPending, "", ""); err != nil {
+	replanned, err := s.store.ReplanStalledStep(ctx, step.ID, maxRetries)
+	if err != nil {
 		slog.Error("re-plan stalled step", "step_id", step.ID, "error", err)
 		return false
 	}
-	slog.Info("stalled plan step re-planned with a new run",
-		"stalled_run_id", r.ID, "step_id", step.ID, "attempt", stalls+1)
+	if !replanned {
+		slog.Info("stalled plan step not re-planned: stall_max_retries used up",
+			"step_id", step.ID, "max_retries", maxRetries)
+		return false
+	}
+	slog.Info("stalled plan step re-planned with a new run", "stalled_run_id", r.ID, "step_id", step.ID)
 	s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
 	s.advancePlanLocked(ctx, p)
 	return true

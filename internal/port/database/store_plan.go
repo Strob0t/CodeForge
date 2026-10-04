@@ -17,4 +17,9 @@ type PlanStore interface {
 	UpdatePlanStepStatus(ctx context.Context, stepID string, status plan.StepStatus, runID string, errMsg string) error
 	GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error)
 	UpdatePlanStepRound(ctx context.Context, stepID string, round int) error
+	// ReplanStalledStep makes a running step pending again for a new run
+	// after its run stalled, counting the re-plan, and reports whether it
+	// did: false when the step already used maxReplans re-plans or is not
+	// running (KI-94).
+	ReplanStalledStep(ctx context.Context, stepID string, maxReplans int) (bool, error)
 }
