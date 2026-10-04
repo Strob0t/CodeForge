@@ -166,19 +166,22 @@ func (m *orchMockStore) UpdatePlanStepRound(_ context.Context, stepID string, ro
 	return domain.ErrNotFound
 }
 
-func (m *orchMockStore) ReplanStalledStep(_ context.Context, stepID string, maxReplans int) (bool, error) {
+func (m *orchMockStore) ReplanStalledStep(_ context.Context, stepID, runID string, maxReplans int) (plan.ReplanOutcome, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	i := slices.IndexFunc(m.steps, func(st plan.Step) bool { return st.ID == stepID })
-	if i < 0 || m.steps[i].Status != plan.StepStatusRunning || m.stallReplans[stepID] >= maxReplans {
-		return false, nil
+	switch {
+	case i < 0 || m.steps[i].Status != plan.StepStatusRunning || m.steps[i].RunID != runID:
+		return plan.ReplanStepMoved, nil
+	case m.stallReplans[stepID] >= maxReplans:
+		return plan.ReplanBudgetUsedUp, nil
 	}
 	if m.stallReplans == nil {
 		m.stallReplans = map[string]int{}
 	}
 	m.stallReplans[stepID]++
 	m.steps[i].Status, m.steps[i].Error = plan.StepStatusPending, ""
-	return true, nil
+	return plan.Replanned, nil
 }
 
 // Quarantine (Phase 23B)

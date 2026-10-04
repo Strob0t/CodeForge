@@ -60,6 +60,22 @@ func (s StepStatus) IsTerminal() bool {
 	return false
 }
 
+// ReplanOutcome is what re-planning a step after its run stalled did
+// (KI-94). The completion of the stalled run may reach two Go Core
+// replicas: only the one that still finds the step running that run acts.
+type ReplanOutcome int
+
+const (
+	// Replanned: the step ran the stalled run and is pending again.
+	Replanned ReplanOutcome = iota + 1
+	// ReplanBudgetUsedUp: the step still runs the stalled run, but it used
+	// its re-plans; the stalled run fails it.
+	ReplanBudgetUsedUp
+	// ReplanStepMoved: the step no longer runs the stalled run (another
+	// replica re-planned or ended it); nothing is left to do.
+	ReplanStepMoved
+)
+
 // ExecutionPlan organizes multiple Runs as a DAG with a scheduling protocol.
 type ExecutionPlan struct {
 	ID          string    `json:"id"`

@@ -150,18 +150,37 @@ func (s *Store) UpdatePlanStepStatus(ctx context.Context, stepID string, status 
 	return execExpectOne(tag, err, "update plan step status %s", stepID)
 }
 
-// ReplanStalledStep makes a running step pending again and counts the
-// re-plan, unless the step already used maxReplans (KI-94). The run ID is
-// kept: the next run of the step is told why this one stalled.
-func (s *Store) ReplanStalledStep(ctx context.Context, stepID string, maxReplans int) (bool, error) {
+// ReplanStalledStep makes a step that is running runID pending again and
+// counts the re-plan, unless the step already used maxReplans (KI-94). The
+// run ID is kept: the next run of the step is told why this one stalled.
+// When the update matches nothing, the step either still runs runID (its
+// budget is used up) or no longer does: another replica took the same
+// completion and re-planned or ended the step, and the step's run ID never
+// returns to runID once it moved on.
+func (s *Store) ReplanStalledStep(ctx context.Context, stepID, runID string, maxReplans int) (plan.ReplanOutcome, error) {
+	tid := tenantFromCtx(ctx)
+	running := string(plan.StepStatusRunning)
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE plan_steps SET status = $2, error = '', stall_replans = stall_replans + 1
-		 WHERE id = $1 AND tenant_id = $3 AND status = $4 AND stall_replans < $5`,
-		stepID, string(plan.StepStatusPending), tenantFromCtx(ctx), string(plan.StepStatusRunning), maxReplans)
+		 WHERE id = $1 AND tenant_id = $3 AND status = $4 AND run_id = $5 AND stall_replans < $6`,
+		stepID, string(plan.StepStatusPending), tid, running, runID, maxReplans)
 	if err != nil {
-		return false, fmt.Errorf("re-plan stalled step %s: %w", stepID, err)
+		return 0, fmt.Errorf("re-plan stalled step %s: %w", stepID, err)
 	}
-	return tag.RowsAffected() == 1, nil
+	if tag.RowsAffected() == 1 {
+		return plan.Replanned, nil
+	}
+	var stillRunning bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM plan_steps WHERE id = $1 AND tenant_id = $2 AND status = $3 AND run_id = $4)`,
+		stepID, tid, running, runID,
+	).Scan(&stillRunning); err != nil {
+		return 0, fmt.Errorf("re-plan stalled step %s: %w", stepID, err)
+	}
+	if stillRunning {
+		return plan.ReplanBudgetUsedUp, nil
+	}
+	return plan.ReplanStepMoved, nil
 }
 
 func (s *Store) GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error) {

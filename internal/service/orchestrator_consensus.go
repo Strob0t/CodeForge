@@ -644,11 +644,14 @@ func (s *OrchestratorService) ReplanStep(ctx context.Context, runID string) erro
 
 // replanStalledLocked gives a plan step whose run stalled a new run instead of
 // failing it (MagenticOne stall re-planning, KI-62), at most
-// runtime.stall_max_retries times per step, and reports whether it did. The
-// store counts the step's re-plans (KI-94: the steps of a debate run the
-// same task and agent, so the task's stalled runs are not the step's). The
-// new run gets the step's task prompt and the stall (stallNote). The caller
-// holds s.mu and has not ended the step.
+// runtime.stall_max_retries times per step. It reports whether the stalled
+// run's completion is settled: the step was re-planned, or it no longer
+// runs r (another replica took the same completion and moved it on); false
+// leaves the step to be ended as usual. The store counts the step's
+// re-plans (KI-94: the steps of a debate run the same task and agent, so
+// the task's stalled runs are not the step's). The new run gets the step's
+// task prompt and the stall (stallNote). The caller holds s.mu and has not
+// ended the step.
 func (s *OrchestratorService) replanStalledLocked(ctx context.Context, step *plan.Step, r *run.Run) bool {
 	maxRetries := 0
 	if s.runtime != nil {
@@ -665,20 +668,28 @@ func (s *OrchestratorService) replanStalledLocked(ctx context.Context, step *pla
 	// A ping_pong step (a debate's) keeps its round: advancePingPong starts a
 	// pending step whose round began in that round again, so the stalled
 	// round runs once more and the alternation goes on from there (S6-F 3).
-	replanned, err := s.store.ReplanStalledStep(ctx, step.ID, maxRetries)
+	outcome, err := s.store.ReplanStalledStep(ctx, step.ID, r.ID, maxRetries)
 	if err != nil {
 		slog.Error("re-plan stalled step", "step_id", step.ID, "error", err)
 		return false
 	}
-	if !replanned {
+	switch outcome {
+	case plan.Replanned:
+		slog.Info("stalled plan step re-planned with a new run", "stalled_run_id", r.ID, "step_id", step.ID)
+		s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
+		s.advancePlanLocked(ctx, p)
+		return true
+	case plan.ReplanStepMoved:
+		// Another replica took the same completion and re-planned or
+		// ended the step: failing it here would undo that.
+		slog.Info("stalled run's plan step moved on meanwhile, completion skipped",
+			"stalled_run_id", r.ID, "step_id", step.ID)
+		return true
+	default: // plan.ReplanBudgetUsedUp
 		slog.Info("stalled plan step not re-planned: stall_max_retries used up",
 			"step_id", step.ID, "max_retries", maxRetries)
 		return false
 	}
-	slog.Info("stalled plan step re-planned with a new run", "stalled_run_id", r.ID, "step_id", step.ID)
-	s.broadcastStepStatus(ctx, p, step, plan.StepStatusPending)
-	s.advancePlanLocked(ctx, p)
-	return true
 }
 
 // unblockDependents makes the steps that were skipped because stepID did not

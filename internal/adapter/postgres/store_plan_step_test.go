@@ -41,8 +41,10 @@ func TestStore_PlanStepsKeepTheirMode(t *testing.T) {
 }
 
 // TestStore_ReplanStalledStepCountsPerStep: stall re-plans are counted per
-// step, only a running step is re-planned, the run ID stays, and another
-// tenant's step is not touched (KI-94).
+// step, only a step running the stalled run is re-planned, the run ID stays,
+// and another tenant's step is not touched (KI-94). A step that no longer
+// runs the stalled run (another replica re-planned or ended it) is reported
+// as moved, not as out of re-plans (S7-F review).
 func TestStore_ReplanStalledStepCountsPerStep(t *testing.T) {
 	f := newStatusFixture(t)
 	p := &plan.ExecutionPlan{
@@ -58,35 +60,54 @@ func TestStore_ReplanStalledStepCountsPerStep(t *testing.T) {
 	}
 	first, second := p.Steps[0].ID, p.Steps[1].ID
 	runID := f.newRun(t, run.StatusFailed).ID
-	running := func(stepID string) {
+	otherRun := f.newRun(t, run.StatusRunning).ID
+	runningRun := func(stepID, id string) {
 		t.Helper()
-		if err := f.store.UpdatePlanStepStatus(f.ctx, stepID, plan.StepStatusRunning, runID, "stall detected: x"); err != nil {
+		if err := f.store.UpdatePlanStepStatus(f.ctx, stepID, plan.StepStatusRunning, id, "stall detected: x"); err != nil {
 			t.Fatalf("UpdatePlanStepStatus: %v", err)
 		}
 	}
-	replan := func(ctx context.Context, stepID string, want bool) {
+	running := func(stepID string) { t.Helper(); runningRun(stepID, runID) }
+	replan := func(ctx context.Context, stepID string, want plan.ReplanOutcome) {
 		t.Helper()
-		got, err := f.store.ReplanStalledStep(ctx, stepID, 1)
+		got, err := f.store.ReplanStalledStep(ctx, stepID, runID, 1)
 		if err != nil || got != want {
 			t.Fatalf("ReplanStalledStep(%s) = %v, %v; want %v", stepID, got, err, want)
 		}
 	}
-
-	replan(f.ctx, first, false) // pending, not running
-	running(first)
-	replan(ctxWithTenant(t, createTestTenant(t, f.store)), first, false) // another tenant
-	replan(f.ctx, first, true)
-	steps, err := f.store.ListPlanSteps(f.ctx, p.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range steps {
-		if steps[i].ID == first && (steps[i].Status != plan.StepStatusPending || steps[i].RunID != runID || steps[i].Error != "") {
-			t.Fatalf("re-planned step = %+v, want pending with its run and no error", steps[i])
+	stepOf := func(stepID string) plan.Step {
+		t.Helper()
+		steps, err := f.store.ListPlanSteps(f.ctx, p.ID)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for i := range steps {
+			if steps[i].ID == stepID {
+				return steps[i]
+			}
+		}
+		t.Fatalf("step %s not found", stepID)
+		return plan.Step{}
+	}
+
+	replan(f.ctx, first, plan.ReplanStepMoved) // pending, not running
+	running(first)
+	replan(ctxWithTenant(t, createTestTenant(t, f.store)), first, plan.ReplanStepMoved) // another tenant
+	replan(f.ctx, first, plan.Replanned)
+	if st := stepOf(first); st.Status != plan.StepStatusPending || st.RunID != runID || st.Error != "" {
+		t.Fatalf("re-planned step = %+v, want pending with its run and no error", st)
+	}
+	// A duplicated completion of the stalled run on another replica: the
+	// step is pending again, then runs a new run; neither is re-planned or
+	// counted again.
+	replan(f.ctx, first, plan.ReplanStepMoved)
+	runningRun(first, otherRun)
+	replan(f.ctx, first, plan.ReplanStepMoved)
+	if st := stepOf(first); st.Status != plan.StepStatusRunning || st.RunID != otherRun {
+		t.Fatalf("step = %+v, want running the other run", st)
 	}
 	running(first)
-	replan(f.ctx, first, false) // its budget is used up
+	replan(f.ctx, first, plan.ReplanBudgetUsedUp) // its budget is used up
 	running(second)
-	replan(f.ctx, second, true) // the other step has its own
+	replan(f.ctx, second, plan.Replanned) // the other step has its own
 }

@@ -400,8 +400,8 @@ func (m *runtimeMockStore) GetPlanStepByRunID(_ context.Context, _ string) (*pla
 	return nil, errMockNotFound
 }
 func (m *runtimeMockStore) UpdatePlanStepRound(_ context.Context, _ string, _ int) error { return nil }
-func (m *runtimeMockStore) ReplanStalledStep(_ context.Context, _ string, _ int) (bool, error) {
-	return false, nil
+func (m *runtimeMockStore) ReplanStalledStep(_ context.Context, _, _ string, _ int) (plan.ReplanOutcome, error) {
+	return plan.ReplanBudgetUsedUp, nil
 }
 
 // --- Agent Team methods (satisfy database.Store interface) ---
