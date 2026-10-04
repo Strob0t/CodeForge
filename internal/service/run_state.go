@@ -398,13 +398,26 @@ func (m *RunStateManager) AppendConversationStream(convID, tenantID, text string
 	if !ok || st.active == "" || st.tenant != tenantID {
 		return
 	}
-	st.streamed = append(st.streamed, text...)
-	if over := len(st.streamed) - maxConversationStreamBytes; over > 0 {
-		for over < len(st.streamed) && !utf8.RuneStart(st.streamed[over]) {
-			over++
-		}
-		st.streamed = append(st.streamed[:0], st.streamed[over:]...)
+	if len(st.streamed)+len(text) <= maxConversationStreamBytes {
+		st.streamed = append(st.streamed, text...)
+		return
 	}
+	// Over the bound: the newest three quarters go into a fresh buffer, so
+	// neither the old buffer nor a huge text stays referenced, and the copy
+	// is made once per quarter of the bound rather than once per line.
+	keep := maxConversationStreamBytes * 3 / 4
+	kept := make([]byte, 0, maxConversationStreamBytes)
+	if fromOld := keep - len(text); fromOld > 0 {
+		kept = append(kept, st.streamed[max(0, len(st.streamed)-fromOld):]...)
+		kept = append(kept, text...)
+	} else {
+		kept = append(kept, text[len(text)-keep:]...)
+	}
+	start := 0
+	for start < len(kept) && !utf8.RuneStart(kept[start]) {
+		start++
+	}
+	st.streamed = kept[start:]
 }
 
 // ConversationStream returns the text run turnID of the conversation

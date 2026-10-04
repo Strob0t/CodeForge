@@ -190,6 +190,16 @@ func TestConversationStream_OnlyActiveRunsAndBounded(t *testing.T) {
 	if len(got) > maxConversationStreamBytes || !utf8.ValidString(got) || !strings.HasSuffix(got, "END") {
 		t.Fatalf("bounded stream: %d bytes, valid %v, suffix %q", len(got), utf8.ValidString(got), got[max(0, len(got)-3):])
 	}
+	// A huge line does not stay referenced: the kept text is copied out of
+	// the buffer that held it (KI-148 review).
+	m.AppendConversationStream("conv-1", "tenant-a", strings.Repeat("x", 1<<20)+"TAIL")
+	got = m.ConversationStream("conv-1", "turn-1")
+	if !strings.HasSuffix(got, "TAIL") || len(got) > maxConversationStreamBytes {
+		t.Fatalf("after a huge line: %d bytes", len(got))
+	}
+	if c := cap(m.convRuns["conv-1"].streamed); c > maxConversationStreamBytes {
+		t.Fatalf("stream buffer capacity %d after trimming, want at most %d", c, maxConversationStreamBytes)
+	}
 	if got := m.ConversationStream("conv-1", "turn-0"); got != "" {
 		t.Fatalf("stream of another turn: %d bytes", len(got))
 	}

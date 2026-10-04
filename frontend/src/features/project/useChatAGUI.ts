@@ -29,8 +29,10 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const [streamingContent, setStreamingContent] = createSignal("");
   // Track whether the assistant is actively processing via run_started / run_finished
   const [agentRunning, setAgentRunning] = createSignal(false);
-  // Runs of the active conversation that finished: a restore whose answer
-  // comes after one ended does not mark the conversation running (KI-148).
+  // Runs of the active conversation that started and finished: a restore
+  // whose answer comes after one of them describes an older state, and the
+  // live events show the current one (KI-148).
+  let runsStarted = 0;
   let runsFinished = 0;
   // Error message from a failed run, shown as a system message in the chat
   const [runError, setRunError] = createSignal<string | null>(null);
@@ -98,6 +100,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const cleanupRunStarted = onAGUIEvent("agui.run_started", (payload) => {
     const runId = payload.run_id as string;
     if (runId === opts.activeConversation()) {
+      runsStarted++;
       batch(() => {
         setAgentRunning(true);
         setStreamingContent("");
@@ -315,34 +318,41 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   // On page load (and when switching conversations) the chat restores the
   // running turn from the Core: the running state, the text streamed so far
   // and every pending approval, so a reload does not lose them (KI-148).
+  // The caller cleared the streamed text, so what it holds when the answer
+  // comes arrived after the request was sent.
   async function restoreRun(conversationId: string): Promise<void> {
+    const startedBefore = runsStarted;
     const finishedBefore = runsFinished;
-    const streamedBefore = streamingContent().length;
     let state: ConversationRunState;
     try {
       state = await api.conversations.runState(conversationId);
     } catch {
       return; // best effort: the live events still arrive
     }
-    // A run that finished meanwhile is not running any more.
+    // A run that started or finished meanwhile is shown by its live events.
     if (
       !state.active ||
       conversationId !== opts.activeConversation() ||
+      runsStarted !== startedBefore ||
       runsFinished !== finishedBefore
     ) {
       return;
     }
     batch(() => {
       setAgentRunning(true);
-      setStreamingContent((cur) =>
-        mergeStreamedText(state.streamed_text ?? "", cur.slice(streamedBefore)),
-      );
+      setStreamingContent((cur) => mergeStreamedText(state.streamed_text ?? "", cur));
       setPermissionRequests((prev) => mergePermissionRequests(prev, state.pending_approvals));
     });
     opts.scrollToBottom();
   }
   createEffect(
     on(opts.activeConversation, (cid) => {
+      // Cards and text of the conversation shown before do not carry over.
+      batch(() => {
+        setPermissionRequests([]);
+        setResolvedPermissions(new Set<string>());
+        setStreamingContent("");
+      });
       if (cid) void restoreRun(cid);
     }),
   );
