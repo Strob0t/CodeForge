@@ -5,6 +5,7 @@ import { createConversationsResource } from "./conversations";
 import { createLLMResource } from "./llm";
 import { createMCPResource } from "./misc";
 import { createPrivacyResource } from "./privacy";
+import { createRoadmapResource } from "./roadmap";
 
 interface Call {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -60,6 +61,23 @@ describe("API routes", () => {
       { method: "POST", path: "/projects/p%201/mcp-servers", body: { server_id: "srv-1" } },
       { method: "DELETE", path: "/projects/p%201/mcp-servers/srv%2F1" },
     ]);
+  });
+});
+
+// KI-121: the roadmap UI calls the bidirectional sync next to Import from PM.
+describe("roadmap sync route", () => {
+  it("syncs with POST /projects/{id}/roadmap/sync", async () => {
+    const { client, calls } = recordingClient();
+    const body = {
+      provider: "github-issues",
+      project_ref: "owner/repo",
+      direction: "bidi" as const,
+      dry_run: true,
+      create_new: true,
+      update_exist: false,
+    };
+    await createRoadmapResource(client).sync("p 1", body);
+    expect(calls).toEqual([{ method: "POST", path: "/projects/p%201/roadmap/sync", body }]);
   });
 });
 

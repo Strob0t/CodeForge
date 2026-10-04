@@ -848,6 +848,34 @@ export interface PMImportRequest {
   project_ref: string;
 }
 
+/** Matches Go domain/roadmap.SyncDirection: pull (PM tool -> CodeForge), push (CodeForge -> PM tool), bidi (both). */
+export type RoadmapSyncDirection = "pull" | "push" | "bidi";
+
+/** Matches Go domain/roadmap.SyncConfig (POST /projects/{id}/roadmap/sync; the project comes from the path). */
+export interface RoadmapSyncRequest {
+  provider: string;
+  project_ref: string;
+  direction: RoadmapSyncDirection;
+  /** Only count what would change. */
+  dry_run: boolean;
+  /** Create items that exist on one side only. */
+  create_new: boolean;
+  /** Update items that exist on both sides. */
+  update_exist: boolean;
+  /** The provider's own credentials (token, api_token for Plane). */
+  provider_config?: Record<string, string>;
+}
+
+/** Matches Go domain/roadmap.SyncResult */
+export interface RoadmapSyncResult {
+  direction: string;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors?: string[];
+  dry_run: boolean;
+}
+
 /** Spec/PM provider info */
 export interface ProviderInfo {
   name: string;
