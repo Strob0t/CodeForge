@@ -107,6 +107,7 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] Provider wiring via blank imports + main.go instantiation from registries.
 - [x] Frontend: Import Specs button, Import from PM form (provider dropdown + project ref), import result display.
 - [x] Frontend: "Sync with PM" form (KI-121, 2026-10-04): direction pull, push or both; create new and update existing (both on by default); preview as a dry run, on by default because a push changes the PM tool; an optional token (`provider_config.token`, `api_token` for Plane), never stored; no base URL field (KI-108).
+- [x] Features carry `result` (KI-152): how the auto-agent's verification ended, shown on the feature card. Creating a milestone in a project without a roadmap creates the roadmap "<project name> Roadmap" (KI-157); roadmap proposal cards show why an approval failed.
 - [x] 29 new adapter tests (8 openspec, 7 markdownspec, 14 githubpm), all passing.
 
 ### Phase 9D: Plane.so Adapter + Full Auto-Detection + Feature-Map Editor (Completed)

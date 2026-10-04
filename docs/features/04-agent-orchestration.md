@@ -974,3 +974,7 @@ SimHash-based near-duplicate detection eliminates overlapping content from multi
 - **`deduplicateCandidates(candidates, threshold)`** — greedy dedup sorted by priority descending; default threshold 3 bits (~95% similarity)
 - **Integration point:** `assembleAndPack()` in `context_optimizer.go`, between candidate gathering and token budget packing
 - **Key files:** `internal/service/dedup.go`, `internal/service/context_optimizer.go`
+
+#### Auto-agent verification (KI-152, KI-153, 2026-10-05)
+
+After a feature's run the auto-agent checks (1) that the workspace changed since the feature started and (2) the project's test command (`test_command`, else the detected stack's default, else `runtime.default_test_command`) and, when configured, its lint command (`lint_command`, else `runtime.default_lint_command`). The commands run in the worker as gate commands (`conversation.test.request`). Failures go back to the agent with bounded output for up to `agent.auto_agent_fix_attempts` (default 2) more runs; then the feature is marked cancelled with the reason. The feature's `result` records what was checked; without a test command only the change check runs and the result says so; a check that could not run is reported as "not fully verified". Feature turns are implementation turns: no planning tools, and one "continue" nudge per turn when the model announces an action without calling a tool; `runs.start` turns are implementation turns too.
