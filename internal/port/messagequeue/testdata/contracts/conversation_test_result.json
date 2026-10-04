@@ -3,5 +3,7 @@
   "tenant_id": "550e8400-e29b-41d4-a716-446655440006",
   "conversation_id": "550e8400-e29b-41d4-a716-446655440051",
   "passed": false,
-  "output": "1 failed, 2 passed"
+  "output": "1 failed, 2 passed",
+  "lint_passed": false,
+  "lint_output": "exit code 1\napp.py:1:1: F401 unused import"
 }

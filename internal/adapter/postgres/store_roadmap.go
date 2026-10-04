@@ -168,7 +168,7 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 	row := s.pool.QueryRow(ctx,
 		`INSERT INTO features (tenant_id, milestone_id, roadmap_id, title, description, labels, spec_ref, external_ids)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		 RETURNING id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at`,
+		 RETURNING id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at`,
 		tid, req.MilestoneID, roadmapID, req.Title, req.Description, labels, req.SpecRef, externalIDsJSON)
 
 	f, err := scanFeature(row)
@@ -180,7 +180,7 @@ func (s *Store) CreateFeature(ctx context.Context, req *roadmap.CreateFeatureReq
 
 func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 
 	f, err := scanFeature(row)
@@ -194,7 +194,7 @@ func (s *Store) GetFeature(ctx context.Context, id string) (*roadmap.Feature, er
 // Returns domain.ErrNotFound if no match exists.
 func (s *Store) FindFeatureBySpecRef(ctx context.Context, milestoneID, specRef string) (*roadmap.Feature, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE milestone_id = $1 AND spec_ref = $2 AND tenant_id = $3
 		 LIMIT 1`, milestoneID, specRef, tenantFromCtx(ctx))
 
@@ -207,7 +207,7 @@ func (s *Store) FindFeatureBySpecRef(ctx context.Context, milestoneID, specRef s
 
 func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap.Feature, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE milestone_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, milestoneID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list features: %w", err)
@@ -219,7 +219,7 @@ func (s *Store) ListFeatures(ctx context.Context, milestoneID string) ([]roadmap
 
 func (s *Store) ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, sort_order, version, created_at, updated_at
+		`SELECT id, milestone_id, roadmap_id, title, description, status, labels, spec_ref, external_ids, result, sort_order, version, created_at, updated_at
 		 FROM features WHERE roadmap_id = $1 AND tenant_id = $2 ORDER BY sort_order ASC, created_at ASC`, roadmapID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list features by roadmap: %w", err)
@@ -238,9 +238,9 @@ func (s *Store) UpdateFeature(ctx context.Context, f *roadmap.Feature) error {
 	labels := orEmpty(f.Labels)
 
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8, milestone_id = $9
+		`UPDATE features SET title = $2, description = $3, status = $4, labels = $5, spec_ref = $6, external_ids = $7, sort_order = $8, milestone_id = $9, result = $12
 		 WHERE id = $1 AND version = $10 AND tenant_id = $11`,
-		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.MilestoneID, f.Version, tenantFromCtx(ctx))
+		f.ID, f.Title, f.Description, string(f.Status), labels, f.SpecRef, externalIDsJSON, f.SortOrder, f.MilestoneID, f.Version, tenantFromCtx(ctx), f.Result)
 	if err != nil {
 		return fmt.Errorf("update feature %s: %w", f.ID, err)
 	}
@@ -271,7 +271,7 @@ func scanMilestone(row scannable) (roadmap.Milestone, error) {
 func scanFeature(row scannable) (roadmap.Feature, error) {
 	var f roadmap.Feature
 	var externalIDsJSON []byte
-	err := row.Scan(&f.ID, &f.MilestoneID, &f.RoadmapID, &f.Title, &f.Description, &f.Status, &f.Labels, &f.SpecRef, &externalIDsJSON, &f.SortOrder, &f.Version, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.MilestoneID, &f.RoadmapID, &f.Title, &f.Description, &f.Status, &f.Labels, &f.SpecRef, &externalIDsJSON, &f.Result, &f.SortOrder, &f.Version, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return f, err
 	}

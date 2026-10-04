@@ -61,6 +61,42 @@ func TestValidate_ToolOutputMaxChars(t *testing.T) {
 	}
 }
 
+// agent.auto_agent_fix_attempts (KI-152) defaults to 2, is read from YAML
+// and the environment, and is 0 to maxAutoAgentFixAttempts.
+func TestAutoAgentFixAttempts(t *testing.T) {
+	if got := Defaults().Agent.AutoAgentFixAttempts; got != 2 {
+		t.Fatalf("default = %d, want 2", got)
+	}
+	yamlPath := filepath.Join(t.TempDir(), "codeforge.yaml")
+	if err := os.WriteFile(yamlPath, []byte("agent:\n  auto_agent_fix_attempts: 4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults()
+	if err := loadYAML(&cfg, yamlPath); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.AutoAgentFixAttempts != 4 {
+		t.Fatalf("yaml = %d, want 4", cfg.Agent.AutoAgentFixAttempts)
+	}
+	t.Setenv("CODEFORGE_AGENT_AUTO_AGENT_FIX_ATTEMPTS", "0")
+	loadEnv(&cfg)
+	if cfg.Agent.AutoAgentFixAttempts != 0 {
+		t.Fatalf("env = %d, want 0", cfg.Agent.AutoAgentFixAttempts)
+	}
+	for _, tt := range []struct {
+		value   int
+		wantErr bool
+	}{{-1, true}, {0, false}, {1, false}, {maxAutoAgentFixAttempts, false}, {maxAutoAgentFixAttempts + 1, true}} {
+		cfg := Defaults()
+		cfg.Auth.JWTSecret = strongTestSecret
+		cfg.Agent.AutoAgentFixAttempts = tt.value
+		err := validate(&cfg)
+		if tt.wantErr != (err != nil) || (err != nil && !strings.Contains(err.Error(), "agent.auto_agent_fix_attempts")) {
+			t.Errorf("value %d: validate = %v", tt.value, err)
+		}
+	}
+}
+
 // The bound keeps a quality gate result, which carries two outputs, below
 // the NATS default max payload of 1 MiB even when every character needs a
 // 6-byte JSON escape; the server config does not raise that limit.

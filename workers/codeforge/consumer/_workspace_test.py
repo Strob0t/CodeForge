@@ -1,9 +1,11 @@
-"""Workspace test handler mixin (KI-81).
+"""Workspace test handler mixin (KI-81, KI-152).
 
 The auto-agent's post-verification used to run pytest in the Go Core, in the
 agent-written workspace and with the core's secrets. The worker runs it here
 instead, like a quality gate command: allowlisted executable, the tool
-environment (no worker credentials), its own process group, a timeout.
+environment (no worker credentials), its own process group, a timeout. The
+auto-agent's verification of a feature (KI-152) runs the project's test and
+lint commands here through the quality gate executor.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ import structlog
 
 from codeforge.constants import DEFAULT_QG_TIMEOUT_SECONDS
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_TEST_RESULT
-from codeforge.models import WorkspaceTestRequest, WorkspaceTestResult
+from codeforge.models import QualityGateRequest, WorkspaceTestRequest, WorkspaceTestResult
 from codeforge.tool_identity import ToolIsolationError, tool_tenant
 
 if TYPE_CHECKING:
@@ -71,6 +73,48 @@ class WorkspaceTestHandlerMixin:
     async def _do_workspace_test(
         self, request: WorkspaceTestRequest, log: structlog.BoundLogger
     ) -> WorkspaceTestResult:
+        if request.test_file:
+            return await self._run_test_file(request, log)
+        return await self._run_check_commands(request, log)
+
+    async def _run_check_commands(
+        self, request: WorkspaceTestRequest, log: structlog.BoundLogger
+    ) -> WorkspaceTestResult:
+        """Run the test and lint commands like quality gate checks (KI-152)."""
+        result = WorkspaceTestResult(request_id=request.request_id, conversation_id=request.conversation_id)
+        run_tests, run_lint = bool(request.test_command.strip()), bool(request.lint_command.strip())
+        if not (run_tests or run_lint):
+            result.error = "nothing to run: no test file, test command or lint command"
+            log.warning("workspace check refused", reason=result.error)
+            return result
+        gate = QualityGateRequest(
+            run_id=request.request_id,
+            project_id=request.project_id,
+            tenant_id=request.tenant_id,
+            workspace_path=request.workspace_path,
+            run_tests=run_tests,
+            run_lint=run_lint,
+            test_command=request.test_command,
+            lint_command=request.lint_command,
+            timeout_seconds=request.timeout_seconds,
+            tool_output_max_chars=request.tool_output_max_chars,
+        )
+        try:
+            # The commands run as the tenant's tool UID (KI-96).
+            async with tool_tenant(request.tenant_id, request.tool_uid, request.workspace_path):
+                checked = await self._gate_executor.execute(gate)
+        except ToolIsolationError as exc:
+            log.error("workspace check refused", error=str(exc))
+            result.error = str(exc)
+            return result
+        result.passed, result.output = checked.tests_passed, checked.test_output
+        result.lint_passed, result.lint_output = checked.lint_passed, checked.lint_output
+        result.error = checked.error
+        log.info("workspace check finished", tests_passed=result.passed, lint_passed=result.lint_passed)
+        return result
+
+    async def _run_test_file(self, request: WorkspaceTestRequest, log: structlog.BoundLogger) -> WorkspaceTestResult:
+        """Run the test file a feature description names."""
         result = WorkspaceTestResult(request_id=request.request_id, conversation_id=request.conversation_id)
         if reason := _test_file_error(request.workspace_path, request.test_file):
             log.warning("workspace test refused", reason=reason)

@@ -110,6 +110,7 @@ func (m *autoAgentMockStore) UpdateFeature(_ context.Context, f *roadmap.Feature
 	defer m.mu.Unlock()
 	if existing, ok := m.featByID[f.ID]; ok {
 		existing.Status = f.Status
+		existing.Result = f.Result
 		return nil
 	}
 	return domain.ErrNotFound

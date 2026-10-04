@@ -42,6 +42,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/microagent"
 	"github.com/Strob0t/CodeForge/internal/domain/mode"
 	"github.com/Strob0t/CodeForge/internal/domain/pipeline"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/prompt"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
@@ -747,7 +748,12 @@ func run() error {
 	// --- Auto-Agent Service ---
 	autoAgentSvc := service.NewAutoAgentService(store, hub, queue, conversationSvc)
 	autoAgentSvc.SetToolUIDs(toolUIDSvc)
-	// Its post-verification tests run in the worker (KI-81).
+	// Every feature is verified (KI-152); the checks run in the worker (KI-81).
+	autoAgentSvc.SetVerification(service.AutoAgentVerification{
+		FixAttempts:        cfg.Agent.AutoAgentFixAttempts,
+		ToolOutputMaxChars: cfg.Agent.ToolOutputMaxChars,
+		Defaults:           project.GateCommands{Test: cfg.Runtime.DefaultTestCommand, Lint: cfg.Runtime.DefaultLintCommand},
+	})
 	autoAgentTestCancel, err := autoAgentSvc.StartTestResultSubscriber(ctx)
 	if err != nil {
 		return fmt.Errorf("auto-agent test result subscriber: %w", err)

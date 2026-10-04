@@ -106,6 +106,14 @@ export default function FeatureCard(props: FeatureCardProps) {
           </Badge>
         </div>
       </div>
+      {/* How the auto-agent's verification ended (KI-152) */}
+      <Show when={props.feature.result}>
+        {(result) => (
+          <p class="mt-1 text-xs text-cf-text-muted line-clamp-2" title={result()}>
+            {result()}
+          </p>
+        )}
+      </Show>
     </div>
   );
 }

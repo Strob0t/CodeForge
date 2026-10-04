@@ -259,8 +259,13 @@ func sampleWorkspaceTestRequestPayload() mq.WorkspaceTestRequestPayload {
 		ProjectID:      "550e8400-e29b-41d4-a716-446655440001",
 		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
 		WorkspacePath:  "/workspaces/project",
-		TestFile:       "test_feature.py",
-		TimeoutSeconds: 300,
+		// A request carries a test file or the commands (KI-152); the
+		// fixture carries every field.
+		TestFile:           "test_feature.py",
+		TestCommand:        "pytest -q",
+		LintCommand:        "ruff check .",
+		TimeoutSeconds:     300,
+		ToolOutputMaxChars: 10000,
 	}
 }
 
@@ -291,6 +296,8 @@ func sampleWorkspaceTestResultPayload() mq.WorkspaceTestResultPayload {
 		ConversationID: "550e8400-e29b-41d4-a716-446655440051",
 		Passed:         &failed,
 		Output:         "1 failed, 2 passed",
+		LintPassed:     &failed,
+		LintOutput:     "exit code 1\napp.py:1:1: F401 unused import",
 	}
 }
 
@@ -796,8 +803,8 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectTaskResult:                  {"task_id", "project_id", "tenant_id", "dispatch_id", "status", "cost_usd"},
 		mq.SubjectConversationRunComplete:     {"run_id", "conversation_id", "assistant_content", "status", "cost_usd", "model", "turn_id"},
 		mq.SubjectConversationCompactComplete: {"conversation_id", "tenant_id", "summary", "original_count", "status"},
-		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "timeout_seconds", "tool_uid"},
-		mq.SubjectConversationTestResult:      {"request_id", "tenant_id", "conversation_id", "passed", "output"},
+		mq.SubjectConversationTestRequest:     {"request_id", "tenant_id", "project_id", "conversation_id", "workspace_path", "test_file", "test_command", "lint_command", "timeout_seconds", "tool_output_max_chars", "tool_uid"},
+		mq.SubjectConversationTestResult:      {"request_id", "tenant_id", "conversation_id", "passed", "output", "lint_passed", "lint_output"},
 		mq.SubjectWorkspaceDeleteRequest:      {"deletion_id", "tenant_id", "tool_uid", "project_id", "workspace_path"},
 		mq.SubjectWorkspaceDeleteResult:       {"deletion_id", "tenant_id", "ok", "error"},
 		mq.SubjectBenchmarkRunRequest:         {"run_id", "dataset_path", "model", "tool_uid"},

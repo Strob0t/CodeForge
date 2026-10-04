@@ -767,6 +767,8 @@ export interface RoadmapFeature {
   labels: string[];
   spec_ref: string;
   external_ids: Record<string, string>;
+  /** How the auto-agent's verification ended (KI-152); absent until it ran the feature. */
+  result?: string;
   version: number;
   created_at: string;
   updated_at: string;

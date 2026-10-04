@@ -1066,6 +1066,7 @@ func TestStore_RoadmapCRUD(t *testing.T) {
 		// Update feature.
 		feat.Title = "Feature-1-updated"
 		feat.Status = roadmap.FeatureInProgress
+		feat.Result = "verified: the workspace changed; tests passed (`pytest`)" // KI-152
 		if err := store.UpdateFeature(ctx, feat); err != nil {
 			t.Fatalf("UpdateFeature: %v", err)
 		}
@@ -1078,6 +1079,9 @@ func TestStore_RoadmapCRUD(t *testing.T) {
 		}
 		if got.Status != roadmap.FeatureInProgress {
 			t.Fatalf("expected status in_progress, got %s", got.Status)
+		}
+		if got.Result != feat.Result {
+			t.Fatalf("result = %q, want %q", got.Result, feat.Result)
 		}
 
 		// Delete feature.

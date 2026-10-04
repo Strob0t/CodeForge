@@ -67,10 +67,13 @@ type Feature struct {
 	Labels      []string          `json:"labels"`
 	SpecRef     string            `json:"spec_ref,omitempty"`
 	ExternalIDs map[string]string `json:"external_ids,omitempty"`
-	SortOrder   int               `json:"sort_order"`
-	Version     int               `json:"version"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	// Result is how the auto-agent's verification ended (KI-152): what was
+	// checked, or why the feature failed; "" until the auto-agent ran it.
+	Result    string    `json:"result,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CreateRoadmapRequest is the input for creating a roadmap.

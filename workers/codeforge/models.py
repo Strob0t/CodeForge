@@ -219,28 +219,39 @@ class QualityGateRequest(BaseModel):
 
 
 class WorkspaceTestRequest(BaseModel):
-    """Request from Go to run one test file of a workspace (auto-agent, KI-81)."""
+    """Request from Go to verify a workspace (auto-agent, KI-81, KI-152).
+
+    It runs one test file, or else the test and lint commands like quality gate checks.
+    """
 
     request_id: str
     tenant_id: str = ""
     project_id: str = ""
     conversation_id: str = ""
     workspace_path: str
-    # A file name matching test_<word>.py in the workspace root.
-    test_file: str
+    # A file name matching test_<word>.py in the workspace root; when set, the commands do not run.
+    test_file: str = ""
+    # Gate commands (KI-152); "" skips the check.
+    test_command: str = ""
+    lint_command: str = ""
+    # Bounds each command.
     timeout_seconds: int = Field(default=0, ge=0)
+    # agent.tool_output_max_chars: each command's output is bounded to it; 0 = the worker's default.
+    tool_output_max_chars: ToolOutputMaxChars = 0
     # The tenant's tool UID the test runs as (KI-96); 0: none.
     tool_uid: int = Field(default=0, ge=0)
 
 
 class WorkspaceTestResult(BaseModel):
-    """Outcome of a workspace test run; passed is None when the tests did not run or finish."""
+    """Outcome of a workspace verification; a verdict is None when its check did not run or finish."""
 
     request_id: str
     tenant_id: str = ""
     conversation_id: str = ""
     passed: bool | None = None
     output: str = ""
+    lint_passed: bool | None = None
+    lint_output: str = ""
     error: str = ""
 
 

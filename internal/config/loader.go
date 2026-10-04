@@ -328,6 +328,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Agent.ContextPromptReserve, "CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE", strconv.Atoi)
 	setTyped(&cfg.Agent.ConversationRolloutCount, "CODEFORGE_AGENT_CONVERSATION_ROLLOUT_COUNT", strconv.Atoi)
 	setTyped(&cfg.Agent.SummarizeThreshold, "CODEFORGE_SUMMARIZE_THRESHOLD", strconv.Atoi)
+	setTyped(&cfg.Agent.AutoAgentFixAttempts, "CODEFORGE_AGENT_AUTO_AGENT_FIX_ATTEMPTS", strconv.Atoi)
 
 	// Quarantine
 	setTyped(&cfg.Quarantine.Enabled, "CODEFORGE_QUARANTINE_ENABLED", strconv.ParseBool)
@@ -535,6 +536,9 @@ func validate(cfg *Config) error {
 	}
 	if n := cfg.Agent.ToolOutputMaxChars; n < 0 || n > maxToolOutputMaxChars {
 		return fmt.Errorf("agent.tool_output_max_chars must be 0 (the worker's default) to %d (got %d)", maxToolOutputMaxChars, n)
+	}
+	if n := cfg.Agent.AutoAgentFixAttempts; n < 0 || n > maxAutoAgentFixAttempts {
+		return fmt.Errorf("agent.auto_agent_fix_attempts must be 0 to %d (got %d)", maxAutoAgentFixAttempts, n)
 	}
 	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
 		return err

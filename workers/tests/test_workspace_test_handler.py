@@ -159,3 +159,97 @@ async def test_small_output_is_kept_whole(consumer: TaskConsumer, tmp_path: Path
     with patch(_SPAWN, return_value=_proc("=== 3 passed ===", 0)):
         result, _ = await _handle(consumer, _request(tmp_path))
     assert result.output == "=== 3 passed ==="
+
+
+# KI-152: the auto-agent verifies every feature with the project's test and
+# lint commands; the worker runs them like quality gate checks.
+
+
+def _command_request(workspace: Path, **kw: object) -> WorkspaceTestRequest:
+    return WorkspaceTestRequest(
+        request_id="req-2",
+        tenant_id="tenant-1",
+        project_id="proj-1",
+        conversation_id="conv-1",
+        workspace_path=str(workspace),
+        timeout_seconds=30,
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.parametrize(
+    ("test_rc", "lint_rc", "want_test", "want_lint"),
+    [(0, 0, True, True), (1, 0, False, True), (0, 2, True, False)],
+)
+async def test_runs_the_test_and_lint_commands(
+    consumer: TaskConsumer,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    test_rc: int,
+    lint_rc: int,
+    want_test: bool,
+    want_lint: bool,
+) -> None:
+    monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-secret")
+    procs = [_proc("tests out", test_rc), _proc("lint out", lint_rc)]
+    with patch(_SPAWN, side_effect=procs) as spawn:
+        result, msg = await _handle(
+            consumer, _command_request(tmp_path, test_command="pytest -q", lint_command="ruff check .")
+        )
+
+    assert [c.args for c in spawn.call_args_list] == [("pytest", "-q"), ("ruff", "check", ".")]
+    for call in spawn.call_args_list:
+        assert call.kwargs["cwd"] == str(tmp_path)
+        assert call.kwargs["start_new_session"] is True
+        assert "LITELLM_MASTER_KEY" not in call.kwargs["env"]
+    assert result.passed is want_test
+    assert result.lint_passed is want_lint
+    assert "tests out" in result.output
+    assert "lint out" in result.lint_output
+    if not want_test:
+        assert result.output.startswith("exit code 1")
+    assert result.error == ""
+    msg.ack.assert_called_once()
+
+
+async def test_runs_only_the_requested_commands(consumer: TaskConsumer, tmp_path: Path) -> None:
+    with patch(_SPAWN, return_value=_proc("ok", 0)) as spawn:
+        result, _ = await _handle(consumer, _command_request(tmp_path, lint_command="ruff check ."))
+
+    assert [c.args for c in spawn.call_args_list] == [("ruff", "check", ".")]
+    assert result.passed is None
+    assert result.lint_passed is True
+    assert result.error == ""
+
+
+async def test_command_output_is_bounded_to_tool_output_max_chars(consumer: TaskConsumer, tmp_path: Path) -> None:
+    long = "x" * 50_000
+    with patch(_SPAWN, return_value=_proc(long, 1)):
+        result, _ = await _handle(
+            consumer, _command_request(tmp_path, test_command="pytest", tool_output_max_chars=2_000)
+        )
+
+    assert result.passed is False
+    assert len(result.output) < 2_500
+
+
+@pytest.mark.parametrize("command", ["rm -rf /", "bash -c 'id'", "pytest 'unclosed"])
+async def test_commands_off_the_allowlist_do_not_run(consumer: TaskConsumer, tmp_path: Path, command: str) -> None:
+    with patch(_SPAWN) as spawn:
+        result, msg = await _handle(consumer, _command_request(tmp_path, test_command=command))
+
+    spawn.assert_not_called()
+    assert result.passed is None
+    assert result.error
+    msg.ack.assert_called_once()
+
+
+async def test_request_without_anything_to_run_reports_an_error(consumer: TaskConsumer, tmp_path: Path) -> None:
+    with patch(_SPAWN) as spawn:
+        result, msg = await _handle(consumer, _command_request(tmp_path))
+
+    spawn.assert_not_called()
+    assert result.passed is None
+    assert result.lint_passed is None
+    assert "nothing to run" in result.error
+    msg.ack.assert_called_once()

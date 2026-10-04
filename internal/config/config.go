@@ -151,6 +151,10 @@ type PM struct {
 // (MAX_TOOL_OUTPUT_MAX_CHARS in workers/codeforge/constants.py).
 const maxToolOutputMaxChars = 80_000
 
+// maxAutoAgentFixAttempts bounds agent.auto_agent_fix_attempts: each attempt
+// is a whole agent run of up to autoagent.FeatureTimeoutMinutes.
+const maxAutoAgentFixAttempts = 10
+
 // Agent holds agentic conversation loop configuration.
 type Agent struct {
 	DefaultModel             string         `yaml:"default_model"`              // Default LLM model for agentic loops
@@ -163,6 +167,7 @@ type Agent struct {
 	ContextPromptReserve     int            `yaml:"context_prompt_reserve"`     // Tokens reserved for prompt in conversation context (default: 512)
 	ConversationRolloutCount int            `yaml:"conversation_rollout_count"` // Multi-rollout count for inference-time scaling (default: 1, max: 8)
 	SummarizeThreshold       int            `yaml:"summarize_threshold"`        // Message count threshold for auto-summarization (0 = disabled)
+	AutoAgentFixAttempts     int            `yaml:"auto_agent_fix_attempts"`    // Runs the auto-agent gets to fix a feature whose verification failed (KI-152; default: 2, 0 to 10)
 	PhaseScaling             map[string]int `yaml:"phase_scaling"`              // Phase-aware context budget scaling (mode_id -> percentage, default: boundary_analyzer=100, contract_reviewer=60, reviewer=50, refactorer=70)
 }
 
@@ -804,6 +809,7 @@ func Defaults() Config {
 			ContextBudget:            2048,
 			ContextPromptReserve:     512,
 			ConversationRolloutCount: 1,
+			AutoAgentFixAttempts:     2,
 		},
 		Benchmark: Benchmark{
 			Enabled:         false,

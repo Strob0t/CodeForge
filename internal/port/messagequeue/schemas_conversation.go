@@ -145,29 +145,43 @@ type ConversationCompactCompletePayload struct {
 }
 
 // WorkspaceTestRequestPayload is the schema for conversation.test.request:
-// the auto-agent's post-verification asks the worker to run one pytest file
-// of a workspace (KI-81: the Go Core does not execute workspace code).
+// the auto-agent's verification of a feature asks the worker to run one
+// pytest file of a workspace, or the project's test and lint commands like
+// a quality gate (KI-152; KI-81: the Go Core does not execute workspace
+// code).
 type WorkspaceTestRequestPayload struct {
 	RequestID      string `json:"request_id"`
 	TenantID       string `json:"tenant_id"`
 	ProjectID      string `json:"project_id"`
 	ConversationID string `json:"conversation_id"`
 	WorkspacePath  string `json:"workspace_path"`
-	// TestFile is a file name matching test_<word>.py in the workspace root.
-	TestFile       string `json:"test_file"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
+	// TestFile is a file name matching test_<word>.py in the workspace root;
+	// when set, the commands are not run.
+	TestFile string `json:"test_file,omitempty"`
+	// TestCommand and LintCommand are gate commands; "" skips the check.
+	TestCommand string `json:"test_command,omitempty"`
+	LintCommand string `json:"lint_command,omitempty"`
+	// TimeoutSeconds bounds each command.
+	TimeoutSeconds int `json:"timeout_seconds"`
+	// ToolOutputMaxChars is agent.tool_output_max_chars: the worker bounds
+	// each command's output to it (0: the worker's default).
+	ToolOutputMaxChars int `json:"tool_output_max_chars,omitempty"`
 	// ToolUID is the tenant's tool UID: the test runs as it (KI-96).
 	ToolUID int `json:"tool_uid,omitempty"`
 }
 
 // WorkspaceTestResultPayload is the schema for conversation.test.result.
-// Passed is the test run's verdict (pytest's exit status); nil when the
-// tests could not run or did not finish, with the reason in Error.
+// Passed is the test run's verdict (the exit status); nil when the tests
+// could not run or did not finish, with the reason in Error. LintPassed and
+// LintOutput are the lint command's; LintPassed is nil when it was not
+// requested or could not run.
 type WorkspaceTestResultPayload struct {
 	RequestID      string `json:"request_id"`
 	TenantID       string `json:"tenant_id,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 	Passed         *bool  `json:"passed,omitempty"`
 	Output         string `json:"output"`
+	LintPassed     *bool  `json:"lint_passed,omitempty"`
+	LintOutput     string `json:"lint_output,omitempty"`
 	Error          string `json:"error,omitempty"`
 }
