@@ -100,15 +100,21 @@ def trim_messages_to_budget(
 def truncate_tool_result(text: str, max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS) -> str:
     """Truncate long tool results, keeping head + tail.
 
-    Returns the original text if it fits within *max_chars*.
-    Otherwise keeps the first half and last half with an
-    ellipsis separator indicating how many characters were omitted.
+    Returns the original text if it fits within *max_chars* characters.
+    Otherwise keeps *max_chars* characters, the first half and the last
+    half (the tail gets the extra character of an odd bound), with a
+    separator saying how many characters were omitted. A *max_chars* of 0
+    or less means the worker's default (DEFAULT_TOOL_OUTPUT_MAX_CHARS), as
+    agent.tool_output_max_chars 0 does everywhere it is read.
     """
+    if max_chars <= 0:
+        max_chars = DEFAULT_TOOL_OUTPUT_MAX_CHARS
     if len(text) <= max_chars:
         return text
-    half = max_chars // 2
+    head = max_chars // 2
+    tail = max_chars - head
     omitted = len(text) - max_chars
-    return f"{text[:half]}\n\n... ({omitted} characters omitted) ...\n\n{text[-half:]}"
+    return f"{text[:head]}\n\n... ({omitted} characters omitted) ...\n\n{text[len(text) - tail :]}"
 
 
 @dataclass
