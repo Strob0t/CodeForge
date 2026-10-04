@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 )
 
@@ -32,12 +33,8 @@ func (s *Store) CreateScope(ctx context.Context, req cfcontext.CreateScopeReques
 	}
 
 	for _, pid := range req.ProjectIDs {
-		_, err = tx.Exec(ctx,
-			`INSERT INTO retrieval_scope_projects (scope_id, project_id) VALUES ($1, $2)`,
-			sc.ID, pid,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("insert scope project %s: %w", pid, err)
+		if err := insertScopeProject(ctx, tx, sc.ID, pid, tid); err != nil {
+			return nil, err
 		}
 	}
 
@@ -47,6 +44,28 @@ func (s *Store) CreateScope(ctx context.Context, req cfcontext.CreateScopeReques
 
 	sc.ProjectIDs = req.ProjectIDs
 	return &sc, nil
+}
+
+// insertScopeProject links a project to a scope of tenant tid when both
+// belong to it (S7-F review): a scope search fans out to the scope's
+// projects, and the worker searches an index by project ID only. Another
+// tenant's or an unknown project is domain.ErrNotFound; a duplicate is the
+// database's unique violation.
+func insertScopeProject(ctx context.Context, tx pgx.Tx, scopeID, projectID, tid string) error {
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO retrieval_scope_projects (scope_id, project_id, tenant_id)
+		 SELECT sc.id, p.id, sc.tenant_id
+		 FROM retrieval_scopes sc
+		 JOIN projects p ON p.id = $2 AND p.tenant_id = sc.tenant_id
+		 WHERE sc.id = $1 AND sc.tenant_id = $3`,
+		scopeID, projectID, tid)
+	if err != nil {
+		return fmt.Errorf("insert scope project %s: %w", projectID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("insert scope project %s: %w", projectID, domain.ErrNotFound)
+	}
+	return nil
 }
 
 func (s *Store) GetScope(ctx context.Context, id string) (*cfcontext.RetrievalScope, error) {
@@ -105,6 +124,15 @@ func (s *Store) UpdateScope(ctx context.Context, id string, req cfcontext.Update
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Only the scope's tenant changes it, its project list included; the
+	// row lock orders concurrent updates of the list.
+	var locked string
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM retrieval_scopes WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, id, tid,
+	).Scan(&locked); err != nil {
+		return nil, notFoundWrap(err, "update scope %s", id)
+	}
+
 	// Apply partial updates.
 	if req.Name != nil {
 		tag, err := tx.Exec(ctx,
@@ -130,11 +158,8 @@ func (s *Store) UpdateScope(ctx context.Context, id string, req cfcontext.Update
 			return nil, fmt.Errorf("clear scope projects: %w", err)
 		}
 		for _, pid := range req.ProjectIDs {
-			_, err = tx.Exec(ctx,
-				`INSERT INTO retrieval_scope_projects (scope_id, project_id) VALUES ($1, $2)`,
-				id, pid)
-			if err != nil {
-				return nil, fmt.Errorf("re-insert scope project %s: %w", pid, err)
+			if err := insertScopeProject(ctx, tx, id, pid, tid); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -208,29 +233,63 @@ func (s *Store) GetScopesForProject(ctx context.Context, projectID string) ([]cf
 	})
 }
 
+// AddProjectToScope adds a project of the caller's tenant to a scope of that
+// tenant; adding a project the scope has changes nothing. Another tenant's
+// or an unknown scope or project is domain.ErrNotFound (S7-F review).
 func (s *Store) AddProjectToScope(ctx context.Context, scopeID, projectID string) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO retrieval_scope_projects (scope_id, project_id) VALUES ($1, $2)
+	tid := tenantFromCtx(ctx)
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO retrieval_scope_projects (scope_id, project_id, tenant_id)
+		 SELECT sc.id, p.id, sc.tenant_id
+		 FROM retrieval_scopes sc
+		 JOIN projects p ON p.id = $2 AND p.tenant_id = sc.tenant_id
+		 WHERE sc.id = $1 AND sc.tenant_id = $3
 		 ON CONFLICT DO NOTHING`,
-		scopeID, projectID)
+		scopeID, projectID, tid)
 	if err != nil {
-		return fmt.Errorf("add project to scope: %w", err)
+		return fmt.Errorf("add project %s to scope %s: %w", projectID, scopeID, err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var added bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM retrieval_scope_projects rsp
+			JOIN retrieval_scopes sc ON sc.id = rsp.scope_id AND sc.tenant_id = $3
+			JOIN projects p ON p.id = rsp.project_id AND p.tenant_id = $3
+			WHERE rsp.scope_id = $1 AND rsp.project_id = $2)`,
+		scopeID, projectID, tid,
+	).Scan(&added); err != nil {
+		return fmt.Errorf("add project %s to scope %s: %w", projectID, scopeID, err)
+	}
+	if !added {
+		return fmt.Errorf("add project %s to scope %s: %w", projectID, scopeID, domain.ErrNotFound)
 	}
 	return nil
 }
 
+// RemoveProjectFromScope removes a project from a scope of the caller's
+// tenant.
 func (s *Store) RemoveProjectFromScope(ctx context.Context, scopeID, projectID string) error {
 	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM retrieval_scope_projects WHERE scope_id = $1 AND project_id = $2`,
-		scopeID, projectID)
+		`DELETE FROM retrieval_scope_projects rsp
+		 USING retrieval_scopes sc
+		 WHERE rsp.scope_id = $1 AND rsp.project_id = $2
+		   AND sc.id = rsp.scope_id AND sc.tenant_id = $3`,
+		scopeID, projectID, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "project %s not in scope %s", projectID, scopeID)
 }
 
-// scopeProjectIDs returns the project IDs belonging to a scope.
+// scopeProjectIDs returns the project IDs of a scope of the caller's tenant
+// that belong to that tenant: a link across tenants written before the S7-F
+// review is ignored.
 func (s *Store) scopeProjectIDs(ctx context.Context, scopeID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT project_id FROM retrieval_scope_projects WHERE scope_id = $1 ORDER BY added_at ASC`,
-		scopeID)
+		`SELECT rsp.project_id FROM retrieval_scope_projects rsp
+		 JOIN projects p ON p.id = rsp.project_id AND p.tenant_id = $2
+		 WHERE rsp.scope_id = $1 ORDER BY rsp.added_at ASC`,
+		scopeID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("scope project ids: %w", err)
 	}
