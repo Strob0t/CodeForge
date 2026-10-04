@@ -46,7 +46,7 @@ func TestParseShellCommand_RedirectionTargets(t *testing.T) {
 		{"after absolute cd", "cd /abs && echo x > k", []string{"k", "/abs/k"}, nil, false, false},
 		{"after two cds", "cd a; cd b; echo x > k", []string{"k", "a/k", "b/k", "a/b/k"}, nil, false, false},
 		{"after pushd with options", "pushd -n a; echo x > k", []string{"k", "a/k"}, nil, false, false},
-		{"after assignment prefix", "X=1 cd a; echo x > k", []string{"k", "a/k"}, nil, false, false},
+		{"after assignment prefix", "CI=1 cd a; echo x > k", []string{"k", "a/k"}, nil, false, false},
 		{"after command cd", "command cd a; echo x > k", []string{"k", "a/k"}, nil, false, false},
 		{"absolute after cd", "cd a && echo x > /abs/k", []string{"/abs/k"}, nil, false, false},
 		{"cd after the target", "echo x > k; cd a", []string{"k"}, nil, false, false},

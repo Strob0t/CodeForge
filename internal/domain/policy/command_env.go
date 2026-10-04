@@ -6,87 +6,58 @@ import "strings"
 // env NAME=value cmd set the environment of the command they precede, and
 // of every program it starts. The command is checked as usual; an
 // assignment is accepted only when its value is a plain literal and its
-// variable cannot make the command run code that its word list does not
-// show (KI-128). The listed variables
-//   - change how the shell parses, looks up or runs commands, or where cd
-//     goes;
-//   - point a program at a home, configuration or toolchain directory or
-//     file, whose content can name programs to run (git core.pager, npm
-//     script-shell, kubectl exec plugins, ssh ProxyCommand, ...);
-//   - make the dynamic loader or the C library load code or data from a
-//     chosen place (glibc ignores these in setuid programs for that reason);
-//   - carry code or command-line options that a runtime or tool reads
-//     (options can name programs: GOFLAGS -toolexec, NODE_OPTIONS --require,
-//     CFLAGS -wrapper, MAKEFLAGS --eval, TAR_OPTIONS --to-command);
-//   - name a program that tools start (pager, editor, compiler, ssh);
-//   - configure, through the environment, a tool that reads any of its
-//     options there (git, npm, yarn, cargo, rustup, the go command).
+// variable is on the allow list envVariables (KI-128). Every other variable
+// keeps the command opaque: the variables that make the shell, the loader
+// or a tool run other code (PATH, LD_PRELOAD, GIT_*, NODE_OPTIONS,
+// CC_<target>, PYTEST_PLUGINS, proxy and CA settings, ...) are too many to
+// list. Names are compared exactly, as bash does: pythonpath is not
+// PYTHONPATH. PYTHONWARNINGS is not listed: a warning category foo.Bar
+// imports the module foo.
 //
-// Module search paths (PYTHONPATH, NODE_PATH, PERL5LIB, RUBYLIB, CLASSPATH,
-// GOPATH) stay allowed: they choose the directories a runtime imports
-// modules from by name, as the working directory already does for
-// `python -m` and project-local packages, and the tools that read them run
-// workspace code anyway. A command allow list for an interpreted tool trusts
-// the modules it can import, as it trusts the build files of a build tool.
-//
-// An entry ending in '*' is a prefix, one starting with '*' a suffix, and
-// one in '*...*' a part of the name. Names are compared in upper case, so a
-// lower-case spelling is refused as well (fail closed).
-var deniedEnvVariables = []string{
-	// The shell.
-	"PATH", "IFS", "ENV", "SHELL", "SHELLOPTS", "BASH*", "CDPATH", "PWD", "OLDPWD", "DIRSTACK",
-	"GLOBIGNORE", "EXECIGNORE", "POSIXLY_CORRECT", "PS0", "PS1", "PS2", "PS3", "PS4", "PROMPT_COMMAND",
-	"TEXTDOMAIN", "TEXTDOMAINDIR",
-	// Home, configuration and toolchain locations.
-	"*HOME", "XDG_*", "*CONFIG*", "PHPRC", "PHP_INI_SCAN_DIR", "WGETRC",
-	// The dynamic loader and the C library.
-	"LD_*", "DYLD_*", "GCONV_PATH", "GETCONF_DIR", "GLIBC_TUNABLES", "LOCPATH", "NLSPATH", "MALLOC_TRACE",
-	// Code and options for runtimes and tools.
-	"*FLAGS*", "*OPT", "*OPTS", "*OPTIONS", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONWARNINGS",
-	"PYTHONBREAKPOINT", "PERL5DB", "MAKEFILES", "MAKEOVERRIDES",
-	// Programs that tools start.
-	"*PAGER", "*EDITOR", "VISUAL", "BROWSER", "*ASKPASS", "*RSH", "*_SSH", "*WRAPPER", "RSYNC_CONNECT_PROG",
-	"LESS*", "CC", "CXX", "CPP", "FC", "AR", "AS", "LD", "RUSTC", "RUSTDOC",
-	// Tools configured through the environment.
-	"GIT_*", "NPM_CONFIG_*", "YARN_*", "CARGO_*", "RUSTUP_*",
-	"GOENV", "GOROOT", "GOTOOLCHAIN", "GOAUTH", "GOPROXY", "GONOPROXY", "GOPRIVATE", "GOSUMDB", "GONOSUMDB",
-	"GONOSUMCHECK", "GOINSECURE", "GOVCS",
-}
+// The module search paths PYTHONPATH and NODE_PATH are allowed: they choose
+// the directories a runtime imports modules from by name, as the working
+// directory already does for `python -m` and project-local packages. A
+// command allow list for an interpreted tool trusts the modules it can
+// import, as it trusts the build files of a build tool (ADR-015).
 
-// deniedEnvVariable reports whether an assignment to name keeps a command
-// opaque (deniedEnvVariables).
-func deniedEnvVariable(name string) bool {
-	name = strings.ToUpper(name)
-	for _, entry := range deniedEnvVariables {
-		prefix, isPrefix := strings.CutSuffix(entry, "*")
-		suffix, isSuffix := strings.CutPrefix(entry, "*")
-		switch {
-		case isPrefix && isSuffix:
-			if strings.Contains(name, prefix[1:]) {
-				return true
-			}
-		case isPrefix:
-			if strings.HasPrefix(name, prefix) {
-				return true
-			}
-		case isSuffix:
-			if strings.HasSuffix(name, suffix) {
-				return true
-			}
-		case name == entry:
-			return true
-		}
-	}
-	return false
+// envValue is the kind of value an allowed variable may take.
+type envValue int
+
+const (
+	anyValue envValue = iota
+	// localeName must not contain '/': glibc takes a locale name with a
+	// slash for a path to locale data, and gettext builds catalogue paths
+	// from it.
+	localeName
+)
+
+// envVariables is the allow list of variables an assignment may set.
+var envVariables = map[string]envValue{
+	// Output and runtime switches.
+	"CI": anyValue, "DEBUG": anyValue, "NO_COLOR": anyValue, "FORCE_COLOR": anyValue, "TERM": anyValue,
+	"COLUMNS": anyValue, "LINES": anyValue, "TZ": anyValue, "NODE_ENV": anyValue,
+	"RUST_BACKTRACE": anyValue, "RUST_LOG": anyValue,
+	"PYTHONUNBUFFERED": anyValue, "PYTHONDONTWRITEBYTECODE": anyValue, "PYTHONHASHSEED": anyValue,
+	"PYTHONIOENCODING": anyValue, "PYTHONUTF8": anyValue, "PYTHONFAULTHANDLER": anyValue,
+	"GOOS": anyValue, "GOARCH": anyValue, "CGO_ENABLED": anyValue,
+	// Locale (the glibc categories).
+	"LANG": localeName, "LANGUAGE": localeName, "LC_ALL": localeName,
+	"LC_CTYPE": localeName, "LC_NUMERIC": localeName, "LC_TIME": localeName, "LC_COLLATE": localeName,
+	"LC_MONETARY": localeName, "LC_MESSAGES": localeName, "LC_PAPER": localeName, "LC_NAME": localeName,
+	"LC_ADDRESS": localeName, "LC_TELEPHONE": localeName, "LC_MEASUREMENT": localeName,
+	"LC_IDENTIFICATION": localeName,
+	// Module search paths.
+	"PYTHONPATH": anyValue, "NODE_PATH": anyValue,
 }
 
 // acceptedAssignment reports whether a NAME=value word may set the
-// environment of a command: NAME is a variable name (not NAME+= or
-// NAME[i]=) that deniedEnvVariable does not refuse. That the value is a
+// environment of a command: NAME is on the allow list (so the word is no
+// NAME+= or NAME[i]=) and the value is of its kind. That the value is a
 // plain literal is the word's dynamic flag, which the caller checks.
 func acceptedAssignment(w string) bool {
-	name, _, ok := strings.Cut(w, "=")
-	return ok && isVariableName(name) && !deniedEnvVariable(name)
+	name, value, ok := strings.Cut(w, "=")
+	kind, allowed := envVariables[name]
+	return ok && allowed && (kind != localeName || !strings.Contains(value, "/"))
 }
 
 // leadingAssignments returns how many words at the start of a simple

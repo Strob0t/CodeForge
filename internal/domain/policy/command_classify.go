@@ -23,10 +23,16 @@ var opaqueExecutables = map[string]bool{
 	// PATH; mapfile also runs -C callbacks.
 	"export": true, "declare": true, "typeset": true, "local": true, "readonly": true,
 	"read": true, "mapfile": true, "readarray": true, "getopts": true,
-	// Wrappers whose wrapped command or environment is not analysed.
+	// Wrappers whose wrapped command or environment is not analysed: they
+	// run a command given in their operands or a shell string.
 	"builtin": true, "exec": true, "stdbuf": true, "setsid": true,
 	"sudo": true, "doas": true, "su": true, "watch": true, "strace": true,
 	"chroot": true, "unshare": true, "flock": true, "parallel": true,
+	"ionice": true, "chrt": true, "taskset": true, "numactl": true, "prlimit": true, "setpriv": true,
+	"runuser": true, "nsenter": true, "setarch": true, "sg": true, "pkexec": true, "script": true,
+	"unbuffer": true, "chronic": true, "ifne": true, "systemd-run": true, "fakeroot": true, "faketime": true,
+	"valgrind": true, "ltrace": true, "firejail": true, "bwrap": true, "xvfb-run": true,
+	"dbus-run-session": true, "run-parts": true, "at": true, "batch": true, "tmux": true, "screen": true,
 	// Package runners that download and run programs.
 	"npx": true, "pnpx": true, "bunx": true, "uvx": true,
 	// Programs with shell escapes in their command language.
@@ -93,6 +99,7 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 		return nil, true
 	}
 	words, dynamic = words[n:], dynamic[n:]
+	setsEnv := n > 0 // the command runs with assigned variables
 
 	unknownArgs := false // arguments are appended at run time (xargs)
 	for {
@@ -103,22 +110,30 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 		if dynamic[0] || !isLiteralWord(exe) || isAssignment(exe) {
 			return nil, true
 		}
-		unwrap, isWrapper := wrappers[path.Base(exe)]
-		if !isWrapper || isCommandLookup(path.Base(exe), words[1:]) {
+		base := path.Base(exe)
+		unwrap, isWrapper := wrappers[base]
+		// xargs appends its input to a wrapper's operands, where it becomes
+		// the command the wrapper runs (or env's assignments).
+		if isWrapper && unknownArgs {
+			return nil, true
+		}
+		if !isWrapper || isCommandLookup(base, words[1:]) {
 			break
 		}
 		start, ok := unwrap(words[1:])
 		if !ok || slices.Contains(dynamic[1:1+start], true) {
 			return nil, true
 		}
-		if path.Base(exe) == "xargs" {
+		// Counts an -u operand with '=' as well (fail closed).
+		setsEnv = setsEnv || (base == "env" && slices.ContainsFunc(words[1:1+start], isAssignment))
+		if base == "xargs" {
 			unknownArgs = true
 			if 1+start == len(words) {
 				return []string{"echo"}, false // xargs runs echo by default
 			}
 		}
 		if 1+start == len(words) {
-			if path.Base(exe) == "env" {
+			if base == "env" {
 				break // env without a command prints the environment
 			}
 			return nil, false // wrapper without a command runs nothing
@@ -130,6 +145,11 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 	args, argsDynamic := words[1:], dynamic[1:]
 	switch {
 	case opaqueExecutables[name], runsInlineCode(name, args), runsArgumentCode(name, args), evaluatesVariables(name, args):
+		return nil, true
+	case setsEnv && (name == "make" || name == "gmake"):
+		// GNU make turns every environment variable into a make variable,
+		// which overrides built-in defaults (RM, CC) and ?= assignments that
+		// name the programs its recipes run.
 		return nil, true
 	case isArgumentSensitive(name) && (unknownArgs || slices.Contains(argsDynamic, true)):
 		// Unknown arguments could add the options that run code.
@@ -269,38 +289,50 @@ options:
 
 // unwrapXargs skips the options of xargs. Input lines become additional
 // arguments of the command, which classifySimpleCommand treats as unknown.
+// Like -e, -i and -l, the long options --eof, --replace and --max-lines of
+// GNU xargs take a value only after '='. A replace string (-I, -i,
+// --replace) in the command name fails closed: busybox xargs replaces it
+// there as well.
 func unwrapXargs(args []string) (int, bool) {
-	noValue := []string{"-0", "--null", "-r", "--no-run-if-empty", "-t", "--verbose", "-x", "--exit", "-p", "--interactive", "-o", "--open-tty"}
-	longValue := []string{"--max-args", "--max-lines", "--max-procs", "--max-chars", "--delimiter", "--arg-file", "--eof", "--replace"}
+	noValue := []string{"-0", "--null", "-r", "--no-run-if-empty", "-t", "--verbose", "-x", "--exit",
+		"-p", "--interactive", "-o", "--open-tty", "-e", "--eof", "-l", "--max-lines"}
+	longValue := []string{"--max-args", "--max-procs", "--max-chars", "--delimiter", "--arg-file"}
+	replace, replaces := "", false
 	i := 0
-	for i < len(args) {
+options:
+	for ; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--":
-			return i + 1, true
-		case !strings.HasPrefix(a, "-"):
-			return i, true
-		case slices.Contains(noValue, a):
 			i++
-		case len(a) >= 2 && strings.IndexByte("nLPsdaEI", a[1]) >= 0 && a[0] == '-' && a[1] != '-':
-			if len(a) == 2 {
-				i += 2
-			} else {
-				i++
-			}
-		case len(a) >= 2 && strings.IndexByte("iel", a[1]) >= 0 && a[0] == '-' && a[1] != '-':
-			i++ // optional value must be attached
-		case slices.ContainsFunc(longValue, func(l string) bool { return a == l || strings.HasPrefix(a, l+"=") }):
-			if strings.Contains(a, "=") {
-				i++
-			} else {
-				i += 2
-			}
+			break options
+		case !strings.HasPrefix(a, "-"):
+			break options
+		case a == "-i", a == "--replace":
+			replace, replaces = "{}", true
+		case a == "-I" && i+1 < len(args):
+			i++
+			replace, replaces = args[i], true
+		case len(a) > 2 && (a[1] == 'I' || a[1] == 'i'):
+			replace, replaces = a[2:], true
+		case strings.HasPrefix(a, "--replace="):
+			replace, replaces = strings.TrimPrefix(a, "--replace="), true
+		case slices.Contains(noValue, a), hasAnyPrefix(a, "--eof=", "--max-lines="):
+		case len(a) == 2 && strings.IndexByte("nLPsdaE", a[1]) >= 0, slices.Contains(longValue, a):
+			i++ // the value is the next word
+		case len(a) > 2 && strings.IndexByte("nLPsdaEel", a[1]) >= 0,
+			slices.ContainsFunc(longValue, func(l string) bool { return strings.HasPrefix(a, l+"=") }):
 		default:
 			return 0, false
 		}
 	}
-	return min(i, len(args)), true
+	if i >= len(args) {
+		return len(args), true
+	}
+	if replaces && strings.Contains(args[i], replace) {
+		return 0, false
+	}
+	return i, true
 }
 
 // runsInlineCode reports whether an interpreter invocation executes program

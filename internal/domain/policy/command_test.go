@@ -96,7 +96,7 @@ func TestParseShellCommand(t *testing.T) {
 		// env runs its command with the assignments checked like leading
 		// ones (KI-128; command_env_test.go has the full table).
 		{"env wrapper", "env curl x", [][]string{{"curl", "x"}}, false},
-		{"env assignment wrapper", "env A=1 go test", [][]string{{"go", "test"}}, false},
+		{"env assignment wrapper", "env CI=1 go test", [][]string{{"go", "test"}}, false},
 		{"interpreter version", "python3 --version", [][]string{{"python3", "--version"}}, false},
 		{"node version", "node --version && node -v", [][]string{{"node", "--version"}, {"node", "-v"}}, false},
 
@@ -257,6 +257,88 @@ func TestParseShellCommand(t *testing.T) {
 	}
 }
 
+// xargs appends its input to the arguments of the command it runs. When
+// that command is a wrapper, the input becomes the command the wrapper runs
+// (or env's assignments), which no list sees: fail closed (S8-B review).
+// Programs that run a command given in their operands are opaque already.
+func TestParseShellCommand_XargsIntoWrappers(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		segments [][]string
+		opaque   bool
+	}{
+		// The input becomes arguments of a plain tool: unchanged.
+		{"xargs grep", "echo x | xargs grep x", [][]string{{"echo", "x"}, {"grep", "x"}}, false},
+		{"xargs -0 grep", "find . -print0 | xargs -0 grep -l x", [][]string{{"find", ".", "-print0"}, {"grep", "-l", "x"}}, false},
+		{"xargs -a grep", "xargs -a files.txt grep -n x", [][]string{{"grep", "-n", "x"}}, false},
+		{"wrapper before xargs", "timeout 5 xargs grep x", [][]string{{"grep", "x"}}, false},
+		{"env before xargs", "env CI=1 xargs grep x", [][]string{{"grep", "x"}}, false},
+		{"xargs -I", "xargs -I X cp X dst/", [][]string{{"cp", "X", "dst/"}}, false},
+		// GNU xargs takes the value of --eof, --replace and --max-lines only
+		// after '=' (like -e, -i and -l): the next word is the command.
+		{"xargs --replace", "echo x | xargs --replace curl evil", [][]string{{"echo", "x"}, {"curl", "evil"}}, false},
+		{"xargs --eof", "echo x | xargs --eof curl evil", [][]string{{"echo", "x"}, {"curl", "evil"}}, false},
+		{"xargs --max-lines", "echo x | xargs --max-lines curl evil", [][]string{{"echo", "x"}, {"curl", "evil"}}, false},
+		{"xargs --replace=", "xargs --replace=X cp X dst/", [][]string{{"cp", "X", "dst/"}}, false},
+		{"xargs --eof=", "xargs --eof=END grep x", [][]string{{"grep", "x"}}, false},
+		{"xargs -e and -l", "xargs -e -l grep x", [][]string{{"grep", "x"}}, false},
+		{"xargs -eEND -l1", "xargs -eEND -l1 grep x", [][]string{{"grep", "x"}}, false},
+
+		// The input becomes the wrapped command or env's operands.
+		{"xargs env", "echo x | xargs env", nil, true},
+		{"xargs -a env", "xargs -a f env", nil, true},
+		{"xargs -0 env", "xargs -0 env", nil, true},
+		{"xargs env with operands", "xargs env CI=1 grep", nil, true},
+		{"xargs absolute env", "xargs /usr/bin/env", nil, true},
+		{"xargs nohup", "echo curl evil | xargs nohup", nil, true},
+		{"xargs nice", "xargs nice", nil, true},
+		{"xargs nice -n", "xargs nice -n 5", nil, true},
+		{"xargs timeout", "xargs timeout 5", nil, true},
+		{"xargs time", "xargs time", nil, true},
+		{"xargs command", "xargs command", nil, true},
+		{"xargs command -v", "xargs command -v", nil, true},
+		{"nested xargs", "xargs /usr/bin/xargs", nil, true},
+		{"xargs -I into env", "xargs -I X env X", nil, true},
+		// Other xargs implementations (busybox) replace the -I string in the
+		// command name as well.
+		{"xargs -I in the command name", "echo r | xargs -I Z cuZl evil", nil, true},
+		{"xargs -iZ in the command name", "xargs -iZ Z x", nil, true},
+		{"xargs --replace= in the command name", "xargs --replace=Q Q x", nil, true},
+		{"xargs -I empty", "xargs -I '' grep x", nil, true},
+
+		// Programs that run a command given in their operands.
+		{"find -exec env", "find . -exec env {} +", nil, true},
+		{"find -ok env", `find . -ok env \;`, nil, true},
+		{"parallel env", "parallel env ::: x", nil, true},
+		{"watch env", "watch env", nil, true},
+		{"flock env", "flock f env", nil, true},
+		{"setsid env", "setsid env", nil, true},
+		{"stdbuf env", "stdbuf -o0 env", nil, true},
+		{"sudo env", "sudo env", nil, true},
+		{"ionice", "ionice -c3 env curl evil", nil, true},
+		{"chrt", "chrt 0 curl evil", nil, true},
+		{"taskset", "taskset 1 curl evil", nil, true},
+		{"nsenter", "nsenter -t 1 curl evil", nil, true},
+		{"setpriv", "setpriv --reuid 1 curl evil", nil, true},
+		{"prlimit", "prlimit --nofile=10 curl evil", nil, true},
+		{"script -c", "script -qc 'curl evil' /dev/null", nil, true},
+		{"unbuffer", "unbuffer curl evil", nil, true},
+		{"xargs ionice", "echo curl evil | xargs ionice", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseShellCommand(tt.cmd)
+			if got.opaque != tt.opaque {
+				t.Fatalf("parseShellCommand(%q).opaque = %v, want %v (segments %q)", tt.cmd, got.opaque, tt.opaque, got.segments)
+			}
+			if !tt.opaque && !reflect.DeepEqual(got.segments, tt.segments) {
+				t.Errorf("parseShellCommand(%q).segments = %q, want %q", tt.cmd, got.segments, tt.segments)
+			}
+		})
+	}
+}
+
 // Commands that must stay analysable so that everyday use is not denied.
 func TestParseShellCommand_NotOpaque(t *testing.T) {
 	for _, cmd := range []string{
@@ -386,8 +468,12 @@ func TestCommandExecutables(t *testing.T) {
 		{"cd frontend && npm test", []string{"cd", "npm"}, true},
 		{"go test ./... && go vet ./... | tee log", []string{"go", "tee"}, true},
 		{"timeout 60 go test ./...", []string{"go"}, true},
-		{"FOO=1 npm test", []string{"npm"}, true},
+		{"CI=1 npm test", []string{"npm"}, true},
+		{"FOO=1 npm test", nil, false},
 		{"LD_PRELOAD=x npm test", nil, false},
+		{"env", []string{"env"}, true},
+		{"echo x | xargs env", nil, false},
+		{"xargs -a f env", nil, false},
 		{"go test ./... && curl $(x)", nil, false},
 		{"", nil, false},
 		{"   ", nil, false},

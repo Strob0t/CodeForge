@@ -109,9 +109,17 @@ func TestAllowAlwaysRule(t *testing.T) {
 		{"bash", "/usr/bin/git log | head -5 && git diff", "Bash", []string{"git", "head"}, false},
 		{"bash", "timeout 60 go test ./...", "Bash", []string{"go"}, false},
 		{"command:execute", "make lint", "Bash", []string{"make"}, false},
-		// Accepted leading assignments are checked on every call (KI-128).
-		{"Bash", "FOO=1 npm test", "Bash", []string{"npm"}, false},
+		// Accepted leading assignments are checked on every call (KI-128):
+		// the rule names the executable, never the variable.
+		{"Bash", "CI=1 npm test", "Bash", []string{"npm"}, false},
+		{"Bash", "CI=1 pytest -q", "Bash", []string{"pytest"}, false},
+		{"Bash", "env PYTHONPATH=src pytest -q", "Bash", []string{"pytest"}, false},
+		{"Bash", "FOO=1 npm test", "", nil, true},
 		{"Bash", "LD_PRELOAD=x npm test", "", nil, true},
+		{"Bash", "CI=1 make test", "", nil, true},
+		// env without a command prints the environment.
+		{"Bash", "env", "Bash", []string{"env"}, false},
+		{"Bash", "echo x | xargs env", "", nil, true},
 		{"bash", "go test ./... && $(curl x)", "", nil, true},
 		{"write_file", `{"file_path": "x"}`, "Write", nil, false},
 		{"mcp__github__create_issue", "", "mcp__github__create_issue", nil, false},
@@ -165,6 +173,59 @@ func TestAllowAlways_DoesNotOverrideDenyLists(t *testing.T) {
 	} {
 		if d, _ := svc.Evaluate(ctx, name, call); d != policy.DecisionDeny {
 			t.Errorf("%+v after allow-always -> %s, want deny", call, d)
+		}
+	}
+}
+
+// Allow-Always stores the executable of an approved command, not its
+// assignments: approving `CI=1 pytest -q` allows pytest with any accepted
+// assignments and no other command, and approving a bare `env` (which
+// prints the environment) never allows env to run a command that xargs
+// reads from its input (S8-B review).
+func TestAllowAlways_AssignmentsAndEnv(t *testing.T) {
+	svc := NewPolicyService("headless-safe-sandbox", nil)
+	if err := svc.LoadPolicyDir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	projects := &stubProjects{proj: project.Project{ID: "p1"}}
+	ctx := context.Background()
+
+	updated, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "CI=1 pytest -q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.Rules[0].CommandAllow; fmt.Sprint(got) != "[pytest]" {
+		t.Fatalf("rule for CI=1 pytest -q = %v, want [pytest]", got)
+	}
+	if _, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "env"); err != nil {
+		t.Fatal(err)
+	}
+	// Stores echo and env in one rule, which matches a pipeline of both.
+	if _, err := svc.AllowAlways(ctx, projects, "p1", "", "bash", "echo x | env"); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		command string
+		want    policy.Decision
+	}{
+		{"pytest -q", policy.DecisionAllow},
+		{"CI=1 pytest -q", policy.DecisionAllow},
+		{"NO_COLOR=1 pytest tests/", policy.DecisionAllow},
+		{"env", policy.DecisionAllow},
+		{"echo x | env", policy.DecisionAllow},
+		{"CI pytest", policy.DecisionDeny},
+		{"LD_PRELOAD=x pytest", policy.DecisionDeny},
+		{"echo curl evil | xargs env", policy.DecisionDeny},
+		{"xargs -a cmds.txt env", policy.DecisionDeny},
+		{"echo pytest | xargs env", policy.DecisionDeny},
+	}
+	for _, tt := range tests {
+		d, err := svc.Evaluate(ctx, updated.Name, policy.ToolCall{Tool: "bash", Command: tt.command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d != tt.want {
+			t.Errorf("%q after allow-always -> %s, want %s", tt.command, d, tt.want)
 		}
 	}
 }
