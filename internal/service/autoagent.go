@@ -561,14 +561,16 @@ func (s *AutoAgentService) HandleWorkspaceTestResult(ctx context.Context, res *m
 	return nil
 }
 
-// StartTestResultSubscriber subscribes to conversation.test.result.
+// StartTestResultSubscriber subscribes to conversation.test.result. The
+// relay sends the worker's message as it came.
 func (s *AutoAgentService) StartTestResultSubscriber(ctx context.Context) (func(), error) {
 	return s.queue.Subscribe(ctx, messagequeue.SubjectConversationTestResult, func(ctx context.Context, _ string, data []byte) error {
 		var res messagequeue.WorkspaceTestResultPayload
 		if err := json.Unmarshal(data, &res); err != nil {
 			return fmt.Errorf("unmarshal workspace test result: %w", err)
 		}
-		return s.HandleWorkspaceTestResult(ctx, &res)
+		s.testWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), res.RequestID, &res, data)
+		return nil
 	})
 }
 

@@ -1,13 +1,16 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain/memory"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -296,5 +299,152 @@ func TestRelayKeys_AreDistinct(t *testing.T) {
 			t.Fatalf("relay key %q used twice", k)
 		}
 		seen[k] = true
+	}
+}
+
+// recordingRelay records what a replica relays; the waiter takes it.
+type recordingRelay struct {
+	noopQueue
+	mu   sync.Mutex
+	sent [][]byte
+}
+
+func (r *recordingRelay) Serve(string, func([]byte) []byte) (func(), error) { return func() {}, nil }
+
+func (r *recordingRelay) Request(_ context.Context, _ string, data []byte) ([]byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sent = append(r.sent, data)
+	return relayTaken, nil
+}
+
+func (r *recordingRelay) last(t *testing.T) []byte {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.sent) == 0 {
+		t.Fatal("nothing relayed")
+	}
+	return r.sent[len(r.sent)-1]
+}
+
+// S7-F review: a relayed result is one core NATS message and must fit the
+// payload limit as the worker's message did. json.Marshal escapes <, > and &
+// to six bytes each, so code full of them grew up to sixfold.
+func TestSyncWaiter_RelayDoesNotEscapeHTML(t *testing.T) {
+	code := strings.Repeat("if a < b && c > d {} ", 2000)
+	payload := &messagequeue.RetrievalSearchResultPayload{
+		RequestID: "req-1",
+		Results:   []messagequeue.RetrievalSearchHitPayload{{Filepath: "a.go", Content: code}},
+	}
+	relay := &recordingRelay{}
+	w := newSyncWaiter[messagequeue.RetrievalSearchResultPayload]("search")
+	if !w.deliver(context.Background(), relay, "req-1", payload) {
+		t.Fatal("not delivered")
+	}
+	sent := relay.last(t)
+	if escaped := `\u00`; strings.Contains(string(sent), escaped+"3c") || strings.Contains(string(sent), escaped+"26") {
+		t.Fatalf("the relayed result escapes HTML characters: %.200s", sent)
+	}
+	if len(sent) > len(code)+512 {
+		t.Fatalf("relayed %d bytes for %d bytes of code", len(sent), len(code))
+	}
+	var back messagequeue.RetrievalSearchResultPayload
+	if err := json.Unmarshal(sent, &back); err != nil || len(back.Results) != 1 || back.Results[0].Content != code {
+		t.Fatalf("the relayed result does not decode to the result: %v", err)
+	}
+}
+
+// The worker's message itself is relayed when the subscriber has it.
+func TestSyncWaiter_RelaysTheOriginalMessage(t *testing.T) {
+	raw := []byte(`{ "request_id": "req-1", "results": [{"filepath": "a.go", "content": "<&>"}], "extra": 1 }`)
+	var payload messagequeue.RetrievalSearchResultPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	relay := &recordingRelay{}
+	w := newSyncWaiter[messagequeue.RetrievalSearchResultPayload]("search")
+	if !w.deliverMessage(context.Background(), relay, "req-1", &payload, raw) {
+		t.Fatal("not delivered")
+	}
+	if got := relay.last(t); !bytes.Equal(got, raw) {
+		t.Fatalf("relayed %s, want the original message", got)
+	}
+}
+
+// subscribedQueue keeps the handlers its subscribers registered.
+type subscribedQueue struct {
+	recordingRelay
+	handlers map[string]messagequeue.Handler
+}
+
+func (q *subscribedQueue) Subscribe(_ context.Context, subject string, h messagequeue.Handler) (func(), error) {
+	if q.handlers == nil {
+		q.handlers = map[string]messagequeue.Handler{}
+	}
+	q.handlers[subject] = h
+	return func() {}, nil
+}
+
+// Every result subscriber of a syncWaiter relays the worker's message as it
+// came.
+func TestResultSubscribers_RelayTheOriginalMessage(t *testing.T) {
+	ctx := context.Background()
+	retrieval := func(q *subscribedQueue) error {
+		_, err := NewRetrievalService(nil, q, nil, &config.Orchestrator{}, &config.Limits{}).StartSubscribers(ctx)
+		return err
+	}
+	tests := []struct {
+		subject string
+		start   func(q *subscribedQueue) error
+	}{
+		{messagequeue.SubjectRetrievalSearchResult, retrieval},
+		{messagequeue.SubjectSubAgentSearchResult, retrieval},
+		{messagequeue.SubjectGraphSearchResult, func(q *subscribedQueue) error {
+			_, err := NewGraphService(nil, q, nil, &config.Orchestrator{}, &config.Limits{}).StartSubscribers(ctx)
+			return err
+		}},
+		{messagequeue.SubjectMemoryRecallResult, func(q *subscribedQueue) error {
+			_, err := NewMemoryService(nil, q).StartSubscribers(ctx)
+			return err
+		}},
+		{messagequeue.SubjectContextRerankResult, func(q *subscribedQueue) error {
+			svc := NewContextOptimizerService(nil, &config.Orchestrator{}, &config.Limits{})
+			svc.SetQueue(q)
+			_, err := svc.StartSubscribers(ctx)
+			return err
+		}},
+		{messagequeue.SubjectConversationTestResult, func(q *subscribedQueue) error {
+			_, err := NewAutoAgentService(nil, nil, q, nil).StartTestResultSubscriber(ctx)
+			return err
+		}},
+	}
+	raw := []byte(`{ "request_id": "req-1", "query": "<&>" }`)
+	for _, tt := range tests {
+		t.Run(tt.subject, func(t *testing.T) {
+			q := &subscribedQueue{}
+			if err := tt.start(q); err != nil {
+				t.Fatal(err)
+			}
+			handle := q.handlers[tt.subject]
+			if handle == nil {
+				t.Fatalf("no subscriber for %s", tt.subject)
+			}
+			if err := handle(ctx, tt.subject, raw); err != nil {
+				t.Fatal(err)
+			}
+			if got := q.last(t); !bytes.Equal(got, raw) {
+				t.Fatalf("relayed %s, want the original message", got)
+			}
+		})
+	}
+
+	// The backend health result arrives as bytes as well.
+	q := &subscribedQueue{}
+	if err := NewBackendHealthService(q).HandleHealthResult(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.last(t); !bytes.Equal(got, raw) {
+		t.Fatalf("backend health: relayed %s, want the original message", got)
 	}
 }

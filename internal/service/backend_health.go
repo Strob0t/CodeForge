@@ -82,6 +82,6 @@ func (s *BackendHealthService) HandleHealthResult(ctx context.Context, data []by
 	if err := json.Unmarshal(data, &result); err != nil {
 		return fmt.Errorf("unmarshal backend health result: %w", err)
 	}
-	s.waiter.deliver(ctx, messagequeue.RelayOf(s.queue), result.RequestID, &result)
+	s.waiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), result.RequestID, &result, data)
 	return nil
 }

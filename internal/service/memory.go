@@ -101,7 +101,13 @@ func (s *MemoryService) RecallSync(ctx context.Context, req *memory.RecallReques
 // HandleRecallResult delivers a recall result from the Python worker to the
 // waiting caller identified by RequestID.
 func (s *MemoryService) HandleRecallResult(ctx context.Context, result *memory.RecallResult) {
-	s.recallWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), result.RequestID, result)
+	s.handleRecallResult(ctx, result, nil)
+}
+
+// handleRecallResult delivers a recall result decoded from raw, the
+// worker's message (nil: none), which the relay sends as it came.
+func (s *MemoryService) handleRecallResult(ctx context.Context, result *memory.RecallResult, raw []byte) {
+	s.recallWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), result.RequestID, result, raw)
 }
 
 // ListByProject returns all memories for a project, directly from the database.
@@ -116,7 +122,7 @@ func (s *MemoryService) StartSubscribers(ctx context.Context) ([]func(), error) 
 		if err := json.Unmarshal(data, &result); err != nil {
 			return fmt.Errorf("unmarshal memory recall result: %w", err)
 		}
-		s.HandleRecallResult(msgCtx, &result)
+		s.handleRecallResult(msgCtx, &result, data)
 		return nil
 	})
 	if err != nil {

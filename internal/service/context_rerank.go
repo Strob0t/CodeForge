@@ -78,7 +78,13 @@ func (s *ContextOptimizerService) RerankSync(ctx context.Context, projectID, que
 
 // HandleRerankResult delivers a rerank result to the waiting caller.
 func (s *ContextOptimizerService) HandleRerankResult(ctx context.Context, payload *messagequeue.ContextRerankResultPayload) {
-	s.rerankWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
+	s.handleRerankResult(ctx, payload, nil)
+}
+
+// handleRerankResult delivers a rerank result decoded from raw, the
+// worker's message (nil: none), which the relay sends as it came.
+func (s *ContextOptimizerService) handleRerankResult(ctx context.Context, payload *messagequeue.ContextRerankResultPayload, raw []byte) {
+	s.rerankWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload, raw)
 }
 
 // StartSubscribers subscribes to NATS subjects for context optimizer results.
@@ -91,7 +97,7 @@ func (s *ContextOptimizerService) StartSubscribers(ctx context.Context) ([]func(
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("unmarshal context rerank result: %w", err)
 		}
-		s.HandleRerankResult(msgCtx, &payload)
+		s.handleRerankResult(msgCtx, &payload, data)
 		return nil
 	})
 	if err != nil {

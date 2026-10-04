@@ -276,7 +276,13 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 
 // HandleSearchResult delivers a search result to the waiting caller.
 func (s *RetrievalService) HandleSearchResult(ctx context.Context, payload *messagequeue.RetrievalSearchResultPayload) {
-	s.searchWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
+	s.handleSearchResult(ctx, payload, nil)
+}
+
+// handleSearchResult delivers a search result decoded from raw, the
+// worker's message (nil: none), which the relay sends as it came.
+func (s *RetrievalService) handleSearchResult(ctx context.Context, payload *messagequeue.RetrievalSearchResultPayload, raw []byte) {
+	s.searchWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload, raw)
 }
 
 // SubAgentSearchSync sends a sub-agent search request and waits synchronously for the result.
@@ -341,7 +347,14 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 // HandleSubAgentSearchResult delivers a sub-agent search result to the waiting caller
 // and records any reported LLM cost in the event store for cost aggregation.
 func (s *RetrievalService) HandleSubAgentSearchResult(ctx context.Context, payload *messagequeue.SubAgentSearchResultPayload) {
-	s.subAgentWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
+	s.handleSubAgentSearchResult(ctx, payload, nil)
+}
+
+// handleSubAgentSearchResult is HandleSubAgentSearchResult for a result
+// decoded from raw, the worker's message (nil: none), which the relay sends
+// as it came.
+func (s *RetrievalService) handleSubAgentSearchResult(ctx context.Context, payload *messagequeue.SubAgentSearchResultPayload, raw []byte) {
+	s.subAgentWaiter.deliverMessage(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload, raw)
 
 	// Record sub-agent LLM cost when the event store is available and cost > 0.
 	if s.events != nil && (payload.CostUSD > 0 || payload.TokensIn > 0 || payload.TokensOut > 0) {
@@ -507,7 +520,7 @@ func (s *RetrievalService) StartSubscribers(ctx context.Context) ([]func(), erro
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("unmarshal retrieval search result: %w", err)
 		}
-		s.HandleSearchResult(msgCtx, &payload)
+		s.handleSearchResult(msgCtx, &payload, data)
 		return nil
 	})
 	if err != nil {
@@ -520,7 +533,7 @@ func (s *RetrievalService) StartSubscribers(ctx context.Context) ([]func(), erro
 		if err := json.Unmarshal(data, &payload); err != nil {
 			return fmt.Errorf("unmarshal subagent search result: %w", err)
 		}
-		s.HandleSubAgentSearchResult(msgCtx, &payload)
+		s.handleSubAgentSearchResult(msgCtx, &payload, data)
 		return nil
 	})
 	if err != nil {

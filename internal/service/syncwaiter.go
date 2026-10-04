@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -85,16 +87,30 @@ func (w *syncWaiter[T]) unregister(requestID string) {
 
 // deliver hands a result to its waiter: on this replica, else through the
 // relay (nil: none) to the replica that waits. Returns false if no waiter
-// took it (none waits, it was taken already, or the relay failed).
+// took it (none waits, it was taken already, or the relay failed). The
+// relay sends the result encoded again; deliverMessage sends the worker's
+// message itself.
 func (w *syncWaiter[T]) deliver(ctx context.Context, relay messagequeue.Relay, requestID string, payload *T) bool {
+	return w.deliverMessage(ctx, relay, requestID, payload, nil)
+}
+
+// deliverMessage is deliver for a result decoded from raw, the worker's
+// message: the relay sends raw as it came. A relayed result is one core
+// NATS message and must fit the payload limit as the worker's message did;
+// without raw the result is encoded without escaping HTML characters
+// (json.Marshal turns each of <, > and & into six bytes).
+func (w *syncWaiter[T]) deliverMessage(ctx context.Context, relay messagequeue.Relay, requestID string, payload *T, raw []byte) bool {
 	if w.deliverLocal(requestID, payload) {
 		return true
 	}
 	if relay != nil {
-		data, err := json.Marshal(payload)
-		if err != nil {
-			slog.Error("relay "+w.label+" result", "request_id", requestID, "error", err)
-			return false
+		data := raw
+		if data == nil {
+			var err error
+			if data, err = encodeForRelay(payload); err != nil {
+				slog.Error("relay "+w.label+" result", "request_id", requestID, "error", err)
+				return false
+			}
 		}
 		answer, err := relay.Request(ctx, w.relayKey(requestID), data)
 		if err != nil {
@@ -107,6 +123,17 @@ func (w *syncWaiter[T]) deliver(ctx context.Context, relay messagequeue.Relay, r
 	}
 	slog.Warn("no waiter for "+w.label+" result", "request_id", requestID)
 	return false
+}
+
+// encodeForRelay encodes v as JSON without escaping HTML characters.
+func encodeForRelay[T any](v *T) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("encode relayed result: %w", err)
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // deliverLocal hands a result to this replica's waiter and removes it.
