@@ -273,3 +273,127 @@ func TestConnectOpts_CoreInboxes(t *testing.T) {
 		t.Fatalf("connectOpts drops the reconnect options: MaxReconnect = %d", nopts.MaxReconnect)
 	}
 }
+
+// TestAuth_RelayRefusesJetStreamDeliveries: the NATS server does not check a
+// push consumer's deliver subject or the reply subject of a JetStream API
+// request, so the worker can have a message it published delivered to a
+// relay subject (the subject follows from the key). The relay acts only on
+// requests whose reply is a Go Core inbox, which only the core user's
+// requests carry; a JetStream delivery carries $JS.ACK.* or no reply.
+func TestAuth_RelayRefusesJetStreamDeliveries(t *testing.T) {
+	const key = "approval:run-1:call-1@tenant-1"
+	subject := relaySubject(key)
+
+	tests := []struct {
+		name string
+		// forge has the worker deliver "allow" to the relay subject.
+		forge func(ctx context.Context, t *testing.T, nc *nats.Conn, js jetstream.JetStream)
+	}{
+		{"push consumer delivering to the relay subject", func(ctx context.Context, t *testing.T, nc *nats.Conn, js jetstream.JetStream) {
+			const durable = "codeforge-py-notify-runs-cancel"
+			req := fmt.Sprintf(`{"stream_name":%q,"config":{"durable_name":%q,"deliver_subject":%q,"filter_subject":"runs.output","ack_policy":"none","deliver_policy":"new"}}`,
+				streamName, durable, subject)
+			resp, err := nc.Request("$JS.API.CONSUMER.CREATE."+streamName+"."+durable+".runs.output", []byte(req), 5*time.Second)
+			if err != nil {
+				t.Fatalf("create push consumer: %v", err)
+			}
+			if strings.Contains(string(resp.Data), `"error"`) {
+				t.Fatalf("create push consumer: %s", resp.Data)
+			}
+			if _, err := js.Publish(ctx, "runs.output", []byte("allow")); err != nil {
+				t.Fatalf("publish: %v", err)
+			}
+		}},
+		{"pull request with the relay subject as reply", func(ctx context.Context, t *testing.T, nc *nats.Conn, js jetstream.JetStream) {
+			const durable = "codeforge-py-runs-start"
+			if _, err := js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
+				Durable: durable, FilterSubject: "runs.output", AckPolicy: jetstream.AckExplicitPolicy,
+			}); err != nil {
+				t.Fatalf("create pull consumer: %v", err)
+			}
+			if _, err := js.Publish(ctx, "runs.output", []byte("allow")); err != nil {
+				t.Fatalf("publish: %v", err)
+			}
+			if err := nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT."+streamName+"."+durable, subject, []byte(`{"batch":1,"expires":2000000000}`)); err != nil {
+				t.Fatalf("pull request: %v", err)
+			}
+		}},
+		{"direct get with the relay subject as reply", func(ctx context.Context, t *testing.T, nc *nats.Conn, js jetstream.JetStream) {
+			ack, err := js.Publish(ctx, "runs.output", []byte("allow"))
+			if err != nil {
+				t.Fatalf("publish: %v", err)
+			}
+			if err := nc.PublishRequest("$JS.API.DIRECT.GET."+streamName, subject, fmt.Appendf(nil, `{"seq":%d}`, ack.Sequence)); err != nil {
+				t.Fatalf("direct get: %v", err)
+			}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			addr := startAuthServer(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			coreURL := "nats://core:" + authTestCorePassword + "@" + addr
+			waiter, err := Connect(ctx, coreURL, 1<<30)
+			if err != nil {
+				t.Fatalf("core connect: %v", err)
+			}
+			t.Cleanup(func() { _ = waiter.Close() })
+
+			handled := make(chan []byte, 4)
+			stop, err := waiter.Serve(key, func(data []byte) []byte {
+				handled <- data
+				return []byte("took")
+			})
+			if err != nil {
+				t.Fatalf("Serve: %v", err)
+			}
+			defer stop()
+			// A plain subscription of the Go Core's user next to the relay's
+			// shows that the forged message does reach the relay subject.
+			witness, err := waiter.nc.SubscribeSync(subject)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := waiter.nc.Flush(); err != nil {
+				t.Fatal(err)
+			}
+
+			nc, _ := workerConn(t, addr)
+			js, err := jetstream.New(nc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.forge(ctx, t, nc, js)
+
+			msg, err := witness.NextMsg(5 * time.Second)
+			if err != nil {
+				t.Fatalf("the forged message did not reach the relay subject: %v", err)
+			}
+			if !strings.Contains(string(msg.Data), "allow") {
+				t.Fatalf("the relay subject got %q", msg.Data)
+			}
+			select {
+			case data := <-handled:
+				t.Fatalf("the relay acted on a JetStream delivery (reply %q): %q", msg.Reply, data)
+			case <-time.After(500 * time.Millisecond):
+			}
+			if err := witness.Unsubscribe(); err != nil {
+				t.Fatal(err)
+			}
+
+			// A Go Core replica's request still reaches the waiter.
+			other, err := Connect(ctx, coreURL, 1<<30)
+			if err != nil {
+				t.Fatalf("core connect: %v", err)
+			}
+			t.Cleanup(func() { _ = other.Close() })
+			if answer, err := other.Request(ctx, key, []byte("allow")); err != nil || string(answer) != "took" {
+				t.Fatalf("core relay = %q, %v", answer, err)
+			}
+			if data := <-handled; string(data) != "allow" {
+				t.Fatalf("the relay got %q", data)
+			}
+		})
+	}
+}
