@@ -13,7 +13,7 @@ import type {
   RoadmapProposalState,
   ToolCallState,
 } from "./chatPanelTypes";
-import { mergePermissionRequests, mergeStreamedText } from "./chatRunRestore";
+import { addPermissionRequest, mergePermissionRequests, mergeStreamedText } from "./chatRunRestore";
 
 interface UseChatAGUIOptions {
   activeConversation: () => string | null;
@@ -294,7 +294,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
 
   const cleanupPermissionRequest = onAGUIEvent("agui.permission_request", (payload) => {
     if (payload.run_id === opts.activeConversation()) {
-      setPermissionRequests((prev) => [...prev, payload]);
+      setPermissionRequests((prev) => addPermissionRequest(prev, payload));
       opts.scrollToBottom();
     }
   });

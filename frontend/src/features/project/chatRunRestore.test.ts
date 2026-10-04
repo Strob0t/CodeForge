@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { AGUIPermissionRequest } from "~/api/websocket";
 
-import { mergePermissionRequests, mergeStreamedText } from "./chatRunRestore";
+import { addPermissionRequest, mergePermissionRequests, mergeStreamedText } from "./chatRunRestore";
 
-function request(callId: string): AGUIPermissionRequest {
-  return { run_id: "conv-1", call_id: callId, tool: "bash" };
+function request(callId: string, runId = "conv-1"): AGUIPermissionRequest {
+  return { run_id: runId, call_id: callId, tool: "bash" };
 }
 
 // KI-148: after a reload the chat shows the running turn the Core reports,
@@ -15,6 +15,11 @@ describe("mergePermissionRequests", () => {
     const shown = [request("c1")];
     const merged = mergePermissionRequests(shown, [request("c1"), request("c2")]);
     expect(merged.map((pr) => pr.call_id)).toEqual(["c1", "c2"]);
+  });
+
+  it("tells approvals apart by run and call", () => {
+    const merged = mergePermissionRequests([request("c1")], [request("c1", "conv-2")]);
+    expect(merged.map((pr) => `${pr.run_id}/${pr.call_id}`)).toEqual(["conv-1/c1", "conv-2/c1"]);
   });
 
   it("keeps the cards already shown", () => {
@@ -39,5 +44,25 @@ describe("mergeStreamedText", () => {
 
   it("keeps the live text when the Core streamed nothing", () => {
     expect(mergeStreamedText("", "live")).toBe("live");
+  });
+});
+
+// KI-148 review: the live permission_request event can arrive after the
+// restore already showed its card.
+describe("addPermissionRequest", () => {
+  it("adds a new approval", () => {
+    expect(addPermissionRequest([request("c1")], request("c2")).map((pr) => pr.call_id)).toEqual([
+      "c1",
+      "c2",
+    ]);
+  });
+
+  it("does not add an approval that is shown already", () => {
+    const shown = [request("c1")];
+    expect(addPermissionRequest(shown, request("c1"))).toBe(shown);
+  });
+
+  it("adds the same call ID of another run", () => {
+    expect(addPermissionRequest([request("c1")], request("c1", "conv-2"))).toHaveLength(2);
   });
 });
