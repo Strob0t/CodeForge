@@ -107,7 +107,7 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string) ([]conv
 		 FROM conversation_messages m
 		 JOIN conversations c ON c.id = m.conversation_id
 		 WHERE m.conversation_id = $1 AND c.tenant_id = $2
-		 ORDER BY m.created_at ASC`,
+		 ORDER BY m.seq ASC`,
 		conversationID, tenantFromCtx(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
