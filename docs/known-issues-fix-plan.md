@@ -179,6 +179,20 @@ as S8-A and S8-B.
 | **S8-E** | KI-129, KI-109 | UI defects from the screenshot run; webhook management screen |
 | later | KI-104, KI-108, KI-110 to KI-115, KI-121 (backend part), KI-122, KI-123 | Outbound-policy leftovers, stage 3 network isolation, Claude credentials, tenant erasure, zombies, model check, approval window, Copilot, config leftovers |
 
+## S9 - Owner decisions of 2026-10-04 (planned)
+
+Audience: self-hosters and single users first (AGENTS.md section 2), so single-user blockers come before multi-tenant
+and GDPR work. Order:
+
+| Group | Known Issues | Scope |
+|---|---|---|
+| **S9-A** | KI-119, KI-143, KI-131, KI-124 | A safe first start: one-time setup token; token epoch per user; scenario tags on every cloud route; a dev container that starts a working stack |
+| **S9-B** | KI-116, KI-117, KI-118 | A deployment that works out of the box: release tags with the version pinned in compose; GitHub PM over REST and `svn` in the Core image; backend CLIs in the standard worker image with a documented egress path |
+| **S9-C** | new feature (plan first), KI-125 follow-up | Pure-completion models use tools through a text tool protocol parsed by the worker, with grammar-constrained output where the server supports it (Ollama `format`, JSON schema); plan in `docs/plans/` |
+| **S9-D** | KI-129 (vision part), KI-94 (decided parts), KI-138, KI-142, KI-146, KI-109 | One "agent work" read model for the dashboard, costs and a new page; refactorer write warning, `approve-partial` removed; small UI gaps |
+| **S9-E** (low) | KI-145, KI-144, KI-120, KI-141 | Last-admin rule, export scope and user attribution, tenant from the e-mail at login, never-done claims |
+| closed | KI-140 | Decision: keep the current rule (allow rules match the inner command) |
+
 ---
 
 ## Follow-up Known Issues (found while fixing, 2026-09-30)

@@ -62,6 +62,8 @@ CodeForge is a containerized service for orchestrating AI coding agents with a w
 | AI Workers | Python 3.12 | LLM calls via the LiteLLM proxy, agent loop, tools |
 | Infrastructure | Docker | Containers, Docker-in-Docker |
 
+Audience (owner, 2026-10-04): self-hosters and single users first. Multi-tenancy and GDPR features stay correct and safe, but they do not drive priorities; fix what breaks a single-user installation first.
+
 Strategic principles: leverage existing building blocks (LiteLLM, OpenSpec, Aider/OpenHands as backends); do not reinvent the wheel, differentiate by integrating all four pillars; Go for the core, Python only for AI-specific work.
 
 More: [`docs/architecture.md`](docs/architecture.md), [`docs/architecture/project-reference.md`](docs/architecture/project-reference.md) (patterns, competitors, phases, protocols), Known Issues in [`docs/todo.md`](docs/todo.md#known-issues) and [`docs/known-issues-fix-plan.md`](docs/known-issues-fix-plan.md).
