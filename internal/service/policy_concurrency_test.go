@@ -113,7 +113,12 @@ func TestAllowAlwaysRule(t *testing.T) {
 		// the rule names the executable, never the variable.
 		{"Bash", "CI=1 npm test", "Bash", []string{"npm"}, false},
 		{"Bash", "CI=1 pytest -q", "Bash", []string{"pytest"}, false},
-		{"Bash", "env PYTHONPATH=src pytest -q", "Bash", []string{"pytest"}, false},
+		{"Bash", "env CI=1 pytest -q", "Bash", []string{"pytest"}, false},
+		// No allow rule matches a command that sets a module search path
+		// (S7-F review), so none is derived from one.
+		{"Bash", "env PYTHONPATH=src pytest -q", "", nil, true},
+		{"Bash", "PYTHONPATH=src python -m unittest", "", nil, true},
+		{"Bash", "NODE_PATH=lib npm test", "", nil, true},
 		{"Bash", "FOO=1 npm test", "", nil, true},
 		{"Bash", "LD_PRELOAD=x npm test", "", nil, true},
 		{"Bash", "CI=1 make test", "", nil, true},

@@ -81,23 +81,25 @@ func interpreterFor(name string) (interpreter, bool) {
 // unwraps wrappers and the executable path from the words of one simple
 // command. It reports opaque when the executable is not a literal word, an
 // assignment is not accepted (leadingAssignments) or has no command, or the
-// command runs code that the word list does not show.
-func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque bool) {
+// command runs code that the word list does not show; and setsModulePath
+// when an assignment (leading or of env) sets a module search path.
+func classifySimpleCommand(words []string, dynamic []bool) (seg []string, setsModulePath, opaque bool) {
 	i := 0
 	for i < len(words) && leadingKeywords[words[i]] {
 		i++
 	}
 	words, dynamic = words[i:], dynamic[i:]
 	if len(words) == 0 {
-		return nil, false
+		return nil, false, false
 	}
 	// Assignments before a command set its environment (KI-128). Without a
 	// command they set shell variables for the rest of the command line,
 	// which acts on the shell itself and on every later command.
 	n, accepted := leadingAssignments(words, dynamic)
 	if !accepted || n == len(words) {
-		return nil, true
+		return nil, false, true
 	}
+	setsModulePath = setsModuleSearchPath(words[:n])
 	words, dynamic = words[n:], dynamic[n:]
 	setsEnv := n > 0 // the command runs with assigned variables
 
@@ -108,35 +110,36 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 		// the name of the program that nice, timeout and the others run:
 		// fail closed rather than guess which.
 		if dynamic[0] || !isLiteralWord(exe) || isAssignment(exe) {
-			return nil, true
+			return nil, false, true
 		}
 		base := path.Base(exe)
 		unwrap, isWrapper := wrappers[base]
 		// xargs appends its input to a wrapper's operands, where it becomes
 		// the command the wrapper runs (or env's assignments).
 		if isWrapper && unknownArgs {
-			return nil, true
+			return nil, false, true
 		}
 		if !isWrapper || isCommandLookup(base, words[1:]) {
 			break
 		}
 		start, ok := unwrap(words[1:])
 		if !ok || slices.Contains(dynamic[1:1+start], true) {
-			return nil, true
+			return nil, false, true
 		}
 		// Counts an -u operand with '=' as well (fail closed).
 		setsEnv = setsEnv || (base == "env" && slices.ContainsFunc(words[1:1+start], isAssignment))
+		setsModulePath = setsModulePath || (base == "env" && setsModuleSearchPath(words[1:1+start]))
 		if base == "xargs" {
 			unknownArgs = true
 			if 1+start == len(words) {
-				return []string{"echo"}, false // xargs runs echo by default
+				return []string{"echo"}, setsModulePath, false // xargs runs echo by default
 			}
 		}
 		if 1+start == len(words) {
 			if base == "env" {
 				break // env without a command prints the environment
 			}
-			return nil, false // wrapper without a command runs nothing
+			return nil, false, false // wrapper without a command runs nothing
 		}
 		words, dynamic = words[1+start:], dynamic[1+start:]
 	}
@@ -145,19 +148,19 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, opaque
 	args, argsDynamic := words[1:], dynamic[1:]
 	switch {
 	case opaqueExecutables[name], runsInlineCode(name, args), runsArgumentCode(name, args), evaluatesVariables(name, args):
-		return nil, true
+		return nil, false, true
 	case setsEnv && (name == "make" || name == "gmake"):
 		// GNU make turns every environment variable into a make variable,
 		// which overrides built-in defaults (RM, CC) and ?= assignments that
 		// name the programs its recipes run.
-		return nil, true
+		return nil, false, true
 	case isArgumentSensitive(name) && (unknownArgs || slices.Contains(argsDynamic, true)):
 		// Unknown arguments could add the options that run code.
-		return nil, true
+		return nil, false, true
 	}
 	seg = make([]string, 0, len(words))
 	seg = append(seg, name)
-	return append(seg, args...), false
+	return append(seg, args...), setsModulePath, false
 }
 
 // isLiteralWord reports whether the shell uses w verbatim as a command name,

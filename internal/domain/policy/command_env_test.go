@@ -312,9 +312,11 @@ func TestEvaluate_AssignmentPrefixes(t *testing.T) {
 		want    Decision
 		reason  string
 	}{
-		{"allow list, module path", &safe, "PYTHONPATH=src python -m pytest", DecisionAllow, "matched rule"},
+		// A module search path is never matched by an allow list (S7-F
+		// review): the call falls through to the Bash deny rule.
+		{"allow list, module path", &safe, "PYTHONPATH=src python -m pytest", DecisionDeny, "matched rule"},
 		{"allow list, two assignments", &safe, "CI=1 PYTHONDONTWRITEBYTECODE=1 python -m pytest", DecisionAllow, "matched rule"},
-		{"allow list, env", &safe, "env PYTHONPATH=src python -m pytest -q", DecisionAllow, "matched rule"},
+		{"allow list, env", &safe, "env CI=1 python -m pytest -q", DecisionAllow, "matched rule"},
 		{"allow list, command not listed", &safe, "CI=1 go build", DecisionDeny, "matched rule"},
 		{"allow list, unlisted variable", &safe, "FOO=1 go test ./...", DecisionDeny, "matched rule"},
 		{"allow list, make with an assignment", &safe, "CI=1 make test", DecisionDeny, "matched rule"},
@@ -339,5 +341,107 @@ func TestEvaluate_AssignmentPrefixes(t *testing.T) {
 				t.Errorf("%q -> %s (%s), want %s with %q", tt.command, res.Decision, res.Reason, tt.want, tt.reason)
 			}
 		})
+	}
+}
+
+// S7-F review: PYTHONPATH and NODE_PATH make a runtime import modules by
+// name from directories the command chooses (PYTHONPATH=. python3 -m
+// json.tool runs ./sitecustomize.py, the same command without it does not).
+// A simple command that sets one is analysed, so deny lists see it, but it
+// is marked: no allow rule matches it.
+func TestParseShellCommand_ModuleSearchPaths(t *testing.T) {
+	tests := []struct {
+		name       string
+		cmd        string
+		segments   [][]string
+		modulePath []bool
+	}{
+		{"PYTHONPATH", "PYTHONPATH=src python -m unittest", [][]string{{"python", "-m", "unittest"}}, []bool{true}},
+		{"NODE_PATH", "NODE_PATH=lib node t.js", [][]string{{"node", "t.js"}}, []bool{true}},
+		{"empty value", "PYTHONPATH= python -m unittest", [][]string{{"python", "-m", "unittest"}}, []bool{true}},
+		{"with another variable", "CI=1 PYTHONPATH=src pytest -q", [][]string{{"pytest", "-q"}}, []bool{true}},
+		{"env", "env PYTHONPATH=x python -m unittest", [][]string{{"python", "-m", "unittest"}}, []bool{true}},
+		{"wrapper then env", "timeout 60 env NODE_PATH=lib npm test", [][]string{{"npm", "test"}}, []bool{true}},
+		{"assignment then wrapper", "PYTHONPATH=src timeout 60 pytest", [][]string{{"pytest"}}, []bool{true}},
+		{"denied command stays visible", "PYTHONPATH=src curl x", [][]string{{"curl", "x"}}, []bool{true}},
+		{"per simple command", "python -m unittest && PYTHONPATH=src python -m unittest",
+			[][]string{{"python", "-m", "unittest"}, {"python", "-m", "unittest"}}, []bool{false, true}},
+		{"other variables", "CI=1 LANG=C python -m unittest", [][]string{{"python", "-m", "unittest"}}, []bool{false}},
+		{"env unsets it", "env -u PYTHONPATH python -m unittest", [][]string{{"python", "-m", "unittest"}}, []bool{false}},
+		{"no assignment", "python -m unittest", [][]string{{"python", "-m", "unittest"}}, []bool{false}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseShellCommand(tt.cmd)
+			if got.opaque {
+				t.Fatalf("parseShellCommand(%q) is opaque", tt.cmd)
+			}
+			if !reflect.DeepEqual(got.segments, tt.segments) || !reflect.DeepEqual(got.modulePath, tt.modulePath) {
+				t.Errorf("parseShellCommand(%q) = %q %v, want %q %v", tt.cmd, got.segments, got.modulePath, tt.segments, tt.modulePath)
+			}
+		})
+	}
+}
+
+// A command that sets PYTHONPATH or NODE_PATH is never allowed by an allow
+// rule that matches commands (a command allow list, an Allow-Always rule, a
+// sub-pattern): it falls through to the later rules and the profile's
+// default. Deny lists, deny and ask rules see the command as usual, and an
+// allow rule that does not look at the command (a deny-list profile) still
+// allows it (KI-128).
+func TestEvaluate_ModuleSearchPathsNeverMatchAllowRules(t *testing.T) {
+	allowList := PolicyProfile{Name: "allow-list", Mode: ModeDefault, Rules: []PermissionRule{
+		{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionAllow, CommandAllow: []string{"python -m unittest", "python3 -m json.tool", "npm test", "pip list"}},
+	}}
+	subPattern := PolicyProfile{Name: "sub-pattern", Mode: ModeDefault, Rules: []PermissionRule{
+		{Specifier: ToolSpecifier{Tool: ToolBash, SubPattern: "python *"}, Decision: DecisionAllow},
+	}}
+	denyRule := PolicyProfile{Name: "deny-rule", Mode: ModeAcceptEdits, Rules: []PermissionRule{
+		{Specifier: ToolSpecifier{Tool: ToolBash, SubPattern: "python *"}, Decision: DecisionDeny},
+	}}
+	safe := PresetHeadlessSafeSandbox()             // Bash: allow list, then deny
+	permissive := PresetHeadlessPermissiveSandbox() // Bash: deny list (curl, wget, ...)
+	tests := []struct {
+		name    string
+		profile *PolicyProfile
+		command string
+		want    Decision
+		reason  string
+	}{
+		{"allow list, plain", &allowList, "python -m unittest", DecisionAllow, "matched rule 0"},
+		{"allow list, other variable", &allowList, "CI=1 python -m unittest", DecisionAllow, "matched rule 0"},
+		{"allow list, PYTHONPATH", &allowList, "PYTHONPATH=src python -m unittest", DecisionAsk, "no rule matched"},
+		{"allow list, sitecustomize", &allowList, "PYTHONPATH=. python3 -m json.tool", DecisionAsk, "no rule matched"},
+		{"allow list, console script", &allowList, "PYTHONPATH=. pip list", DecisionAsk, "no rule matched"},
+		{"allow list, env PYTHONPATH", &allowList, "env PYTHONPATH=x python -m unittest", DecisionAsk, "no rule matched"},
+		{"allow list, NODE_PATH", &allowList, "NODE_PATH=lib npm test", DecisionAsk, "no rule matched"},
+		{"allow list, env NODE_PATH", &allowList, "env NODE_PATH=lib npm test", DecisionAsk, "no rule matched"},
+		{"allow list, one part sets it", &allowList, "python -m unittest && PYTHONPATH=. python -m unittest", DecisionAsk, "no rule matched"},
+		{"sub-pattern allow, plain", &subPattern, "python -m unittest", DecisionAllow, "matched rule 0"},
+		{"sub-pattern allow, PYTHONPATH", &subPattern, "PYTHONPATH=. python -m unittest", DecisionAsk, "no rule matched"},
+		{"deny rule sees it", &denyRule, "PYTHONPATH=. python -m unittest", DecisionDeny, "matched rule 0"},
+		{"safe preset, PYTHONPATH", &safe, "PYTHONPATH=src python -m pytest", DecisionDeny, "matched rule"},
+		{"safe preset, env PYTHONPATH", &safe, "env PYTHONPATH=src python -m pytest -q", DecisionDeny, "matched rule"},
+		{"safe preset, NODE_PATH", &safe, "NODE_PATH=lib npm test", DecisionDeny, "matched rule"},
+		{"deny list, PYTHONPATH curl", &permissive, "PYTHONPATH=src curl x", DecisionDeny, "command matches command_deny"},
+		{"deny list, NODE_PATH curl", &permissive, "NODE_PATH=lib curl x", DecisionDeny, "command matches command_deny"},
+		{"deny list, env PYTHONPATH curl", &permissive, "env PYTHONPATH=x curl x", DecisionDeny, "command matches command_deny"},
+		{"deny list, KI-128 case", &permissive, "PYTHONPATH=src python -m unittest", DecisionAllow, "matched rule"},
+		{"deny list, NODE_PATH", &permissive, "NODE_PATH=lib npm test", DecisionAllow, "matched rule"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := tt.profile.Evaluate(ToolCall{Tool: "bash", Command: tt.command}, WithWorkspace(testWorkspace))
+			if res.Decision != tt.want || !strings.Contains(res.Reason, tt.reason) {
+				t.Errorf("%q -> %s (%s), want %s with %q", tt.command, res.Decision, res.Reason, tt.want, tt.reason)
+			}
+		})
+	}
+	// Allow-Always derives no rule from such a command: a rule naming its
+	// executables would never match it again.
+	for _, cmd := range []string{"PYTHONPATH=src python -m unittest", "env NODE_PATH=lib npm test", "go vet && PYTHONPATH=. pytest"} {
+		if exes, ok := CommandExecutables(cmd); ok {
+			t.Errorf("CommandExecutables(%q) = %q, want none", cmd, exes)
+		}
 	}
 }

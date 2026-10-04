@@ -19,6 +19,11 @@ type shellCommand struct {
 	// wrappers such as timeout or xargs are replaced by the command they run.
 	segments [][]string
 	opaque   bool
+	// modulePath holds, per segment, whether that simple command sets a
+	// module search path (PYTHONPATH, NODE_PATH): deny lists and deny or
+	// ask rules check it like any other, but no allow rule matches it
+	// (moduleSearchPaths in command_env.go).
+	modulePath []bool
 
 	// Files that bash opens for redirections, as written in the command:
 	// writes for >, >>, >|, &>, &>>, >& and <>, reads for <, <& and <>. A
@@ -38,7 +43,7 @@ func parseShellCommand(cmd string) *shellCommand {
 	p := shellParser{cmd: cmd}
 	p.run()
 	return &shellCommand{
-		segments: p.segments, opaque: p.opaque,
+		segments: p.segments, opaque: p.opaque, modulePath: p.modulePath,
 		writes: p.writes, reads: p.reads, unknownWrite: p.unknownWrite, unknownRead: p.unknownRead,
 	}
 }
@@ -62,9 +67,10 @@ type heredoc struct {
 }
 
 type shellParser struct {
-	cmd      string
-	segments [][]string
-	opaque   bool
+	cmd        string
+	segments   [][]string
+	modulePath []bool // per segment, see shellCommand.modulePath
+	opaque     bool
 
 	// Words of the simple command being read and whether each one contains
 	// an expansion or an unquoted glob, so its value is not known statically.
@@ -161,13 +167,14 @@ func (p *shellParser) endSegment() {
 	words, dynamic := p.words, p.dynamic
 	p.words, p.dynamic = nil, nil
 	p.trackDirectoryChange(words, dynamic)
-	seg, opaque := classifySimpleCommand(words, dynamic)
+	seg, setsModulePath, opaque := classifySimpleCommand(words, dynamic)
 	if opaque {
 		p.opaque = true
 		return
 	}
 	if len(seg) > 0 {
 		p.segments = append(p.segments, seg)
+		p.modulePath = append(p.modulePath, setsModulePath)
 	}
 }
 
@@ -602,10 +609,18 @@ func isDigits(s string) bool {
 	return true
 }
 
-// allowedBy reports whether every simple command matches one of the
-// patterns. Opaque and empty commands never match.
+// allowable reports whether an allow rule that names commands (a command
+// allow list or an allow rule's sub-pattern) may match the command: it is
+// analysable, not empty, and no simple command sets a module search path
+// (modulePath).
+func (c *shellCommand) allowable() bool {
+	return !c.opaque && len(c.segments) > 0 && !slices.Contains(c.modulePath, true)
+}
+
+// allowedBy reports whether the command is allowable and every simple
+// command matches one of the patterns.
 func (c *shellCommand) allowedBy(patterns []string) bool {
-	if c.opaque || len(c.segments) == 0 {
+	if !c.allowable() {
 		return false
 	}
 	for _, seg := range c.segments {
@@ -663,11 +678,12 @@ func wordEqual(a, b string, foldCase bool) bool {
 }
 
 // CommandExecutables returns the executable basenames of all simple commands
-// in cmd, deduplicated in order of appearance. It reports false when cmd is
-// empty or cannot be analysed statically.
+// in cmd, deduplicated in order of appearance, for an allow rule that
+// allows cmd again. It reports false when no allow rule can match cmd: it is
+// empty, cannot be analysed statically or sets a module search path.
 func CommandExecutables(cmd string) ([]string, bool) {
 	c := parseShellCommand(cmd)
-	if c.opaque || len(c.segments) == 0 {
+	if !c.allowable() {
 		return nil, false
 	}
 	var exes []string

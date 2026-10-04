@@ -293,8 +293,9 @@ func (p *PolicyProfile) redirectionDenyReason(cmd *shellCommand, workspaces []st
 // subPatternMatches matches the specifier's sub-pattern (a glob over each
 // simple command, e.g. "git *") against the command. A permissive rule
 // (allOf) needs every simple command to match and never matches a command
-// that cannot be analysed; a restrictive rule matches if any simple command
-// matches, and always matches an unanalysable command.
+// that is not allowable (it cannot be analysed or sets a module search
+// path); a restrictive rule matches if any simple command matches, and
+// always matches an unanalysable command.
 func (r *PermissionRule) subPatternMatches(cmd *shellCommand, allOf bool) bool {
 	pattern := r.Specifier.SubPattern
 	if pattern == "" {
@@ -305,6 +306,9 @@ func (r *PermissionRule) subPatternMatches(cmd *shellCommand, allOf bool) bool {
 	}
 	if len(cmd.segments) == 0 {
 		return false
+	}
+	if allOf && !cmd.allowable() {
+		return false // a module search path is never matched by an allow rule
 	}
 	for _, seg := range cmd.segments {
 		matched := matchWildcard(pattern, joinWords(seg), !allOf)

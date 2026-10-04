@@ -526,7 +526,8 @@ func allowAlwaysRule(tool, command string) (policy.PermissionRule, error) {
 	if canonical == policy.ToolBash {
 		exes, ok := policy.CommandExecutables(command)
 		if !ok {
-			return policy.PermissionRule{}, fmt.Errorf("%w: cannot derive an allow-always rule from command %q", domain.ErrValidation, command)
+			return policy.PermissionRule{}, fmt.Errorf("%w: cannot derive an allow-always rule from command %q "+
+				"(it cannot be analysed statically, or it sets PYTHONPATH or NODE_PATH, which no allow rule matches)", domain.ErrValidation, command)
 		}
 		rule.CommandAllow = exes
 	}

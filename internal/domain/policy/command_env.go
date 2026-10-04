@@ -1,6 +1,9 @@
 package policy
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Leading variable assignments (NAME=value cmd) and the operands of
 // env NAME=value cmd set the environment of the command they precede, and
@@ -14,11 +17,17 @@ import "strings"
 // PYTHONPATH. PYTHONWARNINGS is not listed: a warning category foo.Bar
 // imports the module foo.
 //
-// The module search paths PYTHONPATH and NODE_PATH are allowed: they choose
-// the directories a runtime imports modules from by name, as the working
-// directory already does for `python -m` and project-local packages. A
-// command allow list for an interpreted tool trusts the modules it can
-// import, as it trusts the build files of a build tool (ADR-015).
+// The module search paths PYTHONPATH and NODE_PATH are accepted so that a
+// command that sets one stays analysable and deny lists see it (KI-128:
+// PYTHONPATH=src python -m unittest under a deny-list profile). They are
+// not harmless: they make a runtime import modules by name from directories
+// the command chooses, which the working directory does not do for most
+// commands (PYTHONPATH=. python3 -m json.tool, pip list or black --check
+// run ./sitecustomize.py; the same commands without it do not). So a simple
+// command that sets one is never matched by an allow rule that names
+// commands (a command allow list, an allow rule's sub-pattern, an
+// Allow-Always rule): it falls through to the later rules and the
+// profile's default (shellCommand.modulePath).
 
 // envValue is the kind of value an allowed variable may take.
 type envValue int
@@ -46,8 +55,22 @@ var envVariables = map[string]envValue{
 	"LC_MONETARY": localeName, "LC_MESSAGES": localeName, "LC_PAPER": localeName, "LC_NAME": localeName,
 	"LC_ADDRESS": localeName, "LC_TELEPHONE": localeName, "LC_MEASUREMENT": localeName,
 	"LC_IDENTIFICATION": localeName,
-	// Module search paths.
+	// Module search paths (moduleSearchPaths).
 	"PYTHONPATH": anyValue, "NODE_PATH": anyValue,
+}
+
+// moduleSearchPaths are the variables of envVariables that choose where a
+// runtime imports modules from: no allow rule matches a command that sets
+// one.
+var moduleSearchPaths = map[string]bool{"PYTHONPATH": true, "NODE_PATH": true}
+
+// setsModuleSearchPath reports whether one of the words assigns a module
+// search path.
+func setsModuleSearchPath(words []string) bool {
+	return slices.ContainsFunc(words, func(w string) bool {
+		name, _, ok := strings.Cut(w, "=")
+		return ok && moduleSearchPaths[name]
+	})
 }
 
 // acceptedAssignment reports whether a NAME=value word may set the
