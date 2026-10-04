@@ -18,7 +18,7 @@ If you discover a security vulnerability, please report it responsibly:
 
 ## Security Measures
 
-- **Authentication:** JWT with bcrypt password hashing (configurable cost)
+- **Authentication:** JWT with bcrypt password hashing (configurable cost); access tokens are stateless and revocable only by token ID, so a deleted, erased or disabled user keeps the old token's rights until it expires (`auth.access_token_expiry`, default 15 min; refresh tokens and API keys are deleted with the user, KI-143). A request of a user whose row is gone cannot store a row under their name (401).
 - **Authorization:** Role-based access control (Admin, Editor, Viewer)
 - **Tenant Isolation:** All database queries scoped by tenant_id
 - **Rate Limiting:** Auth endpoints rate-limited, account lockout after 5 failures

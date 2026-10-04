@@ -695,7 +695,7 @@ Example:
 | `retention.cost_records` | `CODEFORGE_RETENTION_COST_RECORDS` | `8760h` | Delete runs (LLM cost records) idle longer than this |
 | `retention.audit_entries` | `CODEFORGE_RETENTION_AUDIT_ENTRIES` | `61320h` | Delete audit log entries older than this (7 years) |
 | `retention.audit_ip_addresses` | `CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES` | `4320h` | Remove IP addresses from audit entries older than this (180 days); periods under 24h are rejected |
-| `retention.handoff_claims` | `CODEFORGE_RETENTION_HANDOFF_CLAIMS` | `720h` | Delete handoff claims whose stage was done longer ago than this (claims never done are kept); `0` keeps them, periods under 24h are rejected ([data-retention.md](data-retention.md)) |
+| `retention.handoff_claims` | `CODEFORGE_RETENTION_HANDOFF_CLAIMS` | `720h` | Delete handoff claims whose stage was done longer ago than this (claims never done are kept); `0` keeps them, otherwise at least `720h`, the NATS stream's message max age (`messagequeue.StreamMaxAge`) ([data-retention.md](data-retention.md)) |
 | `a2a.base_url` | `CODEFORGE_A2A_BASE_URL` | `http://localhost:<CODEFORGE_PORT>` | Public URL for AgentCard |
 | `a2a.api_keys` | `CODEFORGE_A2A_API_KEYS` | `` | Comma-separated A2A API keys, each `<key>` (default tenant) or `<tenant-uuid>:<key>` (that tenant; UUID in any case). Parsed only when A2A is enabled; a malformed tenant prefix, an empty key or a repeated key stops startup; without keys every `/a2a` request gets 401 |
 | `a2a.transport` | `CODEFORGE_A2A_TRANSPORT` | `jsonrpc` | Transport protocol (only `jsonrpc` is implemented; the value is informational) |
@@ -1080,7 +1080,7 @@ See `.env.example` for the most common values; the full lists are in `internal/c
 | CODEFORGE_QUARANTINE_THRESHOLD | 0.7                                  | Risk score for quarantine hold   |
 | CODEFORGE_QUARANTINE_BLOCK_THRESHOLD | 0.95                           | Risk score for immediate block   |
 | CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS | verified                       | Min trust level to bypass quarantine |
-| CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire (stored as `expires_at`; nothing sets the status `expired` yet, [KI-91](todo.md#known-issues)) |
+| CODEFORGE_QUARANTINE_EXPIRY_HOURS | 72                                | Hours until unreviewed messages expire (`quarantine.expiry_hours`, stored as `expires_at`; 1 to 2562047, anything else stops startup); the stuck-work watchdog sets overdue messages to `expired` and rejects a held A2A task with them, KI-91 |
 | CODEFORGE_LSP_ENABLED       | false                                    | Enable LSP integration           |
 | CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED | false                          | Enable confidence-based review routing |
 | CODEFORGE_ORCH_EMBEDDING_MODEL | text-embedding-3-small            | Embedding model for code retrieval (`orchestrator.default_embedding_model`); without a usable model (401, 403, 404 or a 400 for an unknown model) retrieval runs BM25-only and warns once; a rate limit, server error or timeout fails the build and keeps the existing index; the index status reports `bm25_only` |

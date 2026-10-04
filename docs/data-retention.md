@@ -38,7 +38,7 @@ no task (sessions shared with a task are only detached).
 | `cost_records`          | `CODEFORGE_RETENTION_COST_RECORDS`        | `8760h`          |
 | `audit_entries`         | `CODEFORGE_RETENTION_AUDIT_ENTRIES`       | `61320h`         |
 | `audit_ip_addresses`    | `CODEFORGE_RETENTION_AUDIT_IP_ADDRESSES`  | `4320h`          |
-| `handoff_claims`        | `CODEFORGE_RETENTION_HANDOFF_CLAIMS`      | `720h`           |
+| `handoff_claims`        | `CODEFORGE_RETENTION_HANDOFF_CLAIMS`      | `720h` (0 or at least 720h, the NATS stream's max age) |
 
 A period of 0 keeps that category forever; negative periods and periods under 24h are rejected at startup
 (this catches unit mistakes such as `30m` meant as months).
