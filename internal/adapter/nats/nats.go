@@ -140,7 +140,7 @@ func streamConfig(maxBytes int64) jetstream.StreamConfig {
 		Duplicates:   2 * time.Minute,
 		Retention:    jetstream.LimitsPolicy,
 		Storage:      jetstream.FileStorage,
-		MaxAge:       30 * 24 * time.Hour, // 30 days
+		MaxAge:       messagequeue.StreamMaxAge, // 30 days
 		MaxBytes:     maxBytes,
 		MaxMsgs:      5_000_000,
 		MaxMsgSize:   4 * 1024 * 1024, // 4 MB per message

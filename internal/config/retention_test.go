@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 )
 
 // KI-52: the retention job runs by default, with the periods of
@@ -103,6 +105,11 @@ func TestValidate_Retention(t *testing.T) {
 		{"consent IPs kept", func(r *Retention) { r.ConsentIPAddresses = 0 }, ""},
 		{"handoff claims below one day", func(r *Retention) { r.HandoffClaims = time.Hour }, "retention.handoff_claims"},
 		{"handoff claims kept", func(r *Retention) { r.HandoffClaims = 0 }, ""},
+		// KI-90 review: a done claim may go only once no message of its
+		// stage can come back, i.e. after the NATS stream's max age.
+		{"handoff claims of one day", func(r *Retention) { r.HandoffClaims = day }, "retention.handoff_claims"},
+		{"handoff claims just below the stream max age", func(r *Retention) { r.HandoffClaims = messagequeue.StreamMaxAge - time.Second }, "retention.handoff_claims"},
+		{"handoff claims at the stream max age", func(r *Retention) { r.HandoffClaims = messagequeue.StreamMaxAge }, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

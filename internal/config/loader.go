@@ -19,6 +19,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
@@ -670,6 +671,13 @@ func validateRetention(r *Retention) error {
 		if p.period < 0 || (p.period > 0 && p.period < minRetentionPeriod) {
 			return fmt.Errorf("%s must be 0 (keep forever) or at least 24h (got %s)", p.key, p.period)
 		}
+	}
+	// A done handoff claim keeps a redelivered message of its stage from
+	// running again; it may go only once the queue can no longer deliver
+	// that message (KI-90 review).
+	if r.HandoffClaims > 0 && r.HandoffClaims < messagequeue.StreamMaxAge {
+		return fmt.Errorf("retention.handoff_claims must be 0 (keep forever) or at least %s, the queue's message max age (got %s)",
+			messagequeue.StreamMaxAge, r.HandoffClaims)
 	}
 	return nil
 }

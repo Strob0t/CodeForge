@@ -1,6 +1,19 @@
 package nats
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
+)
+
+// KI-90 review: the retention job deletes a done handoff claim only after
+// retention.handoff_claims, which config requires to be at least
+// messagequeue.StreamMaxAge: the stream must not keep a message longer.
+func TestStreamConfig_MaxAgeIsTheSharedStreamMaxAge(t *testing.T) {
+	if got := streamConfig(1 << 20).MaxAge; got != messagequeue.StreamMaxAge {
+		t.Fatalf("MaxAge = %v, want messagequeue.StreamMaxAge (%v)", got, messagequeue.StreamMaxAge)
+	}
+}
 
 func TestStreamConfig_UsesConfiguredMaxBytes(t *testing.T) {
 	for _, maxBytes := range []int64{1 << 20, 3 << 30, 10 << 30} {

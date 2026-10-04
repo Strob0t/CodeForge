@@ -241,6 +241,6 @@ auth:
 #   audit_entries: 61320h         # Audit log entries older than 7 years (default: 61320h)
 #   audit_ip_addresses: 4320h     # IP addresses in audit entries older than 180 days (default: 4320h)
 #   consent_ip_addresses: 4320h   # IP addresses + user agents in consent records older than 180 days (default: 4320h)
-#   handoff_claims: 720h          # Handoff claims 30 days after their stage was done (default: 720h)
+#   handoff_claims: 720h          # Handoff claims 30 days after their stage was done (default: 720h; 0 or at least 720h, the queue's message max age)
 # Webhook delivery claims are purged after webhook.delivery_retention (their dedup window, default: 168h).
 # Agent events and benchmark results are not purged automatically.

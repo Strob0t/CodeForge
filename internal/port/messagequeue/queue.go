@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// StreamMaxAge is how long the queue keeps a message (the JetStream stream's
+// MaxAge): no message is delivered, or redelivered, later than this after it
+// was published. Bookkeeping that makes deliveries idempotent may be removed
+// once it is older (retention.handoff_claims, KI-90).
+const StreamMaxAge = 30 * 24 * time.Hour
+
 // Handler processes a message received from the queue.
 // The context carries request-scoped values such as the request ID.
 type Handler func(ctx context.Context, subject string, data []byte) error

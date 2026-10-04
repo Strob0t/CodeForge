@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -70,7 +71,7 @@ type Retention struct {
 	// stage was done (KI-90). A redelivered handoff message finds its claim
 	// within this period; the default outlasts the NATS stream's 30-day
 	// max age, after which no message of the stage can come back.
-	HandoffClaims time.Duration `yaml:"handoff_claims"` // Max age of done handoff claims (default: 720h, 30 days)
+	HandoffClaims time.Duration `yaml:"handoff_claims"` // Max age of done handoff claims (default: 720h, 30 days; 0 or at least 720h)
 }
 
 // Routing holds intelligent model routing configuration (Phase 29).
@@ -833,13 +834,13 @@ func Defaults() Config {
 		// Whole 365-day years count as calendar years (RetentionService).
 		Retention: Retention{
 			Interval:           24 * time.Hour,
-			Sessions:           30 * 24 * time.Hour,      // 30 days
-			Conversations:      365 * 24 * time.Hour,     // 1 year
-			CostRecords:        365 * 24 * time.Hour,     // 1 year
-			AuditEntries:       7 * 365 * 24 * time.Hour, // 7 years (SOC 2)
-			AuditIPAddresses:   180 * 24 * time.Hour,     // 180 days (CNIL)
-			ConsentIPAddresses: 180 * 24 * time.Hour,     // 180 days, like audit IP addresses
-			HandoffClaims:      30 * 24 * time.Hour,      // 30 days, the NATS stream's max age
+			Sessions:           30 * 24 * time.Hour,       // 30 days
+			Conversations:      365 * 24 * time.Hour,      // 1 year
+			CostRecords:        365 * 24 * time.Hour,      // 1 year
+			AuditEntries:       7 * 365 * 24 * time.Hour,  // 7 years (SOC 2)
+			AuditIPAddresses:   180 * 24 * time.Hour,      // 180 days (CNIL)
+			ConsentIPAddresses: 180 * 24 * time.Hour,      // 180 days, like audit IP addresses
+			HandoffClaims:      messagequeue.StreamMaxAge, // 30 days: no message of a done stage can come back
 		},
 		Limits: Limits{
 			MaxQueryLength:     2000,
