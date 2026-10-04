@@ -59,3 +59,28 @@ describe("PrivacyPolicy account data retention", () => {
     expect(await screen.findByText("Datenschutzerklärung")).toBeTruthy();
   });
 });
+
+// KI-93: the rights of access, erasure and objection pointed to a Settings >
+// Privacy screen that did not exist; they now link to it.
+describe("PrivacyPolicy rights", () => {
+  it.each([
+    ["en", "Settings > Privacy", [/^Right of access/, /^Right to erasure/, /^Right to object/]],
+    [
+      "de",
+      "Einstellungen > Datenschutz",
+      [/^Auskunftsrecht/, /^Recht auf Löschung/, /^Widerspruchsrecht/],
+    ],
+  ] as const)(
+    "links the self-service rights to the privacy settings (%s)",
+    async (locale, link, rights) => {
+      renderPage(locale);
+      for (const right of rights) {
+        const item = await screen.findByText(right);
+        const anchor = item.closest("li")?.querySelector("a");
+        expect(anchor?.getAttribute("href")).toBe("/settings?section=privacy");
+        expect(anchor?.textContent).toBe(link);
+      }
+      expect(screen.getAllByRole("link", { name: link })).toHaveLength(3);
+    },
+  );
+});

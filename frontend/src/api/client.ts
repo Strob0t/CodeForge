@@ -32,6 +32,7 @@ import {
   createSessionsResource,
   createTrajectoryResource,
 } from "./resources/misc";
+import { createPrivacyResource } from "./resources/privacy";
 import { createBatchResource, createProjectsResource } from "./resources/projects";
 import { createPromptEvolutionResource } from "./resources/promptEvolution";
 import { createQuarantineResource } from "./resources/quarantine";
@@ -75,6 +76,7 @@ export const api = {
   search: createSearchResource(core),
   providers: createProvidersResource(core),
   auth: createAuthResource(core),
+  privacy: createPrivacyResource(core),
   users: createUsersResource(core),
   scopes: createScopesResource(core),
   knowledgeBases: createKnowledgeBasesResource(core),

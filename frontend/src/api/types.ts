@@ -897,6 +897,39 @@ export interface User {
   updated_at: string;
 }
 
+/**
+ * Matches Go service.UserDataExport (GET /me/export, GDPR Art. 15 and 20). The
+ * UI only saves it as a file, so the lists stay opaque.
+ */
+export interface UserDataExport {
+  exported_at: string;
+  format_version: string;
+  user: User;
+  api_keys: unknown[];
+  llm_keys: unknown[];
+  sessions: unknown[];
+  conversations: unknown[];
+  cost_records: unknown[];
+  audit_trail: unknown[];
+}
+
+/** Matches Go database.ConsentPurpose (GET /me/consent/purposes). */
+export interface ConsentPurpose {
+  id: string;
+  label: string;
+  description: string;
+  legal_basis: "consent" | "legitimate_interest" | "contract";
+  /** A required purpose cannot be withdrawn. */
+  required: boolean;
+  version: number;
+}
+
+/** Matches Go service.ConsentStatus (GET /me/consent). */
+export interface ConsentStatus {
+  purpose_id: string;
+  granted: boolean;
+}
+
 /** Matches Go domain/user.ChangePasswordRequest */
 export interface ChangePasswordRequest {
   old_password: string;

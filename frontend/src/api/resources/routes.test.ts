@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CoreClient } from "../core";
 import { createLLMResource } from "./llm";
 import { createMCPResource } from "./misc";
+import { createPrivacyResource } from "./privacy";
 
 interface Call {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -58,5 +59,52 @@ describe("API routes", () => {
       { method: "POST", path: "/projects/p%201/mcp-servers", body: { server_id: "srv-1" } },
       { method: "DELETE", path: "/projects/p%201/mcp-servers/srv%2F1" },
     ]);
+  });
+});
+
+// KI-93: the Settings > Privacy screen uses the GDPR self-service and consent
+// routes (internal/adapter/http/routes.go, "GDPR self-service").
+describe("privacy routes", () => {
+  it("exports, deletes and manages consent with the /me routes", async () => {
+    const { client, calls } = recordingClient();
+    const privacy = createPrivacyResource(client);
+
+    await privacy.exportMyData();
+    await privacy.deleteMyData();
+    await privacy.consentPurposes();
+    await privacy.consentStatus();
+    await privacy.setConsent("llm/external processing", false);
+
+    expect(calls).toEqual([
+      { method: "GET", path: "/me/export" },
+      { method: "DELETE", path: "/me/data" },
+      { method: "GET", path: "/me/consent/purposes" },
+      { method: "GET", path: "/me/consent" },
+      {
+        method: "PUT",
+        path: "/me/consent/llm%2Fexternal%20processing",
+        body: { granted: false },
+      },
+    ]);
+  });
+
+  it("keeps no copy of the export in the response cache", async () => {
+    const { client } = recordingClient();
+    const invalidated: string[] = [];
+    client.invalidateCache = (prefix) => void invalidated.push(prefix);
+
+    await createPrivacyResource(client).exportMyData();
+
+    expect(invalidated).toEqual(["/me/export"]);
+  });
+
+  it("keeps no copy of the export when the request fails", async () => {
+    const { client } = recordingClient();
+    const invalidated: string[] = [];
+    client.invalidateCache = (prefix) => void invalidated.push(prefix);
+    client.get = <T>(): Promise<T> => Promise.reject(new Error("offline"));
+
+    await expect(createPrivacyResource(client).exportMyData()).rejects.toThrow("offline");
+    expect(invalidated).toEqual(["/me/export"]);
   });
 });

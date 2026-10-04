@@ -1,4 +1,4 @@
-import { For, type JSX, onMount } from "solid-js";
+import { For, type JSX, onMount, Show } from "solid-js";
 
 import { type TranslationKey, useI18n } from "~/i18n";
 import { Button } from "~/ui";
@@ -13,11 +13,30 @@ function Section(props: { title: TranslationKey; children: JSX.Element }): JSX.E
   );
 }
 
+/** The rights a user exercises in Settings > Privacy (export, erasure, consent). */
+const SELF_SERVICE_RIGHTS: ReadonlySet<TranslationKey> = new Set([
+  "privacy.rights.access",
+  "privacy.rights.erasure",
+  "privacy.rights.object",
+]);
+
 function Items(props: { keys: TranslationKey[] }): JSX.Element {
   const { t } = useI18n();
   return (
     <ul class="list-inside list-disc space-y-1 text-sm text-cf-text-secondary">
-      <For each={props.keys}>{(key) => <li>{t(key)}</li>}</For>
+      <For each={props.keys}>
+        {(key) => (
+          <li>
+            {t(key)}
+            <Show when={SELF_SERVICE_RIGHTS.has(key)}>
+              {" "}
+              <a href="/settings?section=privacy" class="text-cf-accent hover:underline">
+                {t("privacy.rights.settingsLink")}
+              </a>
+            </Show>
+          </li>
+        )}
+      </For>
     </ul>
   );
 }

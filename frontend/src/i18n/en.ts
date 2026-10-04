@@ -1852,6 +1852,71 @@ const en = {
   "routing.error.refreshFailed": "Failed to refresh stats.",
   "routing.error.seedFailed": "Failed to seed from benchmarks.",
   "routing.error.recordFailed": "Failed to record outcome.",
+  // -- Settings navigation ----------------------------------------------------
+  "settings.nav.general": "General",
+  "settings.nav.shortcuts": "Shortcuts",
+  "settings.nav.vcs": "VCS",
+  "settings.nav.providers": "Providers",
+  "settings.nav.proxy": "LLM Proxy",
+  "settings.nav.subscriptions": "Subscriptions",
+  "settings.nav.apiKeys": "API Keys",
+  "settings.nav.privacy": "Privacy",
+  "settings.nav.users": "Users",
+  "settings.nav.devTools": "Dev Tools",
+  // -- Settings > Privacy (GDPR self-service) ---------------------------------
+  "settings.privacy.title": "Privacy",
+  "settings.privacy.description":
+    "Your rights under the GDPR: get a copy of your data, delete your account and decide what you consent to.",
+  "settings.privacy.policyLink": "Privacy policy",
+  "settings.privacy.export.title": "Export my data",
+  "settings.privacy.export.description":
+    "Downloads a JSON file with your account, your API keys and LLM keys (names and prefixes, never the keys), the sessions, conversations and runs of your organization's projects, and your audit trail.",
+  "settings.privacy.export.button": "Download my data",
+  "settings.privacy.export.done": "Your data was downloaded.",
+  "settings.privacy.export.failed": "The export failed.",
+  "settings.privacy.delete.title": "Delete my account and data",
+  "settings.privacy.delete.description":
+    "Erases your account at once. You are signed out and cannot sign in with it again.",
+  "settings.privacy.delete.button": "Delete my account...",
+  "settings.privacy.delete.dialogTitle": "Delete your account?",
+  "settings.privacy.delete.irreversible":
+    "This cannot be undone. Your account is erased at once, you are signed out and cannot sign in with it again.",
+  "settings.privacy.delete.deletedTitle": "Deleted",
+  "settings.privacy.delete.deleted.account": "Your account: name, email address, password and role",
+  "settings.privacy.delete.deleted.keys": "Your API keys and LLM keys",
+  "settings.privacy.delete.deleted.sessions": "Your sign-in sessions and password reset links",
+  "settings.privacy.delete.deleted.channels": "Your channel memberships and read markers",
+  "settings.privacy.delete.keptTitle": "Kept, without your personal data",
+  "settings.privacy.delete.kept.audit":
+    "Audit log entries of your actions (your email address and IP address are removed)",
+  "settings.privacy.delete.kept.consent":
+    "Your consent records, as proof of consent (IP address and browser are removed)",
+  "settings.privacy.delete.kept.channels":
+    'Your channel messages (the sender becomes "Deleted user")',
+  "settings.privacy.delete.kept.quarantine":
+    'Your quarantine reviews (the reviewer becomes "Deleted user")',
+  "settings.privacy.delete.notDeleted":
+    "Projects, conversations, runs and costs belong to your organization and are not deleted.",
+  "settings.privacy.delete.backups":
+    "Database backups that still contain your data are rotated out after about five weeks.",
+  "settings.privacy.delete.confirmLabel": "Type your email address {{email}} to confirm",
+  "settings.privacy.delete.confirm": "Delete my account",
+  "settings.privacy.delete.done": "Your account and data were deleted.",
+  "settings.privacy.delete.failed": "The deletion failed.",
+  "settings.privacy.consent.title": "Consent",
+  "settings.privacy.consent.description":
+    "What this instance processes with your consent. You can withdraw a consent at any time, except for a required purpose.",
+  "settings.privacy.consent.empty": "This instance asks for no consent.",
+  "settings.privacy.consent.loadFailed": "The consent settings could not be loaded.",
+  "settings.privacy.consent.required": "Required",
+  "settings.privacy.consent.requiredHint": "A required purpose cannot be withdrawn.",
+  "settings.privacy.consent.toggle": "I consent",
+  "settings.privacy.consent.toggleAria": "Consent to {{label}}",
+  "settings.privacy.consent.saved": "Consent saved.",
+  "settings.privacy.consent.failed": "The consent could not be saved.",
+  "settings.privacy.consent.basis.consent": "Consent (Art. 6(1)(a) GDPR)",
+  "settings.privacy.consent.basis.legitimate_interest": "Legitimate interest (Art. 6(1)(f) GDPR)",
+  "settings.privacy.consent.basis.contract": "Contract (Art. 6(1)(b) GDPR)",
   // -- Privacy policy page --------------------------------------------------
   "privacy.title": "Privacy Policy",
   "privacy.controller.title": "Data Controller",
@@ -1899,16 +1964,15 @@ const en = {
   "privacy.retention.consentIp":
     "IP addresses and browser user agents in consent records -- 180 days",
   "privacy.rights.title": "Your Rights",
-  "privacy.rights.access":
-    "Right of access (Art. 15) -- export your data via Settings > Privacy > Export",
+  "privacy.rights.settingsLink": "Settings > Privacy",
+  "privacy.rights.access": "Right of access (Art. 15) -- export your data under",
   "privacy.rights.rectification":
     "Right to rectification (Art. 16) -- update your profile in Settings",
-  "privacy.rights.erasure":
-    "Right to erasure (Art. 17) -- delete your account via Settings > Privacy > Delete",
+  "privacy.rights.erasure": "Right to erasure (Art. 17) -- delete your account and data under",
   "privacy.rights.portability":
     "Right to data portability (Art. 20) -- JSON export of all your data",
   "privacy.rights.object":
-    "Right to object (Art. 21) -- withdraw consent for external LLM processing",
+    "Right to object (Art. 21) -- withdraw consent for external LLM processing under",
   "privacy.rights.complaint": "Right to lodge a complaint with a supervisory authority (Art. 77)",
 } as const;
 

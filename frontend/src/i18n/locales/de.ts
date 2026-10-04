@@ -1882,6 +1882,74 @@ const de: Translations = {
   "routing.error.refreshFailed": "Statistiken konnten nicht aktualisiert werden.",
   "routing.error.seedFailed": "Import aus Benchmarks fehlgeschlagen.",
   "routing.error.recordFailed": "Ergebnis konnte nicht erfasst werden.",
+  // -- Settings navigation ----------------------------------------------------
+  "settings.nav.general": "Allgemein",
+  "settings.nav.shortcuts": "Tastenkürzel",
+  "settings.nav.vcs": "VCS",
+  "settings.nav.providers": "Anbieter",
+  "settings.nav.proxy": "LLM-Proxy",
+  "settings.nav.subscriptions": "Abonnements",
+  "settings.nav.apiKeys": "API-Schlüssel",
+  "settings.nav.privacy": "Datenschutz",
+  "settings.nav.users": "Benutzer",
+  "settings.nav.devTools": "Entwicklerwerkzeuge",
+  // -- Settings > Privacy (GDPR self-service) ---------------------------------
+  "settings.privacy.title": "Datenschutz",
+  "settings.privacy.description":
+    "Ihre Rechte nach der DSGVO: eine Kopie Ihrer Daten erhalten, Ihr Konto löschen und entscheiden, wozu Sie einwilligen.",
+  "settings.privacy.policyLink": "Datenschutzerklärung",
+  "settings.privacy.export.title": "Meine Daten exportieren",
+  "settings.privacy.export.description":
+    "Lädt eine JSON-Datei herunter mit Ihrem Konto, Ihren API- und LLM-Schlüsseln (Namen und Präfixe, nie die Schlüssel), den Sitzungen, Unterhaltungen und Runs der Projekte Ihrer Organisation sowie Ihrem Audit-Trail.",
+  "settings.privacy.export.button": "Meine Daten herunterladen",
+  "settings.privacy.export.done": "Ihre Daten wurden heruntergeladen.",
+  "settings.privacy.export.failed": "Der Export ist fehlgeschlagen.",
+  "settings.privacy.delete.title": "Mein Konto und meine Daten löschen",
+  "settings.privacy.delete.description":
+    "Löscht Ihr Konto sofort. Sie werden abgemeldet und können sich damit nicht wieder anmelden.",
+  "settings.privacy.delete.button": "Mein Konto löschen...",
+  "settings.privacy.delete.dialogTitle": "Konto löschen?",
+  "settings.privacy.delete.irreversible":
+    "Das kann nicht rückgängig gemacht werden. Ihr Konto wird sofort gelöscht, Sie werden abgemeldet und können sich damit nicht wieder anmelden.",
+  "settings.privacy.delete.deletedTitle": "Gelöscht",
+  "settings.privacy.delete.deleted.account": "Ihr Konto: Name, E-Mail-Adresse, Passwort und Rolle",
+  "settings.privacy.delete.deleted.keys": "Ihre API- und LLM-Schlüssel",
+  "settings.privacy.delete.deleted.sessions":
+    "Ihre Anmeldesitzungen und Links zum Zurücksetzen des Passworts",
+  "settings.privacy.delete.deleted.channels": "Ihre Kanalmitgliedschaften und Lesemarken",
+  "settings.privacy.delete.keptTitle": "Behalten, ohne Ihre personenbezogenen Daten",
+  "settings.privacy.delete.kept.audit":
+    "Audit-Log-Einträge Ihrer Aktionen (E-Mail-Adresse und IP-Adresse werden entfernt)",
+  "settings.privacy.delete.kept.consent":
+    "Ihre Einwilligungsnachweise, als Nachweis der Einwilligung (IP-Adresse und Browser werden entfernt)",
+  "settings.privacy.delete.kept.channels":
+    'Ihre Kanalnachrichten (als Absender steht dann "Deleted user")',
+  "settings.privacy.delete.kept.quarantine":
+    'Ihre Quarantäne-Prüfungen (als Prüfer steht dann "Deleted user")',
+  "settings.privacy.delete.notDeleted":
+    "Projekte, Unterhaltungen, Runs und Kosten gehören Ihrer Organisation und werden nicht gelöscht.",
+  "settings.privacy.delete.backups":
+    "Datenbanksicherungen, die Ihre Daten noch enthalten, werden nach etwa fünf Wochen überschrieben.",
+  "settings.privacy.delete.confirmLabel":
+    "Geben Sie zur Bestätigung Ihre E-Mail-Adresse {{email}} ein",
+  "settings.privacy.delete.confirm": "Mein Konto löschen",
+  "settings.privacy.delete.done": "Ihr Konto und Ihre Daten wurden gelöscht.",
+  "settings.privacy.delete.failed": "Die Löschung ist fehlgeschlagen.",
+  "settings.privacy.consent.title": "Einwilligungen",
+  "settings.privacy.consent.description":
+    "Was diese Instanz mit Ihrer Einwilligung verarbeitet. Sie können eine Einwilligung jederzeit widerrufen, außer für einen erforderlichen Zweck.",
+  "settings.privacy.consent.empty": "Diese Instanz fragt nach keiner Einwilligung.",
+  "settings.privacy.consent.loadFailed": "Die Einwilligungen konnten nicht geladen werden.",
+  "settings.privacy.consent.required": "Erforderlich",
+  "settings.privacy.consent.requiredHint": "Ein erforderlicher Zweck kann nicht widerrufen werden.",
+  "settings.privacy.consent.toggle": "Ich willige ein",
+  "settings.privacy.consent.toggleAria": "Einwilligung zu {{label}}",
+  "settings.privacy.consent.saved": "Einwilligung gespeichert.",
+  "settings.privacy.consent.failed": "Die Einwilligung konnte nicht gespeichert werden.",
+  "settings.privacy.consent.basis.consent": "Einwilligung (Art. 6 Abs. 1 lit. a DSGVO)",
+  "settings.privacy.consent.basis.legitimate_interest":
+    "Berechtigtes Interesse (Art. 6 Abs. 1 lit. f DSGVO)",
+  "settings.privacy.consent.basis.contract": "Vertrag (Art. 6 Abs. 1 lit. b DSGVO)",
   // -- Privacy policy page --------------------------------------------------
   "privacy.title": "Datenschutzerkl\u00e4rung",
   "privacy.controller.title": "Verantwortlicher",
@@ -1931,16 +1999,16 @@ const de: Translations = {
   "privacy.retention.consentIp":
     "IP-Adressen und Browser-User-Agents in Einwilligungsnachweisen -- 180 Tage",
   "privacy.rights.title": "Ihre Rechte",
-  "privacy.rights.access":
-    "Auskunftsrecht (Art. 15) -- Export Ihrer Daten unter Einstellungen > Datenschutz > Export",
+  "privacy.rights.settingsLink": "Einstellungen > Datenschutz",
+  "privacy.rights.access": "Auskunftsrecht (Art. 15) -- Export Ihrer Daten unter",
   "privacy.rights.rectification":
     "Recht auf Berichtigung (Art. 16) -- Profil in den Einstellungen aktualisieren",
   "privacy.rights.erasure":
-    "Recht auf L\u00f6schung (Art. 17) -- Konto unter Einstellungen > Datenschutz > L\u00f6schen l\u00f6schen",
+    "Recht auf L\u00f6schung (Art. 17) -- Konto und Daten l\u00f6schen unter",
   "privacy.rights.portability":
     "Recht auf Daten\u00fcbertragbarkeit (Art. 20) -- JSON-Export aller Ihrer Daten",
   "privacy.rights.object":
-    "Widerspruchsrecht (Art. 21) -- Einwilligung zur externen LLM-Verarbeitung widerrufen",
+    "Widerspruchsrecht (Art. 21) -- Einwilligung zur externen LLM-Verarbeitung widerrufen unter",
   "privacy.rights.complaint": "Recht auf Beschwerde bei einer Aufsichtsbeh\u00f6rde (Art. 77)",
 };
 
