@@ -44,7 +44,7 @@ func rerankPayloadToContextEntries(payloads []messagequeue.ContextRerankEntryPay
 // and blocks until the result arrives or the timeout expires.
 func (s *ContextOptimizerService) RerankSync(ctx context.Context, projectID, query string, entries []cfcontext.ContextEntry) ([]cfcontext.ContextEntry, error) {
 	requestID := uuid.New().String()
-	ch := s.rerankWaiter.register(requestID)
+	ch := s.rerankWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.rerankWaiter.unregister(requestID)
 
 	payload := messagequeue.ContextRerankRequestPayload{
@@ -77,8 +77,8 @@ func (s *ContextOptimizerService) RerankSync(ctx context.Context, projectID, que
 }
 
 // HandleRerankResult delivers a rerank result to the waiting caller.
-func (s *ContextOptimizerService) HandleRerankResult(_ context.Context, payload *messagequeue.ContextRerankResultPayload) {
-	s.rerankWaiter.deliver(payload.RequestID, payload)
+func (s *ContextOptimizerService) HandleRerankResult(ctx context.Context, payload *messagequeue.ContextRerankResultPayload) {
+	s.rerankWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
 }
 
 // StartSubscribers subscribes to NATS subjects for context optimizer results.

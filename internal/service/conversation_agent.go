@@ -190,7 +190,7 @@ func (s *ConversationService) completeConversationRun(ctx context.Context, paylo
 	})
 
 	// Notify in-process waiters (e.g. autoagent).
-	s.notifyCompletionWaiter(payload.ConversationID, CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD})
+	s.notifyCompletionWaiter(ctx, payload.ConversationID, CompletionResult{Status: payload.Status, Error: payload.Error, CostUSD: payload.CostUSD})
 
 	// Record prompt scores for evolution tracking.
 	if s.scoreCollector != nil && payload.Model != "" {
@@ -331,20 +331,43 @@ type CompletionWaiter struct {
 	svc            *ConversationService
 	conversationID string
 	ch             chan CompletionResult
+	stopRelay      func()
 	closeOnce      sync.Once
 }
 
 // ExpectCompletion registers a waiter for the end of the conversation's next
-// run. A conversation has one waiter at a time.
+// run. A conversation has one waiter at a time. The run's completion may be
+// taken by another Go Core replica, which relays it here (KI-86).
 func (s *ConversationService) ExpectCompletion(conversationID string) (*CompletionWaiter, error) {
-	w := &CompletionWaiter{svc: s, conversationID: conversationID, ch: make(chan CompletionResult, 1)}
+	w := &CompletionWaiter{svc: s, conversationID: conversationID, ch: make(chan CompletionResult, 1), stopRelay: func() {}}
 	s.completionWaitersMu.Lock()
-	defer s.completionWaitersMu.Unlock()
 	if _, exists := s.completionWaiters[conversationID]; exists {
+		s.completionWaitersMu.Unlock()
 		return nil, fmt.Errorf("a waiter already exists for conversation %s", conversationID)
 	}
 	s.completionWaiters[conversationID] = w.ch
+	s.completionWaitersMu.Unlock()
+
+	if relay := messagequeue.RelayOf(s.queue); relay != nil {
+		stop, err := relay.Serve(completionRelayKey(conversationID), func(data []byte) []byte {
+			var result CompletionResult
+			if err := json.Unmarshal(data, &result); err != nil || !s.notifyLocalCompletion(conversationID, result) {
+				return nil
+			}
+			return relayTaken
+		})
+		if err != nil {
+			slog.Warn("waiting for the conversation run on this replica only", "conversation_id", conversationID, "error", err)
+		} else {
+			w.stopRelay = stop
+		}
+	}
 	return w, nil
+}
+
+// completionRelayKey is the relay key of a conversation's completion waiter.
+func completionRelayKey(conversationID string) string {
+	return "conversation-completion:" + conversationID
 }
 
 // Wait blocks until the run ended or ctx is done.
@@ -360,6 +383,7 @@ func (w *CompletionWaiter) Wait(ctx context.Context) (CompletionResult, error) {
 // Close releases the waiter; safe to call more than once.
 func (w *CompletionWaiter) Close() {
 	w.closeOnce.Do(func() {
+		w.stopRelay()
 		w.svc.completionWaitersMu.Lock()
 		defer w.svc.completionWaitersMu.Unlock()
 		if w.svc.completionWaiters[w.conversationID] == w.ch {
@@ -368,18 +392,40 @@ func (w *CompletionWaiter) Close() {
 	})
 }
 
-// notifyCompletionWaiter hands result to the conversation's waiter. A waiter
-// takes one result; a further one is dropped instead of blocking under the
-// lock.
-func (s *ConversationService) notifyCompletionWaiter(conversationID string, result CompletionResult) {
+// notifyCompletionWaiter hands result to the conversation's waiter: on this
+// replica, else through the relay to the replica that waits (KI-86).
+func (s *ConversationService) notifyCompletionWaiter(ctx context.Context, conversationID string, result CompletionResult) {
+	if s.notifyLocalCompletion(conversationID, result) {
+		return
+	}
+	relay := messagequeue.RelayOf(s.queue)
+	if relay == nil {
+		return
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		slog.Error("relay conversation completion", "conversation_id", conversationID, "error", err)
+		return
+	}
+	if _, err := relay.Request(ctx, completionRelayKey(conversationID), data); err != nil {
+		slog.Warn("relay conversation completion failed, its waiter times out", "conversation_id", conversationID, "error", err)
+	}
+}
+
+// notifyLocalCompletion hands result to the conversation's waiter on this
+// replica and reports whether there is one. A waiter takes one result; a
+// further one is dropped instead of blocking under the lock.
+func (s *ConversationService) notifyLocalCompletion(conversationID string, result CompletionResult) bool {
 	s.completionWaitersMu.Lock()
 	defer s.completionWaitersMu.Unlock()
-	if ch, ok := s.completionWaiters[conversationID]; ok {
+	ch, ok := s.completionWaiters[conversationID]
+	if ok {
 		select {
 		case ch <- result:
 		default:
 		}
 	}
+	return ok
 }
 
 // StopConversation cancels an active agentic run by publishing a cancel
@@ -409,7 +455,7 @@ func (s *ConversationService) StopConversation(ctx context.Context, conversation
 			stopped = turn
 		}
 	}
-	s.notifyCompletionWaiter(conversationID, CompletionResult{Status: "cancelled", Error: "stopped"})
+	s.notifyCompletionWaiter(ctx, conversationID, CompletionResult{Status: "cancelled", Error: "stopped"})
 	if stopped != "" {
 		_, endErr := s.db.EndConversationTurn(ctx, conversationID, stopped)
 		logBestEffort(ctx, endErr, "EndConversationTurn", slog.String("conversation_id", conversationID))

@@ -233,7 +233,7 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 		return nil, err
 	}
 
-	ch := s.searchWaiter.register(requestID)
+	ch := s.searchWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.searchWaiter.unregister(requestID)
 
 	// Publish search request.
@@ -275,8 +275,8 @@ func (s *RetrievalService) SearchSync(ctx context.Context, projectID, query stri
 }
 
 // HandleSearchResult delivers a search result to the waiting caller.
-func (s *RetrievalService) HandleSearchResult(_ context.Context, payload *messagequeue.RetrievalSearchResultPayload) {
-	s.searchWaiter.deliver(payload.RequestID, payload)
+func (s *RetrievalService) HandleSearchResult(ctx context.Context, payload *messagequeue.RetrievalSearchResultPayload) {
+	s.searchWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
 }
 
 // SubAgentSearchSync sends a sub-agent search request and waits synchronously for the result.
@@ -292,7 +292,7 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 		return nil, err
 	}
 
-	ch := s.subAgentWaiter.register(requestID)
+	ch := s.subAgentWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.subAgentWaiter.unregister(requestID)
 
 	// Publish sub-agent search request.
@@ -341,7 +341,7 @@ func (s *RetrievalService) SubAgentSearchSync(ctx context.Context, projectID, qu
 // HandleSubAgentSearchResult delivers a sub-agent search result to the waiting caller
 // and records any reported LLM cost in the event store for cost aggregation.
 func (s *RetrievalService) HandleSubAgentSearchResult(ctx context.Context, payload *messagequeue.SubAgentSearchResultPayload) {
-	s.subAgentWaiter.deliver(payload.RequestID, payload)
+	s.subAgentWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
 
 	// Record sub-agent LLM cost when the event store is available and cost > 0.
 	if s.events != nil && (payload.CostUSD > 0 || payload.TokensIn > 0 || payload.TokensOut > 0) {

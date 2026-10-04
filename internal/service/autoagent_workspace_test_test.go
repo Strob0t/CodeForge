@@ -134,10 +134,10 @@ func TestRunWorkspaceTest_NoResultTimesOut(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no result") {
 		t.Fatalf("runWorkspaceTest without a result = %v, want a timeout error", err)
 	}
-	svc.testMu.Lock()
-	defer svc.testMu.Unlock()
-	if len(svc.testWaiters) != 0 {
-		t.Fatalf("waiters left behind: %d", len(svc.testWaiters))
+	svc.testWaiter.mu.Lock()
+	defer svc.testWaiter.mu.Unlock()
+	if len(svc.testWaiter.waiters) != 0 {
+		t.Fatalf("waiters left behind: %d", len(svc.testWaiter.waiters))
 	}
 }
 

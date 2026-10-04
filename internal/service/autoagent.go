@@ -40,8 +40,7 @@ type AutoAgentService struct {
 	cancels map[string]context.CancelFunc // projectID -> cancel func
 
 	// Workspace test runs in the worker (KI-81): waiters by request ID.
-	testMu         sync.Mutex
-	testWaiters    map[string]chan *messagequeue.WorkspaceTestResultPayload
+	testWaiter     *syncWaiter[messagequeue.WorkspaceTestResultPayload]
 	testTimeout    time.Duration // bounds the test run in the worker
 	testWaitMargin time.Duration // queueing and delivery on top of testTimeout
 }
@@ -65,7 +64,7 @@ func NewAutoAgentService(
 		queue:          queue,
 		conversations:  conversations,
 		cancels:        make(map[string]context.CancelFunc),
-		testWaiters:    make(map[string]chan *messagequeue.WorkspaceTestResultPayload),
+		testWaiter:     newSyncWaiter[messagequeue.WorkspaceTestResultPayload]("workspace-test"),
 		testTimeout:    workspaceTestTimeout,
 		testWaitMargin: workspaceTestWaitMargin,
 	}
@@ -529,15 +528,8 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, conv
 
 // requestWorkspaceTest publishes the request and waits for its result.
 func (s *AutoAgentService) requestWorkspaceTest(ctx context.Context, req *messagequeue.WorkspaceTestRequestPayload) (*messagequeue.WorkspaceTestResultPayload, error) {
-	ch := make(chan *messagequeue.WorkspaceTestResultPayload, 1)
-	s.testMu.Lock()
-	s.testWaiters[req.RequestID] = ch
-	s.testMu.Unlock()
-	defer func() {
-		s.testMu.Lock()
-		delete(s.testWaiters, req.RequestID)
-		s.testMu.Unlock()
-	}()
+	ch := s.testWaiter.register(req.RequestID, messagequeue.RelayOf(s.queue))
+	defer s.testWaiter.unregister(req.RequestID)
 
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -561,21 +553,11 @@ func (s *AutoAgentService) requestWorkspaceTest(ctx context.Context, req *messag
 }
 
 // HandleWorkspaceTestResult hands a worker's test result to the auto-agent
-// run waiting for it. Results are delivered at least once and only this
-// process's waiters are known: a duplicate or a result nobody waits for
-// (the run ended, another replica) is dropped.
-func (s *AutoAgentService) HandleWorkspaceTestResult(_ context.Context, res *messagequeue.WorkspaceTestResultPayload) error {
-	s.testMu.Lock()
-	ch, ok := s.testWaiters[res.RequestID]
-	s.testMu.Unlock()
-	if !ok {
-		slog.Debug("workspace test result without waiter, dropped", "request_id", res.RequestID)
-		return nil
-	}
-	select {
-	case ch <- res:
-	default: // a duplicate of a result already handed over
-	}
+// run waiting for it, on this replica or through the relay on another one
+// (KI-86). Results are delivered at least once: a duplicate or a result
+// nobody waits for (the run ended) is dropped.
+func (s *AutoAgentService) HandleWorkspaceTestResult(ctx context.Context, res *messagequeue.WorkspaceTestResultPayload) error {
+	s.testWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), res.RequestID, res)
 	return nil
 }
 

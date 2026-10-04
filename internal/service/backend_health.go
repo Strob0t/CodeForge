@@ -54,7 +54,7 @@ func (s *BackendHealthService) CheckHealth(ctx context.Context) ([]BackendHealth
 		return nil, err
 	}
 
-	ch := s.waiter.register(requestID)
+	ch := s.waiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.waiter.unregister(requestID)
 
 	payload, err := json.Marshal(map[string]string{"request_id": requestID})
@@ -77,11 +77,11 @@ func (s *BackendHealthService) CheckHealth(ctx context.Context) ([]BackendHealth
 }
 
 // HandleHealthResult delivers a health check result from the Python worker.
-func (s *BackendHealthService) HandleHealthResult(_ context.Context, data []byte) error {
+func (s *BackendHealthService) HandleHealthResult(ctx context.Context, data []byte) error {
 	var result backendHealthResult
 	if err := json.Unmarshal(data, &result); err != nil {
 		return fmt.Errorf("unmarshal backend health result: %w", err)
 	}
-	s.waiter.deliver(result.RequestID, &result)
+	s.waiter.deliver(ctx, messagequeue.RelayOf(s.queue), result.RequestID, &result)
 	return nil
 }

@@ -72,7 +72,7 @@ func (s *MemoryService) RecallSync(ctx context.Context, req *memory.RecallReques
 	}
 	req.RequestID = requestID
 
-	ch := s.recallWaiter.register(requestID)
+	ch := s.recallWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.recallWaiter.unregister(requestID)
 
 	data, err := json.Marshal(req)
@@ -100,8 +100,8 @@ func (s *MemoryService) RecallSync(ctx context.Context, req *memory.RecallReques
 
 // HandleRecallResult delivers a recall result from the Python worker to the
 // waiting caller identified by RequestID.
-func (s *MemoryService) HandleRecallResult(_ context.Context, result *memory.RecallResult) {
-	s.recallWaiter.deliver(result.RequestID, result)
+func (s *MemoryService) HandleRecallResult(ctx context.Context, result *memory.RecallResult) {
+	s.recallWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), result.RequestID, result)
 }
 
 // ListByProject returns all memories for a project, directly from the database.

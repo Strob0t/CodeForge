@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/feedback"
 	"github.com/Strob0t/CodeForge/internal/domain/policy"
 	feedbackPort "github.com/Strob0t/CodeForge/internal/port/feedback"
+	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
@@ -46,6 +48,7 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	s.state.SetPendingApproval(key, ch)
 	s.state.SetPendingApprovalRequest(key, tenantctx.FromContext(ctx), req)
 	defer s.state.DeletePendingApproval(key)
+	defer s.serveApproval(key)()
 
 	// Broadcast permission request to connected WebSocket clients.
 	s.hub.BroadcastEvent(ctx, event.AGUIPermissionRequest, *req)
@@ -121,19 +124,48 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 // another tenant's). The web UI's approval page shows it.
 func (s *RuntimeService) PendingApproval(ctx context.Context, runID, callID string) (*event.AGUIPermissionRequestEvent, error) {
 	tenant := tenantctx.FromContext(ctx)
-	tenantID, req, ok := s.state.PendingApprovalRequest(approvalKey(tenant, runID, callID))
-	if !ok || tenantID != tenant {
-		return nil, fmt.Errorf("no pending approval for run %s call %s: %w", runID, callID, domain.ErrNotFound)
+	key := approvalKey(tenant, runID, callID)
+	if tenantID, req, ok := s.state.PendingApprovalRequest(key); ok && tenantID == tenant {
+		return &req, nil
 	}
-	return &req, nil
+	if answer := s.relayApproval(ctx, key, approvalLookup); answer != nil {
+		var req event.AGUIPermissionRequestEvent
+		if err := json.Unmarshal(answer, &req); err == nil {
+			return &req, nil
+		}
+	}
+	return nil, fmt.Errorf("no pending approval for run %s call %s: %w", runID, callID, domain.ErrNotFound)
 }
 
 // ResolveApproval is called from the HTTP handler when a user approves or denies
 // a pending tool call. Returns true if a pending approval of the caller's
-// tenant (from ctx) was found and resolved; another tenant's approval is
-// not found.
+// tenant (from ctx) was found and resolved - on this replica or, through the
+// relay, on the replica whose run waits for it (KI-86); another tenant's
+// approval is not found.
 func (s *RuntimeService) ResolveApproval(ctx context.Context, runID, callID, decision string) bool {
+	if decision != approvalAllow && decision != approvalDeny {
+		return false
+	}
 	key := approvalKey(tenantctx.FromContext(ctx), runID, callID)
+	return s.resolveLocalApproval(key, decision) || s.relayApproval(ctx, key, decision) != nil
+}
+
+// Approval decisions, and the relay request that asks for the pending call.
+const (
+	approvalAllow  = "allow"
+	approvalDeny   = "deny"
+	approvalLookup = "lookup"
+)
+
+// approvalRelayKey is the relay key of a pending approval; key names the
+// tenant, so a decision or lookup of another tenant meets no waiter.
+func approvalRelayKey(key string) string {
+	return "approval:" + key
+}
+
+// resolveLocalApproval hands decision to the approval of key that waits on
+// this replica; once.
+func (s *RuntimeService) resolveLocalApproval(key, decision string) bool {
 	ch, ok := s.state.LoadAndDeletePendingApproval(key)
 	if !ok {
 		return false
@@ -144,6 +176,51 @@ func (s *RuntimeService) ResolveApproval(ctx context.Context, runID, callID, dec
 	default:
 		return false
 	}
+}
+
+// serveApproval lets the other Go Core replica decide or look up the
+// approval of key while it waits here (KI-86) and returns the stop.
+func (s *RuntimeService) serveApproval(key string) func() {
+	relay := messagequeue.RelayOf(s.queue)
+	if relay == nil {
+		return func() {}
+	}
+	stop, err := relay.Serve(approvalRelayKey(key), func(data []byte) []byte {
+		switch msg := string(data); msg {
+		case approvalLookup:
+			if _, req, ok := s.state.PendingApprovalRequest(key); ok {
+				if answer, err := json.Marshal(req); err == nil {
+					return answer
+				}
+			}
+		case approvalAllow, approvalDeny:
+			if s.resolveLocalApproval(key, msg) {
+				return []byte("resolved")
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Warn("approval decidable on this replica only", "error", err)
+		return func() {}
+	}
+	return stop
+}
+
+// relayApproval sends msg (a decision or the lookup) to the replica whose
+// run waits for the approval of key and returns its answer, nil when none
+// waits or the relay failed.
+func (s *RuntimeService) relayApproval(ctx context.Context, key, msg string) []byte {
+	relay := messagequeue.RelayOf(s.queue)
+	if relay == nil {
+		return nil
+	}
+	answer, err := relay.Request(ctx, approvalRelayKey(key), []byte(msg))
+	if err != nil {
+		slog.Warn("approval relay failed", "error", err)
+		return nil
+	}
+	return answer
 }
 
 // LogFeedbackAudit records a feedback decision in the audit trail.

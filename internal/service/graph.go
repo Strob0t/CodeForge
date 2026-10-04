@@ -139,7 +139,7 @@ func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSym
 		return nil, err
 	}
 
-	ch := s.searchWaiter.register(requestID)
+	ch := s.searchWaiter.register(requestID, messagequeue.RelayOf(s.queue))
 	defer s.searchWaiter.unregister(requestID)
 
 	payload := messagequeue.GraphSearchRequestPayload{
@@ -178,8 +178,8 @@ func (s *GraphService) SearchSync(ctx context.Context, projectID string, seedSym
 }
 
 // HandleSearchResult delivers a graph search result to the waiting caller.
-func (s *GraphService) HandleSearchResult(_ context.Context, payload *messagequeue.GraphSearchResultPayload) {
-	s.searchWaiter.deliver(payload.RequestID, payload)
+func (s *GraphService) HandleSearchResult(ctx context.Context, payload *messagequeue.GraphSearchResultPayload) {
+	s.searchWaiter.deliver(ctx, messagequeue.RelayOf(s.queue), payload.RequestID, payload)
 }
 
 // GetStatus returns the in-memory graph status for a project, or nil if unknown.
