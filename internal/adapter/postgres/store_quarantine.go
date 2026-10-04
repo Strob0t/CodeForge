@@ -110,8 +110,12 @@ func (s *Store) ListExpiredQuarantineMessages(ctx context.Context, limit int) ([
 // withdrawal or another replica's sweep that got there first (PostgreSQL
 // re-checks the predicate after waiting for its row lock) leaves it, and the
 // task, alone - and the task only while it is submitted and names the
-// message. The message's row is locked before the task's, and no other
-// writer holds both, so the transaction cannot deadlock with a decision.
+// message or no held message yet. The A2A executor records the held
+// message's ID on the task only after screening stored the message: a task
+// in that gap (or whose executor died there) would otherwise wait forever,
+// and its executor's late record fails on the version this update bumps.
+// The message's row is locked before the task's, and no other writer holds
+// both, so the transaction cannot deadlock with a decision.
 func (s *Store) ExpireQuarantineMessage(ctx context.Context, id, heldTaskID string, review *quarantine.Review) (database.QuarantineExpiry, error) {
 	var res database.QuarantineExpiry
 	tid := tenantFromCtx(ctx)
@@ -136,7 +140,7 @@ func (s *Store) ExpireQuarantineMessage(ctx context.Context, id, heldTaskID stri
 		err := tx.QueryRow(ctx,
 			`UPDATE a2a_tasks SET state = 'rejected', version = version + 1, updated_at = now()
 			 WHERE id = $1 AND tenant_id = $2 AND state = 'submitted'
-			   AND metadata->>'`+a2adomain.MetadataQuarantineMessageID+`' = $3
+			   AND COALESCE(metadata->>'`+a2adomain.MetadataQuarantineMessageID+`', '') IN ('', $3)
 			 RETURNING direction`,
 			heldTaskID, tid, id).Scan(&res.RejectedTaskDirection)
 		switch {

@@ -84,7 +84,12 @@ type Quarantine struct {
 	QuarantineThreshold float64 `yaml:"quarantine_threshold"` // Risk score threshold for quarantine (default: 0.7)
 	BlockThreshold      float64 `yaml:"block_threshold"`      // Risk score threshold for immediate block (default: 0.95)
 	MinTrustBypass      string  `yaml:"min_trust_bypass"`     // Minimum trust level to bypass quarantine (default: "verified")
-	ExpiryHours         int     `yaml:"expiry_hours"`         // Hours until unreviewed messages expire (default: 72)
+	ExpiryHours         int     `yaml:"expiry_hours"`         // Hours until unreviewed messages expire (default: 72; 1 to 2562047)
+}
+
+// Expiry is how long a held message waits for a review before it expires.
+func (q *Quarantine) Expiry() time.Duration {
+	return time.Duration(q.ExpiryHours) * time.Hour
 }
 
 // Limits holds configurable caps and timeouts that were previously hardcoded.

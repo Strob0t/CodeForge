@@ -37,9 +37,9 @@ type QuarantineStore interface {
 	// ExpireQuarantineMessage moves a pending, overdue message of the
 	// current tenant to expired with review, and in the same transaction
 	// rejects the inbound A2A task heldTaskID ("" for none) if it still
-	// waits for the message (submitted and naming it). A message that is
-	// not pending, not overdue or not the tenant's is left alone
-	// (Expired false).
+	// waits for the message (submitted, naming it or no held message yet).
+	// A message that is not pending, not overdue or not the tenant's is left
+	// alone (Expired false).
 	ExpireQuarantineMessage(ctx context.Context, id, heldTaskID string, review *quarantine.Review) (QuarantineExpiry, error)
 }
 

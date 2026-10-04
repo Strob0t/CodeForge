@@ -190,6 +190,37 @@ func TestStore_ExpireQuarantineMessage_TaskNoLongerWaiting(t *testing.T) {
 	}
 }
 
+// KI-91 review: the A2A executor creates the task, screens the prompt (the
+// held message is stored) and only then records the message's ID on the
+// task. A message that expires in between (or whose executor died there)
+// left the task submitted forever: the expiry rejected only a task naming the
+// message. A submitted task that names no held message yet is the one its
+// payload names, so it is rejected with the message; the executor's late
+// record then fails on the task's version and cannot revive it.
+func TestStore_ExpireQuarantineMessage_TaskNotYetRecorded(t *testing.T) {
+	f := newStatusFixture(t)
+	msgID, taskID := f.heldA2APrompt(t, longOverdue)
+	unrecorded := f.a2aTask(t, taskID)
+	delete(unrecorded.Metadata, a2adomain.MetadataQuarantineMessageID)
+	if err := f.store.UpdateA2ATask(f.ctx, unrecorded); err != nil {
+		t.Fatalf("UpdateA2ATask: %v", err)
+	}
+	executorView := f.a2aTask(t, taskID) // what the executor holds before it records the ID
+
+	res, err := f.store.ExpireQuarantineMessage(f.ctx, msgID, taskID, expiryReview)
+	if err != nil || !res.Expired || res.RejectedTaskID != taskID {
+		t.Fatalf("expire = %+v, %v; want expired with the unrecorded task rejected", res, err)
+	}
+
+	executorView.Metadata[a2adomain.MetadataQuarantineMessageID] = msgID
+	if err := f.store.UpdateA2ATask(f.ctx, executorView); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("executor's late record = %v, want ErrConflict", err)
+	}
+	if got := f.a2aTask(t, taskID).State; got != a2adomain.TaskStateRejected {
+		t.Fatalf("task = %s, want rejected", got)
+	}
+}
+
 // An overdue message can no longer be approved, even before the sweep
 // expired it; rejecting it is still possible.
 func TestStore_UpdateQuarantineStatus_OverdueIsNotApproved(t *testing.T) {

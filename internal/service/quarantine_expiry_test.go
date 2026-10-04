@@ -69,7 +69,8 @@ func (s *expiryStore) ExpireQuarantineMessage(ctx context.Context, id, heldTaskI
 	}
 	m.Status = quarantine.StatusExpired
 	res := database.QuarantineExpiry{Expired: true}
-	if t, ok := s.a2aTasks[heldTaskID]; ok && t.State == a2adomain.TaskStateSubmitted && t.Metadata[a2adomain.MetadataQuarantineMessageID] == id {
+	if t, ok := s.a2aTasks[heldTaskID]; ok && t.State == a2adomain.TaskStateSubmitted &&
+		(t.Metadata[a2adomain.MetadataQuarantineMessageID] == id || t.Metadata[a2adomain.MetadataQuarantineMessageID] == "") {
 		t.State = a2adomain.TaskStateRejected
 		res.RejectedTaskID, res.RejectedTaskDirection = t.ID, string(t.Direction)
 	}

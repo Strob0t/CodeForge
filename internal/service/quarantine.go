@@ -94,7 +94,7 @@ func (s *QuarantineService) ScreenMessage(ctx context.Context, ann *trust.Annota
 		RiskScore:   score,
 		RiskFactors: factors,
 		CreatedAt:   now,
-		ExpiresAt:   now.Add(time.Duration(s.cfg.ExpiryHours) * time.Hour),
+		ExpiresAt:   now.Add(s.cfg.Expiry()),
 	}
 
 	// Above block threshold — reject immediately.

@@ -518,6 +518,11 @@ func validate(cfg *Config) error {
 	if err := validateRetention(&cfg.Retention); err != nil {
 		return err
 	}
+	if h := cfg.Quarantine.ExpiryHours; h < 1 || int64(h) > maxQuarantineExpiryHours {
+		// 0 or less would make every held message overdue at once; more
+		// overflows time.Duration and wraps into the past (KI-91 review).
+		return fmt.Errorf("quarantine.expiry_hours must be 1 to %d (got %d)", maxQuarantineExpiryHours, h)
+	}
 	if err := validateGitHubWebFlow(&cfg.GitHub); err != nil {
 		return err
 	}
@@ -632,6 +637,10 @@ func validateHeartbeat(r *Runtime) error {
 	}
 	return nil
 }
+
+// maxQuarantineExpiryHours is the largest quarantine.expiry_hours whose
+// duration fits a time.Duration (about 292 years).
+const maxQuarantineExpiryHours = math.MaxInt64 / int64(time.Hour)
 
 // minRetentionPeriod is the shortest retention period accepted. The policy is
 // measured in days; a shorter value is a unit mistake ("30m" meant as months
