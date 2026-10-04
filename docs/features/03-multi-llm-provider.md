@@ -65,6 +65,8 @@ Requests without a scenario tag route to **all models** (no tag filtering). Spec
 
 **Model list:** `GET /llm/models` and `GET /llm/discover` list the models of local servers and of providers with an API key one by one, and the route of a cloud provider without a key once (for example `groq/*`) instead of the hundreds of models LiteLLM expands from its catalogue; models of such a route can still be used by name (for example with a user's own key). Which providers have a key reaches the Core and the worker as names only: `litellm.keyed_providers` / `CODEFORGE_LITELLM_KEYED_PROVIDERS`, which `docker-compose.prod.yml` derives from the key variables, plus provider key variables set in the process' own environment. Routes with an `api_base` (Ollama, LM Studio, other OpenAI-compatible servers) keep the models their server reports. The default model is never a wildcard route; when the Core knows no model (no configured model, no keyed provider, no local model) it sends the run without one and the worker resolves it or fails the run with the reason.
 
+**User keys and fallback:** with a user's own provider key, a run falls back only to models of that key's provider; other providers' fallbacks are skipped and logged, so the key never reaches another provider.
+
 ### Docker Compose Configuration
 
 LiteLLM Proxy runs as a Docker sidecar in both dev and production environments.

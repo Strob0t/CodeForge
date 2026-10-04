@@ -211,6 +211,11 @@ Go Core replica, but the caller waits in the memory of one. A waiter therefore s
 local waiter requests the key, and "no responders" means nobody waits. This covers syncWaiter results, HITL
 decisions and approval lookups (keys contain the tenant), and the auto-agent's waits. Only the `core` user may use
 `core.relay.>`.
+A replica acts only on a relay request whose reply is in the Go Core's inboxes (`_INBOX_core.`, set on every Core
+connection): the NATS server does not check a push consumer's deliver subject or the reply subject of a JetStream API
+request, so a stream message the worker published can reach a relay subject, with a `$JS.ACK.*` reply or none, and is
+dropped. A relayed result is the worker's message as it came (re-encoded without HTML escaping where the message is
+not at hand), so it fits the payload limit like the original.
 
 The constants live in `internal/adapter/nats/nats.go` and `workers/codeforge/nats_subjects.py`; the worker's
 consumer provisioning, delivery count and heartbeat in `workers/codeforge/consumer/_delivery.py`.

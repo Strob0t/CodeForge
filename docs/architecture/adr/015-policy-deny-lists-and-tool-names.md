@@ -93,8 +93,10 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
     `PYTHONIOENCODING`, `PYTHONUTF8`, `PYTHONFAULTHANDLER`, `GOOS`, `GOARCH`, `CGO_ENABLED`;
   - the locale: `LANG`, `LANGUAGE`, `LC_ALL` and the glibc `LC_*` categories, whose value must not contain `/` (glibc
     takes such a name for a path to locale data);
-  - the module search paths `PYTHONPATH` and `NODE_PATH`: an allow list for an interpreted tool trusts the modules it
-    can import, as it trusts the build files of a build tool.
+  - the module search paths `PYTHONPATH` and `NODE_PATH`: accepted so deny lists see the command, but a simple
+    command that sets one is never matched by an allow rule that names commands (command allow list, an allow rule's
+    sub-pattern, Allow-Always, which refuses it), since `PYTHONPATH=. python3 -m json.tool` runs `./sitecustomize.py`.
+    It falls through to later rules and the profile's default (S7-F review, 2026-10-04).
 
   A deny list of names could not be complete (`CC_<target>`, `GOPACKAGESDRIVER`, `PYTEST_PLUGINS`, `PIP_INDEX_URL`,
   `UV_*`, lower-case proxies, CA overrides, ...). `PYTHONWARNINGS` is not allowed: a category `foo.Bar` imports `foo`.
@@ -114,6 +116,18 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   `unbuffer`, `chronic`, `ifne`, `systemd-run`, `fakeroot`, `faketime`, `valgrind`, `ltrace`, `firejail`, `bwrap`,
   `xvfb-run`, `dbus-run-session`, `run-parts`, `at`, `batch`, `tmux`, `screen`) are opaque, like `stdbuf`, `setsid`,
   `watch`, `flock` and `parallel`.
+- GNU make (S7-F review, 2026-10-04): options are parsed like make 4.4's getopt. Short clusters are walked letter by
+  letter: `-E` anywhere is code; `-C`/`-f`/`-I`/`-o`/`-W` take the rest of the cluster or the next word; `-j`/`-l`/`-O`
+  take only an attached value. Long options must be exact names (getopt accepts unambiguous prefixes, so `--ev=` is
+  `--eval=`); every other long option, `--temp-stdin` and the jobserver internals fail closed. A makefile named `-`,
+  `/dev/...` or `/proc/...` is code in every form. An assignment after `--` still counts.
+- Package runners (S7-F review, 2026-10-04): `poetry run`, `uv run`, `pipenv run`, `pdm run` and `bundle exec` are
+  wrappers; the command after them is the segment, so deny lists see it and allow rules name it (`pytest`, not
+  `poetry run pytest`). An option before it, no command, the run subcommand after an option or another subcommand
+  (`uv tool run`), a computed word before the subcommand, and xargs into a runner fail closed; other subcommands are
+  plain commands. `pipenv run` loads the project's `.env`, so its command is never allow-matched and counts as "with
+  assignments" for make. An allow rule that names the inner command trusts the project environment the runner sets up
+  (`.venv/bin`, the Gemfile, build hooks), as matching `./pytest` by basename does (KI-140).
 
 ## Consequences
 
