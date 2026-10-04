@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/config"
@@ -272,6 +273,8 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 		}
 	}
 
+	s.cancelDebatesOf(ctx, p)
+
 	s.appendPlanEvent(ctx, event.TypePlanCancelled, p)
 	s.broadcastPlanStatus(ctx, p)
 
@@ -281,6 +284,26 @@ func (s *OrchestratorService) CancelPlan(ctx context.Context, planID string) err
 
 	slog.Info("plan cancelled", "plan_id", planID)
 	return nil
+}
+
+// cancelDebatesOf cancels the debate sub-plans that steps of the cancelled
+// plan p run, and with them their runs (KI-94). They are found by name in
+// the store, so a debate that another replica or the process before a
+// restart started is cancelled too.
+func (s *OrchestratorService) cancelDebatesOf(ctx context.Context, p *plan.ExecutionPlan) {
+	plans, err := s.store.ListPlansByProject(ctx, p.ProjectID)
+	if err != nil {
+		logBestEffort(ctx, err, "ListPlansByProject: debates of a cancelled plan not cancelled", slog.String("plan_id", p.ID))
+		return
+	}
+	for i := range plans {
+		debate := &plans[i]
+		if debate.Status.IsTerminal() || !strings.HasPrefix(debate.Name, debatePlanPrefix(p.ID)) {
+			continue
+		}
+		logBestEffort(ctx, s.CancelPlan(ctx, debate.ID), "CancelPlan: debate of a cancelled plan",
+			slog.String("plan_id", p.ID), slog.String("debate_plan_id", debate.ID))
+	}
 }
 
 // markPlanCancelled cancels an active plan and returns it with the steps as

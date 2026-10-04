@@ -293,6 +293,13 @@ func (s *OrchestratorService) evaluateStepReview(ctx context.Context, planID, pr
 	return routed
 }
 
+// debatePlanPrefix starts the name of every debate sub-plan of a step of
+// plan parentID ("debate:<plan>:<step>"); cancelling the plan finds its
+// debates by it.
+func debatePlanPrefix(parentID string) string {
+	return "debate:" + parentID + ":"
+}
+
 // startDebate creates a ping_pong sub-plan (proponent + moderator) for a step
 // that the review router flagged for moderated review, and reports whether
 // the debate started. The caller holds s.mu: the sub-plan is started without
@@ -307,7 +314,7 @@ func (s *OrchestratorService) startDebate(ctx context.Context, p *plan.Execution
 	}
 
 	debateReq := &plan.CreatePlanRequest{
-		Name:        fmt.Sprintf("debate:%s:%s", p.ID, step.ID),
+		Name:        debatePlanPrefix(p.ID) + step.ID,
 		Description: fmt.Sprintf("Multi-agent debate for step %s", step.ID),
 		ProjectID:   p.ProjectID,
 		TeamID:      p.TeamID,
@@ -431,6 +438,14 @@ func (s *OrchestratorService) handleDebateComplete(ctx context.Context, debatePl
 		Status:       status,
 		Synthesis:    synthesis,
 	})
+
+	// A plan that ended meanwhile (cancelled) keeps its step as it is: the
+	// step must not become pending again (KI-94).
+	if parentPlan.Status != plan.StatusRunning {
+		slog.Info("debate ended after its plan ended, its step is left as it is",
+			"debate_plan_id", debatePlanID, "plan_id", ds.ParentPlanID, "plan_status", parentPlan.Status)
+		return
+	}
 
 	if status != string(plan.StatusCompleted) {
 		slog.Warn("debate failed, proceeding with original step without debate context",

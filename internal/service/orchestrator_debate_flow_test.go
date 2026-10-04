@@ -280,3 +280,72 @@ func TestReviewRouter_LLMCallDoesNotHoldTheSchedulingLock(t *testing.T) {
 		}
 	}
 }
+
+// KI-94: cancelling a plan cancels the debate a step of it runs - the
+// debate's runs stop - and the cancelled step stays cancelled when the
+// debate ends.
+func TestDebate_CancelPlanCancelsItsDebate(t *testing.T) {
+	store, orchSvc, _ := newDebateSetup(true)
+	ctx := context.Background()
+	p, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{
+		Name: "cancelled", ProjectID: "proj-1", Protocol: plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("StartPlan: %v", err)
+	}
+	debate := debatePlanOf(t, store, p.ID)
+	debateRun := debate.Steps[0].RunID
+
+	within(t, "CancelPlan", func() {
+		if err := orchSvc.CancelPlan(ctx, p.ID); err != nil {
+			t.Errorf("CancelPlan: %v", err)
+		}
+	})
+
+	if got := planState(t, store, debate.ID); got.Status != plan.StatusCancelled || got.Steps[0].Status != plan.StepStatusCancelled {
+		t.Fatalf("debate %s with step %s, want both cancelled", got.Status, got.Steps[0].Status)
+	}
+	if r, err := store.GetRun(ctx, debateRun); err != nil || r.Status != run.StatusCancelled {
+		t.Fatalf("debate run = %+v, %v; want it cancelled", r, err)
+	}
+	if got := planState(t, store, p.ID); got.Status != plan.StatusCancelled || got.Steps[0].Status != plan.StepStatusCancelled {
+		t.Fatalf("plan %s with step %s, want both cancelled (the step not reset by the debate's end)", got.Status, got.Steps[0].Status)
+	}
+}
+
+// KI-94: a debate that ends after its parent plan was cancelled (it was not
+// found to cancel, e.g. created meanwhile) leaves the parent's step as it is.
+func TestDebate_EndAfterTheParentWasCancelled(t *testing.T) {
+	store, orchSvc, _ := newDebateSetup(true)
+	ctx := context.Background()
+	p, err := orchSvc.CreatePlan(ctx, &plan.CreatePlanRequest{
+		Name: "parent", ProjectID: "proj-1", Protocol: plan.ProtocolSequential,
+		Steps: []plan.CreateStepRequest{{TaskID: "t1", AgentID: "a1"}},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	if _, err := orchSvc.StartPlan(ctx, p.ID); err != nil {
+		t.Fatalf("StartPlan: %v", err)
+	}
+	debate := debatePlanOf(t, store, p.ID)
+	// The parent is cancelled in the store only, as by another replica that
+	// does not know the debate yet.
+	if err := store.UpdatePlanStatus(ctx, p.ID, plan.StatusCancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePlanStepStatus(ctx, p.Steps[0].ID, plan.StepStatusCancelled, "", "plan cancelled"); err != nil {
+		t.Fatal(err)
+	}
+
+	completeStepRun(t, store, orchSvc, debate.ID, 0)
+	completeStepRun(t, store, orchSvc, debate.ID, 1)
+
+	if got := planState(t, store, p.ID).Steps[0]; got.Status != plan.StepStatusCancelled {
+		t.Fatalf("parent step = %s after its debate ended, want it cancelled", got.Status)
+	}
+}
