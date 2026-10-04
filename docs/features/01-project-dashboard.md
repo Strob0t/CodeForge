@@ -98,7 +98,7 @@ POST   /api/v1/projects/{id}/git/checkout  # Switch branch
 - [x] Frontend OAuth: "Connect GitHub" button in Settings > VCS Accounts asks `POST /api/v1/auth/github` for the URL and opens it; the result is shown when GitHub sends the browser back to `/settings?github_oauth=...`.
 - [x] Forgejo/Codeberg compatibility: Gitea adapter with variant config, `DetectForgejo()`, provider aliases (`forgejo`, `codeberg`), Forgejo/Codeberg options in Settings > VCS Accounts (`VCSSection.tsx`).
 - [x] Batch operations: `POST /projects/batch/{delete,pull,status}` endpoints, concurrent fan-out, frontend multi-select with batch action bar.
-- [x] Cross-repo search: `POST /search` aggregation endpoint, frontend SearchPage with debounced input, project filter, results with code snippets. Not reachable: `SearchPage` has no route since the sidebar restructure (c6831971).
+- [x] Cross-repo search: `POST /search` aggregation endpoint, frontend SearchPage with debounced input, project filter, results with code snippets. Routed at `/search` with a sidebar entry (KI-121, 2026-10-04); conversation hits (`POST /search/conversations`) open in their project's chat.
 
 ### UX/UI Improvements (2026-03-18)
 

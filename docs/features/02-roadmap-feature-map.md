@@ -106,6 +106,7 @@ GET /api/v1/projects/{id}/roadmap/ai?format=json|yaml|markdown
 - [x] 4 new REST endpoints: `POST /projects/{id}/roadmap/import`, `POST /projects/{id}/roadmap/import/pm`, `GET /providers/spec`, `GET /providers/pm`.
 - [x] Provider wiring via blank imports + main.go instantiation from registries.
 - [x] Frontend: Import Specs button, Import from PM form (provider dropdown + project ref), import result display.
+- [x] Frontend: "Sync with PM" form (KI-121, 2026-10-04): direction pull, push or both; create new and update existing (both on by default); preview as a dry run, on by default because a push changes the PM tool; an optional token (`provider_config.token`, `api_token` for Plane), never stored; no base URL field (KI-108).
 - [x] 29 new adapter tests (8 openspec, 7 markdownspec, 14 githubpm), all passing.
 
 ### Phase 9D: Plane.so Adapter + Full Auto-Detection + Feature-Map Editor (Completed)
