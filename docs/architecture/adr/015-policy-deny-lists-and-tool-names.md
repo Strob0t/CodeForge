@@ -53,7 +53,7 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   a plain `${name}`, assignment prefixes that are not plain literals (see below), `export`/`declare`/`read`, shells, `eval`/`source`/`alias`/`trap`,
   inline interpreter code, `/dev/tcp`/`/dev/udp` redirections, code-running options (`git -c`, `--output`,
   `--ext-diff`, `go test -exec`/`-toolexec`, `go generate`, `sed e`, awk, `find -exec`, make, npm, tar, rsync, ...),
-  unknown wrapper options. Safe wrappers (`time`, `timeout`, `nice`, `nohup`, `command`, `xargs`) are unwrapped;
+  unknown wrapper options. Safe wrappers (`time`, `timeout`, `nice`, `nohup`, `command`, `env`, `xargs`) are unwrapped, but a wrapper reached through `xargs` is opaque;
   interpreters called only with `--version`/`-V`/`--help` are not inline code.
 - `trust_minimum` on an allow rule requires a trust annotation that meets it; deny and ask rules apply to everyone.
 - Mode tool lists are enforced through `policy.WithModeTools`; the worker reports the turn's mode as `mode_id`. Since KI-69 the worker also offers the LLM only the tools its mode allows (`ToolRegistry.restrict_to_mode`, same rule, kept equal to Go by a test); the Go check stays the enforcement.
@@ -85,17 +85,35 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   checked as `cmd`. They stay opaque when a value is not a plain literal (parameter, command or arithmetic expansion,
   ANSI-C quoting, `~` after `=` or `:`, unquoted glob characters), for `NAME+=`, `NAME[i]=` and quoted names, without
   a command (the assignment persists in the shell), after a wrapper (after `time` it is an assignment, after `nice` or
-  `timeout` a program name), for other `env` options (`-S`, `-C`), and for variables (`internal/domain/policy/command_env.go`,
-  compared in upper case) that change the shell (PATH, IFS, ENV, BASH*, SHELLOPTS, PS0-PS4, PROMPT_COMMAND, CDPATH,
-  PWD, OLDPWD, TEXTDOMAINDIR, ...), point a program at a home or configuration location (*HOME, XDG_*, *CONFIG*), make
-  the loader or libc load code (LD_*, DYLD_*, GCONV_PATH, GETCONF_DIR, GLIBC_TUNABLES, ...), carry code or options
-  (*FLAGS*, *OPT, *OPTS, *OPTIONS, PYTHONSTARTUP, PYTHONWARNINGS, ...), name a program (*PAGER, *EDITOR, BROWSER,
-  *ASKPASS, CC, LESS*, ...) or configure a tool through the environment (GIT_*, NPM_CONFIG_*, YARN_*, CARGO_*,
-  RUSTUP_*, GOTOOLCHAIN, GOPROXY, GOSUMDB, ...). Module search paths (PYTHONPATH, NODE_PATH, PERL5LIB, RUBYLIB,
-  CLASSPATH, GOPATH) are allowed: an allow list for an interpreted tool trusts the modules it can import, as it trusts
-  the build files of a build tool. A refused assignment before or apart from `cd`, or any assignment after `time`,
-  makes later redirection targets unknown. Allow-Always on such a command stores only the executable. The same fix
-  closed a bypass: an assignment after `time` (`time GIT_EXTERNAL_DIFF=... git diff`) hid the command from deny lists.
+  `timeout` a program name), and for other `env` options (`-S`, `-C`).
+  They also stay opaque for every variable that is not on the allow list in `internal/domain/policy/command_env.go`.
+  Names are exact and case-sensitive, as in bash. The list:
+  - output and runtime switches: `CI`, `DEBUG`, `NO_COLOR`, `FORCE_COLOR`, `TERM`, `COLUMNS`, `LINES`, `TZ`,
+    `NODE_ENV`, `RUST_BACKTRACE`, `RUST_LOG`, `PYTHONUNBUFFERED`, `PYTHONDONTWRITEBYTECODE`, `PYTHONHASHSEED`,
+    `PYTHONIOENCODING`, `PYTHONUTF8`, `PYTHONFAULTHANDLER`, `GOOS`, `GOARCH`, `CGO_ENABLED`;
+  - the locale: `LANG`, `LANGUAGE`, `LC_ALL` and the glibc `LC_*` categories, whose value must not contain `/` (glibc
+    takes such a name for a path to locale data);
+  - the module search paths `PYTHONPATH` and `NODE_PATH`: an allow list for an interpreted tool trusts the modules it
+    can import, as it trusts the build files of a build tool.
+
+  A deny list of names could not be complete (`CC_<target>`, `GOPACKAGESDRIVER`, `PYTEST_PLUGINS`, `PIP_INDEX_URL`,
+  `UV_*`, lower-case proxies, CA overrides, ...). `PYTHONWARNINGS` is not allowed: a category `foo.Bar` imports `foo`.
+
+  Any assignment before `make` or `gmake` keeps the command opaque: GNU make turns every environment variable into a
+  make variable, which overrides built-in defaults (`RM`, `CC`) and `?=` assignments.
+
+  A refused assignment before or apart from `cd`, or any assignment after `time`, makes later redirection targets
+  unknown. Allow-Always on such a command stores only the executable. The same fix closed a bypass: an assignment after
+  `time` (`time GIT_EXTERNAL_DIFF=... git diff`) hid the command from deny lists.
+- xargs (KI-128 review, 2026-10-04): xargs appends its input to its command's operands, so a wrapper after it (`env`,
+  `nohup`, `nice`, `timeout`, `time`, `command`, `xargs`) would run a command taken from the input; that is opaque
+  (`echo x | xargs env` used to parse as `echo x` and `env`). `--eof`, `--replace` and `--max-lines` take a value
+  only after `=`, as in GNU xargs (`xargs --replace curl x` runs curl). A replace string (`-I`, `-i`, `--replace`) in
+  the command name is opaque (busybox replaces it there). Programs that run a command from their operands (`ionice`,
+  `chrt`, `taskset`, `numactl`, `prlimit`, `setpriv`, `runuser`, `nsenter`, `setarch`, `sg`, `pkexec`, `script`,
+  `unbuffer`, `chronic`, `ifne`, `systemd-run`, `fakeroot`, `faketime`, `valgrind`, `ltrace`, `firejail`, `bwrap`,
+  `xvfb-run`, `dbus-run-session`, `run-parts`, `at`, `batch`, `tmux`, `screen`) are opaque, like `stdbuf`, `setsid`,
+  `watch`, `flock` and `parallel`.
 
 ## Consequences
 
