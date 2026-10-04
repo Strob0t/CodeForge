@@ -1,31 +1,26 @@
-// The pages that render inside the app shell (sidebar, header), behind the
-// route guard. Every other path renders on its own: the public pages (login,
-// password reset, setup, privacy policy) and the 404 page for unknown paths.
-// Every route of src/index.tsx that is not public must be listed here
-// (appRoutes.test.ts checks it).
+// Which pages render inside the app shell (sidebar, header), behind the route
+// guard. It fails closed: every path does except the public pages (login,
+// password reset, setup, privacy policy), unknown paths included (their 404
+// page then shows after sign-in). The router matches static segments
+// case-insensitively and ignores empty ones (/SETTINGS, /settings//), so a
+// path is compared in that form; a list of guarded paths would miss such
+// variants (S7-G review).
 
-const SHELL_PATHS: ReadonlySet<string> = new Set([
-  "/",
-  "/projects",
-  "/costs",
-  "/ai",
-  "/activity",
-  "/knowledge",
-  "/mcp",
-  "/a2a",
-  "/microagents",
-  "/prompts",
-  "/settings",
-  "/benchmarks",
-  "/quarantine",
-  "/routing",
-  "/search",
-  "/design-system",
+const PUBLIC_PATHS: ReadonlySet<string> = new Set([
+  "/login",
+  "/change-password",
+  "/setup",
+  "/forgot-password",
+  "/reset-password",
+  "/privacy",
 ]);
 
-/** Prefixes of the shell pages with a path parameter (/projects/:id, ...). */
-const SHELL_PREFIXES: readonly string[] = ["/projects/", "/approvals/", "/channels/"];
+/** The path as the router matches it: empty segments dropped, lowercase. */
+function normalized(pathname: string): string {
+  const segments = pathname.split("/").filter((segment) => segment !== "");
+  return "/" + segments.map((segment) => segment.toLowerCase()).join("/");
+}
 
 export function isShellPath(pathname: string): boolean {
-  return SHELL_PATHS.has(pathname) || SHELL_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  return !PUBLIC_PATHS.has(normalized(pathname));
 }

@@ -41,19 +41,28 @@ describe("app routes", () => {
     "/approvals/r/c",
     "/settings",
     "/search",
-  ])("renders %s inside the app shell", (path) => {
+    // S7-G review: the router matches static segments case-insensitively and
+    // ignores empty segments, so these render their page: they must not
+    // escape the route guard. Unknown paths are guarded too (fail closed).
+    "/SETTINGS",
+    "/settings/",
+    "/settings//",
+    "//settings",
+    "/Projects/abc",
+    "/CHANNELS/x",
+    "/Design-System",
+    "/nope",
+    "/channels",
+    "",
+    "/",
+  ])("renders %j inside the app shell, behind the route guard", (path) => {
     expect(isShellPath(path)).toBe(true);
   });
 
-  it.each([
-    ...PUBLIC_PATHS,
-    "",
-    "/nope",
-    "/channels",
-    "/design-systems",
-    "/settingsx",
-    "/SETTINGS",
-  ])("renders %j without the app shell", (path) => {
-    expect(isShellPath(path)).toBe(false);
-  });
+  it.each([...PUBLIC_PATHS, "/LOGIN", "/login/", "//Privacy//", "/Reset-Password"])(
+    "renders the public page %j on its own",
+    (path) => {
+      expect(isShellPath(path)).toBe(false);
+    },
+  );
 });

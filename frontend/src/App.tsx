@@ -424,7 +424,7 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
     setTimeout(() => void checkProjects(), 500);
   });
 
-  // Unknown paths render the 404 page without the shell, also for signed-out users.
+  // Every page but the public ones is guarded, unknown paths included (fail closed).
   const isShellPage = (): boolean => isShellPath(location.pathname);
 
   return (
