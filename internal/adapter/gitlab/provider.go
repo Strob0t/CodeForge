@@ -232,6 +232,8 @@ func (p *Provider) doRequest(ctx context.Context, method, reqURL string, body io
 		if resp.StatusCode == http.StatusNotFound {
 			// The project or issue the caller referenced does not exist (or
 			// the token cannot see it): a reference to correct, not a fault.
+			// The caller gets a plain 404; the operator sees GitLab's answer.
+			slog.WarnContext(ctx, "gitlab answered not found", "method", method, "origin", origin, "status", resp.StatusCode)
 			return nil, fmt.Errorf("%s: %w", status, domain.ErrNotFound)
 		}
 		return nil, errors.New(status)

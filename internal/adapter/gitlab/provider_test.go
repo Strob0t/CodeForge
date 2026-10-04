@@ -1,11 +1,15 @@
 package gitlab
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -196,9 +200,14 @@ func TestListItems_UnknownProjectIsNotFound(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, `{"message":"404 Project Not Found"}`, tc.status)
 		}))
+		logged := captureWarnings(t)
 		p := newLoopbackProvider(t, srv.URL, "test-token")
 		_, err := p.ListItems(context.Background(), "no/such-project")
 		srv.Close()
+		// The operator still sees what GitLab answered (KI-149 review).
+		if tc.wantNotFound && (!strings.Contains(logged.String(), "level=WARN") || !strings.Contains(logged.String(), strconv.Itoa(tc.status))) {
+			t.Errorf("status %d: warning log %q, want the upstream status", tc.status, logged.String())
+		}
 		if err == nil {
 			t.Fatalf("status %d: expected an error", tc.status)
 		}
@@ -206,4 +215,15 @@ func TestListItems_UnknownProjectIsNotFound(t *testing.T) {
 			t.Errorf("status %d: errors.Is(err, ErrNotFound) = %v, want %v (%v)", tc.status, got, tc.wantNotFound, err)
 		}
 	}
+}
+
+// captureWarnings records what is logged at warn and above while the test
+// runs (the tests of this package do not run in parallel).
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
 }

@@ -1,12 +1,15 @@
 package plane
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -583,7 +586,23 @@ func TestListItems_RefErrorsCarryDomainSentinels(t *testing.T) {
 		http.Error(w, "not found", http.StatusNotFound)
 	}))
 	defer srv.Close()
+	logged := captureWarnings(t)
 	if _, err := newTestProvider(t, srv.URL).ListItems(context.Background(), "ws/no-such-project"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("unknown project: err = %v, want ErrNotFound", err)
 	}
+	// The operator still sees what Plane answered (KI-149 review).
+	if !strings.Contains(logged.String(), "level=WARN") || !strings.Contains(logged.String(), "404") {
+		t.Errorf("warning log %q, want the upstream status", logged.String())
+	}
+}
+
+// captureWarnings records what is logged at warn and above while the test
+// runs (the tests of this package do not run in parallel).
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	neturl "net/url"
 	"strings"
@@ -187,6 +188,8 @@ func (p *Provider) ListItems(ctx context.Context, projectRef string) ([]pmprovid
 				return nil, fmt.Errorf("plane: list issues: status %d (reading body: %w)", resp.StatusCode, readErr)
 			}
 			if resp.StatusCode == http.StatusNotFound {
+				// The caller gets a plain 404; the operator sees Plane's answer.
+				slog.WarnContext(ctx, "plane answered not found", "project_ref", projectRef, "status", resp.StatusCode)
 				return nil, fmt.Errorf("plane: list issues of %q: %w", projectRef, domain.ErrNotFound)
 			}
 			return nil, fmt.Errorf("plane: list issues: status %d: %s", resp.StatusCode, string(body))
