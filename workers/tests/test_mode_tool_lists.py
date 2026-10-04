@@ -180,7 +180,9 @@ async def test_conversation_offers_only_the_mode_tools(monkeypatch: pytest.Monke
     worker._notifications = worker._js
     seen: dict[str, list[str]] = {}
 
-    async def build_messages(run_msg: object, runtime: object, registry: ToolRegistry, log: object) -> list[object]:
+    async def build_messages(
+        run_msg: object, runtime: object, registry: ToolRegistry, log: object, *, model: str
+    ) -> list[object]:
         seen["prompt_tools"] = list(registry.tool_names)
         return []
 

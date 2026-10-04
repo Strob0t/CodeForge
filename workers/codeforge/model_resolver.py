@@ -183,11 +183,15 @@ def _select_best_model(models: list[str], healthy: set[str]) -> str:
 _cache = _ModelCache()
 
 
+class NoModelAvailableError(RuntimeError):
+    """No model is configured or available; its message tells the operator what to set."""
+
+
 def resolve_model(explicit: str = "") -> str:
     """Return the best available model.
 
     Priority: explicit > CODEFORGE_DEFAULT_MODEL env var > LiteLLM auto-discovery.
-    Raises RuntimeError if no model can be resolved.
+    Raises NoModelAvailableError if no model can be resolved.
     """
     if explicit:
         return explicit
@@ -200,9 +204,11 @@ def resolve_model(explicit: str = "") -> str:
     if best:
         return best
 
-    raise RuntimeError(
-        "No LLM model available. Configure CODEFORGE_DEFAULT_MODEL or ensure LiteLLM has at least one reachable model."
+    msg = (
+        "No LLM model available. Configure CODEFORGE_DEFAULT_MODEL or ensure LiteLLM has at least one reachable "
+        "model (a local model, or a provider key named in CODEFORGE_LITELLM_KEYED_PROVIDERS)."
     )
+    raise NoModelAvailableError(msg)
 
 
 def get_available_models() -> list[str]:

@@ -24,6 +24,7 @@ from codeforge.consumer._conversation_skill_integration import (
 from codeforge.consumer._delivery import stream_sequence
 from codeforge.consumer._subjects import SUBJECT_CONVERSATION_RUN_COMPLETE
 from codeforge.loop_config import build_loop_config, resolve_model_capability
+from codeforge.model_resolver import NoModelAvailableError
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
 from codeforge.runtime import RuntimeClient, heartbeat_interval
@@ -249,13 +250,19 @@ class ConversationHandlerMixin:
         runtime: RuntimeClient,
         registry: ToolRegistryLike,
         log: structlog.stdlib.BoundLogger,
+        *,
+        model: str,
     ) -> list[dict[str, str]]:
-        """Build the message list from system prompt, history, context, and session info."""
+        """Build the message list from system prompt, history, context, and session info.
+
+        *model* is the model the run calls (resolved by routing or the default
+        model when the run start names none).
+        """
         from codeforge.history import ConversationHistoryManager, HistoryConfig
 
         # The capability selects the tool guide and the context limit sizes
         # the history (and picks a compact guide for small-context models).
-        capability = await resolve_model_capability(self._llm, run_msg.model)
+        capability = await resolve_model_capability(self._llm, model)
 
         system_prompt, loaded_skills = await build_system_prompt(
             run_msg,
@@ -379,8 +386,10 @@ class ConversationHandlerMixin:
                     # whose completion was already published is not failed again.
                     logger.exception("failed to process conversation run", error=str(exc))
                     if not work.completed:
-                        # A refused tool identity names its reason (tenant, tool UID, remedy).
-                        reason = str(exc) if isinstance(exc, ToolIsolationError) else "internal worker error"
+                        # A refused tool identity names its reason (tenant, tool UID,
+                        # remedy), a missing model what to configure (KI-125).
+                        named = isinstance(exc, (ToolIsolationError, NoModelAvailableError))
+                        reason = str(exc) if named else "internal worker error"
                         await self._publish_failed_completion(run_msg, reason)
         finally:
             self._active_runs.discard(run_id)
@@ -436,19 +445,21 @@ class ConversationHandlerMixin:
 
             await self._maybe_prefetch_docs(workbench, run_msg, log)
 
-            messages = await self._build_conversation_messages(run_msg, runtime, registry, log)
-
             user_prompt = ""
             for m in run_msg.messages:
                 if m.role == "user" and m.content:
                     user_prompt = m.content
                     break
 
+            # The model first: the prompt and history are sized for its
+            # capability, also when the Go Core sent none (KI-125).
             primary_model, routing, fallback_models = await self._resolve_routing_and_fallbacks(
                 run_msg,
                 user_prompt,
                 log,
             )
+
+            messages = await self._build_conversation_messages(run_msg, runtime, registry, log, model=primary_model)
 
             timeout = int(os.getenv("CODEFORGE_CONVERSATION_TIMEOUT", "3600"))
             try:

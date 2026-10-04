@@ -116,14 +116,12 @@ func (s *ConversationService) resolveFullAutoGate(ctx context.Context, proj *pro
 }
 
 // resolveModelAndMode resolves the LLM model and agent mode for a conversation run.
-// modeID is the preferred mode; if empty, conv.Mode or "coder" is used.
-func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMode string) (model string, resolvedMode *messagequeue.ModePayload, autonomy int, err error) {
+// modeID is the preferred mode; if empty, conv.Mode or "coder" is used. An
+// empty model leaves the choice to the worker (see resolveModel).
+func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMode string) (model string, resolvedMode *messagequeue.ModePayload, autonomy int) {
 	model = explicitModel
 	if model == "" {
 		model = s.resolveModel()
-	}
-	if model == "" {
-		return "", nil, 0, fmt.Errorf("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
 	}
 
 	if s.modeSvc != nil {
@@ -144,7 +142,7 @@ func (s *ConversationService) resolveModelAndMode(explicitModel, modeID, convMod
 			}
 		}
 	}
-	return model, resolvedMode, autonomy, nil
+	return model, resolvedMode, autonomy
 }
 
 // buildMCPDefinitions builds the MCP server definition payloads for a
@@ -273,10 +271,7 @@ func (s *ConversationService) dispatchAgenticRun(
 	protoMessages := s.historyToPayload(history)
 
 	// Resolve model and mode.
-	model, resolvedMode, modeAutonomy, modeErr := s.resolveModelAndMode(opts.model, modeID, conv.Mode)
-	if modeErr != nil {
-		return modeErr
-	}
+	model, resolvedMode, modeAutonomy := s.resolveModelAndMode(opts.model, modeID, conv.Mode)
 
 	// Resolve policy profile (the same resolution the tool-call evaluation uses).
 	policyProfile := ""
@@ -421,10 +416,7 @@ func (s *ConversationService) SendMessageAgentic(ctx context.Context, conversati
 	// Resolve rollout count (only for autonomy >= 4).
 	rolloutCount := 1
 	if s.agentCfg != nil && s.agentCfg.ConversationRolloutCount > 1 {
-		_, _, modeAutonomy, resolveErr := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
-		if resolveErr != nil {
-			slog.Warn("rollout mode resolution failed, using default autonomy", "error", resolveErr)
-		}
+		_, _, modeAutonomy := s.resolveModelAndMode(req.Model, req.Mode, conv.Mode)
 		if modeAutonomy >= 4 {
 			rolloutCount = min(s.agentCfg.ConversationRolloutCount, 8)
 		}

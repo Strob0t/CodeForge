@@ -462,6 +462,54 @@ func TestSendMessage_DispatchesViaNATS(t *testing.T) {
 	}
 }
 
+// Without a configured model and with no default model discovered, the Core
+// no longer refuses the message (KI-125 review): the worker resolves one
+// (routing, CODEFORGE_DEFAULT_MODEL, its own discovery) or reports the run
+// failed with the reason.
+func TestSendMessage_NoModelLeavesTheChoiceToTheWorker(t *testing.T) {
+	store := &convMockStore{}
+	store.projects = []project.Project{{ID: "proj-1", Name: "Test", WorkspacePath: "/tmp/test"}}
+	modes := service.NewModeService()
+	ctx := context.Background()
+
+	send := map[string]func(svc *service.ConversationService, convID string) error{
+		"simple": func(svc *service.ConversationService, convID string) error {
+			_, err := svc.SendMessage(ctx, convID, &conversation.SendMessageRequest{Content: "Hello"})
+			return err
+		},
+		"agentic": func(svc *service.ConversationService, convID string) error {
+			return svc.SendMessageAgentic(ctx, convID, &conversation.SendMessageRequest{Content: "Hello"})
+		},
+	}
+	for name, sendFn := range send {
+		t.Run(name, func(t *testing.T) {
+			svc := service.NewConversationService(store, &mockBroadcaster{}, "", modes)
+			q := &captureQueue{}
+			svc.SetQueue(q)
+			svc.SetAgentConfig(&config.Agent{MaxLoopIterations: 10})
+			conv, err := svc.Create(ctx, conversation.CreateRequest{ProjectID: "proj-1", Title: name})
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+
+			if err := sendFn(svc, conv.ID); err != nil {
+				t.Fatalf("send without a model: %v", err)
+			}
+			subject, data := q.snapshot()
+			if subject != messagequeue.SubjectConversationRunStart {
+				t.Fatalf("subject = %q, want %s", subject, messagequeue.SubjectConversationRunStart)
+			}
+			var payload messagequeue.ConversationRunStartPayload
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if payload.Model != "" {
+				t.Errorf("model = %q, want empty (the worker resolves it)", payload.Model)
+			}
+		})
+	}
+}
+
 func TestSendMessage_RequiresQueue(t *testing.T) {
 	store := &convMockStore{}
 	bc := &mockBroadcaster{}

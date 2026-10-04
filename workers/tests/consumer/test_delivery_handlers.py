@@ -559,7 +559,7 @@ class TestConversationRun:
     ) -> None:
         msg, _ = jetstream_msg(_conversation_payload(), subject="conversation.run.start")
         monkeypatch.setattr("codeforge.tools.build_default_registry", MagicMock)
-        monkeypatch.setattr(consumer, "_build_conversation_messages", AsyncMock(side_effect=RuntimeError("no model")))
+        monkeypatch.setattr(consumer, "_resolve_routing_and_fallbacks", AsyncMock(side_effect=RuntimeError("no model")))
 
         await consumer._handle_conversation_run(msg)
 

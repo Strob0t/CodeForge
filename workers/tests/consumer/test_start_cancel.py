@@ -226,7 +226,7 @@ class TestCancelListenersReplayFromTheStart:
         self, consumer: TaskConsumer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            consumer, "_build_conversation_messages", AsyncMock(side_effect=RuntimeError("stop after the listener"))
+            consumer, "_resolve_routing_and_fallbacks", AsyncMock(side_effect=RuntimeError("stop after the listener"))
         )
         msg, _ = _conversation_start(seq=10)
 

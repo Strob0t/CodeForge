@@ -78,7 +78,9 @@ async def test_history_truncates_tool_results_at_the_configured_limit() -> None:
         patch("codeforge.consumer._conversation.register_propose_goal_tool"),
         patch("codeforge.consumer._conversation.register_propose_roadmap_tool"),
     ):
-        messages = await handler._build_conversation_messages(run_msg, MagicMock(), MagicMock(), MagicMock())
+        messages = await handler._build_conversation_messages(
+            run_msg, MagicMock(), MagicMock(), MagicMock(), model="openai/gpt-4o"
+        )
 
     tool_messages = [m for m in messages if m.get("role") == "tool"]
     assert len(tool_messages) == 1

@@ -235,6 +235,11 @@ func (s *ConversationService) PromptService() *PromptAssemblyService { return s.
 
 // resolveModel picks the best available model using priority:
 // AgentConfig.DefaultModel > ConversationModel (explicit config) > ModelRegistry.BestModel (auto-discovery).
+// It returns "" when none of them names a model (no keyed provider and no
+// local model discovered, or the registry not refreshed yet): the run is then
+// dispatched without a model and the worker resolves one by routing,
+// CODEFORGE_DEFAULT_MODEL or its own discovery, or reports the run failed
+// with the reason (KI-125). The Core cannot know the worker's default model.
 func (s *ConversationService) resolveModel() string {
 	if s.agentCfg != nil && s.agentCfg.DefaultModel != "" {
 		return s.agentCfg.DefaultModel
@@ -359,11 +364,8 @@ func (s *ConversationService) SendMessage(ctx context.Context, conversationID st
 	systemPrompt := s.buildSystemPrompt(ctx, conv.ProjectID)
 	protoMessages := s.historyToPayload(history)
 
-	// Resolve model.
+	// Resolve model; empty leaves the choice to the worker (see resolveModel).
 	model := s.resolveModel()
-	if model == "" {
-		return nil, errors.New("no LLM model configured — set conversation_model in litellm config or default_model in agent config")
-	}
 
 	// RunID matches conversationID for tool-call policy lookups (the policy system
 	// uses RunID to find the conversation). A separate unique dedup key prevents
