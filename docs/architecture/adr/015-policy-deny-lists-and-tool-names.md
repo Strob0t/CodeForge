@@ -50,7 +50,7 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   closed); allow rules match canonical names only.
 - Shell parsing (`internal/domain/policy/command.go`) models quotes, escapes, ANSI-C quoting (`$'...'`), comments and
   here-doc bodies. Opaque (fail closed): command/process substitution, backticks, `$[...]` and any `${...}` other than
-  a plain `${name}`, assignment prefixes, `env`, `export`/`declare`/`read`, shells, `eval`/`source`/`alias`/`trap`,
+  a plain `${name}`, assignment prefixes that are not plain literals (see below), `export`/`declare`/`read`, shells, `eval`/`source`/`alias`/`trap`,
   inline interpreter code, `/dev/tcp`/`/dev/udp` redirections, code-running options (`git -c`, `--output`,
   `--ext-diff`, `go test -exec`/`-toolexec`, `go generate`, `sed e`, awk, `find -exec`, make, npm, tar, rsync, ...),
   unknown wrapper options. Safe wrappers (`time`, `timeout`, `nice`, `nohup`, `command`, `xargs`) are unwrapped;
@@ -80,6 +80,22 @@ denied. The Safety Layer lists a **Path Blocklist** and a **Command Safety Evalu
   path components; the Go Core runs workspace git only through the hardened `internal/git` entry point.
 - Workspace real path (S6-E follow-up): Bash redirection targets are checked against the workspace path and against its real path with symlinks resolved (`policy.WithWorkspaceRealPath`), so a symlink retargeted after the run started does not move the check. The policy tester (`POST /policies/{name}/evaluate`) evaluates in a synthetic workspace `/workspace`, so relative paths and redirection targets are placed like in a run.
 - Claude Code Bash calls start in the workspace (`CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR=1`; CLIs that do not know the variable are not covered).
+
+- Leading variable assignments (KI-128, 2026-10-04): `NAME=value cmd` and `env [-i] [-u NAME] NAME=value cmd` are
+  checked as `cmd`. They stay opaque when a value is not a plain literal (parameter, command or arithmetic expansion,
+  ANSI-C quoting, `~` after `=` or `:`, unquoted glob characters), for `NAME+=`, `NAME[i]=` and quoted names, without
+  a command (the assignment persists in the shell), after a wrapper (after `time` it is an assignment, after `nice` or
+  `timeout` a program name), for other `env` options (`-S`, `-C`), and for variables (`internal/domain/policy/command_env.go`,
+  compared in upper case) that change the shell (PATH, IFS, ENV, BASH*, SHELLOPTS, PS0-PS4, PROMPT_COMMAND, CDPATH,
+  PWD, OLDPWD, TEXTDOMAINDIR, ...), point a program at a home or configuration location (*HOME, XDG_*, *CONFIG*), make
+  the loader or libc load code (LD_*, DYLD_*, GCONV_PATH, GETCONF_DIR, GLIBC_TUNABLES, ...), carry code or options
+  (*FLAGS*, *OPT, *OPTS, *OPTIONS, PYTHONSTARTUP, PYTHONWARNINGS, ...), name a program (*PAGER, *EDITOR, BROWSER,
+  *ASKPASS, CC, LESS*, ...) or configure a tool through the environment (GIT_*, NPM_CONFIG_*, YARN_*, CARGO_*,
+  RUSTUP_*, GOTOOLCHAIN, GOPROXY, GOSUMDB, ...). Module search paths (PYTHONPATH, NODE_PATH, PERL5LIB, RUBYLIB,
+  CLASSPATH, GOPATH) are allowed: an allow list for an interpreted tool trusts the modules it can import, as it trusts
+  the build files of a build tool. A refused assignment before or apart from `cd`, or any assignment after `time`,
+  makes later redirection targets unknown. Allow-Always on such a command stores only the executable. The same fix
+  closed a bypass: an assignment after `time` (`time GIT_EXTERNAL_DIFF=... git diff`) hid the command from deny lists.
 
 ## Consequences
 

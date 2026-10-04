@@ -170,6 +170,8 @@ The production NATS server (`configs/nats/nats-server.conf`, image `nats:2.15-al
 | Within a tenant, Landlock does not cover chmod, utime or setfacl in the tenant's other projects, nor truncate on ABI 2 | none |
 | The tenant HOME (caches, dotfiles) is shared by the tenant's runs, across workers too | none |
 | Leftover daemons live until the tenant goes idle in a worker; no CPU, memory, pid or disk quotas | none |
+| `PYTHONPATH` and the other module search paths stay allowed in `VAR=value cmd`: they can make an allow-listed Python, Perl or Node tool import a module from a directory the agent writes; profiles that must not run workspace code should not allow-list interpreted tools | none (ADR-015, KI-128) |
+| `python -i script.py` reads program text from stdin after the script, and the interpreter check does not flag `-i`, so a here-doc can run code past a deny list | KI-134 |
 | Below Landlock ABI 6, a tenant's leftover process can stop (SIGSTOP) the worker's helpers for the tenant's other running work item in that worker; each waits up to 600 s before it is killed, and that subject's message loop on the worker waits with it | none (a minimum ABI of 6 closes it; KI-96 plan Open question 3) |
 | Orphaned tool processes that exit by themselves stay zombies: the worker is PID 1 and collects only the processes it killed | KI-113 |
 | Claude Code's Bash inherits the platform's Claude credentials | KI-111 |
