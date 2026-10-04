@@ -240,6 +240,57 @@ func (s *QuarantineService) Withdraw(ctx context.Context, id, reason string) err
 	return nil
 }
 
+// quarantineExpiryBatch is the most overdue messages one sweep expires; a
+// larger backlog is worked off by the next sweeps.
+const quarantineExpiryBatch = 100
+
+// quarantineExpiryReviewer is the reviewer name recorded on a message that
+// expired without a review.
+const quarantineExpiryReviewer = "system"
+
+// ExpireOverdue expires the held messages whose review deadline (expires_at)
+// passed, in every tenant (KI-91; a stuck-work watchdog check, run by every
+// replica). Each message is expired in its own tenant's context; the inbound
+// A2A task waiting for a held prompt is rejected with it in one step, as
+// Reject does. A message an admin, its sender or another replica decided in
+// the meantime is left alone, so the sweep is idempotent. It returns how many
+// messages it expired; a message that could not be expired is reported and
+// retried by the next sweep.
+func (s *QuarantineService) ExpireOverdue(ctx context.Context) (int, error) {
+	due, err := s.db.ListExpiredQuarantineMessages(ctx, quarantineExpiryBatch)
+	if err != nil {
+		return 0, fmt.Errorf("list expired quarantined messages: %w", err)
+	}
+	expired := 0
+	var errs []error
+	for _, msg := range due {
+		if ctx.Err() != nil {
+			break
+		}
+		msgCtx := withEntityTenant(ctx, msg.TenantID)
+		review := &quarantine.Review{
+			ReviewerName: quarantineExpiryReviewer,
+			Note:         "expired: not reviewed before " + msg.ExpiresAt.UTC().Format(time.RFC3339),
+		}
+		res, err := s.db.ExpireQuarantineMessage(msgCtx, msg.ID, a2aTaskIDOf(msg), review)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("message %s: %w", msg.ID, err))
+			continue
+		}
+		if !res.Expired {
+			continue // decided meanwhile
+		}
+		expired++
+		if res.RejectedTaskID != "" {
+			s.broadcastA2ATaskStatus(msgCtx, res.RejectedTaskID, a2adomain.TaskStateRejected, res.RejectedTaskDirection)
+		}
+		s.broadcastResolved(msgCtx, msg, string(quarantine.StatusExpired), quarantineExpiryReviewer)
+		slog.InfoContext(msgCtx, "quarantined message expired unreviewed",
+			"id", msg.ID, "subject", msg.Subject, "expires_at", msg.ExpiresAt, "rejected_a2a_task", res.RejectedTaskID)
+	}
+	return expired, errors.Join(errs...)
+}
+
 // broadcastResolved announces how a quarantined message was resolved.
 func (s *QuarantineService) broadcastResolved(ctx context.Context, msg *quarantine.Message, action, reviewedBy string) {
 	s.hub.BroadcastEvent(ctx, event.EventQuarantineResolved, event.QuarantineResolvedEvent{
@@ -296,10 +347,15 @@ func (s *QuarantineService) resolveHeldA2ATask(ctx context.Context, task *a2adom
 		logBestEffort(ctx, err, "UpdateA2ATask", slog.String("task_id", task.ID), slog.String("state", string(state)))
 		return
 	}
+	s.broadcastA2ATaskStatus(ctx, task.ID, state, string(task.Direction))
+}
+
+// broadcastA2ATaskStatus announces an A2A task's new state.
+func (s *QuarantineService) broadcastA2ATaskStatus(ctx context.Context, taskID string, state a2adomain.TaskState, direction string) {
 	s.hub.BroadcastEvent(ctx, event.EventA2ATaskStatus, map[string]string{
-		"task_id":   task.ID,
+		"task_id":   taskID,
 		"state":     string(state),
-		"direction": string(task.Direction),
+		"direction": direction,
 	})
 }
 

@@ -3626,6 +3626,14 @@ func (m *mockStore) ConsumeQuarantineRelease(_ context.Context, _ string) error 
 	return domain.ErrNotFound
 }
 
+func (m *mockStore) ListExpiredQuarantineMessages(_ context.Context, _ int) ([]*quarantine.Message, error) {
+	return nil, nil
+}
+
+func (m *mockStore) ExpireQuarantineMessage(_ context.Context, _, _ string, _ *quarantine.Review) (database.QuarantineExpiry, error) {
+	return database.QuarantineExpiry{}, nil
+}
+
 // Consent stubs (GDPR)
 func (m *mockStore) HasActiveConsent(_ context.Context, _, _ string) (bool, error) {
 	return false, nil

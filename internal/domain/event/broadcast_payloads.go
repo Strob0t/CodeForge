@@ -384,7 +384,7 @@ type QuarantineAlertEvent struct {
 type QuarantineResolvedEvent struct {
 	ID         string `json:"id"`
 	ProjectID  string `json:"project_id"`
-	Action     string `json:"action"` // "approved" or "rejected"
+	Action     string `json:"action"` // "approved", "rejected", "withdrawn" or "expired" (KI-91)
 	ReviewedBy string `json:"reviewed_by"`
 }
 

@@ -30,4 +30,25 @@ type QuarantineStore interface {
 	// already or is not approved, domain.ErrNotFound for an unknown message
 	// or one of another tenant.
 	ConsumeQuarantineRelease(ctx context.Context, id string) error
+	// ListExpiredQuarantineMessages returns up to limit pending messages of
+	// every tenant whose review deadline (expires_at) has passed, the oldest
+	// deadline first, each with its tenant (the expiry sweep, KI-91).
+	ListExpiredQuarantineMessages(ctx context.Context, limit int) ([]*quarantine.Message, error)
+	// ExpireQuarantineMessage moves a pending, overdue message of the
+	// current tenant to expired with review, and in the same transaction
+	// rejects the inbound A2A task heldTaskID ("" for none) if it still
+	// waits for the message (submitted and naming it). A message that is
+	// not pending, not overdue or not the tenant's is left alone
+	// (Expired false).
+	ExpireQuarantineMessage(ctx context.Context, id, heldTaskID string, review *quarantine.Review) (QuarantineExpiry, error)
+}
+
+// QuarantineExpiry is what ExpireQuarantineMessage changed.
+type QuarantineExpiry struct {
+	// Expired reports that the message moved from pending to expired.
+	Expired bool
+	// RejectedTaskID is the held A2A task rejected with the message, and
+	// RejectedTaskDirection its direction ("" when no task waited for it).
+	RejectedTaskID        string
+	RejectedTaskDirection string
 }

@@ -1191,6 +1191,9 @@ func run() error {
 		service.StuckWorkCheck{Name: "lost conversation runs", EndStuck: conversationSvc.EndConversationRunsWithLostWorker},
 		endedTeams,
 		undecidedRefactorings,
+		// KI-91: held messages past their review deadline expire, and the
+		// inbound A2A task waiting for one is rejected with it.
+		service.StuckWorkCheck{Name: "expired quarantine messages", EndStuck: quarantineSvc.ExpireOverdue},
 	).Start(ctx)
 
 	// --- Data retention (GDPR Art. 5(1)(e), docs/data-retention.md) ---
