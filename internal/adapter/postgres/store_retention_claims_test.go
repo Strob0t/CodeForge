@@ -172,6 +172,39 @@ func TestStore_DeleteExpiredWebhookDeliveries(t *testing.T) {
 	}
 }
 
+// KI-90 review: migration 123 builds its indexes like migration 096 - outside
+// a transaction and CONCURRENTLY, so the build does not block the claim
+// writes while the application starts, dropping an invalid leftover of a
+// failed build first - and the indexes end up valid.
+func TestMigration123_BuildsClaimIndexesConcurrently(t *testing.T) {
+	src := readStoreSource(t, "migrations/123_retention_claim_indexes.sql")
+	up, _, _ := strings.Cut(src, "-- +goose Down")
+	if !strings.Contains(up, "-- +goose NO TRANSACTION") {
+		t.Error("migration 123 runs in a transaction; CREATE INDEX CONCURRENTLY needs -- +goose NO TRANSACTION")
+	}
+	for _, index := range []string{"idx_handoff_claims_done_at", "idx_webhook_deliveries_received_at"} {
+		drop := strings.Index(up, "DROP INDEX CONCURRENTLY IF EXISTS "+index+";")
+		create := strings.Index(up, "CREATE INDEX CONCURRENTLY "+index+" ")
+		if drop < 0 || create < 0 || drop > create {
+			t.Errorf("%s: want DROP INDEX CONCURRENTLY IF EXISTS, then CREATE INDEX CONCURRENTLY (drop at %d, create at %d)", index, drop, create)
+		}
+	}
+	if strings.Count(up, "CREATE INDEX") != strings.Count(up, "CREATE INDEX CONCURRENTLY") {
+		t.Error("every index of migration 123 must be built CONCURRENTLY")
+	}
+
+	setupStore(t) // runs the migrations
+	pool := retentionPool(t)
+	for _, index := range []string{"idx_handoff_claims_done_at", "idx_webhook_deliveries_received_at"} {
+		var valid bool
+		if err := pool.QueryRow(context.Background(),
+			`SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = $1`, index,
+		).Scan(&valid); err != nil || !valid {
+			t.Errorf("index %s: valid %v, err %v", index, valid, err)
+		}
+	}
+}
+
 func TestRetentionClaimQueries_IntentionallyCrossTenant(t *testing.T) {
 	src := readStoreSource(t, "store_retention.go")
 	for _, name := range []string{"DeleteExpiredHandoffClaims", "DeleteExpiredWebhookDeliveries"} {
