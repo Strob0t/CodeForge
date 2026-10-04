@@ -49,6 +49,7 @@ describe("Routing API resource", () => {
       patch: vi.fn(),
       del: vi.fn(),
       request: vi.fn(),
+      requestOnce: vi.fn(),
       BASE: "/api/v1",
       invalidateCache: vi.fn(),
     };
@@ -70,6 +71,7 @@ describe("Routing API resource", () => {
       patch: vi.fn(),
       del: vi.fn(),
       request: vi.fn(),
+      requestOnce: vi.fn(),
       BASE: "/api/v1",
       invalidateCache: vi.fn(),
     };
@@ -98,6 +100,7 @@ describe("Routing API resource", () => {
       patch: vi.fn(),
       del: vi.fn(),
       request: vi.fn(),
+      requestOnce: vi.fn(),
       BASE: "/api/v1",
       invalidateCache: vi.fn(),
     };

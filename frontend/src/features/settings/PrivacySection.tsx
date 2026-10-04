@@ -128,8 +128,9 @@ function DeleteAccount(): JSX.Element {
   const confirmed = (): boolean =>
     email() !== "" && typed().trim().toLowerCase() === email().toLowerCase();
 
+  // Always possible, also while the request runs: its answer still signs the
+  // user out (success) or is dropped with the closed dialog (failure).
   const close = (): void => {
-    if (deleting()) return;
     setOpen(false);
     setTyped("");
     setError("");
@@ -142,6 +143,8 @@ function DeleteAccount(): JSX.Element {
     try {
       await api.privacy.deleteMyData();
     } catch (err) {
+      // 401 and 404 are shown as well: they can also mean an expired session
+      // or an unknown route, not an account that is already gone.
       setError(extractErrorMessage(err, t("settings.privacy.delete.failed")));
       setDeleting(false);
       return;
@@ -202,7 +205,7 @@ function DeleteAccount(): JSX.Element {
           </Show>
         </div>
         <div class="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" onClick={close} disabled={deleting()}>
+          <Button variant="secondary" onClick={close}>
             {t("common.cancel")}
           </Button>
           <Button

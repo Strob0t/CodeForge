@@ -160,7 +160,8 @@ describe("PrivacySection delete", () => {
   }
 
   const deleteButton = (): HTMLButtonElement =>
-    screen.getByRole("button", { name: "Delete my account" }) as HTMLButtonElement;
+    // While deleting, the spinner adds its label to the name.
+    screen.getByRole("button", { name: /Delete my account$/ }) as HTMLButtonElement;
 
   it("says what is deleted, what is kept and what stays with the organization", async () => {
     await openDialog();
@@ -221,6 +222,37 @@ describe("PrivacySection delete", () => {
     expect(await screen.findByText("deletion failed")).toBeDefined();
     expect(auth.logout).not.toHaveBeenCalled();
     expect(deleteButton().disabled).toBe(false);
+  });
+
+  // S7-G review: the dialog waited for the request with no way out.
+  it("can be closed while the deletion request runs, and signs out when it succeeds", async () => {
+    let answer: () => void = () => undefined;
+    privacy.deleteMyData.mockImplementation(
+      () => new Promise((resolve) => (answer = () => resolve(undefined))),
+    );
+    const input = await openDialog();
+    fireEvent.input(input, { target: { value: "Ada@Example.org" } });
+    fireEvent.click(deleteButton());
+    await waitFor(() => expect(privacy.deleteMyData).toHaveBeenCalledTimes(1));
+    expect(deleteButton().disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Delete your account?")).toBeNull());
+
+    answer();
+    await waitFor(() => expect(auth.logout).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows a network failure and lets the user try again", async () => {
+    privacy.deleteMyData.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const input = await openDialog();
+    fireEvent.input(input, { target: { value: "Ada@Example.org" } });
+    fireEvent.click(deleteButton());
+
+    expect(await screen.findByText("Failed to fetch")).toBeDefined();
+    expect(deleteButton().disabled).toBe(false);
+    fireEvent.click(deleteButton());
+    await waitFor(() => expect(auth.logout).toHaveBeenCalledTimes(1));
   });
 
   it("deletes nothing when cancelled", async () => {

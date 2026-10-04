@@ -19,8 +19,12 @@ export function createPrivacyResource(c: CoreClient) {
       }
     },
 
-    /** Erases the user: the account is gone afterwards. */
-    deleteMyData: () => c.del<undefined>("/me/data"),
+    /**
+     * Erases the user: the account is gone afterwards. Sent once: a retry
+     * after a lost answer would only fail, and the offline queue would hold
+     * the request until the browser is back online.
+     */
+    deleteMyData: () => c.requestOnce<undefined>("/me/data", { method: "DELETE" }),
 
     consentPurposes: () => c.get<ConsentPurpose[]>("/me/consent/purposes"),
 

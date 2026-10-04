@@ -11,6 +11,8 @@ interface Call {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   body?: unknown;
+  /** Sent with requestOnce: no retry, no offline queue. */
+  once?: true;
 }
 
 /** A CoreClient that records every request instead of sending it. */
@@ -29,6 +31,10 @@ function recordingClient(): { client: CoreClient; calls: Call[] } {
     put: record("PUT"),
     patch: record("PATCH"),
     del: record("DELETE"),
+    requestOnce: <T>(path: string, init?: RequestInit): Promise<T> => {
+      calls.push({ method: (init?.method ?? "GET") as Call["method"], path, once: true });
+      return Promise.resolve(undefined as T);
+    },
     BASE: "/api/v1",
     invalidateCache: () => undefined,
   };
@@ -105,7 +111,8 @@ describe("privacy routes", () => {
 
     expect(calls).toEqual([
       { method: "GET", path: "/me/export" },
-      { method: "DELETE", path: "/me/data" },
+      // S7-G review: sent once, never retried or queued while offline.
+      { method: "DELETE", path: "/me/data", once: true },
       { method: "GET", path: "/me/consent/purposes" },
       { method: "GET", path: "/me/consent" },
       {
