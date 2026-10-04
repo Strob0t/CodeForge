@@ -245,7 +245,8 @@
 
 - [ ] Reusable live-test environment: the development stack plus a local Ollama model, started by one script (from the README screenshot run), documented in `docs/testing/e2e-setup.md`.
 - [ ] A live E2E session at the end of every milestone, logged in [docs/testing/live-e2e-findings.md](testing/live-e2e-findings.md) (session 1: 2026-10-03, README screenshots).
-- [ ] Autonomous goal benchmark ([docs/testing/autonomous-goal-benchmark.md](testing/autonomous-goal-benchmark.md), goal `testdata/autonomous-goal/mdlinkcheck/SPEC.md`): the hidden acceptance suite and a reference solution to validate it, the grader (`grade.py`), then runs with the local model and, once the owner provides a key as an environment secret, a cloud model.
+- [x] (2026-10-04) Autonomous goal benchmark, preparation: the hidden acceptance suite (80 cases, `testdata/autonomous-goal/mdlinkcheck/acceptance/`), the grader (`grade.py`, `judge_prompt.md`) and a reference solution (kept outside the repository) that scores 100 %; two weak variants score 90 % (acceptance 77.5 %, not a success) and 37 %; a mutation check of 22 spec violations is caught; SPEC.md gained a Details section for the ambiguities found.
+- [ ] Autonomous goal benchmark runs ([docs/testing/autonomous-goal-benchmark.md](testing/autonomous-goal-benchmark.md)): the local model first, then, once the owner provides a key as an environment secret, a cloud model.
 
 #### Found while taking the README screenshots with a local model (2026-10-03)
 

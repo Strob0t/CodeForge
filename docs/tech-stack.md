@@ -34,6 +34,10 @@
 - Formatter: Prettier
 - Configuration: `frontend/eslint.config.js` (flat config format)
 
+#### Benchmark grader
+
+- The autonomous goal benchmark's grader (`testdata/autonomous-goal/mdlinkcheck/grade.py`) uses pytest, pytest-cov, ruff, mypy, radon and bandit from a separate virtual environment; they are not project dependencies ([autonomous-goal-benchmark.md](testing/autonomous-goal-benchmark.md#running-the-grader)).
+
 #### Pre-commit Hooks
 
 - Configuration: `.pre-commit-config.yaml`

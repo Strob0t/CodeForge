@@ -1,6 +1,6 @@
 # Autonomous goal benchmark: can an agent build a real program on its own?
 
-**Status:** defined 2026-10-03; acceptance suite and grader in preparation; no run yet.
+**Status:** defined 2026-10-03; acceptance suite (80 cases) and grader ready 2026-10-04 and validated against a reference solution (100 %) and two weak variants; no run yet.
 **Owner request (2026-10-03):** test whether the models reach a real programming goal completely on their own, through
 CodeForge, with good code quality, and record what we learn.
 
@@ -64,6 +64,53 @@ virtual environment, then runs every check below on the frozen copy. It prints a
 
 Point deductions are applied to the check's own 10-point scale, then weighted. A run **succeeds** when it is
 autonomous (0 interventions), the acceptance score is at least 90 %, and the total is at least 70 %.
+
+### Grader rules (2026-10-04)
+
+The table above leaves some choices open; `grade.py` makes them as follows:
+- **Own tests:** 10 x passed/executed x min(1, executed/20); skipped tests count neither way.
+- **Coverage:** coverage.py's combined line-and-branch total of `src/`, subprocesses included.
+- **Lint:** `ruff check --isolated` with the rules above; only the project's `line-length` is honoured, kept between 79
+  and 120 (default 88).
+- **Types:** `mypy --strict --config-file=` (the project's own mypy config is ignored).
+- **Complexity:** functions, methods and closures count; a file radon cannot parse costs 1 point.
+- **Security:** bandit with an empty `--ini`; minus 5 points per medium or high finding.
+- **Project configuration cannot hide findings:** coverage, radon and bandit use the grader's own configuration, and the
+  raw results count `noqa`, `type: ignore` and `nosec` comments.
+- **No source:** an empty `src/` scores 0 on all four static checks.
+- **Review:** the mean of five criteria over 3 valid judge runs (failed runs are retried, at most 6 calls). Without
+  `--judge-model` the review is "not scored" and the total is scaled over the scored checks.
+- **Interventions** are passed in with `--interventions N`.
+
+Quality is 60 % of the weight, so a well-made but incomplete program can still reach a high total: a validation variant
+without anchors and JSON output scored 90 % overall with 77.5 % acceptance and fails only through the "acceptance at
+least 90 %" rule. Read the acceptance score first.
+
+### Validation (2026-10-04)
+
+| Variant | Acceptance | Own tests | Coverage | Lint | Types | Complexity | Security | Total (review not scored) |
+|---|---|---|---|---|---|---|---|---|
+| Reference solution (kept outside the repository) | 80/80 | 98/98 | 99.9 % | 0 | 0 | 0 over 10 | 0 | 100 %, success |
+| Weak: no anchors, no JSON | 62/80 | 43/43 | 86.9 % | 0 | 0 | 0 | 0 | 90.0 %, not a success |
+| Sloppy single module | 48/80 | 5/5 | 49.2 % | 13 | 9 | 3 over 10 | 1 medium | 37.2 %, not a success |
+
+A mutation check made 22 small deliberate spec violations in a copy of the reference (ASCII-only slugs,
+case-insensitive fragments, no inline-code masking, excludes relative to the working directory, no GET after 405,
+unsorted output, ...); each one fails at least one acceptance case.
+
+### Running the grader
+
+```bash
+python3.12 -m venv ~/.venvs/mdlinkcheck-grade
+~/.venvs/mdlinkcheck-grade/bin/pip install pytest pytest-cov ruff mypy radon bandit
+~/.venvs/mdlinkcheck-grade/bin/python testdata/autonomous-goal/mdlinkcheck/grade.py /path/to/frozen-workspace \
+    --out report.json [--interventions N] [--judge-model MODEL]
+```
+
+The judge needs `LITELLM_BASE_URL` and `LITELLM_MASTER_KEY`. The JSON report goes to stdout (and `--out`), a summary
+table to stderr. Exit codes: 0 success, 1 graded but not a success, 2 the grader could not run. The grader works on a
+copy in the system temp directory (or `--work-dir`) and removes it unless `--keep` is given. Details:
+[`testdata/autonomous-goal/mdlinkcheck/README.md`](../../testdata/autonomous-goal/mdlinkcheck/README.md).
 
 ## Metrics per run
 

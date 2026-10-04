@@ -62,6 +62,24 @@ and code (`*`, `_`, `` ` ``), lowercase it, remove every character that is not a
 hyphen or an underscore, then replace each space with a hyphen. When the same slug occurs again in a file, the
 second gets `-1` appended, the third `-2`, and so on. Fragment comparison is exact (after percent-decoding).
 
+## Details
+
+- A reference definition is a link at its own position. Its target is checked once, where it is defined, whether or
+  not it is used, and its problems are reported at its `[`. Uses are not checked again; a full or collapsed use without
+  a definition is an `undefined-reference`. Each definition counts once in `links_checked`; uses do not count.
+  Definitions apply only within their own file.
+- Fenced code blocks contain no links, no headings and no HTML anchors. A fence closes only with the same character
+  and at least as many of them; an unclosed fence runs to the end of the file.
+- A letter in a heading slug is any Unicode letter (for example `ü`). `_` is removed only where it marks emphasis, so
+  `snake_case` keeps it. The heading text excludes an ATX heading's closing `#`s; a link in a heading contributes its
+  text only.
+- Bare URLs without angle brackets are not links. An empty fragment (`#`, `a.md#`) is not checked.
+- `--exclude` applies only to files found by scanning a directory; a file named directly is always checked, whatever
+  its extension. A file reached through several `PATH` arguments is checked and counted once.
+- Files are read as UTF-8 with invalid bytes replaced. Columns count Unicode code points.
+- A configuration value of the wrong type, a non-positive timeout or an unknown key makes the configuration invalid
+  (exit `2`), and so does an invalid option value such as `--format xml`. A file that cannot be read exits with `2`.
+
 ## Output
 
 Positions are 1-based. The column is that of the first character of the link: the `!` of an image, the `[` of a
@@ -77,7 +95,8 @@ docs/guide.md:20:1: missing-anchor: api.md#usage (no anchor "usage" in api.md)
 2 problems in 7 files
 ```
 
-With no problems the only line is `No problems found in N files`. With one problem the summary says `1 problem`.
+With no problems the only line is `No problems found in N files`. With one problem the summary says `1 problem`;
+files are counted the same way (`1 file`, `N files`).
 
 **JSON** (`--format json`): a single object on stdout.
 
@@ -91,8 +110,8 @@ With no problems the only line is `No problems found in N files`. With one probl
 }
 ```
 
-`target` is the link target as written in the source (for references: the target of the definition, or the id when
-the definition is missing). `links_checked` counts every link that was classified as external (only when checked),
+`target` is the link target as written in the source, without angle brackets and title; percent-encoding, query and
+fragment stay as written (for references: the target of the definition, or the id when the definition is missing). `links_checked` counts every link that was classified as external (only when checked),
 anchor or local path.
 
 ## Exit codes
