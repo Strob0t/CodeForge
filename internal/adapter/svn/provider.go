@@ -22,8 +22,8 @@
 //     only with the config key allow_file_urls;
 //   - every URL svn contacts must lie inside the project's configured
 //     repository (same scheme, host and port, a path at or below the
-//     project's directory), since svn sends the configured --username and
-//     --password to that server; trunk and branch URLs are built from the
+//     project's directory), since svn sends the configured username and
+//     password to that server; trunk and branch URLs are built from the
 //     configured URL, not from the working copy. With credentials
 //     configured, the project's repository URL is required.
 package svn
@@ -497,17 +497,25 @@ func (p *Provider) environment() []string {
 
 // runSVN executes an svn command and returns stdout.
 // Authentication flags are prepended when username/password are configured.
+// The password goes to svn's stdin (--password-from-stdin, svn 1.10+), never
+// into its argv: /proc/<pid>/cmdline is readable by every process of the
+// container, agent tools included (KI-87).
 func (p *Provider) runSVN(ctx context.Context, dir string, args ...string) (string, error) {
 	configDir, err := p.config()
 	if err != nil {
 		return "", fmt.Errorf("svn: private config directory: %w", err)
 	}
 	global := []string{"--non-interactive", "--no-auth-cache", "--config-dir", configDir}
+	sendPassword := p.username != "" && p.password != ""
 	if p.username != "" {
 		global = append(global, "--username", p.username)
-		if p.password != "" {
-			global = append(global, "--password", p.password)
+	}
+	if sendPassword {
+		// svn reads one line from stdin: a line break would cut the password.
+		if strings.ContainsAny(p.password, "\r\n") {
+			return "", errors.New("svn: the configured password contains a line break, which svn cannot read from stdin")
 		}
+		global = append(global, "--password-from-stdin")
 	}
 	args = append(global, args...)
 
@@ -516,6 +524,9 @@ func (p *Provider) runSVN(ctx context.Context, dir string, args ...string) (stri
 		cmd.Dir = dir
 	}
 	cmd.Env = p.environment()
+	if sendPassword {
+		cmd.Stdin = strings.NewReader(p.password)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

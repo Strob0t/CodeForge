@@ -96,8 +96,9 @@ func TestSVN_AuthFlagsInjected(t *testing.T) {
 	if !strings.Contains(joined, "--username alice") {
 		t.Fatalf("expected --username alice in args, got %v", capturedArgs)
 	}
-	if !strings.Contains(joined, "--password secret") {
-		t.Fatalf("expected --password secret in args, got %v", capturedArgs)
+	// KI-87: the password is read from stdin, never passed in argv.
+	if !strings.Contains(joined, "--password-from-stdin") || strings.Contains(joined, "secret") {
+		t.Fatalf("expected --password-from-stdin and no password in args, got %v", capturedArgs)
 	}
 	if !strings.Contains(joined, "--no-auth-cache") {
 		t.Fatalf("expected --no-auth-cache in args, got %v", capturedArgs)
@@ -118,7 +119,7 @@ func TestSVN_AuthFlagsOmittedWhenEmpty(t *testing.T) {
 
 	_, _ = p.runSVN(context.Background(), "", "status")
 
-	if capturedArgs[len(capturedArgs)-1] != "status" || slices.Contains(capturedArgs, "--username") || slices.Contains(capturedArgs, "--password") {
+	if capturedArgs[len(capturedArgs)-1] != "status" || slices.Contains(capturedArgs, "--username") || slices.Contains(capturedArgs, "--password-from-stdin") {
 		t.Fatalf("expected status without auth flags, got %v", capturedArgs)
 	}
 }

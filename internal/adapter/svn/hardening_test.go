@@ -58,9 +58,9 @@ func (f *fakeSVN) subcommands() []string {
 func subcommand(args []string) string {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--config-dir", "--username", "--password":
+		case "--config-dir", "--username":
 			i++
-		case "--non-interactive", "--no-auth-cache":
+		case "--non-interactive", "--no-auth-cache", "--password-from-stdin":
 		default:
 			return args[i]
 		}
