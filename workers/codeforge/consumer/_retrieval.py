@@ -100,6 +100,7 @@ class RetrievalHandlerMixin:
             incremental=status.incremental,
             files_changed=status.files_changed,
             files_unchanged=status.files_unchanged,
+            bm25_only=status.bm25_only,
         )
 
     def _knowledge_refusal(self, request: RetrievalIndexRequest) -> str:

@@ -51,6 +51,7 @@ class _FakeIndexStatus:
     incremental: bool = False
     files_changed: int = 5
     files_unchanged: int = 5
+    bm25_only: bool = False
 
 
 def _index_payload(project_id: str = "proj-1") -> dict:

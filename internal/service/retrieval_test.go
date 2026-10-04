@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/service"
@@ -114,6 +115,42 @@ func TestRetrievalService_HandleIndexResult_Ready(t *testing.T) {
 	}
 	if info.ChunkCount != 128 {
 		t.Errorf("expected 128 chunks, got %d", info.ChunkCount)
+	}
+}
+
+// A BM25-only index (the embedding model cannot be used, KI-130) is ready
+// but ranks by keywords alone: the status says so, in the index status
+// (snake_case like the frontend's RetrievalIndexStatus) and the WS event.
+func TestRetrievalService_HandleIndexResult_BM25Only(t *testing.T) {
+	bc := &runtimeMockBroadcaster{}
+	svc := service.NewRetrievalService(&runtimeMockStore{}, &captureQueue{}, bc, &config.Orchestrator{}, &config.Limits{SearchTimeout: 5 * time.Second})
+
+	err := svc.HandleIndexResult(context.Background(), &messagequeue.RetrievalIndexResultPayload{
+		ProjectID: "proj-1", Status: "ready", ChunkCount: 3, EmbeddingModel: "text-embedding-3-small", BM25Only: true,
+	})
+	if err != nil {
+		t.Fatalf("HandleIndexResult: %v", err)
+	}
+
+	info := svc.GetIndexStatus("proj-1")
+	if info == nil || !info.BM25Only || info.Status != "ready" {
+		t.Fatalf("index status = %+v, want ready and BM25-only", info)
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"bm25_only":true`, `"status":"ready"`, `"embedding_model":"text-embedding-3-small"`, `"chunk_count":3`} {
+		if !strings.Contains(string(data), field) {
+			t.Errorf("index status JSON %s lacks %s", data, field)
+		}
+	}
+	events := bc.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %+v", events)
+	}
+	if ev, ok := events[0].Data.(event.RetrievalStatusEvent); !ok || !ev.BM25Only {
+		t.Errorf("retrieval.status event = %+v, want bm25_only", events[0].Data)
 	}
 }
 

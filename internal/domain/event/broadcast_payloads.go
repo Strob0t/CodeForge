@@ -163,6 +163,7 @@ type RetrievalStatusEvent struct {
 	ChunkCount     int    `json:"chunk_count,omitempty"`
 	EmbeddingModel string `json:"embedding_model,omitempty"`
 	Error          string `json:"error,omitempty"`
+	BM25Only       bool   `json:"bm25_only,omitempty"` // ranked by BM25 alone: the embedding model cannot be used (KI-130)
 }
 
 // BudgetAlertEvent is broadcast when a run's cost reaches a budget threshold (e.g. 80%, 90%).

@@ -335,6 +335,8 @@ class RetrievalIndexResult(BaseModel):
     incremental: bool = False
     files_changed: int = 0
     files_unchanged: int = 0
+    # The index ranks by BM25 alone: the embedding model cannot be used (KI-130).
+    bm25_only: bool = False
 
 
 class RetrievalSearchRequest(BaseModel):

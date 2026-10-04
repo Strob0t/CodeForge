@@ -31,13 +31,17 @@ const healthCooldown = 30 * time.Second
 // ---------------------------------------------------------------------------
 
 // RetrievalIndexInfo holds the in-memory state of a project's retrieval index.
+// GET /projects/{id}/index returns it; the names are those of the frontend's
+// RetrievalIndexStatus.
 type RetrievalIndexInfo struct {
-	ProjectID      string
-	Status         string // "building", "ready", "error"
-	FileCount      int
-	ChunkCount     int
-	EmbeddingModel string
-	Error          string
+	ProjectID      string `json:"project_id"`
+	Status         string `json:"status"` // "building", "ready", "error"
+	FileCount      int    `json:"file_count"`
+	ChunkCount     int    `json:"chunk_count"`
+	EmbeddingModel string `json:"embedding_model"`
+	Error          string `json:"error,omitempty"`
+	// BM25Only: ready, but ranked by BM25 alone (the embedding model cannot be used, KI-130).
+	BM25Only bool `json:"bm25_only,omitempty"`
 }
 
 // KBStatusUpdater can update knowledge base indexing status.
@@ -177,6 +181,7 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 		ChunkCount:     payload.ChunkCount,
 		EmbeddingModel: payload.EmbeddingModel,
 		Error:          payload.Error,
+		BM25Only:       payload.BM25Only,
 	}
 	s.mu.Unlock()
 
@@ -187,6 +192,7 @@ func (s *RetrievalService) HandleIndexResult(ctx context.Context, payload *messa
 		ChunkCount:     payload.ChunkCount,
 		EmbeddingModel: payload.EmbeddingModel,
 		Error:          payload.Error,
+		BM25Only:       payload.BM25Only,
 	})
 
 	if payload.Error != "" {

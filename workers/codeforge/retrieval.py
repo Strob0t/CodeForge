@@ -92,6 +92,34 @@ class IndexStatus:
     incremental: bool = False
     files_changed: int = 0
     files_unchanged: int = 0
+    # The index ranks by BM25 alone: the embedding model cannot be used (KI-130).
+    bm25_only: bool = False
+
+
+# Answers of /v1/embeddings after which the embedding model counts as
+# unusable and the index is built BM25-only (KI-130): no or a refused key
+# (401, 403), no such model (404, or a 400 naming an unknown model: LiteLLM's
+# "Invalid model name passed in" for a model no route matches, "LLM Provider
+# NOT provided" for a name without a provider). Rate limits, server errors and
+# timeouts are transient: the build fails and a good index is kept.
+_UNUSABLE_MODEL_STATUSES = frozenset({401, 403, 404})
+_UNKNOWN_MODEL_MARKERS = (
+    "invalid model name",
+    "llm provider not provided",
+    "model not found",
+    "unknown model",
+    "does not exist",
+)
+
+
+def _embedding_model_unusable(response: httpx.Response) -> bool:
+    """Whether an error answer of /v1/embeddings says that the model cannot be used."""
+    if response.status_code in _UNUSABLE_MODEL_STATUSES:
+        return True
+    if response.status_code != 400:
+        return False
+    body = response.text.lower()
+    return any(marker in body for marker in _UNKNOWN_MODEL_MARKERS)
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +530,7 @@ class HybridRetriever:
             file_count=index.file_count,
             chunk_count=index.chunk_count,
             embedding_model=embedding_model,
+            bm25_only=embeddings is None,
         )
 
     async def _build_incremental(
@@ -633,6 +662,7 @@ class HybridRetriever:
             incremental=True,
             files_changed=files_changed,
             files_unchanged=files_unchanged,
+            bm25_only=all_embeddings is None,
         )
 
     async def search(
@@ -739,11 +769,14 @@ class HybridRetriever:
 
         Without an embedding provider (no key for the default cloud model, a
         local-only installation) the index is BM25-only; that is reported once
-        per model, not on every index build.
+        per model, not on every index build. Any other failure (rate limit,
+        server error, timeout) raises: the build fails and a good index stays.
         """
         try:
             embeddings = await self._embed_texts(texts, model)
-        except httpx.HTTPError as exc:
+        except httpx.HTTPStatusError as exc:
+            if not _embedding_model_unusable(exc.response):
+                raise
             if model not in self._unavailable_embedding_models:
                 self._unavailable_embedding_models.add(model)
                 log.warning(

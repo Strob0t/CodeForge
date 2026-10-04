@@ -101,6 +101,8 @@ type RetrievalIndexResultPayload struct {
 	Incremental    bool   `json:"incremental,omitempty"`
 	FilesChanged   int    `json:"files_changed,omitempty"`
 	FilesUnchanged int    `json:"files_unchanged,omitempty"`
+	// BM25Only: the index ranks by BM25 alone, the embedding model cannot be used (KI-130).
+	BM25Only bool `json:"bm25_only,omitempty"`
 }
 
 // RetrievalSearchRequestPayload is the schema for retrieval.search.request messages.

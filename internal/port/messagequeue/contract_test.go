@@ -429,6 +429,7 @@ func sampleRetrievalIndexResultPayload() mq.RetrievalIndexResultPayload {
 		Incremental:    true,
 		FilesChanged:   5,
 		FilesUnchanged: 115,
+		BM25Only:       true,
 	}
 }
 
@@ -808,7 +809,7 @@ func verifyKeyFields(t *testing.T, subject string, m map[string]any) {
 		mq.SubjectRepoMapRequest:              {"project_id", "workspace_path", "token_budget"},
 		mq.SubjectRepoMapResult:               {"project_id", "map_text", "token_count", "file_count"},
 		mq.SubjectRetrievalIndexRequest:       {"project_id", "workspace_path", "embedding_model", "knowledge_path"},
-		mq.SubjectRetrievalIndexResult:        {"project_id", "status", "file_count", "chunk_count"},
+		mq.SubjectRetrievalIndexResult:        {"project_id", "status", "file_count", "chunk_count", "bm25_only"},
 		mq.SubjectRetrievalSearchRequest:      {"project_id", "query", "request_id", "top_k"},
 		mq.SubjectRetrievalSearchResult:       {"project_id", "query", "request_id", "results"},
 		mq.SubjectSubAgentSearchRequest:       {"project_id", "query", "request_id", "model"},
