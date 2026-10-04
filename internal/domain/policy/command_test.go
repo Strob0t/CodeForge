@@ -467,6 +467,9 @@ func TestParseShellCommand_PackageRunners(t *testing.T) {
 		{"xargs into poetry run", "echo curl | xargs poetry run", nil, true},
 		{"xargs into uv", "xargs uv run", nil, true},
 		{"xargs into bundle", "xargs bundle exec", nil, true},
+		// pipenv run loads .env: make takes its variables (like CI=1 make).
+		{"pipenv run make", "pipenv run make test", nil, true},
+		{"poetry run make", "poetry run make test", [][]string{{"make", "test"}}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

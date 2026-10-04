@@ -82,7 +82,8 @@ func interpreterFor(name string) (interpreter, bool) {
 // command. It reports opaque when the executable is not a literal word, an
 // assignment is not accepted (leadingAssignments) or has no command, or the
 // command runs code that the word list does not show; and setsModulePath
-// when an assignment (leading or of env) sets a module search path.
+// when an assignment (leading or of env) sets a module search path or a
+// package runner loads the project's .env (runnerLoadsDotenv).
 func classifySimpleCommand(words []string, dynamic []bool) (seg []string, setsModulePath, opaque bool) {
 	i := 0
 	for i < len(words) && leadingKeywords[words[i]] {
@@ -128,6 +129,7 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, setsMo
 				return nil, false, true
 			}
 			setsModulePath = setsModulePath || runnerLoadsDotenv[base]
+			setsEnv = setsEnv || runnerLoadsDotenv[base]
 			words, dynamic = words[2:], dynamic[2:]
 			continue
 		}
