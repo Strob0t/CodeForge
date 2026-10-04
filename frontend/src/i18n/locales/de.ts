@@ -1739,6 +1739,10 @@ const de: Translations = {
   "search.filterProjects": "Projekte filtern",
   "search.allProjects": "Alle Projekte",
   "search.noResults": "Keine Ergebnisse gefunden.",
+  "search.indexBm25Only":
+    "{{project}}: Der Index sucht nur nach Stichworten (kein nutzbares Embedding-Modell).",
+  "search.indexError": "{{project}}: Der Index ist fehlgeschlagen: {{error}}",
+  "search.indexBuilding": "{{project}}: Der Index wird noch erstellt.",
   "search.error": "Suche fehlgeschlagen.",
   "search.results": "{{count}} Ergebnisse",
   "search.line": "Z{{line}}",

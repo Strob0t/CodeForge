@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Conversation, Project } from "~/api/types";
+import type { Conversation, Project, RetrievalIndexStatus } from "~/api/types";
 
 // KI-121: SearchPage was routed nowhere (POST /search and /search/conversations
 // were used only by the agent tool), and a conversation hit linked to /chat,
@@ -57,14 +57,18 @@ interface ConversationHit {
 
 const apiMock = vi.hoisted(() => ({
   projects: vi.fn<() => Promise<Project[]>>(),
-  global:
-    vi.fn<
-      (
-        q: string,
-        ids?: string[],
-        limit?: number,
-      ) => Promise<{ query: string; total: number; results: CodeHit[] }>
-    >(),
+  global: vi.fn<
+    (
+      q: string,
+      ids?: string[],
+      limit?: number,
+    ) => Promise<{
+      query: string;
+      total: number;
+      results: CodeHit[];
+      indexes?: RetrievalIndexStatus[];
+    }>
+  >(),
   conversations:
     vi.fn<
       (
@@ -180,6 +184,46 @@ describe("SearchPage", () => {
 
     expect(await screen.findByText("conversation not found")).toBeDefined();
     expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  // KI-150: without an embedding key the index ended in "error" and the page
+  // said only "No results found.".
+  it("shows why the searched indexes find less", async () => {
+    apiMock.projects.mockResolvedValue([
+      { id: "p-1", name: "shop" } as Project,
+      { id: "p-2", name: "blog" } as Project,
+    ]);
+    apiMock.global.mockResolvedValue({
+      query: "cart",
+      total: 0,
+      results: [],
+      indexes: [
+        {
+          project_id: "p-1",
+          status: "ready",
+          bm25_only: true,
+          file_count: 3,
+          chunk_count: 9,
+          embedding_model: "text-embedding-3-small",
+        },
+        {
+          project_id: "p-2",
+          status: "error",
+          error: "embedding call failed: 503",
+          file_count: 0,
+          chunk_count: 0,
+          embedding_model: "",
+        },
+      ],
+    });
+    renderPage();
+    search("cart");
+
+    expect(await screen.findByText("No results found.")).toBeDefined();
+    expect(await screen.findByText(/shop: the index ranks by keywords only/)).toBeDefined();
+    expect(
+      await screen.findByText("blog: the index failed: embedding call failed: 503"),
+    ).toBeDefined();
   });
 
   it("does not search for an empty query", async () => {

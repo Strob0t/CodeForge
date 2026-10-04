@@ -77,6 +77,9 @@ type globalSearchResponse struct {
 	Query   string                       `json:"query"`
 	Total   int                          `json:"total"`
 	Results []service.GlobalSearchResult `json:"results"`
+	// Indexes are the searched projects' indexes that are building, failed
+	// or BM25-only (KI-150).
+	Indexes []service.RetrievalIndexInfo `json:"indexes"`
 }
 
 // GlobalSearch handles POST /api/v1/search.
@@ -113,7 +116,8 @@ func (h *Handlers) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, globalSearchResponse{
 		Query:   req.Query,
-		Total:   len(results),
-		Results: results,
+		Total:   len(results.Hits),
+		Results: results.Hits,
+		Indexes: results.Indexes,
 	})
 }

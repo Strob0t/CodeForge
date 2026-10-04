@@ -213,6 +213,8 @@ export function createSearchResource(c: CoreClient) {
           symbol_name?: string;
           score: number;
         }[];
+        /** The searched projects' indexes that are building, failed or BM25-only (KI-150). */
+        indexes?: RetrievalIndexStatus[];
       }>("/search", {
         query,
         project_ids: projectIds,

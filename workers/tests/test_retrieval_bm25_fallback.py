@@ -16,7 +16,8 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
-from codeforge.retrieval import HybridRetriever
+from codeforge.retrieval import HybridRetriever, embedding_provider
+from codeforge.routing.key_filter import KeyFilter
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -137,10 +138,31 @@ _UNUSABLE = [
         httpx.Response(400, json={"error": {"message": "litellm.BadRequestError: LLM Provider NOT provided."}}),
         id="400-no-provider",
     ),
+    # KI-150: LiteLLM answers an embedding request without the provider's key with a 500.
+    pytest.param(
+        httpx.Response(
+            500,
+            json={
+                "error": {
+                    "message": "litellm.AuthenticationError: AuthenticationError: OpenAIException - The api_key "
+                    "client option must be set either by passing api_key to the client or by setting the "
+                    "OPENAI_API_KEY environment variable",
+                    "code": "500",
+                }
+            },
+        ),
+        id="500-authentication-error",
+    ),
+    pytest.param(
+        httpx.Response(400, json={"error": {"message": "Incorrect API key provided: sk-xxxx."}}), id="400-bad-key"
+    ),
 ]
 
 _TRANSIENT = [
     pytest.param(httpx.Response(429, json={"error": {"message": "rate limited"}}), id="429"),
+    pytest.param(
+        httpx.Response(429, json={"error": {"message": "Rate limit reached for this API key"}}), id="429-naming-the-key"
+    ),
     pytest.param(httpx.Response(500, json={"error": {"message": "internal"}}), id="500"),
     pytest.param(httpx.Response(503, json={"error": {"message": "unavailable"}}), id="503"),
     pytest.param(httpx.ReadTimeout("timed out"), id="timeout"),
@@ -214,3 +236,77 @@ async def test_bm25_only_flag_reaches_the_index_result(tmp_path: Path) -> None:
     assert result.bm25_only is True
     assert json.loads(result.model_dump_json())["bm25_only"] is True
     await retriever.close()
+
+
+# --- KI-150: no embedding call for a cloud provider without a key ---
+
+
+@pytest.mark.parametrize(
+    ("model", "provider"),
+    [
+        ("text-embedding-3-small", "openai"),
+        ("openai/text-embedding-3-large", "openai"),
+        ("ollama/nomic-embed-text", "ollama"),
+        ("gemini/text-embedding-004", "gemini"),
+        ("nomic-embed-text", ""),
+        ("", ""),
+    ],
+)
+def test_embedding_provider(model: str, provider: str) -> None:
+    assert embedding_provider(model) == provider
+
+
+def _keyed_retriever(keyed: set[str]) -> tuple[HybridRetriever, list[int]]:
+    """A retriever whose embeddings work, and whose providers in *keyed* have a key."""
+    retriever, calls = _retriever([True])
+    retriever._provider_has_key = lambda provider: provider in keyed
+    return retriever, calls
+
+
+@pytest.mark.parametrize("model", ["text-embedding-3-small", "openai/text-embedding-3-large"])
+async def test_cloud_provider_without_a_key_is_not_called(model: str, tmp_path: Path) -> None:
+    retriever, calls = _keyed_retriever(set())
+    workspace = _workspace(tmp_path)
+
+    with capture_logs() as logs:
+        first = await retriever.build_index("p1", workspace, embedding_model=model)
+        second = await retriever.build_index("p2", workspace, embedding_model=model)
+
+    assert calls[0] == 0
+    for status in (first, second):
+        assert status.status == "ready"
+        assert status.bm25_only is True
+        assert status.error == ""
+    warnings = [e for e in logs if e["log_level"] == "warning"]
+    assert len(warnings) == 1, warnings
+    assert "openai" in warnings[0]["reason"]
+    await retriever.close()
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "text-embedding-3-small",  # openai has a key
+        "ollama/nomic-embed-text",  # a local server needs no key
+        "nomic-embed-text",  # no provider the worker can tell: LiteLLM decides
+    ],
+)
+async def test_provider_with_a_key_or_unknown_is_called(
+    model: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    retriever, calls = _retriever([True])
+    retriever._provider_has_key = KeyFilter.has_key
+
+    status = await retriever.build_index("p1", _workspace(tmp_path), embedding_model=model)
+
+    assert calls[0] > 0
+    assert status.bm25_only is False
+    await retriever.close()
+
+
+def test_the_worker_checks_the_provider_keys() -> None:
+    from codeforge.consumer import TaskConsumer
+
+    worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
+    assert worker._retriever._provider_has_key is KeyFilter.has_key

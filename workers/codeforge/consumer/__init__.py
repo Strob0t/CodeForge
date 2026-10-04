@@ -81,6 +81,7 @@ from codeforge.notifications import NotificationHub
 from codeforge.qualitygate import QualityGateExecutor
 from codeforge.repomap import RepoMapGenerator
 from codeforge.retrieval import HybridRetriever, RetrievalSubAgent
+from codeforge.routing.key_filter import KeyFilter
 from codeforge.secrets import SECRETS_DIR, lock_secrets_dir
 from codeforge.tool_process import (
     IsolationConfig,
@@ -196,7 +197,10 @@ class TaskConsumer(
         self._backend_router = build_default_router()
         self._gate_executor = QualityGateExecutor()
         self._repomap_generator = RepoMapGenerator()
-        self._retriever = HybridRetriever(litellm_url=litellm_url, litellm_key=litellm_key)
+        # No embedding calls for a cloud provider without a key (KI-150).
+        self._retriever = HybridRetriever(
+            litellm_url=litellm_url, litellm_key=litellm_key, provider_has_key=KeyFilter.has_key
+        )
         self._subagent = RetrievalSubAgent(retriever=self._retriever, llm=self._llm)
         self._graph_builder = CodeGraphBuilder()
         self._graph_searcher = GraphSearcher()

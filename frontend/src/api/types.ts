@@ -547,6 +547,8 @@ export interface RetrievalIndexStatus {
   chunk_count: number;
   embedding_model: string;
   error?: string;
+  /** Ready, but ranked by keywords (BM25) alone: no usable embedding model (KI-130, KI-150). */
+  bm25_only?: boolean;
 }
 
 /** Search request body */

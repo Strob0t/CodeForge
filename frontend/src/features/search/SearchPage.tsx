@@ -2,7 +2,7 @@ import { A, useNavigate } from "@solidjs/router";
 import { createResource, createSignal, For, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { Project } from "~/api/types";
+import type { Project, RetrievalIndexStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
@@ -84,6 +84,15 @@ export default function SearchPage() {
 
   function projectName(id: string): string {
     return (projects() ?? []).find((p: Project) => p.id === id)?.name ?? id.slice(0, 8);
+  }
+
+  function indexNote(index: RetrievalIndexStatus): string {
+    const project = projectName(index.project_id);
+    if (index.status === "error") {
+      return t("search.indexError", { project, error: index.error ?? "" });
+    }
+    if (index.status === "building") return t("search.indexBuilding", { project });
+    return t("search.indexBm25Only", { project });
   }
 
   const tabItems = [
@@ -177,6 +186,12 @@ export default function SearchPage() {
           codeResults() !== undefined
         }
       >
+        {/* Why the searched indexes find less (KI-150) */}
+        <Show when={codeResults()?.indexes?.length}>
+          <ul class="mt-4 space-y-1 text-xs text-cf-text-secondary">
+            <For each={codeResults()?.indexes}>{(index) => <li>{indexNote(index)}</li>}</For>
+          </ul>
+        </Show>
         <Show
           when={codeResults()?.results?.length}
           fallback={

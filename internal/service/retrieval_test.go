@@ -396,10 +396,11 @@ func TestGlobalSearch_MultipleProjects(t *testing.T) {
 	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 	arq.svc = svc
 
-	results, err := svc.GlobalSearch(context.Background(), "func", nil, 20)
+	out, err := svc.GlobalSearch(context.Background(), "func", nil, 20)
 	if err != nil {
 		t.Fatalf("GlobalSearch error: %v", err)
 	}
+	results := out.Hits
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -435,10 +436,11 @@ func TestGlobalSearch_ExplicitProjectIDs(t *testing.T) {
 	arq.svc = svc
 
 	// Only search p1 and p3, not p2.
-	results, err := svc.GlobalSearch(context.Background(), "func", []string{"p1", "p3"}, 20)
+	out, err := svc.GlobalSearch(context.Background(), "func", []string{"p1", "p3"}, 20)
 	if err != nil {
 		t.Fatalf("GlobalSearch error: %v", err)
 	}
+	results := out.Hits
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -446,6 +448,50 @@ func TestGlobalSearch_ExplicitProjectIDs(t *testing.T) {
 		if r.ProjectID == "p2" {
 			t.Fatal("p2 should not be in results when filtering by [p1, p3]")
 		}
+	}
+}
+
+// KI-150: a search names the searched projects' indexes that do not rank
+// with embeddings (BM25-only, failed, building), so the search page can say
+// why it found nothing instead of a bare "No results found.".
+func TestGlobalSearch_ReportsIndexesThatDoNotRankFully(t *testing.T) {
+	store := &runtimeMockStore{projects: []project.Project{
+		{ID: "p1", Name: "Alpha"}, {ID: "p2", Name: "Beta"}, {ID: "p3", Name: "Gamma"}, {ID: "p4", Name: "Delta"},
+	}}
+	arq := &autoReplyQueue{hits: map[string][]messagequeue.RetrievalSearchHitPayload{}}
+	svc := service.NewRetrievalService(store, arq, &runtimeMockBroadcaster{}, &config.Orchestrator{}, &config.Limits{SearchTimeout: 5 * time.Second})
+	arq.svc = svc
+	ctx := context.Background()
+	for _, res := range []messagequeue.RetrievalIndexResultPayload{
+		{ProjectID: "p1", Status: "ready", BM25Only: true, EmbeddingModel: "text-embedding-3-small"},
+		{ProjectID: "p2", Status: "error", Error: "embedding call failed: 503"},
+		{ProjectID: "p3", Status: "ready", EmbeddingModel: "ollama/nomic-embed-text"},
+		{ProjectID: "other", Status: "error", Error: "not searched"},
+	} {
+		if err := svc.HandleIndexResult(ctx, &res); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, err := svc.GlobalSearch(ctx, "func", nil, 20)
+	if err != nil {
+		t.Fatalf("GlobalSearch: %v", err)
+	}
+
+	got := map[string]service.RetrievalIndexInfo{}
+	for _, idx := range out.Indexes {
+		got[idx.ProjectID] = idx
+	}
+	if len(got) != 2 || !got["p1"].BM25Only || got["p2"].Status != "error" || got["p2"].Error != "embedding call failed: 503" {
+		t.Fatalf("indexes = %+v, want p1 (BM25 only) and p2 (error)", out.Indexes)
+	}
+
+	out, err = svc.GlobalSearch(ctx, "func", []string{"p3"}, 20)
+	if err != nil {
+		t.Fatalf("GlobalSearch: %v", err)
+	}
+	if len(out.Indexes) != 0 {
+		t.Fatalf("indexes = %+v, want none for a hybrid index", out.Indexes)
 	}
 }
 
@@ -485,10 +531,11 @@ func TestGlobalSearch_LimitRespected(t *testing.T) {
 	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 	arq.svc = svc
 
-	results, err := svc.GlobalSearch(context.Background(), "query", []string{"p1"}, 3)
+	out, err := svc.GlobalSearch(context.Background(), "query", []string{"p1"}, 3)
 	if err != nil {
 		t.Fatalf("GlobalSearch error: %v", err)
 	}
+	results := out.Hits
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results (limit), got %d", len(results))
 	}
@@ -502,10 +549,11 @@ func TestGlobalSearch_EmptyProjects(t *testing.T) {
 	svc := service.NewRetrievalService(store, arq, bc, orchCfg, &config.Limits{SearchTimeout: 5 * time.Second})
 	arq.svc = svc
 
-	results, err := svc.GlobalSearch(context.Background(), "query", nil, 20)
+	out, err := svc.GlobalSearch(context.Background(), "query", nil, 20)
 	if err != nil {
 		t.Fatalf("GlobalSearch error: %v", err)
 	}
+	results := out.Hits
 	if len(results) != 0 {
 		t.Fatalf("expected 0 results for empty projects, got %d", len(results))
 	}

@@ -424,27 +424,59 @@ type GlobalSearchResult struct {
 	Score      float64 `json:"score"`
 }
 
+// GlobalSearchResults are the hits of a cross-project search and the
+// searched projects' indexes that do not rank with embeddings (KI-150).
+type GlobalSearchResults struct {
+	Hits []GlobalSearchResult
+	// Indexes are the known indexes of the searched projects that are
+	// building, failed or BM25-only; a hybrid ready index is left out.
+	Indexes []RetrievalIndexInfo
+}
+
 // GlobalSearch searches across multiple projects concurrently and returns merged results.
 // If projectIDs is empty, all tenant projects are searched. A project ID the
 // tenant has no project for fails the search with the store's not-found
 // error: the worker searches an index by project ID only.
-func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, projectIDs []string, limit int) ([]GlobalSearchResult, error) {
+func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, projectIDs []string, limit int) (*GlobalSearchResults, error) {
+	hits, projectIDs, err := s.globalSearchHits(ctx, query, projectIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	return &GlobalSearchResults{Hits: hits, Indexes: s.limitedIndexes(projectIDs)}, nil
+}
+
+// limitedIndexes returns the known indexes of the projects that do not rank
+// with embeddings, in the order of projectIDs.
+func (s *RetrievalService) limitedIndexes(projectIDs []string) []RetrievalIndexInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limited := []RetrievalIndexInfo{}
+	for _, id := range projectIDs {
+		if info := s.indexes[id]; info != nil && (info.Status != "ready" || info.BM25Only) {
+			limited = append(limited, *info)
+		}
+	}
+	return limited
+}
+
+// globalSearchHits runs the search and returns its hits and the searched projects.
+func (s *RetrievalService) globalSearchHits(ctx context.Context, query string, projectIDs []string, limit int) ([]GlobalSearchResult, []string, error) {
 	for _, id := range projectIDs {
 		if _, err := s.store.GetProject(ctx, id); err != nil {
-			return nil, fmt.Errorf("global search project %s: %w", id, err)
+			return nil, nil, fmt.Errorf("global search project %s: %w", id, err)
 		}
 	}
 	if len(projectIDs) == 0 {
 		projects, err := s.store.ListProjects(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("list projects for global search: %w", err)
+			return nil, nil, fmt.Errorf("list projects for global search: %w", err)
 		}
 		for i := range projects {
 			projectIDs = append(projectIDs, projects[i].ID)
 		}
 	}
 	if len(projectIDs) == 0 {
-		return []GlobalSearchResult{}, nil
+		return []GlobalSearchResult{}, projectIDs, nil
 	}
 
 	type result struct {
@@ -499,7 +531,7 @@ func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, proje
 	if merged == nil {
 		merged = []GlobalSearchResult{}
 	}
-	return merged, nil
+	return merged, projectIDs, nil
 }
 
 // StartSubscribers subscribes to retrieval result subjects and returns cancel funcs.

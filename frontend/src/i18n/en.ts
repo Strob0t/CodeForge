@@ -176,6 +176,10 @@ const en = {
   "search.filterProjects": "Filter projects",
   "search.allProjects": "All Projects",
   "search.noResults": "No results found.",
+  "search.indexBm25Only":
+    "{{project}}: the index ranks by keywords only (no usable embedding model).",
+  "search.indexError": "{{project}}: the index failed: {{error}}",
+  "search.indexBuilding": "{{project}}: the index is still being built.",
   "search.error": "Search failed.",
   "search.results": "{{count}} results",
   "search.line": "L{{line}}",
