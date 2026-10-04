@@ -2,10 +2,12 @@ package githubpm
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -295,6 +297,15 @@ func TestProvider_TokenRunsGHAsTheIntegration(t *testing.T) {
 		}
 		if len(ghToken) == 0 || ghToken[len(ghToken)-1] != "GH_TOKEN="+token {
 			t.Fatalf("gh environment GH_TOKEN entries %v, want the integration's token last", ghToken)
+		}
+	}
+}
+
+// KI-149: a malformed reference is the caller's input and answers 400.
+func TestValidateProjectRef_IsValidationError(t *testing.T) {
+	for _, ref := range []string{"", "noslash", "a/b/c", "/repo"} {
+		if err := validateProjectRef(ref); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("validateProjectRef(%q) = %v, want ErrValidation", ref, err)
 		}
 	}
 }

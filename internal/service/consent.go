@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -60,7 +61,7 @@ func (s *ConsentService) SetConsent(ctx context.Context, record *database.Consen
 
 	// Required purposes cannot be withdrawn.
 	if purpose.Required && !record.Granted {
-		return fmt.Errorf("consent for required purpose %q cannot be withdrawn", purpose.Label)
+		return fmt.Errorf("%w: consent for required purpose %q cannot be withdrawn", domain.ErrValidation, purpose.Label)
 	}
 
 	record.PurposeVersion = purpose.Version

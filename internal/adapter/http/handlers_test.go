@@ -69,6 +69,7 @@ import (
 // mockStore implements database.Store for testing.
 type mockStore struct {
 	mu                  sync.Mutex
+	consentPurposes     []database.ConsentPurpose
 	tenants             []tenant.Tenant
 	projects            []project.Project
 	agents              []agent.Agent
@@ -3645,8 +3646,14 @@ func (m *mockStore) ListUserConsents(_ context.Context, _ string) ([]database.Co
 func (m *mockStore) ListConsentPurposes(_ context.Context) ([]database.ConsentPurpose, error) {
 	return nil, nil
 }
-func (m *mockStore) GetConsentPurpose(_ context.Context, _ string) (*database.ConsentPurpose, error) {
-	return nil, nil
+func (m *mockStore) GetConsentPurpose(_ context.Context, purposeID string) (*database.ConsentPurpose, error) {
+	for i := range m.consentPurposes {
+		if m.consentPurposes[i].ID == purposeID {
+			p := m.consentPurposes[i]
+			return &p, nil
+		}
+	}
+	return nil, errNotFound
 }
 
 func TestListRemoteBranches_URLValidation(t *testing.T) {

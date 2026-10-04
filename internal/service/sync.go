@@ -51,7 +51,7 @@ func (s *SyncService) Sync(ctx context.Context, cfg *roadmap.SyncConfig) (*roadm
 	}
 	provider, err := pmprovider.New(cfg.Provider, provCfg)
 	if err != nil {
-		return nil, fmt.Errorf("create pm provider %q: %w", cfg.Provider, err)
+		return nil, fmt.Errorf("%w: create pm provider %q: %w", domain.ErrValidation, cfg.Provider, err)
 	}
 
 	switch cfg.Direction {
@@ -85,7 +85,7 @@ func (s *SyncService) Sync(ctx context.Context, cfg *roadmap.SyncConfig) (*roadm
 			DryRun:    cfg.DryRun,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown sync direction: %q", cfg.Direction)
+		return nil, fmt.Errorf("%w: unknown sync direction %q", domain.ErrValidation, cfg.Direction)
 	}
 }
 

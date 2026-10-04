@@ -64,7 +64,7 @@ func (s *AuthService) register(ctx context.Context, req *user.CreateRequest, fir
 	}
 
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("validate: %w", err)
+		return nil, fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), s.cfg.BcryptCost)
@@ -98,7 +98,7 @@ func (s *AuthService) register(ctx context.Context, req *user.CreateRequest, fir
 // Accounts are temporarily locked after 5 consecutive failed attempts (15 min lockout).
 func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID string) (*user.LoginResponse, string, error) {
 	if err := req.Validate(); err != nil {
-		return nil, "", fmt.Errorf("validate: %w", err)
+		return nil, "", fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	u, err := s.store.GetUserByEmail(ctx, req.Email, tenantID)
@@ -234,7 +234,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 	}
 	if req.Role != "" {
 		if !user.ValidRoles[req.Role] {
-			return nil, errors.New("invalid role")
+			return nil, fmt.Errorf("%w: invalid role: must be admin, editor, or viewer", domain.ErrValidation)
 		}
 		u.Role = req.Role
 	}
@@ -379,7 +379,7 @@ func (s *AuthService) syncAdminPassword(ctx context.Context, tenantID string) er
 // It clears must_change_password, failed_attempts, locked_until, and invalidates all sessions.
 func (s *AuthService) AdminResetPassword(ctx context.Context, email, tenantID, newPassword string) error {
 	if err := user.ValidatePasswordComplexity(newPassword); err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	u, err := s.store.GetUserByEmail(ctx, email, tenantID)
@@ -446,7 +446,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email, tenantID 
 // Marks the token as used and invalidates all sessions.
 func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) error {
 	if err := user.ValidatePasswordComplexity(newPassword); err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	tokenHash := crypto.HashSHA256(rawToken)
@@ -498,7 +498,7 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 // hashes it, updates the user, and clears the MustChangePassword flag.
 func (s *AuthService) ChangePassword(ctx context.Context, userID string, req user.ChangePasswordRequest) error {
 	if err := req.Validate(); err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	u, err := s.store.GetUser(ctx, userID)
@@ -507,7 +507,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID string, req use
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.OldPassword)); err != nil {
-		return errors.New("current password is incorrect")
+		return fmt.Errorf("%w: current password is incorrect", domain.ErrValidation)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), s.cfg.BcryptCost)

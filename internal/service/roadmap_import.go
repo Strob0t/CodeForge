@@ -352,7 +352,7 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 		}
 	}
 	if prov == nil {
-		return nil, fmt.Errorf("unknown PM provider: %s", providerName)
+		return nil, fmt.Errorf("%w: unknown PM provider %q", domain.ErrValidation, providerName)
 	}
 	// The providers built at startup carry the operator's credentials.
 	if credential, ok := operatorPMCredentials[providerName]; ok && !operatorCredentialsServe(ctx) {

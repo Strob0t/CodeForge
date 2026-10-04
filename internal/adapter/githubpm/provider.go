@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -211,7 +212,7 @@ func (p *Provider) UpdateItem(ctx context.Context, projectRef string, item *pmpr
 func validateProjectRef(ref string) error {
 	parts := strings.Split(ref, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return fmt.Errorf("invalid project ref %q: expected owner/repo", ref)
+		return fmt.Errorf("%w: invalid project ref %q: expected owner/repo", domain.ErrValidation, ref)
 	}
 	return nil
 }

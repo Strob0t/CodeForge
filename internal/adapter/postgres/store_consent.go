@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
 
@@ -109,8 +111,8 @@ func (s *Store) GetConsentPurpose(ctx context.Context, purposeID string) (*datab
 		 FROM consent_purposes WHERE tenant_id = $1 AND id = $2`,
 		tid, purposeID).Scan(&p.ID, &p.TenantID, &p.Label, &p.Description, &p.LegalBasis,
 		&p.Required, &p.Version, &p.CreatedAt, &p.UpdatedAt)
-	if err == pgx.ErrNoRows {
-		return nil, fmt.Errorf("consent purpose not found: %s", purposeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("consent purpose %q: %w", purposeID, domain.ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get consent purpose: %w", err)

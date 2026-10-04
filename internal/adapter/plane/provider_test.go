@@ -3,11 +3,13 @@ package plane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -568,3 +570,20 @@ func TestListItems_ContextCanceled(t *testing.T) {
 
 // TestProviderImplementsInterface verifies at compile time that *Provider satisfies pmprovider.Provider.
 var _ pmprovider.Provider = (*Provider)(nil)
+
+// KI-149: a malformed reference is the caller's input (400) and a project
+// Plane does not know is a reference that was not found (404).
+func TestListItems_RefErrorsCarryDomainSentinels(t *testing.T) {
+	p := &Provider{apiToken: "tok", baseURL: "http://localhost", httpClient: &http.Client{}}
+	if _, err := p.ListItems(context.Background(), "bad-ref"); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("malformed ref: err = %v, want ErrValidation", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	if _, err := newTestProvider(t, srv.URL).ListItems(context.Background(), "ws/no-such-project"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown project: err = %v, want ErrNotFound", err)
+	}
+}

@@ -3,10 +3,12 @@ package gitlab
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
@@ -176,6 +178,32 @@ func TestMapStatusToStateEvent(t *testing.T) {
 		got := mapStatusToStateEvent(tt.input)
 		if got != tt.want {
 			t.Errorf("mapStatusToStateEvent(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// KI-149: a project GitLab does not know is a reference the caller got wrong,
+// so the sync answers 404 instead of 500; other failures stay unclassified.
+func TestListItems_UnknownProjectIsNotFound(t *testing.T) {
+	for _, tc := range []struct {
+		status       int
+		wantNotFound bool
+	}{
+		{http.StatusNotFound, true},
+		{http.StatusInternalServerError, false},
+		{http.StatusUnauthorized, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, `{"message":"404 Project Not Found"}`, tc.status)
+		}))
+		p := newLoopbackProvider(t, srv.URL, "test-token")
+		_, err := p.ListItems(context.Background(), "no/such-project")
+		srv.Close()
+		if err == nil {
+			t.Fatalf("status %d: expected an error", tc.status)
+		}
+		if got := errors.Is(err, domain.ErrNotFound); got != tc.wantNotFound {
+			t.Errorf("status %d: errors.Is(err, ErrNotFound) = %v, want %v (%v)", tc.status, got, tc.wantNotFound, err)
 		}
 	}
 }

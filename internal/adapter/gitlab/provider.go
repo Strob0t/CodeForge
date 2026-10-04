@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
@@ -227,6 +228,11 @@ func (p *Provider) doRequest(ctx context.Context, method, reqURL string, body io
 		status := fmt.Sprintf("%s %s: answered %d %s", method, origin, resp.StatusCode, http.StatusText(resp.StatusCode))
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			return nil, errors.New(status + "; a redirect is followed only within the origin")
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			// The project or issue the caller referenced does not exist (or
+			// the token cannot see it): a reference to correct, not a fault.
+			return nil, fmt.Errorf("%s: %w", status, domain.ErrNotFound)
 		}
 		return nil, errors.New(status)
 	}
