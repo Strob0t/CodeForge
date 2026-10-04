@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -194,7 +195,9 @@ func (s *RoutingService) SeedFromBenchmarkRun(ctx context.Context, runID string)
 // metadata from discovered models (tools, vision, context, cost).
 func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm.DiscoveredModel) error {
 	for i := range models {
-		if models[i].Status != "reachable" {
+		// A wildcard route ("groq/*", a provider without a key) names no
+		// model the router could pick (KI-125).
+		if models[i].Status != "reachable" || strings.Contains(models[i].ModelName, "*") {
 			continue
 		}
 

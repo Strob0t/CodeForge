@@ -52,6 +52,7 @@ type Client struct {
 	vault      *secrets.Vault
 	httpClient *http.Client
 	breaker    *resilience.Breaker
+	keys       llm.ProviderKeys
 }
 
 // NewClient creates a new LiteLLM admin client.
@@ -68,6 +69,14 @@ func NewClient(baseURL, masterKey string) *Client {
 // SetBreaker attaches a circuit breaker to all outgoing HTTP calls.
 func (c *Client) SetBreaker(b *resilience.Breaker) {
 	c.breaker = b
+}
+
+// SetProviderKeys tells the model listing which providers have an API key:
+// their wildcard routes list the models LiteLLM expands them to, the others
+// one route row (collapseCatalogueRoutes). Without it no cloud provider
+// counts as keyed.
+func (c *Client) SetProviderKeys(keys llm.ProviderKeys) {
+	c.keys = keys
 }
 
 // SetVault attaches a secrets vault. When set, the master key is read from
@@ -100,7 +109,7 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal models: %w", err)
 	}
-	result.Data = collapseCatalogueRoutes(result.Data)
+	result.Data = c.collapseCatalogueRoutes(result.Data)
 	for i := range result.Data {
 		// Infer vision capability from metadata or model name.
 		result.Data[i].SupportsVision = inferVisionSupport(
@@ -120,47 +129,43 @@ func deploymentID(info map[string]any) string {
 	return id
 }
 
-// collapseCatalogueRoutes lists a cloud wildcard route as one row instead of
-// every model LiteLLM expands it to (KI-125). LiteLLM expands routes such as
-// groq/* from its built-in model catalogue whether or not the provider's key
-// is set, and /model/info strips the keys, so the Core cannot tell which
-// routes are usable: with no keys the shipped routes listed about 600 models
-// nobody can call. The route row ("groq/*") keeps the route usable for a
-// model typed by name and for the worker's router, which expands provider
-// routes to its own model choice. A route with an api_base (Ollama, LM
-// Studio, OpenAI-compatible services) keeps its rows: LiteLLM lists those
-// models from the server itself. The rows of one route share the route's
-// deployment ID (model_info.id).
-func collapseCatalogueRoutes(rows []Model) []Model {
-	patterns := make(map[string]string, len(rows))
+// collapseCatalogueRoutes lists the wildcard route of a provider without an
+// API key as one row instead of every model LiteLLM expands it to (KI-125).
+// LiteLLM expands a route such as groq/* from its built-in catalogue whether
+// or not the key is set (about 600 models nobody can call without keys), and
+// a route whose provider lists its models (anthropic/*, openai/*, ...) to
+// that list once the key is set. Both kinds of rows share the route's
+// deployment ID (model_info.id) and /model/info strips the keys, so whether
+// a provider has a key comes from c.keys: a keyed provider keeps its rows (a
+// user picks a concrete model, and the default model is one), a keyless one
+// becomes one route row ("groq/*"), which stays usable for a model typed by
+// name and for the worker's router. A route with an api_base (Ollama, LM
+// Studio, OpenAI-compatible services) keeps its rows: LiteLLM lists them
+// from the server itself, which answers only when it can be used.
+func (c *Client) collapseCatalogueRoutes(rows []Model) []Model {
 	counts := make(map[string]int, len(rows))
 	for i := range rows {
-		id := deploymentID(rows[i].ModelInfo)
-		if id == "" {
-			continue
-		}
-		counts[id]++
-		prefix, _, _ := strings.Cut(rows[i].ModelName, "/")
-		if seen, ok := patterns[id]; !ok {
-			patterns[id] = prefix + "/*"
-		} else if seen != prefix+"/*" {
-			patterns[id] = "*"
+		if id := deploymentID(rows[i].ModelInfo); id != "" {
+			counts[id]++
 		}
 	}
 
+	type route struct{ id, provider string }
 	out := make([]Model, 0, len(rows))
-	listed := make(map[string]bool, len(counts))
+	listed := make(map[route]bool)
 	for i := range rows {
 		id := deploymentID(rows[i].ModelInfo)
-		if id == "" || counts[id] < 2 || hasAPIBase(rows[i].Params) {
+		provider, _, prefixed := strings.Cut(rows[i].ModelName, "/")
+		if counts[id] < 2 || !prefixed || hasAPIBase(rows[i].Params) || c.keys.HasKey(provider) {
 			out = append(out, rows[i])
 			continue
 		}
-		if listed[id] {
+		r := route{id: id, provider: provider}
+		if listed[r] {
 			continue
 		}
-		listed[id] = true
-		out = append(out, routeRow(&rows[i], id, patterns[id]))
+		listed[r] = true
+		out = append(out, routeRow(&rows[i], id, provider+"/*"))
 	}
 	return out
 }
@@ -250,7 +255,7 @@ func (c *Client) DiscoverModels(ctx context.Context) ([]DiscoveredModel, error) 
 	if err := json.Unmarshal(infoResp, &infoResult); err != nil {
 		return nil, fmt.Errorf("unmarshal model info: %w", err)
 	}
-	infoResult.Data = collapseCatalogueRoutes(infoResult.Data)
+	infoResult.Data = c.collapseCatalogueRoutes(infoResult.Data)
 
 	// Also fetch the OpenAI-compatible /v1/models list for ID cross-reference.
 	modelsResp, err := c.doRequest(ctx, http.MethodGet, "/v1/models", nil)

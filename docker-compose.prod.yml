@@ -35,6 +35,12 @@ x-logging: &default-logging
     max-size: "50m"
     max-file: "10"
 
+# The providers whose API key LiteLLM gets, as names only (KI-125): the core
+# lists their models and picks its default model from them, the worker's
+# routing uses them; neither sees a key. ${VAR:+name,} is the name when VAR
+# is set and not empty.
+x-keyed-providers: &keyed-providers "${OPENAI_API_KEY:+openai,}${ANTHROPIC_API_KEY:+anthropic,}${GEMINI_API_KEY:+gemini,}${GROQ_API_KEY:+groq,}${MISTRAL_API_KEY:+mistral,}${OPENROUTER_API_KEY:+openrouter,}${CEREBRAS_API_KEY:+cerebras,}${CHUTES_API_KEY:+chutes,}${AIHUBMIX_API_KEY:+aihubmix,}"
+
 services:
   # --- Infrastructure ---
 
@@ -253,6 +259,7 @@ services:
       NATS_URL_FILE: /run/secrets/nats-url
       LITELLM_BASE_URL: "http://litellm:4000"
       LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
+      CODEFORGE_LITELLM_KEYED_PROVIDERS: *keyed-providers
       CODEFORGE_AUTH_JWT_SECRET_FILE: /run/secrets/codeforge-auth-jwt-secret
       CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET_FILE: /run/secrets/codeforge-auth-llm-key-encryption-secret
       CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
@@ -336,6 +343,7 @@ services:
       NATS_URL_FILE: /run/secrets/nats-url
       LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
       CODEFORGE_INTERNAL_KEY_FILE: /run/secrets/codeforge-internal-key
+      CODEFORGE_LITELLM_KEYED_PROVIDERS: *keyed-providers
       # Landlock per tool call follows it (CODEFORGE_TOOL_LANDLOCK; "off" is
       # refused with APP_ENV=production); the host needs Landlock ABI 2 or
       # later and POSIX ACLs on both volumes (scripts/check-host.sh).

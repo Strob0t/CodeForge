@@ -35,6 +35,12 @@ litellm:
   # model_capabilities:
   #   "ollama/phi3*": pure_completion
   #   "ollama/*": api_with_tools
+  # Core and worker: the providers whose API key LiteLLM holds (names only,
+  # never the key). Their models are listed and can be the default model;
+  # the other cloud routes show as one entry ("groq/*") and are not routed
+  # to. docker-compose.prod.yml sets it from the key variables. Env:
+  # CODEFORGE_LITELLM_KEYED_PROVIDERS="anthropic,openai"
+  # keyed_providers: [anthropic, openai]
 
 logging:
   level: "info"    # debug, info, warn, error

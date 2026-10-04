@@ -11,8 +11,10 @@ import (
 	"time"
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 	"github.com/Strob0t/CodeForge/internal/service"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
@@ -132,5 +134,61 @@ func TestListLLMModels_RedactsCredentials(t *testing.T) {
 		if !strings.Contains(body, kept) {
 			t.Errorf("model list lost %s: %s", kept, body)
 		}
+	}
+}
+
+// TestListLLMModels_RouteRowsRedactCredentials (KI-125 review): the rows of
+// an expanded wildcard route, listed (provider with a key) or collapsed to
+// one route row (without), carry the route's parameters; their credentials
+// are dropped like those of any other row.
+func TestListLLMModels_RouteRowsRedactCredentials(t *testing.T) {
+	llmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		row := func(name string) string {
+			return `{"model_name":"` + name + `","model_info":{"id":"dep-a"},"litellm_params":{"model":"` + name +
+				`","api_key":"sk-ROUTE-SECRET","extra_headers":{"Authorization":"Bearer hdr-SECRET"},"tags":["default"]}}`
+		}
+		_, _ = w.Write([]byte(`{"data":[` + row("anthropic/claude-a") + `,` + row("anthropic/claude-b") + `]}`))
+	}))
+	defer llmSrv.Close()
+
+	keyed, err := llm.NewProviderKeys([]string{"anthropic"}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tt := range map[string]struct {
+		keys     llm.ProviderKeys
+		wantRows []string
+	}{
+		"collapsed route row": {llm.ProviderKeys{}, []string{`"model_name":"anthropic/*"`}},
+		"listed models":       {keyed, []string{`"model_name":"anthropic/claude-a"`, `"model_name":"anthropic/claude-b"`}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := litellm.NewClient(llmSrv.URL, "")
+			client.SetProviderKeys(tt.keys)
+			r := newTestRouterWithLLM(&mockStore{}, service.NewPolicyService("headless-safe-sandbox", nil), llmSrv.URL,
+				func(h *cfhttp.Handlers) { h.LLM = client })
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/models", http.NoBody)
+			req = req.WithContext(middleware.ContextWithTestUser(req.Context(),
+				&user.User{ID: "v", Role: user.RoleViewer, TenantID: "11111111-2222-3333-4444-555555555555"}))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			for _, secret := range []string{"sk-ROUTE-SECRET", "hdr-SECRET"} {
+				if strings.Contains(body, secret) {
+					t.Errorf("model list exposes %q: %s", secret, body)
+				}
+			}
+			for _, kept := range append(tt.wantRows, `"tags":["default"]`) {
+				if !strings.Contains(body, kept) {
+					t.Errorf("model list lost %s: %s", kept, body)
+				}
+			}
+		})
 	}
 }

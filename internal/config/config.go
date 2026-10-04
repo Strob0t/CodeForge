@@ -470,6 +470,12 @@ type LiteLLM struct {
 	MasterKey          string        `yaml:"master_key" json:"-"`
 	ConversationModel  string        `yaml:"conversation_model"`   // Model for chat conversations (default: resolved at init)
 	HealthPollInterval time.Duration `yaml:"health_poll_interval"` // Model health poll interval (default: 60s)
+	// KeyedProviders names the providers whose API key LiteLLM holds (names
+	// only, never a key): their wildcard routes list their models and the
+	// default model can be one of them (KI-125). docker-compose.prod.yml
+	// derives it from the key variables; a provider whose key variable is set
+	// in the Core's own environment counts as well.
+	KeyedProviders []string `yaml:"keyed_providers"`
 }
 
 // Logging holds structured logging configuration.

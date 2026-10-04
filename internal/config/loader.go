@@ -18,6 +18,7 @@ import (
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/netutil"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 	"github.com/Strob0t/CodeForge/internal/secrets"
 )
 
@@ -198,6 +199,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.LiteLLM.URL, "LITELLM_BASE_URL")
 	setString(&cfg.LiteLLM.MasterKey, "LITELLM_MASTER_KEY")
 	setString(&cfg.LiteLLM.ConversationModel, "CODEFORGE_CONVERSATION_MODEL")
+	setStringSlice(&cfg.LiteLLM.KeyedProviders, "CODEFORGE_LITELLM_KEYED_PROVIDERS")
 	setString(&cfg.Logging.Level, "CODEFORGE_LOG_LEVEL")
 	setString(&cfg.Logging.Service, "CODEFORGE_LOG_SERVICE")
 	setTyped(&cfg.Logging.Async, "CODEFORGE_LOG_ASYNC", strconv.ParseBool)
@@ -528,6 +530,9 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("agent.tool_output_max_chars must be 0 (the worker's default) to %d (got %d)", maxToolOutputMaxChars, n)
 	}
 	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
+		return err
+	}
+	if _, err := llm.NewProviderKeys(cfg.LiteLLM.KeyedProviders, func(string) string { return "" }); err != nil {
 		return err
 	}
 	if _, err := netutil.NewOutboundPolicy(cfg.MCP.AllowedPrivateHosts); err != nil {

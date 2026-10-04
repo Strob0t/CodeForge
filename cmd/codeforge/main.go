@@ -46,6 +46,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/logger"
 	"github.com/Strob0t/CodeForge/internal/middleware"
+	llmPort "github.com/Strob0t/CodeForge/internal/port/llm"
 	lspPort "github.com/Strob0t/CodeForge/internal/port/lsp"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/port/notifier"
@@ -332,6 +333,12 @@ func run() error {
 	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
 	llmClient.SetBreaker(llmBreaker)
 	llmClient.SetVault(vault)
+	providerKeys, err := llmPort.NewProviderKeys(cfg.LiteLLM.KeyedProviders, os.Getenv)
+	if err != nil {
+		return err
+	}
+	llmClient.SetProviderKeys(providerKeys)
+	slog.Info("llm providers with an API key", "providers", providerKeys.Names())
 
 	// --- Review Router Service (Phase 21A) ---
 	reviewRouterSvc := service.NewReviewRouterService(llmClient, &cfg.Orchestrator, &cfg.Limits)

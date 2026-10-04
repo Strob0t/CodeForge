@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
+	"github.com/Strob0t/CodeForge/internal/port/llm"
 )
 
 // routingMockStore is a focused mock for RoutingService tests.
@@ -369,5 +370,29 @@ func TestRoutingServiceUpsertStatsUpdate(t *testing.T) {
 	}
 	if store.stats[0].TrialCount != 10 {
 		t.Errorf("expected trial_count=10, got %d", store.stats[0].TrialCount)
+	}
+}
+
+// A collapsed wildcard route ("groq/*") names no model a request can use:
+// it gets no routing stats, the concrete models do (KI-125 review).
+func TestSyncModelCapabilities_SkipsRoutePatterns(t *testing.T) {
+	store := &routingMockStore{}
+	svc := NewRoutingService(store)
+
+	err := svc.SyncModelCapabilities(context.Background(), []llm.DiscoveredModel{
+		{ModelName: "groq/*", Status: "reachable"},
+		{ModelName: "*", Status: "reachable"},
+		{ModelName: "anthropic/claude-sonnet-4-5", Status: "reachable"},
+	})
+	if err != nil {
+		t.Fatalf("SyncModelCapabilities: %v", err)
+	}
+	if len(store.stats) == 0 {
+		t.Fatal("the concrete model gets stats")
+	}
+	for i := range store.stats {
+		if store.stats[i].ModelName != "anthropic/claude-sonnet-4-5" {
+			t.Fatalf("stats written for %q", store.stats[i].ModelName)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from codeforge.provider_keys import KEYED_PROVIDERS_ENV, parse_keyed_providers
 from codeforge.tool_identity import DEFAULT_HOME_BASE, DEFAULT_TOOL_PATH
 
 logger = logging.getLogger(__name__)
@@ -220,6 +221,7 @@ class WorkerSettings:
     # LLM
     default_model: str
     model_capabilities: tuple[tuple[str, str], ...]
+    keyed_providers: frozenset[str]
 
     # Consumer
     consumer_max_errors: int
@@ -332,6 +334,10 @@ class WorkerSettings:
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")
         # Tool capability per model, above LiteLLM's metadata and the name patterns (KI-125).
         self.model_capabilities = _resolve_model_capabilities(litellm_cfg.get("model_capabilities"))
+        # Providers whose API key LiteLLM holds, as the Go Core reads them (KI-125).
+        self.keyed_providers = parse_keyed_providers(
+            os.environ.get(KEYED_PROVIDERS_ENV, ""), litellm_cfg.get("keyed_providers")
+        )
 
         # --- Consumer ---
         consumer_cfg: dict = yaml_cfg.get("consumer", {}) if isinstance(yaml_cfg.get("consumer"), dict) else {}

@@ -14,8 +14,13 @@
 # every scenario tag (llm.SCENARIO_DEFAULTS).
 #
 # Routes without a key stay configured: a user's own provider key (sent per
-# request) works through them. The Core lists a cloud route as one entry
-# ("groq/*"), not the models LiteLLM's catalogue expands it to (KI-125).
+# request) works through them. The Core lists the cloud route of a provider
+# without a key as one entry ("groq/*"), not the models LiteLLM's catalogue
+# expands it to, and a keyed provider's models in full (KI-125). Which keys
+# are set reaches the Core and the worker as names only
+# (CODEFORGE_LITELLM_KEYED_PROVIDERS, see docker-compose.prod.yml); a route
+# added here needs its key variable in both provider maps
+# (internal/port/llm/provider_keys.go, workers/codeforge/provider_keys.py).
 
 model_list:
   # -- Local Models (Ollama) --
