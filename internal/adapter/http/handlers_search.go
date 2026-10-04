@@ -1,9 +1,11 @@
 package http
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
 
@@ -99,6 +101,10 @@ func (h *Handlers) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results, err := h.Retrieval.GlobalSearch(r.Context(), req.Query, req.ProjectIDs, limit)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
 	if err != nil {
 		slog.Error("global search failed", "query", req.Query, "error", err)
 		writeError(w, http.StatusInternalServerError, "search failed")

@@ -412,8 +412,15 @@ type GlobalSearchResult struct {
 }
 
 // GlobalSearch searches across multiple projects concurrently and returns merged results.
-// If projectIDs is empty, all tenant projects are searched.
+// If projectIDs is empty, all tenant projects are searched. A project ID the
+// tenant has no project for fails the search with the store's not-found
+// error: the worker searches an index by project ID only.
 func (s *RetrievalService) GlobalSearch(ctx context.Context, query string, projectIDs []string, limit int) ([]GlobalSearchResult, error) {
+	for _, id := range projectIDs {
+		if _, err := s.store.GetProject(ctx, id); err != nil {
+			return nil, fmt.Errorf("global search project %s: %w", id, err)
+		}
+	}
 	if len(projectIDs) == 0 {
 		projects, err := s.store.ListProjects(ctx)
 		if err != nil {

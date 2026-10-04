@@ -3,12 +3,14 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -447,8 +449,26 @@ func TestGlobalSearch_ExplicitProjectIDs(t *testing.T) {
 	}
 }
 
+// An explicit project ID must name a project of the caller's tenant (the
+// store scopes GetProject): the worker searches an index by project ID only.
+func TestGlobalSearch_UnknownProjectIsNotFound(t *testing.T) {
+	store := &runtimeMockStore{projects: []project.Project{{ID: "p1", Name: "Alpha"}}}
+	arq := &autoReplyQueue{}
+	svc := service.NewRetrievalService(store, arq, &runtimeMockBroadcaster{}, &config.Orchestrator{}, &config.Limits{SearchTimeout: 5 * time.Second})
+	arq.svc = svc
+
+	_, err := svc.GlobalSearch(context.Background(), "func", []string{"p1", "other-tenant-project"}, 20)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("GlobalSearch error = %v, want not found", err)
+	}
+	if arq.callCt != 0 {
+		t.Fatalf("published %d search requests", arq.callCt)
+	}
+}
+
 func TestGlobalSearch_LimitRespected(t *testing.T) {
-	store := &runtimeMockStore{}
+	// Before S7-F an explicit ID was searched without loading its project.
+	store := &runtimeMockStore{projects: []project.Project{{ID: "p1", Name: "Alpha"}}}
 	hits := make([]messagequeue.RetrievalSearchHitPayload, 10)
 	for i := range hits {
 		hits[i] = messagequeue.RetrievalSearchHitPayload{
