@@ -273,6 +273,39 @@ describe("PrivacySection consent", () => {
     expect(toggle("External LLM processing").checked).toBe(false);
   });
 
+  // S7-G review: a failed save restored the whole list as it was before it,
+  // undoing another purpose saved meanwhile, and only the last purpose saved
+  // was disabled while its request ran.
+  it("keeps another purpose's saved consent when one save fails", async () => {
+    const ANALYTICS: ConsentPurpose = { ...LLM, id: "analytics", label: "Usage analytics" };
+    privacy.consentPurposes.mockResolvedValue([LLM, ANALYTICS, SERVICE]);
+    let failLLM: (err: Error) => void = () => undefined;
+    let saveAnalytics: () => void = () => undefined;
+    privacy.setConsent.mockImplementation((purposeId) =>
+      purposeId === "llm-external"
+        ? new Promise((_resolve, reject) => (failLLM = reject))
+        : new Promise((resolve) => (saveAnalytics = () => resolve(undefined))),
+    );
+    renderSection();
+    await screen.findByText("Usage analytics");
+
+    fireEvent.click(toggle("External LLM processing"));
+    fireEvent.click(toggle("Usage analytics"));
+    // Both requests run: both checkboxes wait for their own answer.
+    expect(toggle("External LLM processing").disabled).toBe(true);
+    expect(toggle("Usage analytics").disabled).toBe(true);
+
+    saveAnalytics();
+    await waitFor(() => expect(toggle("Usage analytics").disabled).toBe(false));
+    expect(toggle("External LLM processing").disabled).toBe(true);
+
+    failLLM(new Error("llm refused"));
+    await screen.findByText("llm refused");
+    expect(toggle("External LLM processing").checked).toBe(false);
+    expect(toggle("External LLM processing").disabled).toBe(false);
+    expect(toggle("Usage analytics").checked).toBe(true);
+  });
+
   it("offers no withdrawal of a required purpose", async () => {
     renderSection();
     await waitFor(() => expect(toggle("Service delivery").checked).toBe(true));

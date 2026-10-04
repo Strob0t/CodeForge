@@ -228,26 +228,35 @@ function ConsentSettings(): JSX.Element {
   const { show: toast } = useToast();
   const [purposes] = createResource(() => api.privacy.consentPurposes());
   const [status, { mutate }] = createResource(() => api.privacy.consentStatus());
-  const [saving, setSaving] = createSignal<string | null>(null);
+  // The purposes whose consent is being saved; each waits for its own answer.
+  const [saving, setSaving] = createSignal<ReadonlySet<string>>(new Set());
+  const markSaving = (purposeId: string, busy: boolean): void => {
+    setSaving((prev) => {
+      const next = new Set(prev);
+      if (busy) next.add(purposeId);
+      else next.delete(purposeId);
+      return next;
+    });
+  };
 
   const failed = (): boolean => purposes.state === "errored" || status.state === "errored";
   const ready = (): boolean => purposes.state === "ready" && status.state === "ready";
   const granted = (purposeId: string): boolean =>
     (status() ?? []).some((s) => s.purpose_id === purposeId && s.granted);
 
-  // Shown at once; the stored state comes back when saving fails.
+  // Shown at once; when saving fails, only this purpose goes back (another
+  // purpose may have been saved meanwhile).
   const changeConsent = async (purpose: ConsentPurpose, value: boolean): Promise<void> => {
-    const before = status() ?? [];
-    mutate(withConsent(before, purpose.id, value));
-    setSaving(purpose.id);
+    mutate((list) => withConsent(list ?? [], purpose.id, value));
+    markSaving(purpose.id, true);
     try {
       await api.privacy.setConsent(purpose.id, value);
       toast("success", t("settings.privacy.consent.saved"));
     } catch (err) {
-      mutate(before);
+      mutate((list) => withConsent(list ?? [], purpose.id, !value));
       toast("error", extractErrorMessage(err, t("settings.privacy.consent.failed")));
     } finally {
-      setSaving(null);
+      markSaving(purpose.id, false);
     }
   };
 
@@ -291,7 +300,7 @@ function ConsentSettings(): JSX.Element {
                     label={t("settings.privacy.consent.toggle")}
                     aria-label={t("settings.privacy.consent.toggleAria", { label: purpose.label })}
                     checked={granted(purpose.id)}
-                    disabled={saving() === purpose.id || (purpose.required && granted(purpose.id))}
+                    disabled={saving().has(purpose.id) || (purpose.required && granted(purpose.id))}
                     onChange={(value) => void changeConsent(purpose, value)}
                   />
                 </li>
