@@ -94,6 +94,13 @@ describe("conversation routes", () => {
     await createConversationsResource(client).get("c/1");
     expect(calls).toEqual([{ method: "GET", path: "/conversations/c%2F1" }]);
   });
+
+  // KI-148: the chat restores a running turn and its approvals on page load.
+  it("reads the running turn with GET /conversations/{id}/run", async () => {
+    const { client, calls } = recordingClient();
+    await createConversationsResource(client).runState("c/1");
+    expect(calls).toEqual([{ method: "GET", path: "/conversations/c%2F1/run" }]);
+  });
 });
 
 // KI-93: the Settings > Privacy screen uses the GDPR self-service and consent

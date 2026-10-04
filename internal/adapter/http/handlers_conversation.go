@@ -173,6 +173,18 @@ func (h *Handlers) GetPendingApproval(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, req)
 }
 
+// GetConversationRunState handles GET /api/v1/conversations/{id}/run: the
+// running turn and its pending approvals, which the chat restores after a
+// reload (KI-148).
+func (h *Handlers) GetConversationRunState(w http.ResponseWriter, r *http.Request) {
+	state, err := h.Runtime.ConversationRunState(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeDomainError(w, err, "conversation not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
+}
+
 // BypassConversationApprovals handles POST /api/v1/conversations/{id}/bypass-approvals.
 // Only the caller's tenant's conversations can be bypassed: the bypass flag is
 // keyed by conversation ID alone, so an unchecked ID would lift another

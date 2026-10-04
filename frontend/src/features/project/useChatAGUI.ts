@@ -1,5 +1,7 @@
-import { batch, createSignal, onCleanup } from "solid-js";
+import { batch, createEffect, createSignal, on, onCleanup } from "solid-js";
 
+import { api } from "~/api/client";
+import type { ConversationRunState } from "~/api/types";
 import type { AGUIGoalProposal, AGUIPermissionRequest } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
 
@@ -11,6 +13,7 @@ import type {
   RoadmapProposalState,
   ToolCallState,
 } from "./chatPanelTypes";
+import { mergePermissionRequests, mergeStreamedText } from "./chatRunRestore";
 
 interface UseChatAGUIOptions {
   activeConversation: () => string | null;
@@ -26,6 +29,9 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const [streamingContent, setStreamingContent] = createSignal("");
   // Track whether the assistant is actively processing via run_started / run_finished
   const [agentRunning, setAgentRunning] = createSignal(false);
+  // Runs of the active conversation that finished: a restore whose answer
+  // comes after one ended does not mark the conversation running (KI-148).
+  let runsFinished = 0;
   // Error message from a failed run, shown as a system message in the chat
   const [runError, setRunError] = createSignal<string | null>(null);
 
@@ -192,6 +198,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
   const cleanupRunFinished = onAGUIEvent("agui.run_finished", (payload) => {
     const runId = payload.run_id as string;
     if (runId === opts.activeConversation()) {
+      runsFinished++;
       const status = payload.status as string;
       const errorMsg = payload.error as string | undefined;
       // Extract usage data from run_finished payload
@@ -304,6 +311,41 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
       setActionSuggestions((prev) => [...prev, suggestion]);
     }
   });
+
+  // On page load (and when switching conversations) the chat restores the
+  // running turn from the Core: the running state, the text streamed so far
+  // and every pending approval, so a reload does not lose them (KI-148).
+  async function restoreRun(conversationId: string): Promise<void> {
+    const finishedBefore = runsFinished;
+    const streamedBefore = streamingContent().length;
+    let state: ConversationRunState;
+    try {
+      state = await api.conversations.runState(conversationId);
+    } catch {
+      return; // best effort: the live events still arrive
+    }
+    // A run that finished meanwhile is not running any more.
+    if (
+      !state.active ||
+      conversationId !== opts.activeConversation() ||
+      runsFinished !== finishedBefore
+    ) {
+      return;
+    }
+    batch(() => {
+      setAgentRunning(true);
+      setStreamingContent((cur) =>
+        mergeStreamedText(state.streamed_text ?? "", cur.slice(streamedBefore)),
+      );
+      setPermissionRequests((prev) => mergePermissionRequests(prev, state.pending_approvals));
+    });
+    opts.scrollToBottom();
+  }
+  createEffect(
+    on(opts.activeConversation, (cid) => {
+      if (cid) void restoreRun(cid);
+    }),
+  );
 
   onCleanup(() => {
     cleanupRunStarted();

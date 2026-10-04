@@ -3,7 +3,10 @@
 // When enabled, these events are emitted alongside native CodeForge WS events.
 package event
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // AG-UI event type constants.
 const (
@@ -103,6 +106,11 @@ type AGUIPermissionRequestEvent struct {
 	Path             string `json:"path,omitempty"`
 	Profile          string `json:"profile,omitempty"`
 	ArgumentsPreview string `json:"arguments_preview,omitempty"`
+	// TimeoutSeconds is the approval timeout and ExpiresAt the time the Core
+	// denies the call unanswered: a card shown after a reload counts down to
+	// the same deadline (KI-148).
+	TimeoutSeconds int       `json:"timeout_seconds,omitempty"`
+	ExpiresAt      time.Time `json:"expires_at,omitzero"`
 }
 
 // AGUIActionSuggestionEvent is sent when the agent suggests a follow-up action.

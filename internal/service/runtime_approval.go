@@ -41,6 +41,8 @@ func (s *RuntimeService) waitForApproval(ctx context.Context, req *event.AGUIPer
 	// The worker got the same timeout with the run start and waits for the
 	// response longer than this (KI-21).
 	timeout := s.runtimeCfg.ApprovalTimeout()
+	req.TimeoutSeconds = int(timeout / time.Second)
+	req.ExpiresAt = time.Now().Add(timeout)
 
 	ch := make(chan string, 1)
 	// ctx is scoped to the tenant that owns the run or conversation.
@@ -135,6 +137,42 @@ func (s *RuntimeService) PendingApproval(ctx context.Context, runID, callID stri
 		}
 	}
 	return nil, fmt.Errorf("no pending approval for run %s call %s: %w", runID, callID, domain.ErrNotFound)
+}
+
+// ConversationRunState is what the chat restores after a reload (KI-148):
+// whether the conversation has a running turn, the text the turn streamed so
+// far (as far as this process saw it) and the approvals it waits for.
+type ConversationRunState struct {
+	Active           bool                               `json:"active"`
+	TurnID           string                             `json:"turn_id,omitempty"`
+	StreamedText     string                             `json:"streamed_text,omitempty"`
+	PendingApprovals []event.AGUIPermissionRequestEvent `json:"pending_approvals"`
+}
+
+// ConversationRunState returns the run state of a conversation of the
+// caller's tenant (domain.ErrNotFound for another tenant's). The running turn
+// is the one this process dispatched, else the stored active turn (a turn
+// dispatched before a restart). Approvals that wait on another Go Core
+// replica are not listed.
+func (s *RuntimeService) ConversationRunState(ctx context.Context, conversationID string) (*ConversationRunState, error) {
+	conv, err := s.store.GetConversation(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("get conversation %s: %w", conversationID, err)
+	}
+	turn := s.state.ActiveConversationRun(conv.ID)
+	if turn == "" {
+		turn = conv.ActiveTurnID
+	}
+	approvals := s.state.PendingApprovalRequestsOfRun(conv.ID, tenantctx.FromContext(ctx))
+	if approvals == nil {
+		approvals = []event.AGUIPermissionRequestEvent{}
+	}
+	return &ConversationRunState{
+		Active:           turn != "",
+		TurnID:           turn,
+		StreamedText:     s.state.ConversationStream(conv.ID, turn),
+		PendingApprovals: approvals,
+	}, nil
 }
 
 // ResolveApproval is called from the HTTP handler when a user approves or denies

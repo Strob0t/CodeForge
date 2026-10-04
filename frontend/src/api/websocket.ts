@@ -130,6 +130,10 @@ export interface AGUIPermissionRequest {
   profile?: string;
   /** Truncated JSON of the tool arguments, for the approver (display only). */
   arguments_preview?: string;
+  /** The Core's approval timeout. */
+  timeout_seconds?: number;
+  /** When the Core denies the call unanswered (RFC 3339), KI-148. */
+  expires_at?: string;
 }
 export interface AGUIActionSuggestion {
   run_id: string;

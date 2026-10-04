@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/otel/trace"
 
@@ -128,6 +130,22 @@ func (m *RunStateManager) PendingApprovalRequest(key string) (tenantID string, r
 	}
 	p, _ := v.(pendingApprovalRequest)
 	return p.tenantID, p.req, true
+}
+
+// PendingApprovalRequestsOfRun returns what the pending approvals of runID
+// for tenantID ask, the earliest deadline first.
+func (m *RunStateManager) PendingApprovalRequestsOfRun(runID, tenantID string) []event.AGUIPermissionRequestEvent {
+	var reqs []event.AGUIPermissionRequestEvent
+	m.pendingRequests.Range(func(_, v any) bool {
+		if p, ok := v.(pendingApprovalRequest); ok && p.tenantID == tenantID && p.req.RunID == runID {
+			reqs = append(reqs, p.req)
+		}
+		return true
+	})
+	slices.SortFunc(reqs, func(a, b event.AGUIPermissionRequestEvent) int {
+		return a.ExpiresAt.Compare(b.ExpiresAt)
+	})
+	return reqs
 }
 
 func (m *RunStateManager) DeletePendingApproval(key string) {
@@ -269,7 +287,11 @@ type convRunState struct {
 	active    string // turn of the active run, "" when none
 	stopped   string // turn of the run a stop ended, until it reports its end
 	cancelled bool   // calls that are not of the active run are rejected
+	streamed  []byte // text the active run streamed so far (KI-148), newest maxConversationStreamBytes
 }
+
+// maxConversationStreamBytes bounds the streamed text kept of a turn.
+const maxConversationStreamBytes = 64 << 10
 
 // convRun returns the conversation's state, creating it; the caller holds convMu.
 func (m *RunStateManager) convRun(convID string) *convRunState {
@@ -304,6 +326,7 @@ func (m *RunStateManager) BeginConversationRun(convID, turnID string) bool {
 		return false
 	}
 	st.active = turnID
+	st.streamed = nil
 	return true
 }
 
@@ -327,7 +350,7 @@ func (m *RunStateManager) AbortConversationRun(convID, turnID string) {
 	m.convMu.Lock()
 	defer m.convMu.Unlock()
 	if st, ok := m.convRuns[convID]; ok && st.active == turnID {
-		st.active = ""
+		st.active, st.streamed = "", nil
 		m.dropIdleConvRun(convID)
 	}
 }
@@ -345,7 +368,7 @@ func (m *RunStateManager) EndConversationRun(convID, turnID string) {
 	}
 	switch turnID {
 	case "", st.active:
-		st.active = ""
+		st.active, st.streamed = "", nil
 	case st.stopped:
 		st.stopped = ""
 		st.cancelled = false
@@ -360,6 +383,36 @@ func (m *RunStateManager) ActiveConversationRun(convID string) string {
 	defer m.convMu.Unlock()
 	if st, ok := m.convRuns[convID]; ok {
 		return st.active
+	}
+	return ""
+}
+
+// AppendConversationStream records text the conversation's active run
+// streamed; text of a conversation without an active run (task output) is
+// not kept. Beyond maxConversationStreamBytes the oldest text goes.
+func (m *RunStateManager) AppendConversationStream(convID, text string) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	st, ok := m.convRuns[convID]
+	if !ok || st.active == "" {
+		return
+	}
+	st.streamed = append(st.streamed, text...)
+	if over := len(st.streamed) - maxConversationStreamBytes; over > 0 {
+		for over < len(st.streamed) && !utf8.RuneStart(st.streamed[over]) {
+			over++
+		}
+		st.streamed = append(st.streamed[:0], st.streamed[over:]...)
+	}
+}
+
+// ConversationStream returns the text run turnID of the conversation
+// streamed so far ("" unless turnID is its active run).
+func (m *RunStateManager) ConversationStream(convID, turnID string) string {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	if st, ok := m.convRuns[convID]; ok && turnID != "" && st.active == turnID {
+		return string(st.streamed)
 	}
 	return ""
 }
@@ -384,7 +437,7 @@ func (m *RunStateManager) SetCancelledConversation(convID string) string {
 	stopped := st.active
 	if stopped != "" {
 		st.stopped = stopped
-		st.active = ""
+		st.active, st.streamed = "", nil
 	}
 	return stopped
 }

@@ -106,8 +106,10 @@ func (s *RuntimeService) handleRunOutput(ctx context.Context, data []byte) error
 		Line:   output.Line,
 		Stream: output.Stream,
 	})
-	// Also emit AG-UI text_message for agentic conversation streaming.
+	// Also emit AG-UI text_message for agentic conversation streaming, and
+	// keep the turn's text for a chat that reloads mid-turn (KI-148).
 	if output.Line != "" && output.Stream != "stderr" {
+		s.state.AppendConversationStream(output.TaskID, output.Line)
 		s.hub.BroadcastEvent(ctx, event.AGUITextMessage, event.AGUITextMessageEvent{
 			RunID:   output.TaskID,
 			Role:    "assistant",

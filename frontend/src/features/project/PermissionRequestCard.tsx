@@ -17,6 +17,8 @@ export interface PermissionRequestCardProps {
   /** Truncated JSON of the tool arguments (display only). */
   argumentsPreview?: string;
   timeoutSeconds?: number;
+  /** When the Core denies the call unanswered (RFC 3339): the countdown's end (KI-148). */
+  expiresAt?: string;
   onResolved?: (decision: "allow" | "deny") => void;
 }
 
@@ -24,17 +26,25 @@ export default function PermissionRequestCard(props: PermissionRequestCardProps)
   const { t } = useI18n();
   const { show: toast } = useToast();
   const timeout = () => props.timeoutSeconds ?? 60;
-  const [remaining, setRemaining] = createSignal(timeout());
+  // Seconds to the Core's deadline; without one, the timeout from mount.
+  const secondsToDeadline = (): number | undefined => {
+    const deadline = props.expiresAt ? Date.parse(props.expiresAt) : Number.NaN;
+    return Number.isNaN(deadline)
+      ? undefined
+      : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+  };
+  const [remaining, setRemaining] = createSignal(secondsToDeadline() ?? timeout());
   const [resolved, setResolved] = createSignal<"allow" | "deny" | null>(null);
   const [loading, setLoading] = createSignal(false);
 
   const timer = setInterval(() => {
     setRemaining((r) => {
-      if (r <= 1) {
-        handleDecision("deny");
+      const next = secondsToDeadline() ?? r - 1;
+      if (next <= 0) {
+        void handleDecision("deny");
         return 0;
       }
-      return r - 1;
+      return next;
     });
   }, 1000);
 

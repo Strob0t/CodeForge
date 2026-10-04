@@ -89,7 +89,10 @@ export default function ChatPanel(props: ChatPanelProps) {
   };
   const [session, { refetch: refetchSession }] = createResource(activeConversation, (cid) =>
     cid
-      ? api.conversations.session(cid).catch(() => null as Session | null)
+      ? api.conversations
+          .session(cid)
+          .then((s) => s ?? null)
+          .catch(() => null as Session | null)
       : Promise.resolve(null as Session | null),
   );
   // Agent config (max_context_tokens etc.) — fetched once from backend.

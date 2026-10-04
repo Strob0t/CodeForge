@@ -286,6 +286,7 @@ func mountConversationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.With(middleware.RequireRole(user.RoleAdmin), audit("bypass_approvals", "conversation")).
 		Post("/conversations/{id}/bypass-approvals", h.BypassConversationApprovals)
 	r.Get("/conversations/{id}/session", h.GetConversationSession)
+	r.Get("/conversations/{id}/run", h.GetConversationRunState)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/conversations/{id}/fork", h.ForkConversation)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
