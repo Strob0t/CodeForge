@@ -30,6 +30,7 @@ import { OnboardingWizard } from "~/features/onboarding/OnboardingWizard";
 import { useBreakpoint } from "~/hooks/useBreakpoint";
 import { I18nProvider, useI18n } from "~/i18n";
 import { LocaleSwitcher } from "~/i18n/LocaleSwitcher";
+import { isShellPath } from "~/lib/appRoutes";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import { ShortcutProvider } from "~/shortcuts";
 import { Button, NavLink, Sidebar, StatusDot, Tooltip } from "~/ui";
@@ -379,24 +380,6 @@ function AppShell(props: {
 // App shell
 // ---------------------------------------------------------------------------
 
-// Known application routes (used to detect 404 pages for unauthenticated users)
-const KNOWN_ROUTES = new Set([
-  "/",
-  "/projects",
-  "/costs",
-  "/ai",
-  "/activity",
-  "/knowledge",
-  "/mcp",
-  "/a2a",
-  "/microagents",
-  "/prompts",
-  "/settings",
-  "/benchmarks",
-  "/quarantine",
-  "/routing",
-]);
-
 /**
  * The WebSocket follows the session: one socket per logged-in user, none while
  * logged out or while the password must be changed. Token refreshes keep it.
@@ -437,26 +420,15 @@ function AuthenticatedApp(props: { children: JSX.Element }): JSX.Element {
     setTimeout(() => void checkProjects(), 500);
   });
 
-  const isPublicPage = (): boolean =>
-    location.pathname === "/login" ||
-    location.pathname === "/change-password" ||
-    location.pathname === "/setup" ||
-    location.pathname === "/forgot-password" ||
-    location.pathname === "/reset-password" ||
-    location.pathname === "/privacy";
-
-  const isKnownRoute = (): boolean =>
-    isPublicPage() ||
-    KNOWN_ROUTES.has(location.pathname) ||
-    location.pathname.startsWith("/projects/") ||
-    location.pathname.startsWith("/approvals/");
+  // Unknown paths render the 404 page without the shell, also for signed-out users.
+  const isShellPage = (): boolean => isShellPath(location.pathname);
 
   return (
     <ToastProvider>
       <ConfirmProvider>
         <SidebarProvider>
           <ShortcutProvider>
-            <Show when={!isPublicPage() && isKnownRoute()} fallback={props.children}>
+            <Show when={isShellPage()} fallback={props.children}>
               <RouteGuard>
                 <AppShell health={health} connected={connected}>
                   {props.children}
