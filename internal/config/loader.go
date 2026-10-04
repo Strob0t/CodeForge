@@ -524,6 +524,9 @@ func validate(cfg *Config) error {
 	if err := validateStallMaxRetries(cfg.Runtime.StallMaxRetries); err != nil {
 		return err
 	}
+	if n := cfg.Agent.ToolOutputMaxChars; n < 0 || n > maxToolOutputMaxChars {
+		return fmt.Errorf("agent.tool_output_max_chars must be 0 (the worker's default) to %d (got %d)", maxToolOutputMaxChars, n)
+	}
 	if err := checkHTTPBaseURL("plane.base_url", cfg.Plane.BaseURL); err != nil {
 		return err
 	}

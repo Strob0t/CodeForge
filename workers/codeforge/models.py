@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 
-from codeforge._validators import clamp_top_k, coerce_none_to_list
+from codeforge._validators import clamp_tool_output_max_chars, clamp_top_k, coerce_none_to_list
 from codeforge.mcp_models import MCPServerDef  # noqa: TC001 — Pydantic needs at runtime
+
+# agent.tool_output_max_chars from Go (0 = the worker's default), clamped to
+# 0..MAX_TOOL_OUTPUT_MAX_CHARS: the Go Core refuses other values at startup,
+# and the worker never fails a message over it or lifts the bound.
+ToolOutputMaxChars = Annotated[int, AfterValidator(clamp_tool_output_max_chars)]
 
 
 class TaskStatus(StrEnum):
@@ -143,7 +148,7 @@ class RunStartMessage(BaseModel):
     # 0 = the worker's default).
     heartbeat_seconds: int = 0
     # agent.tool_output_max_chars from Go; 0 = the worker's default.
-    tool_output_max_chars: int = 0
+    tool_output_max_chars: ToolOutputMaxChars = 0
     # The tenant's tool UID the run's tool processes run as (KI-96); 0: none.
     tool_uid: int = Field(default=0, ge=0)
 
@@ -210,7 +215,7 @@ class QualityGateRequest(BaseModel):
     tool_uid: int = Field(default=0, ge=0)
     # agent.tool_output_max_chars: each check's output is bounded to it
     # (head and tail, KI-126); 0 = the worker's default.
-    tool_output_max_chars: int = Field(default=0, ge=0)
+    tool_output_max_chars: ToolOutputMaxChars = 0
 
 
 class WorkspaceTestRequest(BaseModel):
@@ -586,7 +591,7 @@ class ConversationRunStartMessage(BaseModel):
     rollout_count: int = 1
     summarize_threshold: int = 0
     # agent.tool_output_max_chars from Go; 0 = the worker's default.
-    tool_output_max_chars: int = 0
+    tool_output_max_chars: ToolOutputMaxChars = 0
     # Identifies this run of the conversation; echoed on every tool call.
     turn_id: str = ""
     # The tenant's tool UID the turn's tool processes run as (KI-96); 0: none.
