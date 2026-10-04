@@ -29,6 +29,7 @@ func PresetHeadlessSafeSandbox() PolicyProfile {
 		Mode:        ModeDefault,
 		Rules: append(readOnlyRules(),
 			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
+			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_roadmap"}, Decision: DecisionAllow},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAsk, PathDeny: protectedPaths()},
 			PermissionRule{
@@ -62,6 +63,7 @@ func PresetHeadlessPermissiveSandbox() PolicyProfile {
 		Mode:        ModeAcceptEdits,
 		Rules: append(readOnlyRules(),
 			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
+			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_roadmap"}, Decision: DecisionAllow},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{
@@ -92,6 +94,7 @@ func PresetTrustedMountAutonomous() PolicyProfile {
 		Mode:        ModeAcceptEdits,
 		Rules: append(readOnlyRules(),
 			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_goal"}, Decision: DecisionAllow},
+			PermissionRule{Specifier: ToolSpecifier{Tool: "propose_roadmap"}, Decision: DecisionAllow},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolEdit}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolWrite}, Decision: DecisionAllow, PathDeny: protectedPaths()},
 			PermissionRule{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionAllow},

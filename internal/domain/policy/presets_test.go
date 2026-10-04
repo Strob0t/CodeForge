@@ -173,3 +173,31 @@ func TestPresets_DenyWritingGitMetadata(t *testing.T) {
 		}
 	}
 }
+
+// TestPresets_ProposeRoadmapLikeProposeGoal: propose_roadmap only proposes
+// roadmap items the user still accepts on a card, like propose_goal, so every
+// preset decides both the same way; before KI-151 no preset allowed it and the
+// call waited for an approval until the timeout denied it.
+func TestPresets_ProposeRoadmapLikeProposeGoal(t *testing.T) {
+	workspace := t.TempDir()
+	allowed := 0
+	for _, name := range PresetNames() {
+		t.Run(name, func(t *testing.T) {
+			p, ok := PresetByName(name)
+			if !ok {
+				t.Fatalf("preset %s missing", name)
+			}
+			goal := p.Evaluate(ToolCall{Tool: "propose_goal"}, WithWorkspace(workspace))
+			roadmap := p.Evaluate(ToolCall{Tool: "propose_roadmap"}, WithWorkspace(workspace))
+			if roadmap.Decision != goal.Decision {
+				t.Errorf("propose_roadmap = %s (%s), propose_goal = %s", roadmap.Decision, roadmap.Reason, goal.Decision)
+			}
+			if goal.Decision == DecisionAllow {
+				allowed++
+			}
+		})
+	}
+	if allowed != 3 {
+		t.Errorf("propose_goal allowed in %d presets, want 3", allowed)
+	}
+}
