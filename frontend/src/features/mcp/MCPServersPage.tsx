@@ -34,7 +34,13 @@ import {
 import type { TableColumn } from "~/ui/composites/Table";
 import { ServerPlugIcon } from "~/ui/icons/EmptyStateIcons";
 
-import { carriesRedacted, keepsStoredSecrets, type MCPEndpoint, REDACTED } from "./mcpSecrets";
+import {
+  carriesRedacted,
+  keepsStoredSecrets,
+  type MCPEndpoint,
+  type MCPSecretsView,
+  REDACTED,
+} from "./mcpSecrets";
 
 // ---------------------------------------------------------------------------
 // MCP Servers Page
@@ -53,10 +59,10 @@ interface MCPFormState {
   args: string;
   url: string;
   env: KeyValueRow[];
-  /** HTTP headers (sse and streamable_http only). */
+  /** HTTP headers (edited for sse and streamable_http servers). */
   headers: KeyValueRow[];
-  /** The endpoint the edited server was read with; null for a new server. */
-  read: MCPEndpoint | null;
+  /** The edited server as read; null for a new server. */
+  read: MCPSecretsView | null;
   enabled: boolean;
 }
 
@@ -86,12 +92,16 @@ function formEndpoint(state: MCPFormState): MCPEndpoint {
   };
 }
 
-function readEndpoint(server: MCPServer): MCPEndpoint {
+function readView(server: MCPServer): MCPSecretsView {
   return {
-    transport: server.transport,
-    url: server.url ?? "",
-    command: server.command ?? "",
-    args: server.args ?? [],
+    endpoint: {
+      transport: server.transport,
+      url: server.url ?? "",
+      command: server.command ?? "",
+      args: server.args ?? [],
+    },
+    env: { ...server.env },
+    headers: { ...server.headers },
   };
 }
 
@@ -194,14 +204,21 @@ export default function MCPServersPage() {
       url: server.url,
       env: toRows(server.env),
       headers: toRows(server.headers),
-      read: readEndpoint(server),
+      read: readView(server),
       enabled: server.enabled,
     });
   }
 
+  /** The server as the form sends it. Headers are sent for every transport:
+   * the Go Core keeps a "***" only while the stored headers come back. */
+  const formView = (): MCPSecretsView => ({
+    endpoint: formEndpoint(crud.form.state),
+    env: toRecord(crud.form.state.env) ?? {},
+    headers: toRecord(crud.form.state.headers) ?? {},
+  });
+
   /** Whether the "***" values the form sends keep their stored values. */
-  const keepsStored = (): boolean =>
-    keepsStoredSecrets(crud.form.state.read, formEndpoint(crud.form.state));
+  const keepsStored = (): boolean => keepsStoredSecrets(crud.form.state.read, formView());
 
   function buildRequest(): CreateMCPServerRequest | null {
     const state = crud.form.state;
@@ -210,12 +227,10 @@ export default function MCPServersPage() {
       toast("error", t("mcp.toast.nameRequired"));
       return null;
     }
-    const target = formEndpoint(state);
-    const env = toRecord(state.env);
-    const headers = isRemote(state.transport) ? toRecord(state.headers) : undefined;
-    const values = [...Object.values(env ?? {}), ...Object.values(headers ?? {})];
+    const view = formView();
+    const target = view.endpoint;
     // The Go Core would refuse it; the form marks what to enter again.
-    if (carriesRedacted(target, values) && !keepsStored()) {
+    if (carriesRedacted(view) && !keepsStored()) {
       toast("error", t("mcp.toast.storedNotKept"));
       return null;
     }
@@ -226,8 +241,8 @@ export default function MCPServersPage() {
       command: state.transport === "stdio" ? target.command || undefined : undefined,
       args: state.transport === "stdio" ? [...target.args] : undefined,
       url: isRemote(state.transport) ? target.url || undefined : undefined,
-      env,
-      headers,
+      env: toRecord(state.env),
+      headers: toRecord(state.headers),
       enabled: state.enabled,
     };
   }
@@ -510,8 +525,11 @@ export default function MCPServersPage() {
                   onChange={(index, part, value) => crud.form.setState("env", index, part, value)}
                 />
 
-                {/* HTTP headers: sent with every request to an sse or streamable_http server */}
-                <Show when={isRemote(crud.form.state.transport)}>
+                {/* HTTP headers: sent with every request to an sse or streamable_http
+                    server; shown for stdio too when stored, since they are sent back */}
+                <Show
+                  when={isRemote(crud.form.state.transport) || crud.form.state.headers.length > 0}
+                >
                   <KeyValueEditor
                     title={t("mcp.form.headers")}
                     addLabel={t("mcp.form.addHeader")}

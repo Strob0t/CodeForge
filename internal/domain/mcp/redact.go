@@ -47,8 +47,10 @@ func (s *ServerDef) Redacted() ServerDef {
 // restored value goes only where it was stored for: transport, url, command
 // and arguments must then equal stored (another command with the stored
 // arguments, or another endpoint with the stored headers, would receive the
-// secrets). A violation is a domain.ErrValidation error, and s is then left
-// as it was.
+// secrets), and so must every other env variable and header, none added,
+// changed or removed (GITLAB_API_URL, HTTPS_PROXY or NODE_EXTRA_CA_CERTS
+// would send a kept token elsewhere; S7-G review). A violation is a
+// domain.ErrValidation error, and s is then left as it was.
 func (s *ServerDef) KeepRedacted(stored *ServerDef) error {
 	if !s.HasRedacted() {
 		return nil
@@ -73,6 +75,9 @@ func (s *ServerDef) KeepRedacted(stored *ServerDef) error {
 	}
 	if s.Transport != stored.Transport || url != stored.URL || s.Command != stored.Command || !slices.Equal(args, stored.Args) {
 		return fmt.Errorf("%w: stored secrets (env, headers, the url's password, credential arguments) are kept only for the same transport, url, command and arguments; enter them again", domain.ErrValidation)
+	}
+	if !unchangedApartFromRedacted(s.Env, stored.Env) || !unchangedApartFromRedacted(s.Headers, stored.Headers) {
+		return fmt.Errorf("%w: stored secrets (env, headers, the url's password, credential arguments) are kept only while the other env variables and headers stay as stored; enter them again", domain.ErrValidation)
 	}
 	env, err := keepValues("env", s.Env, stored.Env)
 	if err != nil {
@@ -113,6 +118,21 @@ func redactValues(values map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// unchangedApartFromRedacted reports whether values has the keys of stored,
+// no other, and every value that is not RedactedValue equals the stored one.
+func unchangedApartFromRedacted(values, stored map[string]string) bool {
+	if len(values) != len(stored) {
+		return false
+	}
+	for k, v := range values {
+		old, ok := stored[k]
+		if !ok || (v != RedactedValue && v != old) {
+			return false
+		}
+	}
+	return true
 }
 
 // keepValues returns values with every RedactedValue replaced by the value

@@ -184,22 +184,37 @@ func TestMCPServerUpdate_KeepsRedactedValues(t *testing.T) {
 	t.Run("sent back as read", func(t *testing.T) {
 		store := &mockStore{mcpServers: []mcp.ServerDef{mcpServerWithSecrets()}}
 		w := update(t, store, base(
-			map[string]string{"GITHUB_TOKEN": mcp.RedactedValue, "EMPTY": "", "REGION": "eu"},
+			map[string]string{"GITHUB_TOKEN": mcp.RedactedValue, "EMPTY": ""},
 			map[string]string{"Authorization": mcp.RedactedValue},
 		))
 		if w.Code != http.StatusOK {
 			t.Fatalf("status %d: %s", w.Code, w.Body.String())
 		}
 		got := store.mcpServers[0]
-		if want := map[string]string{"GITHUB_TOKEN": mcpTokenValue, "EMPTY": "", "REGION": "eu"}; !maps.Equal(got.Env, want) {
+		if want := map[string]string{"GITHUB_TOKEN": mcpTokenValue, "EMPTY": ""}; !maps.Equal(got.Env, want) {
 			t.Errorf("stored env = %v, want %v", got.Env, want)
 		}
 		if got.Headers["Authorization"] != mcpBearerValue {
 			t.Errorf("stored headers = %v, want the old Authorization value", got.Headers)
 		}
-		if strings.Contains(w.Body.String(), mcpTokenValue) || strings.Contains(w.Body.String(), mcpBearerValue) ||
-			strings.Contains(w.Body.String(), `"REGION":"eu"`) {
+		if strings.Contains(w.Body.String(), mcpTokenValue) || strings.Contains(w.Body.String(), mcpBearerValue) {
 			t.Errorf("update response carries a secret value: %s", w.Body.String())
+		}
+	})
+
+	// S7-G review: an added env variable (GITHUB_API_URL, HTTPS_PROXY) would
+	// send the kept token elsewhere; the token must be entered again.
+	t.Run("env variable added next to a kept token", func(t *testing.T) {
+		store := &mockStore{mcpServers: []mcp.ServerDef{mcpServerWithSecrets()}}
+		w := update(t, store, base(
+			map[string]string{"GITHUB_TOKEN": mcp.RedactedValue, "EMPTY": "", "GITHUB_API_URL": "https://attacker.example/api/v3"},
+			map[string]string{"Authorization": mcp.RedactedValue},
+		))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status %d, want 400: %s", w.Code, w.Body.String())
+		}
+		if got := store.mcpServers[0]; !maps.Equal(got.Env, mcpServerWithSecrets().Env) {
+			t.Errorf("a refused update changed the stored env: %v", got.Env)
 		}
 	})
 

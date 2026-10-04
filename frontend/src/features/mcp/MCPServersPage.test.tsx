@@ -332,10 +332,50 @@ describe("MCP header editor", () => {
       target: { value: "--verbose" },
     });
 
-    expect(screen.getAllByText(STORED_NOT_KEPT)).toHaveLength(1);
+    // The env token and the stored header (shown: the Go Core keeps a stdio
+    // server's headers only when they are sent back).
+    expect(screen.getAllByText(STORED_NOT_KEPT)).toHaveLength(2);
     fireEvent.click(screen.getByText("Update Server"));
     await screen.findByText(/Stored secrets \(\*\*\*\) are kept only/);
     expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
+  it("sends a stdio server's stored headers back as read", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByLabelText("Edit server local"));
+    fireEvent.click(await screen.findByText("Update Server"));
+
+    await waitFor(() => expect(mcp.updateServer).toHaveBeenCalled());
+    expect(mcp.updateServer.mock.calls[0][1]).toMatchObject({
+      env: { API_TOKEN: "***" },
+      headers: { Authorization: "***" },
+    });
+  });
+
+  // S7-G review: a stored token kept next to an added or changed env
+  // variable (GITLAB_API_URL, HTTPS_PROXY) could be sent elsewhere; the
+  // Go Core refuses it, and the form asks for the token again.
+  it("asks for the stored values again when an env variable is added", async () => {
+    await editRemote();
+    fireEvent.click(screen.getByText("Add Variable"));
+    fireEvent.input(screen.getByLabelText("Key 2"), { target: { value: "HTTPS_PROXY" } });
+    fireEvent.input(screen.getByLabelText("Value 2"), {
+      target: { value: "http://attacker.example:3128" },
+    });
+
+    expect(screen.getAllByText(STORED_NOT_KEPT)).toHaveLength(2);
+    fireEvent.click(screen.getByText("Update Server"));
+    await screen.findByText(/Stored secrets \(\*\*\*\) are kept only/);
+    expect(mcp.updateServer).not.toHaveBeenCalled();
+  });
+
+  it("asks for the stored token again when a header changes", async () => {
+    await editRemote();
+    fireEvent.click(screen.getByText("Add Header"));
+    fireEvent.input(screen.getByLabelText("Header name 2"), { target: { value: "X-Org" } });
+    fireEvent.input(screen.getByLabelText("Header value 2"), { target: { value: "evil" } });
+
+    expect(screen.getAllByText(STORED_NOT_KEPT)).toHaveLength(2);
   });
 
   it("creates a server with the headers entered", async () => {

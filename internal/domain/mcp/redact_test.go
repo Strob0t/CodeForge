@@ -63,11 +63,20 @@ func TestServerDef_KeepRedacted(t *testing.T) {
 			wantHeaders: map[string]string{"Authorization": "Bearer secret"},
 		},
 		{
-			name:    "one value changed, one removed, one added",
+			// S7-G review: a kept header would go to a server whose env was
+			// changed around it (TestServerDef_KeepRedactedOnlyWithUnchangedEnvAndHeaders).
+			name:    "one value changed, one removed, one added while a header is kept",
 			env:     map[string]string{"TOKEN": "new-secret", "NEW": "value"},
 			headers: map[string]string{"Authorization": RedactedValue},
 			stored:  stored,
-			wantEnv: map[string]string{"TOKEN": "new-secret", "NEW": "value"}, wantHeaders: map[string]string{"Authorization": "Bearer secret"},
+			wantErr: true,
+		},
+		{
+			name:    "every secret entered again",
+			env:     map[string]string{"TOKEN": "new-secret", "NEW": "value"},
+			headers: map[string]string{"Authorization": "Bearer new"},
+			stored:  stored,
+			wantEnv: map[string]string{"TOKEN": "new-secret", "NEW": "value"}, wantHeaders: map[string]string{"Authorization": "Bearer new"},
 		},
 		{name: "nothing redacted", env: map[string]string{"A": "b"}, stored: nil, wantEnv: map[string]string{"A": "b"}},
 		{name: "redacted value of a new key", env: map[string]string{"OTHER": RedactedValue}, stored: stored, wantErr: true},
@@ -155,6 +164,86 @@ func TestServerDef_RedactedURLAndArgs(t *testing.T) {
 			}
 			if stored.URL != tt.url || !slices.Equal(stored.Args, tt.args) {
 				t.Errorf("Redacted changed the stored definition: %+v", stored)
+			}
+		})
+	}
+}
+
+// S7-G review: the env and the headers decide where a kept secret goes too
+// (GITLAB_API_URL, HTTPS_PROXY, NODE_EXTRA_CA_CERTS, a header a proxy routes
+// by). A RedactedValue is kept only while every other env entry and header is
+// the stored one: none added, changed or removed.
+func TestServerDef_KeepRedactedOnlyWithUnchangedEnvAndHeaders(t *testing.T) {
+	stored := &ServerDef{
+		Transport: TransportStreamableHTTP, URL: "https://gitlab.example/mcp",
+		Env:     map[string]string{"GITLAB_TOKEN": "glpat-1", "GITLAB_API_URL": "https://gitlab.example/api/v4", "EMPTY": ""},
+		Headers: map[string]string{"Authorization": "Bearer h", "X-Org": "acme"},
+	}
+	tests := []struct {
+		name    string
+		edit    func(d *ServerDef)
+		wantErr bool
+	}{
+		{name: "sent back as read", edit: func(*ServerDef) {}},
+		{name: "only the name changed", edit: func(d *ServerDef) { d.Name = "renamed" }},
+		{
+			name:    "env value changed",
+			edit:    func(d *ServerDef) { d.Env["GITLAB_API_URL"] = "https://attacker.example/api/v4" },
+			wantErr: true,
+		},
+		{
+			name:    "env key added",
+			edit:    func(d *ServerDef) { d.Env["HTTPS_PROXY"] = "http://attacker.example:3128" },
+			wantErr: true,
+		},
+		{
+			name:    "env key that loads a CA added",
+			edit:    func(d *ServerDef) { d.Env["NODE_EXTRA_CA_CERTS"] = "/tmp/evil.pem" },
+			wantErr: true,
+		},
+		{name: "env key removed", edit: func(d *ServerDef) { delete(d.Env, "GITLAB_API_URL") }, wantErr: true},
+		{name: "empty env value set", edit: func(d *ServerDef) { d.Env["EMPTY"] = "x" }, wantErr: true},
+		{name: "header value changed", edit: func(d *ServerDef) { d.Headers["X-Org"] = "evil" }, wantErr: true},
+		{name: "header added", edit: func(d *ServerDef) { d.Headers["X-Forward-To"] = "evil" }, wantErr: true},
+		{name: "header removed", edit: func(d *ServerDef) { delete(d.Headers, "X-Org") }, wantErr: true},
+		{
+			name: "env changed with every secret entered again",
+			edit: func(d *ServerDef) {
+				d.Env = map[string]string{"GITLAB_TOKEN": "glpat-2", "GITLAB_API_URL": "https://other.example/api/v4"}
+				d.Headers = map[string]string{"Authorization": "Bearer new", "X-Org": "other"}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := stored.Redacted()
+			def.Env, def.Headers = maps.Clone(def.Env), maps.Clone(def.Headers)
+			tt.edit(&def)
+			before := def
+			before.Env, before.Headers = maps.Clone(def.Env), maps.Clone(def.Headers)
+
+			err := def.KeepRedacted(stored)
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrValidation) {
+					t.Fatalf("KeepRedacted = %v, want domain.ErrValidation", err)
+				}
+				if !maps.Equal(def.Env, before.Env) || !maps.Equal(def.Headers, before.Headers) {
+					t.Errorf("a refused request was changed: env %v, headers %v", def.Env, def.Headers)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("KeepRedacted: %v", err)
+			}
+			for k, v := range def.Env {
+				if v == RedactedValue {
+					t.Errorf("env %s still redacted", k)
+				}
+			}
+			for k, v := range def.Headers {
+				if v == RedactedValue {
+					t.Errorf("header %s still redacted", k)
+				}
 			}
 		})
 	}
