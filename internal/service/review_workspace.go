@@ -146,37 +146,52 @@ type workspaceChange struct {
 
 // changeBetween measures the change from one recorded workspace to another.
 // Added, deleted, renamed or copied files make the change structural; binary
-// files count as changed files without lines.
+// files count as changed files without lines. The output is read
+// NUL-separated (-z): otherwise git quotes paths with non-ASCII bytes,
+// quotes or control characters, and they would match no boundary (KI-94).
 func changeBetween(ctx context.Context, repo *git.Repo, from, to string) (*workspaceChange, error) {
-	numstat, err := repo.Run(ctx, nil, "diff", "--numstat", "-M", from, to)
+	numstat, err := repo.Run(ctx, nil, "diff", "--numstat", "-z", "-M", from, to)
 	if err != nil {
 		return nil, err
 	}
-	nameStatus, err := repo.Run(ctx, nil, "diff", "--name-status", "-M", from, to)
+	nameStatus, err := repo.Run(ctx, nil, "diff", "--name-status", "-z", "-M", from, to)
 	if err != nil {
 		return nil, err
 	}
 
 	change := &workspaceChange{}
-	for _, line := range strings.Split(strings.TrimSpace(numstat), "\n") {
-		fields := strings.SplitN(line, "\t", 3)
+	// "added\tremoved\tpath\0", or for a rename or copy
+	// "added\tremoved\t\0old\0new\0".
+	records := strings.Split(numstat, "\x00")
+	for i := 0; i < len(records); i++ {
+		fields := strings.SplitN(records[i], "\t", 3)
 		if len(fields) < 3 {
 			continue
+		}
+		if fields[2] == "" {
+			i += 2 // the old and the new path follow
 		}
 		change.Stats.FilesChanged++
 		change.Stats.LinesAdded += atoiOrZero(fields[0]) // "-" for a binary file
 		change.Stats.LinesRemoved += atoiOrZero(fields[1])
 	}
-	for _, line := range strings.Split(strings.TrimSpace(nameStatus), "\n") {
-		fields := strings.Split(line, "\t")
-		if len(fields) < 2 || fields[0] == "" {
-			continue
+	// "status\0path\0", or for a rename or copy "R100\0old\0new\0".
+	tokens := strings.Split(nameStatus, "\x00")
+	for i := 0; i+1 < len(tokens); {
+		status := tokens[i]
+		if status == "" {
+			break
 		}
-		if !strings.HasPrefix(fields[0], "M") && !strings.HasPrefix(fields[0], "T") {
+		paths := tokens[i+1 : i+2]
+		if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+			paths = tokens[i+1 : min(i+3, len(tokens))]
+		}
+		i += 1 + len(paths)
+		if !strings.HasPrefix(status, "M") && !strings.HasPrefix(status, "T") {
 			change.Stats.Structural = true // A, D, R, C: a file was added, deleted, renamed or copied
 		}
-		for _, p := range fields[1:] {
-			if !slices.Contains(change.Paths, p) {
+		for _, p := range paths {
+			if p != "" && !slices.Contains(change.Paths, p) {
 				change.Paths = append(change.Paths, p)
 			}
 		}
