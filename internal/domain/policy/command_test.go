@@ -423,6 +423,95 @@ func TestParseShellCommand_MakeOptions(t *testing.T) {
 	}
 }
 
+// The run subcommands of package managers (poetry run, uv run, pipenv run,
+// pdm run, bundle exec) run the command that follows in the project's
+// environment: it is checked like any other, so a deny list sees curl in
+// "poetry run curl x". An option before that command (uv run --with pkg)
+// or before the run subcommand fails closed; the tools' other subcommands
+// are commands of their own (S7-F review).
+func TestParseShellCommand_PackageRunners(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		segments [][]string
+		opaque   bool
+	}{
+		{"poetry run", "poetry run pytest -q", [][]string{{"pytest", "-q"}}, false},
+		{"uv run", "uv run pytest", [][]string{{"pytest"}}, false},
+		{"pipenv run", "pipenv run python -m pytest", [][]string{{"python", "-m", "pytest"}}, false},
+		{"pdm run", "pdm run pytest tests/", [][]string{{"pytest", "tests/"}}, false},
+		{"bundle exec", "bundle exec rspec", [][]string{{"rspec"}}, false},
+		{"denied command stays visible", "poetry run curl x", [][]string{{"curl", "x"}}, false},
+		{"absolute runner", "/usr/local/bin/poetry run pytest", [][]string{{"pytest"}}, false},
+		{"after a wrapper", "timeout 60 uv run pytest", [][]string{{"pytest"}}, false},
+		{"runner of a runner", "poetry run uv run pytest", [][]string{{"pytest"}}, false},
+		{"with an assignment", "CI=1 poetry run pytest", [][]string{{"pytest"}}, false},
+		{"other subcommand", "poetry install", [][]string{{"poetry", "install"}}, false},
+		{"uv pip", "uv pip install -r requirements.txt", [][]string{{"uv", "pip", "install", "-r", "requirements.txt"}}, false},
+		{"bundle install", "bundle install", [][]string{{"bundle", "install"}}, false},
+		{"version", "poetry --version", [][]string{{"poetry", "--version"}}, false},
+		{"computed argument of another subcommand", "poetry add $PKG", [][]string{{"poetry", "add", "$PKG"}}, false},
+		{"computed subcommand", "poetry $SUB curl x", nil, true},
+		{"computed option value before the subcommand", "uv --directory $D run curl x", nil, true},
+
+		{"option before the command", "uv run --with pkg curl x", nil, true},
+		{"short option before the command", "poetry run -C dir pytest", nil, true},
+		{"-- before the command", "uv run -- pytest", nil, true},
+		{"option before run", "poetry -C dir run curl x", nil, true},
+		{"global option before run", "uv --directory d run curl x", nil, true},
+		{"uv tool run", "uv tool run cowsay", nil, true},
+		{"no command", "poetry run", nil, true},
+		{"inline code", "poetry run python -c 'import os'", nil, true},
+		{"shell", "pdm run bash -c 'curl x'", nil, true},
+		{"computed command", "uv run $CMD", nil, true},
+		{"xargs into poetry run", "echo curl | xargs poetry run", nil, true},
+		{"xargs into uv", "xargs uv run", nil, true},
+		{"xargs into bundle", "xargs bundle exec", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseShellCommand(tt.cmd)
+			if got.opaque != tt.opaque {
+				t.Fatalf("parseShellCommand(%q).opaque = %v, want %v (segments %q)", tt.cmd, got.opaque, tt.opaque, got.segments)
+			}
+			if !tt.opaque && !reflect.DeepEqual(got.segments, tt.segments) {
+				t.Errorf("parseShellCommand(%q).segments = %q, want %q", tt.cmd, got.segments, tt.segments)
+			}
+		})
+	}
+	for _, cmd := range []string{"poetry run curl x", "uv run curl x", "pipenv run curl x", "pdm run curl x", "bundle exec curl x"} {
+		if !parseShellCommand(cmd).deniedBy([]string{"curl"}) {
+			t.Errorf("deny list curl does not deny %q", cmd)
+		}
+	}
+	permissive := PresetHeadlessPermissiveSandbox()
+	for cmd, want := range map[string]Decision{"poetry run curl x": DecisionDeny, "uv run wget x": DecisionDeny, "poetry run pytest -q": DecisionAllow} {
+		if res := permissive.Evaluate(ToolCall{Tool: "bash", Command: cmd}, WithWorkspace("/srv/ws/p1")); res.Decision != want {
+			t.Errorf("permissive preset: %q -> %s (%s), want %s", cmd, res.Decision, res.Reason, want)
+		}
+	}
+	// An allow rule names the command a runner runs. pipenv run loads the
+	// project's .env (PYTHONPATH among its variables), so like a module
+	// search path assignment no allow rule matches it.
+	allowList := PolicyProfile{Name: "allow-list", Mode: ModeDefault, Rules: []PermissionRule{
+		{Specifier: ToolSpecifier{Tool: ToolBash}, Decision: DecisionAllow, CommandAllow: []string{"pytest", "python -m unittest"}},
+	}}
+	for cmd, want := range map[string]Decision{
+		"poetry run pytest -q":                   DecisionAllow,
+		"uv run python -m unittest":              DecisionAllow,
+		"bundle exec pytest":                     DecisionAllow,
+		"pipenv run python -m unittest":          DecisionAsk,
+		"pipenv run pytest":                      DecisionAsk,
+		"timeout 9 pipenv run pytest":            DecisionAsk,
+		"poetry run pipenv run pytest":           DecisionAsk,
+		"poetry run pytest && pipenv run pytest": DecisionAsk,
+	} {
+		if res := allowList.Evaluate(ToolCall{Tool: "bash", Command: cmd}, WithWorkspace("/srv/ws/p1")); res.Decision != want {
+			t.Errorf("allow list: %q -> %s (%s), want %s", cmd, res.Decision, res.Reason, want)
+		}
+	}
+}
+
 // Commands that must stay analysable so that everyday use is not denied.
 func TestParseShellCommand_NotOpaque(t *testing.T) {
 	for _, cmd := range []string{

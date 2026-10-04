@@ -113,6 +113,24 @@ func classifySimpleCommand(words []string, dynamic []bool) (seg []string, setsMo
 			return nil, false, true
 		}
 		base := path.Base(exe)
+		if sub, isRunner := packageRunners[base]; isRunner {
+			runs, known := runnerInvocation(sub, words[1:], dynamic[1:])
+			// xargs input could be the run subcommand.
+			if !known || unknownArgs {
+				return nil, false, true
+			}
+			if !runs {
+				break // another subcommand: a command of its own
+			}
+			// No command, or an option of the runner before it (uv run
+			// --with pkg, poetry run -C dir, uv run --) fails closed.
+			if len(words) < 3 || strings.HasPrefix(words[2], "-") {
+				return nil, false, true
+			}
+			setsModulePath = setsModulePath || runnerLoadsDotenv[base]
+			words, dynamic = words[2:], dynamic[2:]
+			continue
+		}
 		unwrap, isWrapper := wrappers[base]
 		// xargs appends its input to a wrapper's operands, where it becomes
 		// the command the wrapper runs (or env's assignments).
@@ -216,6 +234,41 @@ var wrappers = map[string]func(args []string) (start int, ok bool){
 	"timeout": unwrapTimeout,
 	"xargs":   unwrapXargs,
 	"env":     unwrapEnv,
+}
+
+// packageRunners maps package managers to their subcommand that runs the
+// command after it in the project's environment (poetry run pytest): that
+// command is checked like any other. Their other subcommands (poetry
+// install, uv pip, bundle install) are commands of their own.
+var packageRunners = map[string]string{"poetry": "run", "uv": "run", "pipenv": "run", "pdm": "run", "bundle": "exec"}
+
+// runnerLoadsDotenv lists the package runners that load the project's .env
+// into the command's environment (pipenv run does unless
+// PIPENV_DONT_LOAD_ENV is set): a workspace file then sets its variables,
+// PYTHONPATH among them, so no allow rule matches the command
+// (shellCommand.modulePath).
+var runnerLoadsDotenv = map[string]bool{"pipenv": true}
+
+// runnerInvocation tells whether a package runner's arguments start with
+// its run subcommand sub (runs), and known is false when that cannot be
+// told: sub after an option or another subcommand (poetry -C dir run, uv
+// tool run), or a computed word before the subcommand.
+func runnerInvocation(sub string, args []string, dynamic []bool) (runs, known bool) {
+	if len(args) > 0 && !dynamic[0] && args[0] == sub {
+		return true, true
+	}
+	if slices.Contains(args, sub) {
+		return false, false
+	}
+	for i, a := range args {
+		if dynamic[i] {
+			return false, false
+		}
+		if !strings.HasPrefix(a, "-") {
+			break // the subcommand
+		}
+	}
+	return false, true
 }
 
 // isCommandLookup reports whether `command -v`/`-V` only looks a name up.

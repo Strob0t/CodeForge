@@ -20,9 +20,10 @@ type shellCommand struct {
 	segments [][]string
 	opaque   bool
 	// modulePath holds, per segment, whether that simple command sets a
-	// module search path (PYTHONPATH, NODE_PATH): deny lists and deny or
-	// ask rules check it like any other, but no allow rule matches it
-	// (moduleSearchPaths in command_env.go).
+	// module search path (PYTHONPATH, NODE_PATH; moduleSearchPaths in
+	// command_env.go) or runs with variables from a workspace file (pipenv
+	// run loads .env; runnerLoadsDotenv): deny lists and deny or ask rules
+	// check it like any other, but no allow rule matches it.
 	modulePath []bool
 
 	// Files that bash opens for redirections, as written in the command:

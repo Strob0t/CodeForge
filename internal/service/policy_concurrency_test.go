@@ -119,6 +119,10 @@ func TestAllowAlwaysRule(t *testing.T) {
 		{"Bash", "env PYTHONPATH=src pytest -q", "", nil, true},
 		{"Bash", "PYTHONPATH=src python -m unittest", "", nil, true},
 		{"Bash", "NODE_PATH=lib npm test", "", nil, true},
+		// A package runner's command is what runs (S7-F review); pipenv run
+		// loads the project's .env and is never matched by an allow rule.
+		{"Bash", "poetry run pytest -q", "Bash", []string{"pytest"}, false},
+		{"Bash", "pipenv run pytest", "", nil, true},
 		{"Bash", "FOO=1 npm test", "", nil, true},
 		{"Bash", "LD_PRELOAD=x npm test", "", nil, true},
 		{"Bash", "CI=1 make test", "", nil, true},
