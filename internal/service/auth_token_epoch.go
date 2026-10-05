@@ -37,11 +37,15 @@ type epochEntry struct {
 
 // tokenEpochCache holds users' token epochs for a short time, at most max
 // entries: when it is full, expired entries go first, then arbitrary ones.
+// gen counts forgets: a value read from the store is cached only if no forget
+// happened since the read began, so a lookup racing a raise cannot put the
+// old epoch back after the raise dropped it.
 type tokenEpochCache struct {
 	mu      sync.Mutex
 	ttl     time.Duration
 	max     int
 	now     func() time.Time
+	gen     uint64
 	entries map[string]epochEntry // by user ID
 }
 
@@ -59,9 +63,21 @@ func (c *tokenEpochCache) get(userID, tenantID string) (epochEntry, bool) {
 	return e, true
 }
 
-func (c *tokenEpochCache) put(userID, tenantID string, epoch int64, gone bool) {
+// generation is taken before a store read and passed to putIfCurrent.
+func (c *tokenEpochCache) generation() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.gen
+}
+
+// putIfCurrent caches a value read from the store unless a forget happened
+// since generation gen was taken.
+func (c *tokenEpochCache) putIfCurrent(gen uint64, userID, tenantID string, epoch int64, gone bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return
+	}
 	if _, ok := c.entries[userID]; !ok && len(c.entries) >= c.max {
 		c.evictLocked()
 	}
@@ -86,6 +102,7 @@ func (c *tokenEpochCache) evictLocked() {
 func (c *tokenEpochCache) forget(userID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.gen++
 	delete(c.entries, userID)
 }
 
@@ -119,6 +136,7 @@ func (t *TokenManager) checkTokenEpoch(ctx context.Context, claims *user.TokenCl
 	}
 	e, ok := t.epochs.get(claims.UserID, claims.TenantID)
 	if !ok {
+		gen := t.epochs.generation()
 		epoch, err := t.store.GetUserTokenEpoch(ctx, claims.UserID, claims.TenantID)
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
@@ -129,7 +147,7 @@ func (t *TokenManager) checkTokenEpoch(ctx context.Context, claims *user.TokenCl
 		default:
 			e = epochEntry{epoch: epoch}
 		}
-		t.epochs.put(claims.UserID, claims.TenantID, e.epoch, e.gone)
+		t.epochs.putIfCurrent(gen, claims.UserID, claims.TenantID, e.epoch, e.gone)
 	}
 	if e.gone {
 		return errTokenUserGone

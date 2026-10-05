@@ -268,7 +268,7 @@ func TestTokenEpochCache_Bounded(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newTokenEpochCache(time.Minute, tt.max)
 			for i := range tt.users {
-				c.put(fmt.Sprintf("user-%d", i), "tenant", int64(i), false)
+				c.putIfCurrent(c.generation(), fmt.Sprintf("user-%d", i), "tenant", int64(i), false)
 			}
 			if n := c.len(); n > tt.max {
 				t.Fatalf("cache holds %d entries, bound %d", n, tt.max)
@@ -285,10 +285,10 @@ func TestTokenEpochCache_ExpiredEntriesGoFirst(t *testing.T) {
 	now := time.Now()
 	c := newTokenEpochCache(time.Second, 2)
 	c.now = func() time.Time { return now }
-	c.put("old", "tenant", 1, false)
+	c.putIfCurrent(c.generation(), "old", "tenant", 1, false)
 	now = now.Add(2 * time.Second)
-	c.put("a", "tenant", 2, false)
-	c.put("b", "tenant", 3, false)
+	c.putIfCurrent(c.generation(), "a", "tenant", 2, false)
+	c.putIfCurrent(c.generation(), "b", "tenant", 3, false)
 	if _, ok := c.get("a", "tenant"); !ok {
 		t.Fatal("a live entry was evicted while an expired one was there")
 	}
@@ -299,7 +299,7 @@ func TestTokenEpochCache_ExpiredEntriesGoFirst(t *testing.T) {
 
 func TestTokenEpochCache_TenantMustMatch(t *testing.T) {
 	c := newTokenEpochCache(time.Minute, 4)
-	c.put("u1", "tenant-a", 1, false)
+	c.putIfCurrent(c.generation(), "u1", "tenant-a", 1, false)
 	if _, ok := c.get("u1", "tenant-b"); ok {
 		t.Fatal("an entry cached for another tenant must not be used")
 	}
@@ -439,5 +439,41 @@ func TestTokenEpoch_EndingSessionsClosesConnections(t *testing.T) {
 				t.Fatalf("connections dropped for %v, want %d drop(s) of %s", dropper.users, want, u.ID)
 			}
 		})
+	}
+}
+
+// A raise that lands while a lookup is under way: the lookup's (old) epoch is
+// not cached after the raise dropped the entry, so the next check reads the
+// new one (S9-A review).
+func TestTokenEpoch_LookupRacingARaiseIsNotCached(t *testing.T) {
+	store := &mockStore{}
+	svc := newTestAuthService(store)
+	u, token := loginToken(t, svc, "race@test.com")
+	svc.Tokens().EndUserSessions(u.ID) // empty cache: the next check reads the store
+
+	store.afterTokenEpochRead = func() {
+		store.afterTokenEpochRead = nil
+		store.users[0].TokenEpoch++        // another request raises the epoch ...
+		svc.Tokens().EndUserSessions(u.ID) // ... and drops the cached value
+	}
+	// This check read the epoch before the raise and may pass.
+	_, _ = svc.ValidateAccessToken(token)
+
+	if _, err := svc.ValidateAccessToken(token); err == nil {
+		t.Fatal("the epoch read before the raise was cached: the stale token passes")
+	}
+}
+
+func TestTokenEpochCache_PutAfterForgetIsSkipped(t *testing.T) {
+	c := newTokenEpochCache(time.Minute, 4)
+	gen := c.generation()
+	c.forget("other-user")
+	c.putIfCurrent(gen, "u1", "tenant", 1, false)
+	if _, ok := c.get("u1", "tenant"); ok {
+		t.Fatal("a value read before a forget must not be cached")
+	}
+	c.putIfCurrent(c.generation(), "u1", "tenant", 2, false)
+	if e, ok := c.get("u1", "tenant"); !ok || e.epoch != 2 {
+		t.Fatalf("a value read after the forget must be cached, got %+v %v", e, ok)
 	}
 }

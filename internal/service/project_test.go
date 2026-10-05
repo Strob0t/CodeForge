@@ -71,6 +71,7 @@ type mockStore struct {
 	tokenEpochLookups   int
 	invalidateTokensErr error    // injectable error for UpdateUserInvalidatingTokens
 	invalidatedTenants  []string // tenant context of each UpdateUserInvalidatingTokens
+	afterTokenEpochRead func()   // runs after GetUserTokenEpoch read the epoch, before it returns
 
 	// Agent inbox (Phase 23C).
 	inboxMessages []agent.InboxMessage
@@ -589,7 +590,11 @@ func (m *mockStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string
 	}
 	for i := range m.users {
 		if m.users[i].ID == userID && m.users[i].TenantID == tenantID {
-			return m.users[i].TokenEpoch, nil
+			epoch := m.users[i].TokenEpoch
+			if m.afterTokenEpochRead != nil {
+				m.afterTokenEpochRead() // a change racing the lookup
+			}
+			return epoch, nil
 		}
 	}
 	return 0, domain.ErrNotFound
