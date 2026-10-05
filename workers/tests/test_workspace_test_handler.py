@@ -253,3 +253,27 @@ async def test_request_without_anything_to_run_reports_an_error(consumer: TaskCo
     assert result.lint_passed is None
     assert "nothing to run" in result.error
     msg.ack.assert_called_once()
+
+
+# KI-152 review: pytest exits 5 when it collects no tests; that is no verdict
+# on the feature, not a failure the agent must fix.
+@pytest.mark.parametrize(
+    ("command", "returncode", "want"),
+    [
+        ("pytest", 5, None),
+        ("pytest -q tests", 5, None),
+        ("python -m pytest -x", 5, None),
+        ("pytest", 1, False),
+        ("make test", 5, False),
+    ],
+)
+async def test_pytest_without_tests_gives_no_verdict(
+    consumer: TaskConsumer, tmp_path: Path, command: str, returncode: int, want: bool | None
+) -> None:
+    with patch(_SPAWN, return_value=_proc("collected 0 items\n\nno tests ran in 0.01s", returncode)):
+        result, _ = await _handle(consumer, _command_request(tmp_path, test_command=command))
+
+    assert result.passed is want
+    if want is None:
+        assert result.output.startswith("no tests ran")
+        assert "no tests ran" in result.error

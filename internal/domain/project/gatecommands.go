@@ -115,6 +115,15 @@ var languageGateCommands = []struct {
 // confidence, then the first in languageGateCommands. None when no detected
 // language has defaults.
 func DefaultGateCommands(fsys fs.FS, languages []Language) GateCommands {
+	cmds, _ := DetectGateCommands(fsys, languages)
+	return cmds
+}
+
+// DetectGateCommands is DefaultGateCommands that also tells whether the
+// chosen language's test runner is set up at the workspace root: without
+// it, its test command may run no tests at all (the auto-agent's
+// verification then does not use it, KI-152 review).
+func DetectGateCommands(fsys fs.FS, languages []Language) (cmds GateCommands, testRunnerSetUp bool) {
 	var best GateCommands
 	bestRunner, bestConfidence := false, -1.0
 	for _, entry := range languageGateCommands {
@@ -128,7 +137,7 @@ func DefaultGateCommands(fsys fs.FS, languages []Language) GateCommands {
 			}
 		}
 	}
-	return best
+	return best, bestRunner
 }
 
 func hasFile(name string) func(fs.FS) bool {

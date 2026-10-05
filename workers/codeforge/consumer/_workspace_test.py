@@ -102,7 +102,7 @@ class WorkspaceTestHandlerMixin:
         try:
             # The commands run as the tenant's tool UID (KI-96).
             async with tool_tenant(request.tenant_id, request.tool_uid, request.workspace_path):
-                checked = await self._gate_executor.execute(gate)
+                checked = await self._gate_executor.execute(gate, no_tests_is_no_verdict=True)
         except ToolIsolationError as exc:
             log.error("workspace check refused", error=str(exc))
             result.error = str(exc)

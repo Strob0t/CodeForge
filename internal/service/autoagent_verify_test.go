@@ -306,18 +306,29 @@ func TestVerifyFeature_TestCommandFallsBack(t *testing.T) {
 }
 
 func TestVerifyFeature_WithoutATestCommandOnlyTheChangeCheckRuns(t *testing.T) {
-	e := newVerifyEnv(t, verdicts(passedPtr(true), nil, ""))
+	for name, files := range map[string]map[string]string{
+		"no stack":                          {"notes.txt": "x"},
+		"detected runner not set up (S9-V)": {"pyproject.toml": "[project]\nname = \"app\"\n", "app.py": "print(1)\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newVerifyEnv(t, verdicts(passedPtr(false), nil, "exit code 5\nno tests ran"))
 
-	result, err := e.verify(t, func(int) { writeWorkspaceFile(t, e.ws, "notes.txt", "x") }, nil)
+			result, err := e.verify(t, func(int) {
+				for file, content := range files {
+					writeWorkspaceFile(t, e.ws, file, content)
+				}
+			}, nil)
 
-	if err != nil {
-		t.Fatalf("verifyFeature: %v", err)
-	}
-	if reqs := e.requests(); len(reqs) != 0 {
-		t.Fatalf("requests = %+v, want none", reqs)
-	}
-	if !strings.Contains(result, "the workspace changed") || !strings.Contains(result, "only the change check ran") {
-		t.Fatalf("result = %q", result)
+			if err != nil {
+				t.Fatalf("verifyFeature: %v", err)
+			}
+			if reqs := e.requests(); len(reqs) != 0 {
+				t.Fatalf("requests = %+v, want none", reqs)
+			}
+			if !strings.Contains(result, "only the change check ran") {
+				t.Fatalf("result = %q", result)
+			}
+		})
 	}
 }
 
@@ -336,7 +347,7 @@ func TestVerifyFeature_ChecksThatCouldNotRunAreNotHandedBack(t *testing.T) {
 	if len(e.prompts) != 0 {
 		t.Fatalf("fix prompts = %q, want none", e.prompts)
 	}
-	if !strings.HasPrefix(result, "not fully verified: ") || !strings.Contains(result, "tests could not run (`pytest`): command could not start") {
+	if !strings.HasPrefix(result, "not fully verified: ") || !strings.Contains(result, "tests gave no verdict (`pytest`): command could not start") {
 		t.Fatalf("result = %q", result)
 	}
 }

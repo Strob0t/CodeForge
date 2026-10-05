@@ -60,6 +60,18 @@ def _split_command(command: str) -> list[str] | None:
         return None
 
 
+# pytest's exit status when it collected no tests.
+_PYTEST_NO_TESTS = 5
+
+
+def _runs_pytest(command: str) -> bool:
+    """Whether the command runs pytest (pytest ..., python -m pytest ...)."""
+    argv = _split_command(command) or []
+    return argv[:1] in (["pytest"], ["py.test"]) or (
+        argv[:1] in (["python"], ["python3"]) and argv[1:3] == ["-m", "pytest"]
+    )
+
+
 def _is_command_allowed(command: str) -> bool:
     """Return True if the command splits and its executable is on the allowlist."""
     parts = _split_command(command)
@@ -87,8 +99,13 @@ class QualityGateExecutor:
     def __init__(self, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
         self._timeout = timeout_seconds
 
-    async def execute(self, request: QualityGateRequest) -> QualityGateResult:
-        """Run the requested quality gate checks and return the result."""
+    async def execute(self, request: QualityGateRequest, *, no_tests_is_no_verdict: bool = False) -> QualityGateResult:
+        """Run the requested quality gate checks and return the result.
+
+        With *no_tests_is_no_verdict* a pytest run that collected no tests
+        (exit code 5) has no verdict instead of failing (the auto-agent's
+        verification, KI-152 review).
+        """
         log = logger.bind(run_id=request.run_id, project_id=request.project_id)
         log.info("quality gate execution started")
 
@@ -101,7 +118,13 @@ class QualityGateExecutor:
         # gate instead of passing it (KI-29).
         if request.run_tests:
             result.tests_passed, result.test_output = await self._run_check(
-                "test", request.test_command, request.workspace_path, log, timeout, max_chars
+                "test",
+                request.test_command,
+                request.workspace_path,
+                log,
+                timeout,
+                max_chars,
+                no_tests_is_no_verdict=no_tests_is_no_verdict,
             )
             if result.tests_passed is None:
                 errors.append(f"test check could not run: {result.test_output}")
@@ -130,12 +153,18 @@ class QualityGateExecutor:
         log: structlog.stdlib.BoundLogger,
         timeout_seconds: int,
         max_chars: int,
+        *,
+        no_tests_is_no_verdict: bool = False,
     ) -> tuple[bool | None, str]:
         """Run one requested check; a check without a command has no verdict."""
         if not command.strip():
             log.warning("quality gate check has no command", check=check)
             return None, f"no command for the {check} check"
         passed, output, returncode = await self._run_command(command, cwd, log, timeout_seconds)
+        if no_tests_is_no_verdict and returncode == _PYTEST_NO_TESTS and _runs_pytest(command):
+            return None, truncate_tool_result(
+                f"no tests ran: pytest collected no tests (exit code 5)\n{output}", max_chars
+            )
         if passed is False:
             output = f"exit code {returncode}\n{output}"
         return passed, truncate_tool_result(output, max_chars)

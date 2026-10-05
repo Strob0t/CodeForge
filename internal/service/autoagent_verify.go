@@ -154,7 +154,7 @@ func (c *featureChecks) add(check, command string, passed *bool, output, errMsg 
 		if reason == "" {
 			reason = errMsg
 		}
-		c.notes = append(c.notes, fmt.Sprintf("%s could not run (%s): %s", check, command, firstOutputLine(reason)))
+		c.notes = append(c.notes, fmt.Sprintf("%s gave no verdict (%s): %s", check, command, firstOutputLine(reason)))
 	case *passed:
 		c.passed = append(c.passed, fmt.Sprintf("%s passed (%s)", check, command))
 	default:
@@ -213,8 +213,10 @@ func (c *featureChecks) fixPrompt(title string, attempt, attempts int) string {
 func (s *AutoAgentService) featureCommands(proj *project.Project) (cmds project.GateCommands, testSource string) {
 	cmds = proj.GateCommandOverrides()
 	if cmds.Test == "" && proj.WorkspacePath != "" {
-		if detected := detectedGateCommands(proj).Test; detected != "" {
-			cmds.Test, testSource = detected, ", detected default"
+		// Only a runner that is set up: pytest in a project without tests
+		// exits 5 and would fail a working feature (KI-152 review).
+		if detected, setUp := detectGateCommands(proj); setUp && detected.Test != "" {
+			cmds.Test, testSource = detected.Test, ", detected default"
 		}
 	}
 	if cmds.Test == "" && s.verify.Defaults.Test != "" {

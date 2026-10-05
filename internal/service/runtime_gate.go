@@ -104,18 +104,25 @@ func (s *RuntimeService) gateCommands(proj *project.Project) project.GateCommand
 
 // detectedGateCommands are the default commands of the language detected in the project's workspace.
 func detectedGateCommands(proj *project.Project) project.GateCommands {
+	cmds, _ := detectGateCommands(proj)
+	return cmds
+}
+
+// detectGateCommands is detectedGateCommands that also tells whether the
+// language's test runner is set up in the workspace.
+func detectGateCommands(proj *project.Project) (cmds project.GateCommands, testRunnerSetUp bool) {
 	ws, err := workspacefs.Open(proj.WorkspacePath)
 	if err != nil {
 		slog.Warn("quality gate: workspace language not detected", "project_id", proj.ID, "error", err)
-		return project.GateCommands{}
+		return project.GateCommands{}, false
 	}
 	defer func() { _ = ws.Close() }()
 	stack, err := project.ScanWorkspaceFS(ws.FS(), proj.WorkspacePath)
 	if err != nil {
 		slog.Warn("quality gate: workspace language not detected", "project_id", proj.ID, "error", err)
-		return project.GateCommands{}
+		return project.GateCommands{}, false
 	}
-	return project.DefaultGateCommands(ws.FS(), stack.Languages)
+	return project.DetectGateCommands(ws.FS(), stack.Languages)
 }
 
 // missingGateCommands names the project config keys of the required checks

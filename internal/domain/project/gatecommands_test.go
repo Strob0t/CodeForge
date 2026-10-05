@@ -37,6 +37,34 @@ func TestDefaultGateCommands(t *testing.T) {
 	}
 }
 
+// DetectGateCommands tells whether the chosen test runner is set up: the
+// auto-agent's verification uses a detected test command only then (KI-152
+// review: pyproject.toml without tests made pytest exit 5).
+func TestDetectGateCommands_TestRunnerSetUp(t *testing.T) {
+	file := func(content string) *fstest.MapFile { return &fstest.MapFile{Data: []byte(content)} }
+	python := []Language{{Name: "python", Confidence: 0.9}}
+	tests := []struct {
+		name      string
+		files     fstest.MapFS
+		languages []Language
+		wantTest  string
+		wantSetUp bool
+	}{
+		{name: "pyproject without pytest config", files: fstest.MapFS{"pyproject.toml": file("[project]\nname = \"x\"\n")}, languages: python, wantTest: "pytest"},
+		{name: "pyproject with pytest config", files: fstest.MapFS{"pyproject.toml": file("[tool.pytest.ini_options]\n")}, languages: python, wantTest: "pytest", wantSetUp: true},
+		{name: "go.mod", files: fstest.MapFS{"go.mod": file("module x\n")}, languages: []Language{{Name: "go", Confidence: 0.9}}, wantTest: "go test ./...", wantSetUp: true},
+		{name: "nothing detected", files: fstest.MapFS{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmds, setUp := DetectGateCommands(tc.files, tc.languages)
+			if cmds.Test != tc.wantTest || setUp != tc.wantSetUp {
+				t.Fatalf("DetectGateCommands() = %q, %v; want %q, %v", cmds.Test, setUp, tc.wantTest, tc.wantSetUp)
+			}
+		})
+	}
+}
+
 func TestGateCommandOverrides(t *testing.T) {
 	tests := []struct {
 		name   string
