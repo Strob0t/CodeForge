@@ -16,6 +16,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // AuthService handles authentication, JWT tokens, and API keys.
@@ -410,15 +411,9 @@ func (s *AuthService) AdminResetPassword(ctx context.Context, email, tenantID, n
 	u.FailedAttempts = 0
 	u.LockedUntil = time.Time{}
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
-		return fmt.Errorf("update user: %w", err)
+	if err := s.saveEndingSessions(ctx, u); err != nil {
+		return err
 	}
-
-	// Invalidate all sessions for this user
-	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
-		slog.Warn("failed to invalidate sessions after admin password reset", "user_id", u.ID, "error", err)
-	}
-
 	slog.Info("admin password reset completed", "user_id", u.ID)
 	return nil
 }
@@ -490,17 +485,11 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 	u.FailedAttempts = 0
 	u.LockedUntil = time.Time{}
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
-		return fmt.Errorf("update user: %w", err)
+	if err := s.saveEndingSessions(ctx, u); err != nil {
+		return err
 	}
-
 	if err := s.store.MarkPasswordResetTokenUsed(ctx, prt.ID); err != nil {
 		slog.Warn("failed to mark reset token as used", "token_id", prt.ID, "error", err)
-	}
-
-	// Invalidate all sessions
-	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
-		slog.Warn("failed to invalidate sessions after password reset", "user_id", u.ID, "error", err)
 	}
 
 	slog.Info("password reset completed via token", "user_id", u.ID)
@@ -508,7 +497,9 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 }
 
 // ChangePassword verifies the old password, validates complexity of the new one,
-// hashes it, updates the user, and clears the MustChangePassword flag.
+// hashes it, updates the user, and clears the MustChangePassword flag. It ends
+// all of the user's sessions, the caller's too: the UI signs in again with the
+// new password (AuthProvider.changePassword).
 func (s *AuthService) ChangePassword(ctx context.Context, userID string, req user.ChangePasswordRequest) error {
 	if err := req.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
@@ -531,8 +522,8 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID string, req use
 	u.PasswordHash = string(hash)
 	u.MustChangePassword = false
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
-		return fmt.Errorf("update user: %w", err)
+	if err := s.saveEndingSessions(ctx, u); err != nil {
+		return err
 	}
 
 	// Clean up initial password file if it exists
@@ -542,6 +533,23 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID string, req use
 		}
 	}
 
+	return nil
+}
+
+// saveEndingSessions saves a password change and raises the user's token
+// epoch in one statement, in the user's own tenant (the reset endpoints are
+// public, so the request's tenant may be another), then ends the user's other
+// sessions: refresh tokens deleted, this replica's cached epoch dropped
+// (KI-143).
+func (s *AuthService) saveEndingSessions(ctx context.Context, u *user.User) error {
+	ctx = tenantctx.WithTenant(ctx, u.TenantID)
+	if err := s.store.UpdateUserInvalidatingTokens(ctx, u); err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+	s.tokens.ForgetUser(u.ID)
+	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
+		slog.Warn("failed to delete the user's refresh tokens", "user_id", u.ID, "error", err)
+	}
 	return nil
 }
 

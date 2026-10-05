@@ -69,7 +69,8 @@ type mockStore struct {
 	isTokenRevokedErr   error // injectable error for fail-closed test
 	tokenEpochErr       error // injectable error for the token epoch lookup (KI-143)
 	tokenEpochLookups   int
-	invalidateTokensErr error // injectable error for UpdateUserInvalidatingTokens
+	invalidateTokensErr error    // injectable error for UpdateUserInvalidatingTokens
+	invalidatedTenants  []string // tenant context of each UpdateUserInvalidatingTokens
 
 	// Agent inbox (Phase 23C).
 	inboxMessages []agent.InboxMessage
@@ -558,6 +559,7 @@ func (m *mockStore) UpdateUserInvalidatingTokens(ctx context.Context, u *user.Us
 	if m.invalidateTokensErr != nil {
 		return m.invalidateTokensErr
 	}
+	m.invalidatedTenants = append(m.invalidatedTenants, tenantctx.FromContext(ctx))
 	if err := m.UpdateUser(ctx, u); err != nil {
 		return err
 	}

@@ -308,3 +308,71 @@ func TestTokenEpochCache_TenantMustMatch(t *testing.T) {
 		t.Fatal("forget must drop the entry")
 	}
 }
+
+// The password paths end the user's sessions: earlier access tokens are
+// refused, refresh tokens deleted, and the raise is saved in the user's own
+// tenant whatever tenant the request named (the reset endpoints are public;
+// S9-A review).
+func TestTokenEpoch_PasswordPathsEndSessions(t *testing.T) {
+	const tenant = "11111111-1111-1111-1111-111111111111"
+	const oldPassword, newPassword = "Password123", "NewPassword456"
+	tests := []struct {
+		name string
+		act  func(ctx context.Context, svc *AuthService, u *user.User) error
+	}{
+		{"admin reset", func(ctx context.Context, svc *AuthService, u *user.User) error {
+			return svc.AdminResetPassword(ctx, u.Email, u.TenantID, newPassword)
+		}},
+		{"reset link", func(ctx context.Context, svc *AuthService, u *user.User) error {
+			raw, err := svc.RequestPasswordReset(ctx, u.Email, u.TenantID)
+			if err != nil || raw == "" {
+				return fmt.Errorf("request reset: %q %w", raw, err)
+			}
+			return svc.ConfirmPasswordReset(ctx, raw, newPassword)
+		}},
+		{"change password", func(ctx context.Context, svc *AuthService, u *user.User) error {
+			return svc.ChangePassword(ctx, u.ID, user.ChangePasswordRequest{OldPassword: oldPassword, NewPassword: newPassword})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockStore{}
+			svc := newTestAuthService(store)
+			ctx := context.Background() // the default tenant, not the user's
+			u, err := svc.Register(ctx, &user.CreateRequest{
+				Email: "pw@test.com", Name: "PW", Password: oldPassword, Role: user.RoleEditor, TenantID: tenant,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, _, err := svc.Login(ctx, user.LoginRequest{Email: u.Email, Password: oldPassword}, tenant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.ValidateAccessToken(resp.AccessToken); err != nil {
+				t.Fatalf("fresh token: %v", err)
+			}
+
+			if err := tt.act(ctx, svc, u); err != nil {
+				t.Fatalf("act: %v", err)
+			}
+			if _, err := svc.ValidateAccessToken(resp.AccessToken); err == nil {
+				t.Fatal("the earlier access token must be refused")
+			}
+			if len(store.refreshTokens) != 0 {
+				t.Fatalf("refresh tokens left: %d", len(store.refreshTokens))
+			}
+			if len(store.invalidatedTenants) != 1 || store.invalidatedTenants[0] != tenant {
+				t.Fatalf("epoch raised in tenants %v, want [%s]", store.invalidatedTenants, tenant)
+			}
+			// The UI signs in again with the new password.
+			fresh, _, err := svc.Login(ctx, user.LoginRequest{Email: u.Email, Password: newPassword}, tenant)
+			if err != nil {
+				t.Fatalf("login with the new password: %v", err)
+			}
+			if _, err := svc.ValidateAccessToken(fresh.AccessToken); err != nil {
+				t.Fatalf("a new token must pass: %v", err)
+			}
+		})
+	}
+}
