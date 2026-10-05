@@ -71,11 +71,11 @@ func (s *Store) CreateFirstUser(ctx context.Context, u *user.User) error {
 // where the caller's tenant context is not yet established.
 func (s *Store) GetUser(ctx context.Context, id string) (*user.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
+		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, token_epoch, created_at, updated_at
 		FROM users WHERE id = $1`, id)
 
 	var u user.User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.TokenEpoch, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, notFoundWrap(err, "get user %s", id)
 	}
@@ -84,11 +84,11 @@ func (s *Store) GetUser(ctx context.Context, id string) (*user.User, error) {
 
 func (s *Store) GetUserByEmail(ctx context.Context, email, tenantID string) (*user.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, created_at, updated_at
+		SELECT id, email, name, password_hash, role, tenant_id, enabled, must_change_password, failed_attempts, locked_until, token_epoch, created_at, updated_at
 		FROM users WHERE email = $1 AND tenant_id = $2`, email, tenantID)
 
 	var u user.User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.TenantID, &u.Enabled, &u.MustChangePassword, &u.FailedAttempts, &u.LockedUntil, &u.TokenEpoch, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, notFoundWrap(err, "get user by email %s", email)
 	}
@@ -125,6 +125,22 @@ func (s *Store) UpdateUser(ctx context.Context, u *user.User) error {
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1 AND tenant_id = $2`, id, tenantFromCtx(ctx))
 	return execExpectOne(tag, err, "delete user %s", id)
+}
+
+// GetUserTokenEpoch reads the user's token epoch in the tenant the access
+// token names; token validation runs before a tenant context exists.
+func (s *Store) GetUserTokenEpoch(ctx context.Context, userID, tenantID string) (int64, error) {
+	var epoch int64
+	err := s.pool.QueryRow(ctx, `SELECT token_epoch FROM users WHERE id = $1 AND tenant_id = $2`, userID, tenantID).Scan(&epoch)
+	if err != nil {
+		return 0, notFoundWrap(err, "get token epoch of user %s", userID)
+	}
+	return epoch, nil
+}
+
+func (s *Store) RaiseUserTokenEpoch(ctx context.Context, userID string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET token_epoch = token_epoch + 1 WHERE id = $1 AND tenant_id = $2`, userID, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "raise token epoch of user %s", userID)
 }
 
 // --- Password Reset Tokens ---

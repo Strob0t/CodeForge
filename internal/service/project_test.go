@@ -67,6 +67,9 @@ type mockStore struct {
 	revokedTokens       map[string]time.Time // jti -> expiresAt
 	passwordResetTokens []user.PasswordResetToken
 	isTokenRevokedErr   error // injectable error for fail-closed test
+	tokenEpochErr       error // injectable error for the token epoch lookup (KI-143)
+	tokenEpochLookups   int
+	raiseTokenEpochErr  error
 
 	// Agent inbox (Phase 23C).
 	inboxMessages []agent.InboxMessage
@@ -551,6 +554,32 @@ func (m *mockStore) DeleteUser(_ context.Context, id string) error {
 	for i := range m.users {
 		if m.users[i].ID == id {
 			m.users = append(m.users[:i], m.users[i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (m *mockStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string) (int64, error) {
+	m.tokenEpochLookups++
+	if m.tokenEpochErr != nil {
+		return 0, m.tokenEpochErr
+	}
+	for i := range m.users {
+		if m.users[i].ID == userID && m.users[i].TenantID == tenantID {
+			return m.users[i].TokenEpoch, nil
+		}
+	}
+	return 0, domain.ErrNotFound
+}
+
+func (m *mockStore) RaiseUserTokenEpoch(_ context.Context, userID string) error {
+	if m.raiseTokenEpochErr != nil {
+		return m.raiseTokenEpochErr
+	}
+	for i := range m.users {
+		if m.users[i].ID == userID {
+			m.users[i].TokenEpoch++
 			return nil
 		}
 	}

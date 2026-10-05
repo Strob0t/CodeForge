@@ -35,7 +35,20 @@ type UserDataExport struct {
 
 // GDPRService provides GDPR data export and deletion operations.
 type GDPRService struct {
-	store database.Store
+	store  database.Store
+	tokens userTokenInvalidator
+}
+
+// userTokenInvalidator drops what this replica cached about a user's access
+// tokens (TokenManager), so an erased user's tokens stop working here at once
+// (KI-143).
+type userTokenInvalidator interface {
+	ForgetUser(userID string)
+}
+
+// SetTokenInvalidator sets what erasing a user tells about it.
+func (s *GDPRService) SetTokenInvalidator(inv userTokenInvalidator) {
+	s.tokens = inv
 }
 
 // NewGDPRService creates a new GDPR service backed by the given store.
@@ -142,6 +155,9 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 // DeleteUserData removes all personal data for the given user (GDPR Article 17
 // - Right to Erasure), see eraseUser.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
+	if s.tokens != nil {
+		defer s.tokens.ForgetUser(userID)
+	}
 	return eraseUser(ctx, s.store, userID)
 }
 

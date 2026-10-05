@@ -74,6 +74,7 @@ type User struct {
 	MustChangePassword bool      `json:"must_change_password"`
 	FailedAttempts     int       `json:"-"` // consecutive failed login attempts
 	LockedUntil        time.Time `json:"-"` // account locked until this time
+	TokenEpoch         int64     `json:"-"` // raised to invalidate the user's access tokens (KI-143)
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
@@ -182,6 +183,10 @@ type TokenClaims struct {
 	IssuedAt           int64  `json:"iat"`
 	Expiry             int64  `json:"exp"`
 	MustChangePassword bool   `json:"mcp,omitempty"`
+	// TokenEpoch is the user's token epoch when the token was issued; a token
+	// whose epoch is not the user's current one is refused, and so is a token
+	// without it (issued before KI-143).
+	TokenEpoch *int64 `json:"epoch,omitempty"`
 }
 
 // ChangePasswordRequest is the input for changing a user's password.

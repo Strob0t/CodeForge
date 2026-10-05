@@ -223,12 +223,14 @@ func (s *AuthService) GetUser(ctx context.Context, id string) (*user.User, error
 	return s.store.GetUser(ctx, id)
 }
 
-// UpdateUser updates user fields (name, role, enabled).
+// UpdateUser updates user fields (name, role, enabled). A role change and
+// disabling the user invalidate the user's access tokens (KI-143).
 func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.UpdateRequest) (*user.User, error) {
 	u, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	oldRole, wasEnabled := u.Role, u.Enabled
 
 	if req.Name != "" {
 		u.Name = req.Name
@@ -246,13 +248,21 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 	if err := s.store.UpdateUser(ctx, u); err != nil {
 		return nil, err
 	}
+	if u.Role != oldRole || (wasEnabled && !u.Enabled) {
+		if err := s.tokens.raiseTokenEpoch(ctx, u.ID); err != nil {
+			return nil, fmt.Errorf("invalidate the user's access tokens: %w", err)
+		}
+		u.TokenEpoch++
+	}
 	return u, nil
 }
 
 // DeleteUser erases a user like a GDPR erasure (eraseUser): personal data in
 // rows that outlive the user is anonymized, then the user is deleted with
-// their refresh tokens and other dependent rows.
+// their refresh tokens and other dependent rows. Their access tokens stop
+// working with the row (KI-143).
 func (s *AuthService) DeleteUser(ctx context.Context, id string) error {
+	defer s.tokens.ForgetUser(id)
 	return eraseUser(ctx, s.store, id)
 }
 

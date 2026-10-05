@@ -792,6 +792,9 @@ func run() error {
 		// Start background cleanup of expired revoked tokens (P1-6)
 		authSvc.StartTokenCleanup(ctx, 15*time.Minute)
 	}
+	// An erased user's access tokens stop working on this replica at once (KI-143).
+	gdprSvc := service.NewGDPRService(store)
+	gdprSvc.SetTokenInvalidator(authSvc.Tokens())
 
 	// --- Memory Service (Phase 22B) ---
 	memorySvc := service.NewMemoryService(store, queue)
@@ -966,7 +969,7 @@ func run() error {
 		ReviewTrigger:    reviewTriggerSvc,
 		ReviewPipeline:   reviewPipelineSvc,
 		PromptEvolution:  evoSvc,
-		GDPR:             service.NewGDPRService(store),
+		GDPR:             gdprSvc,
 		Consent:          service.NewConsentService(store),
 		WSTickets:        wsTickets,
 	}

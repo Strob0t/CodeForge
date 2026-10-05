@@ -17,4 +17,12 @@ type UserStore interface {
 
 	// CreateFirstUser atomically creates the first admin user if none exist.
 	CreateFirstUser(ctx context.Context, u *user.User) error
+
+	// GetUserTokenEpoch returns the token epoch of the user in the tenant
+	// (domain.ErrNotFound when the user does not exist); access token
+	// validation compares it with the token's epoch (KI-143).
+	GetUserTokenEpoch(ctx context.Context, userID, tenantID string) (int64, error)
+	// RaiseUserTokenEpoch increments the user's token epoch, which
+	// invalidates every access token issued to the user before.
+	RaiseUserTokenEpoch(ctx context.Context, userID string) error
 }

@@ -777,6 +777,10 @@ func (m *runtimeMockStore) ListUsers(_ context.Context, _ string) ([]user.User, 
 }
 func (m *runtimeMockStore) UpdateUser(_ context.Context, _ *user.User) error { return nil }
 func (m *runtimeMockStore) DeleteUser(_ context.Context, _ string) error     { return nil }
+func (m *runtimeMockStore) GetUserTokenEpoch(_ context.Context, _, _ string) (int64, error) {
+	return 0, domain.ErrNotFound
+}
+func (m *runtimeMockStore) RaiseUserTokenEpoch(_ context.Context, _ string) error { return nil }
 func (m *runtimeMockStore) CreateRefreshToken(_ context.Context, _ *user.RefreshToken) error {
 	return nil
 }

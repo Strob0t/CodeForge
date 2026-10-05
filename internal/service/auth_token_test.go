@@ -51,6 +51,7 @@ func TestGenerateAccessToken_Valid(t *testing.T) {
 	store := &mockStore{}
 	tm := newTestTokenManager(store)
 	u := testUser()
+	store.users = append(store.users, *u) // a token's user must exist (KI-143)
 
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {
@@ -272,6 +273,7 @@ func TestRevokeToken_Idempotent(t *testing.T) {
 
 	// Verify it is actually revoked.
 	u := testUser()
+	store.users = append(store.users, *u)
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {
 		t.Fatalf("SignJWT: %v", err)
@@ -451,6 +453,7 @@ func TestHMACSignatureVerification(t *testing.T) {
 	store := &mockStore{}
 	tm := newTestTokenManager(store)
 	u := testUser()
+	store.users = append(store.users, *u)
 
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {
@@ -604,6 +607,7 @@ func TestGenerateAccessToken_MustChangePassword(t *testing.T) {
 	tm := newTestTokenManager(store)
 	u := testUser()
 	u.MustChangePassword = true
+	store.users = append(store.users, *u)
 
 	tokenStr, err := tm.SignJWT(u)
 	if err != nil {

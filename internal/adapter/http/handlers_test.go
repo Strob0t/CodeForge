@@ -825,6 +825,25 @@ func (m *mockStore) CreateUser(_ context.Context, u *user.User) error {
 	return nil
 }
 
+func (m *mockStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string) (int64, error) {
+	for i := range m.users {
+		if m.users[i].ID == userID && m.users[i].TenantID == tenantID {
+			return m.users[i].TokenEpoch, nil
+		}
+	}
+	return 0, errNotFound
+}
+
+func (m *mockStore) RaiseUserTokenEpoch(_ context.Context, userID string) error {
+	for i := range m.users {
+		if m.users[i].ID == userID {
+			m.users[i].TokenEpoch++
+			return nil
+		}
+	}
+	return errNotFound
+}
+
 func (m *mockStore) CreateFirstUser(_ context.Context, u *user.User) error {
 	if len(m.users) > 0 {
 		return domain.ErrConflict

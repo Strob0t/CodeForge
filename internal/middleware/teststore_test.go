@@ -64,6 +64,25 @@ func (s *testStore) CreateUser(_ context.Context, u *user.User) error {
 	return nil
 }
 
+func (s *testStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string) (int64, error) {
+	for i := range s.users {
+		if s.users[i].ID == userID && s.users[i].TenantID == tenantID {
+			return s.users[i].TokenEpoch, nil
+		}
+	}
+	return 0, domain.ErrNotFound
+}
+
+func (s *testStore) RaiseUserTokenEpoch(_ context.Context, userID string) error {
+	for i := range s.users {
+		if s.users[i].ID == userID {
+			s.users[i].TokenEpoch++
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
 func (s *testStore) CreateFirstUser(ctx context.Context, u *user.User) error {
 	return s.CreateUser(ctx, u)
 }
