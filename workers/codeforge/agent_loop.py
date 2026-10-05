@@ -66,6 +66,7 @@ from codeforge.tools.text_protocol import (
     TextToolProtocol,
     grammar_rejected,
     native_response,
+    native_tools_refused,
 )
 from codeforge.tools.text_protocol_stream import ProtocolStreamFilter
 from codeforge.tracing import metrics as otel_metrics
@@ -780,7 +781,7 @@ class AgentLoopExecutor:
             except (LLMError, httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
-                return await self._llm_call_failed(cfg, state, exc, iteration, model_name)
+                return await self._llm_call_failed(cfg, state, tools_array, exc, iteration, model_name)
             llm_span.set_attribute("gen_ai.usage.input_tokens", response.tokens_in)
             llm_span.set_attribute("gen_ai.usage.output_tokens", response.tokens_out)
             if response.model:
@@ -798,16 +799,54 @@ class AgentLoopExecutor:
         return _LLMReply(response=response, text=full_text)
 
     async def _llm_call_failed(
-        self, cfg: LoopConfig, state: _LoopState, exc: Exception, iteration: int, model_name: str
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        tools_array: list[dict[str, object]],
+        exc: Exception,
+        iteration: int,
+        model_name: str,
     ) -> IterationOutcome:
-        """The outcome of a failed completion: retry without a rejected grammar, a fallback model, or an error."""
+        """The outcome of a failed completion.
+
+        A retry without a rejected grammar, a retry through the text tool
+        protocol when the server refused native tools, a fallback model, or
+        an error.
+        """
         if not isinstance(exc, LLMError):
             logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
             exc = LLMError(status_code=500, model=model_name, body=str(exc))
-        elif self._drop_rejected_grammar(state.tool_protocol, exc):
+        elif self._drop_rejected_grammar(state.tool_protocol, exc) or await self._switch_to_text_protocol(
+            cfg, state, tools_array, exc
+        ):
             return IterationContinue()
         err = await self._handle_llm_error(cfg, state, exc, iteration)
         return IterationError(err) if err else IterationContinue()
+
+    async def _switch_to_text_protocol(
+        self, cfg: LoopConfig, state: _LoopState, tools_array: list[dict[str, object]], exc: LLMError
+    ) -> bool:
+        """Use the text tool protocol for the rest of the run when the server refused native tools.
+
+        A wrong capability (an operator's ``ollama/*=api_with_tools`` for a
+        model without tool support) then costs one failed request instead
+        of the run. Returns True when the iteration should be retried.
+        """
+        if state.tool_protocol is not None or not tools_array or not native_tools_refused(exc.status_code, exc.body):
+            return False
+        state.tool_protocol = TextToolProtocol(
+            tools_array, plan_act=cfg.plan_act_enabled, grammar=cfg.text_tool_grammar
+        )
+        logger.warning(
+            "model %s refused native tools (status %d), switching to the text tool protocol: %s",
+            cfg.model,
+            exc.status_code,
+            exc.body[:200],
+        )
+        await self._runtime.send_output(
+            f"\n[Model {cfg.model} does not support native tool calls. Switching to the text tool protocol]\n"
+        )
+        return True
 
     @staticmethod
     def _drop_rejected_grammar(protocol: TextToolProtocol | None, exc: LLMError) -> bool:

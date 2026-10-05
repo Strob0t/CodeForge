@@ -450,6 +450,68 @@ async def test_native_models_are_unchanged(tmp_path: Path) -> None:
     assert llm.request(0) == _messages()
 
 
+# --- a server that refuses native tools ---
+
+REFUSALS = [
+    pytest.param(400, "registry.ollama.ai/library/gemma3:1b does not support tools", id="ollama"),
+    pytest.param(400, '"auto" tool choice requires --enable-auto-tool-choice', id="vllm"),
+    pytest.param(500, "tools param requires --jinja flag", id="llama-cpp"),
+    pytest.param(400, "Tools are not supported for this model", id="tools-not-supported"),
+    pytest.param(400, "Function calling is not supported by this model", id="fc-not-supported"),
+]
+
+
+@pytest.mark.parametrize(("status", "body"), REFUSALS)
+async def test_a_refusal_of_native_tools_switches_to_the_text_protocol(tmp_path: Path, status: int, body: str) -> None:
+    """A wrong classification (ollama/*=api_with_tools with gemma3) becomes harmless."""
+    llm = ScriptedLLM(
+        [
+            LLMError(status, "ollama/gemma3:1b", f'{{"error": {{"message": "litellm.BadRequestError: {body}"}}}}'),
+            _call("write_file", {"file_path": "a.txt", "content": "a"}),
+            _final("Done."),
+        ]
+    )
+
+    result, runtime, _ = await _run(
+        llm, tmp_path, capability_level="api_with_tools", model="ollama/gemma3:1b", fallback_models=["ollama/x"]
+    )
+
+    assert not result.error  # type: ignore[attr-defined]
+    assert llm.calls[0]["tools"]
+    assert [c["tools"] for c in llm.calls[1:]] == [None, None]
+    assert all(c["response_format"] is not None for c in llm.calls[1:])
+    assert all(c["model"] == "ollama/gemma3:1b" for c in llm.calls), "no model fallback"
+    assert SECTION in llm.text(1)
+    assert (tmp_path / "a.txt").read_text() == "a"
+    assert "does not support native tool calls" in _output(runtime)
+    assert "text tool protocol" in _output(runtime)
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        pytest.param(400, "context length exceeded", id="other-400"),
+        pytest.param(404, "model does not support tools", id="other-status"),
+    ],
+)
+async def test_other_errors_do_not_switch(tmp_path: Path, status: int, body: str) -> None:
+    llm = ScriptedLLM([LLMError(status, MODEL, body)])
+
+    result, _, _ = await _run(llm, tmp_path, capability_level="api_with_tools")
+
+    assert "LLM call failed" in result.error  # type: ignore[attr-defined]
+    assert len(llm.calls) == 1
+
+
+async def test_a_refusal_with_the_protocol_on_is_an_error(tmp_path: Path) -> None:
+    llm = ScriptedLLM([LLMError(400, MODEL, "does not support tools")])
+
+    result, _, _ = await _run(llm, tmp_path)
+
+    assert "LLM call failed" in result.error  # type: ignore[attr-defined]
+    assert len(llm.calls) == 1
+
+
 # --- config: litellm.text_tool_grammar / CODEFORGE_TEXT_TOOL_GRAMMAR ---
 
 

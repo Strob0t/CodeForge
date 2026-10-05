@@ -44,6 +44,16 @@ EXTRA_CALLS_NOTE = "[System] Only the first tool call of your reply was run. Sen
 # Error bodies of a server that rejects the grammar (400, 422 or 500).
 _GRAMMAR_ERROR_STATUS = frozenset({400, 422, 500})
 _GRAMMAR_ERROR_WORDS = ("response_format", "json_schema", "grammar", "schema")
+# Error bodies of a server that refuses native tools (400 or 500): Ollama,
+# vLLM without --enable-auto-tool-choice, llama.cpp without --jinja, others.
+_NATIVE_REFUSAL_STATUS = frozenset({400, 500})
+_NATIVE_REFUSAL_WORDS = (
+    "does not support tools",
+    "tool choice requires",
+    "--jinja",
+    "tools are not supported",
+    "function calling is not supported",
+)
 
 # The prompt section is cut to about this many characters: MCP descriptions
 # go first, then all descriptions, then MCP tools from the end.
@@ -247,6 +257,12 @@ def grammar_rejected(status_code: int, body: str) -> bool:
     """Whether an LLM error says the server refused the turn grammar (response_format)."""
     lowered = body.lower()
     return status_code in _GRAMMAR_ERROR_STATUS and any(word in lowered for word in _GRAMMAR_ERROR_WORDS)
+
+
+def native_tools_refused(status_code: int, body: str) -> bool:
+    """Whether an LLM error says the model or server cannot take the tools parameter."""
+    lowered = body.lower()
+    return status_code in _NATIVE_REFUSAL_STATUS and any(word in lowered for word in _NATIVE_REFUSAL_WORDS)
 
 
 def _tools_from_openai(tools: list[dict[str, object]]) -> list[_Tool]:
