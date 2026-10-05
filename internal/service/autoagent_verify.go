@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
@@ -105,10 +107,14 @@ func (s *AutoAgentService) checkFeature(ctx context.Context, fv *featureVerifica
 		return checks, nil
 	}
 
-	after := takeWorkspaceSnapshot(proj.WorkspacePath)
+	after := takeWorkspaceSnapshot(ctx, proj.WorkspacePath)
 	switch {
 	case fv.before.err != nil || after.err != nil:
 		checks.notes = append(checks.notes, "change check skipped: "+errors.Join(fv.before.err, after.err).Error())
+	case fv.before.source != after.source:
+		// git could read the workspace before but not now, or the other way round.
+		checks.notes = append(checks.notes, fmt.Sprintf("change check skipped: the workspace was read by %s before and by %s after",
+			fv.before.source, after.source))
 	case fv.before.digest == after.digest:
 		checks.fail("the workspace did not change",
 			"The workspace has no changes: nothing of the feature was implemented.")
@@ -258,30 +264,105 @@ func (s *AutoAgentService) runWorkspaceChecks(ctx context.Context, proj *project
 
 // workspaceSnapshot is a digest of a workspace's entries (path, type and
 // permissions; size and modification time of files); err when the
-// workspace could not be read.
+// workspace could not be read. source names how it was taken ("git" or
+// "walk"): only snapshots of one source compare.
 type workspaceSnapshot struct {
 	digest string
+	source string
 	err    error
 }
 
-// snapshotSkipDirs are left out of a snapshot: git's own state (a status
-// rewrites the index) and caches and dependencies that running the tests or
-// the toolchain changes.
+// snapshotSkipDirs are left out of a walk snapshot: git's own state (a
+// status rewrites the index), caches and dependencies that running the
+// tests or the toolchain changes, and build output (KI-152 review).
 var snapshotSkipDirs = map[string]bool{
 	".git": true, "node_modules": true, "__pycache__": true, ".pytest_cache": true,
 	".mypy_cache": true, ".ruff_cache": true, ".venv": true, ".tox": true,
+	"target": true, "build": true, "dist": true, "coverage": true, ".gradle": true,
+	".next": true, "htmlcov": true,
 }
 
-// maxSnapshotEntries bounds the walk of a snapshot.
+// snapshotSkipFiles are files left out of a walk snapshot (coverage data).
+var snapshotSkipFiles = map[string]bool{".coverage": true}
+
+// skipInSnapshot tells whether a walk snapshot leaves the entry out.
+func skipInSnapshot(d fs.DirEntry) bool {
+	if d.IsDir() {
+		return snapshotSkipDirs[d.Name()] || strings.HasSuffix(d.Name(), ".egg-info")
+	}
+	return snapshotSkipFiles[d.Name()]
+}
+
+// maxSnapshotEntries bounds a snapshot: the entries a walk reads, the
+// changed paths git reports.
 const maxSnapshotEntries = 100_000
 
-// takeWorkspaceSnapshot walks the workspace through workspacefs (KI-95).
-// Directories count by name only: their modification time changes when a
-// cache directory is created in them.
-func takeWorkspaceSnapshot(dir string) workspaceSnapshot {
+// takeWorkspaceSnapshot takes the workspace's change set from git when it is
+// a repository git may run in (internal/git refuses unsafe ones), which
+// respects .gitignore; otherwise, or when git fails, it walks the workspace.
+func takeWorkspaceSnapshot(ctx context.Context, dir string) workspaceSnapshot {
+	if snap, err := gitWorkspaceSnapshot(ctx, dir); err == nil {
+		return snap
+	} else if !errors.Is(err, git.ErrNotRepository) {
+		slog.Debug("auto-agent change check: git not used, walking the workspace", "workspace", dir, "error", err)
+	}
+	return walkWorkspaceSnapshot(dir)
+}
+
+// gitWorkspaceSnapshot digests HEAD and the paths git status reports
+// (tracked changes and untracked files that are not ignored) with their
+// type, size and modification time: a commit, a new change and a further
+// change of a file that was already dirty all change it. The status runs
+// without optional locks (it does not rewrite the index).
+func gitWorkspaceSnapshot(ctx context.Context, dir string) (workspaceSnapshot, error) {
+	repo, err := git.OpenRepo(ctx, dir)
+	if err != nil {
+		return workspaceSnapshot{}, err
+	}
+	env := []string{"GIT_OPTIONAL_LOCKS=0"}
+	status, err := repo.Run(ctx, env, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all")
+	if err != nil {
+		return workspaceSnapshot{}, err
+	}
+	// Before the first commit there is no HEAD.
+	head, _ := repo.Run(ctx, env, "rev-parse", "--verify", "--quiet", "HEAD")
 	ws, err := workspacefs.Open(dir)
 	if err != nil {
-		return workspaceSnapshot{err: err}
+		return workspaceSnapshot{}, err
+	}
+	defer func() { _ = ws.Close() }()
+
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "HEAD %s\n", strings.TrimSpace(head))
+	fields := strings.Split(strings.TrimSuffix(status, "\x00"), "\x00")
+	if len(fields) > maxSnapshotEntries {
+		return workspaceSnapshot{}, fmt.Errorf("more than %d changed paths", maxSnapshotEntries)
+	}
+	for i := 0; i < len(fields); i++ {
+		entry := fields[i]
+		if len(entry) < 4 { // "XY path"
+			continue
+		}
+		_, _ = fmt.Fprintf(h, "%s\x00", entry)
+		if entry[0] == 'R' || entry[0] == 'C' { // the next field is the origin
+			i++
+		}
+		if info, err := ws.Lstat(entry[3:]); err == nil {
+			_, _ = fmt.Fprintf(h, "%v\x00%d\x00%d\n", info.Mode(), info.Size(), info.ModTime().UnixNano())
+		} else {
+			_, _ = fmt.Fprintf(h, "absent\n")
+		}
+	}
+	return workspaceSnapshot{digest: hex.EncodeToString(h.Sum(nil)), source: "git"}, nil
+}
+
+// walkWorkspaceSnapshot walks the workspace through workspacefs (KI-95).
+// Directories count by name only: their modification time changes when a
+// cache directory is created in them.
+func walkWorkspaceSnapshot(dir string) workspaceSnapshot {
+	ws, err := workspacefs.Open(dir)
+	if err != nil {
+		return workspaceSnapshot{err: err, source: "walk"}
 	}
 	defer func() { _ = ws.Close() }()
 
@@ -291,8 +372,11 @@ func takeWorkspaceSnapshot(dir string) workspaceSnapshot {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && name != "." && snapshotSkipDirs[d.Name()] {
-			return fs.SkipDir
+		if name != "." && skipInSnapshot(d) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -306,9 +390,9 @@ func takeWorkspaceSnapshot(dir string) workspaceSnapshot {
 		return nil
 	})
 	if err != nil {
-		return workspaceSnapshot{err: err}
+		return workspaceSnapshot{err: err, source: "walk"}
 	}
-	return workspaceSnapshot{digest: hex.EncodeToString(h.Sum(nil))}
+	return workspaceSnapshot{digest: hex.EncodeToString(h.Sum(nil)), source: "walk"}
 }
 
 func plural(n int, noun string) string {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
+	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
@@ -62,6 +63,13 @@ func TestTakeWorkspaceSnapshot(t *testing.T) {
 			writeWorkspaceFile(t, ws, ".pytest_cache/v/cache/lastfailed", "{}")
 			writeWorkspaceFile(t, ws, "node_modules/x/index.js", "")
 		}},
+		// KI-152 review: build output is no change of the feature.
+		{name: "build output only", change: func(t *testing.T, ws string) {
+			for _, f := range []string{"target/debug/app", "build/lib/app.py", "dist/app-0.1.tar.gz", "coverage/lcov.info",
+				".gradle/cache", ".next/build-manifest.json", "htmlcov/index.html", "app.egg-info/PKG-INFO", ".coverage"} {
+				writeWorkspaceFile(t, ws, f, "x")
+			}
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,12 +77,12 @@ func TestTakeWorkspaceSnapshot(t *testing.T) {
 			writeWorkspaceFile(t, ws, "app.py", "print(1)\n")
 			writeWorkspaceFile(t, ws, ".git/HEAD", "ref: refs/heads/main\n")
 			writeWorkspaceFile(t, ws, "tests/test_app.py", "")
-			before := takeWorkspaceSnapshot(ws)
+			before := walkWorkspaceSnapshot(ws)
 			if before.err != nil || before.digest == "" {
 				t.Fatalf("snapshot = %+v", before)
 			}
 			tc.change(t, ws)
-			after := takeWorkspaceSnapshot(ws)
+			after := walkWorkspaceSnapshot(ws)
 			if after.err != nil {
 				t.Fatalf("snapshot after: %v", after.err)
 			}
@@ -85,8 +93,88 @@ func TestTakeWorkspaceSnapshot(t *testing.T) {
 	}
 }
 
+// KI-152 review: in a git repository the change set comes from git status
+// (through internal/git), which respects .gitignore.
+func TestTakeWorkspaceSnapshot_GitRepository(t *testing.T) {
+	ctx := context.Background()
+	runGit := func(t *testing.T, ws string, args ...string) {
+		t.Helper()
+		args = append([]string{"-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)
+		if out, err := git.Run(ctx, ws, args...); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	tests := []struct {
+		name    string
+		change  func(t *testing.T, ws string)
+		changed bool
+	}{
+		{name: "nothing", change: func(*testing.T, string) {}},
+		{name: "ignored build output", change: func(t *testing.T, ws string) { writeWorkspaceFile(t, ws, "out/app.bin", "x") }},
+		{name: "untracked file", changed: true, change: func(t *testing.T, ws string) { writeWorkspaceFile(t, ws, "cli.py", "x") }},
+		{name: "tracked file", changed: true, change: func(t *testing.T, ws string) { writeWorkspaceFile(t, ws, "app.py", "print(2)\n") }},
+		{name: "already dirty file changed again", changed: true, change: func(t *testing.T, ws string) {
+			writeWorkspaceFile(t, ws, "dirty.py", "v3, longer\n")
+		}},
+		{name: "committed change", changed: true, change: func(t *testing.T, ws string) {
+			writeWorkspaceFile(t, ws, "cli.py", "x")
+			runGit(t, ws, "add", "-A")
+			runGit(t, ws, "commit", "-qm", "feature")
+		}},
+		{name: "removed tracked file", changed: true, change: func(t *testing.T, ws string) {
+			if err := os.Remove(filepath.Join(ws, "app.py")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := t.TempDir()
+			runGit(t, ws, "init", "-q")
+			writeWorkspaceFile(t, ws, ".gitignore", "out/\n")
+			writeWorkspaceFile(t, ws, "app.py", "print(1)\n")
+			writeWorkspaceFile(t, ws, "dirty.py", "v1\n")
+			runGit(t, ws, "add", "-A")
+			runGit(t, ws, "commit", "-qm", "init")
+			writeWorkspaceFile(t, ws, "dirty.py", "v2\n") // dirty before the feature
+			before := takeWorkspaceSnapshot(ctx, ws)
+			if before.err != nil || before.source != "git" {
+				t.Fatalf("snapshot = %+v, want one from git", before)
+			}
+			tc.change(t, ws)
+			after := takeWorkspaceSnapshot(ctx, ws)
+			if after.err != nil || after.source != "git" {
+				t.Fatalf("snapshot after = %+v", after)
+			}
+			if got := after.digest != before.digest; got != tc.changed {
+				t.Fatalf("changed = %v, want %v", got, tc.changed)
+			}
+		})
+	}
+}
+
+// A repository internal/git refuses (here: an include of other config) is not
+// run in; the walk decides.
+func TestTakeWorkspaceSnapshot_UnsafeRepositoryFallsBackToTheWalk(t *testing.T) {
+	ctx := context.Background()
+	ws := t.TempDir()
+	if out, err := git.Run(ctx, ws, "init", "-q"); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	if out, err := git.Run(ctx, ws, "config", "include.path", "/etc/gitconfig"); err != nil {
+		t.Fatalf("git config: %v %s", err, out)
+	}
+	writeWorkspaceFile(t, ws, "app.py", "x")
+
+	s := takeWorkspaceSnapshot(ctx, ws)
+
+	if s.err != nil || s.source != "walk" {
+		t.Fatalf("snapshot = %+v, want one from the walk", s)
+	}
+}
+
 func TestTakeWorkspaceSnapshot_MissingWorkspace(t *testing.T) {
-	if s := takeWorkspaceSnapshot(filepath.Join(t.TempDir(), "missing")); s.err == nil {
+	if s := takeWorkspaceSnapshot(context.Background(), filepath.Join(t.TempDir(), "missing")); s.err == nil {
 		t.Fatalf("snapshot of a missing workspace = %+v, want an error", s)
 	}
 }
@@ -118,7 +206,7 @@ func newVerifyEnv(t *testing.T, reply func(*messagequeue.WorkspaceTestRequestPay
 func (e *verifyEnv) verify(t *testing.T, implement, fixes func(attempt int)) (string, error) {
 	t.Helper()
 	fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", title: "Add CLI",
-		before: takeWorkspaceSnapshot(e.ws)}
+		before: takeWorkspaceSnapshot(context.Background(), e.ws)}
 	if implement != nil {
 		implement(0)
 	}
@@ -357,7 +445,7 @@ func TestVerifyFeature_TestFileFromTheDescriptionWithoutACommand(t *testing.T) {
 		return &messagequeue.WorkspaceTestResultPayload{RequestID: req.RequestID, Passed: passedPtr(true), Output: "=== 2 passed ==="}
 	})
 	fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", title: "x", testFile: "test_cli.py",
-		before: takeWorkspaceSnapshot(e.ws)}
+		before: takeWorkspaceSnapshot(context.Background(), e.ws)}
 	writeWorkspaceFile(t, e.ws, "test_cli.py", "def test_x(): pass\n")
 
 	result, err := e.svc.verifyFeature(context.Background(), fv, func(string) error { return errors.New("no fix expected") })
@@ -404,7 +492,7 @@ func TestVerifyFeature_TestFileOutcomes(t *testing.T) {
 			e.svc.testTimeout, e.svc.testWaitMargin = 10*time.Millisecond, 10*time.Millisecond
 			e.svc.SetVerification(AutoAgentVerification{FixAttempts: 1})
 			fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", title: "x", testFile: "test_cli.py",
-				before: takeWorkspaceSnapshot(e.ws)}
+				before: takeWorkspaceSnapshot(context.Background(), e.ws)}
 			writeWorkspaceFile(t, e.ws, "cli.py", "x")
 			if tc.writeTest {
 				writeWorkspaceFile(t, e.ws, "test_cli.py", "def test_x(): pass\n")
@@ -435,7 +523,7 @@ func TestVerifyFeature_TestFileOutcomes(t *testing.T) {
 func TestVerifyFeature_StoppedAutoAgentEndsTheVerification(t *testing.T) {
 	e := newVerifyEnv(t, nil) // the worker never answers
 	e.proj.Config[project.ConfigTestCommand] = "pytest"
-	fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", before: takeWorkspaceSnapshot(e.ws)}
+	fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", before: takeWorkspaceSnapshot(context.Background(), e.ws)}
 	writeWorkspaceFile(t, e.ws, "app.py", "x")
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -454,7 +542,7 @@ func TestVerifyFeature_StoppedAutoAgentEndsTheVerification(t *testing.T) {
 
 func TestVerifyFeature_FixRunErrorFailsTheFeature(t *testing.T) {
 	e := newVerifyEnv(t, nil)
-	fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", before: takeWorkspaceSnapshot(e.ws)}
+	fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", before: takeWorkspaceSnapshot(context.Background(), e.ws)}
 
 	_, err := e.svc.verifyFeature(context.Background(), fv, func(string) error { return errors.New("conversation run failed") })
 

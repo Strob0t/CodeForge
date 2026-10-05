@@ -269,7 +269,7 @@ func (s *AutoAgentService) processFeature(
 	}
 	// The change check compares the workspace after the feature's runs
 	// with its state now.
-	before := takeWorkspaceSnapshot(proj.WorkspacePath)
+	before := takeWorkspaceSnapshot(ctx, proj.WorkspacePath)
 
 	// Create a conversation for this feature.
 	conv, err := s.conversations.Create(ctx, conversation.CreateRequest{
