@@ -25,6 +25,9 @@ type TokenManager struct {
 	secret []byte
 	cfg    *config.Auth
 	epochs *tokenEpochCache
+	// connections closes the WebSocket connections of a user whose sessions
+	// end (nil: none to close).
+	connections connectionDropper
 }
 
 // NewTokenManager creates a token manager.

@@ -95,10 +95,19 @@ func (c *tokenEpochCache) len() int {
 	return len(c.entries)
 }
 
-// ForgetUser drops this replica's cached token epoch of the user, so a raised
-// epoch or a deleted user takes effect here at once.
-func (t *TokenManager) ForgetUser(userID string) {
+// connectionDropper closes a user's WebSocket connections (ws.Hub).
+type connectionDropper interface {
+	DropUser(userID string) int
+}
+
+// EndUserSessions applies the end of a user's tokens on this replica at once:
+// it drops the cached token epoch, so a raised epoch or a deleted user takes
+// effect, and closes the user's WebSocket connections.
+func (t *TokenManager) EndUserSessions(userID string) {
 	t.epochs.forget(userID)
+	if t.connections != nil {
+		t.connections.DropUser(userID)
+	}
 }
 
 // checkTokenEpoch refuses a token without an epoch, one whose user does not

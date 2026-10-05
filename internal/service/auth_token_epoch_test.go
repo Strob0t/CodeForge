@@ -376,3 +376,68 @@ func TestTokenEpoch_PasswordPathsEndSessions(t *testing.T) {
 		})
 	}
 }
+
+// recordingDropper records whose WebSocket connections were closed.
+type recordingDropper struct{ users []string }
+
+func (d *recordingDropper) DropUser(userID string) int {
+	d.users = append(d.users, userID)
+	return 1
+}
+
+// Whatever ends a user's tokens also closes the user's WebSocket connections
+// on this replica (S9-A review).
+func TestTokenEpoch_EndingSessionsClosesConnections(t *testing.T) {
+	tests := []struct {
+		name string
+		act  func(ctx context.Context, svc *AuthService, store *mockStore, u *user.User) error
+		drop bool
+	}{
+		{"role change", func(ctx context.Context, svc *AuthService, _ *mockStore, u *user.User) error {
+			_, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Role: user.RoleViewer})
+			return err
+		}, true},
+		{"disable", func(ctx context.Context, svc *AuthService, _ *mockStore, u *user.User) error {
+			_, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Enabled: ptrTo(false)})
+			return err
+		}, true},
+		{"delete", func(ctx context.Context, svc *AuthService, _ *mockStore, u *user.User) error {
+			return svc.DeleteUser(ctx, u.ID)
+		}, true},
+		{"erase", func(ctx context.Context, svc *AuthService, store *mockStore, u *user.User) error {
+			gdpr := NewGDPRService(store)
+			gdpr.SetTokenInvalidator(svc.Tokens())
+			return gdpr.DeleteUserData(ctx, u.ID)
+		}, true},
+		{"admin reset", func(ctx context.Context, svc *AuthService, _ *mockStore, u *user.User) error {
+			return svc.AdminResetPassword(ctx, u.Email, u.TenantID, "NewPassword456")
+		}, true},
+		{"change password", func(ctx context.Context, svc *AuthService, _ *mockStore, u *user.User) error {
+			return svc.ChangePassword(ctx, u.ID, user.ChangePasswordRequest{OldPassword: "Password123", NewPassword: "NewPassword456"})
+		}, true},
+		{"rename only", func(ctx context.Context, svc *AuthService, _ *mockStore, u *user.User) error {
+			_, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Name: "Renamed"})
+			return err
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockStore{}
+			svc := newTestAuthService(store)
+			dropper := &recordingDropper{}
+			svc.SetConnectionDropper(dropper)
+			u, _ := loginToken(t, svc, "ws@test.com")
+
+			if err := tt.act(context.Background(), svc, store, u); err != nil {
+				t.Fatalf("act: %v", err)
+			}
+			want := 0
+			if tt.drop {
+				want = 1
+			}
+			if len(dropper.users) != want || (want == 1 && dropper.users[0] != u.ID) {
+				t.Fatalf("connections dropped for %v, want %d drop(s) of %s", dropper.users, want, u.ID)
+			}
+		})
+	}
+}

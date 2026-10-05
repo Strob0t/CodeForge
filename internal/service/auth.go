@@ -41,6 +41,12 @@ func NewAuthService(store database.Store, cfg *config.Auth) *AuthService {
 	}
 }
 
+// SetConnectionDropper sets what closes the WebSocket connections of a user
+// whose sessions end (the ws.Hub; KI-143).
+func (s *AuthService) SetConnectionDropper(d connectionDropper) {
+	s.tokens.connections = d
+}
+
 // Tokens returns the token manager sub-service.
 func (s *AuthService) Tokens() *TokenManager { return s.tokens }
 
@@ -256,7 +262,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 	if err := s.store.UpdateUserInvalidatingTokens(ctx, &u); err != nil {
 		return nil, err
 	}
-	s.tokens.ForgetUser(u.ID)
+	s.tokens.EndUserSessions(u.ID)
 	return &u, nil
 }
 
@@ -265,7 +271,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 // their refresh tokens and other dependent rows. Their access tokens stop
 // working with the row (KI-143).
 func (s *AuthService) DeleteUser(ctx context.Context, id string) error {
-	defer s.tokens.ForgetUser(id)
+	defer s.tokens.EndUserSessions(id)
 	return eraseUser(ctx, s.store, id)
 }
 
@@ -546,7 +552,7 @@ func (s *AuthService) saveEndingSessions(ctx context.Context, u *user.User) erro
 	if err := s.store.UpdateUserInvalidatingTokens(ctx, u); err != nil {
 		return fmt.Errorf("update user: %w", err)
 	}
-	s.tokens.ForgetUser(u.ID)
+	s.tokens.EndUserSessions(u.ID)
 	if err := s.store.DeleteRefreshTokensByUser(ctx, u.ID); err != nil {
 		slog.Warn("failed to delete the user's refresh tokens", "user_id", u.ID, "error", err)
 	}

@@ -39,11 +39,11 @@ type GDPRService struct {
 	tokens userTokenInvalidator
 }
 
-// userTokenInvalidator drops what this replica cached about a user's access
-// tokens (TokenManager), so an erased user's tokens stop working here at once
-// (KI-143).
+// userTokenInvalidator ends a user's sessions on this replica
+// (TokenManager): an erased user's tokens stop working here at once and the
+// user's WebSocket connections close (KI-143).
 type userTokenInvalidator interface {
-	ForgetUser(userID string)
+	EndUserSessions(userID string)
 }
 
 // SetTokenInvalidator sets what erasing a user tells about it.
@@ -156,7 +156,7 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 // - Right to Erasure), see eraseUser.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
 	if s.tokens != nil {
-		defer s.tokens.ForgetUser(userID)
+		defer s.tokens.EndUserSessions(userID)
 	}
 	return eraseUser(ctx, s.store, userID)
 }

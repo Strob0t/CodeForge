@@ -773,6 +773,8 @@ func run() error {
 
 	// --- Auth Service (Phase 10C) ---
 	authSvc := service.NewAuthService(store, &cfg.Auth)
+	// Ending a user's sessions closes their WebSocket connections (KI-143).
+	authSvc.SetConnectionDropper(hub)
 	if cfg.Auth.Enabled {
 		if err := authSvc.BootstrapAdmin(context.Background(), middleware.DefaultTenantID); err != nil {
 			slog.Warn("failed to bootstrap admin", "error", err)
@@ -792,7 +794,7 @@ func run() error {
 		// Start background cleanup of expired revoked tokens (P1-6)
 		authSvc.StartTokenCleanup(ctx, 15*time.Minute)
 	}
-	// An erased user's access tokens stop working on this replica at once (KI-143).
+	// An erased user's sessions end on this replica at once (KI-143).
 	gdprSvc := service.NewGDPRService(store)
 	gdprSvc.SetTokenInvalidator(authSvc.Tokens())
 

@@ -219,6 +219,28 @@ func (h *Hub) drop(c *conn, reason string, err error) {
 	_ = c.sock.CloseNow()
 }
 
+// DropUser closes every connection of the user and returns how many it
+// closed (KI-143): a user whose tokens were invalidated must open a new
+// connection with a new ticket. Connections without a user stay.
+func (h *Hub) DropUser(userID string) int {
+	if userID == "" {
+		return 0
+	}
+	h.mu.RLock()
+	var targets []*conn
+	for c := range h.conns {
+		if c.userID == userID {
+			targets = append(targets, c)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, c := range targets {
+		h.drop(c, "the user's sessions ended", nil)
+	}
+	return len(targets)
+}
+
 // ConnectionCount returns the number of active connections.
 func (h *Hub) ConnectionCount() int {
 	h.mu.RLock()
