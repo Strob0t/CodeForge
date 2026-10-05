@@ -79,6 +79,17 @@ else
     echo "  Could not detect host path, using default (./)"
 fi
 
+# -- Dev environment ----------------------------
+# The Core and the worker share a CODEFORGE_INTERNAL_KEY generated once per
+# container (dev-env.sh, also sourced by ~/.bashrc). POSTGRES_PASSWORD and
+# LITELLM_MASTER_KEY come from devcontainer.json (the host's values or the dev
+# defaults); docker compose below takes them from this environment, before
+# .env, so the services get the values DATABASE_URL and the Core use.
+echo ""
+echo "> Preparing the dev environment..."
+. .devcontainer/dev-env.sh
+echo "  APP_ENV=${APP_ENV:-<unset>}; CODEFORGE_INTERNAL_KEY set (kept in ~/.config/codeforge/internal_key)"
+
 # -- Docker Compose Services ---------------------
 echo ""
 echo "> Starting docker-compose services..."
@@ -98,6 +109,22 @@ if [ -f docker-compose.yml ]; then
     fi
 else
     echo "  No docker-compose.yml found, skipping"
+fi
+
+# -- Shell: CodeForge dev environment ------------
+echo ""
+echo "> Configuring the CodeForge dev environment for new shells..."
+if ! grep -q 'CodeForge dev environment' ~/.bashrc 2>/dev/null; then
+    cat >> ~/.bashrc << 'BASHRC_EOF'
+
+# CodeForge dev environment: the Core and the worker share CODEFORGE_INTERNAL_KEY
+if [ -f /workspaces/CodeForge/.devcontainer/dev-env.sh ]; then
+    . /workspaces/CodeForge/.devcontainer/dev-env.sh
+fi
+BASHRC_EOF
+    echo "  Added dev-env.sh to ~/.bashrc"
+else
+    echo "  dev-env.sh already in ~/.bashrc"
 fi
 
 # -- Shell: auto-activate .venv -------------------
