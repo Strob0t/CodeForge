@@ -112,14 +112,33 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]user.User, er
 	})
 }
 
+// UpdateUser saves the user's fields; it never writes the token epoch (u.TokenEpoch
+// is set to the stored one), so a user read before a raise cannot lower it.
 func (s *Store) UpdateUser(ctx context.Context, u *user.User) error {
-	u.UpdatedAt = time.Now().UTC()
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE users SET name = $2, role = $3, enabled = $4, must_change_password = $5, failed_attempts = $6, locked_until = $7, updated_at = $8, password_hash = $9
-		WHERE id = $1 AND tenant_id = $10`,
-		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, u.UpdatedAt, u.PasswordHash, tenantFromCtx(ctx),
-	)
-	return execExpectOne(tag, err, "update user %s", u.ID)
+	return s.updateUser(ctx, u, 0)
+}
+
+// UpdateUserInvalidatingTokens saves the user's fields and raises the token
+// epoch in one statement (KI-143).
+func (s *Store) UpdateUserInvalidatingTokens(ctx context.Context, u *user.User) error {
+	return s.updateUser(ctx, u, 1)
+}
+
+func (s *Store) updateUser(ctx context.Context, u *user.User, epochRaise int64) error {
+	updatedAt := time.Now().UTC()
+	var epoch int64
+	err := s.pool.QueryRow(ctx, `
+		UPDATE users SET name = $2, role = $3, enabled = $4, must_change_password = $5, failed_attempts = $6, locked_until = $7, updated_at = $8, password_hash = $9,
+			token_epoch = token_epoch + $11
+		WHERE id = $1 AND tenant_id = $10
+		RETURNING token_epoch`,
+		u.ID, u.Name, u.Role, u.Enabled, u.MustChangePassword, u.FailedAttempts, u.LockedUntil, updatedAt, u.PasswordHash, tenantFromCtx(ctx), epochRaise,
+	).Scan(&epoch)
+	if err != nil {
+		return notFoundWrap(err, "update user %s", u.ID)
+	}
+	u.UpdatedAt, u.TokenEpoch = updatedAt, epoch
+	return nil
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
@@ -136,11 +155,6 @@ func (s *Store) GetUserTokenEpoch(ctx context.Context, userID, tenantID string) 
 		return 0, notFoundWrap(err, "get token epoch of user %s", userID)
 	}
 	return epoch, nil
-}
-
-func (s *Store) RaiseUserTokenEpoch(ctx context.Context, userID string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE users SET token_epoch = token_epoch + 1 WHERE id = $1 AND tenant_id = $2`, userID, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "raise token epoch of user %s", userID)
 }
 
 // --- Password Reset Tokens ---

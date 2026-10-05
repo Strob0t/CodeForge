@@ -22,7 +22,8 @@ type UserStore interface {
 	// (domain.ErrNotFound when the user does not exist); access token
 	// validation compares it with the token's epoch (KI-143).
 	GetUserTokenEpoch(ctx context.Context, userID, tenantID string) (int64, error)
-	// RaiseUserTokenEpoch increments the user's token epoch, which
-	// invalidates every access token issued to the user before.
-	RaiseUserTokenEpoch(ctx context.Context, userID string) error
+	// UpdateUserInvalidatingTokens is UpdateUser that also raises the user's
+	// token epoch in the same statement, which invalidates every access token
+	// issued to the user before; u.TokenEpoch is set to the new epoch.
+	UpdateUserInvalidatingTokens(ctx context.Context, u *user.User) error
 }

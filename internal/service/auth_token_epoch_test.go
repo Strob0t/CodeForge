@@ -174,14 +174,32 @@ func TestTokenEpoch_ReenablingDoesNotRestoreOldTokens(t *testing.T) {
 	}
 }
 
-func TestTokenEpoch_FailedEpochRaiseFailsTheUpdate(t *testing.T) {
+// The role change and the epoch raise are saved together: a failed save
+// changes nothing, and a retry raises the epoch (S9-A review).
+func TestTokenEpoch_FailedUpdateSavesNothingAndRetryRaises(t *testing.T) {
 	store := &mockStore{}
 	svc := newTestAuthService(store)
-	u, _ := loginToken(t, svc, "raisefail@test.com")
-	store.raiseTokenEpochErr = errors.New("connection refused")
+	u, token := loginToken(t, svc, "raisefail@test.com")
+	ctx := context.Background()
+	store.invalidateTokensErr = errors.New("connection refused")
 
-	if _, err := svc.UpdateUser(context.Background(), u.ID, user.UpdateRequest{Role: user.RoleAdmin}); err == nil {
-		t.Fatal("the update must report that the tokens were not invalidated")
+	if _, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Role: user.RoleAdmin}); err == nil {
+		t.Fatal("the failed save must be reported")
+	}
+	if got := store.users[0]; got.Role != user.RoleEditor || got.TokenEpoch != 0 {
+		t.Fatalf("a failed save must change nothing, user = role %s epoch %d", got.Role, got.TokenEpoch)
+	}
+
+	store.invalidateTokensErr = nil
+	updated, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Role: user.RoleAdmin})
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if got := store.users[0]; got.Role != user.RoleAdmin || got.TokenEpoch != 1 || updated.TokenEpoch != 1 {
+		t.Fatalf("retry: stored role %s epoch %d, returned epoch %d", got.Role, got.TokenEpoch, updated.TokenEpoch)
+	}
+	if _, err := svc.ValidateAccessToken(token); err == nil {
+		t.Fatal("the earlier token must be refused after the retry")
 	}
 }
 
@@ -203,8 +221,10 @@ func TestTokenEpoch_CachedBriefly(t *testing.T) {
 
 	// Another replica raises the epoch: this one refuses the token once the
 	// cached value has expired.
-	if err := store.RaiseUserTokenEpoch(context.Background(), u.ID); err != nil {
-		t.Fatal(err)
+	for i := range store.users {
+		if store.users[i].ID == u.ID {
+			store.users[i].TokenEpoch++
+		}
 	}
 	if _, err := svc.ValidateAccessToken(token); err != nil {
 		t.Fatalf("still cached, the token passes: %v", err)

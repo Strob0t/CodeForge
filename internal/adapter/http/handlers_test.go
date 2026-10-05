@@ -834,10 +834,14 @@ func (m *mockStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string
 	return 0, errNotFound
 }
 
-func (m *mockStore) RaiseUserTokenEpoch(_ context.Context, userID string) error {
+func (m *mockStore) UpdateUserInvalidatingTokens(ctx context.Context, u *user.User) error {
 	for i := range m.users {
-		if m.users[i].ID == userID {
-			m.users[i].TokenEpoch++
+		if m.users[i].ID == u.ID {
+			epoch := m.users[i].TokenEpoch + 1
+			if err := m.UpdateUser(ctx, u); err != nil {
+				return err
+			}
+			m.users[i].TokenEpoch, u.TokenEpoch = epoch, epoch
 			return nil
 		}
 	}

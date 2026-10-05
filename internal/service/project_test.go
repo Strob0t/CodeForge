@@ -69,7 +69,7 @@ type mockStore struct {
 	isTokenRevokedErr   error // injectable error for fail-closed test
 	tokenEpochErr       error // injectable error for the token epoch lookup (KI-143)
 	tokenEpochLookups   int
-	raiseTokenEpochErr  error
+	invalidateTokensErr error // injectable error for UpdateUserInvalidatingTokens
 
 	// Agent inbox (Phase 23C).
 	inboxMessages []agent.InboxMessage
@@ -540,14 +540,34 @@ func (m *mockStore) ListUsers(_ context.Context, tenantID string) ([]user.User, 
 	return result, nil
 }
 
+// UpdateUser keeps the stored token epoch, like the PostgreSQL store.
 func (m *mockStore) UpdateUser(_ context.Context, u *user.User) error {
 	for i := range m.users {
 		if m.users[i].ID == u.ID {
+			epoch := m.users[i].TokenEpoch
 			m.users[i] = *u
+			m.users[i].TokenEpoch = epoch
+			u.TokenEpoch = epoch
 			return nil
 		}
 	}
 	return domain.ErrNotFound
+}
+
+func (m *mockStore) UpdateUserInvalidatingTokens(ctx context.Context, u *user.User) error {
+	if m.invalidateTokensErr != nil {
+		return m.invalidateTokensErr
+	}
+	if err := m.UpdateUser(ctx, u); err != nil {
+		return err
+	}
+	for i := range m.users {
+		if m.users[i].ID == u.ID {
+			m.users[i].TokenEpoch++
+			u.TokenEpoch = m.users[i].TokenEpoch
+		}
+	}
+	return nil
 }
 
 func (m *mockStore) DeleteUser(_ context.Context, id string) error {
@@ -571,19 +591,6 @@ func (m *mockStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string
 		}
 	}
 	return 0, domain.ErrNotFound
-}
-
-func (m *mockStore) RaiseUserTokenEpoch(_ context.Context, userID string) error {
-	if m.raiseTokenEpochErr != nil {
-		return m.raiseTokenEpochErr
-	}
-	for i := range m.users {
-		if m.users[i].ID == userID {
-			m.users[i].TokenEpoch++
-			return nil
-		}
-	}
-	return domain.ErrNotFound
 }
 
 func (m *mockStore) CreateRefreshToken(_ context.Context, rt *user.RefreshToken) error {

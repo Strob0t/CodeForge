@@ -73,10 +73,14 @@ func (s *testStore) GetUserTokenEpoch(_ context.Context, userID, tenantID string
 	return 0, domain.ErrNotFound
 }
 
-func (s *testStore) RaiseUserTokenEpoch(_ context.Context, userID string) error {
+func (s *testStore) UpdateUserInvalidatingTokens(ctx context.Context, u *user.User) error {
 	for i := range s.users {
-		if s.users[i].ID == userID {
-			s.users[i].TokenEpoch++
+		if s.users[i].ID == u.ID {
+			epoch := s.users[i].TokenEpoch + 1
+			if err := s.UpdateUser(ctx, u); err != nil {
+				return err
+			}
+			s.users[i].TokenEpoch, u.TokenEpoch = epoch, epoch
 			return nil
 		}
 	}

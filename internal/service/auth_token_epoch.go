@@ -130,10 +130,3 @@ func (t *TokenManager) checkTokenEpoch(ctx context.Context, claims *user.TokenCl
 	}
 	return nil
 }
-
-// raiseTokenEpoch invalidates the user's access tokens: everywhere once the
-// other replicas' cached epochs expire, on this replica at once.
-func (t *TokenManager) raiseTokenEpoch(ctx context.Context, userID string) error {
-	defer t.ForgetUser(userID)
-	return t.store.RaiseUserTokenEpoch(ctx, userID)
-}

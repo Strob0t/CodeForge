@@ -56,23 +56,34 @@ func TestStore_UserTokenEpoch(t *testing.T) {
 	}
 
 	epoch(0)
-	if err := store.RaiseUserTokenEpoch(ctx, u.ID); err != nil {
-		t.Fatalf("RaiseUserTokenEpoch: %v", err)
+	// The change and the raise are one statement (S9-A review).
+	stale := *u
+	u.Role = user.RoleAdmin
+	if err := store.UpdateUserInvalidatingTokens(ctx, u); err != nil {
+		t.Fatalf("UpdateUserInvalidatingTokens: %v", err)
+	}
+	if u.TokenEpoch != 1 {
+		t.Fatalf("returned epoch = %d, want 1", u.TokenEpoch)
 	}
 	epoch(1)
+	if got, _ := store.GetUser(context.Background(), u.ID); got.Role != user.RoleAdmin {
+		t.Fatalf("role = %s, want admin", got.Role)
+	}
 
-	// Another tenant neither reads nor raises it.
+	// Another tenant neither reads nor changes it.
 	if _, err := store.GetUserTokenEpoch(context.Background(), u.ID, otherTenantID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("other tenant read: err = %v, want ErrNotFound", err)
 	}
-	if err := store.RaiseUserTokenEpoch(ctxWithTenant(t, otherTenantID), u.ID); !errors.Is(err, domain.ErrNotFound) {
-		t.Fatalf("other tenant raise: err = %v, want ErrNotFound", err)
+	other := *u
+	other.Role = user.RoleViewer
+	if err := store.UpdateUserInvalidatingTokens(ctxWithTenant(t, otherTenantID), &other); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("other tenant update: err = %v, want ErrNotFound", err)
 	}
 	epoch(1)
 
 	// UpdateUser with a struct read before the raise keeps the epoch.
-	u.Name = "Renamed"
-	if err := store.UpdateUser(ctx, u); err != nil {
+	stale.Name = "Renamed"
+	if err := store.UpdateUser(ctx, &stale); err != nil {
 		t.Fatalf("UpdateUser: %v", err)
 	}
 	epoch(1)

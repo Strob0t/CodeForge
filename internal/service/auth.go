@@ -224,13 +224,14 @@ func (s *AuthService) GetUser(ctx context.Context, id string) (*user.User, error
 }
 
 // UpdateUser updates user fields (name, role, enabled). A role change and
-// disabling the user invalidate the user's access tokens (KI-143).
+// disabling the user invalidate the user's access tokens (KI-143), saved in
+// the same statement as the change.
 func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.UpdateRequest) (*user.User, error) {
-	u, err := s.store.GetUser(ctx, id)
+	cur, err := s.store.GetUser(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	oldRole, wasEnabled := u.Role, u.Enabled
+	u := *cur // a failed save leaves the user that was read unchanged
 
 	if req.Name != "" {
 		u.Name = req.Name
@@ -245,16 +246,17 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 		u.Enabled = *req.Enabled
 	}
 
-	if err := s.store.UpdateUser(ctx, u); err != nil {
+	if u.Role == cur.Role && (u.Enabled || !cur.Enabled) {
+		if err := s.store.UpdateUser(ctx, &u); err != nil {
+			return nil, err
+		}
+		return &u, nil
+	}
+	if err := s.store.UpdateUserInvalidatingTokens(ctx, &u); err != nil {
 		return nil, err
 	}
-	if u.Role != oldRole || (wasEnabled && !u.Enabled) {
-		if err := s.tokens.raiseTokenEpoch(ctx, u.ID); err != nil {
-			return nil, fmt.Errorf("invalidate the user's access tokens: %w", err)
-		}
-		u.TokenEpoch++
-	}
-	return u, nil
+	s.tokens.ForgetUser(u.ID)
+	return &u, nil
 }
 
 // DeleteUser erases a user like a GDPR erasure (eraseUser): personal data in
