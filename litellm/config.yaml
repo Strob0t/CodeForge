@@ -10,8 +10,8 @@
 # on the wildcard entries for backwards compatibility.
 #
 # With enable_tag_filtering a request's tag must be among its route's tags
-# (LiteLLM answers 401 otherwise): a route that serves agent modes carries
-# every scenario tag (llm.SCENARIO_DEFAULTS).
+# (LiteLLM answers 401 otherwise): every route carries "default" and every
+# scenario tag (llm.SCENARIO_DEFAULTS; KI-131, workers/tests/test_litellm_config.py).
 #
 # Routes without a key stay configured: a user's own provider key (sent per
 # request) works through them. The Core lists the cloud route of a provider
@@ -75,6 +75,7 @@ model_list:
     litellm_params:
       model: "openai/*"
       api_key: "os.environ/OPENAI_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Anthropic --
   - model_name: "anthropic/*"
@@ -83,6 +84,7 @@ model_list:
     litellm_params:
       model: "anthropic/*"
       api_key: "os.environ/ANTHROPIC_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Google Gemini --
   - model_name: "gemini/*"
@@ -91,6 +93,7 @@ model_list:
     litellm_params:
       model: "gemini/*"
       api_key: "os.environ/GEMINI_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- Groq (fast inference) --
   - model_name: "groq/*"
@@ -146,6 +149,7 @@ model_list:
       model: "openai/*"
       api_base: "https://llm.chutes.ai/v1"
       api_key: "os.environ/CHUTES_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
   # -- AihubMix (OpenAI-compatible) --
   - model_name: "aihubmix/*"
@@ -155,6 +159,7 @@ model_list:
       model: "openai/*"
       api_base: "https://aihubmix.com/v1"
       api_key: "os.environ/AIHUBMIX_API_KEY"
+      tags: ["default", "background", "think", "longContext", "review", "plan"]
 
 router_settings:
   enable_tag_filtering: true

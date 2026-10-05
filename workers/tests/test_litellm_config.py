@@ -31,12 +31,16 @@ def test_ollama_goes_to_its_openai_compatible_endpoint() -> None:
     assert params["api_key"]
 
 
-@pytest.mark.parametrize("route", ["ollama/*", "lm_studio/*", "openai/container"])
-def test_local_routes_accept_every_scenario_tag(route: str) -> None:
-    """With tag filtering LiteLLM refuses a request whose tag its route lacks (401)."""
-    tags = set(ROUTES[route]["litellm_params"]["tags"])
+# The tag of a request without a scenario plus every scenario's tag.
+ROUTE_TAGS = {"default"} | {scenario.tag for scenario in SCENARIO_DEFAULTS.values()}
 
-    assert {scenario.tag for scenario in SCENARIO_DEFAULTS.values()} <= tags
+
+def test_every_route_accepts_every_scenario_tag() -> None:
+    """With tag filtering LiteLLM refuses a request whose tag its route lacks (401, KI-131)."""
+    assert ROUTES
+    for entry in CONFIG["model_list"]:
+        tags = entry["litellm_params"].get("tags", [])
+        assert set(tags) >= ROUTE_TAGS, f"{entry['model_name']} lacks {sorted(ROUTE_TAGS - set(tags))}"
 
 
 @pytest.mark.parametrize("compose_file", ["docker-compose.yml", "docker-compose.prod.yml"])
