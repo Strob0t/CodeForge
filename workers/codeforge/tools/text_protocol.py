@@ -77,7 +77,7 @@ _FINAL_KEYS = ("final", "final_answer", "answer")
 _THOUGHT_KEYS = ("thought", "reasoning")
 # Keys that make a JSON object a protocol turn on their own; "name" and
 # "action" do only with a known tool (a package.json has a "name" too).
-_TURN_KEYS = frozenset({"thought", "tool", "function", "final", "final_answer", "args", "arguments", "action_input"})
+TURN_KEYS = frozenset({"thought", "tool", "function", "final", "final_answer", "args", "arguments", "action_input"})
 _FINAL_ACTION = "final answer"
 _MISSING = object()
 
@@ -538,7 +538,7 @@ def _trailing_comma(text: str, pos: int) -> int:
 
 def _is_turn(obj: dict[str, object], tool_names: Sequence[str]) -> bool:
     """Whether a JSON object is a protocol turn rather than JSON the model writes about."""
-    if _TURN_KEYS & obj.keys():
+    if TURN_KEYS & obj.keys():
         return True
     for key in ("name", "action"):
         value = obj.get(key)
