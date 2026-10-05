@@ -263,6 +263,12 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 		return nil, err
 	}
 	s.tokens.EndUserSessions(u.ID)
+	// A disabled user's refresh tokens go too (refreshing is refused for a
+	// disabled user anyway); after a role change they stay, so the next
+	// refresh gets a token with the new role.
+	if !u.Enabled {
+		logBestEffort(ctx, s.store.DeleteRefreshTokensByUser(ctx, u.ID), "DeleteRefreshTokensByUser")
+	}
 	return &u, nil
 }
 

@@ -477,3 +477,32 @@ func TestTokenEpochCache_PutAfterForgetIsSkipped(t *testing.T) {
 		t.Fatalf("a value read after the forget must be cached, got %+v %v", e, ok)
 	}
 }
+
+// Disabling a user deletes their refresh tokens; a role change keeps them,
+// so the user's next refresh gets a token with the new role (S9-A review).
+func TestTokenEpoch_DisableDeletesRefreshTokens(t *testing.T) {
+	tests := []struct {
+		name string
+		req  user.UpdateRequest
+		left int
+	}{
+		{"disable", user.UpdateRequest{Enabled: ptrTo(false)}, 0},
+		{"role change", user.UpdateRequest{Role: user.RoleViewer}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockStore{}
+			svc := newTestAuthService(store)
+			u, _ := loginToken(t, svc, "refresh@test.com")
+			if len(store.refreshTokens) != 1 {
+				t.Fatalf("refresh tokens after login: %d", len(store.refreshTokens))
+			}
+			if _, err := svc.UpdateUser(context.Background(), u.ID, tt.req); err != nil {
+				t.Fatal(err)
+			}
+			if len(store.refreshTokens) != tt.left {
+				t.Fatalf("refresh tokens left: %d, want %d", len(store.refreshTokens), tt.left)
+			}
+		})
+	}
+}
