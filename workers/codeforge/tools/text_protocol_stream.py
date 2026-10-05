@@ -16,8 +16,9 @@ from codeforge.tools.text_protocol import TURN_KEYS
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-# A prose line starting with one of these may start the protocol object.
-_MARKERS = ("```", "<tool_call>", "{")
+# A prose line starting with one of these may start the protocol object
+# ("[{": several calls as an array, of which the parser runs the first).
+_MARKERS = ("```", "<tool_call>", "{", "[{")
 _STREAMED_KEYS = frozenset({"thought", "final"})
 _ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
 
@@ -94,7 +95,7 @@ class ProtocolStreamFilter:
         if marker is not None:
             self._held = [self._line]
             self._line = ""
-            if marker == "{":
+            if marker.endswith("{"):
                 self._start_object()
             else:
                 self._mode = _WAIT

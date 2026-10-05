@@ -155,6 +155,21 @@ def test_marker_prefix_held_until_decided() -> None:
     assert not any("`" in p for p in pieces)
 
 
+def test_an_array_of_calls_shows_only_the_first_thought() -> None:
+    """Without a grammar a model may send several calls as an array; the parser runs the first."""
+    reply = '[{"thought": "T", "tool": "bash", "args": {"command": "ls"}}, {"thought": "U", "tool": "bash"}]'
+
+    text, _ = _run(_chars(reply))
+
+    assert text == "T"
+
+
+def test_brackets_at_line_start_in_prose() -> None:
+    text, _ = _run(_chars("[1] See the note.\n[\nnot json\n"))
+
+    assert text == "[1] See the note.\n[\nnot json\n"
+
+
 def test_feed_after_finish_is_ignored() -> None:
     pieces: list[str] = []
     stream = ProtocolStreamFilter(pieces.append)
