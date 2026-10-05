@@ -169,19 +169,26 @@ func (s *AutoAgentService) checkTestFile(ctx context.Context, fv *featureVerific
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if err == nil && result.AllPassed {
+	switch {
+	case errors.Is(err, errTestFileMissing):
+		checks.fail(fmt.Sprintf("test file missing (%s)", fv.testFile),
+			fmt.Sprintf("The feature names the test file %s, which does not exist in the workspace root: write it.", fv.testFile))
+	case err != nil:
+		// No verdict (no answer, an isolation refusal, a timeout): nothing
+		// the agent can fix (KI-152 review).
+		checks.notes = append(checks.notes, fmt.Sprintf("tests gave no verdict (%s): %s", fv.testFile, firstOutputLine(err.Error())))
+	case result.AllPassed:
 		checks.passed = append(checks.passed, fmt.Sprintf("tests passed (%s)", fv.testFile))
-		return nil
+	default:
+		checks.fail(fmt.Sprintf("tests failed (%s)", fv.testFile),
+			fmt.Sprintf("The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```",
+				result.Passed, result.Total, testOutputForPrompt(strings.TrimSpace(result.Output))))
 	}
-	output := result.Output
-	if err != nil && result.Total == 0 {
-		output = err.Error()
-	}
-	checks.fail(fmt.Sprintf("tests failed (%s)", fv.testFile),
-		fmt.Sprintf("The tests are failing. %d/%d tests passed.\n\nTest output:\n```\n%s\n```",
-			result.Passed, result.Total, testOutputForPrompt(strings.TrimSpace(output))))
 	return nil
 }
+
+// errTestFileMissing: the test file a feature names is not in the workspace.
+var errTestFileMissing = errors.New("test file missing")
 
 // result is the feature's result after the checks passed.
 func (c *featureChecks) result(fixes int) string {

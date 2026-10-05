@@ -373,6 +373,65 @@ func TestVerifyFeature_TestFileFromTheDescriptionWithoutACommand(t *testing.T) {
 	}
 }
 
+// KI-152 review: the description's test file fails the feature only on a
+// verdict or when the file is missing; a run that could not happen (no
+// answer, no verdict, an isolation refusal) leaves it "not fully verified".
+func TestVerifyFeature_TestFileOutcomes(t *testing.T) {
+	tests := []struct {
+		name      string
+		writeTest bool
+		reply     *messagequeue.WorkspaceTestResultPayload // nil: no answer
+		wantFail  string
+		wantNote  string
+	}{
+		{name: "failing verdict", writeTest: true, wantFail: "tests failed (test_cli.py)",
+			reply: &messagequeue.WorkspaceTestResultPayload{Passed: passedPtr(false), Output: "=== 1 failed, 1 passed ==="}},
+		{name: "missing test file", wantFail: "test file missing (test_cli.py)"},
+		{name: "no verdict", writeTest: true, wantNote: "tests gave no verdict (test_cli.py)",
+			reply: &messagequeue.WorkspaceTestResultPayload{Output: "tool isolation required", Error: "tool isolation required"}},
+		{name: "no answer", writeTest: true, wantNote: "tests gave no verdict (test_cli.py)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newVerifyEnv(t, func(req *messagequeue.WorkspaceTestRequestPayload) *messagequeue.WorkspaceTestResultPayload {
+				if tc.reply == nil {
+					return nil
+				}
+				res := *tc.reply
+				res.RequestID = req.RequestID
+				return &res
+			})
+			e.svc.testTimeout, e.svc.testWaitMargin = 10*time.Millisecond, 10*time.Millisecond
+			e.svc.SetVerification(AutoAgentVerification{FixAttempts: 1})
+			fv := &featureVerification{projectID: "proj-1", conversationID: "conv-1", title: "x", testFile: "test_cli.py",
+				before: takeWorkspaceSnapshot(e.ws)}
+			writeWorkspaceFile(t, e.ws, "cli.py", "x")
+			if tc.writeTest {
+				writeWorkspaceFile(t, e.ws, "test_cli.py", "def test_x(): pass\n")
+			}
+			var prompts []string
+
+			result, err := e.svc.verifyFeature(context.Background(), fv, func(p string) error {
+				prompts = append(prompts, p)
+				return nil
+			})
+
+			if tc.wantFail != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantFail) || len(prompts) != 1 {
+					t.Fatalf("verifyFeature = %q, %v (prompts %d); want failure %q after one fix", result, err, len(prompts), tc.wantFail)
+				}
+				return
+			}
+			if err != nil || len(prompts) != 0 {
+				t.Fatalf("verifyFeature = %v (prompts %d), want no failure", err, len(prompts))
+			}
+			if !strings.HasPrefix(result, "not fully verified: ") || !strings.Contains(result, tc.wantNote) {
+				t.Fatalf("result = %q, want a note %q", result, tc.wantNote)
+			}
+		})
+	}
+}
+
 func TestVerifyFeature_StoppedAutoAgentEndsTheVerification(t *testing.T) {
 	e := newVerifyEnv(t, nil) // the worker never answers
 	e.proj.Config[project.ConfigTestCommand] = "pytest"

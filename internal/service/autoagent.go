@@ -494,11 +494,11 @@ func (s *AutoAgentService) runWorkspaceTest(ctx context.Context, projectID, conv
 	absTest := filepath.Join(proj.WorkspacePath, testFile)
 	cleanTest := filepath.Clean(absTest)
 	if !strings.HasPrefix(cleanTest, filepath.Clean(proj.WorkspacePath)+string(filepath.Separator)) {
-		return testResult{}, fmt.Errorf("test file path escapes workspace: %s", testFile)
+		return testResult{}, fmt.Errorf("%w: %s escapes the workspace", errTestFileMissing, testFile)
 	}
 	// Resolved inside the workspace (KI-95): a symlink out of it is refused.
 	if info, err := workspacefs.StatAt(proj.WorkspacePath, testFile); err != nil || info.IsDir() {
-		return testResult{}, fmt.Errorf("test file not found or is directory: %s", testFile)
+		return testResult{}, fmt.Errorf("%w: %s not found or a directory", errTestFileMissing, testFile)
 	}
 
 	tenantID := tenantctx.FromContext(ctx)
