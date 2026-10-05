@@ -15,6 +15,7 @@ export default function SetupPage(): JSX.Element {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  const [setupToken, setSetupToken] = createSignal("");
   const [email, setEmail] = createSignal("admin@localhost");
   const [name, setName] = createSignal("");
   const [password, setPassword] = createSignal("");
@@ -63,6 +64,7 @@ export default function SetupPage(): JSX.Element {
       email: email(),
       name: name(),
       password: password(),
+      setup_token: setupToken().trim(),
     });
     await login(email(), password());
     navigate("/", { replace: true });
@@ -102,6 +104,25 @@ export default function SetupPage(): JSX.Element {
           <ErrorBanner error={error} onDismiss={clearError} />
 
           <form onSubmit={handleSubmit}>
+            <FormField
+              label={t("auth.setup.token")}
+              id="setup_token"
+              required
+              help={t("auth.setup.tokenHelp")}
+              class="mb-4"
+            >
+              <Input
+                id="setup_token"
+                type="text"
+                required
+                value={setupToken()}
+                onInput={(e) => setSetupToken(e.currentTarget.value)}
+                autocomplete="off"
+                spellcheck={false}
+                class="font-mono"
+              />
+            </FormField>
+
             <FormField label={t("auth.setup.email")} id="setup_email" required class="mb-4">
               <Input
                 id="setup_email"

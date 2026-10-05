@@ -30,9 +30,10 @@ func withUserContext(req *http.Request, u *user.User) *http.Request {
 func httpSetupAdmin(t *testing.T, router chi.Router, email string) (accessToken string, refreshCookie *http.Cookie) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{
-		"email":    email,
-		"name":     "Test Admin",
-		"password": validPassword,
+		"email":       email,
+		"name":        "Test Admin",
+		"password":    validPassword,
+		"setup_token": testSetupToken(t, router),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/auth/setup", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -221,9 +222,10 @@ func TestHandleInitialSetup_Success(t *testing.T) {
 	r := newTestRouter()
 
 	body, _ := json.Marshal(map[string]string{
-		"email":    "admin@test.com",
-		"name":     "Admin",
-		"password": validPassword,
+		"email":       "admin@test.com",
+		"name":        "Admin",
+		"password":    validPassword,
+		"setup_token": testSetupToken(t, r),
 	})
 	req := httptest.NewRequest("POST", "/api/v1/auth/setup", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -264,6 +266,44 @@ func TestHandleInitialSetup_AlreadyDone(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// KI-119: without the one-time setup token nobody becomes the first admin.
+func TestHandleInitialSetup_RequiresSetupToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		token func(right string) (string, bool) // the value and whether to send the field
+	}{
+		{"missing", func(string) (string, bool) { return "", false }},
+		{"empty", func(string) (string, bool) { return "", true }},
+		{"wrong", func(right string) (string, bool) { return strings.Repeat("0", len(right)), true }},
+		{"truncated", func(right string) (string, bool) { return right[:len(right)/2], true }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockStore{}
+			r := newTestRouterWithStore(store)
+			fields := map[string]string{"email": "admin@test.com", "name": "Admin", "password": validPassword}
+			if v, send := tt.token(testSetupToken(t, r)); send {
+				fields["setup_token"] = v
+			}
+			body, _ := json.Marshal(fields)
+			req := httptest.NewRequest("POST", "/api/v1/auth/setup", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+			if len(store.users) != 0 {
+				t.Fatalf("no user may be created, got %d", len(store.users))
+			}
+			if c := w.Result().Cookies(); len(c) != 0 {
+				t.Fatalf("no session may be issued, got cookies %v", c)
+			}
+		})
 	}
 }
 

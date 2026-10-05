@@ -1765,6 +1765,11 @@ func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, ll
 		BcryptCost:         4,
 	}
 	authSvc := service.NewAuthService(store, authCfg)
+	// Arm the one-time setup token as main.go does on a first start (KI-119).
+	setupToken, err := authSvc.PrepareSetupToken(context.Background(), middleware.DefaultTenantID)
+	if err != nil {
+		panic(err)
+	}
 	filesSvc := service.NewFileService(store)
 	roadmapSvc := service.NewRoadmapService(store, bc, nil, nil)
 	autoAgentSvc := service.NewAutoAgentService(store, bc, queue, conversationSvc)
@@ -1855,7 +1860,22 @@ func newTestRouterWithLLM(store *mockStore, policySvc *service.PolicyService, ll
 		mod(handlers)
 	}
 	mountTestRoutes(r, handlers)
+	testSetupTokens.Store(r, setupToken)
 	return r
+}
+
+// testSetupTokens maps a test router to the setup token its auth service
+// armed (empty when the store had users already).
+var testSetupTokens sync.Map
+
+func testSetupToken(t *testing.T, router chi.Router) string {
+	t.Helper()
+	v, ok := testSetupTokens.Load(router)
+	if !ok {
+		t.Fatal("router has no setup token: build it with newTestRouterWithLLM")
+	}
+	token, _ := v.(string)
+	return token
 }
 
 func newTestRouterWithModelAndStore(store *mockStore, model string) chi.Router {

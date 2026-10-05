@@ -183,6 +183,7 @@ type Auth struct {
 	AutoGenerateInitialPassword bool          `yaml:"auto_generate_initial_password"`     // Generate random password to file (GitLab-style)
 	InitialPasswordFile         string        `yaml:"initial_password_file"`              // Path for generated password (default: data/initial_admin_password)
 	SetupTimeoutMinutes         int           `yaml:"setup_timeout_minutes"`              // Setup wizard timeout in minutes (default: 5)
+	SetupTokenFile              string        `yaml:"setup_token_file"`                   // One-time setup token written on a first start without users (KI-119; default: data/setup_token, empty: log only)
 	LLMKeyEncryptionSecret      string        `yaml:"llm_key_encryption_secret" json:"-"` // Separate encryption key for LLM user keys (falls back to JWTSecret)
 
 	jwtSecretGenerated bool // JWTSecret was generated at load time, not configured
@@ -798,6 +799,7 @@ func Defaults() Config {
 			DefaultAdminPass:    "",
 			InitialPasswordFile: "data/initial_admin_password",
 			SetupTimeoutMinutes: 5,
+			SetupTokenFile:      "data/setup_token",
 		},
 		Agent: Agent{
 			DefaultModel:             "",

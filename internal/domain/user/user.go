@@ -58,6 +58,10 @@ func IsAccountless(id string) bool {
 // a user's records by ID).
 var ErrAccountGone = errors.New("the user account does not exist")
 
+// ErrInvalidSetupToken reports a first-admin setup without the one-time
+// setup token the Core created on its first start (KI-119).
+var ErrInvalidSetupToken = errors.New("a valid setup token is required")
+
 // User represents a registered user within a tenant.
 type User struct {
 	ID                 string    `json:"id"`

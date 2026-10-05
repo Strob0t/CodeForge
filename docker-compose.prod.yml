@@ -266,16 +266,18 @@ services:
       CODEFORGE_WORKSPACE_ROOT: /data/workspaces
       CODEFORGE_KNOWLEDGE_CONTENT_ROOT: /data/knowledge
       CODEFORGE_AUTH_INITIAL_PASSWORD_FILE: /data/initial_admin_password
+      # One-time token for the first-admin setup page (KI-119).
+      CODEFORGE_AUTH_SETUP_TOKEN_FILE: /data/setup_token
       # Per-tenant tool identities (KI-96): tenant directories get POSIX ACLs
       # for their tenant's tool UID and tool work carries it (the worker
       # refuses tool work without it). Deleted projects' workspaces are removed
       # by the worker as that UID.
       CODEFORGE_WORKSPACE_TOOL_ACLS: required
-    # The root filesystem stays read-only: /data (initial admin password, the
-    # OAuth .env next to the workspace root) and the workspaces shared with the
-    # worker are volumes, /tmp is a tmpfs. Knowledge-base content (KI-105) is
-    # read only below /data/knowledge/<tenant_id>/, a read-only volume the
-    # operator fills.
+    # The root filesystem stays read-only: /data (initial admin password, setup
+    # token, the OAuth .env next to the workspace root) and the workspaces
+    # shared with the worker are volumes, /tmp is a tmpfs. Knowledge-base
+    # content (KI-105) is read only below /data/knowledge/<tenant_id>/, a
+    # read-only volume the operator fills.
     volumes:
       - core_data:/data
       - workspaces:/data/workspaces

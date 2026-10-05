@@ -1038,6 +1038,8 @@ export interface InitialSetupRequest {
   email: string;
   name: string;
   password: string;
+  /** One-time token from the Core's log or data/setup_token (KI-119) */
+  setup_token: string;
 }
 
 /** Request body for POST /api/v1/auth/forgot-password */

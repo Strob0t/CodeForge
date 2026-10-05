@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -22,13 +23,20 @@ type loginResponse struct {
 const adminPassword = "Password123"
 
 // setupAdmin creates the first (admin) user of the tenant via the initial setup
-// endpoint and returns the login response along with the refresh cookie.
+// endpoint and returns the login response along with the refresh cookie. It
+// arms the setup token for the tenant first, as the Core does on a start
+// without users (KI-119); the tests of this package do not run in parallel.
 func setupAdmin(t *testing.T, tenantID, email string) (loginResponse, []*http.Cookie) {
 	t.Helper()
+	token, err := testAuth.PrepareSetupToken(context.Background(), tenantID)
+	if err != nil || token == "" {
+		t.Fatalf("prepare setup token: %q, %v", token, err)
+	}
 	body, _ := json.Marshal(map[string]string{
-		"email":    email,
-		"name":     "Test Admin",
-		"password": adminPassword,
+		"email":       email,
+		"name":        "Test Admin",
+		"password":    adminPassword,
+		"setup_token": token,
 	})
 	resp := doRequest(t, tenantRequest(t, http.MethodPost, "/api/v1/auth/setup", tenantID, "", body))
 	if resp.StatusCode != http.StatusCreated {

@@ -42,6 +42,8 @@ var (
 	testAuthServer *httptest.Server
 	testStore      *postgres.Store
 	testPool       *pgxpool.Pool
+	// testAuth arms the one-time setup token setupAdmin needs (KI-119).
+	testAuth *service.AuthService
 )
 
 // noRedirectClient returns redirects to the test instead of following them.
@@ -98,6 +100,7 @@ func run(m *testing.M) int {
 		BcryptCost:         4, // low cost for fast tests
 	}
 	authSvc := service.NewAuthService(store, &authCfg)
+	testAuth = authSvc
 
 	handlers := &cfhttp.Handlers{
 		Projects: service.NewProjectService(store, ""),

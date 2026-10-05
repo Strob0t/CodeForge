@@ -847,6 +847,9 @@ const de: Translations = {
   "auth.setup.namePlaceholder": "Admin",
   "auth.setup.password": "Passwort",
   "auth.setup.confirmPassword": "Passwort best\u00e4tigen",
+  "auth.setup.token": "Setup-Token",
+  "auth.setup.tokenHelp":
+    "Das einmalige Token, das der Server bei seinem ersten Start erzeugt hat. Es steht im Server-Log (die Zeile, die mit SETUP TOKEN beginnt) und in der Datei data/setup_token neben dem Server (/data/setup_token in den Produktions-Containern).",
   "auth.setup.submit": "Konto erstellen",
   "auth.setup.creating": "Erstelle...",
   "auth.setup.mismatch": "Passw\u00f6rter stimmen nicht \u00fcberein.",

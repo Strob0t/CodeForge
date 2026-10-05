@@ -26,6 +26,7 @@ type AuthService struct {
 	secret  []byte
 	tokens  *TokenManager
 	apiKeys *APIKeyManager
+	setup   setupGuard
 }
 
 // NewAuthService creates a new authentication service with sub-services.

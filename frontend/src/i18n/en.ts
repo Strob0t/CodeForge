@@ -853,6 +853,9 @@ const en = {
   "auth.setup.namePlaceholder": "Admin",
   "auth.setup.password": "Password",
   "auth.setup.confirmPassword": "Confirm Password",
+  "auth.setup.token": "Setup Token",
+  "auth.setup.tokenHelp":
+    "The one-time token the server created on its first start. Find it in the server log (the line starting with SETUP TOKEN) or in the file data/setup_token next to the server (/data/setup_token in the production containers).",
   "auth.setup.submit": "Create Account",
   "auth.setup.creating": "Creating...",
   "auth.setup.mismatch": "Passwords do not match.",

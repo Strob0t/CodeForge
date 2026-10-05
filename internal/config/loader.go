@@ -352,6 +352,7 @@ func loadEnv(cfg *Config) {
 	setTyped(&cfg.Auth.AutoGenerateInitialPassword, "CODEFORGE_AUTH_AUTO_GENERATE_PASSWORD", strconv.ParseBool)
 	setString(&cfg.Auth.InitialPasswordFile, "CODEFORGE_AUTH_INITIAL_PASSWORD_FILE")
 	setTyped(&cfg.Auth.SetupTimeoutMinutes, "CODEFORGE_AUTH_SETUP_TIMEOUT_MINUTES", strconv.Atoi)
+	setString(&cfg.Auth.SetupTokenFile, "CODEFORGE_AUTH_SETUP_TOKEN_FILE")
 
 	// LiteLLM health polling
 	setTyped(&cfg.LiteLLM.HealthPollInterval, "CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL", time.ParseDuration)

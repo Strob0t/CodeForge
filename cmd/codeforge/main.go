@@ -777,6 +777,11 @@ func run() error {
 		if err := authSvc.BootstrapAdmin(context.Background(), middleware.DefaultTenantID); err != nil {
 			slog.Warn("failed to bootstrap admin", "error", err)
 		}
+		// Without users the setup page needs the one-time setup token (KI-119).
+		// Fails closed: without an armed token the setup is refused.
+		if _, err := authSvc.PrepareSetupToken(context.Background(), middleware.DefaultTenantID); err != nil {
+			slog.Warn("failed to prepare the setup token", "error", err)
+		}
 		// Warn if initial password file still exists (should be changed on first login)
 		if cfg.Auth.InitialPasswordFile != "" {
 			if _, err := os.Stat(cfg.Auth.InitialPasswordFile); err == nil { //nolint:gosec // path from trusted config

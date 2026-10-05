@@ -304,12 +304,15 @@ func (h *Handlers) SetupStatus(w http.ResponseWriter, r *http.Request) {
 
 // initialSetupRequest is the request body for POST /api/v1/auth/setup.
 type initialSetupRequest struct {
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Password string `json:"password"` //nolint:gosec // not a hardcoded credential
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Password   string `json:"password"`    //nolint:gosec // not a hardcoded credential
+	SetupToken string `json:"setup_token"` //nolint:gosec // not a hardcoded credential
 }
 
-// InitialSetup handles POST /api/v1/auth/setup (public, one-time only)
+// InitialSetup handles POST /api/v1/auth/setup (public, one-time only). It
+// requires the one-time setup token the Core logged and wrote to
+// auth.setup_token_file on its first start (KI-119).
 func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 	tenantID := middleware.TenantIDFromContext(r.Context())
 
@@ -325,20 +328,23 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 
 	// Atomically create admin user only if no users exist for this tenant.
 	// This eliminates the TOCTOU race between GetSetupStatus and Register (CWE-367).
-	_, err := h.Auth.RegisterFirstUser(r.Context(), &user.CreateRequest{
+	_, err := h.Auth.CompleteSetup(r.Context(), &user.CreateRequest{
 		Email:    req.Email,
 		Name:     req.Name,
 		Password: req.Password,
 		Role:     user.RoleAdmin,
 		TenantID: tenantID,
-	})
+	}, req.SetupToken)
 	if err != nil {
-		// If the atomic insert detected existing users, report conflict.
-		if errors.Is(err, domain.ErrConflict) {
+		switch {
+		case errors.Is(err, user.ErrInvalidSetupToken):
+			writeError(w, http.StatusForbidden, user.ErrInvalidSetupToken.Error())
+		case errors.Is(err, domain.ErrConflict):
+			// The atomic insert detected existing users.
 			writeError(w, http.StatusConflict, "system is already initialized")
-			return
+		default:
+			writeDomainError(w, err, "setup failed")
 		}
-		writeDomainError(w, err, "setup failed")
 		return
 	}
 
