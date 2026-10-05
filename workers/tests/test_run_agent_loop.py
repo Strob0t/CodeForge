@@ -357,3 +357,17 @@ async def test_pure_completion_run_deny_blocks_the_json_call(tmp_path: Path) -> 
     results = [r for r in js.payloads("runs.toolcall.result") if r["tool"] == "write_file"]
     assert [r["success"] for r in results] == [False]
     assert "Permission denied: denied by policy" in str(llm.calls[1]["messages"])
+
+
+async def test_pure_completion_run_without_the_grammar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """CODEFORGE_TEXT_TOOL_GRAMMAR=false: the protocol without the JSON-schema grammar."""
+    monkeypatch.setenv("CODEFORGE_TEXT_TOOL_GRAMMAR", "false")
+    llm = ScriptedLLM([_answer(_WRITE_CALL), _answer(json.dumps({"thought": "", "final": "Created hello.txt"}))])
+
+    await AgentExecutor(llm=llm).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), "ollama/llama3"), _runtime(PolicyJetStream())
+    )
+
+    assert (tmp_path / "hello.txt").read_text() == "hi\n"
+    assert [call["response_format"] for call in llm.calls] == [None, None]
+    assert llm.calls[0]["tools"] is None

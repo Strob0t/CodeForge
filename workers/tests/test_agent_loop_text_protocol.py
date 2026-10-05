@@ -20,11 +20,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from codeforge.agent_loop import AgentLoopExecutor, LoopConfig
+from codeforge.config import get_settings, load_yaml_config
 from codeforge.consumer._base import ConsumerBaseMixin
 from codeforge.consumer._conversation import ConversationHandlerMixin
 from codeforge.history import ConversationHistoryManager, HistoryConfig
 from codeforge.llm import ChatCompletionResponse, LLMError, RoutingResult, ToolCallPart
-from codeforge.loop_config import ModelCapability
+from codeforge.loop_config import ModelCapability, build_loop_config
 from codeforge.models import ConversationMessagePayload, ConversationRunStartMessage, ToolCallDecision
 from codeforge.tools import ToolRegistry, build_default_registry
 from codeforge.tools.capability import CapabilityLevel
@@ -447,6 +448,54 @@ async def test_native_models_are_unchanged(tmp_path: Path) -> None:
     assert call["response_format"] is None
     assert call["max_tokens"] is None
     assert llm.request(0) == _messages()
+
+
+# --- config: litellm.text_tool_grammar / CODEFORGE_TEXT_TOOL_GRAMMAR ---
+
+
+def test_text_tool_grammar_is_on_by_default() -> None:
+    assert get_settings().text_tool_grammar is True
+    assert LoopConfig().text_tool_grammar is True
+
+
+@pytest.mark.parametrize(("value", "expected"), [("false", False), ("0", False), ("no", False), ("true", True)])
+def test_text_tool_grammar_from_env(value: str, expected: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEFORGE_TEXT_TOOL_GRAMMAR", value)
+
+    assert get_settings().text_tool_grammar is expected
+
+
+def test_text_tool_grammar_from_yaml_and_env_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = tmp_path / "codeforge.yaml"
+    config.write_text("litellm:\n  text_tool_grammar: false\n")
+    monkeypatch.setenv("CODEFORGE_CONFIG_FILE", str(config))
+    load_yaml_config.cache_clear()
+    try:
+        assert get_settings().text_tool_grammar is False
+        monkeypatch.setenv("CODEFORGE_TEXT_TOOL_GRAMMAR", "true")
+        get_settings.cache_clear()
+        assert get_settings().text_tool_grammar is True
+    finally:
+        load_yaml_config.cache_clear()
+
+
+@pytest.mark.parametrize(("value", "expected"), [("", True), ("false", False)])
+def test_loop_config_carries_the_switch(value: str, expected: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEFORGE_TEXT_TOOL_GRAMMAR", value)
+
+    cfg, _ = build_loop_config(
+        primary_model=MODEL,
+        capability_level=CapabilityLevel.PURE_COMPLETION,
+        routing=RoutingResult(),
+        tool_names=["read_file"],
+        fallback_models=[],
+        user_prompt="",
+        max_steps=5,
+        max_cost=0,
+        mode_tools=frozenset(),
+    )
+
+    assert cfg.text_tool_grammar is expected
 
 
 # --- conversation path, tool guide, history reserve ---

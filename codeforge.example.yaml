@@ -35,6 +35,12 @@ litellm:
   # model_capabilities:
   #   "ollama/phi3*": pure_completion
   #   "ollama/*": api_with_tools
+  # Worker: pure_completion models call tools through a text protocol (one
+  # JSON object per reply); the reply is constrained by a JSON-schema grammar
+  # where the server supports it. false turns the grammar off (thinking
+  # models, servers whose output gets worse under it). Env:
+  # CODEFORGE_TEXT_TOOL_GRAMMAR=false
+  # text_tool_grammar: true
   # Core and worker: the providers whose API key LiteLLM holds (names only,
   # never the key). Their models are listed and can be the default model;
   # the other cloud routes show as one entry ("groq/*") and are not routed

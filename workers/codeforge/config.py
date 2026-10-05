@@ -228,6 +228,7 @@ class WorkerSettings:
     # LLM
     default_model: str
     model_capabilities: tuple[tuple[str, str], ...]
+    text_tool_grammar: bool
     keyed_providers: frozenset[str]
 
     # Consumer
@@ -341,6 +342,12 @@ class WorkerSettings:
         self.default_model = _resolve_str("CODEFORGE_DEFAULT_MODEL", litellm_cfg.get("default_model"), "")
         # Tool capability per model, above LiteLLM's metadata and the name patterns (KI-125).
         self.model_capabilities = _resolve_model_capabilities(litellm_cfg.get("model_capabilities"))
+        # Pure-completion models: constrain text tool protocol replies with a
+        # JSON-schema grammar (S9-C); off for thinking models or servers
+        # whose output gets worse under a grammar.
+        self.text_tool_grammar = _resolve_bool(
+            "CODEFORGE_TEXT_TOOL_GRAMMAR", litellm_cfg.get("text_tool_grammar"), True
+        )
         # Providers whose API key LiteLLM holds, as the Go Core reads them (KI-125).
         self.keyed_providers = parse_keyed_providers(
             os.environ.get(KEYED_PROVIDERS_ENV, ""), litellm_cfg.get("keyed_providers")

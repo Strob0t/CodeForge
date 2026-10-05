@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.agent_loop import DEFAULT_MAX_ITERATIONS, LoopConfig
+from codeforge.config import get_settings
 from codeforge.llm import LiteLLMClient, ModelMetadata
 from codeforge.policy_args import is_builtin_tool
 from codeforge.tools.capability import CapabilityLevel, classify_model
@@ -117,6 +118,7 @@ def build_loop_config(
         selected_tools=selected_tools,
         tool_output_max_chars=tool_output_max_chars,
         implementation_turn=implementation_turn,
+        text_tool_grammar=get_settings().text_tool_grammar,
     )
 
     complexity = routing.complexity_tier or "unknown"
