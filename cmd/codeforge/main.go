@@ -24,6 +24,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/adapter/aider"
 	cfauth "github.com/Strob0t/CodeForge/internal/adapter/auth"
 	"github.com/Strob0t/CodeForge/internal/adapter/copilot"
+	"github.com/Strob0t/CodeForge/internal/adapter/githubpm"
 	"github.com/Strob0t/CodeForge/internal/adapter/goose"
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
 	"github.com/Strob0t/CodeForge/internal/adapter/litellm"
@@ -247,6 +248,7 @@ func run() error {
 	runtimeSvc.SetToolUIDs(toolUIDSvc)
 	runtimeSvc.SetMetrics(metrics)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
+	deliverSvc.SetOperatorGitHubToken(cfg.GitHub.Token)
 	runtimeSvc.SetDeliverService(deliverSvc)
 
 	// Private temporary files (checkpoint indexes, svn config) live in one
@@ -482,6 +484,9 @@ func run() error {
 	if err := setPMOutboundPolicy(cfg.PM.AllowedPrivateHosts); err != nil {
 		return fmt.Errorf("pm.allowed_private_hosts: %w", err)
 	}
+	// The github-issues provider of an integration without a token of its
+	// own uses github.token (the services allow it to the default tenant).
+	githubpm.SetOperatorToken(cfg.GitHub.Token)
 	var pmProvs []pmprovider.Provider
 	pmConfigs := map[string]map[string]string{
 		"plane": {"api_token": cfg.Plane.APIToken, "base_url": cfg.Plane.BaseURL},

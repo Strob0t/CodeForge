@@ -365,6 +365,7 @@ func loadEnv(cfg *Config) {
 	setString(&cfg.GitHub.ClientID, "GITHUB_CLIENT_ID")
 	setString(&cfg.GitHub.ClientSecret, "GITHUB_CLIENT_SECRET")
 	setString(&cfg.GitHub.CallbackURL, "GITHUB_CALLBACK_URL")
+	setString(&cfg.GitHub.Token, "CODEFORGE_GITHUB_TOKEN")
 
 	// Routing
 	setTyped(&cfg.Routing.Enabled, "CODEFORGE_ROUTING_ENABLED", strconv.ParseBool)
@@ -434,6 +435,7 @@ func secretSettings(cfg *Config) []secretSetting {
 		{"GITHUB_CLIENT_SECRET", str(&cfg.GitHub.ClientSecret)},
 		{"CODEFORGE_SMTP_PASSWORD", str(&cfg.Notification.SMTPPassword)},
 		{"CODEFORGE_PLANE_API_TOKEN", str(&cfg.Plane.APIToken)},
+		{"CODEFORGE_GITHUB_TOKEN", str(&cfg.GitHub.Token)},
 		{"CODEFORGE_A2A_API_KEYS", func(v string) { cfg.A2A.APIKeys = splitList(v) }},
 	}
 }

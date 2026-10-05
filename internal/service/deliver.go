@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,9 +10,11 @@ import (
 	"strings"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
 
@@ -25,21 +26,49 @@ type DeliveryResult struct {
 	BranchName string          `json:"branch_name,omitempty"`
 	PRURL      string          `json:"pr_url,omitempty"`
 	PushError  string          `json:"push_error,omitempty"` // P2-5: propagate push failure
+	// PRError says why PR delivery opened no pull request (it then stays a
+	// branch delivery).
+	PRError string `json:"pr_error,omitempty"`
 }
 
 // DeliverService executes delivery strategies after a successful run. All
-// git (and gh) runs through git.OpenRepo's hardened repository (KI-77):
-// the workspace is agent-writable, so its hooks, filters, drivers and
-// transport settings must not run in the Go Core.
+// git runs through git.OpenRepo's hardened repository (KI-77): the
+// workspace is agent-writable, so its hooks, filters, drivers and transport
+// settings must not run in the Go Core. Pull requests are opened through the
+// provider's REST API (KI-117), never by a CLI in the workspace.
 type DeliverService struct {
 	store database.Store
 	cfg   *config.Runtime
 	pool  *git.Pool
+	// githubToken is the operator's GitHub token (github.token); it opens
+	// pull requests of github.com repositories in the default tenant only.
+	githubToken string
+	// pullRequests builds the git provider that opens a pull request.
+	pullRequests func(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error)
 }
 
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
-	return &DeliverService{store: store, cfg: cfg, pool: pool}
+	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider}
+}
+
+// SetOperatorGitHubToken sets the operator's GitHub token (github.token).
+func (s *DeliverService) SetOperatorGitHubToken(token string) {
+	s.githubToken = token
+}
+
+// pullRequestProvider builds the registered git provider name with cfg and
+// returns it when it opens pull requests.
+func pullRequestProvider(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error) {
+	provider, err := gitprovider.New(name, cfg)
+	if err != nil {
+		return nil, err
+	}
+	creator, ok := provider.(gitprovider.PullRequestCreator)
+	if !ok {
+		return nil, fmt.Errorf("git provider %q does not open pull requests", name)
+	}
+	return creator, nil
 }
 
 // deliveryIdentity is the author of delivery commits in a repository that
@@ -80,7 +109,7 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	case run.DeliverModeBranch:
 		return s.deliverBranch(ctx, dir, r, shortID, taskTitle)
 	case run.DeliverModePR:
-		return s.deliverPR(ctx, dir, r, shortID, taskTitle)
+		return s.deliverPR(ctx, proj, r, shortID, taskTitle)
 	default:
 		return nil, fmt.Errorf("unsupported deliver mode %q", r.DeliverMode)
 	}
@@ -256,9 +285,9 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 	return result, err
 }
 
-func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
+func (s *DeliverService) deliverPR(ctx context.Context, proj *project.Project, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	// First create branch (already uses pool internally)
-	branchResult, err := s.deliverBranch(ctx, dir, r, shortID, taskTitle)
+	branchResult, err := s.deliverBranch(ctx, proj.WorkspacePath, r, shortID, taskTitle)
 	if err != nil {
 		return nil, fmt.Errorf("branch for PR: %w", err)
 	}
@@ -269,31 +298,16 @@ func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, 
 		return branchResult, nil
 	}
 
-	// gh reads the remote from the workspace repository and runs git: it
-	// gets the repository's hardened environment.
-	repo, err := git.OpenRepo(ctx, dir)
-	if err == nil {
-		err = repo.RequireNetworkSafe()
-	}
+	prURL, err := s.openPullRequest(ctx, proj, &gitprovider.PullRequest{
+		Head:  branchResult.BranchName,
+		Title: fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle),
+		Body:  fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID),
+	})
 	if err != nil {
-		slog.Warn("gh pr create skipped, falling back to branch-only", "run_id", r.ID, "error", err)
+		slog.Warn("pull request not opened, falling back to branch-only", "run_id", r.ID, "error", err)
+		branchResult.PRError = err.Error()
 		return branchResult, nil
 	}
-	prTitle := fmt.Sprintf("%s %s", s.cfg.DeliveryCommitPrefix, taskTitle)
-	prBody := fmt.Sprintf("Automated delivery from CodeForge run %s", r.ID)
-	cmd := repo.Command(ctx, "gh", "pr", "create",
-		"--title", prTitle,
-		"--body", prBody,
-		"--head", branchResult.BranchName,
-	)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if prErr := cmd.Run(); prErr != nil {
-		slog.Warn("gh pr create failed, falling back to branch-only", "run_id", r.ID, "error", prErr, "stderr", strings.TrimSpace(stderr.String()))
-		return branchResult, nil
-	}
-	prURL := strings.TrimSpace(stdout.String())
 
 	slog.Info("PR delivered", "run_id", r.ID, "url", prURL)
 	return &DeliveryResult{
@@ -302,4 +316,35 @@ func (s *DeliverService) deliverPR(ctx context.Context, dir string, r *run.Run, 
 		CommitHash: branchResult.CommitHash,
 		PRURL:      prURL,
 	}, nil
+}
+
+// openPullRequest opens pr in proj's repository (the project's repository
+// URL, never the agent-writable remote) through the provider's REST API:
+//   - with a github-api project's own token, at its API (base_url);
+//   - otherwise, for a github.com repository, with the operator's GitHub
+//     token (github.token), which serves only the default tenant (KI-85).
+func (s *DeliverService) openPullRequest(ctx context.Context, proj *project.Project, pr *gitprovider.PullRequest) (string, error) {
+	parsed, err := project.ParseRepoURL(proj.RepoURL)
+	if err != nil {
+		return "", fmt.Errorf("the project's repository URL names no repository to open a pull request in: %w", err)
+	}
+	var cfg map[string]string
+	switch {
+	case proj.Provider == "github-api" && proj.Config["token"] != "":
+		cfg = gitProviderConfig(proj)
+	case !strings.EqualFold(parsed.Host, "github.com"):
+		return "", fmt.Errorf("pull requests are opened on github.com, or through a project's github-api provider with its own token; %s is neither", parsed.Host)
+	case !operatorCredentialsServe(ctx):
+		return "", errors.New("no GitHub token: set the project's github-api provider token (github.token serves only the default tenant)")
+	case s.githubToken == "":
+		return "", errors.New("no GitHub token: set github.token (CODEFORGE_GITHUB_TOKEN) or the project's github-api provider token")
+	default:
+		cfg = map[string]string{"token": s.githubToken}
+	}
+	creator, err := s.pullRequests("github-api", cfg)
+	if err != nil {
+		return "", err
+	}
+	pr.Repo = parsed.Owner + "/" + parsed.Repo
+	return creator.CreatePullRequest(ctx, pr)
 }

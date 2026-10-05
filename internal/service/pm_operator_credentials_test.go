@@ -15,7 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
-// KI-85 review: the operator's PM credentials (the Go Core's gh login,
+// KI-85 review: the operator's PM credentials (github.token,
 // plane.api_token) serve only the default tenant on every path - webhook
 // syncs, PM imports and manual syncs - and the operator's settings never
 // reach another tenant in an error.
@@ -58,8 +58,8 @@ func (p *listingPMProvider) listed() []string {
 }
 
 // POST /projects/{id}/roadmap/import/pm uses the providers built at startup
-// with the operator's credentials: github-issues runs gh with the Go Core's
-// login, plane carries plane.api_token. Another tenant's import from them is
+// with the operator's credentials: github-issues uses github.token, plane
+// carries plane.api_token. Another tenant's import from them is
 // refused before the provider is asked; GitLab (no operator credential) is
 // imported.
 func TestImportPMItems_OperatorCredentialsServeOnlyTheDefaultTenant(t *testing.T) {

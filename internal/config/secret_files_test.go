@@ -54,6 +54,7 @@ func TestLoadFrom_SecretFiles(t *testing.T) {
 		{"GITHUB_CLIENT_SECRET", "gh-oauth\n", "gh-oauth", func(c *Config) string { return c.GitHub.ClientSecret }},
 		{"CODEFORGE_SMTP_PASSWORD", "smtp-pass\n", "smtp-pass", func(c *Config) string { return c.Notification.SMTPPassword }},
 		{"CODEFORGE_PLANE_API_TOKEN", "plane-token\n", "plane-token", func(c *Config) string { return c.Plane.APIToken }},
+		{"CODEFORGE_GITHUB_TOKEN", "ghp_operator\n", "ghp_operator", func(c *Config) string { return c.GitHub.Token }},
 		{"CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET", "llm-enc-from-file\n", "llm-enc-from-file", func(c *Config) string { return c.Auth.LLMKeyEncryptionSecret }},
 	}
 

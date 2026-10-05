@@ -26,10 +26,10 @@ import (
 //     prompts and carries no inherited GIT_* variables (except the operator's
 //     TLS and ssh settings);
 //   - command-line config (GIT_CONFIG_COUNT, which also reaches git processes
-//     started by gh) disables fsmonitor, hooks, credential helpers, signing,
-//     automatic gc and submodule recursion, and neutralises every filter
-//     driver the repository config defines, so LFS repositories keep working
-//     with their files as plain content;
+//     that another program starts) disables fsmonitor, hooks, credential
+//     helpers, signing, automatic gc and submodule recursion, and neutralises
+//     every filter driver the repository config defines, so LFS repositories
+//     keep working with their files as plain content;
 //   - OpenRepo reads the repository config without running anything and
 //     refuses the repository (fail closed) for any key outside an allowlist of
 //     data-only keys, for include/includeIf, core.worktree, a .git that is a
@@ -382,7 +382,7 @@ func (r *Repo) Push(ctx context.Context, args ...string) error {
 	return err
 }
 
-// Command returns another program (gh) to run in the repository with the
+// Command returns another program to run in the repository with the
 // hardened environment; git processes it starts inherit the overrides.
 func (r *Repo) Command(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: program and arguments chosen by the Go Core

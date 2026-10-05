@@ -1,38 +1,103 @@
 package githubpm
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
-	"os/exec"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/githubapi"
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/pmprovider"
 )
 
-func TestValidateProjectRef(t *testing.T) {
-	tests := []struct {
-		ref   string
-		valid bool
-	}{
-		{"owner/repo", true},
-		{"org/my-project", true},
-		{"", false},
-		{"noslash", false},
-		{"/repo", false},
-		{"owner/", false},
-		{"a/b/c", false},
-	}
+const testToken = "ghp_INTEGRATION-secret-1234"
 
-	for _, tt := range tests {
-		err := validateProjectRef(tt.ref)
-		if tt.valid && err != nil {
-			t.Errorf("expected %q to be valid, got error: %v", tt.ref, err)
+// fakeGitHub records the requests of a test and answers them with handle.
+type fakeGitHub struct {
+	mu       sync.Mutex
+	requests []recordedRequest
+	srv      *httptest.Server
+}
+
+type recordedRequest struct {
+	Method, Path, Query, Auth, Accept, APIVersion string
+	Body                                          map[string]json.RawMessage
+}
+
+func newFakeGitHub(t *testing.T, handle func(w http.ResponseWriter, r *http.Request)) *fakeGitHub {
+	t.Helper()
+	f := &fakeGitHub{}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := recordedRequest{
+			Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Auth: r.Header.Get("Authorization"),
+			Accept: r.Header.Get("Accept"), APIVersion: r.Header.Get("X-GitHub-Api-Version"),
 		}
-		if !tt.valid && err == nil {
-			t.Errorf("expected %q to be invalid, got nil error", tt.ref)
+		if data, _ := io.ReadAll(r.Body); len(data) > 0 {
+			if err := json.Unmarshal(data, &rec.Body); err != nil {
+				t.Errorf("request body is not a JSON object: %s", data)
+			}
 		}
+		f.mu.Lock()
+		f.requests = append(f.requests, rec)
+		f.mu.Unlock()
+		handle(w, r)
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeGitHub) recorded() []recordedRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]recordedRequest(nil), f.requests...)
+}
+
+// provider returns a provider of the fake API with token; its policy allows
+// the loopback address httptest listens on.
+func (f *fakeGitHub) provider(t *testing.T, token string) *Provider {
+	t.Helper()
+	policy, err := netutil.NewOutboundPolicy([]string{"127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := newProviderAt(f.srv.URL, token, githubapi.NewHTTPClient(policy))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func writeJSON[T any](t *testing.T, w http.ResponseWriter, status int, v T) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Error(err)
+	}
+}
+
+// apiIssue is an issue as the REST API answers it.
+type apiIssue struct {
+	Number      int               `json:"number"`
+	Title       string            `json:"title"`
+	Body        string            `json:"body"`
+	State       string            `json:"state"`
+	Labels      []ghLabel         `json:"labels"`
+	Assignees   []ghUser          `json:"assignees"`
+	PullRequest map[string]string `json:"pull_request,omitempty"`
+}
+
+func issueJSON(number int, title, state string) apiIssue {
+	return apiIssue{
+		Number: number, Title: title, Body: "body " + title, State: state,
+		Labels: []ghLabel{{Name: "bug"}}, Assignees: []ghUser{{Login: "alice"}},
 	}
 }
 
@@ -48,264 +113,344 @@ func TestIssueToItem(t *testing.T) {
 
 	item := issueToItem(issue, "owner/repo")
 
-	if item.ID != "42" {
-		t.Errorf("expected ID '42', got %q", item.ID)
+	if item.ID != "42" || item.ExternalID != "owner/repo#42" || item.Title != "Fix login bug" {
+		t.Errorf("item = %+v", item)
 	}
-	if item.ExternalID != "owner/repo#42" {
-		t.Errorf("expected ExternalID 'owner/repo#42', got %q", item.ExternalID)
-	}
-	if item.Title != "Fix login bug" {
-		t.Errorf("expected title 'Fix login bug', got %q", item.Title)
-	}
-	if item.Status != "open" {
-		t.Errorf("expected status 'open', got %q", item.Status)
-	}
-	if len(item.Labels) != 2 {
-		t.Errorf("expected 2 labels, got %d", len(item.Labels))
-	}
-	if item.Assignee != "alice" {
-		t.Errorf("expected assignee 'alice', got %q", item.Assignee)
+	if item.Status != "open" || len(item.Labels) != 2 || item.Assignee != "alice" {
+		t.Errorf("item = %+v", item)
 	}
 }
 
 func TestIssueToItem_NoAssignee(t *testing.T) {
-	issue := &ghIssue{
-		Number: 1,
-		Title:  "Test",
-		State:  "CLOSED",
-	}
-
-	item := issueToItem(issue, "org/proj")
-
-	if item.Assignee != "" {
-		t.Errorf("expected empty assignee, got %q", item.Assignee)
-	}
-	if item.Status != "closed" {
-		t.Errorf("expected status 'closed', got %q", item.Status)
+	item := issueToItem(&ghIssue{Number: 1, Title: "Test", State: "closed"}, "org/proj")
+	if item.Assignee != "" || item.Status != "closed" {
+		t.Errorf("item = %+v", item)
 	}
 }
 
-func TestGitHubPM_ProviderName(t *testing.T) {
-	p := newProvider()
+func TestGitHubPM_ProviderNameAndCapabilities(t *testing.T) {
+	p, err := pmprovider.New(providerName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if p.Name() != "github-issues" {
-		t.Fatalf("expected name 'github-issues', got %q", p.Name())
+		t.Fatalf("name %q", p.Name())
 	}
-}
-
-func TestProviderCapabilities(t *testing.T) {
-	p := newProvider()
 	caps := p.Capabilities()
-	if !caps.ListItems || !caps.GetItem {
-		t.Fatal("expected ListItems=true, GetItem=true")
-	}
-	if !caps.CreateItem || !caps.UpdateItem {
-		t.Fatal("expected CreateItem=true, UpdateItem=true")
-	}
-	if caps.Webhooks {
-		t.Fatal("expected Webhooks=false")
+	if !caps.ListItems || !caps.GetItem || !caps.CreateItem || !caps.UpdateItem || caps.Webhooks {
+		t.Fatalf("capabilities %+v", caps)
 	}
 }
 
-func TestListItems_InvalidRef(t *testing.T) {
-	p := newProvider()
-	_, err := p.ListItems(context.Background(), "invalid")
-	if err == nil {
-		t.Fatal("expected error for invalid project ref")
-	}
-}
+// KI-117: the open issues through the REST API, every page, pull requests
+// (which the issues endpoint lists too) left out.
+func TestListItems_PaginatesAndSkipsPullRequests(t *testing.T) {
+	var f *fakeGitHub
+	f = newFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("page") {
+		case "":
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repositories/7/issues?state=open&per_page=100&page=2>; rel="next", <%s/repositories/7/issues?page=2>; rel="last"`, f.srv.URL, f.srv.URL))
+			pr := issueJSON(3, "a pull request", "open")
+			pr.PullRequest = map[string]string{"url": "x"}
+			writeJSON(t, w, http.StatusOK, []apiIssue{issueJSON(1, "one", "open"), pr, issueJSON(2, "two", "open")})
+		case "2":
+			writeJSON(t, w, http.StatusOK, []apiIssue{issueJSON(4, "four", "open")})
+		default:
+			t.Errorf("unexpected page %q", r.URL.RawQuery)
+		}
+	})
 
-func TestListItems_CommandConstruction(t *testing.T) {
-	var capturedArgs []string
-	p := &Provider{
-		execCommand: func(_ context.Context, name string, args ...string) *exec.Cmd {
-			capturedArgs = append([]string{name}, args...)
-			// Return a command that outputs an empty JSON array.
-			return exec.Command("echo", "[]")
-		},
-	}
-
-	items, err := p.ListItems(context.Background(), "owner/repo")
+	items, err := f.provider(t, testToken).ListItems(t.Context(), "acme/app")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("ListItems: %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("expected 0 items, got %d", len(items))
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.ID)
 	}
-
-	// Verify command construction.
-	expected := []string{"gh", "issue", "list", "--repo", "owner/repo", "--json", "number,title,body,state,labels,assignees", "--limit", "100"}
-	if len(capturedArgs) != len(expected) {
-		t.Fatalf("expected %d args, got %d: %v", len(expected), len(capturedArgs), capturedArgs)
+	if strings.Join(ids, ",") != "1,2,4" {
+		t.Fatalf("items %v, want issues 1, 2 and 4", ids)
 	}
-	for i, exp := range expected {
-		if capturedArgs[i] != exp {
-			t.Errorf("arg[%d]: expected %q, got %q", i, exp, capturedArgs[i])
+	if items[0].ExternalID != "acme/app#1" || items[0].Labels[0] != "bug" || items[0].Assignee != "alice" || items[0].Status != "open" {
+		t.Errorf("item %+v", items[0])
+	}
+	reqs := f.recorded()
+	if len(reqs) != 2 {
+		t.Fatalf("%d requests, want 2", len(reqs))
+	}
+	first := reqs[0]
+	if first.Method != http.MethodGet || first.Path != "/repos/acme/app/issues" || first.Query != "state=open&per_page=100" {
+		t.Errorf("first request %+v", first)
+	}
+	for _, req := range reqs {
+		if req.Auth != "Bearer "+testToken || req.Accept != "application/vnd.github+json" || req.APIVersion == "" {
+			t.Errorf("request headers %+v", req)
 		}
 	}
 }
 
-func TestGetItem_CommandConstruction(t *testing.T) {
-	p := &Provider{
-		execCommand: func(_ context.Context, _ string, _ ...string) *exec.Cmd {
-			return exec.Command("echo", `{"number":42,"title":"Test","body":"desc","state":"OPEN","labels":[],"assignees":[]}`)
-		},
-	}
+// The token goes with every page: a next link to another origin is not
+// followed.
+func TestListItems_NextLinkToAnotherOriginIsNotFollowed(t *testing.T) {
+	other := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusOK, []apiIssue{issueJSON(9, "elsewhere", "open")})
+	})
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/acme/app/issues?page=2>; rel="next"`, strings.Replace(other.srv.URL, "127.0.0.1", "localhost", 1)))
+		writeJSON(t, w, http.StatusOK, []apiIssue{issueJSON(1, "one", "open")})
+	})
 
-	item, err := p.GetItem(context.Background(), "owner/repo", "42")
+	items, err := f.provider(t, testToken).ListItems(t.Context(), "acme/app")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("ListItems: %v", err)
 	}
-	if item.ID != "42" {
-		t.Errorf("expected ID '42', got %q", item.ID)
-	}
-	if item.Title != "Test" {
-		t.Errorf("expected title 'Test', got %q", item.Title)
+	if len(items) != 1 || len(other.recorded()) != 0 {
+		t.Fatalf("items %d, requests to the other origin %d", len(items), len(other.recorded()))
 	}
 }
 
-func TestGetItem_InvalidRef(t *testing.T) {
-	p := newProvider()
-	_, err := p.GetItem(context.Background(), "invalid", "1")
-	if err == nil {
-		t.Fatal("expected error for invalid project ref")
-	}
-}
+func TestListItems_StopsAfterMaxPages(t *testing.T) {
+	var f *fakeGitHub
+	f = newFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/acme/app/issues?page=%d>; rel="next"`, f.srv.URL, len(f.recorded())+1))
+		writeJSON(t, w, http.StatusOK, []apiIssue{issueJSON(len(f.recorded()), "n", "open")})
+	})
 
-func TestCreateItem_CommandConstruction(t *testing.T) {
-	var capturedArgs []string
-	p := &Provider{
-		execCommand: func(_ context.Context, name string, args ...string) *exec.Cmd {
-			capturedArgs = append([]string{name}, args...)
-			// gh issue create prints the new issue URL.
-			return exec.Command("echo", "https://github.com/owner/repo/issues/99")
-		},
-	}
-
-	item := &pmprovider.Item{
-		Title:       "New bug",
-		Description: "Something broke",
-		Labels:      []string{"bug"},
-	}
-	created, err := p.CreateItem(context.Background(), "owner/repo", item)
+	items, err := f.provider(t, testToken).ListItems(t.Context(), "acme/app")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("ListItems: %v", err)
 	}
-	if created.ID != "99" {
-		t.Errorf("expected ID '99', got %q", created.ID)
-	}
-	if created.ExternalID != "owner/repo#99" {
-		t.Errorf("expected ExternalID 'owner/repo#99', got %q", created.ExternalID)
-	}
-
-	// Verify command includes title, body, and label flags.
-	argsStr := strings.Join(capturedArgs, " ")
-	if !strings.Contains(argsStr, "--title") {
-		t.Error("expected --title flag in command")
-	}
-	if !strings.Contains(argsStr, "--body") {
-		t.Error("expected --body flag in command")
-	}
-	if !strings.Contains(argsStr, "--label") {
-		t.Error("expected --label flag in command")
+	if len(f.recorded()) != maxListPages || len(items) != maxListPages {
+		t.Fatalf("%d requests, %d items, want %d", len(f.recorded()), len(items), maxListPages)
 	}
 }
 
-func TestCreateItem_InvalidRef(t *testing.T) {
-	p := newProvider()
-	_, err := p.CreateItem(context.Background(), "invalid", &pmprovider.Item{Title: "test"})
-	if err == nil {
-		t.Fatal("expected error for invalid project ref")
-	}
-}
+func TestGetItem(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusOK, issueJSON(42, "Test", "closed"))
+	})
 
-func TestUpdateItem_CommandConstruction(t *testing.T) {
-	var capturedArgs []string
-	p := &Provider{
-		execCommand: func(_ context.Context, name string, args ...string) *exec.Cmd {
-			capturedArgs = append([]string{name}, args...)
-			return exec.Command("true")
-		},
-	}
-
-	item := &pmprovider.Item{
-		ID:          "42",
-		Title:       "Updated title",
-		Description: "Updated body",
-	}
-	result, err := p.UpdateItem(context.Background(), "owner/repo", item)
+	item, err := f.provider(t, testToken).GetItem(t.Context(), "acme/app", "42")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("GetItem: %v", err)
 	}
-	if result.ID != "42" {
-		t.Errorf("expected ID '42', got %q", result.ID)
+	if item.ID != "42" || item.Title != "Test" || item.Status != "closed" {
+		t.Errorf("item %+v", item)
 	}
-
-	argsStr := strings.Join(capturedArgs, " ")
-	if !strings.Contains(argsStr, "issue edit 42") {
-		t.Errorf("expected 'issue edit 42' in command, got: %s", argsStr)
+	if req := f.recorded()[0]; req.Method != http.MethodGet || req.Path != "/repos/acme/app/issues/42" {
+		t.Errorf("request %+v", req)
 	}
 }
 
-func TestUpdateItem_MissingID(t *testing.T) {
-	p := newProvider()
-	_, err := p.UpdateItem(context.Background(), "owner/repo", &pmprovider.Item{Title: "test"})
-	if err == nil {
-		t.Fatal("expected error for missing item ID")
+func TestItemIDIsANumber(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("no request for an invalid item ID")
+		w.WriteHeader(http.StatusTeapot)
+	})
+	p := f.provider(t, testToken)
+	for _, id := range []string{"", "0", "-1", "../../user", "42/comments", "4 2", "1e3", "99999999999999999999"} {
+		if _, err := p.GetItem(t.Context(), "acme/app", id); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("GetItem(%q) = %v, want ErrValidation", id, err)
+		}
+		if _, err := p.UpdateItem(t.Context(), "acme/app", &pmprovider.Item{ID: id, Title: "t"}); !errors.Is(err, domain.ErrValidation) {
+			t.Errorf("UpdateItem(%q) = %v, want ErrValidation", id, err)
+		}
 	}
 }
 
-func TestUpdateItem_InvalidRef(t *testing.T) {
-	p := newProvider()
-	_, err := p.UpdateItem(context.Background(), "invalid", &pmprovider.Item{ID: "1", Title: "test"})
-	if err == nil {
-		t.Fatal("expected error for invalid project ref")
+func TestCreateItem(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusCreated, issueJSON(99, "New bug", "open"))
+	})
+
+	created, err := f.provider(t, testToken).CreateItem(t.Context(), "acme/app", &pmprovider.Item{
+		Title: "New bug", Description: "Something broke", Labels: []string{"bug"},
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	if created.ID != "99" || created.ExternalID != "acme/app#99" {
+		t.Errorf("created %+v", created)
+	}
+	req := f.recorded()[0]
+	if req.Method != http.MethodPost || req.Path != "/repos/acme/app/issues" {
+		t.Errorf("request %+v", req)
+	}
+	if string(req.Body["title"]) != `"New bug"` || string(req.Body["body"]) != `"Something broke"` || string(req.Body["labels"]) != `["bug"]` {
+		t.Errorf("request body %v", req.Body)
 	}
 }
 
-// KI-85: a PM integration's own GitHub token runs gh as that account
-// (GH_TOKEN); without one, gh uses the Go Core's own login, which serves
-// only the default tenant.
-func TestProvider_TokenRunsGHAsTheIntegration(t *testing.T) {
-	for _, token := range []string{"ghp_integration", ""} {
-		prov, err := pmprovider.New(providerName, map[string]string{"token": token})
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
-		p, ok := prov.(*Provider)
-		if !ok {
-			t.Fatalf("provider %T", prov)
-		}
-		var cmd *exec.Cmd
-		p.execCommand = func(_ context.Context, _ string, _ ...string) *exec.Cmd {
-			cmd = exec.Command("echo", "[]")
-			return cmd
-		}
-		if _, err := p.ListItems(context.Background(), "owner/repo"); err != nil {
-			t.Fatalf("ListItems: %v", err)
-		}
-		var ghToken []string
-		for _, kv := range cmd.Env {
-			if strings.HasPrefix(kv, "GH_TOKEN=") {
-				ghToken = append(ghToken, kv)
+func TestCreateItem_WithoutDescriptionOrLabels(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusCreated, issueJSON(5, "t", "open"))
+	})
+	if _, err := f.provider(t, testToken).CreateItem(t.Context(), "acme/app", &pmprovider.Item{Title: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	body := f.recorded()[0].Body
+	if _, ok := body["body"]; ok {
+		t.Errorf("an empty description is not sent: %v", body)
+	}
+	if _, ok := body["labels"]; ok {
+		t.Errorf("no labels are not sent: %v", body)
+	}
+}
+
+func TestUpdateItem(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusOK, issueJSON(42, "Updated title", "open"))
+	})
+
+	updated, err := f.provider(t, testToken).UpdateItem(t.Context(), "acme/app", &pmprovider.Item{
+		ID: "42", Title: "Updated title", Description: "Updated body",
+	})
+	if err != nil {
+		t.Fatalf("UpdateItem: %v", err)
+	}
+	if updated.ID != "42" || updated.Title != "Updated title" {
+		t.Errorf("updated %+v", updated)
+	}
+	req := f.recorded()[0]
+	if req.Method != http.MethodPatch || req.Path != "/repos/acme/app/issues/42" {
+		t.Errorf("request %+v", req)
+	}
+	if string(req.Body["title"]) != `"Updated title"` || string(req.Body["body"]) != `"Updated body"` {
+		t.Errorf("request body %v", req.Body)
+	}
+}
+
+func TestInvalidRefSendsNothing(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("no request for an invalid project ref")
+		w.WriteHeader(http.StatusTeapot)
+	})
+	p := f.provider(t, testToken)
+	ctx := t.Context()
+	if _, err := p.ListItems(ctx, "invalid"); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("ListItems: %v", err)
+	}
+	if _, err := p.GetItem(ctx, "a/b/c", "1"); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("GetItem: %v", err)
+	}
+	if _, err := p.CreateItem(ctx, "", &pmprovider.Item{Title: "t"}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("CreateItem: %v", err)
+	}
+	if _, err := p.UpdateItem(ctx, "owner/..", &pmprovider.Item{ID: "1", Title: "t"}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("UpdateItem: %v", err)
+	}
+}
+
+// API errors: the caller gets the status and GitHub's message, a 404 is not
+// found, a rejected token or field is the caller's to correct (400), and no
+// error carries the token or the API's URL.
+func TestAPIErrors(t *testing.T) {
+	tests := []struct {
+		status     int
+		body       string
+		wantIs     error
+		wantSubstr []string
+	}{
+		{http.StatusUnauthorized, `{"message":"Bad credentials","documentation_url":"https://docs.github.com"}`, domain.ErrValidation,
+			[]string{"401", "the token is missing, invalid or expired", "Bad credentials"}},
+		{http.StatusForbidden, `{"message":"Resource not accessible by personal access token"}`, domain.ErrValidation,
+			[]string{"403", "Resource not accessible"}},
+		{http.StatusNotFound, `{"message":"Not Found"}`, domain.ErrNotFound, []string{"404"}},
+		{http.StatusUnprocessableEntity, `{"message":"Validation Failed","errors":[{"resource":"Issue","code":"missing_field","field":"title"}]}`,
+			domain.ErrValidation, []string{"422", "Validation Failed", "title missing_field"}},
+		{http.StatusInternalServerError, `<html>oops</html>`, nil, []string{"500"}},
+	}
+	for _, tt := range tests {
+		t.Run(http.StatusText(tt.status), func(t *testing.T) {
+			f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			})
+			p := f.provider(t, testToken)
+			calls := map[string]func() error{
+				"list": func() error { _, err := p.ListItems(t.Context(), "acme/app"); return err },
+				"get":  func() error { _, err := p.GetItem(t.Context(), "acme/app", "1"); return err },
+				"create": func() error {
+					_, err := p.CreateItem(t.Context(), "acme/app", &pmprovider.Item{Title: "t"})
+					return err
+				},
+				"update": func() error {
+					_, err := p.UpdateItem(t.Context(), "acme/app", &pmprovider.Item{ID: "1", Title: "t"})
+					return err
+				},
 			}
-		}
-		if token == "" {
-			if cmd.Env != nil {
-				t.Fatalf("without a token gh got its own environment %v", ghToken)
+			for name, call := range calls {
+				err := call()
+				if err == nil {
+					t.Fatalf("%s: no error", name)
+				}
+				if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+					t.Errorf("%s: %v, want %v", name, err, tt.wantIs)
+				}
+				if tt.wantIs == nil && (errors.Is(err, domain.ErrValidation) || errors.Is(err, domain.ErrNotFound)) {
+					t.Errorf("%s: a server error is not the caller's: %v", name, err)
+				}
+				for _, s := range tt.wantSubstr {
+					if !strings.Contains(err.Error(), s) {
+						t.Errorf("%s: %q does not mention %q", name, err, s)
+					}
+				}
+				if strings.Contains(err.Error(), testToken) || strings.Contains(err.Error(), f.srv.URL) || strings.Contains(err.Error(), "oops") {
+					t.Errorf("%s: %q leaks the token, the API URL or the answer", name, err)
+				}
 			}
-			continue
-		}
-		if len(ghToken) == 0 || ghToken[len(ghToken)-1] != "GH_TOKEN="+token {
-			t.Fatalf("gh environment GH_TOKEN entries %v, want the integration's token last", ghToken)
-		}
+		})
 	}
 }
 
-// KI-149: a malformed reference is the caller's input and answers 400.
-func TestValidateProjectRef_IsValidationError(t *testing.T) {
-	for _, ref := range []string{"", "noslash", "a/b/c", "/repo"} {
-		if err := validateProjectRef(ref); !errors.Is(err, domain.ErrValidation) {
-			t.Errorf("validateProjectRef(%q) = %v, want ErrValidation", ref, err)
-		}
+// KI-85, KI-117: a PM integration's own token authenticates its requests;
+// without one, the operator's GitHub token (github.token) does, which the
+// services allow only in the default tenant; without either, the requests
+// are anonymous (public repositories).
+func TestTokenChoice(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusOK, []apiIssue{})
+	})
+	tests := []struct {
+		name, integration, operator, wantAuth string
+	}{
+		{"integration token", testToken, "ghp_operator", "Bearer " + testToken},
+		{"operator token", "", "ghp_operator", "Bearer ghp_operator"},
+		{"anonymous", "", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetOperatorToken(tt.operator)
+			t.Cleanup(func() { SetOperatorToken("") })
+			prov, err := pmprovider.New(providerName, map[string]string{"token": tt.integration})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, ok := prov.(*Provider)
+			if !ok {
+				t.Fatalf("provider %T", prov)
+			}
+			// The registered factory's client, pointed at the fake API.
+			test := f.provider(t, p.token)
+			if _, err := test.ListItems(t.Context(), "acme/app"); err != nil {
+				t.Fatal(err)
+			}
+			reqs := f.recorded()
+			if got := reqs[len(reqs)-1].Auth; got != tt.wantAuth {
+				t.Fatalf("Authorization %q, want %q", got, tt.wantAuth)
+			}
+		})
+	}
+}
+
+// The default API is github.com's, through the outbound policy.
+func TestProviderUsesGitHubAPI(t *testing.T) {
+	prov, err := pmprovider.New(providerName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := prov.(*Provider).client.BaseURL(); got != githubapi.DefaultBaseURL {
+		t.Fatalf("base URL %q", got)
 	}
 }

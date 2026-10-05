@@ -247,3 +247,10 @@ def test_compose_config_is_valid(overlay: bool, tmp_path: Path) -> None:
     homes = [v for v in services["worker"]["volumes"] if v["target"] == "/home/codeforge-tools"]
     assert homes, services["worker"]["volumes"]
     assert homes[0]["type"] == "volume", homes
+
+
+def test_core_image_has_svn_and_no_gh() -> None:
+    """KI-117: SVN projects need svn in the Go Core (hardened SVN adapter); GitHub goes through its REST API."""
+    runtime = (REPO / "Dockerfile").read_text().split("# --- Runtime stage ---", 1)[1]
+    assert re.search(r"apk add[^\n]*\bsubversion\b", runtime)
+    assert not re.search(r"\b(github-cli|gh)\b", runtime.split("RUN apk add", 1)[1].split("\n", 1)[0])

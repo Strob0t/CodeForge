@@ -68,3 +68,19 @@ type Provider interface {
 	// Checkout switches to the specified branch.
 	Checkout(ctx context.Context, repoPath, branch string) error
 }
+
+// PullRequest is a pull request to open from a pushed branch.
+type PullRequest struct {
+	Repo  string // the repository, owner/name
+	Head  string // the pushed branch
+	Base  string // the branch to merge into; "" for the repository's default branch
+	Title string
+	Body  string
+}
+
+// PullRequestCreator is implemented by providers that open pull requests
+// through their hosting platform's API (Capabilities.PullRequest).
+type PullRequestCreator interface {
+	// CreatePullRequest opens pr and returns its web URL.
+	CreatePullRequest(ctx context.Context, pr *PullRequest) (string, error)
+}

@@ -27,7 +27,10 @@ ARG GIT_SHA=unknown
 LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
-RUN apk add --no-cache git ca-certificates tzdata
+# git and svn for the workspaces of git and SVN projects: the Go Core runs
+# them only hardened (internal/git, the SVN adapter in internal/adapter/svn).
+# GitHub issues and pull requests go through the REST API (KI-117): no gh.
+RUN apk add --no-cache git subversion ca-certificates tzdata
 
 # Fixed UID/GID shared with the worker image: both write the shared workspaces
 # volume. /data is created here so fresh named volumes mounted at /data and

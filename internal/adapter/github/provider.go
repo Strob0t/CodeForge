@@ -1,18 +1,20 @@
 // Package github implements a gitprovider.Provider that uses the GitHub REST API
-// for repository listing and token-authenticated clone URLs, while delegating
-// local git operations (status, pull, branches, checkout) to the git CLI.
+// for repository listing, pull requests (PR delivery, KI-117) and
+// token-authenticated clone URLs, while delegating local git operations
+// (status, pull, branches, checkout) to the git CLI.
 package github
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/Strob0t/CodeForge/internal/adapter/githubapi"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -20,26 +22,43 @@ import (
 
 const providerName = "github-api"
 
+// maxRepoPages bounds ListRepos: up to 5,000 repositories.
+const maxRepoPages = 50
+
 // Provider implements gitprovider.Provider for GitHub using the REST API
-// for listing repos and token-based clone URLs.
+// for listing repos, opening pull requests and token-based clone URLs.
 type Provider struct {
 	token      string
 	baseURL    string // GitHub API base URL (default: https://api.github.com)
 	httpClient *http.Client
 }
 
-// NewProvider creates a GitHub API provider with the given token and base URL.
+var _ gitprovider.PullRequestCreator = (*Provider)(nil)
+
+// apiClient is the HTTP client of every provider NewProvider creates: the
+// base URL is project configuration, which tenants write, so it connects to
+// public addresses only and follows redirects only within the API's origin.
+var apiClient = githubapi.PublicHTTPClient()
+
+// NewProvider creates a GitHub API provider with the given token and base
+// URL.
 func NewProvider(token, baseURL string) *Provider {
+	return newProvider(token, baseURL, apiClient)
+}
+
+func newProvider(token, baseURL string, httpClient *http.Client) *Provider {
 	if baseURL == "" {
-		baseURL = "https://api.github.com"
+		baseURL = githubapi.DefaultBaseURL
 	}
 	return &Provider{
-		token:   token,
-		baseURL: strings.TrimSuffix(baseURL, "/"),
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		token:      token,
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		httpClient: httpClient,
 	}
+}
+
+func (p *Provider) api() (*githubapi.Client, error) {
+	return githubapi.NewClient(p.baseURL, p.token, p.httpClient)
 }
 
 func (p *Provider) Name() string { return providerName }
@@ -77,30 +96,81 @@ type ghRepo struct {
 	FullName string `json:"full_name"`
 }
 
-// ListRepos lists all repositories accessible to the authenticated user,
-// handling pagination via the Link header.
+// ListRepos lists the repositories accessible to the authenticated user,
+// following the pagination within the API's origin.
 func (p *Provider) ListRepos(ctx context.Context) ([]string, error) {
-	var repos []string
-	url := fmt.Sprintf("%s/user/repos?per_page=100&sort=updated", p.baseURL)
-
-	for url != "" {
-		body, nextURL, err := p.doGetPaginated(ctx, url)
-		if err != nil {
-			return nil, fmt.Errorf("github: list repos: %w", err)
-		}
-
-		var page []ghRepo
-		if err := json.Unmarshal(body, &page); err != nil {
-			return nil, fmt.Errorf("github: parse repos response: %w", err)
-		}
-
-		for i := range page {
-			repos = append(repos, page[i].FullName)
-		}
-		url = nextURL
+	api, err := p.api()
+	if err != nil {
+		return nil, fmt.Errorf("github: list repos: %w", err)
 	}
-
+	list, more, err := githubapi.List[ghRepo](ctx, api, "/user/repos?per_page=100&sort=updated", maxRepoPages)
+	if err != nil {
+		return nil, fmt.Errorf("github: list repos: %w", err)
+	}
+	if more {
+		slog.WarnContext(ctx, "github repository listing truncated", "pages", maxRepoPages)
+	}
+	repos := make([]string, 0, len(list))
+	for i := range list {
+		repos = append(repos, list[i].FullName)
+	}
 	return repos, nil
+}
+
+// CreatePullRequest opens pr through the REST API and returns its web URL.
+// Without a base it targets the repository's default branch, as gh did.
+func (p *Provider) CreatePullRequest(ctx context.Context, pr *gitprovider.PullRequest) (string, error) {
+	if pr.Head == "" || pr.Title == "" {
+		return "", fmt.Errorf("%w: a pull request needs a head branch and a title", domain.ErrValidation)
+	}
+	repoPath, err := githubapi.RepoPath(pr.Repo)
+	if err != nil {
+		return "", err
+	}
+	api, err := p.api()
+	if err != nil {
+		return "", err
+	}
+	base := pr.Base
+	if base == "" {
+		page, err := api.Do(ctx, http.MethodGet, repoPath, nil)
+		if err != nil {
+			return "", fmt.Errorf("github: repository %s: %w", pr.Repo, err)
+		}
+		repo, err := githubapi.Decode[struct {
+			DefaultBranch string `json:"default_branch"`
+		}](page.Body)
+		if err != nil {
+			return "", err
+		}
+		if repo.DefaultBranch == "" {
+			return "", fmt.Errorf("github: repository %s has no default branch", pr.Repo)
+		}
+		base = repo.DefaultBranch
+	}
+	body, err := json.Marshal(struct {
+		Title string `json:"title"`
+		Head  string `json:"head"`
+		Base  string `json:"base"`
+		Body  string `json:"body,omitempty"`
+	}{pr.Title, pr.Head, base, pr.Body})
+	if err != nil {
+		return "", fmt.Errorf("github: marshal pull request: %w", err)
+	}
+	page, err := api.Do(ctx, http.MethodPost, repoPath+"/pulls", body)
+	if err != nil {
+		return "", fmt.Errorf("github: create pull request: %w", err)
+	}
+	created, err := githubapi.Decode[struct {
+		HTMLURL string `json:"html_url"`
+	}](page.Body)
+	if err != nil {
+		return "", err
+	}
+	if created.HTMLURL == "" {
+		return "", fmt.Errorf("github: create pull request: the answer carries no pull request URL")
+	}
+	return created.HTMLURL, nil
 }
 
 // Clone clones a repository to the given local path using git CLI.
@@ -211,55 +281,6 @@ func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error 
 		return fmt.Errorf("github: checkout %s: %w", branch, err)
 	}
 	return nil
-}
-
-// doGetPaginated performs a GET request and returns the body + the "next" URL from the Link header.
-func (p *Provider) doGetPaginated(ctx context.Context, url string) (body []byte, nextURL string, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return nil, "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	if p.token != "" {
-		req.Header.Set("Authorization", "Bearer "+p.token)
-	}
-
-	resp, err := p.httpClient.Do(req) //nolint:gosec // G704: url is constructed internally from GitHub API base URL
-	if err != nil {
-		return nil, "", fmt.Errorf("http request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return nil, "", fmt.Errorf("github API %d", resp.StatusCode)
-	}
-
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(resp.Body); err != nil {
-		return nil, "", fmt.Errorf("read response: %w", err)
-	}
-
-	nextURL = parseLinkNext(resp.Header.Get("Link"))
-	return buf.Bytes(), nextURL, nil
-}
-
-// parseLinkNext extracts the "next" URL from a GitHub Link header.
-func parseLinkNext(header string) string {
-	if header == "" {
-		return ""
-	}
-	for _, part := range strings.Split(header, ",") {
-		part = strings.TrimSpace(part)
-		if !strings.Contains(part, `rel="next"`) {
-			continue
-		}
-		start := strings.Index(part, "<")
-		end := strings.Index(part, ">")
-		if start >= 0 && end > start {
-			return part[start+1 : end]
-		}
-	}
-	return ""
 }
 
 // runGit runs git hardened in the workspace repository at dir, or outside any

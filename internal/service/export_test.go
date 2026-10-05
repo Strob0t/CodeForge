@@ -1,6 +1,10 @@
 package service
 
-import "time"
+import (
+	"time"
+
+	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
+)
 
 // Test-only access to RuntimeService internals for the external
 // service_test package; not part of the production API.
@@ -32,4 +36,10 @@ func (s *OrchestratorService) PreparedOutcomeCount() int {
 	s.prepMu.Lock()
 	defer s.prepMu.Unlock()
 	return len(s.prepared)
+}
+
+// SetPullRequestProvider replaces how the delivery builds the git provider
+// that opens a pull request.
+func (s *DeliverService) SetPullRequestProvider(f func(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error)) {
+	s.pullRequests = f
 }

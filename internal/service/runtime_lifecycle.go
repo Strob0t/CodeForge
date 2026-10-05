@@ -406,7 +406,11 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		attribute.String("delivery.status", "completed"),
 		attribute.String("delivery.branch", deliverResult.BranchName),
 	)
-	s.appendAudit(ctx, r, "delivery.completed", fmt.Sprintf("Delivery mode %s completed (branch: %s, PR: %s)", deliverResult.Mode, deliverResult.BranchName, deliverResult.PRURL))
+	pr := deliverResult.PRURL
+	if deliverResult.PRError != "" {
+		pr = "not opened: " + deliverResult.PRError
+	}
+	s.appendAudit(ctx, r, "delivery.completed", fmt.Sprintf("Delivery mode %s completed (branch: %s, PR: %s)", deliverResult.Mode, deliverResult.BranchName, pr))
 	s.appendRunEvent(ctx, event.TypeDeliveryCompleted, r, map[string]string{
 		"mode":        string(deliverResult.Mode),
 		"patch_path":  deliverResult.PatchPath,

@@ -14,10 +14,10 @@ import (
 )
 
 // operatorPMCredentials names the operator's credential a PM provider uses
-// when it is given no token of its own: github-issues runs gh with the Go
-// Core's login, the Plane provider built at startup carries plane.api_token.
+// when it is given no token of its own: github-issues uses github.token,
+// the Plane provider built at startup carries plane.api_token.
 var operatorPMCredentials = map[string]string{
-	"github-issues": "the Go Core's GitHub login",
+	"github-issues": "github.token",
 	"plane":         "plane.api_token",
 }
 

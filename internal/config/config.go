@@ -260,6 +260,11 @@ type GitHub struct {
 	// GitHub: https (http only on loopback), path /api/v1/auth/github/callback
 	// on the origin the web UI uses for the API.
 	CallbackURL string `yaml:"callback_url"`
+	// Token is the operator's GitHub token for the REST API of github.com
+	// (KI-117): the github-issues PM provider uses it when an integration
+	// has no token of its own, PR delivery when a project's github-api
+	// provider has none. It serves only the default tenant (KI-85).
+	Token string `yaml:"token" json:"-"`
 }
 
 // WebFlowConfigured reports whether the GitHub OAuth web flow is configured.

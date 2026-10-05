@@ -198,8 +198,9 @@ func repoURLParts(repoURL string) (base, path string, ok bool) {
 // providerConfig is what the sync of proj authenticates with:
 //   - the integration's own API token (apiToken) when it has one;
 //   - otherwise the operator's credentials, but only in the default tenant
-//     (KI-85): the Plane token (plane.api_token) and the Go Core's gh login
-//     are the operator's, another tenant's integration needs its own token.
+//     (KI-85): the Plane token (plane.api_token) and the GitHub token
+//     (github.token) are the operator's, another tenant's integration needs
+//     its own token.
 //     GitLab without a token syncs anonymously (public projects).
 //
 // The operator's Plane token goes only to the operator's Plane (S3-F
@@ -216,7 +217,7 @@ func (s *PMWebhookService) providerConfig(ctx context.Context, provider string, 
 		return map[string]string{"base_url": base, "token": apiToken}, nil
 	case "github-issues":
 		if apiToken == "" && !operator {
-			return nil, fmt.Errorf("github webhook: project %s: the integration has no api_token, and the Core's GitHub login serves only the default tenant: %w",
+			return nil, fmt.Errorf("github webhook: project %s: the integration has no api_token, and github.token serves only the default tenant: %w",
 				proj.ID, domain.ErrValidation)
 		}
 		return map[string]string{"token": apiToken}, nil
