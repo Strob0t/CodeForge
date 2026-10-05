@@ -816,8 +816,13 @@ class LiteLLMClient:
         provider_api_key: str = "",
         top_p: float | None = None,
         extra_body: dict[str, object] | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> ChatCompletionResponse:
-        """Stream a chat completion with automatic retry on transient errors."""
+        """Stream a chat completion with automatic retry on transient errors.
+
+        *response_format* constrains the reply (the text tool protocol sends
+        a ``json_schema`` grammar); None sends none.
+        """
         if not model:
             from codeforge.model_resolver import resolve_model
 
@@ -835,6 +840,7 @@ class LiteLLMClient:
                 provider_api_key=provider_api_key,
                 top_p=top_p,
                 extra_body=extra_body,
+                response_format=response_format,
             )
 
             logger.debug(
@@ -941,6 +947,7 @@ def _build_stream_payload(
     provider_api_key: str,
     top_p: float | None,
     extra_body: dict[str, object] | None,
+    response_format: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the JSON payload for a streaming chat completion request."""
     payload: dict[str, object] = {
@@ -968,6 +975,8 @@ def _build_stream_payload(
         payload["top_p"] = top_p
     if extra_body:
         payload["extra_body"] = extra_body
+    if response_format is not None:
+        payload["response_format"] = response_format
     return payload
 
 

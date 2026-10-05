@@ -184,6 +184,27 @@ def test_stream_payload_requests_usage() -> None:
     )
 
     assert payload["stream_options"] == {"include_usage": True}
+    assert "response_format" not in payload
+
+
+def test_stream_payload_carries_response_format() -> None:
+    fmt: dict[str, object] = {"type": "json_schema", "json_schema": {"name": "codeforge_turn", "schema": {}}}
+    payload = _build_stream_payload(
+        model="ollama/llama3",
+        messages=[{"role": "user", "content": "hi"}],
+        temperature=0.2,
+        tools=None,
+        tool_choice=None,
+        tags=None,
+        max_tokens=8192,
+        provider_api_key="",
+        top_p=None,
+        extra_body=None,
+        response_format=fmt,
+    )
+
+    assert payload["response_format"] == fmt
+    assert payload["max_tokens"] == 8192
 
 
 class _FakeStream:

@@ -318,6 +318,55 @@ async def test_stream_multiple_tool_calls(client: LiteLLMClient) -> None:
     assert result.tool_calls[1].name == "bash"
 
 
+_TURN_FORMAT: dict[str, object] = {
+    "type": "json_schema",
+    "json_schema": {"name": "codeforge_turn", "schema": {"type": "object"}},
+}
+
+
+@pytest.mark.parametrize(
+    ("response_format", "expected"),
+    [
+        pytest.param(_TURN_FORMAT, _TURN_FORMAT, id="sent"),
+        pytest.param(None, None, id="absent-when-none"),
+    ],
+)
+async def test_stream_passes_response_format(
+    client: LiteLLMClient, response_format: dict[str, object] | None, expected: dict[str, object] | None
+) -> None:
+    """The text tool protocol constrains a streamed reply with a JSON-schema grammar (S9-C)."""
+    sent: dict[str, object] = {}
+    lines = ['data: {"choices":[{"delta":{"content":"{}"},"finish_reason":"stop"}]}', "data: [DONE]"]
+
+    def fake_stream(method: str, url: str, *, json: dict[str, object]) -> FakeStreamResponse:
+        sent.update(json)
+        return FakeStreamResponse(lines)
+
+    with patch.object(client._client, "stream", side_effect=fake_stream):
+        await client.chat_completion_stream(
+            messages=[{"role": "user", "content": "test"}],
+            model="ollama/llama3",
+            response_format=response_format,
+        )
+
+    assert sent.get("response_format") == expected
+    assert ("response_format" in sent) is (expected is not None)
+
+
+async def test_fake_llm_stream_accepts_response_format() -> None:
+    """The shared test double keeps the client's signature (AGENTS.md: check callers and fakes)."""
+    from codeforge.llm import CompletionResponse
+    from tests.fake_llm import FakeLLM
+
+    fake = FakeLLM([CompletionResponse(content="ok", tokens_in=1, tokens_out=1, model="m")])
+
+    result = await fake.chat_completion_stream(
+        messages=[{"role": "user", "content": "x"}], response_format=_TURN_FORMAT
+    )
+
+    assert result.content == "ok"
+
+
 async def test_stream_ignores_non_data_lines(client: LiteLLMClient) -> None:
     """Streaming should skip non-SSE lines and invalid JSON."""
     lines = [
