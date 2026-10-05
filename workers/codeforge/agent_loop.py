@@ -57,6 +57,17 @@ from codeforge.subprocess_env import tool_env
 from codeforge.tool_executor import ToolExecutor
 from codeforge.tool_process import start_tool_process
 from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY, CapabilityLevel
+from codeforge.tools.text_protocol import (
+    EXTRA_CALLS_NOTE,
+    REPAIR_NOTICE,
+    TURN_MAX_TOKENS,
+    TextProtocolError,
+    TextToolCall,
+    TextToolProtocol,
+    grammar_rejected,
+    native_response,
+)
+from codeforge.tools.text_protocol_stream import ProtocolStreamFilter
 from codeforge.tracing import metrics as otel_metrics
 from codeforge.tracing import tracing_manager
 
@@ -138,6 +149,9 @@ class LoopConfig:
     # A turn that implements (runs.start, the auto-agent's feature turns):
     # an announced action without a tool call is nudged once (KI-153).
     implementation_turn: bool = False
+    # Pure-completion models: constrain text tool protocol replies with a
+    # JSON-schema grammar (litellm.text_tool_grammar, S9-C).
+    text_tool_grammar: bool = True
 
 
 # An announced next step in the last part of a reply ("I will now ...",
@@ -177,6 +191,46 @@ class _LoopState:
     writes_since_verify: int = 0
     tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS
     nudged: bool = False  # the turn got its "continue" nudge (KI-153)
+    # The text tool protocol of a pure-completion model (S9-C), and how many
+    # unusable replies in a row were sent back to the model.
+    tool_protocol: TextToolProtocol | None = None
+    protocol_repairs: int = 0
+
+
+# Unusable text protocol replies in a row the model is asked again for.
+_MAX_PROTOCOL_REPAIRS = 1
+
+
+@dataclass(frozen=True, slots=True)
+class _LLMReply:
+    """A streamed completion and the text the user saw of it."""
+
+    response: ChatCompletionResponse
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class _LLMRequest:
+    """What a completion request sends: messages, tools, grammar and output limit."""
+
+    messages: list[dict[str, object]]
+    tools: list[dict[str, object]] | None
+    response_format: dict[str, object] | None = None
+    max_tokens: int | None = None
+
+
+def _llm_request(
+    protocol: TextToolProtocol | None, tools_array: list[dict[str, object]], messages: list[dict[str, object]]
+) -> _LLMRequest:
+    """The request of an iteration: native tools, or the text tool protocol's text and grammar (S9-C)."""
+    if protocol is None:
+        return _LLMRequest(messages=messages, tools=tools_array or None)
+    return _LLMRequest(
+        messages=protocol.wire_messages(messages),
+        tools=None,
+        response_format=protocol.response_format(),
+        max_tokens=TURN_MAX_TOKENS,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -430,10 +484,12 @@ class AgentLoopExecutor:
             tools_array, cap_level, cfg.mode_tools or None, cfg.selected_tools
         )
 
-        # If the model doesn't support function calling, don't send tools param.
-        # Tools are already injected into the system prompt via tool_guide for these models.
-        if cap_level == CapabilityLevel.PURE_COMPLETION:
-            tools_array = []  # Empty = won't be sent to LLM (see _build_stream_payload)
+        # A model without function calling gets no tools parameter: it calls
+        # the offered tools through the text tool protocol (S9-C).
+        if cap_level == CapabilityLevel.PURE_COMPLETION and tools_array:
+            state.tool_protocol = TextToolProtocol(
+                tools_array, plan_act=plan_act.enabled, grammar=cfg.text_tool_grammar
+            )
 
         loop_start = time.monotonic()
         await self._publish_routing_decision(cfg)
@@ -468,6 +524,7 @@ class AgentLoopExecutor:
             check_model_switch(quality_tracker, cfg)
             check_plan_act_transition(plan_act, messages)
 
+            stored_before = len(state.tool_messages)
             result = await self._do_llm_iteration(
                 cfg, tools_array, messages, state, iteration, plan_act=plan_act, error_tracker=error_tracker
             )
@@ -480,7 +537,11 @@ class AgentLoopExecutor:
                 case IterationContinue():
                     pass
 
-            self._record_tool_calls_for_stall(state, stall_detector)
+            # Only an iteration that called tools feeds the stall detector: a
+            # retry (a protocol repair, a dropped grammar, a fallback model)
+            # would count the previous call again.
+            if len(state.tool_messages) > stored_before:
+                self._record_tool_calls_for_stall(state, stall_detector)
             quality_tracker.end_iteration()
 
             if cfg.max_cost > 0 and state.total_cost >= cfg.max_cost:
@@ -622,12 +683,62 @@ class AgentLoopExecutor:
         plan_act: PlanActController | None = None,
         error_tracker: ToolErrorTracker | None = None,
     ) -> IterationOutcome:
-        """Run one LLM iteration. Returns typed IterationOutcome."""
+        """Run one LLM iteration. Returns typed IterationOutcome.
+
+        With the text tool protocol (state.tool_protocol) a reply without
+        native tool calls is parsed: a call continues as a native one, an
+        unusable reply is sent back to the model once (S9-C).
+        """
         llm_decision = await self._runtime.request_tool_call(tool="LLM", command="chat_completion")
         if llm_decision.decision != "allow":
             logger.warning("LLM call denied by policy: %s", llm_decision.reason)
             return IterationError(f"LLM call denied: {llm_decision.reason}")
 
+        reply = await self._call_llm(cfg, tools_array, messages, state, iteration)
+        if not isinstance(reply, _LLMReply):
+            return reply
+        response, full_text = reply.response, reply.text
+
+        protocol = state.tool_protocol
+        ignored_calls = 0
+        if protocol is not None and not response.tool_calls:
+            turn = protocol.parse(response.content, truncated=response.finish_reason == "length")
+            if isinstance(turn, TextProtocolError):
+                return await self._handle_protocol_error(cfg, state, response, llm_decision, full_text, messages, turn)
+            response = native_response(response, turn)
+            ignored_calls = turn.ignored_calls if isinstance(turn, TextToolCall) else 0
+        state.protocol_repairs = 0
+
+        outcome = await self._process_llm_response(
+            cfg,
+            state,
+            response,
+            llm_decision,
+            full_text,
+            messages,
+            iteration=iteration,
+            plan_act=plan_act,
+            error_tracker=error_tracker,
+        )
+        if ignored_calls and isinstance(outcome, IterationContinue):
+            messages.append({"role": "user", "content": EXTRA_CALLS_NOTE})
+        return outcome
+
+    async def _call_llm(
+        self,
+        cfg: LoopConfig,
+        tools_array: list[dict[str, object]],
+        messages: list[dict[str, object]],
+        state: _LoopState,
+        iteration: int,
+    ) -> _LLMReply | IterationOutcome:
+        """Stream one completion; the reply and its visible text, or the outcome of a failed call.
+
+        With the text tool protocol the request carries the protocol's wire
+        messages, grammar and max_tokens instead of tools, and the stream
+        shows only the reply's prose, thought and final text.
+        """
+        request = _llm_request(state.tool_protocol, tools_array, messages)
         tracer = trace.get_tracer("codeforge")
         model_name = cfg.model or resolve_model()
         llm_start = time.monotonic()
@@ -640,6 +751,8 @@ class AgentLoopExecutor:
             task = loop.create_task(self._runtime.send_output(chunk_text))
             pending_sends.append(task)
 
+        stream_filter = ProtocolStreamFilter(_on_chunk) if state.tool_protocol is not None else None
+
         with tracer.start_as_current_span(
             "llm.chat_completion",
             attributes={
@@ -650,35 +763,31 @@ class AgentLoopExecutor:
             sanitize_tool_messages(messages)
             try:
                 response = await self._llm.chat_completion_stream(
-                    messages=messages,
+                    messages=request.messages,
                     model=model_name,
-                    tools=tools_array or None,
+                    tools=request.tools,
                     temperature=cfg.temperature,
                     tags=cfg.tags or None,
-                    on_chunk=_on_chunk,
+                    on_chunk=stream_filter.feed if stream_filter is not None else _on_chunk,
                     provider_api_key=cfg.provider_api_key,
                     top_p=cfg.top_p,
                     extra_body=cfg.extra_body,
+                    response_format=request.response_format,
+                    max_tokens=request.max_tokens,
                 )
-            except LLMError as exc:
-                llm_span.set_status(StatusCode.ERROR, str(exc))
-                llm_span.record_exception(exc)
-                err = await self._handle_llm_error(cfg, state, exc, iteration)
-                return IterationError(err) if err else IterationContinue()
             except asyncio.CancelledError:
                 raise
-            except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            except (LLMError, httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
                 llm_span.set_status(StatusCode.ERROR, str(exc))
                 llm_span.record_exception(exc)
-                logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
-                wrapped = LLMError(status_code=500, model=model_name, body=str(exc))
-                err = await self._handle_llm_error(cfg, state, wrapped, iteration)
-                return IterationError(err) if err else IterationContinue()
+                return await self._llm_call_failed(cfg, state, exc, iteration, model_name)
             llm_span.set_attribute("gen_ai.usage.input_tokens", response.tokens_in)
             llm_span.set_attribute("gen_ai.usage.output_tokens", response.tokens_out)
             if response.model:
                 llm_span.set_attribute("gen_ai.response.model", response.model)
 
+        if stream_filter is not None:
+            stream_filter.finish()
         if pending_sends:
             await asyncio.gather(*pending_sends, return_exceptions=True)
         otel_metrics.llm_call_duration.record(time.monotonic() - llm_start)
@@ -686,20 +795,38 @@ class AgentLoopExecutor:
         full_text = "".join(streamed_text)
         if full_text and not pending_sends:
             await self._runtime.send_output(full_text)
+        return _LLMReply(response=response, text=full_text)
 
-        return await self._process_llm_response(
-            cfg,
-            state,
-            response,
-            llm_decision,
-            full_text,
-            messages,
-            iteration=iteration,
-            plan_act=plan_act,
-            error_tracker=error_tracker,
+    async def _llm_call_failed(
+        self, cfg: LoopConfig, state: _LoopState, exc: Exception, iteration: int, model_name: str
+    ) -> IterationOutcome:
+        """The outcome of a failed completion: retry without a rejected grammar, a fallback model, or an error."""
+        if not isinstance(exc, LLMError):
+            logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
+            exc = LLMError(status_code=500, model=model_name, body=str(exc))
+        elif self._drop_rejected_grammar(state.tool_protocol, exc):
+            return IterationContinue()
+        err = await self._handle_llm_error(cfg, state, exc, iteration)
+        return IterationError(err) if err else IterationContinue()
+
+    @staticmethod
+    def _drop_rejected_grammar(protocol: TextToolProtocol | None, exc: LLMError) -> bool:
+        """Turn the text protocol's grammar off for the run when the server rejected it.
+
+        Returns True when the iteration should be retried without it: there
+        is no cache across runs, a later run tries the grammar again.
+        """
+        if protocol is None or not protocol.grammar or not grammar_rejected(exc.status_code, exc.body):
+            return False
+        protocol.grammar = False
+        logger.warning(
+            "the server rejected the text tool grammar (status %d), continuing without it: %s",
+            exc.status_code,
+            exc.body[:200],
         )
+        return True
 
-    async def _process_llm_response(
+    async def _handle_protocol_error(
         self,
         cfg: LoopConfig,
         state: _LoopState,
@@ -707,12 +834,31 @@ class AgentLoopExecutor:
         llm_decision: ToolCallDecision,
         full_text: str,
         messages: list[dict[str, object]],
-        *,
-        iteration: int = 0,
-        plan_act: PlanActController | None = None,
-        error_tracker: ToolErrorTracker | None = None,
+        error: TextProtocolError,
     ) -> IterationOutcome:
-        """Process LLM response: update state, report results, execute tool calls."""
+        """An unusable text protocol reply: costed, then asked once more; a second in a row ends the run.
+
+        The repair message goes into the loop's messages only (not
+        state.tool_messages), without the malformed reply.
+        """
+        await self._record_llm_turn(cfg, state, response, llm_decision, full_text)
+        if state.protocol_repairs >= _MAX_PROTOCOL_REPAIRS:
+            return IterationError(f"text tool protocol: {error.message}")
+        state.protocol_repairs += 1
+        logger.warning("unusable text tool protocol reply, asking the model again: %s", error.message)
+        messages.append({"role": "user", "content": TextToolProtocol.repair_message(error)})
+        await self._runtime.send_output(REPAIR_NOTICE)
+        return IterationContinue()
+
+    async def _record_llm_turn(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        response: ChatCompletionResponse,
+        llm_decision: ToolCallDecision,
+        full_text: str,
+    ) -> None:
+        """Account an LLM reply: cost and tokens, its LLM tool result, trajectory and routing outcome."""
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
         state.total_cost += cost
         state.total_tokens_in += response.tokens_in
@@ -759,6 +905,22 @@ class AgentLoopExecutor:
                 run_id=self._runtime.run_id,
                 routing_config=cfg.routing_config,
             )
+
+    async def _process_llm_response(
+        self,
+        cfg: LoopConfig,
+        state: _LoopState,
+        response: ChatCompletionResponse,
+        llm_decision: ToolCallDecision,
+        full_text: str,
+        messages: list[dict[str, object]],
+        *,
+        iteration: int = 0,
+        plan_act: PlanActController | None = None,
+        error_tracker: ToolErrorTracker | None = None,
+    ) -> IterationOutcome:
+        """Process LLM response: update state, report results, execute tool calls."""
+        await self._record_llm_turn(cfg, state, response, llm_decision, full_text)
 
         if not response.tool_calls:
             # On first iteration of agentic run, if model returns text without tool calls,

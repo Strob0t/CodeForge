@@ -315,3 +315,45 @@ async def test_run_has_no_skill_tools(tmp_path: Path, monkeypatch: pytest.Monkey
 
     assert "write_file" in spy.tool_names
     assert not set(spy.tool_names) & {"search_skills", "create_skill"}
+
+
+# ---------------------------------------------------------------------------
+# S9-C: pure-completion models call tools through the text tool protocol
+# ---------------------------------------------------------------------------
+
+_WRITE_CALL = json.dumps(
+    {"thought": "I create the file.", "tool": "write_file", "args": {"file_path": "hello.txt", "content": "hi\n"}}
+)
+
+
+async def test_pure_completion_run_writes_through_a_json_call(tmp_path: Path) -> None:
+    llm = ScriptedLLM([_answer(_WRITE_CALL), _answer(json.dumps({"thought": "", "final": "Created hello.txt"}))])
+    js = PolicyJetStream()
+
+    await AgentExecutor(llm=llm).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), "ollama/llama3"), _runtime(js)
+    )
+
+    assert (tmp_path / "hello.txt").read_text() == "hi\n"
+    requests = js.payloads("runs.toolcall.request")
+    assert [r["tool"] for r in requests] == ["LLM", "write_file", "LLM"], "the policy saw the call"
+    assert requests[1]["path"] == "hello.txt"
+    assert llm.calls[0]["tools"] is None
+    assert llm.calls[0]["response_format"] is not None
+    done = _completion(js)
+    assert done["status"] == "completed"
+    assert done["output"] == "Created hello.txt"
+
+
+async def test_pure_completion_run_deny_blocks_the_json_call(tmp_path: Path) -> None:
+    llm = ScriptedLLM([_answer(_WRITE_CALL), _answer(json.dumps({"thought": "", "final": "Could not write."}))])
+    js = PolicyJetStream(deny=frozenset({"write_file"}))
+
+    await AgentExecutor(llm=llm).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), "ollama/llama3"), _runtime(js)
+    )
+
+    assert not (tmp_path / "hello.txt").exists()
+    results = [r for r in js.payloads("runs.toolcall.result") if r["tool"] == "write_file"]
+    assert [r["success"] for r in results] == [False]
+    assert "Permission denied: denied by policy" in str(llm.calls[1]["messages"])

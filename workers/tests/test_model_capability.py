@@ -338,3 +338,50 @@ async def test_conversation_loop_uses_the_metadata(tmp_path: Path) -> None:
     )
 
     assert {"read_file", "edit_file"} <= _offered(llm)
+
+
+def _uses_the_text_protocol(call: dict[str, object]) -> bool:
+    messages = call["messages"]
+    system = str(messages[0]["content"]) if messages else ""  # type: ignore[index]
+    fmt = call.get("response_format")
+    return (
+        call.get("tools") is None
+        and isinstance(fmt, dict)
+        and fmt.get("type") == "json_schema"
+        and "## Tools\nYou work by calling tools." in system
+    )
+
+
+@pytest.mark.usefixtures("no_router")
+async def test_model_without_function_calling_uses_the_text_protocol_on_both_paths(tmp_path: Path) -> None:
+    """S9-C: a pure-completion model calls tools through the text protocol, in runs and conversations."""
+    from codeforge.consumer import TaskConsumer
+
+    run_llm = MetadataLLM([_row(LOCAL, fc=False)])
+    await _run(run_llm, tmp_path, {"model": LOCAL})
+
+    conversation_llm = MetadataLLM([_row(LOCAL, fc=False)])
+    worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://litellm.test")
+    worker._llm = conversation_llm
+    run_msg = ConversationRunStartMessage(
+        run_id="run-1",
+        conversation_id="c1",
+        project_id="proj-1",
+        messages=[],
+        system_prompt="s",
+        model=LOCAL,
+        workspace_path=str(tmp_path),
+        agentic=True,
+    )
+    await worker._execute_litellm_loop(
+        run_msg,
+        [{"role": "system", "content": "s"}, {"role": "user", "content": "Fix the bug in app.py"}],
+        LOCAL,
+        RoutingResult(),
+        _runtime(_AllowAll()),
+        build_default_registry(),
+        [],
+    )
+
+    assert _uses_the_text_protocol(run_llm.calls[0])
+    assert _uses_the_text_protocol(conversation_llm.calls[0])

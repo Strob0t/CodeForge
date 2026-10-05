@@ -30,6 +30,8 @@ from codeforge.nats_publish import publish_with_retry
 from codeforge.provider_keys import fallbacks_for_key, model_provider
 from codeforge.runtime import RuntimeClient, heartbeat_interval
 from codeforge.tool_identity import ToolIsolationError, tool_tenant
+from codeforge.tools.capability import CapabilityLevel
+from codeforge.tools.text_protocol import HISTORY_RESERVE_TOKENS
 from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
@@ -298,7 +300,10 @@ class ConversationHandlerMixin:
             summarizer = ConversationSummarizer(llm=self._llm, threshold=run_msg.summarize_threshold)
             run_msg.messages = await summarizer.summarize_if_needed(run_msg.messages)
 
-        history_cfg = HistoryConfig(max_context_tokens=capability.context_limit)
+        # The text tool protocol adds its prompt section to every request of a
+        # pure-completion model (S9-C); the history leaves room for it.
+        reserve = HISTORY_RESERVE_TOKENS if capability.level == CapabilityLevel.PURE_COMPLETION else 0
+        history_cfg = HistoryConfig(max_context_tokens=capability.context_limit - reserve)
         if run_msg.tool_output_max_chars > 0:
             history_cfg.tool_output_max_chars = run_msg.tool_output_max_chars
 

@@ -14,6 +14,7 @@ tools (the already filtered tool list of the run).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
@@ -22,10 +23,27 @@ import string
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from codeforge.llm import ToolCallPart
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from codeforge.llm import ChatCompletionResponse
+
 logger = logging.getLogger(__name__)
+
+# max_tokens of a protocol turn: a grammar can make a model loop on
+# whitespace inside the object; revisit after the live check.
+TURN_MAX_TOKENS = 8192
+# Tokens a conversation's history budget leaves for the prompt section.
+HISTORY_RESERVE_TOKENS = 1000
+# Shown to the user when an unusable reply is sent back to the model once.
+REPAIR_NOTICE = "\n[The reply did not follow the tool format; asking the model again]\n"
+# Sent to the model when a reply held more than one call.
+EXTRA_CALLS_NOTE = "[System] Only the first tool call of your reply was run. Send one call per reply."
+# Error bodies of a server that rejects the grammar (400, 422 or 500).
+_GRAMMAR_ERROR_STATUS = frozenset({400, 422, 500})
+_GRAMMAR_ERROR_WORDS = ("response_format", "json_schema", "grammar", "schema")
 
 # The prompt section is cut to about this many characters: MCP descriptions
 # go first, then all descriptions, then MCP tools from the end.
@@ -211,6 +229,24 @@ class TextToolProtocol:
                 content = msg.get("content")
                 _append_wire(wire, "user", content if isinstance(content, list) else _text_of(content))
         return wire
+
+
+def native_response(response: ChatCompletionResponse, turn: TextToolCall | TextFinal) -> ChatCompletionResponse:
+    """*response* as the loop handles a native reply: a call becomes a ToolCallPart with a new ID.
+
+    From here on the call takes the native path: cost, the Go policy,
+    approvals, trajectory, stall detection and the stored messages.
+    """
+    if isinstance(turn, TextFinal):
+        return dataclasses.replace(response, content=turn.content)
+    call = ToolCallPart(id=_new_call_id(), name=turn.name, arguments=json.dumps(turn.args, ensure_ascii=False))
+    return dataclasses.replace(response, content=turn.thought, tool_calls=[call], finish_reason="tool_calls")
+
+
+def grammar_rejected(status_code: int, body: str) -> bool:
+    """Whether an LLM error says the server refused the turn grammar (response_format)."""
+    lowered = body.lower()
+    return status_code in _GRAMMAR_ERROR_STATUS and any(word in lowered for word in _GRAMMAR_ERROR_WORDS)
 
 
 def _tools_from_openai(tools: list[dict[str, object]]) -> list[_Tool]:
