@@ -16,8 +16,7 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
-from codeforge.retrieval import HybridRetriever, embedding_provider
-from codeforge.routing.key_filter import KeyFilter
+from codeforge.retrieval import HybridRetriever
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -238,75 +237,64 @@ async def test_bm25_only_flag_reaches_the_index_result(tmp_path: Path) -> None:
     await retriever.close()
 
 
-# --- KI-150: no embedding call for a cloud provider without a key ---
+# --- KI-150 review: the worker cannot see LiteLLM's routing ---
 
 
-@pytest.mark.parametrize(
-    ("model", "provider"),
-    [
-        ("text-embedding-3-small", "openai"),
-        ("openai/text-embedding-3-large", "openai"),
-        ("ollama/nomic-embed-text", "ollama"),
-        ("gemini/text-embedding-004", "gemini"),
-        ("nomic-embed-text", ""),
-        ("", ""),
-    ],
-)
-def test_embedding_provider(model: str, provider: str) -> None:
-    assert embedding_provider(model) == provider
+def _worker_retriever(answer: list[httpx.Response | Exception | None]) -> tuple[object, HybridRetriever, list[int]]:
+    """The worker's own retriever, its /v1/embeddings answered like _failing_retriever, counting calls."""
+    from codeforge.consumer import TaskConsumer
+
+    worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
+    retriever = worker._retriever
+    calls = [0]
+    inner = _failing_retriever(answer)._client
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        calls[0] += 1
+        return await inner._transport.handle_async_request(request)  # type: ignore[union-attr]
+
+    retriever._client = httpx.AsyncClient(base_url="http://litellm.test", transport=httpx.MockTransport(handle))
+    return worker, retriever, calls
 
 
-def _keyed_retriever(keyed: set[str]) -> tuple[HybridRetriever, list[int]]:
-    """A retriever whose embeddings work, and whose providers in *keyed* have a key."""
-    retriever, calls = _retriever([True])
-    retriever._provider_has_key = lambda provider: provider in keyed
-    return retriever, calls
+async def test_a_cloud_model_name_routed_to_a_local_server_is_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """text-embedding-3-small may be a LiteLLM alias of a local server (api_base): no key, embeddings work."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CODEFORGE_LITELLM_KEYED_PROVIDERS", raising=False)
+    _, retriever, calls = _worker_retriever([None])
+
+    status = await retriever.build_index("p1", _workspace(tmp_path), embedding_model="text-embedding-3-small")
+
+    assert calls[0] > 0
+    assert status.status == "ready"
+    assert status.bm25_only is False
+    await retriever.close()
 
 
-@pytest.mark.parametrize("model", ["text-embedding-3-small", "openai/text-embedding-3-large"])
-async def test_cloud_provider_without_a_key_is_not_called(model: str, tmp_path: Path) -> None:
-    retriever, calls = _keyed_retriever(set())
+async def test_a_cloud_model_without_its_key_is_bm25_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without the key LiteLLM answers 500 AuthenticationError: BM25-only, reported once, no error."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    failure = httpx.Response(
+        500,
+        json={
+            "error": {"message": "litellm.AuthenticationError: OpenAIException - The api_key client option must be set"}
+        },
+    )
+    _, retriever, _ = _worker_retriever([failure])
     workspace = _workspace(tmp_path)
 
     with capture_logs() as logs:
-        first = await retriever.build_index("p1", workspace, embedding_model=model)
-        second = await retriever.build_index("p2", workspace, embedding_model=model)
+        first = await retriever.build_index("p1", workspace)
+        second = await retriever.build_index("p2", workspace)
 
-    assert calls[0] == 0
     for status in (first, second):
         assert status.status == "ready"
         assert status.bm25_only is True
         assert status.error == ""
     warnings = [e for e in logs if e["log_level"] == "warning"]
     assert len(warnings) == 1, warnings
-    assert "openai" in warnings[0]["reason"]
+    assert "AuthenticationError" in warnings[0]["reason"]
+    assert not [e for e in logs if e["log_level"] in ("error", "exception")], logs
     await retriever.close()
-
-
-@pytest.mark.parametrize(
-    "model",
-    [
-        "text-embedding-3-small",  # openai has a key
-        "ollama/nomic-embed-text",  # a local server needs no key
-        "nomic-embed-text",  # no provider the worker can tell: LiteLLM decides
-    ],
-)
-async def test_provider_with_a_key_or_unknown_is_called(
-    model: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    retriever, calls = _retriever([True])
-    retriever._provider_has_key = KeyFilter.has_key
-
-    status = await retriever.build_index("p1", _workspace(tmp_path), embedding_model=model)
-
-    assert calls[0] > 0
-    assert status.bm25_only is False
-    await retriever.close()
-
-
-def test_the_worker_checks_the_provider_keys() -> None:
-    from codeforge.consumer import TaskConsumer
-
-    worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://test:4000")
-    assert worker._retriever._provider_has_key is KeyFilter.has_key

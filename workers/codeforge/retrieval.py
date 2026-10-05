@@ -25,12 +25,9 @@ from codeforge._tree_sitter_common import (
     iter_source_files,
 )
 from codeforge.models import RetrievalSearchHit
-from codeforge.provider_keys import model_provider
 from codeforge.workspace_fs import PathLeavesWorkspaceError, WorkspaceRoot
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from tree_sitter import Parser
 
     from codeforge.llm import LiteLLMClient
@@ -140,18 +137,6 @@ def _embedding_model_unusable(response: httpx.Response) -> bool:
     if response.status_code != 400:
         return False
     return any(marker in body for marker in _UNKNOWN_MODEL_MARKERS)
-
-
-# Bare model names LiteLLM routes to a provider by the name (OpenAI's
-# embedding models, among them the default text-embedding-3-small).
-_BARE_MODEL_PROVIDERS = (("text-embedding-", "openai"),)
-
-
-def embedding_provider(model: str) -> str:
-    """The provider an embedding model is called at: its prefix, or by its bare name; "" when unknown."""
-    if provider := model_provider(model):
-        return provider
-    return next((provider for prefix, provider in _BARE_MODEL_PROVIDERS if model.startswith(prefix)), "")
 
 
 # ---------------------------------------------------------------------------
@@ -429,17 +414,12 @@ class HybridRetriever:
         self,
         litellm_url: str = "http://localhost:4000",
         litellm_key: str = "",
-        provider_has_key: Callable[[str], bool] | None = None,
     ) -> None:
         self._indexes: dict[str, ProjectIndex] = {}
         self._chunker = CodeChunker()
         self._litellm_url = litellm_url.rstrip("/")
         self._litellm_key = litellm_key
         self._client: httpx.AsyncClient | None = None
-        # Whether a provider has an API key (KeyFilter.has_key in the worker):
-        # an embedding model of a provider without one is not called (KI-150).
-        # None: every provider is called.
-        self._provider_has_key = provider_has_key
         # Embedding models found unavailable: reported once, not on every index build.
         self._unavailable_embedding_models: set[str] = set()
 
@@ -812,19 +792,18 @@ class HybridRetriever:
         local-only installation) the index is BM25-only; that is reported once
         per model, not on every index build. Any other failure (rate limit,
         server error, timeout) raises: the build fails and a good index stays.
-        A model of a cloud provider without an API key is not called at all
-        (KI-150).
+        A cloud model without its API key is called anyway: LiteLLM answers
+        with an authentication error, which counts as unusable (KI-150). The
+        worker cannot tell from the name whether LiteLLM routes a model to a
+        keyed cloud provider or to a local server (an api_base alias).
         """
-        provider = embedding_provider(model)
-        if provider and self._provider_has_key is not None and not self._provider_has_key(provider):
-            self._report_unavailable(model, f"provider {provider} has no API key", log)
-            return None
         try:
             embeddings = await self._embed_texts(texts, model)
         except httpx.HTTPStatusError as exc:
             if not _embedding_model_unusable(exc.response):
                 raise
-            self._report_unavailable(model, str(exc), log)
+            # The body names the cause (an AuthenticationError without the key).
+            self._report_unavailable(model, f"HTTP {exc.response.status_code}: {exc.response.text[:300]}", log)
             return None
         self._unavailable_embedding_models.discard(model)
         return embeddings
