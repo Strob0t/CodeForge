@@ -18,7 +18,8 @@ If you discover a security vulnerability, please report it responsibly:
 
 ## Security Measures
 
-- **Authentication:** JWT with bcrypt password hashing (configurable cost); access tokens are stateless and revocable only by token ID, so a deleted, erased or disabled user keeps the old token's rights until it expires (`auth.access_token_expiry`, default 15 min; refresh tokens and API keys are deleted with the user, KI-143). A request of a user whose row is gone cannot store a row under their name (401).
+- **Authentication:** JWT with bcrypt password hashing (configurable cost); access tokens carry the user's token epoch (`users.token_epoch`); a role change and disabling a user raise it, and deleting or erasing removes the user. Validation refuses tokens without an epoch, of missing users and with a stale epoch, using a value cached for at most 5 s per replica (the changing replica drops it at once) and failing closed on lookup errors (KI-143). Refresh tokens and API keys are deleted with the user.
+- **First-admin setup:** the setup endpoint requires a one-time token the Core logs once and writes to `auth.setup_token_file` (0600) on a start without users; it is compared in constant time, bound to the default tenant and deleted after use. The env admin needs none. Setup of other tenants through `X-Tenant-ID` is refused (KI-119)
 - **Authorization:** Role-based access control (Admin, Editor, Viewer)
 - **Tenant Isolation:** All database queries scoped by tenant_id
 - **Rate Limiting:** Auth endpoints rate-limited, account lockout after 5 failures

@@ -136,10 +136,13 @@ docker compose -f docker-compose.prod.yml build        # no published release im
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Then open `http://<your-host>/setup` and create the first admin.
+Then open `http://<your-host>/setup` and create the first admin with the one-time setup token from the Core's log or its data volume:
 
-> [!IMPORTANT]
-> The setup page is open until the first user exists, so whoever reaches it first becomes admin. Create the admin before you expose the host to a network you do not trust ([KI-119](docs/todo.md#known-issues)).
+```bash
+docker compose -f docker-compose.prod.yml logs codeforge | grep 'SETUP TOKEN'
+```
+
+The token is also in `/data/setup_token` inside the Core container; the setup uses it up.
 
 **Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list, and models with tool support get the agent tools; no API key is needed.
 

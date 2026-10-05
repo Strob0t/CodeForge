@@ -229,7 +229,9 @@ paths:
       summary: Create the initial admin user
       description: |
         One-time setup endpoint that creates the first admin account.
-        Returns 409 if setup has already been completed.
+        Requires the one-time setup token the Core logs once (SETUP TOKEN) and
+        writes to auth.setup_token_file on a start without users (403 without
+        or with a wrong token). Returns 409 if setup has already been completed.
       operationId: initialSetup
       requestBody:
         required: true
@@ -237,8 +239,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password, name]
+              required: [email, password, name, setup_token]
               properties:
+                setup_token:
+                  type: string
+                  description: One-time setup token (KI-119)
                 email:
                   type: string
                   format: email
