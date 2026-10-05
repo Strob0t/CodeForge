@@ -54,6 +54,12 @@
 
 ### Infrastructure
 
+#### Production images (S9-B, 2026-10-05)
+
+- Core image: git and `subversion` (Alpine), the SVN adapter only.
+- Worker image: Aider 0.86.2 (Apache-2.0, own venv, hash-locked in `workers/aider-requirements.txt`), Claude Code 2.1.289 (Anthropic, proprietary license), OpenCode 1.18.34 (MIT), Goose 1.29.0 (Apache-2.0, the last versioned image), `libgomp1`; pinned and checksummed per architecture; started only through `tool_process` as the tenant's tool UID. `uv` is used only to regenerate the aider lock.
+- GitHub: the REST API through `internal/adapter/githubapi` (stdlib); no `gh` CLI.
+
 #### Devcontainer
 
 - Base image: `mcr.microsoft.com/devcontainers/base:bookworm` (Debian 12)

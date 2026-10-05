@@ -624,6 +624,7 @@ Example:
 | `auth.enabled` | `CODEFORGE_AUTH_ENABLED` | `true` | Enable JWT authentication |
 | `auth.jwt_secret` | `CODEFORGE_AUTH_JWT_SECRET` | `` (random per start) | HMAC-SHA256 signing key; empty = auto-generated in memory at every start (sessions lost on restart). Must be >= 32 chars; well-known values are rejected unless `APP_ENV=development` |
 | `auth.setup_token_file` | `CODEFORGE_AUTH_SETUP_TOKEN_FILE` | `data/setup_token` | One-time token for the first-admin setup page, written (0600) on a start without users and logged once (`SETUP TOKEN`); deleted after the setup. Empty: log only (KI-119) |
+| `github.token` | `CODEFORGE_GITHUB_TOKEN` (or `_FILE`) | `` | Operator's GitHub token for the REST API of github.com: the github-issues PM provider of integrations without their own token, and PR delivery for github.com repositories of projects whose github-api provider has no token; serves only the default tenant (KI-117) |
 | `auth.llm_key_encryption_secret` | `CODEFORGE_AUTH_LLM_KEY_ENCRYPTION_SECRET` | `` (falls back to the JWT secret) | Key material for encrypting stored LLM provider keys; set it to decouple them from the JWT secret (rotating it makes stored LLM keys unreadable). Every secret setting also accepts `<KEY>_FILE` |
 | `auth.access_token_expiry` | `CODEFORGE_AUTH_ACCESS_EXPIRY` | `15m` | Access token lifetime |
 | `auth.refresh_token_expiry` | `CODEFORGE_AUTH_REFRESH_EXPIRY` | `168h` | Refresh token lifetime (7d) |
@@ -1026,7 +1027,7 @@ The root `VERSION` file (a semver string, currently `0.8.0`) is the single sourc
 | Frontend | Vite reads `../VERSION` at build time and defines `__APP_VERSION__` | `frontend/vite.config.ts` |
 | Docker | `docker-build.yml` reads `VERSION` and passes `APP_VERSION` and `GIT_SHA` as build args; the Go image sets them via ldflags, the worker and frontend images copy `VERSION`; all three carry the OCI labels `org.opencontainers.image.version` and `.revision` | `Dockerfile`, `Dockerfile.worker`, `Dockerfile.frontend`, `.github/workflows/docker-build.yml` |
 
-Image tags (`ghcr.io/<owner>/codeforge-core`, `-worker`, `-frontend`): a push to `main` or `staging` tags the branch name, the short commit SHA and the `VERSION` value (e.g. `codeforge-core:0.8.0`); a `v*` tag pushes the short SHA and the semver tags `<major>.<minor>.<patch>` and `<major>.<minor>`.
+Image tags (`ghcr.io/<owner>/codeforge-core`, `-worker`, `-frontend`): a push to `main` or `staging` tags the branch name and the short commit SHA. A `v*` tag on main that names `VERSION` builds `<version>`, `<major>.<minor>` and `latest` (not for prereleases); any other `v*` tag fails the workflow. `docker-compose.prod.yml` pins `:<VERSION>`, and `./scripts/sync-version.sh` rewrites those pins (KI-116). `docker-compose.egress.yml` is an opt-in override that gives the worker (and so every tenant's tool processes) a route to the internet, for agent backends and external MCP servers that cannot go through LiteLLM. The worker image sets `AIDER_ANALYTICS_DISABLE=true`, `AIDER_CHECK_UPDATE=false`, `OPENCODE_DISABLE_AUTOUPDATE=true` and `GOOSE_DISABLE_KEYRING=1`; Claude Code still needs `CODEFORGE_CLAUDECODE_ENABLED=true` plus `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in the worker environment, and OpenHands needs `CODEFORGE_OPENHANDS_URL`.
 
 ### Environment Variables
 

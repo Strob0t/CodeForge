@@ -131,7 +131,7 @@ git clone https://github.com/Strob0t/CodeForge.git && cd CodeForge
 cp .env.example .env                                   # optional: provider API keys, OLLAMA_BASE_URL, LM_STUDIO_API_BASE
 ./scripts/generate-secrets.sh                          # database, NATS, JWT and encryption secrets in ./secrets
 ./scripts/validate-env.sh
-docker compose -f docker-compose.prod.yml build        # no published release images yet
+docker compose -f docker-compose.prod.yml build        # until the first release tag publishes the images of VERSION
 ./scripts/check-host.sh                                # checks Landlock, ACLs and /tmp on this host
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -143,6 +143,8 @@ docker compose -f docker-compose.prod.yml logs codeforge | grep 'SETUP TOKEN'
 ```
 
 The token is also in `/data/setup_token` inside the Core container; the setup uses it up.
+
+**Agent backends and network:** the worker image includes the Aider, Claude Code, OpenCode and Goose CLIs. The worker has no internet access: point backends at LiteLLM (`http://litellm:4000`), or add `-f docker-compose.egress.yml`, which gives every tenant's tool processes a route out.
 
 **Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list, and models with tool support get the agent tools; no API key is needed.
 
