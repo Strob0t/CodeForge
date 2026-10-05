@@ -34,6 +34,7 @@ type convModeProvider interface {
 type convPolicyEvaluator interface {
 	GetProfile(ctx context.Context, name string) (policy.PolicyProfile, bool)
 	DefaultProfile() string
+	Evaluate(ctx context.Context, profileName string, call policy.ToolCall, opts ...policy.EvalOption) (policy.Decision, error)
 }
 
 // convMCPResolver is the subset of MCPService used by ConversationService.

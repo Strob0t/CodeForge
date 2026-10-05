@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/git"
@@ -570,5 +571,79 @@ func TestNewAutoAgentService_VerifiesWithTwoFixAttempts(t *testing.T) {
 	svc := NewAutoAgentService(newAutoAgentMockStore(), &noopBroadcaster{}, &noopQueue{}, nil)
 	if svc.verify.FixAttempts != 2 {
 		t.Fatalf("fix attempts = %d, want 2", svc.verify.FixAttempts)
+	}
+}
+
+// fakeCommandPolicy allows the commands in allowed.
+type fakeCommandPolicy struct{ allowed map[string]bool }
+
+func (p fakeCommandPolicy) CommandAllowed(_ context.Context, _, command string) (allowed bool, reason string, err error) {
+	if p.allowed[command] {
+		return true, "", nil
+	}
+	return false, "the policy profile supervised-ask-all asks before running it", nil
+}
+
+// KI-152 review: verification commands ran whatever the project's policy
+// profile said; a command the agent could not run on its own is skipped.
+func TestVerifyFeature_CommandsThePolicyDoesNotAllowAreSkipped(t *testing.T) {
+	e := newVerifyEnv(t, verdicts(passedPtr(false), passedPtr(false), "exit code 1\nboom"))
+	e.proj.Config[project.ConfigTestCommand] = "pytest"
+	e.proj.Config[project.ConfigLintCommand] = "ruff check ."
+	e.svc.commandPolicy = fakeCommandPolicy{allowed: map[string]bool{"ruff check .": true}}
+
+	_, err := e.verify(t, func(int) { writeWorkspaceFile(t, e.ws, "app.py", "x") }, nil)
+
+	if err == nil || !strings.Contains(err.Error(), "lint failed") || strings.Contains(err.Error(), "tests failed") {
+		t.Fatalf("verifyFeature = %v, want only the lint to fail", err)
+	}
+	reqs := e.requests()
+	if len(reqs) == 0 || reqs[0].TestCommand != "" || reqs[0].LintCommand != "ruff check ." {
+		t.Fatalf("requests = %+v, want the lint command only", reqs)
+	}
+
+	e = newVerifyEnv(t, verdicts(passedPtr(true), nil, ""))
+	e.proj.Config[project.ConfigTestCommand] = "pytest"
+	e.svc.commandPolicy = fakeCommandPolicy{}
+
+	result, err := e.verify(t, func(int) { writeWorkspaceFile(t, e.ws, "app.py", "x") }, nil)
+
+	if err != nil || len(e.requests()) != 0 {
+		t.Fatalf("verifyFeature = %v with %d requests, want no command run", err, len(e.requests()))
+	}
+	if !strings.HasPrefix(result, "not fully verified: ") || !strings.Contains(result, "tests skipped (`pytest`): the policy profile") {
+		t.Fatalf("result = %q", result)
+	}
+}
+
+// CommandAllowed decides like the conversation's tool-call evaluation: its
+// effective profile, an ask approved only by a full-auto profile.
+func TestConversationService_CommandAllowed(t *testing.T) {
+	tests := []struct {
+		profile string
+		want    bool
+	}{
+		{profile: "trusted-mount-autonomous", want: true},
+		{profile: "plan-readonly", want: false},
+		{profile: "supervised-ask-all", want: false},
+		{profile: "no-such-profile", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.profile, func(t *testing.T) {
+			store := newAutoAgentMockStore()
+			store.projects["proj-1"] = &project.Project{ID: "proj-1", WorkspacePath: t.TempDir(), PolicyProfile: tc.profile}
+			convSvc := NewConversationService(store, &noopBroadcaster{}, "test-model", nil)
+			convSvc.SetPolicyService(NewPolicyService("headless-safe-sandbox", nil))
+			conv, err := store.CreateConversation(context.Background(), &conversation.Conversation{ProjectID: "proj-1", Title: "f"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got, reason, err := convSvc.CommandAllowed(context.Background(), conv.ID, "pytest")
+
+			if err != nil || got != tc.want || (!got && reason == "") {
+				t.Fatalf("CommandAllowed = %v, %q, %v; want %v with a reason when not", got, reason, err, tc.want)
+			}
+		})
 	}
 }

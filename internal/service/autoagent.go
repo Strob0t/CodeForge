@@ -45,6 +45,15 @@ type AutoAgentService struct {
 	testWaitMargin time.Duration // queueing and delivery on top of the commands' timeouts
 
 	verify AutoAgentVerification // how features are verified (KI-152)
+	// commandPolicy decides whether a verification command may run (the
+	// feature conversation's policy); nil: every command may.
+	commandPolicy commandPolicy
+}
+
+// commandPolicy tells whether a conversation's agent may run a command on
+// its own (ConversationService.CommandAllowed).
+type commandPolicy interface {
+	CommandAllowed(ctx context.Context, conversationID, command string) (allowed bool, reason string, err error)
 }
 
 // Defaults of the workspace test run (KI-81).
@@ -60,7 +69,7 @@ func NewAutoAgentService(
 	queue messagequeue.Queue,
 	conversations *ConversationService,
 ) *AutoAgentService {
-	return &AutoAgentService{
+	s := &AutoAgentService{
 		db:             db,
 		hub:            hub,
 		queue:          queue,
@@ -71,6 +80,10 @@ func NewAutoAgentService(
 		testWaitMargin: workspaceTestWaitMargin,
 		verify:         AutoAgentVerification{FixAttempts: DefaultAutoAgentFixAttempts},
 	}
+	if conversations != nil {
+		s.commandPolicy = conversations
+	}
+	return s
 }
 
 // Start launches the auto-agent loop for a project in a background goroutine.

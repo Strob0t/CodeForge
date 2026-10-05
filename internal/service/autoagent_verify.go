@@ -124,12 +124,21 @@ func (s *AutoAgentService) checkFeature(ctx context.Context, fv *featureVerifica
 	}
 
 	cmds, source := s.featureCommands(proj)
+	configuredTest := cmds.Test
+	if cmds.Test, err = s.allowedByPolicy(ctx, fv.conversationID, "tests", cmds.Test, checks); err != nil {
+		return nil, err
+	}
+	if cmds.Lint, err = s.allowedByPolicy(ctx, fv.conversationID, "lint", cmds.Lint, checks); err != nil {
+		return nil, err
+	}
 	switch {
-	case cmds.Test == "" && fv.testFile != "":
+	case configuredTest != "":
+		// It runs below, or the policy skipped it.
+	case fv.testFile != "":
 		if err := s.checkTestFile(ctx, fv, checks); err != nil {
 			return nil, err
 		}
-	case cmds.Test == "":
+	default:
 		checks.notes = append(checks.notes, "no test command configured or detected, only the change check ran")
 	}
 	if cmds.Test == "" && cmds.Lint == "" {
@@ -171,6 +180,11 @@ func (c *featureChecks) add(check, command string, passed *bool, output, errMsg 
 
 // checkTestFile runs the pytest file the description names, as before KI-152.
 func (s *AutoAgentService) checkTestFile(ctx context.Context, fv *featureVerification, checks *featureChecks) error {
+	// The command the worker runs for it (_workspace_test.py).
+	command := "python -m pytest " + fv.testFile + " -v --tb=short"
+	if allowed, err := s.allowedByPolicy(ctx, fv.conversationID, "tests", command, checks); err != nil || allowed == "" {
+		return err
+	}
 	result, err := s.runWorkspaceTest(ctx, fv.projectID, fv.conversationID, fv.testFile)
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -191,6 +205,28 @@ func (s *AutoAgentService) checkTestFile(ctx context.Context, fv *featureVerific
 				result.Passed, result.Total, testOutputForPrompt(strings.TrimSpace(result.Output))))
 	}
 	return nil
+}
+
+// allowedByPolicy returns cmd when the feature conversation's agent may run
+// it on its own; otherwise "" and a note why it was skipped (KI-152 review:
+// the verification ran commands whatever the policy profile said). An
+// error is returned only when ctx ended.
+func (s *AutoAgentService) allowedByPolicy(ctx context.Context, conversationID, check, cmd string, checks *featureChecks) (string, error) {
+	if cmd == "" || s.commandPolicy == nil {
+		return cmd, nil
+	}
+	allowed, reason, err := s.commandPolicy.CommandAllowed(ctx, conversationID, cmd)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if err != nil { // fail closed
+		allowed, reason = false, err.Error()
+	}
+	if !allowed {
+		checks.notes = append(checks.notes, fmt.Sprintf("%s skipped (`%s`): %s", check, cmd, reason))
+		return "", nil
+	}
+	return cmd, nil
 }
 
 // errTestFileMissing: the test file a feature names is not in the workspace.
