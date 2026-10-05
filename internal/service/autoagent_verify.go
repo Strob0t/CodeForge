@@ -286,17 +286,13 @@ func takeWorkspaceSnapshot(dir string) workspaceSnapshot {
 	defer func() { _ = ws.Close() }()
 
 	h := sha256.New()
-	entries := 0
-	err = ws.WalkDir(".", func(name string, d fs.DirEntry, err error) error {
+	// The budget applies while directories are read (KI-152 review).
+	err = ws.WalkDirBounded(".", maxSnapshotEntries, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() && name != "." && snapshotSkipDirs[d.Name()] {
 			return fs.SkipDir
-		}
-		entries++
-		if entries > maxSnapshotEntries {
-			return fmt.Errorf("more than %d entries", maxSnapshotEntries)
 		}
 		info, err := d.Info()
 		if err != nil {

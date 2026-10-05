@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -113,5 +114,58 @@ func TestWalkDirOpenChildRefusesASwap(t *testing.T) {
 	if child := r.openChild(parent, "src", "sub", true); child != nil {
 		_ = child.Close()
 		t.Fatal("a directory swapped for a symlink must not be descended")
+	}
+}
+
+// KI-152 review: a bounded walk reads directories in batches and stops once
+// its entry budget is spent, before a huge directory is held in memory.
+func TestWalkDirBounded(t *testing.T) {
+	ws := t.TempDir()
+	mustMkdir(t, filepath.Join(ws, "a"))
+	mustMkdir(t, filepath.Join(ws, "big"))
+	mustWrite(t, filepath.Join(ws, "a", "x"), "1")
+	mustWrite(t, filepath.Join(ws, "b"), "2")
+	for i := range 3 * readDirBatch {
+		mustWrite(t, filepath.Join(ws, "big", "f"+strconv.Itoa(i)), "")
+	}
+	r := mustOpen(t, ws)
+	total := 3 + 3*readDirBatch + 1 // a, a/x, b, big's entries, big
+
+	tests := []struct {
+		name    string
+		budget  int
+		wantErr bool
+	}{
+		{name: "budget covers the tree", budget: total},
+		{name: "one entry too few", budget: total - 1, wantErr: true},
+		{name: "a fraction of the big directory", budget: 10, wantErr: true},
+		{name: "zero", budget: 0, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var visited []string
+			err := r.WalkDirBounded(".", tc.budget, func(name string, _ fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				visited = append(visited, name)
+				return nil
+			})
+			if tc.wantErr != errors.Is(err, ErrTooManyEntries) {
+				t.Fatalf("WalkDirBounded(%d) = %v, want too many entries: %v", tc.budget, err, tc.wantErr)
+			}
+			if tc.wantErr {
+				if len(visited) > tc.budget+1 {
+					t.Fatalf("visited %d entries with a budget of %d", len(visited), tc.budget)
+				}
+				return
+			}
+			if len(visited) != total+1 { // and "." itself
+				t.Fatalf("visited %d entries, want %d", len(visited), total+1)
+			}
+			if !slices.IsSorted(visited[:4]) || visited[1] != "a" || visited[2] != "a/x" {
+				t.Fatalf("not in lexical order: %v", visited[:4])
+			}
+		})
 	}
 }

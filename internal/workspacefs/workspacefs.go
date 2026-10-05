@@ -363,17 +363,56 @@ func (r *Root) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 func readDir(root *os.Root, name string) ([]fs.DirEntry, error) {
+	return readDirBudget(root, name, nil)
+}
+
+// ErrTooManyEntries: a bounded walk (WalkDirBounded) spent its entry budget.
+var ErrTooManyEntries = errors.New("more entries than the walk's budget")
+
+// readDirBatch is how many entries a bounded walk reads at a time.
+const readDirBatch = 256
+
+// readDirBudget is readDir that, with a budget, reads the directory in
+// batches and takes each entry from *budget: once it is spent, it stops
+// with ErrTooManyEntries before the rest of the directory is read.
+func readDirBudget(root *os.Root, name string, budget *int) ([]fs.DirEntry, error) {
 	f, err := root.OpenFile(name, os.O_RDONLY|openNonBlock|openDirectory, 0)
 	if err != nil {
 		return nil, check(name, err)
 	}
 	defer func() { _ = f.Close() }()
-	entries, err := f.ReadDir(-1)
+	var entries []fs.DirEntry
+	if budget == nil {
+		entries, err = f.ReadDir(-1)
+	} else {
+		entries, err = readDirBatches(f, budget)
+		if errors.Is(err, ErrTooManyEntries) {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	}
 	slices.SortFunc(entries, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	if err != nil {
 		return entries, check(name, err)
 	}
 	return entries, nil
+}
+
+func readDirBatches(f *os.File, budget *int) ([]fs.DirEntry, error) {
+	var entries []fs.DirEntry
+	for {
+		batch, err := f.ReadDir(readDirBatch)
+		*budget -= len(batch)
+		if *budget < 0 {
+			return nil, ErrTooManyEntries
+		}
+		entries = append(entries, batch...)
+		if errors.Is(err, io.EOF) {
+			return entries, nil
+		}
+		if err != nil {
+			return entries, err
+		}
+	}
 }
 
 // WalkDir walks the tree below name like fs.WalkDir (same callback
@@ -383,6 +422,20 @@ func readDir(root *os.Root, name string) ([]fs.DirEntry, error) {
 // descriptors are held, deeper directories are opened from the workspace
 // root one at a time.
 func (r *Root) WalkDir(name string, fn fs.WalkDirFunc) error {
+	return r.walk(name, nil, fn)
+}
+
+// WalkDirBounded is WalkDir that reads at most maxEntries directory entries
+// in all: directories are read in batches, and once the budget is spent the
+// walk ends with an error wrapping ErrTooManyEntries, without holding the
+// rest of an oversized directory in memory (KI-152 review).
+func (r *Root) WalkDirBounded(name string, maxEntries int, fn fs.WalkDirFunc) error {
+	budget := maxEntries
+	return r.walk(name, &budget, fn)
+}
+
+// walk is WalkDir with an optional entry budget (nil: unbounded).
+func (r *Root) walk(name string, budget *int, fn fs.WalkDirFunc) error {
 	info, err := r.Stat(name)
 	if err != nil {
 		err = fn(name, nil, err)
@@ -393,7 +446,7 @@ func (r *Root) WalkDir(name string, fn fs.WalkDirFunc) error {
 				dir = nil // read through the workspace root instead
 			}
 		}
-		err = r.walkDir(name, fs.FileInfoToDirEntry(info), dir, 1, fn)
+		err = r.walkDir(name, fs.FileInfoToDirEntry(info), dir, 1, budget, fn)
 	}
 	if errors.Is(err, fs.SkipDir) || errors.Is(err, fs.SkipAll) {
 		return nil
@@ -402,8 +455,8 @@ func (r *Root) WalkDir(name string, fn fs.WalkDirFunc) error {
 }
 
 // walkDir is fs.WalkDir's walkDir; dir, when not nil, is the open directory
-// name (closed here).
-func (r *Root) walkDir(name string, d fs.DirEntry, dir *os.Root, held int, fn fs.WalkDirFunc) error {
+// name (closed here); budget, when not nil, bounds the entries read.
+func (r *Root) walkDir(name string, d fs.DirEntry, dir *os.Root, held int, budget *int, fn fs.WalkDirFunc) error {
 	if dir != nil {
 		defer func() { _ = dir.Close() }()
 	}
@@ -416,9 +469,12 @@ func (r *Root) walkDir(name string, d fs.DirEntry, dir *os.Root, held int, fn fs
 	var entries []fs.DirEntry
 	var err error
 	if dir != nil {
-		entries, err = readDir(dir, ".")
+		entries, err = readDirBudget(dir, ".", budget)
 	} else {
-		entries, err = r.ReadDir(name)
+		entries, err = readDirBudget(r.root, name, budget)
+	}
+	if errors.Is(err, ErrTooManyEntries) {
+		return err // ends the walk, whatever fn would do with the error
 	}
 	if err != nil {
 		// Second call, to report the ReadDir error.
@@ -435,7 +491,7 @@ func (r *Root) walkDir(name string, d fs.DirEntry, dir *os.Root, held int, fn fs
 		if entry.IsDir() {
 			child = r.openChild(dir, name, entry.Name(), held < maxHeldDirs)
 		}
-		if err := r.walkDir(childName, entry, child, held+1, fn); err != nil {
+		if err := r.walkDir(childName, entry, child, held+1, budget, fn); err != nil {
 			if errors.Is(err, fs.SkipDir) {
 				break
 			}
