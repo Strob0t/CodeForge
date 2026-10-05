@@ -178,6 +178,40 @@ class TextToolProtocol:
             '{"thought": "<one sentence>", "final": "<answer for the user>"} to finish.'
         )
 
+    def wire_messages(self, messages: list[dict[str, object]]) -> list[dict[str, object]]:
+        """The request messages for *messages* (OpenAI format, unchanged) as protocol text.
+
+        The first system message leads with the prompt section appended (one
+        is inserted if none exists), so the section is never stored and
+        survives plan/act suffix updates. Assistant tool calls become one
+        JSON object per call, plain answers a final object, tool results
+        <tool_result> user text; later system messages become "[System]"
+        user text and neighbouring messages of one role are merged. The
+        result alternates user and assistant after the system message and
+        has no tool_calls, tool_call_id or name keys, so earlier native
+        turns render the same way.
+        """
+        system_index = next((i for i, m in enumerate(messages) if m.get("role") == "system"), None)
+        system_text = _text_of(messages[system_index].get("content")) if system_index is not None else ""
+        wire: list[dict[str, object]] = [
+            {"role": "system", "content": f"{system_text}\n\n{self.prompt}" if system_text else self.prompt}
+        ]
+        call_names: dict[str, str] = {}
+        for index, msg in enumerate(messages):
+            if index == system_index:
+                continue
+            role = msg.get("role")
+            if role == "system":
+                _append_wire(wire, "user", f"[System] {_text_of(msg.get('content'))}")
+            elif role == "assistant":
+                _append_wire(wire, "assistant", _render_assistant(msg, call_names))
+            elif role == "tool":
+                _append_wire(wire, "user", _render_result(msg, call_names))
+            else:
+                content = msg.get("content")
+                _append_wire(wire, "user", content if isinstance(content, list) else _text_of(content))
+        return wire
+
 
 def _tools_from_openai(tools: list[dict[str, object]]) -> list[_Tool]:
     result: list[_Tool] = []
@@ -650,3 +684,89 @@ def _utf8_safe_value(value: object) -> object:
 def _new_call_id() -> str:
     """A call ID unique in practice (62^9 values), so the history sanitizer keeps every call."""
     return "".join(secrets.choice(_CALL_ID_ALPHABET) for _ in range(_CALL_ID_LENGTH))
+
+
+# --- wire messages ---
+
+_RESULT_END = re.compile(r"</tool_result", re.IGNORECASE)
+_UNSAFE_NAME_CHARS = re.compile(r"[^\w.:-]")
+
+WireContent = str | list[dict[str, object]]
+
+
+def _text_of(content: object) -> str:
+    """The text of a message content: a string, or the text parts of a content array."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(p.get("text", "")) for p in content if isinstance(p, dict) and p.get("type") == "text")
+    return ""
+
+
+def _append_wire(wire: list[dict[str, object]], role: str, content: WireContent) -> None:
+    """Append a message, merged into the previous one when it has the same role (never the system message)."""
+    if len(wire) > 1 and wire[-1]["role"] == role:
+        wire[-1] = {"role": role, "content": _merge_content(wire[-1]["content"], content)}
+        return
+    wire.append({"role": role, "content": content})
+
+
+def _merge_content(first: object, second: WireContent) -> WireContent:
+    """Text joined by a blank line; a content array (images) when either side is one."""
+    if isinstance(first, str) and isinstance(second, str):
+        return "\n\n".join(part for part in (first, second) if part)
+    return _as_parts(first) + _as_parts(second)
+
+
+def _as_parts(content: object) -> list[dict[str, object]]:
+    if isinstance(content, list):
+        return list(content)
+    text = content if isinstance(content, str) else ""
+    return [{"type": "text", "text": text}] if text else []
+
+
+def _render_assistant(msg: dict[str, object], call_names: dict[str, str]) -> str:
+    """An assistant message as the protocol objects the model would have sent."""
+    content = _text_of(msg.get("content"))
+    calls = msg.get("tool_calls")
+    if not isinstance(calls, list) or not calls:
+        return json.dumps({"thought": "", "final": content}, ensure_ascii=False)
+    objects: list[str] = []
+    for call in calls:
+        function = call.get("function") if isinstance(call, dict) else None
+        if not isinstance(function, dict):
+            continue
+        name = str(function.get("name") or "")
+        call_id = call.get("id")
+        if isinstance(call_id, str) and call_id:
+            call_names[call_id] = name
+        thought = content if not objects else ""
+        objects.append(
+            json.dumps(
+                {"thought": thought, "tool": name, "args": _wire_args(function.get("arguments"))}, ensure_ascii=False
+            )
+        )
+    return "\n".join(objects)
+
+
+def _wire_args(raw: object) -> object:
+    """Stored arguments (a JSON string) as JSON; text that does not decode stays text."""
+    if not isinstance(raw, str):
+        return raw if raw is not None else {}
+    if not raw.strip():
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def _render_result(msg: dict[str, object], call_names: dict[str, str]) -> str:
+    """A tool result as <tool_result> text; a closing tag in the output cannot end the frame."""
+    name = msg.get("name")
+    if not isinstance(name, str) or not name:
+        call_id = msg.get("tool_call_id")
+        name = call_names.get(call_id, "") if isinstance(call_id, str) else ""
+    label = _UNSAFE_NAME_CHARS.sub("_", name) or "unknown"
+    output = _RESULT_END.sub(lambda m: "<\\/" + m.group(0)[2:], _text_of(msg.get("content")))
+    return f'<tool_result tool="{label}">\n{output}\n</tool_result>'
