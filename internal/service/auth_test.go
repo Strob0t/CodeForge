@@ -1123,3 +1123,33 @@ func TestAuthService_ChangePassword_WeakNew(t *testing.T) {
 		t.Fatal("expected error for weak new password")
 	}
 }
+
+// A disabled user's API keys stop working with the account (S9-A review).
+func TestAuthService_ValidateAPIKey_DisabledUser(t *testing.T) {
+	store := &mockStore{}
+	svc := newTestAuthService(store)
+	ctx := context.Background()
+
+	u, _, _ := registerAndLogin(t, svc, "disabledkey@test.com", "Password123")
+	resp, err := svc.CreateAPIKey(ctx, u.ID, user.CreateAPIKeyRequest{Name: "key"})
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+	if _, _, err := svc.ValidateAPIKey(ctx, resp.PlainKey); err != nil {
+		t.Fatalf("key of an enabled user: %v", err)
+	}
+
+	if _, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Enabled: ptrTo(false)}); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if _, _, err := svc.ValidateAPIKey(ctx, resp.PlainKey); err == nil {
+		t.Fatal("the key of a disabled user must be refused")
+	}
+
+	if _, err := svc.UpdateUser(ctx, u.ID, user.UpdateRequest{Enabled: ptrTo(true)}); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if _, _, err := svc.ValidateAPIKey(ctx, resp.PlainKey); err != nil {
+		t.Fatalf("the key works again once the user is enabled: %v", err)
+	}
+}

@@ -86,5 +86,10 @@ func (m *APIKeyManager) ValidateAPIKey(ctx context.Context, rawKey string) (*use
 	if err != nil {
 		return nil, nil, fmt.Errorf("get user: %w", err)
 	}
+	// A disabled account's keys stop working with it; they work again once
+	// the account is enabled.
+	if !u.Enabled {
+		return nil, nil, errors.New("account is disabled")
+	}
 	return u, apiKey, nil
 }
