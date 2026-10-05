@@ -61,7 +61,9 @@ _EXECUTOR_NAME = "claude-code-cli"
 # directory of the previous call, and the policy, which resolves a call's
 # relative redirection targets against the workspace, would place
 # `echo x > aws.key` after an earlier `cd secrets` in the wrong directory.
-_CLI_FIXED_ENV = {"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"}
+# The worker image pins the CLI (KI-118): it must not install another
+# version into the tenant's HOME.
+_CLI_FIXED_ENV = {"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1", "DISABLE_AUTOUPDATER": "1"}
 
 # The CLI's own credentials and settings; it gets nothing else from the worker
 # except the fixed settings above and the policy socket and token of its run.

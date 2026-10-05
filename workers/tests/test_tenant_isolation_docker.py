@@ -11,7 +11,8 @@ project (fresh volumes) and removes it.
 - the image: 10,001 generated tool users, no subordinate IDs, the layout;
 - two tenants (tests.tool_isolation_check): credentials, what each tool
   process is denied, what it can still do, no secret on a command line;
-- what agents run (the battery; toolchains with the battery image);
+- what agents run (the battery; toolchains with the battery image) and the
+  agent backend CLIs of the image (KI-118);
 - the host preflight (scripts/check-host.sh) passes here and fails closed
   without Landlock, with Landlock off in production, with the KI-71 compose
   file, with a tmpfs HOME and without POSIX ACLs; the real worker then
@@ -259,6 +260,14 @@ def test_what_agents_run_works_confined(stack: Stack) -> None:
         assert outcome.report.get("problems") == [], outcome.output[-4000:]
         if image == BATTERY_IMAGE:
             assert len(outcome.report["toolchains"]) == 4, outcome.report
+
+
+def test_the_backend_clis_run_as_a_tenants_tool_user(stack: Stack) -> None:
+    """KI-118: the image's agent backend CLIs are found on the tool PATH and run confined."""
+    outcome = stack.check("backends")
+    _record("backends", outcome.report)
+    assert outcome.report.get("problems") == [], outcome.output[-4000:]
+    assert outcome.code == 0
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,33 @@ COPY workers/ workers/
 
 RUN poetry install --only main --no-interaction --no-ansi
 
+# --- Agent backend CLIs (KI-118) ---
+# The backends' CLIs, each pinned and verified: Aider from hash-locked wheels
+# (workers/aider-requirements.txt) in a virtual environment of its own below
+# /usr/local; Claude Code and OpenCode as the native binaries of their npm
+# platform packages (the tarballs' sha256; npm's sha512 integrity matched
+# when the pins were recorded); Goose from Block's multi-arch image by
+# digest (Block publishes no versioned image after 1.29.0; a newer Goose
+# needs its GitHub release archive and checksum). Plandex, SWE-agent and
+# OpenHands are not installed (workers/tests/test_backend_clis.py says why).
+FROM python:3.12-slim AS aider
+RUN --mount=type=bind,source=workers/aider-requirements.txt,target=/tmp/aider-requirements.txt \
+    python -m venv /usr/local/lib/codeforge-backends/aider && \
+    /usr/local/lib/codeforge-backends/aider/bin/python -m pip install --no-cache-dir --disable-pip-version-check \
+        --require-hashes --only-binary=:all: -r /tmp/aider-requirements.txt
+
+FROM ghcr.io/block/goose:1.29.0@sha256:3554583b63d9513d88417922c83a7781fab5b6ae0ec98341dd56e5a3e780d2af AS goose
+
+FROM scratch AS backend-clis-amd64
+ADD --checksum=sha256:50a6eb433422febcfa7b7ac1e78ba795cdf79f1fe58f017fb1d9aeb9491b337d https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.289.tgz /claude-code.tgz
+ADD --checksum=sha256:585bc53a8ae7e839b8702752a283ba826e1ca2152e8c14188efc5b6a738d9834 https://registry.npmjs.org/opencode-linux-x64-baseline/-/opencode-linux-x64-baseline-1.18.34.tgz /opencode.tgz
+
+FROM scratch AS backend-clis-arm64
+ADD --checksum=sha256:45ad1d2f955ebe14ffdbc651e86ca713063e63b616b41a184c93be89c28e5fb4 https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.289.tgz /claude-code.tgz
+ADD --checksum=sha256:6f212b830b26bf72012f1665559ddb5fd7e928294971d3d1c99a0f9097a3d311 https://registry.npmjs.org/opencode-linux-arm64/-/opencode-linux-arm64-1.18.34.tgz /opencode.tgz
+
+FROM backend-clis-${TARGETARCH} AS backend-clis
+
 # --- Runtime stage ---
 FROM python:3.12-slim
 
@@ -32,7 +59,7 @@ LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}"
 
 # acl: setfacl/getfacl for operators and scripts/check-host.sh (the worker
-# itself sets ACLs through xattrs, codeforge.posix_acl). Tool processes run
+# itself sets ACLs through xattrs, codeforge.posix_acl); libgomp1 for goose. Tool processes run
 # the system interpreter, never the worker's venv (a venv interpreter cannot
 # run under Landlock): the Python tools they need (workers/tool-requirements.txt:
 # pytest and ruff for the default quality gates of Python projects and the
@@ -43,7 +70,7 @@ LABEL org.opencontainers.image.version="${APP_VERSION}" \
 # 80 ms per launch uncompiled, 24 ms compiled.
 RUN --mount=type=bind,source=workers/tool-requirements.txt,target=/tmp/tool-requirements.txt \
     apt-get update && \
-    apt-get install -y --no-install-recommends git acl && \
+    apt-get install -y --no-install-recommends git acl libgomp1 && \
     rm -rf /var/lib/apt/lists/* && \
     python -m pip install --no-cache-dir --root-user-action=ignore --disable-pip-version-check \
         --require-hashes --only-binary=:all: -r /tmp/tool-requirements.txt && \
@@ -97,6 +124,29 @@ COPY --from=build /app/workers /app/workers
 COPY --from=build /app/VERSION /app/VERSION
 COPY --from=build /app/pyproject.toml /app/pyproject.toml
 COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
+
+# Agent backend CLIs (KI-118): on the tool PATH (/usr/local/bin) and below
+# /usr, which Landlock lets tool processes read and execute. Like every tool
+# they start only through codeforge.tool_process, as the tenant's tool user;
+# they write their settings and caches to that user's HOME.
+COPY --from=aider /usr/local/lib/codeforge-backends/aider /usr/local/lib/codeforge-backends/aider
+COPY --from=goose /usr/local/bin/goose /usr/local/bin/goose
+RUN --mount=type=bind,from=backend-clis,target=/tmp/backend-clis \
+    tar -xzf /tmp/backend-clis/claude-code.tgz -C /usr/local/bin --strip-components=1 --no-same-owner package/claude && \
+    tar -xzf /tmp/backend-clis/opencode.tgz -C /usr/local/bin --strip-components=2 --no-same-owner package/bin/opencode && \
+    chmod 0755 /usr/local/bin/claude /usr/local/bin/opencode && \
+    ln -s ../lib/codeforge-backends/aider/bin/aider /usr/local/bin/aider
+
+# The pinned CLIs do not update themselves (the root is read-only, and a
+# tenant's HOME must not get another version), aider sends no analytics (its
+# --yes-always would accept the opt-in question), and goose keeps its
+# secrets in its config file: the container has no keyring. Their executors
+# pass these to the tool processes (AIDER_, OPENCODE_, GOOSE_ prefixes);
+# Claude Code gets DISABLE_AUTOUPDATER from its executor.
+ENV AIDER_ANALYTICS_DISABLE=true \
+    AIDER_CHECK_UPDATE=false \
+    OPENCODE_DISABLE_AUTOUPDATE=true \
+    GOOSE_DISABLE_KEYRING=1
 COPY --chmod=0755 scripts/worker-entrypoint.sh /app/scripts/worker-entrypoint.sh
 
 # The worker's own PATH. Tool processes never get it (a venv interpreter

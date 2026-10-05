@@ -1,0 +1,166 @@
+"""The agent backend CLIs of the standard worker image (KI-118).
+
+Owner decision (2026-10-04): the backend CLIs go into the standard worker
+image. Dockerfile.worker installs each pinned and verified: Aider from
+hash-locked wheels (workers/aider-requirements.txt) in its own virtual
+environment, Claude Code and OpenCode as the native binaries of their npm
+platform packages (sha256 of each tarball), Goose from Block's multi-arch
+image by digest. They live below /usr, which Landlock lets tool processes
+read and execute, and on the tool PATH (CODEFORGE_TOOL_PATH), where the
+worker's backend executors look them up; they start, like every tool, only
+through codeforge.tool_process as the tenant's tool user. Every backend the
+worker registers is shipped or listed in NOT_SHIPPED with the reason. The
+Docker suite runs each shipped CLI as a tenant's tool user in the built image
+(docker_isolation_checks "backends").
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import yaml
+
+from codeforge.backends import build_default_router
+from codeforge.backends.opencode import OpenCodeExecutor
+from codeforge.config import WorkerSettings
+from codeforge.tool_identity import DEFAULT_TOOL_PATH
+
+if TYPE_CHECKING:
+    import pytest
+
+REPO = Path(__file__).resolve().parents[2]
+DOCKERFILE = (REPO / "Dockerfile.worker").read_text()
+AIDER_REQUIREMENTS = REPO / "workers" / "aider-requirements.txt"
+
+# Backend name -> the CLI the image installs.
+SHIPPED = {
+    "aider": "/usr/local/bin/aider",
+    "claudecode": "/usr/local/bin/claude",
+    "goose": "/usr/local/bin/goose",
+    "opencode": "/usr/local/bin/opencode",
+}
+NOT_SHIPPED = {
+    "openhands": "an HTTP service of its own (CODEFORGE_OPENHANDS_URL), not a CLI",
+    "plandex": "needs a Plandex server and an interactive sign-in per HOME; plandex 2.2.1 (upstream inactive "
+    "since 2025-10) has no `tell --yes` or `--model`, which its executor passes",
+    "sweagent": "no Go adapter dispatches tasks to it, and it runs its tasks in Docker",
+}
+
+
+def _stage(name: str) -> str:
+    match = re.search(rf"^FROM [^\n]+ AS {re.escape(name)}\n(.*?)(?=^FROM |\Z)", DOCKERFILE, re.MULTILINE | re.DOTALL)
+    assert match, f"Dockerfile.worker has no stage {name}"
+    return match.group(1)
+
+
+def _runtime() -> str:
+    return DOCKERFILE.split("# --- Runtime stage ---", 1)[1]
+
+
+def test_every_registered_backend_is_shipped_or_explained() -> None:
+    registered = {*build_default_router().available_backends(), "claudecode"}
+
+    assert registered == set(SHIPPED) | set(NOT_SHIPPED)
+    assert not set(SHIPPED) & set(NOT_SHIPPED)
+
+
+def test_the_executors_find_the_shipped_clis_on_the_tool_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    for variable in (
+        "CODEFORGE_AIDER_PATH",
+        "CODEFORGE_GOOSE_PATH",
+        "CODEFORGE_OPENCODE_PATH",
+        "CODEFORGE_CLAUDECODE_PATH",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+    router = build_default_router()
+    commands = {name: router.get(name).info.cli_command for name in SHIPPED if router.get(name)}  # type: ignore[union-attr]
+    commands["claudecode"] = WorkerSettings().claudecode_path
+    tool_path = DEFAULT_TOOL_PATH.split(":")
+
+    for name, path in SHIPPED.items():
+        assert os.path.dirname(path) in tool_path, name
+        assert os.path.basename(path) == commands[name], (
+            f"{name}: the executor runs {commands[name]!r}, the image installs {path}"
+        )
+        assert path.startswith("/usr/"), f"{name}: Landlock lets tool processes execute below /usr only"
+
+
+def test_the_runtime_stage_installs_each_shipped_cli() -> None:
+    runtime = _runtime()
+    assert (
+        "COPY --from=aider /usr/local/lib/codeforge-backends/aider /usr/local/lib/codeforge-backends/aider" in runtime
+    )
+    assert "ln -s ../lib/codeforge-backends/aider/bin/aider /usr/local/bin/aider" in runtime
+    assert "COPY --from=goose /usr/local/bin/goose /usr/local/bin/goose" in runtime
+    assert re.search(r"apt-get install[^&]*\blibgomp1\b", runtime), "goose links libgomp"
+    assert "-C /usr/local/bin --strip-components=1 --no-same-owner package/claude" in runtime
+    assert "-C /usr/local/bin --strip-components=2 --no-same-owner package/bin/opencode" in runtime
+    assert "--mount=type=bind,from=backend-clis,target=/tmp/backend-clis" in runtime
+    # The tool processes' environment turns off the CLIs' self-updates and
+    # analytics, and goose's keyring (none in the container).
+    for setting in (
+        "AIDER_ANALYTICS_DISABLE=true",
+        "AIDER_CHECK_UPDATE=false",
+        "OPENCODE_DISABLE_AUTOUPDATE=true",
+        "GOOSE_DISABLE_KEYRING=1",
+    ):
+        assert setting in runtime, setting
+
+
+def test_downloads_are_pinned_and_checksummed() -> None:
+    assert "FROM backend-clis-${TARGETARCH} AS backend-clis" in DOCKERFILE
+    versions: dict[str, set[str]] = {}
+    for arch, npm_arch in (("amd64", "x64"), ("arm64", "arm64")):
+        stage = _stage(f"backend-clis-{arch}")
+        adds = re.findall(r"^ADD --checksum=sha256:([0-9a-f]{64}) (\S+) (\S+)$", stage, re.MULTILINE)
+        assert {target for _, _, target in adds} == {"/claude-code.tgz", "/opencode.tgz"}, stage
+        assert len(adds) == len(stage.strip().splitlines()), "every line of the stage is a checksummed download"
+        for _, url, target in adds:
+            match = re.fullmatch(r"https://registry\.npmjs\.org/(\S+)/-/(\S+)-(\d+\.\d+\.\d+)\.tgz", url)
+            assert match, url
+            assert npm_arch in match.group(1), f"{arch}: {url}"
+            versions.setdefault(target, set()).add(match.group(3))
+    assert all(len(v) == 1 for v in versions.values()), f"both architectures get the same version: {versions}"
+    assert re.search(
+        r"^FROM ghcr\.io/block/goose:\d+\.\d+\.\d+@sha256:[0-9a-f]{64} AS goose$", DOCKERFILE, re.MULTILINE
+    )
+    assert not re.search(r"curl[^\n]*\|\s*(ba)?sh|npm install|:latest|releases/latest", DOCKERFILE)
+
+
+def test_aider_is_hash_locked() -> None:
+    stage = _stage("aider")
+    assert "python -m venv /usr/local/lib/codeforge-backends/aider" in stage
+    assert "--require-hashes --only-binary=:all: -r /tmp/aider-requirements.txt" in stage
+    text = AIDER_REQUIREMENTS.read_text()
+    requirements = re.findall(r"^([a-z0-9][a-z0-9._-]*)==(\S+) \\$", text, re.MULTILINE)
+    assert ("aider-chat", "0.86.2") in requirements
+    assert len(requirements) > 50, "every dependency is listed (pip --require-hashes)"
+    blocks = re.split(r"^(?=[a-z0-9])", text, flags=re.MULTILINE)
+    for block in blocks:
+        if block.startswith("#") or not block.strip():
+            continue
+        assert re.search(r"--hash=sha256:[0-9a-f]{64}", block), block[:80]
+
+
+def test_opencode_gets_the_prompt_as_its_message() -> None:
+    """`opencode run` takes the message as positionals (there is no --prompt); after -- a prompt is never an option."""
+    cmd = OpenCodeExecutor(cli_path="opencode")._build_command(
+        "-fix the bug", {"model": "openai/gpt-4o", "extra_args": ["--auto"]}
+    )
+
+    assert cmd == ["opencode", "run", "--model", "openai/gpt-4o", "--auto", "--", "-fix the bug"]
+
+
+def test_egress_is_an_explicit_override() -> None:
+    """The production worker has no route out; docker-compose.egress.yml adds one, to the worker only."""
+    prod = yaml.safe_load((REPO / "docker-compose.prod.yml").read_text())
+    override = yaml.safe_load((REPO / "docker-compose.egress.yml").read_text())
+
+    assert prod["services"]["worker"]["networks"] == ["internal"]
+    assert prod["networks"]["internal"]["internal"] is True
+    assert prod["networks"]["egress"].get("internal") is not True
+    assert set(override) == {"services"}
+    assert override["services"] == {"worker": {"networks": ["internal", "egress"]}}

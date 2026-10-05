@@ -689,10 +689,17 @@ class TestRunWithFakeCli:
 
         (env,) = seen
         base = tool_env(passthrough=cce._CLAUDE_CLI_ENV)
-        assert set(env) - set(base) == {hook.SOCKET_ENV, hook.TOKEN_ENV, "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"}
+        assert set(env) - set(base) == {
+            hook.SOCKET_ENV,
+            hook.TOKEN_ENV,
+            "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR",
+            "DISABLE_AUTOUPDATER",
+        }
         assert {k: v for k, v in env.items() if k in base} == base
         # Bash starts every call in the workspace (S6-G review, item 1).
         assert env["CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"] == "1"
+        # The image pins the CLI (KI-118): it never installs another version.
+        assert env["DISABLE_AUTOUPDATER"] == "1"
         assert env["ANTHROPIC_API_KEY"] == "sk-test"
         assert "DATABASE_URL" not in env
         assert "CODEFORGE_INTERNAL_KEY" not in env

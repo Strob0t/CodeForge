@@ -20,6 +20,9 @@ Commands (each prints one ``CF-REPORT <json>`` line, exits 1 on a problem):
   (also through the quality gate's executor: the default gate commands of
   Python projects and the auto-agent's workspace test); node/npm/npx, go
   test and java when the image has them (the battery image).
+- ``backends``: the agent backend CLIs of the image (KI-118): the executors
+  find them on the tool PATH, Claude Code's has every option its executor
+  uses, and each runs as tenant A's tool user under Landlock.
 - ``refused-call``: a tool call when isolation is not ready starts nothing.
 - ``migration``: a tree the KI-71 worker left (files of 10002, hard links
   into another tenant's tree, planted ACL entries) is migrated (D9); a
@@ -53,6 +56,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from codeforge import posix_acl, tool_migration, tool_state
+from codeforge.backends import build_default_router
+from codeforge.claude_code_executor import ClaudeCodeCLIError, resolve_cli
 from codeforge.config import get_settings
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_identity import ToolIdentity, ToolIsolationError, accept_identity, tool_tenant, use_identity
@@ -322,6 +327,42 @@ async def _battery() -> int:
                 problems.append(f"{name}: exit {code} {out[-300:]!r}")
         problems += await _gate_commands(f"{workspace}/gates-{identity.work_id}", report)
     report["toolchains"] = [name for name in TOOLCHAINS if report[name] != "absent"]
+    return _emit(report, problems)
+
+
+# The backend CLIs the image ships (workers/tests/test_backend_clis.py): the
+# executors that find them, and what each prints for --version.
+BACKEND_EXECUTORS = ("aider", "goose", "opencode")
+BACKEND_VERSIONS: dict[str, tuple[str, str]] = {
+    "aider": ("aider --version", "aider 0.86.2"),
+    "claude": ("claude --version", "2.1.289 (Claude Code)"),
+    "goose": ("goose --version", "1.29.0"),
+    "opencode": ("opencode --version", "1.18.34"),
+}
+
+
+async def _backends() -> int:
+    config = _ready()
+    report: Report = {}
+    problems: list[str] = []
+    router = build_default_router()
+    for name in BACKEND_EXECUTORS:
+        executor = router.get(name)
+        available = executor is not None and await executor.check_available()
+        report[f"{name} executor finds its CLI"] = available
+        if not available:
+            problems.append(f"{name}: the executor does not find its CLI on the tool PATH")
+    try:
+        report["claude code cli"] = await resolve_cli(get_settings().claudecode_path)
+    except ClaudeCodeCLIError as exc:
+        problems.append(f"claude: {exc}")
+    workspace = make_tenant_dir(config.workspace_root, TENANT_A, UID_A)
+    async with tool_tenant(TENANT_A, UID_A, workspace):
+        for name, (command, expected) in BACKEND_VERSIONS.items():
+            code, out = await _sh(command, workspace)
+            report[command] = f"exit {code}: {out[-300:]}"
+            if code != 0 or expected not in out:
+                problems.append(f"{name}: exit {code} {out[-300:]!r}")
     return _emit(report, problems)
 
 
@@ -748,6 +789,7 @@ def main(argv: list[str]) -> int:
         return scale_seed(int(args[0]))
     runners = {
         "battery": _battery,
+        "backends": _backends,
         "refused-call": _refused_call,
         "migration": _migration,
         "scale-migrate": _scale_migrate,

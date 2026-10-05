@@ -1,0 +1,26 @@
+# Egress for the worker (KI-118). Usage, with docker-compose.prod.yml:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.egress.yml up -d
+#
+# In docker-compose.prod.yml the worker is on the "internal" network only: it
+# reaches NATS, the Go Core and LiteLLM, nothing else. That is enough for the
+# built-in agent loop and for agent backends pointed at LiteLLM, which serves
+# an OpenAI- and Anthropic-compatible API at http://litellm:4000 (for example
+# aider's openai_api_base, or ANTHROPIC_BASE_URL and a LiteLLM key in a
+# backend's extra_env).
+#
+# This file adds the "egress" network, the route out LiteLLM uses, to the
+# worker, for what needs the internet itself:
+#   - agent backends that call their providers directly (Claude Code with an
+#     Anthropic account, aider, goose or opencode with their own API keys);
+#   - external MCP servers over HTTP (public addresses; private ones need
+#     mcp.allowed_private_hosts) and stdio MCP servers that call out;
+#   - package installs by agents (pip, npm), benchmark dataset downloads and
+#     an OpenHands server outside this compose project.
+# It gives every tool process of every tenant that route: an agent can then
+# send what its workspace holds anywhere. Enable it only when the
+# deployment's tenants may do that.
+services:
+  worker:
+    networks:
+      - internal
+      - egress
