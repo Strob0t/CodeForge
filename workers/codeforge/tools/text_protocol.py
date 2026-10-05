@@ -111,7 +111,12 @@ _MISSING = object()
 
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 _PROSE_TAIL = re.compile(r"(?:```[\w-]*|<tool_call>|\[)\s*$")
-_CALL_HINT = re.compile(r'"(?:tool|function|action|final|args|arguments|thought)"\s*:|<tool_call>')
+# A reply that looks like a call without a usable object: protocol keys (also
+# single-quoted), a <tool_call> block or ReAct's "Action Input:" line.
+_CALL_HINT = re.compile(
+    r"""["'](?:tool|function|action|final|args|arguments|thought)["']\s*:|<tool_call>|^\s*Action Input\s*:""",
+    re.MULTILINE,
+)
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 _CUT_OFF = (
@@ -512,7 +517,9 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
         return TextProtocolError("the reply ended inside a <think> block without a JSON object")
     if _CALL_HINT.search(window):
         detail = f" ({decode_error})" if decode_error else ""
-        return TextProtocolError(f"the JSON object could not be read{detail}; check its quotes, commas and brackets")
+        return TextProtocolError(
+            f"the tool call could not be read{detail}; write it as one JSON object with double quotes"
+        )
     return TextFinal(content=_utf8_safe(body.strip()))
 
 

@@ -253,6 +253,18 @@ def test_parse(text: str, expected: TextToolCall | TextFinal) -> None:
             "could not be read",
             id="broken-tool-call-block",
         ),
+        pytest.param(
+            "{'thought': 'I read it.', 'tool': 'read_file', 'args': {'file_path': 'a.py'}}",
+            False,
+            "could not be read",
+            id="single-quoted-call",
+        ),
+        pytest.param(
+            'Thought: I read it.\nAction: read_file\nAction Input: {"file_path": "a.py"}',
+            False,
+            "could not be read",
+            id="react-call",
+        ),
     ],
 )
 def test_parse_errors(text: str, truncated: bool, fragment: str) -> None:
