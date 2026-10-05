@@ -21,7 +21,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${1:-${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:latest}}"
+IMAGE="${1:-${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:$(tr -d '[:space:]' < "$ROOT/VERSION")}}"
 RUN_ID="cf-isolation-check-$$-$(date +%s)"
 
 TMP="$(mktemp -d)"

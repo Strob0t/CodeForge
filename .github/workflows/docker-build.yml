@@ -12,7 +12,49 @@ env:
   IMAGE_PREFIX: ${{ github.repository_owner }}/codeforge
 
 jobs:
+  # A v* tag releases the version in VERSION (KI-116): it must name that
+  # version and point at a commit on main, else nothing is built. Such a tag
+  # (not a prerelease) builds the images as <version>, <major>.<minor> and
+  # "latest"; docker-compose.prod.yml pins <version> (scripts/sync-version.sh).
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      latest: ${{ steps.check.outputs.latest }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # the history of main, for the ancestry check
+
+      - name: Check the release tag
+        id: check
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not name the version in VERSION ($version)"
+            exit 1
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag $TAG does not point at a commit on main"
+            exit 1
+          fi
+          case "$version" in
+            *-*) echo "latest=false" >> "$GITHUB_OUTPUT" ;; # a prerelease
+            *) echo "latest=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   build-core:
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,12 +81,16 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-core
+          # Branch pushes: the branch name and the commit SHA. The version
+          # tags and "latest" come only from a release tag (release job).
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
 
@@ -80,6 +126,7 @@ jobs:
           push-to-registry: true
 
   build-worker:
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -106,12 +153,16 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-worker
+          # Branch pushes: the branch name and the commit SHA. The version
+          # tags and "latest" come only from a release tag (release job).
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
 
@@ -147,6 +198,7 @@ jobs:
           push-to-registry: true
 
   build-frontend:
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -173,12 +225,16 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
+          # Branch pushes: the branch name and the commit SHA. The version
+          # tags and "latest" come only from a release tag (release job).
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
-            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.ref_type != 'tag' }}
+            type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
 

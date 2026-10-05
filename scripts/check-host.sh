@@ -23,7 +23,7 @@
 # <root>/.codeforge); a worker of the older image keeps working with them.
 #
 # Environment: WORKER_IMAGE (the image docker-compose.prod.yml runs, default
-# ghcr.io/strob0t/codeforge-worker:latest), SECRETS_DIR and
+# ghcr.io/strob0t/codeforge-worker:<VERSION>), SECRETS_DIR and
 # COMPOSE_PROJECT_NAME as for the deployment. Extra arguments are compose
 # options placed before `run` (for example -f docker-compose.blue-green.yml).
 set -euo pipefail
@@ -38,7 +38,7 @@ else
     echo "host LSMs: unknown (/sys/kernel/security/lsm is not readable here)"
 fi
 echo "docker engine: $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unknown)"
-echo "worker image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:latest}"
+echo "worker image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:$(tr -d '[:space:]' < VERSION)}"
 
 exec docker compose -f docker-compose.prod.yml "$@" \
     run --rm --no-deps -T worker python -m codeforge.host_check

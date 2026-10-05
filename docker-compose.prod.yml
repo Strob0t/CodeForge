@@ -4,6 +4,13 @@
 #   ./scripts/validate-env.sh                  # pre-flight check of the secrets
 #   docker compose -f docker-compose.prod.yml up -d
 #
+# Images: the core, worker and frontend images default to the released
+# version in VERSION (scripts/sync-version.sh writes it; a v* tag on main
+# publishes it, KI-116). CORE_IMAGE, WORKER_IMAGE and FRONTEND_IMAGE choose
+# others, e.g. the branch builds ghcr.io/strob0t/codeforge-core:main; with
+# `docker compose -f docker-compose.prod.yml build` the images are built from
+# this checkout under the same names.
+#
 # Secret Management:
 #   Secrets are Docker secret files from ${SECRETS_DIR:-./secrets}, mounted at
 #   /run/secrets/<name>. Services get the file paths (*_FILE), never the values,
@@ -234,7 +241,7 @@ services:
   # --- Application ---
 
   core:
-    image: ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:latest}
+    image: ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:0.8.0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -310,7 +317,7 @@ services:
     logging: *default-logging
 
   worker:
-    image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:latest}
+    image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:0.8.0}
     build:
       context: .
       dockerfile: Dockerfile.worker
@@ -397,7 +404,7 @@ services:
     logging: *default-logging
 
   frontend:
-    image: ${FRONTEND_IMAGE:-ghcr.io/strob0t/codeforge-frontend:latest}
+    image: ${FRONTEND_IMAGE:-ghcr.io/strob0t/codeforge-frontend:0.8.0}
     build:
       context: .
       dockerfile: Dockerfile.frontend
