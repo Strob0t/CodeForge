@@ -545,13 +545,14 @@ func (m *mockStore) ListUsers(_ context.Context, tenantID string) ([]user.User, 
 // UpdateUser keeps the stored token epoch, like the PostgreSQL store.
 func (m *mockStore) UpdateUser(_ context.Context, u *user.User) error {
 	for i := range m.users {
-		if m.users[i].ID == u.ID {
-			epoch := m.users[i].TokenEpoch
-			m.users[i] = *u
-			m.users[i].TokenEpoch = epoch
-			u.TokenEpoch = epoch
-			return nil
+		if m.users[i].ID != u.ID {
+			continue
 		}
+		epoch := m.users[i].TokenEpoch
+		m.users[i] = *u
+		m.users[i].TokenEpoch = epoch
+		u.TokenEpoch = epoch
+		return nil
 	}
 	return domain.ErrNotFound
 }
