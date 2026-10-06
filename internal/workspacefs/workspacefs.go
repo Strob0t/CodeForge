@@ -34,6 +34,7 @@
 package workspacefs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +54,9 @@ var (
 	ErrNotRegular = errors.New("not a regular file")
 	// ErrTooLarge marks a file over the caller's size cap.
 	ErrTooLarge = errors.New("file too large")
+	// ErrContentChanged marks a file that no longer holds the content a
+	// caller expected (PatchFile).
+	ErrContentChanged = errors.New("file content changed")
 )
 
 // rootEscapeMessage is the text of os.Root's unexported escape error
@@ -302,6 +306,56 @@ func (r *Root) CreateExclusive(name string, data []byte, perm fs.FileMode) error
 		return check(name, err)
 	}
 	return writeChecked(name, f, data, false)
+}
+
+// PatchFile overwrites, in place, the bytes in which after differs from
+// before in the regular file name, if the file holds exactly before
+// (ErrContentChanged otherwise). The file is opened once read-write: its
+// content is compared and the changed bytes are written through that one
+// descriptor, and the file is never truncated, so it keeps its length and
+// every byte that did not change. after must be as long as before.
+func (r *Root) PatchFile(name string, before, after []byte) (err error) {
+	if len(after) != len(before) {
+		return fmt.Errorf("patch %s: %d bytes replace %d", name, len(after), len(before))
+	}
+	f, err := r.root.OpenFile(name, os.O_RDWR|openNonBlock, 0)
+	if err != nil {
+		return check(name, err)
+	}
+	defer func() {
+		if closeErr := f.Close(); err == nil && closeErr != nil {
+			err = check(name, closeErr)
+		}
+	}()
+	info, err := f.Stat()
+	if err != nil {
+		return check(name, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s", ErrNotRegular, name)
+	}
+	current, err := io.ReadAll(io.LimitReader(f, int64(len(before))+1))
+	if err != nil {
+		return check(name, err)
+	}
+	if !bytes.Equal(current, before) {
+		return fmt.Errorf("%w: %s", ErrContentChanged, name)
+	}
+	for start := 0; start < len(after); {
+		if after[start] == before[start] {
+			start++
+			continue
+		}
+		end := start + 1
+		for end < len(after) && after[end] != before[end] {
+			end++
+		}
+		if _, err := f.WriteAt(after[start:end], int64(start)); err != nil {
+			return check(name, err)
+		}
+		start = end
+	}
+	return nil
 }
 
 func writeChecked(name string, f *os.File, data []byte, truncate bool) error {

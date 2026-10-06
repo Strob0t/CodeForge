@@ -286,18 +286,17 @@ func (s *RoadmapService) patchSpecFile(
 	return specFilePatch{path: path, before: content, after: after, checked: checked}, nil
 }
 
-// writeUnchangedSpecFile writes the patched content of a spec file if the
-// file still holds the content the patch was made from.
+// writeUnchangedSpecFile writes the changed marker bytes of a spec file in
+// place if the file still holds the content the patch was made from. The
+// file is compared and written through one descriptor and never truncated
+// (a patch keeps the file's length), so a concurrent reader or writer never
+// sees it empty or half rewritten.
 func writeUnchangedSpecFile(ws *workspacefs.Root, p specFilePatch) error {
-	current, _, err := ws.ReadFile(p.path, specprovider.MaxSpecBytes)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", p.path, err)
-	}
-	if !bytes.Equal(current, p.before) {
+	err := ws.PatchFile(p.path, p.before, p.after)
+	if errors.Is(err, workspacefs.ErrContentChanged) {
 		return fmt.Errorf("%w: %s changed while it was synced; import the specs again", domain.ErrConflict, p.path)
 	}
-	// Shared with the worker's tool user (KI-71).
-	if err := ws.WriteFile(p.path, p.after, project.WorkspaceFilePerm); err != nil {
+	if err != nil {
 		return fmt.Errorf("write %s: %w", p.path, err)
 	}
 	return nil

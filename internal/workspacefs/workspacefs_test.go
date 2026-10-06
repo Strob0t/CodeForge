@@ -243,6 +243,61 @@ func TestWriteFile(t *testing.T) {
 	}
 }
 
+// PatchFile writes, in place through one read-write descriptor, only the
+// bytes that differ, and only while the file holds exactly the expected
+// content (KI-203: "Sync to file" never truncates and rewrites a spec file).
+func TestPatchFile(t *testing.T) {
+	ws, out := tree(t)
+	mustSymlink(t, "../out/secret.txt", filepath.Join(ws, "leak.txt"))
+	if err := syscall.Mkfifo(filepath.Join(ws, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const before, after = "- [ ] a\n- [x] b\n", "- [x] a\n- [ ] b\n"
+	mustWrite(t, filepath.Join(ws, "TODO.md"), before)
+	r := mustOpen(t, ws)
+
+	if err := r.PatchFile("TODO.md", []byte(before), []byte(after)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, "TODO.md")); string(got) != after { //nolint:gosec // test file
+		t.Fatalf("patched: %q", got)
+	}
+
+	tests := []struct {
+		name          string
+		file          string
+		before, after string
+		wantErr       error
+	}{
+		{"content changed", "TODO.md", before, after, ErrContentChanged},
+		{"file longer than expected", "TODO.md", after[:5], "- [x]", ErrContentChanged},
+		{"file shorter than expected", "TODO.md", after + "more\n", after + "MORE\n", ErrContentChanged},
+		{"symlink out of the workspace", "leak.txt", outsideText, strings.ToUpper(outsideText), ErrLeavesWorkspace},
+		{"directory", "src", "", "", ErrNotRegular},
+		{"fifo", "fifo", "", "", ErrNotRegular},
+		{"missing file", "missing.md", "", "", fs.ErrNotExist},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := r.PatchFile(tt.file, []byte(tt.before), []byte(tt.after)); !errors.Is(err, tt.wantErr) {
+				t.Fatalf("PatchFile = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+	if err := r.PatchFile("TODO.md", []byte(after), []byte(after+"x")); err == nil {
+		t.Fatal("PatchFile with a longer replacement succeeded")
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, "TODO.md")); string(got) != after { //nolint:gosec // test file
+		t.Fatalf("refused patches changed the file: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(out, "secret.txt")); string(got) != outsideText { //nolint:gosec // test file
+		t.Fatal("outside file changed")
+	}
+	if _, err := os.Lstat(filepath.Join(ws, "missing.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("PatchFile created a missing file: %v", err)
+	}
+}
+
 func TestWorkspaceDirectoryMustNotBeASymlink(t *testing.T) {
 	ws, out := tree(t)
 	link := filepath.Join(filepath.Dir(ws), "swapped")
