@@ -45,11 +45,15 @@ type DeliverService struct {
 	githubToken string
 	// pullRequests builds the git provider that opens a pull request.
 	pullRequests func(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error)
+	// protection evaluates the project's branch protection rules (KI-205,
+	// deliver_protection.go); profiles tells which quality gate a run passed.
+	protection *BranchProtectionService
+	profiles   gateProfiles
 }
 
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
-	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider}
+	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider, protection: NewBranchProtectionService(store)}
 }
 
 // SetOperatorGitHubToken sets the operator's GitHub token (github.token).
@@ -99,6 +103,9 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	shortID := r.ID
 	if len(shortID) > 8 {
 		shortID = shortID[:8]
+	}
+	if err := s.checkDeliveryPush(ctx, r, shortID); err != nil {
+		return nil, fmt.Errorf("%s delivery: %w", r.DeliverMode, err)
 	}
 
 	switch r.DeliverMode {
@@ -227,6 +234,9 @@ func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *
 		if err != nil {
 			return fmt.Errorf("commit-local delivery: %w", err)
 		}
+		if err := s.checkCommitLocal(ctx, r, rc.headRef); err != nil {
+			return fmt.Errorf("commit-local delivery: %w", err)
+		}
 		if err := rc.advanceHead(ctx, repo); err != nil {
 			return fmt.Errorf("commit-local delivery: %w", err)
 		}
@@ -252,7 +262,7 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 		if err != nil {
 			return fmt.Errorf("branch delivery: %w", err)
 		}
-		branchName := fmt.Sprintf("codeforge/%s", shortID)
+		branchName := deliveryBranch(shortID)
 
 		rc, err := buildRunCommit(ctx, repo, r.ID, s.commitMessage(shortID, taskTitle))
 		if err != nil {

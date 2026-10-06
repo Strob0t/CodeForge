@@ -249,6 +249,7 @@ func run() error {
 	runtimeSvc.SetMetrics(metrics)
 	deliverSvc := service.NewDeliverService(store, &cfg.Runtime, gitPool)
 	deliverSvc.SetOperatorGitHubToken(cfg.GitHub.Token)
+	deliverSvc.SetPolicyProfiles(policySvc)
 	runtimeSvc.SetDeliverService(deliverSvc)
 
 	// Private temporary files (checkpoint indexes, svn config) live in one
