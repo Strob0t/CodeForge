@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from codeforge.config import get_settings
+from codeforge.provider_keys import fallbacks_for_key
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -27,6 +28,7 @@ async def resolve_model_and_fallbacks(
     explicit_model: str,
     max_cost: float,
     log: structlog.stdlib.BoundLogger,
+    same_provider_only: bool = False,
 ) -> tuple[str, RoutingResult, list[str]]:
     """Resolve the primary model via routing and build its fallback chain.
 
@@ -35,7 +37,9 @@ async def resolve_model_and_fallbacks(
     the other available models. Without one the router decides; without
     either (routing off, no model in the config) the default model is
     resolved here, so that the run's tool capability is that of the model it
-    calls (KI-125). Returns (primary_model, routing_result, fallback_models).
+    calls (KI-125). With *same_provider_only* (the run uses the user's own
+    key of the primary model's provider) only fallbacks of that provider are
+    kept. Returns (primary_model, routing_result, fallback_models).
     """
     from codeforge.llm import resolve_model_with_routing
     from codeforge.model_resolver import resolve_model
@@ -45,7 +49,9 @@ async def resolve_model_and_fallbacks(
 
     if explicit_model:
         routing = resolve_model_with_routing(prompt=prompt, scenario=scenario, router=None)
-        fallbacks = await build_fallback_chain(None, prompt, explicit_model, max_cost, routing, available_models)
+        fallbacks = await build_fallback_chain(
+            None, prompt, explicit_model, max_cost, routing, available_models, same_provider_only=same_provider_only
+        )
         return explicit_model, routing, fallbacks
 
     router = await get_hybrid_router(litellm_url, litellm_key)
@@ -63,7 +69,9 @@ async def resolve_model_and_fallbacks(
         primary_model = await asyncio.to_thread(resolve_model)
         log.info("default model selected", model=primary_model)
 
-    fallback_models = await build_fallback_chain(router, prompt, primary_model, max_cost, routing, available_models)
+    fallback_models = await build_fallback_chain(
+        router, prompt, primary_model, max_cost, routing, available_models, same_provider_only=same_provider_only
+    )
     return primary_model, routing, fallback_models
 
 
@@ -269,8 +277,14 @@ async def build_fallback_chain(
     max_cost: float,
     routing_result: object | None,
     get_models_fn: object,
+    *,
+    same_provider_only: bool = False,
 ) -> list[str]:
-    """Build a ranked list of fallback models from the router or available models."""
+    """Build a ranked list of fallback models from the router or available models.
+
+    With *same_provider_only* only models of the primary model's provider
+    qualify; they are filtered before the available models are cut to three.
+    """
     fallbacks: list[str] = []
     if router is not None:
         from codeforge.routing.models import ComplexityTier, RoutingDecision, TaskType
@@ -295,7 +309,11 @@ async def build_fallback_chain(
                 primary=existing,
             )
             fallbacks = [m for m in plan.fallbacks if m != primary_model]
+            if same_provider_only:
+                fallbacks = fallbacks_for_key(primary_model, fallbacks)
     if not fallbacks:
-        available = await get_models_fn()
-        fallbacks = [m for m in available if m != primary_model][:3]
+        available = [m for m in await get_models_fn() if m != primary_model]
+        if same_provider_only:
+            available = fallbacks_for_key(primary_model, available)
+        fallbacks = available[:3]
     return fallbacks

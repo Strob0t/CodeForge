@@ -115,3 +115,53 @@ async def test_skill_injection_makes_no_llm_call() -> None:
 
     assert [s.id for s in loaded] == ["s1"]
     assert '<skill name="pytest-fixtures"' in prompt
+
+
+MIXED = ["ollama/qwen3:4b", "openai/gpt-4o", "groq/llama", "anthropic/claude-haiku-4-5", "anthropic/claude-opus-4"]
+
+
+@pytest.mark.parametrize(
+    ("same_provider_only", "want"),
+    [
+        (True, ["anthropic/claude-haiku-4-5", "anthropic/claude-opus-4"]),
+        (False, ["ollama/qwen3:4b", "openai/gpt-4o", "groq/llama"]),
+    ],
+)
+async def test_explicit_model_fallbacks_are_filtered_by_the_key_before_the_cut(
+    same_provider_only: bool, want: list[str]
+) -> None:
+    """A run with the user's own key falls back to the key's provider: filtered first, then cut to three."""
+    with patch("codeforge.consumer._conversation_routing.get_available_models", AsyncMock(return_value=MIXED)):
+        _, _, fallbacks = await resolve_model_and_fallbacks(
+            "http://litellm",
+            "key",
+            prompt="refactor the parser",
+            scenario="",
+            explicit_model="anthropic/claude-sonnet-4-6",
+            max_cost=0.0,
+            log=MagicMock(),
+            same_provider_only=same_provider_only,
+        )
+
+    assert fallbacks == want
+
+
+@pytest.mark.parametrize(("key", "want"), [("sk-user", True), ("", False)])
+async def test_the_conversation_run_filters_fallbacks_by_its_own_key(key: str, want: bool) -> None:
+    from codeforge.consumer import TaskConsumer
+    from codeforge.models import ConversationRunStartMessage
+
+    run_msg = ConversationRunStartMessage(
+        run_id="r",
+        conversation_id="c",
+        project_id="p",
+        messages=[],
+        system_prompt="s",
+        model="anthropic/claude-sonnet-4-6",
+        provider_api_key=key,
+    )
+    resolve = AsyncMock(return_value=("anthropic/claude-sonnet-4-6", RoutingResult(), []))
+    with patch("codeforge.consumer._conversation.resolve_model_and_fallbacks", resolve):
+        await TaskConsumer(nats_url="nats://test:4222")._resolve_routing_and_fallbacks(run_msg, "x", MagicMock())
+
+    assert resolve.await_args.kwargs["same_provider_only"] is want

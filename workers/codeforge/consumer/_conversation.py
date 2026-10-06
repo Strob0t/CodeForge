@@ -352,6 +352,7 @@ class ConversationHandlerMixin:
             explicit_model=run_msg.model,
             max_cost=run_msg.termination.max_cost,
             log=log,
+            same_provider_only=bool(run_msg.provider_api_key),
         )
 
     async def _handle_conversation_run(self, msg: nats.aio.msg.Msg) -> None:
