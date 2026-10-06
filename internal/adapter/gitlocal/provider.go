@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
@@ -115,10 +116,11 @@ func (p *Provider) reclone(ctx context.Context, url, absPath string, o gitprovid
 				}
 			}
 
-			if _, err := runGit(ctx, absPath, "checkout", branch); err != nil {
-				return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
+			// The branch may come from the agent-writable origin HEAD.
+			if err := checkout(ctx, absPath, branch); err != nil {
+				return err
 			}
-			if _, err := runGit(ctx, absPath, "reset", "--hard", "origin/"+branch); err != nil {
+			if _, err := runGit(ctx, absPath, "reset", "--hard", "origin/"+branch, "--"); err != nil {
 				return fmt.Errorf("gitlocal: reset: %w", err)
 			}
 			return nil
@@ -254,11 +256,22 @@ func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project
 // Checkout switches to the specified branch.
 func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error {
 	return p.pool.Run(ctx, func() error {
-		if _, err := runGit(ctx, repoPath, "checkout", branch); err != nil {
-			return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
-		}
-		return nil
+		return checkout(ctx, repoPath, branch)
 	})
+}
+
+// checkout switches the workspace at dir to branch. Only a valid branch name
+// reaches git, and `git switch --end-of-options` reads it as nothing but a
+// branch: with `git checkout`, "-f", "." or a file name would discard
+// uncommitted changes (KI-189).
+func checkout(ctx context.Context, dir, branch string) error {
+	if err := git.CheckBranchName(ctx, branch); err != nil {
+		return fmt.Errorf("gitlocal: checkout: %w: %w", domain.ErrValidation, err)
+	}
+	if _, err := runGit(ctx, dir, "switch", "--end-of-options", branch); err != nil {
+		return fmt.Errorf("gitlocal: checkout %s: %w", branch, err)
+	}
+	return nil
 }
 
 // runGit runs git hardened in the workspace repository at dir, or outside any

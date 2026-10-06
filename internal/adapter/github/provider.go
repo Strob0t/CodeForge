@@ -289,9 +289,15 @@ func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project
 	return branches, nil
 }
 
-// Checkout switches to the specified branch.
+// Checkout switches to the specified branch. Only a valid branch name
+// reaches git, and `git switch --end-of-options` reads it as nothing but a
+// branch: with `git checkout`, "-f", "." or a file name would discard
+// uncommitted changes (KI-189).
 func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error {
-	if _, err := runGit(ctx, repoPath, "checkout", branch); err != nil {
+	if err := git.CheckBranchName(ctx, branch); err != nil {
+		return fmt.Errorf("github: checkout: %w: %w", domain.ErrValidation, err)
+	}
+	if _, err := runGit(ctx, repoPath, "switch", "--end-of-options", branch); err != nil {
 		return fmt.Errorf("github: checkout %s: %w", branch, err)
 	}
 	return nil
