@@ -44,7 +44,7 @@
 ### Known Issues
 
 > Verified defects found in the docs/code reconciliation of 2026-09-29 on `staging` (HEAD `cb9b63ce`).
-> IDs (KI-1..KI-166) are stable and never renumbered; other docs link here (`todo.md#known-issues`) by ID.
+> IDs (KI-1..KI-167) are stable and never renumbered; other docs link here (`todo.md#known-issues`) by ID.
 > Every unchecked item is an open task: when its fix lands, check it `[x]` with the date and keep the entry.
 
 #### CI and tooling
@@ -295,6 +295,7 @@
 - [ ] **KI-164 The Plandex backend does not work** (low): its executor passes `tell --yes` and `--model`, which plandex 2.2.1 does not have, and Plandex needs a server and an interactive sign-in; upstream inactive since 2025-10. Fix or drop the backend. Found in S9-B (2026-10-05).
 - [ ] **KI-165 Goose is pinned to 1.29.0** (low): the last versioned upstream image; a newer version needs the release archive and its checksum. Found in S9-B.
 - [ ] **KI-166 GitHub Enterprise on a private network is refused** (low): PR delivery and github-api `ListRepos` reach public addresses only, and the github-issues provider supports github.com only (as `gh` did by default). Found in S9-B.
+- [x] (2026-10-06) **KI-167 multidict advisory GHSA-54p9-h82j-f925** (medium): pip-audit in the Security Scanning job flagged multidict 6.7.1 (a transitive dependency of aiohttp and yarl) after the advisory was published; no dependency file had changed. **Fixed:** `poetry.lock` pins multidict 6.9.1; pip-audit is clean and the Python suite passes.
 - [x] (2026-10-04) **S7-F review, pre-existing fixes:** a run with a user's own provider key falls back only to models of that provider, so the key is never sent to another one; the retrieval and graph routes (`/projects/{id}/index`, `/graph/status`, `/search`, `/search/agent`, `/graph/search`) and `POST /search` with `project_ids` answer 404 for another tenant's project; retrieval scopes accept and change only their own tenant's projects (create, update, add and remove across tenants answer 404; legacy cross-tenant links are ignored).
 
 ---
