@@ -8,6 +8,12 @@ import (
 // JWT requests pass through (JWT users have role-based access via RBAC).
 // API keys with nil scopes pass through (backward compat for old keys).
 func RequireScope(scope string) func(http.Handler) http.Handler {
+	return RequireScopeFunc(func(*http.Request) string { return scope })
+}
+
+// RequireScopeFunc is RequireScope with the scope resolved per request
+// (the API's route table, KI-175); an empty scope needs no check.
+func RequireScopeFunc(scopeOf func(r *http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := APIKeyFromContext(r.Context())
@@ -23,7 +29,7 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if !key.HasScope(scope) {
+			if scope := scopeOf(r); scope != "" && !key.HasScope(scope) {
 				http.Error(w, `{"error":"insufficient scope"}`, http.StatusForbidden)
 				return
 			}

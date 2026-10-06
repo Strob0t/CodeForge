@@ -220,3 +220,9 @@ func APIKeyFromContext(ctx context.Context) *user.APIKey {
 func ContextWithTestUser(ctx context.Context, u *user.User) context.Context {
 	return context.WithValue(ctx, authUserCtxKey{}, u)
 }
+
+// ContextWithTestAPIKey returns a context with the given API key injected,
+// matching the key used by the Auth middleware. Use only in tests.
+func ContextWithTestAPIKey(ctx context.Context, key *user.APIKey) context.Context {
+	return context.WithValue(ctx, apiKeyCtxKey{}, key)
+}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Strob0t/CodeForge/internal/crypto"
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -21,10 +22,15 @@ func NewAPIKeyManager(store database.Store) *APIKeyManager {
 	return &APIKeyManager{store: store}
 }
 
-// CreateAPIKey generates a new API key for a user.
+// CreateAPIKey generates a new API key for a user. Unknown scope names are
+// a validation error; no scopes (nil or empty) means the key keeps its
+// user's full rights (KI-175).
 func (m *APIKeyManager) CreateAPIKey(ctx context.Context, userID string, req user.CreateAPIKeyRequest) (*user.CreateAPIKeyResponse, error) {
 	if err := req.Validate(); err != nil {
-		return nil, fmt.Errorf("validate: %w", err)
+		return nil, fmt.Errorf("%w: %w", domain.ErrValidation, err)
+	}
+	if len(req.Scopes) == 0 {
+		req.Scopes = nil
 	}
 
 	rawKey, err := crypto.GenerateRandomToken()

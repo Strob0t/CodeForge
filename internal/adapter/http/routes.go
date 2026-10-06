@@ -156,6 +156,8 @@ func MountRoutes(r chi.Router, h *Handlers, opts ...RouteOption) {
 		// No answer may stay in a browser or proxy cache (GET /me/export holds
 		// a user's personal data).
 		r.Use(middleware.NoStore)
+		// A scoped API key reaches only the routes of its scopes (scopes.go, KI-175).
+		r.Use(requireAPIKeyScope)
 
 		// Version
 		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
