@@ -66,3 +66,45 @@ func TestNeutral(t *testing.T) {
 		t.Fatal("IsNeutral does not follow the wrap chain")
 	}
 }
+
+// An error after the caller's context ended (cancelled, or its deadline such
+// as the API route timeout passed) is the caller's, not the service's; a
+// timeout of the call itself while the caller still waits is an outage.
+func TestBreaker_ExecuteContextCountsOnlyTheCallsOwnTimeout(t *testing.T) {
+	expired, cancelExpired := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancelExpired()
+	<-expired.Done()
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		open bool
+	}{
+		{"caller deadline passed", expired, fmt.Errorf("http request: %w", context.DeadlineExceeded), false},
+		{"caller deadline passed, any error", expired, errTest, false},
+		{"caller cancelled", cancelled, fmt.Errorf("http request: %w", context.Canceled), false},
+		{"transport timeout while the caller waits", context.Background(), fmt.Errorf("Client.Timeout exceeded: %w", context.DeadlineExceeded), true},
+		{"service error while the caller waits", context.Background(), errTest, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewBreaker(3, time.Minute)
+			for range 5 {
+				err := b.ExecuteContext(tt.ctx, func() error { return tt.err })
+				if errors.Is(err, ErrCircuitOpen) {
+					break
+				}
+				if !errors.Is(err, tt.err) {
+					t.Fatalf("ExecuteContext = %v, want it to wrap %v", err, tt.err)
+				}
+			}
+			err := b.Execute(func() error { return nil })
+			if gotOpen := errors.Is(err, ErrCircuitOpen); gotOpen != tt.open {
+				t.Fatalf("open = %v after five %q, want %v", gotOpen, tt.name, tt.open)
+			}
+		})
+	}
+}

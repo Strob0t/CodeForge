@@ -46,6 +46,14 @@ func NewBreaker(maxFailures int, timeout time.Duration) *Breaker {
 // Execute runs fn if the circuit is closed or half-open.
 // Returns ErrCircuitOpen if the circuit is open.
 func (b *Breaker) Execute(fn func() error) error {
+	return b.ExecuteContext(context.Background(), fn)
+}
+
+// ExecuteContext is Execute for a call made on behalf of ctx. An error after
+// ctx ended (the caller cancelled, or its own deadline such as the API route
+// timeout passed) is the caller's and is not counted; a timeout of the call
+// itself (the HTTP client's) while ctx is still live is (KI-213).
+func (b *Breaker) ExecuteContext(ctx context.Context, fn func() error) error {
 	if !b.allowRequest() {
 		return ErrCircuitOpen
 	}
@@ -58,7 +66,7 @@ func (b *Breaker) Execute(fn func() error) error {
 	if err != nil {
 		// A request the service rejected, or one its caller gave up on,
 		// says nothing about an outage: it neither counts nor resets.
-		if !IsNeutral(err) && !errors.Is(err, context.Canceled) {
+		if !IsNeutral(err) && !errors.Is(err, context.Canceled) && ctx.Err() == nil {
 			b.onFailure()
 		}
 		return fmt.Errorf("circuit breaker: %w", err)

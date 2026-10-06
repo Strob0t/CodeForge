@@ -689,7 +689,8 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 
 // doRequestWith sends one request with the given client through the breaker.
 // A 4xx answer is the request's fault and does not count against LiteLLM
-// (resilience.Neutral); transport errors, timeouts and 5xx do (KI-213).
+// (resilience.Neutral), nor does the end of ctx; transport errors, the
+// client's own timeout and 5xx do (KI-213).
 func (c *Client) doRequestWith(ctx context.Context, client *http.Client, method, path string, body []byte) ([]byte, error) {
 	var result []byte
 	call := func() error {
@@ -732,7 +733,7 @@ func (c *Client) doRequestWith(ctx context.Context, client *http.Client, method,
 	}
 
 	if c.breaker != nil {
-		if err := c.breaker.Execute(call); err != nil {
+		if err := c.breaker.ExecuteContext(ctx, call); err != nil {
 			return nil, err
 		}
 		return result, nil

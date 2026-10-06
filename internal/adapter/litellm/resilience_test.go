@@ -113,3 +113,46 @@ func TestClient_HealthUsesReadiness(t *testing.T) {
 		t.Fatalf("paths %v, want [/health/readiness]", paths)
 	}
 }
+
+// A caller whose own deadline passes (the API route timeout) does not count
+// against LiteLLM; the client's own completion timeout does (KI-213).
+func TestClient_BreakerIgnoresTheCallersDeadline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(300 * time.Millisecond):
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"model":"m"}`))
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name           string
+		callerTimeout  time.Duration
+		requestTimeout time.Duration
+		wantOpen       bool
+	}{
+		{"caller deadline", 30 * time.Millisecond, 5 * time.Second, false},
+		{"completion timeout", 5 * time.Second, 30 * time.Millisecond, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewClient(srv.URL, "")
+			c.SetCompletionTimeout(tt.requestTimeout)
+			c.SetBreaker(resilience.NewBreaker(2, time.Minute))
+			for range 3 {
+				ctx, cancel := context.WithTimeout(context.Background(), tt.callerTimeout)
+				_, err := c.ChatCompletion(ctx, ChatCompletionRequest{Model: "m"})
+				cancel()
+				if err == nil {
+					t.Fatal("ChatCompletion outlived its timeout")
+				}
+			}
+			_, err := c.ChatCompletion(context.Background(), ChatCompletionRequest{Model: "m"})
+			if gotOpen := errors.Is(err, resilience.ErrCircuitOpen); gotOpen != tt.wantOpen {
+				t.Fatalf("breaker open = %v (%v), want %v", gotOpen, err, tt.wantOpen)
+			}
+		})
+	}
+}

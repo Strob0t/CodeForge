@@ -262,7 +262,7 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 	}
 
 	if q.breaker != nil {
-		return q.breaker.Execute(publish)
+		return q.breaker.ExecuteContext(ctx, publish)
 	}
 	return publish()
 }
@@ -299,7 +299,7 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 	}
 
 	if q.breaker != nil {
-		return q.breaker.Execute(publish)
+		return q.breaker.ExecuteContext(ctx, publish)
 	}
 	return publish()
 }
