@@ -203,6 +203,8 @@ async def test_conversation_offers_only_the_mode_tools(monkeypatch: pytest.Monke
         system_prompt="s",
         model="m",
         mode=READ_ONLY,
+        # An existing directory: an agentic run needs one (KI-193); no tool runs here.
+        workspace_path=str(Path(__file__).resolve().parent),
     )
     msg, _ = jetstream_msg(payload.model_dump_json().encode(), subject="conversation.run.start")
 

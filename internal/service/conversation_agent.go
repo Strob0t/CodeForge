@@ -56,6 +56,9 @@ func buildSessionMeta(sess *run.Session) *messagequeue.SessionMetaPayload {
 }
 
 func (s *ConversationService) IsAgentic(ctx context.Context, conversationID string, req *conversation.SendMessageRequest) bool {
+	// An explicit request is honoured: an agentic turn on a project without
+	// a workspace is refused by the dispatch (HTTP 400, KI-193) rather than
+	// silently answered as plain chat.
 	if req.Agentic != nil {
 		return *req.Agentic
 	}

@@ -227,6 +227,12 @@ func (s *ConversationService) dispatchAgenticRun(
 	if _, err := resolveExecMode("", proj); err != nil {
 		return err
 	}
+	// Without a workspace the worker's file tools would work in its own
+	// directory (KI-193); an explicit agentic request is refused, not
+	// downgraded to plain chat.
+	if err := requireWorkspace(proj); err != nil {
+		return err
+	}
 	// The turn's tool processes run as the tenant's tool UID (KI-96).
 	toolUID, err := s.toolUIDs.PayloadToolUID(ctx, tenantctx.FromContext(ctx))
 	if err != nil {

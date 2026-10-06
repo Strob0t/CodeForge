@@ -147,7 +147,7 @@ async def test_a_run_without_a_tool_uid_fails_and_runs_nothing(
 
 
 async def test_a_conversation_run_without_a_tool_uid_fails_with_the_reason(
-    consumer: TaskConsumer, accepted: list[tuple[str, int, str | None]]
+    consumer: TaskConsumer, accepted: list[tuple[str, int, str | None]], tmp_path: Path
 ) -> None:
     payload = ConversationRunStartMessage(
         run_id="conv-1",
@@ -158,7 +158,8 @@ async def test_a_conversation_run_without_a_tool_uid_fails_with_the_reason(
         model="test-model",
         turn_id="turn-1",
         tenant_id="tenant-a",
-        workspace_path="/data/workspaces/tenant-a/p1",
+        # An existing directory: an agentic run without one is refused first (KI-193).
+        workspace_path=str(tmp_path),
         tool_uid=0,
     )
     msg, _client = jetstream_msg(payload.model_dump_json().encode(), subject="conversation.run.start", stream_seq=10)

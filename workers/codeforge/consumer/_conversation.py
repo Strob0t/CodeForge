@@ -420,6 +420,20 @@ class ConversationHandlerMixin:
         from codeforge.tools import ToolRegistry, build_default_registry
 
         log.info("received conversation run start")
+        if run_msg.agentic:
+            workspace = run_msg.workspace_path.strip()
+            if not workspace or not os.path.isdir(workspace):
+                # Without it the file tools would work in the worker's own
+                # directory (KI-193); refused before any tool or MCP server starts.
+                error = (
+                    "agentic conversation run has no usable workspace "
+                    f"({run_msg.workspace_path!r} is not a directory on this worker)"
+                )
+                log.error("conversation run rejected", error=error)
+                await self._publish_completion(run_msg, AgentLoopResult(error=error))
+                work.completed = True
+                return
+
         runtime = RuntimeClient(
             js=self._js,
             run_id=run_msg.run_id,

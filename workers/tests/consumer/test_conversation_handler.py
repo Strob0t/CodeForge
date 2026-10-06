@@ -9,6 +9,7 @@ Verifies:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,6 +32,9 @@ if TYPE_CHECKING:
 
 _CAPABILITY = ModelCapability(level=CapabilityLevel.FULL, context_limit=120_000)
 
+# An existing directory: an agentic run needs one (KI-193); no tool runs here.
+_WORKSPACE = str(Path(__file__).resolve().parent)
+
 
 def _make_valid_run_start(
     run_id: str = "run-001",
@@ -45,6 +49,7 @@ def _make_valid_run_start(
         messages=[ConversationMessagePayload(role="user", content="Hello")],
         system_prompt="You are a helpful assistant.",
         model="openai/gpt-4o",
+        workspace_path=_WORKSPACE,
     )
 
 

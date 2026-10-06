@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import time
 from types import SimpleNamespace
@@ -442,9 +443,17 @@ class TestRunStart:
 
 
 def _conversation_payload(run_id: str = "conv-1") -> bytes:
+    # An existing directory: an agentic run needs one (KI-193); no tool runs here.
+    workspace = os.path.dirname(os.path.abspath(__file__))
     return (
         ConversationRunStartMessage(
-            run_id=run_id, conversation_id=run_id, project_id="p1", messages=[], system_prompt="s", model="m"
+            run_id=run_id,
+            conversation_id=run_id,
+            project_id="p1",
+            messages=[],
+            system_prompt="s",
+            model="m",
+            workspace_path=workspace,
         )
         .model_dump_json()
         .encode()

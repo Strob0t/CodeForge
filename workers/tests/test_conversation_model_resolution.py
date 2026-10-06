@@ -9,6 +9,7 @@ prompt for the model's capability, or fails the run with the reason.
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,6 +38,8 @@ def _start_without_model() -> bytes:
             messages=[{"role": "user", "content": "read README.md"}],
             system_prompt="s",
             model="",
+            # An existing directory: an agentic run needs one (KI-193); no tool runs here.
+            workspace_path=os.path.dirname(os.path.abspath(__file__)),
         )
         .model_dump_json()
         .encode()

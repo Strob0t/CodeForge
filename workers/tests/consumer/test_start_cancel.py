@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -61,6 +62,8 @@ def _conversation_start(conversation_id: str = "conv-q", seq: int = 10) -> tuple
         model="test-model",
         turn_id="turn-1",
         tenant_id="tenant-q",
+        # An existing directory: an agentic run needs one (KI-193); no tool runs here.
+        workspace_path=os.path.dirname(os.path.abspath(__file__)),
     )
     return jetstream_msg(payload.model_dump_json().encode(), subject="conversation.run.start", stream_seq=seq)
 
