@@ -1056,7 +1056,9 @@ func run() error {
 	// A disabled tenant's users are refused on every authenticated request;
 	// the verdict is cached briefly, so the common case costs no query
 	// (KI-174). After the logger and the recoverer, so its answers are logged.
-	r.Use(middleware.EnabledTenant(tenantSvc, 30*time.Second))
+	// The A2A keys pass the same gate.
+	tenantGate := middleware.NewTenantGate(tenantSvc, 30*time.Second)
+	r.Use(middleware.EnabledTenant(tenantGate))
 
 	// WebSocket — rate-limited but no Timeout/Idempotency (long-lived connection)
 	r.Group(func(wsGroup chi.Router) {
@@ -1128,7 +1130,7 @@ func run() error {
 			if len(a2aAPIKeys) == 0 {
 				slog.Warn("a2a enabled without a2a.api_keys: every A2A request is refused")
 			}
-			a2aAuth := middleware.A2AAuth(a2aAPIKeys)
+			a2aAuth := middleware.A2AAuth(a2aAPIKeys, tenantGate)
 			r.Group(func(r chi.Router) {
 				r.Use(a2aAuth)
 				r.Handle("/a2a", a2aHTTPHandler)

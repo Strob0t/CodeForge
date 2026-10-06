@@ -77,6 +77,10 @@ type mockStore struct {
 	inboxMessages []agent.InboxMessage
 	inboxNextID   int
 
+	// disabledTenants marks tenants GetTenant returns as disabled; every
+	// other tenant exists and is enabled.
+	disabledTenants map[string]bool
+
 	// Error hooks — set these to inject failures.
 	listProjectsErr  error
 	getProjectErr    error
@@ -458,8 +462,8 @@ func (m *mockStore) SetSpecFile(_ context.Context, _ *roadmap.SpecFile) error { 
 func (m *mockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
 	return nil, nil
 }
-func (m *mockStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) {
-	return nil, nil
+func (m *mockStore) GetTenant(_ context.Context, id string) (*tenant.Tenant, error) {
+	return &tenant.Tenant{ID: id, Enabled: !m.disabledTenants[id]}, nil
 }
 func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
 func (m *mockStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }

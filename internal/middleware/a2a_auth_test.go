@@ -1,15 +1,35 @@
 package middleware
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/config"
+	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 const a2aTestTenant = "11111111-2222-3333-4444-555555555555"
+
+// tenantsByVerdict answers ValidateExists from a map (nil: enabled) and
+// counts the calls.
+type tenantsByVerdict struct {
+	answers map[string]error
+	calls   int
+}
+
+func (f *tenantsByVerdict) ValidateExists(_ context.Context, id string) error {
+	f.calls++
+	return f.answers[id]
+}
+
+// allTenantsEnabled is the checker of the tests that are not about tenants.
+var allTenantsEnabled = &tenantsByVerdict{}
 
 // keysOf builds A2A keys of the default tenant.
 func keysOf(keys ...string) []config.A2AAPIKey {
@@ -27,8 +47,63 @@ func serveA2A(t *testing.T, keys []config.A2AAPIKey, authorization string, inner
 		req.Header.Set("Authorization", authorization)
 	}
 	rr := httptest.NewRecorder()
-	A2AAuth(keys)(inner).ServeHTTP(rr, req)
+	A2AAuth(keys, allTenantsEnabled)(inner).ServeHTTP(rr, req)
 	return rr
+}
+
+// S10-A review: an A2A key of a disabled or deleted tenant stops working,
+// like the tenant's users (EnabledTenant): 403 with the same answers, 503
+// when the check fails. The tenant is checked after the key, so an invalid
+// key learns nothing about any tenant.
+func TestA2AAuth_RefusesADisabledTenant(t *testing.T) {
+	const unknownTenant = "33333333-3333-3333-3333-333333333333"
+	const brokenTenant = "44444444-4444-4444-4444-444444444444"
+	keys := []config.A2AAPIKey{
+		{Key: "enabled-key", TenantID: tenantctx.DefaultTenantID},
+		{Key: "disabled-key", TenantID: a2aTestTenant},
+		{Key: "unknown-key", TenantID: unknownTenant},
+		{Key: "broken-key", TenantID: brokenTenant},
+	}
+	tenants := &tenantsByVerdict{answers: map[string]error{
+		a2aTestTenant: tenant.ErrDisabled,
+		unknownTenant: domain.ErrNotFound,
+		brokenTenant:  errors.New("connection refused"),
+	}}
+	for _, tc := range []struct {
+		key  string
+		want int
+		body string
+	}{
+		{"enabled-key", http.StatusOK, ""},
+		{"disabled-key", http.StatusForbidden, "tenant is disabled"},
+		{"unknown-key", http.StatusForbidden, "tenant not found"},
+		{"broken-key", http.StatusServiceUnavailable, "tenant check unavailable"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			reached := false
+			req := httptest.NewRequest("POST", "/a2a", http.NoBody)
+			req.Header.Set("Authorization", "Bearer "+tc.key)
+			rr := httptest.NewRecorder()
+			A2AAuth(keys, tenants)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				reached = true
+				w.WriteHeader(http.StatusOK)
+			})).ServeHTTP(rr, req)
+			if rr.Code != tc.want || !strings.Contains(rr.Body.String(), tc.body) {
+				t.Fatalf("status %d (%s), want %d with %q", rr.Code, rr.Body.String(), tc.want, tc.body)
+			}
+			if reached != (tc.want == http.StatusOK) {
+				t.Fatalf("handler reached: %v", reached)
+			}
+		})
+	}
+
+	calls := tenants.calls
+	if rr := serveA2A(t, keys, "Bearer wrong-key", okHandler); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid key: status %d, want 401", rr.Code)
+	}
+	if tenants.calls != calls {
+		t.Fatalf("an invalid key asked the tenant checker")
+	}
 }
 
 func okHandler(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
@@ -100,7 +175,7 @@ func TestA2AAuth_KeySetsTheTenant(t *testing.T) {
 	}
 	for key, want := range map[string]string{"tenant-key": a2aTestTenant, "plain-key": tenantctx.DefaultTenantID} {
 		var got string
-		handler := TenantID(A2AAuth(keys)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := TenantID(A2AAuth(keys, allTenantsEnabled)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			got = tenantctx.FromContext(r.Context())
 			w.WriteHeader(http.StatusOK)
 		})))

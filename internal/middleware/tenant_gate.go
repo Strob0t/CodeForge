@@ -26,30 +26,65 @@ type tenantVerdict struct {
 	until time.Time
 }
 
+// TenantGate is a TenantChecker that caches another checker's verdicts per
+// tenant for a TTL, so the common case costs no query; a store failure is
+// not cached. One gate serves every path that checks a tenant (EnabledTenant
+// for users, A2AAuth for A2A keys), so disabling a tenant takes effect on
+// all of them within the TTL.
+type TenantGate struct {
+	check    TenantChecker
+	ttl      time.Duration
+	mu       sync.Mutex
+	verdicts map[string]tenantVerdict
+}
+
+// NewTenantGate returns a gate over check whose verdicts hold for ttl.
+func NewTenantGate(check TenantChecker, ttl time.Duration) *TenantGate {
+	return &TenantGate{check: check, ttl: ttl, verdicts: map[string]tenantVerdict{}}
+}
+
+// ValidateExists is the checker's verdict for the tenant, from the cache
+// while it holds: nil, tenant.ErrDisabled, domain.ErrNotFound (these three
+// are cached) or the store's error.
+func (g *TenantGate) ValidateExists(ctx context.Context, id string) error {
+	now := time.Now()
+	g.mu.Lock()
+	v, ok := g.verdicts[id]
+	g.mu.Unlock()
+	if ok && now.Before(v.until) {
+		return v.err
+	}
+	err := g.check.ValidateExists(ctx, id)
+	if err == nil || errors.Is(err, tenant.ErrDisabled) || errors.Is(err, domain.ErrNotFound) {
+		g.mu.Lock()
+		g.verdicts[id] = tenantVerdict{err: err, until: now.Add(g.ttl)}
+		g.mu.Unlock()
+	}
+	return err
+}
+
+// refuseTenant answers a failed tenant check (TenantChecker.ValidateExists):
+// 403 for a disabled or unknown tenant, 503 when the check itself failed.
+// It reports whether it answered; a nil err is not answered.
+func refuseTenant(w http.ResponseWriter, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, tenant.ErrDisabled):
+		writeJSONError(w, http.StatusForbidden, "tenant is disabled")
+	case errors.Is(err, domain.ErrNotFound):
+		writeJSONError(w, http.StatusForbidden, "tenant not found")
+	default:
+		writeJSONError(w, http.StatusServiceUnavailable, "tenant check unavailable")
+	}
+	return true
+}
+
 // EnabledTenant returns middleware that refuses every authenticated request
 // of a disabled or deleted tenant with 403 (KI-174); requests without a user
-// (the public routes) pass. Verdicts are cached for ttl per tenant, so the
-// common case costs no query; a store failure is answered 503 and not
-// cached. Disabling a tenant therefore takes effect within ttl.
-func EnabledTenant(check TenantChecker, ttl time.Duration) func(http.Handler) http.Handler {
-	var mu sync.Mutex
-	verdicts := map[string]tenantVerdict{}
-	lookup := func(ctx context.Context, id string) error {
-		now := time.Now()
-		mu.Lock()
-		v, ok := verdicts[id]
-		mu.Unlock()
-		if ok && now.Before(v.until) {
-			return v.err
-		}
-		err := check.ValidateExists(ctx, id)
-		if err == nil || errors.Is(err, tenant.ErrDisabled) || errors.Is(err, domain.ErrNotFound) {
-			mu.Lock()
-			verdicts[id] = tenantVerdict{err: err, until: now.Add(ttl)}
-			mu.Unlock()
-		}
-		return err
-	}
+// (the public routes) pass. A store failure is answered 503. The checker is
+// a TenantGate in production, so the common case costs no query.
+func EnabledTenant(check TenantChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			u := UserFromContext(r.Context())
@@ -57,16 +92,10 @@ func EnabledTenant(check TenantChecker, ttl time.Duration) func(http.Handler) ht
 				next.ServeHTTP(w, r)
 				return
 			}
-			switch err := lookup(r.Context(), u.TenantID); {
-			case err == nil:
-				next.ServeHTTP(w, r)
-			case errors.Is(err, tenant.ErrDisabled):
-				writeJSONError(w, http.StatusForbidden, "tenant is disabled")
-			case errors.Is(err, domain.ErrNotFound):
-				writeJSONError(w, http.StatusForbidden, "tenant not found")
-			default:
-				writeJSONError(w, http.StatusServiceUnavailable, "tenant check unavailable")
+			if refuseTenant(w, check.ValidateExists(r.Context(), u.TenantID)) {
+				return
 			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

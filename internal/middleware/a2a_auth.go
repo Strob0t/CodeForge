@@ -30,8 +30,11 @@ type (
 // leaves the A2A routes to it. A caller with a valid key acts in the key's
 // tenant, which replaces any tenant the request named (X-Tenant-ID), with
 // "partial" trust. Without configured keys every request is refused (fail
-// closed). Tokens are compared in constant time.
-func A2AAuth(keys []config.A2AAPIKey) func(http.Handler) http.Handler {
+// closed). Tokens are compared in constant time. The key's tenant must be
+// enabled (tenants, the TenantGate the users' requests pass; checked after
+// the key, so an invalid key learns nothing about a tenant): a key of a
+// disabled or deleted tenant is refused like the tenant's users.
+func A2AAuth(keys []config.A2AAPIKey, tenants TenantChecker) func(http.Handler) http.Handler {
 	valid := make([]config.A2AAPIKey, len(keys))
 	copy(valid, keys)
 
@@ -42,6 +45,9 @@ func A2AAuth(keys []config.A2AAPIKey) func(http.Handler) http.Handler {
 			if !ok || !matched {
 				w.Header().Set("WWW-Authenticate", "Bearer")
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				return
+			}
+			if refuseTenant(w, tenants.ValidateExists(r.Context(), key.TenantID)) {
 				return
 			}
 

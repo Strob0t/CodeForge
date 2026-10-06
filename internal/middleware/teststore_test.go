@@ -439,9 +439,11 @@ func (s *testStore) SetSpecFile(_ context.Context, _ *roadmap.SpecFile) error { 
 func (s *testStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {
 	return nil, nil
 }
-func (s *testStore) GetTenant(_ context.Context, _ string) (*tenant.Tenant, error) { return nil, nil }
-func (s *testStore) ListTenants(_ context.Context) ([]tenant.Tenant, error)        { return nil, nil }
-func (s *testStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error        { return nil }
+func (s *testStore) GetTenant(_ context.Context, id string) (*tenant.Tenant, error) {
+	return &tenant.Tenant{ID: id, Enabled: true}, nil
+}
+func (s *testStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) { return nil, nil }
+func (s *testStore) UpdateTenant(_ context.Context, _ *tenant.Tenant) error { return nil }
 func (s *testStore) AllocateToolUID(_ context.Context, _ string) (int, error) {
 	return tenant.ToolUIDMin, nil
 }

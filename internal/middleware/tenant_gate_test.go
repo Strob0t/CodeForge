@@ -53,7 +53,7 @@ func TestEnabledTenant_RefusesDisabledAndUnknownTenants(t *testing.T) {
 		gateOtherTenant:                        tenant.ErrDisabled,
 		"33333333-3333-3333-3333-333333333333": domain.ErrNotFound,
 	}}
-	gate := middleware.EnabledTenant(check, time.Minute)
+	gate := middleware.EnabledTenant(middleware.NewTenantGate(check, time.Minute))
 	for _, tc := range []struct {
 		name string
 		u    *user.User
@@ -81,7 +81,7 @@ func TestEnabledTenant_RefusesDisabledAndUnknownTenants(t *testing.T) {
 // cache holds both verdicts and expires.
 func TestEnabledTenant_CachesVerdicts(t *testing.T) {
 	check := &fakeTenantChecker{answers: map[string]error{gateOtherTenant: tenant.ErrDisabled}}
-	gate := middleware.EnabledTenant(check, 30*time.Millisecond)
+	gate := middleware.EnabledTenant(middleware.NewTenantGate(check, 30*time.Millisecond))
 	enabled := &user.User{ID: "u1", Role: user.RoleViewer, TenantID: tenantctx.DefaultTenantID}
 	disabled := &user.User{ID: "u2", Role: user.RoleViewer, TenantID: gateOtherTenant}
 
@@ -111,7 +111,7 @@ func TestEnabledTenant_CachesVerdicts(t *testing.T) {
 // again.
 func TestEnabledTenant_StoreErrorIs503AndNotCached(t *testing.T) {
 	check := &fakeTenantChecker{answers: map[string]error{tenantctx.DefaultTenantID: errors.New("connection refused")}}
-	gate := middleware.EnabledTenant(check, time.Minute)
+	gate := middleware.EnabledTenant(middleware.NewTenantGate(check, time.Minute))
 	u := &user.User{ID: "u1", Role: user.RoleAdmin, TenantID: tenantctx.DefaultTenantID}
 	for range 2 {
 		if rec := serveGated(gate, u); rec.Code != http.StatusServiceUnavailable {

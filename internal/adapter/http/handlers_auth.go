@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
@@ -47,6 +48,10 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Debug("login failed", "error", err)
 		auditAuthFailure(r, req.Email)
+		if errors.Is(err, tenant.ErrDisabled) {
+			writeError(w, http.StatusForbidden, "tenant is disabled")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -77,6 +82,12 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 	resp, newRawRefresh, err := h.Auth.RefreshTokens(r.Context(), cookie.Value)
 	if err != nil {
 		slog.Debug("token refresh failed", "error", err)
+		if errors.Is(err, tenant.ErrDisabled) {
+			// The token stays: it was not rotated and works again once the
+			// tenant is enabled.
+			writeError(w, http.StatusForbidden, "tenant is disabled")
+			return
+		}
 		// Clear invalid cookie.
 		http.SetCookie(w, &http.Cookie{
 			Name:     refreshCookieName,

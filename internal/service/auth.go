@@ -149,6 +149,13 @@ func (s *AuthService) Login(ctx context.Context, req user.LoginRequest, tenantID
 		}
 	}
 
+	// A disabled tenant's users get no tokens (tenant.ErrDisabled). Checked
+	// after the credentials, so the tenant's state is told to its own users
+	// only, and before any token is issued.
+	if err := tenantEnabled(ctx, s.store, u.TenantID); err != nil {
+		return nil, "", err
+	}
+
 	accessToken, err := s.tokens.SignJWT(u)
 	if err != nil {
 		return nil, "", fmt.Errorf("sign jwt: %w", err)

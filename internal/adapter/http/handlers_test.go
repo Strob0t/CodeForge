@@ -743,6 +743,11 @@ func (m *mockStore) GetTenant(_ context.Context, id string) (*tenant.Tenant, err
 			return &t, nil
 		}
 	}
+	// The default tenant always exists (a migration seeds it), enabled
+	// unless a test lists it otherwise.
+	if id == tenantctx.DefaultTenantID {
+		return &tenant.Tenant{ID: id, Name: "Default", Slug: "default", Enabled: true}, nil
+	}
 	return nil, errNotFound
 }
 func (m *mockStore) ListTenants(_ context.Context) ([]tenant.Tenant, error) {

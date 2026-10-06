@@ -63,6 +63,12 @@ func (t *TokenManager) RefreshTokens(ctx context.Context, rawToken string) (*use
 		return nil, "", errors.New("account is disabled")
 	}
 
+	// A disabled tenant's users get no tokens (tenant.ErrDisabled); the
+	// refresh token is not rotated, so it works again once the tenant is.
+	if err := tenantEnabled(ctx, t.store, u.TenantID); err != nil {
+		return nil, "", err
+	}
+
 	accessToken, err := t.signJWT(u)
 	if err != nil {
 		return nil, "", fmt.Errorf("sign jwt: %w", err)

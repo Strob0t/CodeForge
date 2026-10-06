@@ -84,9 +84,21 @@ func reachable(ctx context.Context, id string) bool {
 // tenant is tenant.ErrDisabled, a missing one domain.ErrNotFound; any other
 // error is the store's (KI-174).
 func (s *TenantService) ValidateExists(ctx context.Context, id string) error {
-	t, err := s.store.GetTenant(ctx, id)
+	return tenantEnabled(ctx, s.store, id)
+}
+
+// tenantEnabled is the check behind ValidateExists for a service without a
+// TenantService: nil when the tenant exists and is enabled, tenant.ErrDisabled
+// when it is disabled, else the store's error (domain.ErrNotFound for a
+// missing tenant), each naming the tenant.
+func tenantEnabled(ctx context.Context, store database.TenantStore, id string) error {
+	t, err := store.GetTenant(ctx, id)
 	if err != nil {
 		return fmt.Errorf("tenant %s: %w", id, err)
+	}
+	if t == nil {
+		// A store that answers neither a tenant nor an error: fail closed.
+		return fmt.Errorf("tenant %s: %w", id, domain.ErrNotFound)
 	}
 	if !t.Enabled {
 		return fmt.Errorf("tenant %s: %w", id, tenant.ErrDisabled)

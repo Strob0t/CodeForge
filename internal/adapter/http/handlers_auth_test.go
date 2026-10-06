@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain/tenant"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/tenantctx"
@@ -102,6 +103,40 @@ func TestHandleLogin_Success(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected codeforge_refresh cookie")
+	}
+}
+
+// S10-A review: a disabled tenant's users are refused on login and refresh
+// with 403 tenant is disabled; no token or cookie is issued.
+func TestHandleAuth_DisabledTenant(t *testing.T) {
+	store := &mockStore{}
+	r := newTestRouterWithStore(store)
+	_, refreshCookie := httpSetupAdmin(t, r, "disabled-tenant@test.com")
+	if refreshCookie == nil {
+		t.Fatal("no refresh cookie from setup")
+	}
+	store.mu.Lock()
+	store.tenants = append(store.tenants, tenant.Tenant{ID: tenantctx.DefaultTenantID, Name: "Default", Slug: "default", Enabled: false})
+	store.mu.Unlock()
+
+	body, _ := json.Marshal(user.LoginRequest{Email: "disabled-tenant@test.com", Password: validPassword})
+	req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "tenant is disabled") {
+		t.Fatalf("login: status %d (%s), want 403 tenant is disabled", w.Code, w.Body.String())
+	}
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatalf("login set cookies: %v", w.Result().Cookies())
+	}
+
+	req = httptest.NewRequest("POST", "/api/v1/auth/refresh", http.NoBody)
+	req.AddCookie(refreshCookie)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "tenant is disabled") {
+		t.Fatalf("refresh: status %d (%s), want 403 tenant is disabled", w.Code, w.Body.String())
 	}
 }
 
