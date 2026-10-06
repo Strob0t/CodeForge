@@ -124,3 +124,14 @@ def test_published_images_have_no_claude_code() -> None:
     build = next(s for s in worker["steps"] if str(s.get("uses", "")).startswith("docker/build-push-action"))
     assert build["with"]["file"] == "Dockerfile.worker"
     assert "INSTALL_CLAUDE_CODE" not in build["with"].get("build-args", "")
+
+
+def test_jobs_that_attest_may_write_attestations() -> None:
+    """Without attestations: write the provenance step fails ("Resource not accessible by integration")."""
+    attesting = []
+    for name, job in _workflow()["jobs"].items():  # type: ignore[union-attr]
+        if any(str(s.get("uses", "")).startswith("actions/attest-build-provenance") for s in job["steps"]):
+            attesting.append(name)
+            assert job["permissions"].get("attestations") == "write", name
+            assert job["permissions"].get("id-token") == "write", name
+    assert sorted(attesting) == sorted(BUILD_JOBS)

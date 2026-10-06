@@ -60,6 +60,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      attestations: write # the SLSA provenance step stores its attestation
     outputs:
       image: ${{ steps.image.outputs.ref }}
     steps:
@@ -132,6 +133,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      attestations: write # the SLSA provenance step stores its attestation
     outputs:
       image: ${{ steps.image.outputs.ref }}
     steps:
@@ -204,6 +206,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      attestations: write # the SLSA provenance step stores its attestation
     outputs:
       image: ${{ steps.image.outputs.ref }}
     steps:
