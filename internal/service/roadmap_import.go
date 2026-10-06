@@ -287,7 +287,8 @@ func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*ro
 // sets the status as importedStatus says. A feature of the file that no
 // item takes keeps the file but loses its line, so "Sync to file" never
 // writes to a line that holds something else now. The file's content hash
-// is recorded once all of this is stored.
+// and the state of each item's box are recorded once all of this is
+// stored.
 func (s *RoadmapService) importSpecItems(
 	ctx context.Context,
 	prov specprovider.Provider,
@@ -311,7 +312,7 @@ func (s *RoadmapService) importSpecItems(
 		return
 	}
 	sum := contentSHA256(content)
-	state, err := s.specFileState(ctx, ms.RoadmapID, spec.Path, sum)
+	_, lastChecked, err := s.specFileState(ctx, ms.RoadmapID, spec.Path, sum)
 	if err != nil {
 		fail("spec file record of %s: %v", spec.Path, err)
 		return
@@ -323,6 +324,7 @@ func (s *RoadmapService) importSpecItems(
 	}
 	byTitle := fileFeaturesByTitle(features, spec.Path)
 
+	record := roadmap.SpecFile{RoadmapID: ms.RoadmapID, Path: spec.Path, ContentSHA256: sum, Checked: map[string]bool{}}
 	stored := true
 	save := func(f *roadmap.Feature) {
 		if err := s.store.UpdateFeature(ctx, f); err != nil {
@@ -341,16 +343,21 @@ func (s *RoadmapService) importSpecItems(
 		if same := byTitle[item.Title]; len(same) > 0 {
 			f := same[0]
 			byTitle[item.Title] = same[1:]
-			status, changed := importedStatus(f.Status, checked, state)
+			last, seen := lastChecked[f.ID]
+			status, changed := importedStatus(f.Status, checked, last, seen)
 			if f.SpecRef != ref || changed {
 				f.SpecRef, f.Status = ref, status
 				save(f)
 			}
+			record.Checked[f.ID] = checked
 			continue
 		}
-		if !s.createSpecFeature(ctx, ms.ID, item.Title, ref, prov.Name(), checked, result) {
+		id, ok := s.createSpecFeature(ctx, ms.ID, item.Title, ref, prov.Name(), checked, result)
+		if !ok {
 			stored = false
+			continue
 		}
+		record.Checked[id] = checked
 	}
 	for _, rest := range byTitle {
 		for _, f := range rest {
@@ -361,15 +368,15 @@ func (s *RoadmapService) importSpecItems(
 		}
 	}
 	if stored {
-		if err := s.store.SetSpecFileHash(ctx, ms.RoadmapID, spec.Path, sum); err != nil {
+		if err := s.store.SetSpecFile(ctx, &record); err != nil {
 			fail("record spec file %s: %v", spec.Path, err)
 		}
 	}
 }
 
 // createSpecFeature creates the feature of a new checkbox item (done when
-// it is checked) and reports whether it was stored.
-func (s *RoadmapService) createSpecFeature(ctx context.Context, milestoneID, title, ref, provName string, checked bool, result *roadmap.ImportResult) bool {
+// it is checked) and returns its ID and whether it was stored.
+func (s *RoadmapService) createSpecFeature(ctx context.Context, milestoneID, title, ref, provName string, checked bool, result *roadmap.ImportResult) (string, bool) {
 	f, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
 		MilestoneID: milestoneID,
 		Title:       title,
@@ -378,18 +385,18 @@ func (s *RoadmapService) createSpecFeature(ctx context.Context, milestoneID, tit
 	})
 	if err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("create feature %q: %v", title, err))
-		return false
+		return "", false
 	}
 	result.FeaturesCreated++
 	if !checked {
-		return true
+		return f.ID, true
 	}
 	f.Status = roadmap.FeatureDone
 	if err := s.store.UpdateFeature(ctx, f); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("mark feature %q done: %v", title, err))
-		return false
+		return f.ID, false
 	}
-	return true
+	return f.ID, true
 }
 
 // upsertFeature finds an existing feature by spec_ref and updates it, or creates

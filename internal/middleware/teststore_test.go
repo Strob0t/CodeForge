@@ -430,10 +430,10 @@ func (s *testStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([]roadma
 }
 func (s *testStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
 func (s *testStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
-func (s *testStore) GetSpecFileHash(_ context.Context, _, _ string) (string, error) {
-	return "", domain.ErrNotFound
+func (s *testStore) GetSpecFile(_ context.Context, _, _ string) (*roadmap.SpecFile, error) {
+	return nil, domain.ErrNotFound
 }
-func (s *testStore) SetSpecFileHash(_ context.Context, _, _, _ string) error { return nil }
+func (s *testStore) SetSpecFile(_ context.Context, _ *roadmap.SpecFile) error { return nil }
 
 // Tenant stubs
 func (s *testStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {

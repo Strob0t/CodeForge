@@ -135,3 +135,17 @@ type AIRoadmapView struct {
 	RawData     json.RawMessage `json:"raw_data,omitempty"`
 	GeneratedAt time.Time       `json:"generated_at"`
 }
+
+// SpecFile is what a roadmap last saw of a workspace spec file, recorded
+// each time it imports the file or writes its checkbox markers back
+// (KI-203).
+type SpecFile struct {
+	RoadmapID string
+	Path      string
+	// ContentSHA256 is the hex SHA-256 of the file's content.
+	ContentSHA256 string
+	// Checked is the state of each imported feature's checkbox, by feature
+	// ID: an import takes a box's state from the file only when it differs
+	// (a three-way merge with the roadmap's status).
+	Checked map[string]bool
+}

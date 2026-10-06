@@ -713,10 +713,10 @@ func (m *runtimeMockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([
 }
 func (m *runtimeMockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
 func (m *runtimeMockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
-func (m *runtimeMockStore) GetSpecFileHash(_ context.Context, _, _ string) (string, error) {
-	return "", domain.ErrNotFound
+func (m *runtimeMockStore) GetSpecFile(_ context.Context, _, _ string) (*roadmap.SpecFile, error) {
+	return nil, domain.ErrNotFound
 }
-func (m *runtimeMockStore) SetSpecFileHash(_ context.Context, _, _, _ string) error { return nil }
+func (m *runtimeMockStore) SetSpecFile(_ context.Context, _ *roadmap.SpecFile) error { return nil }
 
 // Tenant stubs
 func (m *runtimeMockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {

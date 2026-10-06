@@ -258,31 +258,43 @@ func (s *Store) DeleteFeature(ctx context.Context, id string) error {
 
 // --- Spec files (KI-203) ---
 
-// GetSpecFileHash returns the content hash recorded for the roadmap's spec
-// file path, or domain.ErrNotFound.
-func (s *Store) GetSpecFileHash(ctx context.Context, roadmapID, path string) (string, error) {
-	var sum string
+// GetSpecFile returns what the roadmap recorded of its spec file path, or
+// domain.ErrNotFound.
+func (s *Store) GetSpecFile(ctx context.Context, roadmapID, path string) (*roadmap.SpecFile, error) {
+	f := roadmap.SpecFile{RoadmapID: roadmapID, Path: path}
+	var checked []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT content_sha256 FROM roadmap_spec_files WHERE roadmap_id = $1 AND path = $2 AND tenant_id = $3`,
-		roadmapID, path, tenantFromCtx(ctx)).Scan(&sum)
+		`SELECT content_sha256, checked FROM roadmap_spec_files WHERE roadmap_id = $1 AND path = $2 AND tenant_id = $3`,
+		roadmapID, path, tenantFromCtx(ctx)).Scan(&f.ContentSHA256, &checked)
 	if err != nil {
-		return "", notFoundWrap(err, "spec file %s of roadmap %s", path, roadmapID)
+		return nil, notFoundWrap(err, "spec file %s of roadmap %s", path, roadmapID)
 	}
-	return sum, nil
+	if err := unmarshalJSONField(checked, &f.Checked, "checked"); err != nil {
+		return nil, err
+	}
+	return &f, nil
 }
 
-// SetSpecFileHash records the content hash of the roadmap's spec file path,
-// replacing an earlier one. The roadmap must be the tenant's
-// (domain.ErrNotFound otherwise).
-func (s *Store) SetSpecFileHash(ctx context.Context, roadmapID, path, sha256 string) error {
+// SetSpecFile records what the roadmap saw of its spec file, replacing an
+// earlier record. The roadmap must be the tenant's (domain.ErrNotFound
+// otherwise).
+func (s *Store) SetSpecFile(ctx context.Context, f *roadmap.SpecFile) error {
+	checked := f.Checked
+	if checked == nil {
+		checked = map[string]bool{}
+	}
+	checkedJSON, err := marshalJSON(checked, "checked")
+	if err != nil {
+		return err
+	}
 	tag, err := s.pool.Exec(ctx,
-		`INSERT INTO roadmap_spec_files (tenant_id, roadmap_id, path, content_sha256)
-		 SELECT r.tenant_id, r.id, $2, $3 FROM roadmaps r WHERE r.id = $1 AND r.tenant_id = $4
+		`INSERT INTO roadmap_spec_files (tenant_id, roadmap_id, path, content_sha256, checked)
+		 SELECT r.tenant_id, r.id, $2, $3, $4 FROM roadmaps r WHERE r.id = $1 AND r.tenant_id = $5
 		 ON CONFLICT (roadmap_id, path) DO UPDATE
-		 SET content_sha256 = EXCLUDED.content_sha256, updated_at = now()
+		 SET content_sha256 = EXCLUDED.content_sha256, checked = EXCLUDED.checked, updated_at = now()
 		 WHERE roadmap_spec_files.tenant_id = EXCLUDED.tenant_id`,
-		roadmapID, path, sha256, tenantFromCtx(ctx))
-	return execExpectOne(tag, err, "record spec file %s of roadmap %s", path, roadmapID)
+		f.RoadmapID, f.Path, f.ContentSHA256, checkedJSON, tenantFromCtx(ctx))
+	return execExpectOne(tag, err, "record spec file %s of roadmap %s", f.Path, f.RoadmapID)
 }
 
 func scanRoadmap(row scannable) (roadmap.Roadmap, error) {

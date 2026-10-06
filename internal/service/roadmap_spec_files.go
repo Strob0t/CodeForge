@@ -15,12 +15,13 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 )
 
-// Spec file import and write-back (KI-203). The roadmap records the content
-// hash of a spec file each time it imports the file or writes its checkbox
-// markers back, so it knows whether the file changed since:
-//   - an import takes a checkbox's state from the file only when it did
-//     (importedStatus);
-//   - "Sync to file" writes only to a file that did not.
+// Spec file import and write-back (KI-203). The roadmap records what it
+// saw of a spec file each time it imports the file or writes its checkbox
+// markers back: the content hash and the state of each imported feature's
+// checkbox. So it knows whether the file changed since:
+//   - an import takes a checkbox's state from the file only when that box
+//     changed (importedStatus, a three-way merge);
+//   - "Sync to file" writes only to a file that did not change at all.
 
 // Values of specprovider.SpecItemDetail's Level and Status.
 const (
@@ -41,18 +42,19 @@ const (
 )
 
 // specFileState compares sum, the hash of a spec file's content now, with
-// the hash the roadmap recorded for the file.
-func (s *RoadmapService) specFileState(ctx context.Context, roadmapID, path, sum string) (specFileState, error) {
-	recorded, err := s.store.GetSpecFileHash(ctx, roadmapID, path)
+// the hash the roadmap recorded for the file, and returns the boxes it
+// recorded (nil without a record).
+func (s *RoadmapService) specFileState(ctx context.Context, roadmapID, path, sum string) (specFileState, map[string]bool, error) {
+	recorded, err := s.store.GetSpecFile(ctx, roadmapID, path)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		return specFileUnrecorded, nil
+		return specFileUnrecorded, nil, nil
 	case err != nil:
-		return specFileUnrecorded, err
-	case recorded == sum:
-		return specFileUnchanged, nil
+		return specFileUnrecorded, nil, err
+	case recorded.ContentSHA256 == sum:
+		return specFileUnchanged, recorded.Checked, nil
 	default:
-		return specFileChanged, nil
+		return specFileChanged, recorded.Checked, nil
 	}
 }
 
@@ -63,20 +65,20 @@ func contentSHA256(content []byte) string {
 }
 
 // importedStatus is the status an imported checkbox gives its existing
-// feature, and whether it differs from cur. When the file is unchanged
-// since the last import or sync, the roadmap's status is newer and stays.
-// When it changed, the file's state wins: a checked box makes the feature
-// done, an unchecked one reopens a done feature (other statuses are
-// unchecked boxes too). Without a record, a checked box makes the feature
-// done but an unchecked one never reopens it: the roadmap may know of work
-// the file never got.
-func importedStatus(cur roadmap.FeatureStatus, checked bool, state specFileState) (roadmap.FeatureStatus, bool) {
+// feature, and whether it differs from cur. It is a three-way merge with
+// the box's state at the last import or sync (last, when seen): a box that
+// did not change since keeps the roadmap's status, which is newer. A box
+// that changed sets it: checked makes the feature done, unchecked reopens
+// a done feature (other statuses are unchecked boxes too). Without a
+// record of the box, a checked box makes the feature done but an unchecked
+// one never reopens it: the roadmap may know of work the file never got.
+func importedStatus(cur roadmap.FeatureStatus, checked, last, seen bool) (roadmap.FeatureStatus, bool) {
 	switch {
-	case state == specFileUnchanged:
+	case seen && checked == last:
 		return cur, false
 	case checked && cur != roadmap.FeatureDone:
 		return roadmap.FeatureDone, true
-	case !checked && cur == roadmap.FeatureDone && state == specFileChanged:
+	case !checked && cur == roadmap.FeatureDone && seen:
 		return roadmap.FeatureBacklog, true
 	default:
 		return cur, false

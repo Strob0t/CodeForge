@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,20 +20,20 @@ import (
 )
 
 // roadmapMemStore keeps one project's roadmap, milestones, features and spec
-// file hashes in memory.
+// file records in memory.
 type roadmapMemStore struct {
 	mockStore
 	rm         *roadmap.Roadmap
 	milestones []roadmap.Milestone
 	features   []roadmap.Feature
-	hashes     map[string]string
+	specFiles  map[string]roadmap.SpecFile
 	nextID     int
 }
 
 func newRoadmapMemStore(workspace string) *roadmapMemStore {
 	return &roadmapMemStore{
 		mockStore: mockStore{projects: []project.Project{{ID: "p1", Name: "app", WorkspacePath: workspace}}},
-		hashes:    map[string]string{},
+		specFiles: map[string]roadmap.SpecFile{},
 	}
 }
 
@@ -122,15 +123,19 @@ func (m *roadmapMemStore) UpdateFeature(_ context.Context, f *roadmap.Feature) e
 	return domain.ErrNotFound
 }
 
-func (m *roadmapMemStore) GetSpecFileHash(_ context.Context, _, path string) (string, error) {
-	if sum, ok := m.hashes[path]; ok {
-		return sum, nil
+func (m *roadmapMemStore) GetSpecFile(_ context.Context, _, path string) (*roadmap.SpecFile, error) {
+	f, ok := m.specFiles[path]
+	if !ok {
+		return nil, domain.ErrNotFound
 	}
-	return "", domain.ErrNotFound
+	f.Checked = maps.Clone(f.Checked)
+	return &f, nil
 }
 
-func (m *roadmapMemStore) SetSpecFileHash(_ context.Context, _, path, sum string) error {
-	m.hashes[path] = sum
+func (m *roadmapMemStore) SetSpecFile(_ context.Context, f *roadmap.SpecFile) error {
+	stored := *f
+	stored.Checked = maps.Clone(f.Checked)
+	m.specFiles[f.Path] = stored
 	return nil
 }
 
@@ -288,13 +293,16 @@ func TestImportSpecs_RepeatedTitles(t *testing.T) {
 	wantRefs(t, env.refs(), "Tests@TODO.md#L2=backlog", "Tests@TODO.md#L4=backlog", "Tests@TODO.md#L6=done")
 }
 
-// The status of a checkbox is taken from the file when the file changed
-// since the roadmap last imported or synced it, both ways. When it did not
-// change, the roadmap's status is newer and stays. Without a record (a
-// roadmap imported before KI-203), a checked box marks the feature done
-// and an unchecked one never reopens it.
-func TestImportSpecs_StatusFollowsAChangedFile(t *testing.T) {
+// Three-way merge of a checkbox and its feature's status: the roadmap
+// records the state each imported box had when it last imported or synced
+// the file. A box that changed in the file since sets the status, both
+// ways (an unchecked box reopens only a done feature). A box that did not
+// change keeps the roadmap's status, even when other lines of the file
+// changed. Without a record (a roadmap imported before KI-203), a checked
+// box marks the feature done and an unchecked one never reopens it.
+func TestImportSpecs_StatusFollowsAChangedBox(t *testing.T) {
 	const checked, unchecked = "- [x] Item\n", "- [ ] Item\n"
+	const elsewhere = "Intro\n" // another line of the file changed
 	tests := []struct {
 		name      string
 		before    string // file at the first import
@@ -307,7 +315,10 @@ func TestImportSpecs_StatusFollowsAChangedFile(t *testing.T) {
 		{"unchanged file keeps reopened", checked, roadmap.FeatureBacklog, checked, false, roadmap.FeatureBacklog},
 		{"checked in the file", unchecked, roadmap.FeatureInProgress, checked, false, roadmap.FeatureDone},
 		{"unchecked in the file", checked, roadmap.FeatureDone, unchecked, false, roadmap.FeatureBacklog},
-		{"unchecked file keeps in progress", unchecked, roadmap.FeatureInProgress, "Intro\n" + unchecked, false, roadmap.FeatureInProgress},
+		{"unchecked in the file keeps in progress", checked, roadmap.FeatureInProgress, unchecked, false, roadmap.FeatureInProgress},
+		{"unchanged box keeps done", unchecked, roadmap.FeatureDone, elsewhere + unchecked, false, roadmap.FeatureDone},
+		{"unchanged box keeps reopened", checked, roadmap.FeatureBacklog, elsewhere + checked, false, roadmap.FeatureBacklog},
+		{"unchanged box keeps in progress", unchecked, roadmap.FeatureInProgress, elsewhere + unchecked, false, roadmap.FeatureInProgress},
 		{"no record, checked", unchecked, roadmap.FeatureBacklog, checked, true, roadmap.FeatureDone},
 		{"no record, unchecked keeps done", checked, roadmap.FeatureDone, unchecked, true, roadmap.FeatureDone},
 	}
@@ -317,7 +328,7 @@ func TestImportSpecs_StatusFollowsAChangedFile(t *testing.T) {
 			env.importSpecs(t)
 			env.store.setStatus(t, "Item", tt.dbStatus)
 			if tt.noRecord {
-				clear(env.store.hashes)
+				clear(env.store.specFiles)
 			}
 			env.write(t, "TODO.md", tt.after)
 			env.importSpecs(t)
@@ -326,6 +337,18 @@ func TestImportSpecs_StatusFollowsAChangedFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A status set in the UI survives a re-import of a file in which another
+// box was checked: only the changed box takes the file's state.
+func TestImportSpecs_UIStatusSurvivesAnotherBoxChange(t *testing.T) {
+	env := newSpecEnv(t, map[string]string{"TODO.md": "- [ ] A\n- [ ] B\n- [x] C\n"})
+	env.importSpecs(t)
+	env.store.setStatus(t, "A", roadmap.FeatureDone)
+	env.store.setStatus(t, "C", roadmap.FeatureInProgress)
+	env.write(t, "TODO.md", "- [ ] A\n- [x] B\n- [x] C\n")
+	env.importSpecs(t)
+	wantRefs(t, env.refs(), "A@TODO.md#L1=done", "B@TODO.md#L2=done", "C@TODO.md#L3=in_progress")
 }
 
 // Features the old import created (headings, list items, a duplicate per
@@ -387,6 +410,22 @@ func TestSyncToSpecFile_PatchesOnlyMarkers(t *testing.T) {
 	}
 }
 
+// "Sync to file" records the boxes it wrote: a feature reopened after the
+// sync stays open when the file changes elsewhere, since its box did not
+// change in the file since the sync.
+func TestSyncToSpecFile_RecordsTheWrittenBoxes(t *testing.T) {
+	env := newSpecEnv(t, map[string]string{"TODO.md": "- [ ] Item\n"})
+	env.importSpecs(t)
+	env.store.setStatus(t, "Item", roadmap.FeatureDone)
+	if err := env.svc.SyncToSpecFile(context.Background(), "p1"); err != nil {
+		t.Fatal(err)
+	}
+	env.store.setStatus(t, "Item", roadmap.FeatureBacklog)
+	env.write(t, "TODO.md", "Intro\n"+env.read(t, "TODO.md"))
+	env.importSpecs(t)
+	wantRefs(t, env.refs(), "Item@TODO.md#L2=backlog")
+}
+
 // The spec file is never overwritten when it cannot be patched safely: it
 // changed since the last import or sync, it was never imported, a line no
 // longer holds its feature's checkbox, or a spec_ref names a file that is
@@ -401,7 +440,7 @@ func TestSyncToSpecFile_Refusals(t *testing.T) {
 			env.write(t, "TODO.md", env.read(t, "TODO.md")+"- [ ] Added by hand\n")
 		}, domain.ErrConflict},
 		{"file never imported", func(_ *testing.T, env *specEnv) {
-			clear(env.store.hashes)
+			clear(env.store.specFiles)
 		}, domain.ErrConflict},
 		{"line holds another title", func(t *testing.T, env *specEnv) {
 			env.store.feature(t, "Open item").SpecRef = "TODO.md#L7"

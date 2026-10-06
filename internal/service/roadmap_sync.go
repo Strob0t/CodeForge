@@ -164,10 +164,12 @@ func specLineRefs(rm *roadmap.Roadmap) map[string][]specLineRef {
 	return refs
 }
 
-// specFilePatch is a spec file's content before and after its markers were set.
+// specFilePatch is a spec file's content before and after its markers were
+// set, and the record of the boxes after.
 type specFilePatch struct {
 	path          string
 	before, after []byte
+	checked       map[string]bool
 }
 
 // patchSpecFiles writes the statuses of the features in refs into the
@@ -222,7 +224,8 @@ func (s *RoadmapService) patchSpecFiles(ctx context.Context, workspacePath, road
 		if err := writeUnchangedSpecFile(ws, p); err != nil {
 			return err
 		}
-		if err := s.store.SetSpecFileHash(ctx, roadmapID, p.path, contentSHA256(p.after)); err != nil {
+		record := roadmap.SpecFile{RoadmapID: roadmapID, Path: p.path, ContentSHA256: contentSHA256(p.after), Checked: p.checked}
+		if err := s.store.SetSpecFile(ctx, &record); err != nil {
 			return fmt.Errorf("record spec file %s: %w", p.path, err)
 		}
 	}
@@ -242,7 +245,7 @@ func (s *RoadmapService) patchSpecFile(
 	if err != nil {
 		return specFilePatch{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	state, err := s.specFileState(ctx, roadmapID, path, contentSHA256(content))
+	state, checked, err := s.specFileState(ctx, roadmapID, path, contentSHA256(content))
 	if err != nil {
 		return specFilePatch{}, fmt.Errorf("spec file record of %s: %w", path, err)
 	}
@@ -255,11 +258,16 @@ func (s *RoadmapService) patchSpecFile(
 
 	items := make([]specprovider.SpecItemDetail, 0, len(refs))
 	onLine := make(map[int]string, len(refs))
+	checked = maps.Clone(checked)
+	if checked == nil {
+		checked = make(map[string]bool, len(refs))
+	}
 	for _, ref := range refs {
 		if other, taken := onLine[ref.line]; taken {
 			return specFilePatch{}, fmt.Errorf("%w: features %q and %q both refer to %s line %d (nothing was written)", domain.ErrConflict, other, ref.feature.Title, path, ref.line)
 		}
 		onLine[ref.line] = ref.feature.Title
+		checked[ref.feature.ID] = ref.feature.Status == roadmap.FeatureDone
 		items = append(items, specprovider.SpecItemDetail{
 			Title:      ref.feature.Title,
 			Status:     featureStatusToItemStatus(ref.feature.Status),
@@ -274,7 +282,7 @@ func (s *RoadmapService) patchSpecFile(
 	if err != nil {
 		return specFilePatch{}, fmt.Errorf("patch %s: %w", path, err)
 	}
-	return specFilePatch{path: path, before: content, after: after}, nil
+	return specFilePatch{path: path, before: content, after: after, checked: checked}, nil
 }
 
 // writeUnchangedSpecFile writes the patched content of a spec file if the
