@@ -41,6 +41,18 @@
 - [x] (2026-10-01) Agent instructions follow the AGENTS.md convention: `CLAUDE.md` is replaced by [`AGENTS.md`](../AGENTS.md) (structure after the Scavengarr `AGENTS.md`: workflow, overview, architecture, dependencies, language rules, testing, agent system and cross-language rules, subagents, dev container, navigation). Descriptive catalogues moved to [architecture/project-reference.md](architecture/project-reference.md), the E2E startup procedure to [testing/e2e-setup.md](testing/e2e-setup.md). Claude Code reads `AGENTS.md` when no `CLAUDE.md` exists (v2.1.277 or newer).
 - [x] (2026-09-30) SessionStart hook for Claude Code on the web (`.claude/hooks/session-start.sh`, registered in `.claude/settings.json`): installs the CI toolchains and dependencies and starts PostgreSQL 18 + NATS JetStream for the Go tests, see [dev-setup](dev-setup.md#claude-code-on-the-web-sessionstart-hook)
 
+### Handover (2026-10-06, session end)
+
+The owner asked the session of 2026-10-03..06 to finish its in-flight work and end. State at the end (branch `claude/busy-dijkstra-q0oxi9`, PR into `staging`):
+
+- **Landed:** S9-B, S9-C, KI-94, webhooks UI, MCP servers, S10-G, S10-E1, S10-I, S10-D, the model switch (`qwen3.5:4b-q4_K_M`), the AGENTS.md update. Every landed round went through a review and a fix round; the residuals are Known Issues (KI-224 to KI-227).
+- **In flight at the time of writing** (updated below when they land): the S10-E2 fix round (worktree `.claude/worktrees/agent-a3874021f97c8da1d`, branch `s10-e2`, KI-194, KI-196, KI-223) and the S9-D UI fix round (worktree `.claude/worktrees/agent-a912d209161be0063`, branch `s9d-ui`, KI-129, KI-138, KI-142, KI-146, KI-161). If this line is still here, land them from their worktrees: cherry-pick onto the branch, verify, write the docs.
+- **Next, in order** (fix rounds of the [2026-10-06 code review](audits/2026-10-06-code-review/README.md), one agent per round in its own worktree, reviewed and landed by the lead): S10-A (HTTP authorization and audit), S10-H (agent runtime state), then S10-F (store, A2A, data lifecycle), S10-C (secrets, SSRF, tenant mixing), S10-B (authentication and sessions), then S10-J (frontend) and S10-K (evaluation and leftovers). The audit README lists the KIs of each round.
+- **Agent-work read model** ([plan](plans/2026-10-06-agent-work-read-model.md)): 2 of 5 commits exist in worktree `.claude/worktrees/agent-a7510158b2681edfb` (branch `s9d-agentwork`, base `5e280e44`): the per-turn result columns with the completion claim and the `agent_work` view with its store. Before landing, renumber its migrations 128/129 to 129/130 (127 review_user_edits and 128 roadmap_spec_files landed since) and rebase onto the branch head; then the remaining commits (dashboard, cost page and activity timeline reading `agent_work`, the new page).
+- **Benchmark run 2** with the new default model ([autonomous-goal-benchmark.md](testing/autonomous-goal-benchmark.md)), then the S9-C live check; the Ollama container of the benchmark host is `codeforge-shots-ollama`.
+- **Open items of recent rounds:** KI-214 (build, CI and deployment hygiene, partly fixed), KI-225 (text tool protocol residuals), KI-226 (hook PATH duplication), KI-227 (S10-D git and SVN residuals).
+- **Session practice that worked:** at most two agents at a time; heavy test runs serialized through one flock wrapper; `go clean -cache` whenever the disk goes under 3 GB free; private databases per round; reviews on read-only snapshots; the lead writes the docs (see AGENTS.md section 8).
+
 ### Known Issues
 
 > Verified defects found in the docs/code reconciliation of 2026-09-29 on `staging` (HEAD `cb9b63ce`).
