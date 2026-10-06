@@ -457,15 +457,6 @@ func (r *Repo) FetchFrom(ctx context.Context, url string) error {
 	return err
 }
 
-// Command returns another program to run in the repository with the
-// hardened environment; git processes it starts inherit the overrides.
-func (r *Repo) Command(ctx context.Context, name string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: program and arguments chosen by the Go Core
-	cmd.Dir = r.Dir
-	cmd.Env = r.env(nil)
-	return cmd
-}
-
 // waitDelay bounds the wait for git's output pipes after it was killed.
 const waitDelay = 5 * time.Second
 

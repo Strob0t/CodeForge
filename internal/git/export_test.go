@@ -1,6 +1,8 @@
 package git
 
 import (
+	"context"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -23,4 +25,17 @@ func SetPreScanEntries(t *testing.T, n int) {
 	old := maxPreScanEntries
 	maxPreScanEntries = n
 	t.Cleanup(func() { maxPreScanEntries = old })
+}
+
+// Command returns another program to run in the repository with the
+// hardened environment; git processes it starts inherit the overrides. Only
+// tests run other programs in a workspace: Go Core code runs git through
+// runGit, with its deadline and process-group kill.
+func (r *Repo) Command(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = r.Dir
+	cmd.Env = r.env(nil)
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = waitDelay
+	return cmd
 }
