@@ -307,7 +307,11 @@ sequenceDiagram
 - [x] Checkpoint system: working-tree commits from a private index under `refs/codeforge/checkpoints/<run>` for rollback (tree, user's index and HEAD); hardened git (KI-27, KI-77 fixed 2026-09-30).
 - [x] Docker Sandbox: container lifecycle management with resource limits (use gated: tools do not run inside it yet, so sandbox/hybrid runs are rejected, KI-13).
 - [ ] Execute agent tools inside the sandbox container (`SandboxService.Exec`), then lift the KI-13 gate
-- [x] Stall detection: FNV-64a hash ring buffer, configurable threshold.
+- [x] Stall detection: FNV-64a hash ring buffer, configurable threshold. A stall is the same call `threshold` times in a row, or the same pair of calls repeated `threshold` times; an edit/test cycle with changing edits is progress. An escape prompt clears the window, and the run aborts only if it stalls again after 2 escapes (KI-191).
+- [x] Prompt reminders fire only under their runtime condition (budget >= 80 %, 10+ tool results without Edit/Write/Bash, plan reminder for `architect` only); they are never part of the assembled system prompt, and a template error skips the entry (KI-190).
+- [x] Tool selection: every tool the mode allows is offered (MCP tools capped at 40 per turn, built-ins never dropped), planning tools only in planning turns; routing, skills and the docs prefetch use the turn's last user message; the docs prefetch is one policy-checked call; an explicit model skips the hybrid router; skill selection is local (BM25); fallbacks with the user's own key stay on that provider (KI-192).
+- [x] Agentic conversations and runs need a workspace directory: Go answers 400, the worker refuses before any tool starts (KI-193).
+- [x] Multi-rollout conversations (opt-in) run only on a clean workspace and only while no other work is active on the project; each rollout is kept as a git tree and the best one is left as unstaged changes on the start commit; the start branch is restored before each reset; a workspace change outside the rollouts stops them; rollout git calls are bounded (120 s) (KI-195).
 - [x] Quality gate enforcement: test/lint gates via NATS request/result protocol with project/language commands, per-command timeout, heartbeats and a watchdog (KI-26, KI-28, KI-29 fixed 2026-09-30).
 - [x] 5 deliver modes: none, patch, commit-local, branch, PR; delivery for every completed run, before checkpoint cleanup; patches in `.git/codeforge/patches/` (KI-26, KI-27 fixed 2026-09-30).
 
