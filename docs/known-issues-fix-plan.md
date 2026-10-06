@@ -193,6 +193,17 @@ and GDPR work. Order:
 | **S9-C** | new feature, KI-125 follow-up | Pure-completion models use tools through a text tool protocol parsed by the worker, with grammar-constrained output where the server supports it (Ollama `format`, JSON schema); plan: [text-tool-protocol-plan.md](plans/text-tool-protocol-plan.md) |
 | **S9-D** | KI-129 (vision part), KI-94 (decided parts), KI-138, KI-142, KI-146, KI-109 | One "agent work" read model for the dashboard, costs and a new page ([plan](plans/2026-10-06-agent-work-read-model.md), migrations 128-129; KI-94 uses 127); refactorer write warning, `approve-partial` removed; small UI gaps |
 | **S9-E** (low) | KI-145, KI-144, KI-120, KI-141 | Last-admin rule, export scope and user attribution, tenant from the e-mail at login, never-done claims |
+| **S10-A** | KI-171, KI-172, KI-173, KI-174, KI-175, KI-176 | HTTP authorization and audit (Go) (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-B** | KI-177, KI-178, KI-179 | Authentication and sessions (Go, frontend) (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-C** | KI-180, KI-181, KI-182, KI-183, KI-184, KI-185, KI-186 | Secrets, SSRF and tenant mixing (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-D** | KI-187, KI-188, KI-189 | Git and workspace safety in the Go Core (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-E** | KI-190, KI-191, KI-192, KI-193, KI-194, KI-195, KI-196, KI-223 | Agent loop and LLM client (worker) (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-F** | KI-197, KI-198, KI-199, KI-200, KI-201, KI-202 | Store, A2A and data lifecycle (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-G** | KI-203, KI-204, KI-205 | Roadmap sync, trust and branch protection (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-H** | KI-206, KI-207, KI-208, KI-209 | Agent runtime state (Go) (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-I** | KI-210, KI-211, KI-212, KI-213, KI-214 | Operations and deployment (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-J** | KI-215, KI-216, KI-217, KI-218, KI-219 | Frontend (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
+| **S10-K** | KI-220, KI-221, KI-222 | Evaluation, prompt evolution and leftovers (full code review 2026-10-06, [audit](audits/2026-10-06-code-review/README.md)) |
 | closed | KI-140 | Decision: keep the current rule (allow rules match the inner command) |
 
 ---

@@ -139,7 +139,7 @@ docker compose -f docker-compose.prod.yml up -d
 Then open `http://<your-host>/setup` and create the first admin with the one-time setup token from the Core's log or its data volume:
 
 ```bash
-docker compose -f docker-compose.prod.yml logs codeforge | grep 'SETUP TOKEN'
+docker compose -f docker-compose.prod.yml logs core | grep 'SETUP TOKEN'
 ```
 
 The token is also in `/data/setup_token` inside the Core container; the setup uses it up.
