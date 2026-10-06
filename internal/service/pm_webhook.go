@@ -175,28 +175,32 @@ func parsePMEvent(source string, data []byte) (*pmEvent, error) {
 	}
 }
 
-// repoURLParts splits a repository URL (https://host/path[.git] or
-// git@host:path[.git]) into its base URL and repository path.
-func repoURLParts(repoURL string) (base, path string, ok bool) {
+// repoBaseURL returns the base URL (scheme://host[:port]) of a repository
+// URL (https://host/path[.git] or git@host:path[.git]); ok is false when it
+// names no repository path.
+func repoBaseURL(repoURL string) (base string, ok bool) {
+	var path string
 	if rest, found := strings.CutPrefix(repoURL, "git@"); found {
 		host, p, found := strings.Cut(rest, ":")
 		if !found || host == "" {
-			return "", "", false
+			return "", false
 		}
 		base, path = "https://"+host, p
 	} else {
 		u, err := neturl.Parse(repoURL)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return "", "", false
+			return "", false
 		}
 		base, path = u.Scheme+"://"+u.Host, u.Path
 	}
 	path = strings.TrimSuffix(strings.Trim(path, "/"), ".git")
-	return base, path, path != ""
+	return base, path != ""
 }
 
 // providerConfig is what the sync of proj authenticates with:
-//   - the integration's own API token (apiToken) when it has one;
+//   - the integration's own API token (apiToken) when it has one; a GitHub
+//     Enterprise Server project syncs with https://<host>/api/v3 and needs
+//     it;
 //   - otherwise the operator's credentials, but only in the default tenant
 //     (KI-85): the Plane token (plane.api_token) and the GitHub token
 //     (github.token) are the operator's, another tenant's integration needs
@@ -210,12 +214,22 @@ func (s *PMWebhookService) providerConfig(ctx context.Context, provider string, 
 	operator := operatorCredentialsServe(ctx)
 	switch provider {
 	case "gitlab":
-		base, _, ok := repoURLParts(proj.RepoURL)
+		base, ok := repoBaseURL(proj.RepoURL)
 		if !ok {
 			return nil, fmt.Errorf("gitlab webhook: project %s has no GitLab repository URL: %w", proj.ID, domain.ErrValidation)
 		}
 		return map[string]string{"base_url": base, "token": apiToken}, nil
 	case "github-issues":
+		// A GitHub Enterprise Server project syncs with its server's API and
+		// the integration's own token: github.token is for api.github.com
+		// only (KI-166).
+		if base, ok := repoBaseURL(proj.RepoURL); ok && !isGitHubDotCom(base) {
+			if apiToken == "" {
+				return nil, fmt.Errorf("github webhook: project %s is on %s: the integration needs its own api_token (github.token is for api.github.com only): %w",
+					proj.ID, base, domain.ErrValidation)
+			}
+			return map[string]string{"base_url": base + "/api/v3", "token": apiToken}, nil
+		}
 		if apiToken == "" && !operator {
 			return nil, fmt.Errorf("github webhook: project %s: the integration has no api_token, and github.token serves only the default tenant: %w",
 				proj.ID, domain.ErrValidation)
@@ -244,6 +258,16 @@ func (s *PMWebhookService) providerConfig(ctx context.Context, provider string, 
 		return cfg, nil
 	}
 	return nil, fmt.Errorf("webhook provider %q: %w", provider, domain.ErrValidation)
+}
+
+// isGitHubDotCom reports whether base (scheme://host[:port]) is github.com.
+func isGitHubDotCom(base string) bool {
+	u, err := neturl.Parse(base)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Host)
+	return host == "github.com" || host == "www.github.com"
 }
 
 // sameBaseURL compares two base URLs, ignoring case of scheme and host and

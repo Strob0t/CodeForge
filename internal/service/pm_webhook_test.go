@@ -157,7 +157,9 @@ func TestPMWebhook_EventMustBeForTheProjectsRepository(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, syncer := newPMWebhookEnv(map[string]map[string]string{"plane": {"api_token": "t"}})
-			_, err := svc.HandleEvent(ctx, tc.source, tc.proj, "", []byte(tc.body))
+			// With the integration's token: a GitHub Enterprise project
+			// syncs only with it (KI-166).
+			_, err := svc.HandleEvent(ctx, tc.source, tc.proj, "integration-token", []byte(tc.body))
 			if tc.match {
 				if err != nil {
 					t.Fatalf("HandleEvent: %v", err)
@@ -429,6 +431,57 @@ func TestPMWebhook_ProblemsAreErrorsNotSilentSuccess(t *testing.T) {
 				t.Fatalf("HandleEvent = %v, want %v", err, tc.want)
 			}
 			syncer.assertNoSync(t)
+		})
+	}
+}
+
+// KI-166 review: an issues webhook of a GitHub Enterprise Server project
+// syncs with that server's API (https://<host>/api/v3) and the
+// integration's own token. The operator's github.token is for api.github.com
+// only: without the integration's token the webhook is refused instead of
+// syncing api.github.com (the token sent there, or an unrelated github.com
+// repository of the same name read).
+func TestPMWebhook_GitHubEnterpriseSyncsWithItsAPI(t *testing.T) {
+	const gheEvent = `{"action":"opened","issue":{"number":7},"repository":{"full_name":"acme/app","html_url":"https://ghe.example.com/acme/app"}}`
+	sshProject := &project.Project{ID: "ghe-ssh", RepoURL: "git@ghe.example.com:acme/app.git"}
+	portProject := &project.Project{ID: "ghe-port", RepoURL: "https://ghe.example.com:8443/acme/app"}
+	tests := []struct {
+		name        string
+		ctx         context.Context
+		proj        *project.Project
+		body        string
+		apiToken    string
+		wantErr     bool
+		wantBaseURL string
+	}{
+		{"enterprise with the integration's token", defaultTenantCtx(), gheProject, gheEvent, "ghe_tok", false, "https://ghe.example.com/api/v3"},
+		{"enterprise over ssh", defaultTenantCtx(), sshProject, gheEvent, "ghe_tok", false, "https://ghe.example.com/api/v3"},
+		{"enterprise on a port", defaultTenantCtx(), portProject,
+			`{"action":"opened","issue":{"number":7},"repository":{"full_name":"acme/app","html_url":"https://ghe.example.com:8443/acme/app"}}`,
+			"ghe_tok", false, "https://ghe.example.com:8443/api/v3"},
+		{"enterprise without a token, default tenant", defaultTenantCtx(), gheProject, gheEvent, "", true, ""},
+		{"enterprise without a token, other tenant", tenantctx.WithTenant(context.Background(), otherTenantID), gheProject, gheEvent, "", true, ""},
+		{"github.com with the operator's token", defaultTenantCtx(), ghProject, githubIssueEvent, "", false, ""},
+		{"github.com with the integration's token", defaultTenantCtx(), ghProject, githubIssueEvent, "ghp_b", false, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, syncer := newPMWebhookEnv(nil)
+			_, err := svc.HandleEvent(tc.ctx, "github", tc.proj, tc.apiToken, []byte(tc.body))
+			if tc.wantErr {
+				if !errors.Is(err, domain.ErrValidation) || !strings.Contains(err.Error(), "api_token") {
+					t.Fatalf("HandleEvent = %v, want a validation error naming api_token", err)
+				}
+				syncer.assertNoSync(t)
+				return
+			}
+			if err != nil {
+				t.Fatalf("HandleEvent: %v", err)
+			}
+			got, _ := syncer.waitCall(t)
+			if got.ProviderConfig["base_url"] != tc.wantBaseURL || got.ProviderConfig["token"] != tc.apiToken {
+				t.Fatalf("sync config %+v, want base_url %q and the integration's token %q", got.ProviderConfig, tc.wantBaseURL, tc.apiToken)
+			}
 		})
 	}
 }
