@@ -33,11 +33,11 @@ func isSpecial(m fs.FileMode) bool {
 	return m&(fs.ModeNamedPipe|fs.ModeSocket|fs.ModeDevice|fs.ModeCharDevice|fs.ModeIrregular) != 0
 }
 
-// refuseSpecialFile refuses path (named rel) when it is a FIFO, socket or
+// refuseSpecialFile refuses the file name (shown as rel) when it is a FIFO, socket or
 // device, or a symbolic link to one. A missing file or a dangling link is
 // fine: git skips a file it cannot open.
-func refuseSpecialFile(path, rel string) error {
-	info, err := os.Lstat(path)
+func refuseSpecialFile(name, rel string) error {
+	info, err := os.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -45,7 +45,7 @@ func refuseSpecialFile(path, rel string) error {
 		return fmt.Errorf("inspect %s: %w", rel, err)
 	}
 	if info.Mode()&fs.ModeSymlink != 0 {
-		target, err := os.Stat(path) // stat never opens the target
+		target, err := os.Stat(name) // stat never opens the target
 		if err != nil {
 			return nil //nolint:nilerr // git cannot open it either
 		}
@@ -155,11 +155,11 @@ func (r *Repo) checkExcludesFile() error {
 	if strings.HasPrefix(value, "~") || strings.HasPrefix(value, "%(") {
 		return refuse("names a file outside the workspace")
 	}
-	path := value
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(r.Dir, path) // git runs in the worktree
+	file := value
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(r.Dir, file) // git runs in the worktree
 	}
-	rel, err := filepath.Rel(r.Dir, filepath.Clean(path))
+	rel, err := filepath.Rel(r.Dir, filepath.Clean(file))
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return refuse("names a file outside the workspace")
 	}
