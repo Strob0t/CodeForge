@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
@@ -65,6 +66,9 @@ type ProjectService struct {
 	resolveProvider func(*project.Project) (gitprovider.Provider, error)
 	// deletions removes deleted projects' workspaces through the worker (KI-96 D11).
 	deletions workspaceDeleter
+
+	cloneMu    sync.Mutex
+	cloneSlots map[string]chan struct{} // destination path -> one clone at a time
 }
 
 // workspaceDeleter deletes a project whose workspace the worker removes as

@@ -51,6 +51,13 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 		return nil, err
 	}
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
+	// A concurrent clone of the same project would otherwise also see no
+	// directory and, when it fails, remove the other clone's workspace.
+	unlock, err := s.lockClone(ctx, destPath)
+	if err != nil {
+		return nil, fmt.Errorf("clone: %w", err)
+	}
+	defer unlock()
 	_, statErr := os.Lstat(destPath)
 	fresh := errors.Is(statErr, fs.ErrNotExist)
 	if err := gp.Clone(ctx, p.RepoURL, destPath, opts...); err != nil {
@@ -72,6 +79,27 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 	}
 
 	return p, nil
+}
+
+// lockClone waits until no other clone into destPath runs, or ctx ends.
+func (s *ProjectService) lockClone(ctx context.Context, destPath string) (unlock func(), err error) {
+	s.cloneMu.Lock()
+	if s.cloneSlots == nil {
+		s.cloneSlots = make(map[string]chan struct{})
+	}
+	slot, ok := s.cloneSlots[destPath]
+	if !ok {
+		slot = make(chan struct{}, 1)
+		s.cloneSlots[destPath] = slot
+	}
+	s.cloneMu.Unlock()
+
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // SetAdoptRoots sets the operator-configured directories (workspace.adopt_roots)
