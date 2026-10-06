@@ -28,6 +28,7 @@ type Config struct {
 	Breaker      Breaker      `yaml:"breaker"`
 	Rate         Rate         `yaml:"rate"`
 	Git          Git          `yaml:"git"`
+	SVN          SVN          `yaml:"svn"`
 	Policy       Policy       `yaml:"policy"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Orchestrator Orchestrator `yaml:"orchestrator"`
@@ -292,6 +293,15 @@ type Git struct {
 	// and ls-remote, CommandTimeout to all other commands.
 	CommandTimeout time.Duration `yaml:"command_timeout"` // default: 2m
 	NetworkTimeout time.Duration `yaml:"network_timeout"` // default: 10m
+}
+
+// SVN holds operator settings of the SVN provider.
+type SVN struct {
+	// AllowFileURLs lets SVN working copies use local (file://)
+	// repositories (KI-189): an operator decision, since such a URL can come
+	// from the agent-writable wc.db and read any repository on the Go Core
+	// host. Default: false.
+	AllowFileURLs bool `yaml:"allow_file_urls"`
 }
 
 // Orchestrator holds multi-agent execution plan configuration.

@@ -36,6 +36,7 @@ import (
 	cfotel "github.com/Strob0t/CodeForge/internal/adapter/otel"
 	"github.com/Strob0t/CodeForge/internal/adapter/plandex"
 	"github.com/Strob0t/CodeForge/internal/adapter/postgres"
+	"github.com/Strob0t/CodeForge/internal/adapter/svn"
 	"github.com/Strob0t/CodeForge/internal/adapter/ws"
 	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/crypto"
@@ -183,6 +184,7 @@ func run() error {
 	git.SetTimeouts(cfg.Git.CommandTimeout, cfg.Git.NetworkTimeout)
 	slog.Info("git worker pool initialized", "max_concurrent", cfg.Git.MaxConcurrent,
 		"command_timeout", cfg.Git.CommandTimeout, "network_timeout", cfg.Git.NetworkTimeout)
+	svn.SetAllowFileURLs(cfg.SVN.AllowFileURLs)
 
 	// --- Agent Backends ---
 	aider.Register(queue)

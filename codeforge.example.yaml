@@ -88,6 +88,12 @@ git:
   command_timeout: "2m"
   network_timeout: "10m"
 
+# SVN provider (operator settings)
+svn:
+  # Allow local (file://) SVN repositories (KI-189). Off: such a URL can come
+  # from the agent-writable working copy and read any repository on the host.
+  allow_file_urls: false
+
 # Project workspaces (<root>/<tenant>/<project>)
 workspace:
   root: "data/workspaces"

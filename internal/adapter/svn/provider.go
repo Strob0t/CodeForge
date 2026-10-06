@@ -19,7 +19,7 @@
 //     ls, checkout) are refused unless its scheme is http, https, svn or
 //     svn+ssh, so the agent cannot redirect them to a local (file://)
 //     repository, e.g. another tenant's. file:// repositories are allowed
-//     only with the config key allow_file_urls;
+//     only with the operator setting svn.allow_file_urls (SetAllowFileURLs);
 //   - every URL svn contacts must lie inside the project's configured
 //     repository (same scheme, host and port, a path at or below the
 //     project's directory), since svn sends the configured username and
@@ -469,7 +469,7 @@ func (p *Provider) checkRepositoryURL(raw string) error {
 	if allowedSchemes[scheme] || (scheme == "file" && p.allowFileURLs) {
 		return nil
 	}
-	return fmt.Errorf("svn: repository URL %q: scheme %q is not allowed (http, https, svn, svn+ssh; file only when allow_file_urls is set)", raw, u.Scheme)
+	return fmt.Errorf("svn: repository URL %q: scheme %q is not allowed (http, https, svn, svn+ssh; file only when svn.allow_file_urls is set)", raw, u.Scheme)
 }
 
 // config returns the private, empty client configuration directory.

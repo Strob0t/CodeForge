@@ -235,6 +235,7 @@ func loadEnv(cfg *Config) error {
 	setTyped(&errs, &cfg.Git.OperationTimeout, "CODEFORGE_GIT_OPERATION_TIMEOUT", time.ParseDuration)
 	setTyped(&errs, &cfg.Git.CommandTimeout, "CODEFORGE_GIT_COMMAND_TIMEOUT", time.ParseDuration)
 	setTyped(&errs, &cfg.Git.NetworkTimeout, "CODEFORGE_GIT_NETWORK_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.SVN.AllowFileURLs, "CODEFORGE_SVN_ALLOW_FILE_URLS", strconv.ParseBool)
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
