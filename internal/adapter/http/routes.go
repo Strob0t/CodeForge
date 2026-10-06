@@ -51,6 +51,59 @@ type auditOption int
 // decoded and acts on (middleware.AuditLogByHandler).
 const auditByHandler auditOption = 1
 
+// viewerRoutes are the non-GET routes every authenticated user may call,
+// with the reason (KI-171). Every other non-GET route under /api/v1 starts,
+// changes or writes tenant data and carries RequireRole(admin, editor) or
+// RequirePlatformAdmin; TestMutatingRoutes_RequireEditorOrAdmin walks the
+// router and fails for a mutating route with neither a role check nor an
+// entry here, and for an entry that matches no route. Keys are
+// "METHOD /path" with chi's {param} segments.
+var viewerRoutes = map[string]string{
+	// Public: no user yet; the auth middleware exempts them, the webhooks
+	// authenticate with their own key or secret (KI-85).
+	"POST /api/v1/auth/login":                          "public",
+	"POST /api/v1/auth/refresh":                        "public",
+	"POST /api/v1/auth/setup":                          "public",
+	"POST /api/v1/auth/forgot-password":                "public",
+	"POST /api/v1/auth/reset-password":                 "public",
+	"POST /api/v1/webhooks/channels/{id}":              "public, channel key",
+	"POST /api/v1/webhooks/vcs/{provider}/{webhookId}": "public, webhook secret",
+	"POST /api/v1/webhooks/pm/{provider}/{webhookId}":  "public, webhook secret",
+	"POST /api/v1/webhooks/vcs/github":                 "public, removed route (410)",
+	"POST /api/v1/webhooks/vcs/gitlab":                 "public, removed route (410)",
+	"POST /api/v1/webhooks/pm/github":                  "public, removed route (410)",
+	"POST /api/v1/webhooks/pm/gitlab":                  "public, removed route (410)",
+	"POST /api/v1/webhooks/pm/plane":                   "public, removed route (410)",
+	// The caller's own session, account and settings.
+	"POST /api/v1/ws/ticket":                  "own session",
+	"POST /api/v1/auth/logout":                "own session",
+	"POST /api/v1/auth/change-password":       "own account",
+	"POST /api/v1/auth/api-keys":              "own account (a key has its user's role)",
+	"DELETE /api/v1/auth/api-keys/{id}":       "own account",
+	"POST /api/v1/llm-keys":                   "own account (personal LLM keys)",
+	"DELETE /api/v1/llm-keys/{id}":            "own account",
+	"DELETE /api/v1/me/data":                  "own account (GDPR erasure)",
+	"PUT /api/v1/me/consent/{purposeID}":      "own account (consent)",
+	"PUT /api/v1/channels/{id}/members/{uid}": "own notification setting (the handler checks uid)",
+	"POST /api/v1/channels/{id}/read":         "own read position",
+	// Read-only queries that take a body.
+	"POST /api/v1/search":                        "read-only query",
+	"POST /api/v1/search/conversations":          "read-only query",
+	"POST /api/v1/parse-repo-url":                "read-only query (parses the URL)",
+	"POST /api/v1/projects/{id}/search":          "read-only query",
+	"POST /api/v1/projects/{id}/search/agent":    "read-only query",
+	"POST /api/v1/projects/{id}/graph/search":    "read-only query",
+	"POST /api/v1/projects/{id}/memories/recall": "read-only query",
+	"POST /api/v1/scopes/{id}/search":            "read-only query",
+	"POST /api/v1/scopes/{id}/graph/search":      "read-only query",
+	"POST /api/v1/policies/{name}/evaluate":      "read-only query (evaluates a call)",
+	"POST /api/v1/prompt-sections/preview":       "read-only query (assembles a preview)",
+}
+
+// editorOrAdmin is the role check of the routes that start, change or write
+// tenant data (KI-171).
+var editorOrAdmin = middleware.RequireRole(user.RoleAdmin, user.RoleEditor)
+
 // MountRoutes registers all API routes on the given chi router.
 //
 // TODO: FIX-061: Several endpoints use verbs in URLs (e.g., /detect-stack,
@@ -200,9 +253,9 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("delete", "file")).Delete("/projects/{id}/files", h.DeleteFile)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("rename", "file")).Patch("/projects/{id}/files/rename", h.RenameFile)
 
-	// Stack Detection
+	// Stack Detection (by path: reads a directory of the server)
 	r.Get("/projects/{id}/detect-stack", h.Project.DetectProjectStack)
-	r.Post("/detect-stack", h.Project.DetectStackByPath)
+	r.With(editorOrAdmin).Post("/detect-stack", h.Project.DetectStackByPath)
 
 	// Git operations (nested under projects)
 	r.Get("/projects/{id}/git/status", h.Project.ProjectGitStatus)
@@ -226,7 +279,7 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// Agent Identity (Phase 23C)
 	r.Get("/agents/{id}/inbox", h.Agent.ListAgentInbox)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/agents/{id}/inbox", h.Agent.SendAgentMessage)
-	r.Post("/agents/{id}/inbox/{msgId}/read", h.Agent.MarkInboxRead)
+	r.With(editorOrAdmin).Post("/agents/{id}/inbox/{msgId}/read", h.Agent.MarkInboxRead)
 	r.Get("/agents/{id}/state", h.Agent.GetAgentState)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/agents/{id}/state", h.Agent.UpdateAgentState)
 
@@ -245,7 +298,7 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.Get("/tasks/{id}/events", h.Agent.ListTaskEvents)
 	r.Get("/tasks/{id}/runs", h.Run.ListTaskRuns)
 	r.Get("/tasks/{id}/context", h.GetContextPack)
-	r.Post("/tasks/{id}/context", h.BuildContextPack)
+	r.With(editorOrAdmin).Post("/tasks/{id}/context", h.BuildContextPack)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/tasks/{id}/claim", h.Task.ClaimTask)
 
 	// Branch Protection Rules (nested under projects + direct access)
@@ -276,13 +329,15 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 
 // mountConversationRoutes registers conversation and channel-related endpoints.
 func mountConversationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
-	r.Post("/projects/{id}/conversations", h.CreateConversation)
+	// Creating a conversation and sending a message start agentic runs with
+	// the mode of the body: editors and admins only (KI-171).
+	r.With(editorOrAdmin).Post("/projects/{id}/conversations", h.CreateConversation)
 	r.Get("/projects/{id}/conversations", h.ListConversations)
 	r.Get("/conversations/{id}", h.GetConversation)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor), audit("delete", "conversation")).
 		Delete("/conversations/{id}", h.DeleteConversation)
 	r.Get("/conversations/{id}/messages", h.ListConversationMessages)
-	r.Post("/conversations/{id}/messages", h.SendConversationMessage)
+	r.With(editorOrAdmin).Post("/conversations/{id}/messages", h.SendConversationMessage)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/conversations/{id}/stop", h.StopConversation)
 	r.With(middleware.RequireRole(user.RoleAdmin), audit("bypass_approvals", "conversation")).
@@ -349,14 +404,14 @@ func mountRunRoutes(r chi.Router, h *Handlers) {
 
 	// Replay / Audit Trail (nested under runs + global)
 	r.Get("/runs/{id}/checkpoints", h.ListRunCheckpoints)
-	r.Post("/runs/{id}/replay", h.ReplayRun)
+	r.With(editorOrAdmin).Post("/runs/{id}/replay", h.ReplayRun)
 	r.Get("/audit", h.GlobalAuditTrail)
 	r.Get("/projects/{id}/audit", h.ProjectAuditTrail)
 
 	// Sessions (nested under runs + projects + direct access)
-	r.Post("/runs/{id}/resume", h.ResumeRun)
-	r.Post("/runs/{id}/fork", h.ForkRun)
-	r.Post("/runs/{id}/rewind", h.RewindRun)
+	r.With(editorOrAdmin).Post("/runs/{id}/resume", h.ResumeRun)
+	r.With(editorOrAdmin).Post("/runs/{id}/fork", h.ForkRun)
+	r.With(editorOrAdmin).Post("/runs/{id}/rewind", h.RewindRun)
 	r.Get("/projects/{id}/sessions", h.ListProjectSessions)
 	r.Get("/sessions/{id}", h.GetSession)
 }
@@ -375,11 +430,11 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "policy")).Delete("/policies/{name}", h.Policy.DeletePolicyProfile)
 	r.Post("/policies/{name}/evaluate", h.Policy.EvaluatePolicy)
 
-	// Feature Decomposition (Meta-Agent)
-	r.Post("/projects/{id}/decompose", h.DecomposeFeature)
+	// Feature Decomposition (Meta-Agent); with auto_start it starts the plan.
+	r.With(editorOrAdmin).Post("/projects/{id}/decompose", h.DecomposeFeature)
 
-	// Context-Optimized Feature Planning
-	r.Post("/projects/{id}/plan-feature", h.PlanFeature)
+	// Context-Optimized Feature Planning; with auto_start it starts the plan.
+	r.With(editorOrAdmin).Post("/projects/{id}/plan-feature", h.PlanFeature)
 
 	// Execution Plans (nested under projects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/{id}/plans", h.CreatePlan)
@@ -390,7 +445,7 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/plans/{id}/start", h.StartPlan)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/plans/{id}/cancel", h.CancelPlan)
 	r.Get("/plans/{id}/graph", h.GetPlanGraph)
-	r.Post("/plans/{id}/steps/{stepId}/evaluate", h.EvaluateStep)
+	r.With(editorOrAdmin).Post("/plans/{id}/steps/{stepId}/evaluate", h.EvaluateStep)
 
 	// Modes
 	r.Get("/modes", h.ListModes)
@@ -422,9 +477,9 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 
 	// Shared Context
 	if h.SharedContext != nil {
-		r.Post("/teams/{teamId}/shared-context", h.InitSharedContext)
+		r.With(editorOrAdmin).Post("/teams/{teamId}/shared-context", h.InitSharedContext)
 		r.Get("/teams/{teamId}/shared-context", h.GetSharedContext)
-		r.Post("/teams/{teamId}/shared-context/items", h.AddSharedContextItem)
+		r.With(editorOrAdmin).Post("/teams/{teamId}/shared-context/items", h.AddSharedContextItem)
 	}
 
 	// Auto-Agent (PR3.3)
@@ -437,10 +492,10 @@ func mountOrchestrationRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	// Routing (Phase 29)
 	r.Route("/routing", func(r chi.Router) {
 		r.Get("/stats", h.HandleListRoutingStats)
-		r.Post("/stats/refresh", h.HandleRefreshRoutingStats)
+		r.With(editorOrAdmin).Post("/stats/refresh", h.HandleRefreshRoutingStats)
 		r.Get("/outcomes", h.HandleListRoutingOutcomes)
-		r.Post("/outcomes", h.HandleCreateRoutingOutcome)
-		r.Post("/seed-from-benchmarks", h.HandleSeedFromBenchmarks)
+		r.With(editorOrAdmin).Post("/outcomes", h.HandleCreateRoutingOutcome)
+		r.With(editorOrAdmin).Post("/seed-from-benchmarks", h.HandleSeedFromBenchmarks)
 	})
 }
 
@@ -456,7 +511,7 @@ func mountLLMRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 
 	// Model Registry (Phase 22)
 	r.Get("/llm/available", h.AvailableLLMModels)
-	r.Post("/llm/refresh", h.RefreshLLMModels)
+	r.With(editorOrAdmin).Post("/llm/refresh", h.RefreshLLMModels)
 
 	// Copilot Token Exchange (Phase 22A): checks the platform credential; the
 	// token itself is never returned (KI-80).
@@ -531,16 +586,16 @@ func mountReviewRoutes(r chi.Router, h *Handlers) {
 func mountIntelligenceRoutes(r chi.Router, h *Handlers) {
 	// RepoMap (nested under projects)
 	r.Get("/projects/{id}/repomap", h.GetRepoMap)
-	r.Post("/projects/{id}/repomap", h.GenerateRepoMap)
+	r.With(editorOrAdmin).Post("/projects/{id}/repomap", h.GenerateRepoMap)
 
 	// Retrieval (nested under projects)
 	r.Post("/projects/{id}/search", h.SearchProject)
 	r.Post("/projects/{id}/search/agent", h.AgentSearchProject)
-	r.Post("/projects/{id}/index", h.IndexProject)
+	r.With(editorOrAdmin).Post("/projects/{id}/index", h.IndexProject)
 	r.Get("/projects/{id}/index", h.GetIndexStatus)
 
 	// GraphRAG (nested under projects)
-	r.Post("/projects/{id}/graph/build", h.BuildGraph)
+	r.With(editorOrAdmin).Post("/projects/{id}/graph/build", h.BuildGraph)
 	r.Get("/projects/{id}/graph/status", h.GetGraphStatus)
 	r.Post("/projects/{id}/graph/search", h.SearchGraph)
 
@@ -550,14 +605,14 @@ func mountIntelligenceRoutes(r chi.Router, h *Handlers) {
 	r.Get("/scopes/{id}", h.GetScope)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Put("/scopes/{id}", h.UpdateScope)
 	r.With(middleware.RequireRole(user.RoleAdmin)).Delete("/scopes/{id}", h.DeleteScope)
-	r.Post("/scopes/{id}/projects", h.AddProjectToScope)
-	r.Delete("/scopes/{id}/projects/{pid}", h.RemoveProjectFromScope)
+	r.With(editorOrAdmin).Post("/scopes/{id}/projects", h.AddProjectToScope)
+	r.With(editorOrAdmin).Delete("/scopes/{id}/projects/{pid}", h.RemoveProjectFromScope)
 	r.Post("/scopes/{id}/search", h.SearchScope)
 	r.Post("/scopes/{id}/graph/search", h.SearchScopeGraph)
 
 	// Knowledge Bases on Scopes
-	r.Post("/scopes/{id}/knowledge-bases", h.AttachKnowledgeBaseToScope)
-	r.Delete("/scopes/{id}/knowledge-bases/{kbid}", h.DetachKnowledgeBaseFromScope)
+	r.With(editorOrAdmin).Post("/scopes/{id}/knowledge-bases", h.AttachKnowledgeBaseToScope)
+	r.With(editorOrAdmin).Delete("/scopes/{id}/knowledge-bases/{kbid}", h.DetachKnowledgeBaseFromScope)
 	r.Get("/scopes/{id}/knowledge-bases", h.ListScopeKnowledgeBases)
 
 	// Knowledge Bases
@@ -572,59 +627,59 @@ func mountIntelligenceRoutes(r chi.Router, h *Handlers) {
 
 	// Memories (Phase 22B)
 	r.Get("/projects/{id}/memories", h.ListMemories)
-	r.Post("/projects/{id}/memories", h.StoreMemory)
+	r.With(editorOrAdmin).Post("/projects/{id}/memories", h.StoreMemory)
 	r.Post("/projects/{id}/memories/recall", h.RecallMemories)
 
 	// Experience Pool (Phase 22B)
 	r.Get("/projects/{id}/experience", h.ListExperienceEntries)
-	r.Delete("/experience/{id}", h.DeleteExperienceEntry)
+	r.With(editorOrAdmin).Delete("/experience/{id}", h.DeleteExperienceEntry)
 
-	// Microagents (Phase 22C)
+	// Microagents (Phase 22C): their text is injected into every run's prompt.
 	r.Get("/projects/{id}/microagents", h.ListMicroagents)
-	r.Post("/projects/{id}/microagents", h.CreateMicroagent)
+	r.With(editorOrAdmin).Post("/projects/{id}/microagents", h.CreateMicroagent)
 	r.Get("/microagents/{id}", h.GetMicroagent)
-	r.Put("/microagents/{id}", h.UpdateMicroagent)
-	r.Delete("/microagents/{id}", h.DeleteMicroagent)
+	r.With(editorOrAdmin).Put("/microagents/{id}", h.UpdateMicroagent)
+	r.With(editorOrAdmin).Delete("/microagents/{id}", h.DeleteMicroagent)
 
 	// Skills (Phase 22D)
 	r.Get("/projects/{id}/skills", h.ListSkills)
-	r.Post("/projects/{id}/skills", h.CreateSkill)
+	r.With(editorOrAdmin).Post("/projects/{id}/skills", h.CreateSkill)
 	r.Get("/skills/{id}", h.GetSkill)
-	r.Put("/skills/{id}", h.UpdateSkill)
-	r.Delete("/skills/{id}", h.DeleteSkill)
+	r.With(editorOrAdmin).Put("/skills/{id}", h.UpdateSkill)
+	r.With(editorOrAdmin).Delete("/skills/{id}", h.DeleteSkill)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/skills/import", h.ImportSkill)
 }
 
 // mountBenchmarkRoutes registers benchmark suite, run, and comparison endpoints (dev-mode only).
 func mountBenchmarkRoutes(r chi.Router, h *Handlers) {
 	// Dev tools (behind APP_ENV=development)
-	r.With(middleware.DevModeOnly(h.AppEnv)).Post("/dev/benchmark", h.BenchmarkPrompt)
+	r.With(middleware.DevModeOnly(h.AppEnv), editorOrAdmin).Post("/dev/benchmark", h.BenchmarkPrompt)
 
 	// Benchmark Mode (Phase 20D — dev-mode only, requires APP_ENV=development)
 	r.Route("/benchmarks", func(r chi.Router) {
 		r.Use(middleware.DevModeOnly(h.AppEnv))
 		// Suite CRUD (Phase 26)
 		r.Get("/suites", h.ListBenchmarkSuites)
-		r.Post("/suites", h.CreateBenchmarkSuite)
+		r.With(editorOrAdmin).Post("/suites", h.CreateBenchmarkSuite)
 		r.Get("/suites/{id}", h.GetBenchmarkSuite)
-		r.Delete("/suites/{id}", h.DeleteBenchmarkSuite)
+		r.With(editorOrAdmin).Delete("/suites/{id}", h.DeleteBenchmarkSuite)
 		// Run CRUD
 		r.Get("/runs", h.ListBenchmarkRuns)
-		r.Post("/runs", h.CreateBenchmarkRun)
+		r.With(editorOrAdmin).Post("/runs", h.CreateBenchmarkRun)
 		r.Get("/runs/{id}", h.GetBenchmarkRun)
-		r.Delete("/runs/{id}", h.DeleteBenchmarkRun)
-		r.Patch("/runs/{id}", h.CancelBenchmarkRun)
+		r.With(editorOrAdmin).Delete("/runs/{id}", h.DeleteBenchmarkRun)
+		r.With(editorOrAdmin).Patch("/runs/{id}", h.CancelBenchmarkRun)
 		r.Get("/runs/{id}/results", h.ListBenchmarkResults)
 		r.Get("/runs/{id}/export/results", h.ExportBenchmarkResults)
-		r.Post("/compare", h.CompareBenchmarkRuns)
-		r.Post("/compare-multi", h.MultiCompareBenchmarkRuns)
+		r.With(editorOrAdmin).Post("/compare", h.CompareBenchmarkRuns)
+		r.With(editorOrAdmin).Post("/compare-multi", h.MultiCompareBenchmarkRuns)
 		r.Get("/runs/{id}/cost-analysis", h.BenchmarkCostAnalysis)
 		r.Get("/runs/{id}/export/training", h.ExportTrainingData)
 		r.Get("/runs/{id}/export/rlvr", h.ExportRLVRData)
 		r.Get("/leaderboard", h.BenchmarkLeaderboard)
 		r.Get("/datasets", h.ListBenchmarkDatasets)
-		r.Put("/suites/{id}", h.UpdateBenchmarkSuite)
-		r.Post("/runs/{id}/analyze", h.AnalyzeBenchmarkRun)
+		r.With(editorOrAdmin).Put("/suites/{id}", h.UpdateBenchmarkSuite)
+		r.With(editorOrAdmin).Post("/runs/{id}/analyze", h.AnalyzeBenchmarkRun)
 	})
 }
 
@@ -642,7 +697,8 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(ro.authRateLimiter.Handler, audit("setup", "auth", auditByHandler)).Post("/auth/setup", h.InitialSetup)
 		r.With(ro.authRateLimiter.Handler, audit("forgot_password", "auth", auditByHandler)).Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.With(ro.authRateLimiter.Handler, audit("reset_password", "auth", auditByHandler)).Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Post("/auth/github", h.StartGitHubOAuth)
+		// The flow's end creates a tenant VCS account: editors and admins start it.
+		r.With(editorOrAdmin).Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	} else {
 		r.With(audit("login", "auth", auditByHandler)).Post("/auth/login", h.Login)
@@ -651,7 +707,7 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 		r.With(audit("setup", "auth", auditByHandler)).Post("/auth/setup", h.InitialSetup)
 		r.With(audit("forgot_password", "auth", auditByHandler)).Post("/auth/forgot-password", h.RequestPasswordReset)
 		r.With(audit("reset_password", "auth", auditByHandler)).Post("/auth/reset-password", h.ConfirmPasswordReset)
-		r.Post("/auth/github", h.StartGitHubOAuth)
+		r.With(editorOrAdmin).Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	}
 
@@ -687,11 +743,11 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	r.Get("/auth/providers/{provider}/status", h.GetProviderStatus)
 	r.With(middleware.RequirePlatformAdmin).Delete("/auth/providers/{provider}/disconnect", h.DisconnectProvider)
 
-	// VCS Accounts
+	// VCS Accounts (the tenant's git hosting credentials)
 	r.Get("/vcs-accounts", h.ListVCSAccounts)
-	r.Post("/vcs-accounts", h.CreateVCSAccount)
-	r.Delete("/vcs-accounts/{id}", h.DeleteVCSAccount)
-	r.Post("/vcs-accounts/{id}/test", h.TestVCSAccount)
+	r.With(editorOrAdmin).Post("/vcs-accounts", h.CreateVCSAccount)
+	r.With(editorOrAdmin).Delete("/vcs-accounts/{id}", h.DeleteVCSAccount)
+	r.With(editorOrAdmin).Post("/vcs-accounts/{id}/test", h.TestVCSAccount)
 
 	// Users (admin only)
 	r.Route("/users", func(r chi.Router) {
@@ -719,15 +775,16 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 
 // mountDevToolRoutes registers LSP, MCP, and project MCP server endpoints.
 func mountDevToolRoutes(r chi.Router, h *Handlers, audit auditFunc) {
-	// LSP (Language Server Protocol)
-	r.Post("/projects/{id}/lsp/start", h.StartLSP)
-	r.Post("/projects/{id}/lsp/stop", h.StopLSP)
+	// LSP (Language Server Protocol): starting a server runs it against the
+	// workspace (KI-83), the queries go to that server.
+	r.With(editorOrAdmin).Post("/projects/{id}/lsp/start", h.StartLSP)
+	r.With(editorOrAdmin).Post("/projects/{id}/lsp/stop", h.StopLSP)
 	r.Get("/projects/{id}/lsp/status", h.LSPStatus)
 	r.Get("/projects/{id}/lsp/diagnostics", h.LSPDiagnostics)
-	r.Post("/projects/{id}/lsp/definition", h.LSPDefinition)
-	r.Post("/projects/{id}/lsp/references", h.LSPReferences)
-	r.Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
-	r.Post("/projects/{id}/lsp/hover", h.LSPHover)
+	r.With(editorOrAdmin).Post("/projects/{id}/lsp/definition", h.LSPDefinition)
+	r.With(editorOrAdmin).Post("/projects/{id}/lsp/references", h.LSPReferences)
+	r.With(editorOrAdmin).Post("/projects/{id}/lsp/symbols", h.LSPDocumentSymbols)
+	r.With(editorOrAdmin).Post("/projects/{id}/lsp/hover", h.LSPHover)
 
 	// MCP Servers (Phase 15C + 19H). Every user of a tenant reads its
 	// servers (env and header values redacted). A server definition names a
@@ -788,19 +845,20 @@ func mountA2ARoutes(r chi.Router, h *Handlers) {
 		r.Get("/agents", h.ListRemoteAgents)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Delete("/agents/{id}", h.DeleteRemoteAgent)
-		r.Post("/agents/{id}/discover", h.DiscoverRemoteAgent)
+		r.With(editorOrAdmin).Post("/agents/{id}/discover", h.DiscoverRemoteAgent)
 		r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 			Post("/agents/{id}/send", h.SendA2ATask)
 		r.Get("/tasks", h.ListA2ATasks)
 		r.Get("/tasks/{id}", h.GetA2ATask)
-		r.Post("/tasks/{id}/cancel", h.CancelA2ATask)
-		// Push notification configs (Phase 27O)
-		r.Post("/tasks/{id}/push-config", h.CreateA2APushConfig)
+		r.With(editorOrAdmin).Post("/tasks/{id}/cancel", h.CancelA2ATask)
+		// Push notification configs (Phase 27O): outbound POSTs to a URL of
+		// the caller's choice.
+		r.With(editorOrAdmin).Post("/tasks/{id}/push-config", h.CreateA2APushConfig)
 		r.Get("/tasks/{id}/push-config", h.ListA2APushConfigs)
 		// SSE streaming (Phase 27O)
 		r.Get("/tasks/{id}/subscribe", h.SubscribeA2ATask)
 		// Push config delete (by config ID)
-		r.Delete("/push-config/{id}", h.DeleteA2APushConfig)
+		r.With(editorOrAdmin).Delete("/push-config/{id}", h.DeleteA2APushConfig)
 	})
 }
 
@@ -812,8 +870,9 @@ func mountGoalRoutes(r chi.Router, h *Handlers) {
 	r.Get("/projects/{id}/goals", h.ListProjectGoals)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/projects/{id}/goals", h.CreateProjectGoal)
-	r.Post("/projects/{id}/goals/detect", h.DetectProjectGoals)
-	r.Post("/projects/{id}/goals/ai-discover", h.AIDiscoverProjectGoals)
+	// Detection imports goals, AI discovery starts an agentic run.
+	r.With(editorOrAdmin).Post("/projects/{id}/goals/detect", h.DetectProjectGoals)
+	r.With(editorOrAdmin).Post("/projects/{id}/goals/ai-discover", h.AIDiscoverProjectGoals)
 	r.Get("/goals/{id}", h.GetProjectGoal)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Put("/goals/{id}", h.UpdateProjectGoal)

@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 	"github.com/Strob0t/CodeForge/internal/service"
 )
@@ -140,10 +141,21 @@ func (h *Handlers) SendThreadReply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, msg)
 }
 
-// UpdateMemberNotify handles PUT /api/v1/channels/{id}/members/{uid}
+// UpdateMemberNotify handles PUT /api/v1/channels/{id}/members/{uid}: a
+// member changes their own notification setting; another member's only an
+// admin (KI-171).
 func (h *Handlers) UpdateMemberNotify(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 	userID := chi.URLParam(r, "uid")
+	u := middleware.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	if userID != u.ID && u.Role != user.RoleAdmin {
+		writeError(w, http.StatusForbidden, "only admins change another member's notification setting")
+		return
+	}
 
 	type notifyRequest struct {
 		Notify channel.NotifySetting `json:"notify"`

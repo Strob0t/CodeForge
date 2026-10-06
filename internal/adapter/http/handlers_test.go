@@ -2902,6 +2902,7 @@ func TestGenerateRepoMap(t *testing.T) {
 	mountTestRoutes(r, handlers)
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/repomap", http.NoBody)
+	req = withUserContext(req, &user.User{ID: "ed", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -2960,6 +2961,7 @@ func TestIndexProject(t *testing.T) {
 	mountTestRoutes(r, handlers)
 
 	req := httptest.NewRequest("POST", "/api/v1/projects/proj-1/index", http.NoBody)
+	req = withUserContext(req, &user.User{ID: "ed", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
