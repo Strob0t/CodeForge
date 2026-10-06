@@ -400,6 +400,29 @@ Tools are registered in the `ToolRegistry` (`workers/codeforge/tools/`, `build_d
 
 > **Implementation status (2026-09-30):** The worker sends its own tool name (`read_file`, `bash`, ...) with the real `command` (bash only) and `path` (`workers/codeforge/tool_executor.py`, `policy_request_args`); `claudecode/*` runs send Claude Code's tool names (`workers/codeforge/claude_code_executor.py`). The Go policy domain maps both to the preset names (`internal/domain/policy/toolnames.go`, ADR-015), so preset rules match agent tool calls.
 
+#### Text Tool Protocol (pure-completion models)
+
+Models without native function calling (`pure_completion`, from LiteLLM's `supports_function_calling`, the name
+heuristics or `litellm.model_capabilities`) get no `tools` parameter. The worker appends a "## Tools" section, built
+from the run's offered tools, to the system message of every request (it is never stored). The model replies with one
+JSON object per turn: `{"thought","tool","args"}` or `{"thought","final"}`
+([ADR-021](../architecture/adr/021-text-tool-protocol.md)).
+- **Grammar:** where the server supports it, the reply is constrained by a `json_schema` `response_format`; a
+  rejection that names the grammar turns it off for the rest of the run. Switch it off with
+  `litellm.text_tool_grammar: false` / `CODEFORGE_TEXT_TOOL_GRAMMAR=false`.
+- **Parsing** (`workers/codeforge/tools/text_protocol.py`): finds the object in fences, `<tool_call>` blocks or prose,
+  accepts Hermes, OpenAI and LangChain key names and repairs trailing commas and raw newlines. A call then takes the
+  native path (Go policy, approvals, trajectory, stall detection, stored messages). One call per reply; an unusable
+  reply is sent back once with the reason, a second in a row ends the run.
+- **History:** results go back as `<tool_result tool="name">` user text and earlier calls as protocol JSON; stored
+  messages stay in OpenAI format, so one conversation works with both kinds of model.
+- **Streaming:** the UI shows prose, thought and final answer live, never protocol JSON.
+- **Limits:** `max_tokens` 8192 per turn; a section of about 4,000 characters.
+- **Native refusal:** a request whose tools the server refuses ("does not support tools", "tool choice requires",
+  "--jinja", ...) switches the run to the protocol.
+
+**Implementation status (2026-10-05):** worker implementation done (S9-C); live check against Ollama pending.
+
 #### Conversation History Management
 
 The `ConversationHistoryManager` assembles messages within a per-model token budget resolved by the worker (`resolve_context_limit()` in `workers/codeforge/consumer/_conversation.py`: 85% of the model's context window, capped at 120000 / 32000 / 16000 for the full / api_with_tools / pure_completion capability tiers). `agent.max_context_tokens` is only exposed to the frontend via `GET /api/v1/agent-config`:

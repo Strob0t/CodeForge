@@ -501,7 +501,7 @@ flowchart TD
 |---|---|---|
 | Full-featured Agents | Claude Code, Aider, OpenHands | Orchestration only -- agent brings its own tools |
 | API with Tool Support | OpenAI, Claude API, Gemini | Context Layer (GraphRAG) + Routing + Tool Definitions |
-| Pure Completion | Ollama, LM Studio (local models) | Everything: Context, Tools, Prompt Engineering, Quality Layer |
+| Pure Completion | Ollama, LM Studio (local models) | Everything: Context, Tools (text tool protocol, ADR-021), Prompt Engineering, Quality Layer |
 
 The less an LLM can do, the more the CodeForge Worker takes over.
 
@@ -1012,12 +1012,14 @@ workers/codeforge/tools/
   create_skill.py        # Create reusable skills
   search_skills.py       # Search skill registry
   search_conversations.py # Search conversation history
-  tool_guide.py          # Tool usage guidance (prompt text)
+  tool_guide.py          # Tool usage hints for api_with_tools models
+  text_protocol.py       # Text tool protocol: prompt section, grammar, parser, wire messages (ADR-021)
+  text_protocol_stream.py # Live output of protocol replies
   tool_router.py         # Keyword-based tool pre-selection
   capability.py          # Model capability classification + per-level tool allowlists
 ```
 
-MCP-discovered tools are merged at runtime into the same tools array. For LLMs without function calling, backtick/JSON-based parsing serves as a fallback.
+MCP-discovered tools are merged at runtime into the same tools array. For LLMs without function calling the worker uses the text tool protocol ([ADR-021](architecture/adr/021-text-tool-protocol.md)): offered tools rendered into each request's system message, one JSON reply per turn (JSON-schema grammar where the server supports it) parsed into a normal tool call, results fed back as `<tool_result>` text; a server that refuses native tools switches a run to it.
 
 > **Implementation status (2026-09-29):** For pure-completion models the tools are only described in the system prompt (tool guide) and the `tools` parameter is omitted (`workers/codeforge/agent_loop.py`); the text/JSON tool-call parser fallback is planned.
 

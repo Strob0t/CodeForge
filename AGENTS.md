@@ -75,7 +75,7 @@ More: [`docs/architecture.md`](docs/architecture.md), [`docs/architecture/projec
 ### Structure
 - **Hexagonal (ports and adapters)** Go Core; providers self-register via `init()` (registry pattern); providers declare **capabilities** instead of implementing everything; **compliance tests** per port interface, which new adapters inherit (the principle; see `docs/architecture.md` for which ports have one).
 - **Approach C (ADR-006):** Go owns state, policies and sessions; Python owns LLM calls, tools and the agent loop; every tool call gets a Go policy decision over NATS.
-- **LLM capability levels:** full-featured agents (Claude Code, Aider, OpenHands) get orchestration only; APIs with tools (OpenAI, Claude, Gemini) add context (GraphRAG), routing and tools; pure completion (Ollama, LM Studio) gets everything (context, tools, prompts, quality). Worker modules: [`docs/architecture.md`](docs/architecture.md#worker-modules-in-detail).
+- **LLM capability levels:** full-featured agents (Claude Code, Aider, OpenHands) get orchestration only; APIs with tools (OpenAI, Claude, Gemini) add context (GraphRAG), routing and tools; pure completion (Ollama, LM Studio) gets everything (context, tools through the worker's text tool protocol, ADR-021, prompts, quality). Worker modules: [`docs/architecture.md`](docs/architecture.md#worker-modules-in-detail).
 - Where things live: event types in `internal/domain/event/` (not the adapter layer); OTEL span helpers in `internal/telemetry/` (API only; services use the `port/metrics.Recorder` interface); decoupling ports `port/codeintel/`, `port/tokenexchange/`, `port/llm/`; non-fatal store errors via `logBestEffort` (`internal/service/log_best_effort.go`), never silenced.
 - Prompt templates: YAML library in `internal/service/prompts/` (`//go:embed`, `text/template` via `PromptAssembler`) plus `.tmpl` files in `internal/service/templates/`.
 
@@ -98,7 +98,7 @@ More: [`docs/architecture.md`](docs/architecture.md), [`docs/architecture/projec
 - Only platform admins (admins of the default tenant: `IsPlatformAdmin()`, `middleware.RequirePlatformAdmin`) change shared LLM models and subscription providers; `GET /llm/models` strips credential parameters; the Copilot token exchange returns status and expiry, never the token.
 
 ### Architectural decisions (`docs/architecture/adr/NNN-*.md`)
-001 NATS JetStream | 002 PostgreSQL 18 | 003 config precedence | 004 async logging | 005 Docker-native logging | 006 Approach C | 007 policy layer | 008 benchmark evaluation | 009 GDPR | 010 A2A | 011 trust and quarantine | 012 hybrid routing | 013 config sub-structs in services | 014 store interface segregation | 015 deny lists and canonical tool names | 016 NATS delivery semantics | 017 tool isolation and NATS authentication | 018 per-tenant tool identities and Landlock
+001 NATS JetStream | 002 PostgreSQL 18 | 003 config precedence | 004 async logging | 005 Docker-native logging | 006 Approach C | 007 policy layer | 008 benchmark evaluation | 009 GDPR | 010 A2A | 011 trust and quarantine | 012 hybrid routing | 013 config sub-structs in services | 014 store interface segregation | 015 deny lists and canonical tool names | 016 NATS delivery semantics | 017 tool isolation and NATS authentication | 018 per-tenant tool identities and Landlock | 021 text tool protocol
 
 ---
 
