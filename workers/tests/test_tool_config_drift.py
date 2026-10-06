@@ -31,8 +31,11 @@ def test_capability_allowlists_name_registered_tools() -> None:
         assert "handoff" not in names, level
 
 
-def test_tool_router_base_tools_name_registered_tools() -> None:
-    assert "handoff" not in ToolRouter.BASE_TOOLS
+def test_tool_router_planning_tools_name_registered_tools() -> None:
+    from codeforge.tools.propose_goal import PROPOSE_GOAL_DEFINITION
+    from codeforge.tools.propose_roadmap import PROPOSE_ROADMAP_DEFINITION
+
+    assert {PROPOSE_GOAL_DEFINITION.name, PROPOSE_ROADMAP_DEFINITION.name} == ToolRouter.PLANNING_TOOLS
 
 
 class _Handler(ConversationHandlerMixin, ConsumerBaseMixin):

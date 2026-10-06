@@ -204,7 +204,6 @@ class AgentExecutor:
                 routing=routing,
                 tool_names=registry.tool_names,
                 fallback_models=fallback_models,
-                user_prompt=task.prompt,
                 max_steps=runtime.termination.max_steps,
                 max_cost=runtime.termination.max_cost,
                 mode_tools=frozenset(mode.tools) if mode else frozenset(),

@@ -51,7 +51,6 @@ def test_build_loop_config_carries_the_limit() -> None:
         routing=RoutingResult(model="openai/gpt-4o"),
         tool_names=["bash"],
         fallback_models=[],
-        user_prompt="",
         max_steps=5,
         max_cost=1.0,
         mode_tools=frozenset(),

@@ -646,7 +646,6 @@ def test_loop_config_carries_the_switch(value: str, expected: bool, monkeypatch:
         routing=RoutingResult(),
         tool_names=["read_file"],
         fallback_models=[],
-        user_prompt="",
         max_steps=5,
         max_cost=0,
         mode_tools=frozenset(),

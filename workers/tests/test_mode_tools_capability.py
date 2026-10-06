@@ -53,7 +53,6 @@ def _loop_config(mode_tools: frozenset[str]) -> object:
         routing=RoutingResult(model="openai/gpt-4o"),
         tool_names=NAMES,
         fallback_models=[],
-        user_prompt="",
         max_steps=5,
         max_cost=1.0,
         mode_tools=mode_tools,

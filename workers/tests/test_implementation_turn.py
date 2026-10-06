@@ -40,20 +40,18 @@ def _mock_resolve_model():
 # --- tool selection ---
 
 
-def test_base_tools_hold_no_planning_tools() -> None:
-    assert not (ToolRouter.BASE_TOOLS & _PLANNING)
+def test_planning_tools_are_the_routers() -> None:
     assert frozenset(_PLANNING) == ToolRouter.PLANNING_TOOLS
 
 
-@pytest.mark.parametrize("message", ["", "build a weather app", "plan the roadmap and propose goals"])
-def test_router_offers_planning_tools_only_when_planning(message: str) -> None:
+def test_router_offers_planning_tools_only_when_planning() -> None:
     router = ToolRouter(all_tool_names=_TOOLS)
-    assert not (set(router.select(message)) & _PLANNING)
-    assert set(router.select(message, planning=True)) >= _PLANNING
+    assert not (set(router.select()) & _PLANNING)
+    assert set(router.select(planning=True)) >= _PLANNING
 
 
 def test_planning_tools_need_to_be_registered() -> None:
-    assert not (set(ToolRouter(all_tool_names=["read_file"]).select("x", planning=True)) & _PLANNING)
+    assert not (set(ToolRouter(all_tool_names=["read_file"]).select(planning=True)) & _PLANNING)
 
 
 @pytest.mark.parametrize(("implementation_turn", "offered"), [(True, False), (False, True)])
@@ -64,7 +62,6 @@ def test_loop_config_of_a_turn(implementation_turn: bool, offered: bool) -> None
         routing=RoutingResult(),
         tool_names=_TOOLS,
         fallback_models=[],
-        user_prompt="Implement the following feature: Add CLI",
         max_steps=10,
         max_cost=0,
         mode_tools=frozenset(),

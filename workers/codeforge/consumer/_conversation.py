@@ -700,7 +700,6 @@ class ConversationHandlerMixin:
             routing=routing,
             tool_names=registry.tool_names,
             fallback_models=fallback_models,
-            user_prompt=next((m.content for m in run_msg.messages if m.role == "user" and m.content), ""),
             max_steps=run_msg.termination.max_steps,
             max_cost=run_msg.termination.max_cost,
             mode_tools=frozenset(run_msg.mode.tools) if run_msg.mode and run_msg.mode.tools else frozenset(),

@@ -22,14 +22,13 @@ def _tools(names: list[str]) -> list[dict[str, object]]:
     return [{"type": "function", "function": {"name": n, "description": n, "parameters": {}}} for n in names]
 
 
-def _offered(names: list[str], prompt: str, level: CapabilityLevel) -> set[str]:
+def _offered(names: list[str], level: CapabilityLevel) -> set[str]:
     cfg, _ = build_loop_config(
         primary_model="provider/model",
         capability_level=level,
         routing=RoutingResult(model="provider/model"),
         tool_names=names,
         fallback_models=[],
-        user_prompt=prompt,
         max_steps=5,
         max_cost=1.0,
         mode_tools=frozenset(),
@@ -41,13 +40,12 @@ def _offered(names: list[str], prompt: str, level: CapabilityLevel) -> set[str]:
 
 
 @pytest.mark.parametrize("level", list(CapabilityLevel))
-@pytest.mark.parametrize("prompt", ["Fix the failing test in parser.py", "write the docs", "x"])
-def test_registered_handoff_is_always_offered(level: CapabilityLevel, prompt: str) -> None:
-    offered = _offered([*BASE, "handoff_to", "create_skill"], prompt, level)
+def test_registered_handoff_is_always_offered(level: CapabilityLevel) -> None:
+    offered = _offered([*BASE, "handoff_to", "create_skill"], level)
     assert "handoff_to" in offered
 
 
 @pytest.mark.parametrize("level", list(CapabilityLevel))
 def test_handoff_is_not_offered_when_not_registered(level: CapabilityLevel) -> None:
-    offered = _offered(BASE, "hand this over to the reviewer", level)
+    offered = _offered(BASE, level)
     assert "handoff_to" not in offered

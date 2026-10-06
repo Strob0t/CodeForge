@@ -1,9 +1,11 @@
-"""Pre-selects relevant tools based on user message keywords.
+"""Selects the tools a turn is offered.
 
-No LLM call needed. Uses keyword matching against tool names and descriptions.
-Base tools (read/write/edit/bash/search/glob/listdir) always included, the
-planning tools (propose_goal, propose_roadmap) in planning turns only.
-MCP read-only tools included when docs-related keywords match.
+Every registered tool is offered: the registry already holds only the tools
+the agent mode allows (ToolRegistry.restrict_to_mode) and the tools the turn
+wired (MCP servers, skills, conversation search, handoff). The planning
+tools (propose_goal, propose_roadmap) are offered in planning turns only
+(KI-153). Before, a keyword match on the user message decided, and MCP,
+skill and conversation-search tools were never offered (KI-192).
 """
 
 from __future__ import annotations
@@ -12,112 +14,22 @@ from typing import ClassVar
 
 
 class ToolRouter:
-    """Keyword-based tool pre-selection for the agentic loop.
-
-    Reduces the tool list sent to the LLM by selecting only relevant tools
-    based on the user's message content. This keeps the prompt smaller and
-    avoids confusing weaker models with too many tool definitions.
+    """Per-turn tool selection for the agentic loop.
 
     Usage::
 
         router = ToolRouter(all_tool_names=registry.tool_names)
-        selected = router.select(user_message)
+        selected = router.select(planning=True)
     """
-
-    BASE_TOOLS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "read_file",
-            "write_file",
-            "edit_file",
-            "bash",
-            "search_files",
-            "glob_files",
-            "list_directory",
-            "transition_to_act",
-        }
-    )
 
     # Planning tools, offered in planning turns only (KI-153): in an
     # implementation turn a weak model called them instead of writing code.
     PLANNING_TOOLS: ClassVar[frozenset[str]] = frozenset({"propose_goal", "propose_roadmap"})
 
-    # Keywords that trigger inclusion of documentation/search MCP tools.
-    DOCS_KEYWORDS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "docs",
-            "documentation",
-            "how to",
-            "api",
-            "reference",
-            "example",
-            "usage",
-            "tutorial",
-            "guide",
-            "library",
-        }
-    )
-
-    # MCP tool name fragments considered read-only and safe to auto-include.
-    _MCP_READONLY_FRAGMENTS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "search",
-            "list",
-            "find",
-            "fetch",
-        }
-    )
-
-    # Keywords that trigger inclusion of specific built-in tools.
-    TOOL_KEYWORDS: ClassVar[dict[str, list[str]]] = {
-        "test": ["bash"],
-        "install": ["bash"],
-        "search": ["search_files"],
-        "find": ["search_files", "glob_files"],
-        "create": ["write_file"],
-        "modify": ["edit_file", "read_file"],
-        "fix": ["edit_file", "read_file", "bash"],
-        "run": ["bash"],
-        "commit": ["bash"],
-        "git": ["bash"],
-    }
-
     def __init__(self, all_tool_names: list[str]) -> None:
         self._all_tools = all_tool_names
 
-    def select(self, user_message: str, max_tools: int = 12, *, planning: bool = False) -> list[str]:
-        """Select relevant tools for the given user message.
-
-        Always includes BASE_TOOLS, and PLANNING_TOOLS when *planning*
-        (intersected with available tools).
-        Adds MCP read-only tools when docs-related keywords are detected.
-        Adds keyword-triggered tools based on message content.
-
-        Returns a sorted, deduplicated list capped at *max_tools*.
-        """
-        available = set(self._all_tools)
-        always = self.BASE_TOOLS | self.PLANNING_TOOLS if planning else self.BASE_TOOLS
-        base: set[str] = set(always & available)
-
-        if not user_message:
-            return sorted(base)
-
-        msg_lower = user_message.lower()
-        triggered: set[str] = set()
-
-        # Add MCP read-only tools if docs-related keywords found.
-        if any(kw in msg_lower for kw in self.DOCS_KEYWORDS):
-            for tool in self._all_tools:
-                if tool.startswith("mcp__") and any(frag in tool for frag in self._MCP_READONLY_FRAGMENTS):
-                    triggered.add(tool)
-
-        # Add tools matching keyword triggers.
-        for keyword, tools in self.TOOL_KEYWORDS.items():
-            if keyword in msg_lower:
-                for t in tools:
-                    if t in available:
-                        triggered.add(t)
-
-        # When the cap is hit, drop untriggered base tools before the tools
-        # the message asked for (the cap is smaller than BASE_TOOLS + docs tools).
-        prioritized = sorted(triggered) + sorted(base - triggered)
-        return sorted(prioritized[:max_tools])
+    def select(self, *, planning: bool = False) -> list[str]:
+        """Return the sorted registered tools, without the planning tools unless *planning*."""
+        excluded = frozenset() if planning else self.PLANNING_TOOLS
+        return sorted(set(self._all_tools) - excluded)

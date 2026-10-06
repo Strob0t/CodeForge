@@ -72,7 +72,6 @@ def build_loop_config(
     routing: RoutingResult,
     tool_names: list[str],
     fallback_models: list[str],
-    user_prompt: str,
     max_steps: int,
     max_cost: float,
     mode_tools: frozenset[str],
@@ -86,18 +85,16 @@ def build_loop_config(
 
     Carries the fallback chain and the routing decision (the loop reports the
     outcome to the MAB router), the primary model's *capability_level*
-    (``resolve_model_capability``), selects the tools for the prompt and applies
-    local-model sampling parameters. Returns ``(config, complexity_hint)``;
-    the hint is a system message for weak local models on complex tasks, or
-    None. An *implementation_turn* (runs.start, the auto-agent's feature
-    turns) is not offered the planning tools, and an announced action without
-    a tool call gets one "continue" nudge (KI-153).
+    (``resolve_model_capability``), selects the turn's tools (every registered
+    tool, ToolRouter) and applies local-model sampling parameters. Returns
+    ``(config, complexity_hint)``; the hint is a system message for weak local
+    models on complex tasks, or None. An *implementation_turn* (runs.start,
+    the auto-agent's feature turns) is not offered the planning tools, and an
+    announced action without a tool call gets one "continue" nudge (KI-153).
     """
     # Implementation turns are not offered the planning tools (KI-153).
-    router = ToolRouter(all_tool_names=tool_names)
-    selected_tools = router.select(user_prompt, planning=not implementation_turn) if user_prompt else None
-    if selected_tools is not None:
-        logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
+    selected_tools = ToolRouter(all_tool_names=tool_names).select(planning=not implementation_turn)
+    logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
 
     is_local = primary_model.startswith(_LOCAL_MODEL_PREFIXES)
     loop_cfg = LoopConfig(
