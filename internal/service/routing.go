@@ -204,7 +204,7 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 		model := &models[i]
 		supportsTools := false
 		supportsVision := false
-		if info := models[i].ModelInfo; info != nil {
+		if info := model.ModelInfo; info != nil {
 			if v, ok := info["supports_function_calling"]; ok {
 				supportsTools, _ = v.(bool)
 			}
@@ -229,7 +229,7 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 				// Check if this model already has stats for this combo.
 				found := false
 				for j := range existing {
-					if existing[j].ModelName != models[i].ModelName {
+					if existing[j].ModelName != model.ModelName {
 						continue
 					}
 					found = true
@@ -242,28 +242,28 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 					// Update capability fields only.
 					existing[j].SupportsTools = supportsTools
 					existing[j].SupportsVision = supportsVision
-					existing[j].MaxContext = models[i].MaxTokens
-					existing[j].InputCostPer = models[i].InputCostPer
-					existing[j].OutputCostPer = models[i].OutputCostPer
+					existing[j].MaxContext = model.MaxTokens
+					existing[j].InputCostPer = model.InputCostPer
+					existing[j].OutputCostPer = model.OutputCostPer
 					if err := s.store.UpsertRoutingStats(ctx, &existing[j]); err != nil {
-						slog.Warn("sync model capabilities upsert failed", "model", models[i].ModelName, "error", err)
+						slog.Warn("sync model capabilities upsert failed", "model", model.ModelName, "error", err)
 					}
 					break
 				}
 
 				if !found {
 					st := &routing.ModelPerformanceStats{
-						ModelName:      models[i].ModelName,
+						ModelName:      model.ModelName,
 						TaskType:       taskType,
 						ComplexityTier: tier,
 						SupportsTools:  supportsTools,
 						SupportsVision: supportsVision,
-						MaxContext:     models[i].MaxTokens,
-						InputCostPer:   models[i].InputCostPer,
-						OutputCostPer:  models[i].OutputCostPer,
+						MaxContext:     model.MaxTokens,
+						InputCostPer:   model.InputCostPer,
+						OutputCostPer:  model.OutputCostPer,
 					}
 					if err := s.store.UpsertRoutingStats(ctx, st); err != nil {
-						slog.Warn("sync model capabilities insert failed", "model", models[i].ModelName, "error", err)
+						slog.Warn("sync model capabilities insert failed", "model", model.ModelName, "error", err)
 					}
 				}
 			}
