@@ -218,8 +218,24 @@ READ = {"file_path": "a.py"}
         ),
         pytest.param(
             '{"thought": "t", "final": "x"}\nmore </think> text',
-            TextFinal(content="x", thought="t"),
-            id="closing-tag-after-the-object",
+            TextFinal(content="text"),
+            id="closing-tag-after-the-object-ends-the-reasoning",
+        ),
+        pytest.param(
+            'Let me call {"tool":"read_file","args":{"file_path":"draft"}} first.</think>\n'
+            '{"thought":"t","tool":"bash","args":{"command":"ls"}}',
+            _call("bash", {"command": "ls"}, "t"),
+            id="draft-call-in-reasoning",
+        ),
+        pytest.param(
+            '<think>draft {"content": "</think>"} done</think>{"thought": "t", "tool": "bash", "args": {"command": "ls"}}',
+            _call("bash", {"command": "ls"}, "t"),
+            id="closing-tag-in-a-draft-string",
+        ),
+        pytest.param(
+            'reasoning about {x: 1} and the call</think>\n{"thought": "t", "tool": "bash", "args": {"command": "ls"}}',
+            _call("bash", {"command": "ls"}, "t"),
+            id="prose-brace-in-reasoning",
         ),
     ],
 )
@@ -581,6 +597,8 @@ def _elapsed(text: str, *, truncated: bool = False) -> tuple[float, TextToolCall
         pytest.param("<think>" * 8000, id="unterminated-think-tags"),
         pytest.param("<think>" * 8000 + "</think>", id="think-tags-closed-once"),
         pytest.param("x" + "<think>" * 40_000 + '{"thought": "t", "final": "x"}', id="think-tags-in-prose"),
+        pytest.param('{"a": "' + "</think>" * 24_000, id="closing-tags-in-an-unclosed-object"),
+        pytest.param("</think>{x} " * 15_000, id="closing-tags-and-braces"),
     ],
 )
 def test_think_handling_is_linear(text: str) -> None:

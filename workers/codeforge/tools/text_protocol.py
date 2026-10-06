@@ -589,24 +589,36 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
 def _strip_reasoning(text: str) -> tuple[str, bool]:
     """*text* without its leading reasoning, and whether a leading <think> block never ended.
 
-    Only reasoning before the turn is removed: a <think> block at the start,
-    or text up to a closing tag that comes before the first "{" (a chat
-    template that opens the block in the prompt). Tags further on may be in
-    the object's strings (a file the model writes) and stay. An
-    unterminated block's text is kept: a model that forgets to close it
-    still gets its call run.
+    The reasoning ends at the first closing tag outside every object (a
+    tag in a JSON string, of a draft or of the turn, is no end): after a
+    <think> at the start, or from the start when a chat template opened
+    the block in the prompt. Objects before that tag are drafts and are
+    dropped with the reasoning. An unterminated block's text is kept: a
+    model that forgets to close it still gets its call run.
     """
     stripped = text.lstrip()
-    if stripped.startswith(_THINK_OPEN):
-        close = stripped.find(_THINK_CLOSE, len(_THINK_OPEN))
-        if close < 0:
-            return stripped[len(_THINK_OPEN) :], True
-        return stripped[close + len(_THINK_CLOSE) :], False
+    opened = stripped.startswith(_THINK_OPEN)
+    rest = stripped[len(_THINK_OPEN) :] if opened else text
+    close = _reasoning_end(rest)
+    if close >= 0:
+        return rest[close + len(_THINK_CLOSE) :], False
+    return (rest, True) if opened else (text, False)
+
+
+def _reasoning_end(text: str) -> int:
+    """The position of the first </think> outside every object candidate's span, or -1."""
     close = text.find(_THINK_CLOSE)
-    brace = text.find("{")
-    if close >= 0 and (brace < 0 or close < brace):
-        return text[close + len(_THINK_CLOSE) :], False
-    return text, False
+    if close < 0:
+        return -1
+    spans = [(c.start, c.end) for c in _scan_candidates(text[:_MAX_SCAN_CHARS])]
+    for start, end in spans:
+        if close < start:
+            return close
+        if close < end:  # inside this object: the next tag after it
+            close = text.find(_THINK_CLOSE, end)
+            if close < 0:
+                return -1
+    return close
 
 
 def _broken_call_error(reason: str, truncated: bool) -> TextProtocolError:
