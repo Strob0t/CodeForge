@@ -17,6 +17,7 @@ import (
 
 	cfcrypto "github.com/Strob0t/CodeForge/internal/crypto"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/llm"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
@@ -527,6 +528,10 @@ func validate(cfg *Config) error {
 		// 0 or less would make every held message overdue at once; more
 		// overflows time.Duration and wraps into the past (KI-91 review).
 		return fmt.Errorf("quarantine.expiry_hours must be 1 to %d (got %d)", maxQuarantineExpiryHours, h)
+	}
+	if l := trust.Level(cfg.Quarantine.MinTrustBypass); !trust.IsValidLevel(l) {
+		// An unknown level used to let every message bypass quarantine (KI-204).
+		return fmt.Errorf("quarantine.min_trust_bypass must be full, verified, partial or untrusted (lower case, got %q)", l)
 	}
 	if err := validateGitHubWebFlow(&cfg.GitHub); err != nil {
 		return err

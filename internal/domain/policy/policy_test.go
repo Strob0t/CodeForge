@@ -130,6 +130,44 @@ func TestPermissionRuleValidateValid(t *testing.T) {
 	}
 }
 
+// KI-204: a misspelled trust_minimum used to accept every trust level; it is
+// now rejected when the profile is validated.
+func TestPermissionRuleValidateTrustMinimum(t *testing.T) {
+	tests := []struct {
+		name    string
+		min     trust.Level
+		wantErr bool
+	}{
+		{"unset", "", false},
+		{"full", trust.LevelFull, false},
+		{"verified", trust.LevelVerified, false},
+		{"partial", trust.LevelPartial, false},
+		{"untrusted", trust.LevelUntrusted, false},
+		{"wrong case", "Verified", true},
+		{"unknown", "high", true},
+		{"whitespace", " ", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := PermissionRule{
+				Specifier:    ToolSpecifier{Tool: "Read"},
+				Decision:     DecisionAllow,
+				TrustMinimum: tt.min,
+			}
+			err := r.Validate()
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "trust_minimum") {
+					t.Fatalf("Validate() = %v, want an error naming trust_minimum", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestIsValidMode(t *testing.T) {
 	valid := []PermissionMode{ModeDefault, ModeAcceptEdits, ModePlan, ModeDelegate}
 	for _, m := range valid {

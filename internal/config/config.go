@@ -84,7 +84,7 @@ type Quarantine struct {
 	Enabled             bool    `yaml:"enabled"`              // Enable quarantine (default: false)
 	QuarantineThreshold float64 `yaml:"quarantine_threshold"` // Risk score threshold for quarantine (default: 0.7)
 	BlockThreshold      float64 `yaml:"block_threshold"`      // Risk score threshold for immediate block (default: 0.95)
-	MinTrustBypass      string  `yaml:"min_trust_bypass"`     // Minimum trust level to bypass quarantine (default: "verified")
+	MinTrustBypass      string  `yaml:"min_trust_bypass"`     // Minimum trust level to bypass quarantine (default: "verified"; full, verified, partial or untrusted, lower case, anything else fails at startup)
 	ExpiryHours         int     `yaml:"expiry_hours"`         // Hours until unreviewed messages expire (default: 72; 1 to 2562047)
 }
 

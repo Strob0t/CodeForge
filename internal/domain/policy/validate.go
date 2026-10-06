@@ -3,6 +3,8 @@ package policy
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Strob0t/CodeForge/internal/domain/trust"
 )
 
 // MaxStepsLimit is the upper bound for MaxSteps to prevent runaway agents.
@@ -43,6 +45,9 @@ func (r *PermissionRule) Validate() error {
 	}
 	if !isValidDecision(r.Decision) {
 		return fmt.Errorf("invalid decision %q", r.Decision)
+	}
+	if r.TrustMinimum != "" && !trust.IsValidLevel(r.TrustMinimum) {
+		return fmt.Errorf("invalid trust_minimum %q (want full, verified, partial or untrusted)", r.TrustMinimum)
 	}
 	for _, list := range []struct {
 		name     string

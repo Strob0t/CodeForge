@@ -48,3 +48,40 @@ func TestValidate_QuarantineExpiryHours(t *testing.T) {
 		})
 	}
 }
+
+// KI-204: an unknown quarantine.min_trust_bypass made every annotated message
+// bypass quarantine. Only the four trust levels are accepted (case-sensitive).
+func TestValidate_QuarantineMinTrustBypass(t *testing.T) {
+	tests := []struct {
+		name    string
+		level   string
+		wantErr bool
+	}{
+		{"default", Defaults().Quarantine.MinTrustBypass, false},
+		{"full", "full", false},
+		{"verified", "verified", false},
+		{"partial", "partial", false},
+		{"untrusted", "untrusted", false},
+		{"empty", "", true},
+		{"wrong case", "Verified", true},
+		{"typo", "verifed", true},
+		{"unknown", "high", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Auth.JWTSecret = strongTestSecret
+			cfg.Quarantine.MinTrustBypass = tt.level
+			err := validate(&cfg)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "quarantine.min_trust_bypass") {
+					t.Fatalf("validate() = %v, want an error naming quarantine.min_trust_bypass", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validate() = %v, want nil", err)
+			}
+		})
+	}
+}
