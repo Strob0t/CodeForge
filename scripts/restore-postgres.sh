@@ -11,7 +11,7 @@
 # Encrypted backups (*.sql.gz.gpg, see backup-postgres.sh) are decrypted with
 # BACKUP_ENCRYPTION_KEY_FILE into a private temporary file (TMPDIR), which is
 # removed afterwards. Nothing is dropped unless pg_restore can read the
-# backup's table of contents.
+# whole backup, data included.
 #
 # Environment:
 #   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE (standard libpq vars)
@@ -59,10 +59,11 @@ if [[ "$TARGET" == *.gpg ]]; then
   fi
 fi
 
-# The backup must be a pg_dump archive pg_restore can read before anything
-# is dropped.
-if ! pg_restore --list "$DUMP" > /dev/null; then
-  echo "ERROR: $TARGET is not a pg_dump archive pg_restore can read; nothing was changed." >&2
+# The backup must be a pg_dump archive (backup-postgres.sh writes the custom
+# format) that pg_restore reads to the end before anything is dropped:
+# --list reads only the table of contents and passes a truncated archive.
+if ! pg_restore --file=/dev/null "$DUMP"; then
+  echo "ERROR: pg_restore cannot read all of $TARGET (not a pg_dump archive, or damaged); nothing was changed." >&2
   exit 1
 fi
 

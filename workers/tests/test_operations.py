@@ -140,7 +140,9 @@ def test_wal_cleanup_refuses_an_invalid_retention(days: str, tmp_path: Path) -> 
 #
 # The PostgreSQL client tools are stubs on PATH that log their calls; a "dump"
 # is a file starting with pg_dump's custom-format magic (PGDMP), which the
-# pg_restore stub's --list checks like the real one. gpg is the real one.
+# pg_restore stub's --list checks like the real one. A dump containing
+# TRUNCATED has a readable table of contents but data pg_restore cannot read
+# to the end. gpg is the real one.
 
 BASH = shutil.which("bash")
 GPG = shutil.which("gpg")
@@ -152,7 +154,11 @@ _STUBS = {
     "pg_restore": 'echo "pg_restore $*" >> "$OPS_LOG"\nfile="${!#}"\n'
     'if [ "$(head -c 5 "$file")" != PGDMP ]; then\n'
     '  echo "pg_restore: error: input file does not appear to be a valid archive" >&2; exit 1\nfi\n'
-    'if [ "$1" != --list ]; then cp "$file" "$OPS_RESTORED"; fi\n',
+    'if [ "$1" = --list ]; then exit 0; fi\n'
+    'if grep -q TRUNCATED "$file"; then\n'
+    '  echo "pg_restore: error: could not read from input file: end of file" >&2; exit 1\nfi\n'
+    "case $1 in --file=*) exit 0;; esac\n"
+    'cp "$file" "$OPS_RESTORED"\n',
     "psql": 'echo "psql $*" >> "$OPS_LOG"\ncat > /dev/null\necho "0|"\n',
     "dropdb": 'echo "dropdb $*" >> "$OPS_LOG"\n',
     "createdb": 'echo "createdb $*" >> "$OPS_LOG"\n',
@@ -264,7 +270,7 @@ def test_restore_latest_decrypts_the_newest_backup(ops: _Ops) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert ops.restored.read_text() == "PGDMP newest\n"
     calls = ops.calls()
-    assert calls.index("pg_restore --list") < calls.index("dropdb"), calls
+    assert calls.index("pg_restore --file=/dev/null") < calls.index("dropdb"), calls
     assert not list(ops.tmp.iterdir()), "the decrypted dump is removed"
 
 
@@ -273,6 +279,7 @@ def test_restore_latest_decrypts_the_newest_backup(ops: _Ops) -> None:
     ("setup", "message"),
     [
         ("not-a-dump", "not a pg_dump archive"),
+        ("truncated", "cannot read all of"),
         ("no-key", "BACKUP_ENCRYPTION_KEY_FILE"),
         ("wrong-key", "cannot decrypt"),
     ],
@@ -282,6 +289,9 @@ def test_restore_refuses_before_dropping(ops: _Ops, setup: str, message: str) ->
     if setup == "not-a-dump":
         target = ops.backups / "codeforge_20260101_000000.sql.gz"
         target.write_text("-- plain SQL, not a custom-format dump\n")
+    elif setup == "truncated":
+        # The table of contents reads; the data ends early (KI-212).
+        target = ops.dump("codeforge_20260101_000000.sql.gz", "TRUNCATED")
     else:
         target = ops.dump("codeforge_20260101_000000.sql.gz.gpg", "data", encrypt=True)
         if setup == "wrong-key":
