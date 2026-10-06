@@ -648,7 +648,11 @@ Example:
 | `orchestrator.graph_top_k` | `CODEFORGE_ORCH_GRAPH_TOP_K` | `10` | Top-K results for graph search |
 | `orchestrator.graph_hop_decay` | `CODEFORGE_ORCH_GRAPH_HOP_DECAY` | `0.7` | Score decay per hop (0.0-1.0) |
 | `git.operation_timeout` | `CODEFORGE_GIT_OPERATION_TIMEOUT` | `30m` | Deadline of a synchronous clone, setup or pull request (exempt from the 30 s route timeout); a cancelled request leaves no partial directory |
-| `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations |
+| `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations of the Go Core; one tenant holds at most `max_concurrent - 1` of them, so other tenants always keep a slot |
+| `git.command_timeout` | `CODEFORGE_GIT_COMMAND_TIMEOUT` | `2m` | Deadline of every local git process of the Go Core (KI-187); git runs in its own process group, which is killed as a whole. Minimum `1s` |
+| `git.network_timeout` | `CODEFORGE_GIT_NETWORK_TIMEOUT` | `10m` | Deadline of clone, fetch, pull, push and ls-remote. A synchronous clone ends at the smaller of this and `git.operation_timeout`: raise both for very large repositories. Minimum `1s` |
+| `svn.allow_file_urls` | `CODEFORGE_SVN_ALLOW_FILE_URLS` | `false` | Allows local (`file://`) SVN repositories. An operator setting (KI-189): the former project config key `allow_file_urls` has no effect |
+| `svn.allowed_private_hosts` | `CODEFORGE_SVN_ALLOWED_PRIVATE_HOSTS` | `` (none) | Host names, IPs and CIDRs (comma-separated in the env) whose private or loopback addresses the SVN provider may contact; every URL svn is about to contact is checked first (`netutil.OutboundPolicy`). Link-local and cloud metadata addresses never. Invalid entries stop startup. An SVN server on the LAN or on localhost must be listed |
 | `mcp.enabled` | `CODEFORGE_MCP_ENABLED` | `false` | Enable MCP integration |
 | `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
 | `mcp.server_port` | `CODEFORGE_MCP_SERVER_PORT` | `3001` | Port for built-in MCP server |
@@ -1325,7 +1329,7 @@ generates its own secret: create the webhook in Plane first, then register it wi
 sets or removes (`""`) the PM token, `DELETE` removes the webhook. An event is acted on only when it names the project's repository exactly
 (host and owner/name of `repo_url`, case-insensitive; Plane: `plane_project_id`); a PM webhook syncs with its own `api_token`.
 
-#### Upgrading to 0.9.0 (S10-I operations fixes)
+#### Upgrading to 0.9.0 (S10-I operations, S10-D git and SVN fixes)
 
 - **WAL archiving is off by default (KI-210).** Set `POSTGRES_ARCHIVE_MODE=on` only together with base backups and pruning (see [disaster-recovery.md](disaster-recovery.md)).
 - **Public network subnet (KI-211).** The `public` network's default subnet moved to `10.250.240.0/24` (outside Docker's default pools; proxies get `10.250.240.128/25`, gateway `10.250.240.1`), and `CODEFORGE_TRUSTED_PROXIES` follows `CODEFORGE_PUBLIC_IP_RANGE` unless set. Docker does not change an existing network, so recreate it once: `docker compose -f docker-compose.prod.yml down` (add `-f docker-compose.blue-green.yml` for blue-green; volumes and data stay), `docker network rm <project>_public`, then `up -d`. If the subnet collides with a host network (VPN, LAN), set `CODEFORGE_PUBLIC_SUBNET`, `CODEFORGE_PUBLIC_IP_RANGE` and `CODEFORGE_PUBLIC_GATEWAY` together.
@@ -1333,6 +1337,9 @@ sets or removes (`""`) the PM token, `DELETE` removes the webhook. An event is a
 - **Core port and A2A (KI-213).** The Core's published port binds to `127.0.0.1`; external A2A clients use the frontend address, where nginx proxies `/a2a` and `/.well-known/agent-card.json`.
 - **Fail-fast configuration (KI-213).** A missing explicitly named config file, an unparsable typed env value (named in the error) and `auth.enabled=false` with `APP_ENV=production` stop the Core at startup. The Core's `stop_grace_period` is 75 s, and NATS reconnects without limit (Core and worker).
 - **Restore (KI-212).** `scripts/restore-postgres.sh` reads the whole backup before dropping the database and restores encrypted `.gpg` backups with `BACKUP_ENCRYPTION_KEY_FILE`; retention prunes them too.
+- **SVN servers on a private network (KI-189).** The SVN provider contacts private and loopback hosts only when they are listed in `svn.allowed_private_hosts`; local `file://` repositories need `svn.allow_file_urls: true` (the project config key `allow_file_urls` is ignored).
+- **Branch and PR delivery push to `repo_url` (KI-188).** Delivery pushes the run's branch to the project's `repo_url` (never to the workspace's `origin` config) without force; a project without `repo_url` keeps the branch local and reports a failed delivery. A pushed branch whose pull request could not be opened is reported as `partial` (`run.delivery.partial`).
+- **Git deadlines (KI-187).** Every Go Core git process ends after `git.command_timeout` (local) or `git.network_timeout` (network). Workspaces with a FIFO, socket or device where git reads a file (`.gitignore`, `.gitattributes`, refs, `core.excludesFile`) are refused.
 
 #### Upgrading to per-project webhooks (KI-85)
 

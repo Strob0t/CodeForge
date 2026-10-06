@@ -314,6 +314,7 @@ sequenceDiagram
 - [x] Multi-rollout conversations (opt-in) run only on a clean workspace and only while no other work is active on the project; each rollout is kept as a git tree and the best one is left as unstaged changes on the start commit; the start branch is restored before each reset; a workspace change outside the rollouts stops them; rollout git calls are bounded (120 s) (KI-195).
 - [x] Quality gate enforcement: test/lint gates via NATS request/result protocol with project/language commands, per-command timeout, heartbeats and a watchdog (KI-26, KI-28, KI-29 fixed 2026-09-30).
 - [x] 5 deliver modes: none, patch, commit-local, branch, PR; delivery for every completed run, before checkpoint cleanup; patches in `.git/codeforge/patches/` (KI-26, KI-27 fixed 2026-09-30).
+- [x] Branch and PR delivery push to the project's `repo_url` without force, from a private repository that never reads the workspace's remote config; a failed push is a failed delivery (`run.delivery.failed`), a pushed branch without its pull request is `partial` (`run.delivery.partial`, a warning in Activity) (KI-188, 2026-10-06).
 
 ### Completed (Phase 5 -- Multi-Agent Orchestration)
 
