@@ -12,7 +12,7 @@ func TestWorkspaceToolACLs(t *testing.T) {
 
 	t.Setenv("CODEFORGE_WORKSPACE_TOOL_ACLS", "required")
 	cfg = Defaults()
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Workspace.ToolACLs != "required" {
 		t.Fatalf("from env: %q", cfg.Workspace.ToolACLs)
 	}

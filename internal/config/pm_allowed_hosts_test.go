@@ -37,7 +37,7 @@ func TestPMAllowedPrivateHosts_Layering(t *testing.T) {
 	}
 
 	t.Setenv("CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS", " gitlab.lan , fd12::/16,,192.168.7.7")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if want := []string{"gitlab.lan", "fd12::/16", "192.168.7.7"}; !slices.Equal(cfg.PM.AllowedPrivateHosts, want) {
 		t.Fatalf("env pm.allowed_private_hosts = %v, want %v (env replaces YAML)", cfg.PM.AllowedPrivateHosts, want)
 	}

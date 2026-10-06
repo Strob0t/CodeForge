@@ -80,7 +80,7 @@ func TestEnvOverride(t *testing.T) {
 	t.Setenv("CODEFORGE_LOG_LEVEL", "warn")
 	t.Setenv("CODEFORGE_BREAKER_TIMEOUT", "1m")
 
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 
 	if cfg.Server.Port != "7070" {
 		t.Errorf("expected port 7070, got %s", cfg.Server.Port)
@@ -338,7 +338,7 @@ func TestPolicyEnvOverride(t *testing.T) {
 	t.Setenv("CODEFORGE_POLICY_DEFAULT", "trusted-mount-autonomous")
 	t.Setenv("CODEFORGE_POLICY_DIR", "/custom/policies")
 
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 
 	if cfg.Policy.DefaultProfile != "trusted-mount-autonomous" {
 		t.Errorf("expected 'trusted-mount-autonomous', got %q", cfg.Policy.DefaultProfile)
@@ -396,7 +396,7 @@ func TestRoutingDefaults(t *testing.T) {
 func TestRoutingEnvOverride(t *testing.T) {
 	cfg := Defaults()
 	t.Setenv("CODEFORGE_ROUTING_ENABLED", "false")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Routing.Enabled {
 		t.Error("expected routing.enabled=false from env override")
 	}
@@ -426,7 +426,7 @@ func TestAgentContextEnvOverride(t *testing.T) {
 	t.Setenv("CODEFORGE_AGENT_CONTEXT_ENABLED", "true")
 	t.Setenv("CODEFORGE_AGENT_CONTEXT_BUDGET", "4096")
 	t.Setenv("CODEFORGE_AGENT_CONTEXT_PROMPT_RESERVE", "1024")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if !cfg.Agent.ContextEnabled {
 		t.Error("expected agent.context_enabled=true from env override")
 	}
@@ -445,7 +445,7 @@ func TestQuarantineEnvOverride(t *testing.T) {
 	t.Setenv("CODEFORGE_QUARANTINE_BLOCK_THRESHOLD", "0.85")
 	t.Setenv("CODEFORGE_QUARANTINE_MIN_TRUST_BYPASS", "full")
 	t.Setenv("CODEFORGE_QUARANTINE_EXPIRY_HOURS", "48")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if !cfg.Quarantine.Enabled {
 		t.Error("expected quarantine.enabled=true from env override")
 	}
@@ -466,7 +466,7 @@ func TestQuarantineEnvOverride(t *testing.T) {
 func TestLSPEnvOverride(t *testing.T) {
 	cfg := Defaults()
 	t.Setenv("CODEFORGE_LSP_ENABLED", "true")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if !cfg.LSP.Enabled {
 		t.Error("expected lsp.enabled=true from env override")
 	}
@@ -477,7 +477,7 @@ func TestReviewRouterEnvOverride(t *testing.T) {
 	t.Setenv("CODEFORGE_ORCH_REVIEW_ROUTER_ENABLED", "true")
 	t.Setenv("CODEFORGE_ORCH_REVIEW_CONFIDENCE_THRESHOLD", "0.6")
 	t.Setenv("CODEFORGE_ORCH_REVIEW_ROUTER_MODEL", "gpt-4o")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if !cfg.Orchestrator.ReviewRouterEnabled {
 		t.Error("expected review_router_enabled=true from env override")
 	}
@@ -493,7 +493,7 @@ func TestReviewRouterEnvOverride(t *testing.T) {
 func TestEmbeddingModelEnvOverride(t *testing.T) {
 	cfg := Defaults()
 	t.Setenv("CODEFORGE_ORCH_EMBEDDING_MODEL", "ollama/nomic-embed-text")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Orchestrator.DefaultEmbeddingModel != "ollama/nomic-embed-text" {
 		t.Errorf("default_embedding_model = %q, want the env value", cfg.Orchestrator.DefaultEmbeddingModel)
 	}
@@ -840,7 +840,7 @@ func TestSSLModeRejectedInStaging(t *testing.T) {
 func TestTrustedProxiesFromEnv(t *testing.T) {
 	cfg := Defaults()
 	t.Setenv("CODEFORGE_TRUSTED_PROXIES", "10.0.0.0/8, 192.0.2.10 ,::1")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	prefixes, err := cfg.Server.TrustedProxyPrefixes()
 	if err != nil {
 		t.Fatalf("TrustedProxyPrefixes: %v", err)

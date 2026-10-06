@@ -15,7 +15,7 @@ func TestWorkspaceAdoptRoots(t *testing.T) {
 
 	t.Setenv("CODEFORGE_WORKSPACE_ADOPT_ROOTS", "/srv/e2e, /tmp/codeforge-e2e")
 	cfg := Defaults()
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if want := []string{"/srv/e2e", "/tmp/codeforge-e2e"}; !slices.Equal(cfg.Workspace.AdoptRoots, want) {
 		t.Fatalf("adopt roots from env = %v, want %v", cfg.Workspace.AdoptRoots, want)
 	}

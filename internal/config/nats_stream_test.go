@@ -24,18 +24,24 @@ func TestLoadEnv_NATSStreamMaxBytes(t *testing.T) {
 		{"unset keeps default", "", tenGiB},
 		{"2 GiB", "2147483648", 2 << 30},
 		{"above int32", "21474836480", 20 << 30},
-		{"invalid keeps default", "10GB", tenGiB},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("CODEFORGE_NATS_STREAM_MAX_BYTES", tt.env)
 			cfg := Defaults()
-			loadEnv(&cfg)
+			mustLoadEnv(t, &cfg)
 			if cfg.NATS.StreamMaxBytes != tt.want {
 				t.Fatalf("got %d, want %d", cfg.NATS.StreamMaxBytes, tt.want)
 			}
 		})
 	}
+	t.Run("invalid is an error", func(t *testing.T) {
+		t.Setenv("CODEFORGE_NATS_STREAM_MAX_BYTES", "10GB")
+		cfg := Defaults()
+		if err := loadEnv(&cfg); err == nil || !strings.Contains(err.Error(), "CODEFORGE_NATS_STREAM_MAX_BYTES") {
+			t.Fatalf("loadEnv = %v, want an error naming CODEFORGE_NATS_STREAM_MAX_BYTES", err)
+		}
+	})
 }
 
 func TestLoadYAML_NATSStreamMaxBytes(t *testing.T) {

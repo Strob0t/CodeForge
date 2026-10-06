@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -75,7 +76,8 @@ logging:
 }
 
 func TestLoadFrom_EnvInvalidValues(t *testing.T) {
-	// Invalid env values are silently ignored; defaults survive.
+	// Invalid env values fail the load and every one is named (KI-213); they
+	// used to be ignored with a warning, leaving the defaults in place.
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "cfg.yaml")
 	if err := os.WriteFile(yamlPath, nil, 0o644); err != nil {
@@ -87,19 +89,14 @@ func TestLoadFrom_EnvInvalidValues(t *testing.T) {
 	t.Setenv("CODEFORGE_BREAKER_TIMEOUT", "invalid-duration")
 	t.Setenv("CODEFORGE_RATE_RPS", "abc")
 
-	cfg, err := LoadFrom(yamlPath)
-	if err != nil {
-		t.Fatalf("LoadFrom: %v", err)
+	_, err := LoadFrom(yamlPath)
+	if err == nil {
+		t.Fatal("LoadFrom accepted invalid env values")
 	}
-
-	if cfg.Postgres.MaxConns != 50 {
-		t.Errorf("invalid int env should be ignored: got max_conns %d, want 50", cfg.Postgres.MaxConns)
-	}
-	if cfg.Breaker.Timeout.String() != "30s" {
-		t.Errorf("invalid duration env should be ignored: got %v, want 30s", cfg.Breaker.Timeout)
-	}
-	if cfg.Rate.RequestsPerSecond != 10 {
-		t.Errorf("invalid float env should be ignored: got %v, want 10", cfg.Rate.RequestsPerSecond)
+	for _, key := range []string{"CODEFORGE_PG_MAX_CONNS", "CODEFORGE_BREAKER_TIMEOUT", "CODEFORGE_RATE_RPS"} {
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("error %q does not name %s", err, key)
+		}
 	}
 }
 

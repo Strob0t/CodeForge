@@ -47,7 +47,7 @@ func TestRetentionEnv(t *testing.T) {
 	t.Setenv("CODEFORGE_RETENTION_CONSENT_IP_ADDRESSES", "720h")
 	t.Setenv("CODEFORGE_RETENTION_SESSIONS", "0s")
 	t.Setenv("CODEFORGE_RETENTION_HANDOFF_CLAIMS", "2160h")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Retention.Interval != 12*time.Hour {
 		t.Errorf("interval = %v, want 12h", cfg.Retention.Interval)
 	}

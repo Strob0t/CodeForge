@@ -114,7 +114,7 @@ func TestLoadFrom_SecretFileA2AKeys(t *testing.T) {
 func TestLoadEnv_A2AKeysSplitOnNewlines(t *testing.T) {
 	t.Setenv("CODEFORGE_A2A_API_KEYS", "key-one\nkey-two,key-three")
 	cfg := Defaults()
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if want := []string{"key-one", "key-two", "key-three"}; !slices.Equal(cfg.A2A.APIKeys, want) {
 		t.Fatalf("A2A API keys: got %q, want %q", cfg.A2A.APIKeys, want)
 	}
@@ -207,7 +207,12 @@ func TestLoadWithCLI_SecretFilesProduction(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("CODEFORGE_AUTH_ADMIN_PASS", "")
 	t.Setenv("CODEFORGE_AUTH_ADMIN_PASS_FILE", "")
-	t.Setenv("CODEFORGE_CONFIG_FILE", filepath.Join(t.TempDir(), "absent.yaml"))
+	// An empty file: the checkout's codeforge.yaml must not leak in.
+	emptyConfig := filepath.Join(t.TempDir(), "empty.yaml")
+	if err := os.WriteFile(emptyConfig, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEFORGE_CONFIG_FILE", emptyConfig)
 
 	cfg, _, err := LoadWithCLI(CLIFlags{})
 	if err != nil {

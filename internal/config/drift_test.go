@@ -14,7 +14,7 @@ func TestNotificationSMTPPortDefault(t *testing.T) {
 	}
 
 	t.Setenv("CODEFORGE_SMTP_PORT", "2525")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Notification.SMTPPort != 2525 {
 		t.Fatalf("CODEFORGE_SMTP_PORT = %d, want 2525", cfg.Notification.SMTPPort)
 	}

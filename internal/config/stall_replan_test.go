@@ -12,7 +12,7 @@ func TestStallMaxRetries(t *testing.T) {
 	}
 
 	t.Setenv("CODEFORGE_STALL_MAX_RETRIES", "0")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Runtime.StallMaxRetries != 0 {
 		t.Fatalf("CODEFORGE_STALL_MAX_RETRIES = %d, want 0", cfg.Runtime.StallMaxRetries)
 	}

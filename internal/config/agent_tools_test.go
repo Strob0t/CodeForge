@@ -79,7 +79,7 @@ func TestAutoAgentFixAttempts(t *testing.T) {
 		t.Fatalf("yaml = %d, want 4", cfg.Agent.AutoAgentFixAttempts)
 	}
 	t.Setenv("CODEFORGE_AGENT_AUTO_AGENT_FIX_ATTEMPTS", "0")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.Agent.AutoAgentFixAttempts != 0 {
 		t.Fatalf("env = %d, want 0", cfg.Agent.AutoAgentFixAttempts)
 	}

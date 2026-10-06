@@ -33,7 +33,7 @@ func TestKeyedProviders_Layering(t *testing.T) {
 	}
 
 	t.Setenv("CODEFORGE_LITELLM_KEYED_PROVIDERS", "openai,groq,")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if want := []string{"openai", "groq"}; !slices.Equal(cfg.LiteLLM.KeyedProviders, want) {
 		t.Fatalf("env keyed_providers = %v, want %v (env replaces YAML)", cfg.LiteLLM.KeyedProviders, want)
 	}

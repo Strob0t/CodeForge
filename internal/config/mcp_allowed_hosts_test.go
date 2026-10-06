@@ -33,7 +33,7 @@ func TestMCPAllowedPrivateHosts_Layering(t *testing.T) {
 	}
 
 	t.Setenv("CODEFORGE_MCP_ALLOWED_PRIVATE_HOSTS", " tools.internal , fd12::/16,,192.168.7.7")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if want := []string{"tools.internal", "fd12::/16", "192.168.7.7"}; !slices.Equal(cfg.MCP.AllowedPrivateHosts, want) {
 		t.Fatalf("env allowed_private_hosts = %v, want %v (env replaces YAML)", cfg.MCP.AllowedPrivateHosts, want)
 	}
@@ -57,7 +57,7 @@ func TestMCPUseProxy_Layering(t *testing.T) {
 		t.Fatal("YAML use_proxy: true was not read")
 	}
 	t.Setenv("CODEFORGE_MCP_USE_PROXY", "false")
-	loadEnv(&cfg)
+	mustLoadEnv(t, &cfg)
 	if cfg.MCP.UseProxy {
 		t.Fatal("CODEFORGE_MCP_USE_PROXY=false did not override YAML")
 	}
