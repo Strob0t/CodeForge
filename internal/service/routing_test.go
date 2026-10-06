@@ -20,6 +20,7 @@ type routingMockStore struct {
 	upsertErr       error
 	aggregateErr    error
 	listOutcomesErr error
+	upserts         int
 }
 
 func (m *routingMockStore) CreateRoutingOutcome(_ context.Context, o *routing.RoutingOutcome) error {
@@ -48,6 +49,7 @@ func (m *routingMockStore) ListRoutingStats(_ context.Context, taskType, tier st
 }
 
 func (m *routingMockStore) UpsertRoutingStats(_ context.Context, st *routing.ModelPerformanceStats) error {
+	m.upserts++
 	if m.upsertErr != nil {
 		return m.upsertErr
 	}
@@ -394,5 +396,63 @@ func TestSyncModelCapabilities_SkipsRoutePatterns(t *testing.T) {
 		if store.stats[i].ModelName != "anthropic/claude-sonnet-4-5" {
 			t.Fatalf("stats written for %q", store.stats[i].ModelName)
 		}
+	}
+}
+
+// The model registry syncs every refresh interval (60 s): rows whose
+// capabilities did not change are not written again, so an idle installation
+// produces no WAL from it (KI-210).
+func TestSyncModelCapabilities_WritesOnlyChangedRows(t *testing.T) {
+	const combos = 7 * 4 // task types x complexity tiers
+	model := llm.DiscoveredModel{
+		ModelName:     "anthropic/claude-sonnet-4-5",
+		Status:        "reachable",
+		MaxTokens:     200000,
+		InputCostPer:  0.000003,
+		OutputCostPer: 0.000015,
+		ModelInfo:     map[string]any{"supports_function_calling": true, "supports_vision": true},
+	}
+	tests := []struct {
+		name   string
+		change func(m *llm.DiscoveredModel)
+		want   int
+	}{
+		{"unchanged", func(*llm.DiscoveredModel) {}, 0},
+		{"max context", func(m *llm.DiscoveredModel) { m.MaxTokens = 100000 }, combos},
+		{"input cost", func(m *llm.DiscoveredModel) { m.InputCostPer = 0.000001 }, combos},
+		{"output cost", func(m *llm.DiscoveredModel) { m.OutputCostPer = 0.00001 }, combos},
+		{"tools", func(m *llm.DiscoveredModel) { m.ModelInfo = map[string]any{"supports_vision": true} }, combos},
+		{"vision", func(m *llm.DiscoveredModel) { m.ModelInfo = map[string]any{"supports_function_calling": true} }, combos},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routingMockStore{}
+			svc := NewRoutingService(store)
+			ctx := context.Background()
+			if err := svc.SyncModelCapabilities(ctx, []llm.DiscoveredModel{model}); err != nil {
+				t.Fatalf("first sync: %v", err)
+			}
+			if store.upserts != combos {
+				t.Fatalf("first sync wrote %d rows, want %d", store.upserts, combos)
+			}
+			// Learned routing stats survive a capability update.
+			store.stats[0].TrialCount = 7
+
+			next := model
+			tt.change(&next)
+			store.upserts = 0
+			if err := svc.SyncModelCapabilities(ctx, []llm.DiscoveredModel{next}); err != nil {
+				t.Fatalf("second sync: %v", err)
+			}
+			if store.upserts != tt.want {
+				t.Errorf("second sync wrote %d rows, want %d", store.upserts, tt.want)
+			}
+			if store.stats[0].TrialCount != 7 {
+				t.Errorf("trial_count = %d after the sync, want 7", store.stats[0].TrialCount)
+			}
+			if store.stats[0].MaxContext != next.MaxTokens {
+				t.Errorf("max_context = %d, want %d", store.stats[0].MaxContext, next.MaxTokens)
+			}
+		})
 	}
 }

@@ -201,6 +201,7 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 			continue
 		}
 
+		model := &models[i]
 		supportsTools := false
 		supportsVision := false
 		if info := models[i].ModelInfo; info != nil {
@@ -232,6 +233,12 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 						continue
 					}
 					found = true
+					// Unchanged rows are not written: the registry syncs
+					// every refresh interval, and each write is WAL the
+					// archive keeps (KI-210).
+					if sameCapabilities(&existing[j], model, supportsTools, supportsVision) {
+						break
+					}
 					// Update capability fields only.
 					existing[j].SupportsTools = supportsTools
 					existing[j].SupportsVision = supportsVision
@@ -265,6 +272,15 @@ func (s *RoutingService) SyncModelCapabilities(ctx context.Context, models []llm
 
 	s.invalidateCache()
 	return nil
+}
+
+// sameCapabilities reports whether st already holds the capabilities of m.
+func sameCapabilities(st *routing.ModelPerformanceStats, m *llm.DiscoveredModel, supportsTools, supportsVision bool) bool {
+	return st.SupportsTools == supportsTools &&
+		st.SupportsVision == supportsVision &&
+		st.MaxContext == m.MaxTokens &&
+		st.InputCostPer == m.InputCostPer &&
+		st.OutputCostPer == m.OutputCostPer
 }
 
 func (s *RoutingService) invalidateCache() {
