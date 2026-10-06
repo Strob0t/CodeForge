@@ -295,6 +295,21 @@ def test_agent_eval_sends_valid_json(tmp_path: Path) -> None:
     assert summary["model"] == 'model "x"'
 
 
+def test_alert_rules_use_only_exported_metrics() -> None:
+    """CodeForge exports no Prometheus metrics: rules on http_requests_total or
+    nats_consumer_pending could never fire. The rest need cAdvisor, node_exporter and
+    blackbox_exporter."""
+    rules = yaml.safe_load((REPO / "configs" / "prometheus" / "alerts.yml").read_text())
+    exporters = ("container_", "node_", "probe_")
+    for group in rules["groups"]:
+        for rule in group["rules"]:
+            expr = re.sub(r"\"[^\"]*\"", '""', rule["expr"])  # label matchers are no metrics
+            metrics = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*(?:\{|\[|/|>|<|=|\)|$)", expr, re.MULTILINE))
+            metrics -= {"by", "le", "and", "or", "unless", "on", "sum", "rate", "time", "predict_linear"}
+            for metric in metrics:
+                assert metric.startswith(exporters), f"{rule['alert']}: {metric}"
+
+
 def test_dev_and_live_e2e_run_the_litellm_of_production() -> None:
     prod_image = PROD["services"]["litellm"]["image"]
     tag = prod_image.rsplit(":", 1)[1]
