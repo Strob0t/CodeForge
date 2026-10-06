@@ -6,12 +6,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import os
 import pathlib
 import re
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, cast
 
 import httpx
@@ -352,10 +353,21 @@ class ModelMetadata:
 
     max_input_tokens: int | None = None
     supports_function_calling: bool | None = None
+    # USD per token, from LiteLLM's cost map (KI-196).
+    input_cost_per_token: float | None = None
+    output_cost_per_token: float | None = None
 
 
 # How long a LiteLLMClient reuses the /model/info table.
 MODEL_INFO_TTL_SECONDS = 60.0
+
+
+def _price(value: object) -> float | None:
+    """A per-token price as /model/info reports it; None for anything but a finite number >= 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    price = float(value)
+    return price if math.isfinite(price) and price >= 0 else None
 
 
 def _model_info_table(data: object) -> dict[str, ModelMetadata]:
@@ -376,6 +388,8 @@ def _model_info_table(data: object) -> dict[str, ModelMetadata]:
         metadata = ModelMetadata(
             max_input_tokens=int(window) if isinstance(window, (int, float)) and not isinstance(window, bool) else None,
             supports_function_calling=fc if isinstance(fc, bool) else None,
+            input_cost_per_token=_price(info.get("input_cost_per_token")),
+            output_cost_per_token=_price(info.get("output_cost_per_token")),
         )
         params = row.get("litellm_params")
         litellm_model = params.get("model") if isinstance(params, dict) else None
@@ -542,7 +556,18 @@ class LiteLLMClient:
             return min(hint + 5.0, self._config.backoff_max)
         return min(self._config.backoff_base ** (attempt + 1), self._config.backoff_max)
 
-    async def _with_retry(self, fn: Callable[..., Awaitable[object]], *args: object, **kwargs: object) -> object:
+    async def _with_retry(
+        self,
+        fn: Callable[..., Awaitable[object]],
+        *args: object,
+        may_retry: Callable[[], bool] | None = None,
+        **kwargs: object,
+    ) -> object:
+        """Await *fn*, retrying transient errors; never once *may_retry* says no (KI-196).
+
+        A stream whose text the caller already received must not run again:
+        the caller would get the text twice.
+        """
         last_exc: LLMError | None = None
         for attempt in range(self._config.max_retries + 1):
             try:
@@ -553,7 +578,7 @@ class LiteLLMClient:
                 # in the retry + fallback logic instead of bubbling uncaught.
                 wrapped = LLMError(408, "unknown", str(exc))
                 last_exc = wrapped
-                if attempt == self._config.max_retries:
+                if attempt == self._config.max_retries or (may_retry is not None and not may_retry()):
                     raise wrapped from exc
                 wait = self._compute_backoff(wrapped, attempt)
                 logger.warning(
@@ -572,7 +597,11 @@ class LiteLLMClient:
                         _extract_provider(exc.model),
                         error_type=err_type,
                     )
-                if not self._is_retryable(exc) or attempt == self._config.max_retries:
+                if (
+                    not self._is_retryable(exc)
+                    or attempt == self._config.max_retries
+                    or (may_retry is not None and not may_retry())
+                ):
                     raise
                 wait = self._compute_backoff(exc, attempt)
                 logger.warning(
@@ -654,7 +683,7 @@ class LiteLLMClient:
         if not model:
             from codeforge.model_resolver import resolve_model
 
-            model = resolve_model()
+            model = await asyncio.to_thread(resolve_model)
 
         async def _inner() -> CompletionResponse:
             messages: list[dict[str, str]] = []
@@ -738,7 +767,7 @@ class LiteLLMClient:
         if not model:
             from codeforge.model_resolver import resolve_model
 
-            model = resolve_model()
+            model = await asyncio.to_thread(resolve_model)
 
         async def _inner() -> ChatCompletionResponse:
             payload: dict[str, object] = {
@@ -846,7 +875,16 @@ class LiteLLMClient:
         if not model:
             from codeforge.model_resolver import resolve_model
 
-            model = resolve_model()
+            model = await asyncio.to_thread(resolve_model)
+
+        # Whether the caller received text of this request: then it is not retried.
+        shown = False
+
+        def _show(text: str) -> None:
+            nonlocal shown
+            shown = True
+            if on_chunk is not None:
+                on_chunk(text)
 
         async def _inner() -> ChatCompletionResponse:
             payload = _build_stream_payload(
@@ -878,7 +916,7 @@ class LiteLLMClient:
                 streaming=True,
             )
 
-            acc = _StreamAccumulator()
+            acc = _StreamAccumulator(model=model)
 
             async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
                 self._report_rate_info(self._extract_rate_info(resp.headers, model))
@@ -900,7 +938,7 @@ class LiteLLMClient:
                     raw = line[6:]
                     if raw.strip() == "[DONE]":
                         break
-                    acc.process_chunk(raw, on_chunk)
+                    acc.process_chunk(raw, _show if on_chunk is not None else None)
 
             tool_calls = acc.build_tool_calls(on_tool_call)
             raw_content = "".join(acc.content_parts)
@@ -916,7 +954,21 @@ class LiteLLMClient:
                 raw_content=raw_content,
             )
 
-        return cast("ChatCompletionResponse", await self._with_retry(_inner))
+        response = cast("ChatCompletionResponse", await self._with_retry(_inner, may_retry=lambda: not shown))
+        if response.cost_usd > 0 or not (response.tokens_in or response.tokens_out):
+            return response
+        return replace(response, cost_usd=await self._listed_cost(model, response.tokens_in, response.tokens_out))
+
+    async def _listed_cost(self, model: str, tokens_in: int, tokens_out: int) -> float:
+        """The cost of *tokens_in* and *tokens_out* at the per-token prices /model/info lists for *model*.
+
+        A stream carries no cost of its own: LiteLLM sets the cost header
+        before the stream starts, and v1.103.1 adds ``usage.cost`` to chunks
+        only on /v1/messages and pass-through routes (KI-196). 0 when
+        LiteLLM lists no price (the caller's fallback table takes over).
+        """
+        metadata = await self.model_metadata(model)
+        return tokens_in * (metadata.input_cost_per_token or 0.0) + tokens_out * (metadata.output_cost_per_token or 0.0)
 
     async def embedding(self, text: str, model: str = "text-embedding-3-small") -> list[float]:
         """Compute an embedding vector via the LiteLLM Proxy."""
@@ -1011,12 +1063,15 @@ class _StreamAccumulator:
         "content_parts",
         "cost",
         "finish_reason",
+        "model",
         "tc_accum",
         "tokens_in",
         "tokens_out",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, model: str = "") -> None:
+        # The requested model, named by the LLMError of an error frame.
+        self.model = model
         self.content_parts: list[str] = []
         # Tool calls by their number in the stream (0, 1, ...), and the call
         # each provider index currently continues.
@@ -1055,17 +1110,18 @@ class _StreamAccumulator:
         return "".join(result)
 
     def process_chunk(self, raw: str, on_chunk: Callable[[str], None] | None) -> None:
-        """Parse a single SSE data line and accumulate into state."""
-        try:
-            chunk = json.loads(raw)
-        except json.JSONDecodeError:
+        """Parse a single SSE data line and accumulate into state.
+
+        Raises LLMError for an error frame (_parse_frame).
+        """
+        chunk = self._parse_frame(raw)
+        if chunk is None:
             return
 
         # OpenAI sends the include_usage chunk with an empty choices list.
         usage = chunk.get("usage")
         if isinstance(usage, dict):
-            self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
-            self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+            self._record_usage(usage)
 
         choices = chunk.get("choices", [])
         if not choices:
@@ -1077,10 +1133,7 @@ class _StreamAccumulator:
 
         text = delta.get("content")
         if text:
-            self.content_parts.append(text)
-            visible = self._strip_think_tokens(text) if on_chunk else ""
-            if visible:
-                on_chunk(visible)
+            self._add_text(text, on_chunk)
 
         for tc_delta in delta.get("tool_calls") or []:
             func = tc_delta.get("function") or {}
@@ -1096,6 +1149,40 @@ class _StreamAccumulator:
                 arguments = json.dumps(arguments)
             if isinstance(arguments, str):
                 acc["arguments"] += arguments
+
+    def _parse_frame(self, raw: str) -> dict[str, object] | None:
+        """The JSON object of an SSE data line; None for anything else.
+
+        Raises LLMError for an error frame: LiteLLM reports a failure after
+        the stream started as ``data: {"error": {...}}`` on an HTTP 200
+        stream (KI-196).
+        """
+        try:
+            chunk = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(chunk, dict):
+            return None
+        if chunk.get("error") is not None:
+            raise LLMError(_error_frame_status(chunk["error"]), self.model, raw)
+        return chunk
+
+    def _add_text(self, text: str, on_chunk: Callable[[str], None] | None) -> None:
+        self.content_parts.append(text)
+        if on_chunk is None:
+            return
+        visible = self._strip_think_tokens(text)
+        if visible:
+            on_chunk(visible)
+
+    def _record_usage(self, usage: dict[str, object]) -> None:
+        self.tokens_in = usage.get("prompt_tokens", self.tokens_in)
+        self.tokens_out = usage.get("completion_tokens", self.tokens_out)
+        # A cost in the usage chunk (LiteLLM's include_cost_in_streaming_usage
+        # where a route supports it, or a provider's own) wins over the header.
+        cost = _price(usage.get("cost"))
+        if cost:
+            self.cost = cost
 
     def _tool_call_for(self, index: int, call_id: str, name: str) -> dict[str, str]:
         """Return the call a tool-call delta continues, or a new one.
@@ -1129,6 +1216,16 @@ class _StreamAccumulator:
             if on_tool_call:
                 on_tool_call(tc)
         return result
+
+
+def _error_frame_status(error: object) -> int:
+    """The HTTP status an SSE error frame names in its ``code``; 500 when it names none."""
+    code = error.get("code") if isinstance(error, dict) else None
+    if isinstance(code, str) and code.isdecimal():
+        code = int(code)
+    if isinstance(code, int) and not isinstance(code, bool) and 400 <= code <= 599:
+        return code
+    return 500
 
 
 def _normalize_tool_call(name: str, arguments: str) -> tuple[str, str]:

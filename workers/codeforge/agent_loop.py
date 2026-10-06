@@ -752,7 +752,8 @@ class AgentLoopExecutor:
         """
         request = _llm_request(state.tool_protocol, tools_array, messages, cfg.context_window)
         tracer = trace.get_tracer("codeforge")
-        model_name = cfg.model or resolve_model()
+        # The default model may need LiteLLM: resolved off the event loop (KI-196).
+        model_name = cfg.model or await asyncio.to_thread(resolve_model)
         llm_start = time.monotonic()
         streamed_text: list[str] = []
         loop = asyncio.get_running_loop()

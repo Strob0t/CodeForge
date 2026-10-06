@@ -144,6 +144,8 @@ COPY --from=build /app/.venv /app/.venv
 COPY --from=build /app/workers /app/workers
 COPY --from=build /app/VERSION /app/VERSION
 COPY --from=build /app/pyproject.toml /app/pyproject.toml
+# The fallback price table (codeforge.pricing reads it next to the editable install, KI-196).
+COPY configs/model_pricing.yaml /app/configs/model_pricing.yaml
 COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
 
 # Agent backend CLIs (KI-118): on the tool PATH (/usr/local/bin) and below

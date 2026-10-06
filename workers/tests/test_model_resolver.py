@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -152,3 +153,67 @@ class TestGetAvailableModels:
         with patch("codeforge.model_resolver._cache") as mock_cache:
             mock_cache.get_models.return_value = ["a", "b"]
             assert get_available_models() == ["a", "b"]
+
+
+class TestRefreshBackoff:
+    """KI-196 (R9-7): a failed refresh was retried on every call, each waiting up to 2 x 5 s for LiteLLM."""
+
+    def test_a_failed_refresh_is_not_repeated_at_once(self) -> None:
+        cache = _ModelCache()
+        with patch("codeforge.model_resolver.httpx.get", side_effect=httpx.ConnectError("down")) as mock_get:
+            assert cache.get_models() == []
+            assert cache.get_best() == ""
+            assert cache.get_models() == []
+        assert _refresh_count(mock_get) == 1
+
+    def test_the_refresh_is_tried_again_after_the_backoff(self) -> None:
+        cache = _ModelCache()
+        with patch("codeforge.model_resolver.httpx.get", side_effect=httpx.ConnectError("down")):
+            cache.get_models()
+        cache._retry_at = time.monotonic() - 1  # the backoff has passed
+        response = httpx.Response(200, json={"data": [{"id": "back/model"}]})
+        with patch("codeforge.model_resolver.httpx.get", return_value=response) as mock_get:
+            assert cache.get_models() == ["back/model"]
+        assert _refresh_count(mock_get) == 1
+
+    def test_an_error_status_backs_off_too(self) -> None:
+        cache = _ModelCache()
+        with patch("codeforge.model_resolver.httpx.get", return_value=httpx.Response(503)) as mock_get:
+            cache.get_models()
+            cache.get_models()
+        assert _refresh_count(mock_get) == 1
+
+    def test_a_failure_keeps_the_last_good_list(self) -> None:
+        cache = _ModelCache()
+        with patch(
+            "codeforge.model_resolver.httpx.get", return_value=httpx.Response(200, json={"data": [{"id": "a/m"}]})
+        ):
+            cache.get_models()
+        cache._last_refresh = time.monotonic() - 120
+        with patch("codeforge.model_resolver.httpx.get", side_effect=httpx.ConnectError("down")) as mock_get:
+            assert cache.get_models() == ["a/m"]
+            assert cache.get_models() == ["a/m"]
+        assert _refresh_count(mock_get) == 1
+
+    def test_concurrent_refreshes_fetch_once(self) -> None:
+        cache = _ModelCache()
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_get(url: str, **_kwargs: object) -> httpx.Response:
+            if url.endswith("/v1/models"):
+                started.set()
+                release.wait(5)
+            return httpx.Response(200, json={"data": [{"id": "one/model"}]})
+
+        with patch("codeforge.model_resolver.httpx.get", side_effect=slow_get) as mock_get:
+            first = threading.Thread(target=cache.get_models)
+            first.start()
+            assert started.wait(5)
+            second = threading.Thread(target=cache.get_models)
+            second.start()
+            time.sleep(0.2)  # the second caller reaches the refresh while the first one runs
+            release.set()
+            first.join(5)
+            second.join(5)
+        assert _refresh_count(mock_get) == 1

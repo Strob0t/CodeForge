@@ -13,6 +13,9 @@ from codeforge.config import get_settings
 logger = structlog.get_logger(__name__)
 
 _CACHE_TTL_SECONDS = 60.0
+# After a failed refresh the cache is not refreshed again for this long: each
+# refresh waits up to 2 x 5 s for LiteLLM (KI-196).
+_FAILURE_BACKOFF_SECONDS = 30.0
 
 
 def expand_wildcard_models(raw_ids: list[str]) -> list[str]:
@@ -72,23 +75,31 @@ def _fetch_healthy_models(litellm_url: str, headers: dict[str, str]) -> set[str]
 
 
 class _ModelCache:
-    """Thread-safe cached list of available models from LiteLLM."""
+    """Thread-safe cached list of available models from LiteLLM.
 
-    __slots__ = ("_best", "_healthy", "_last_refresh", "_lock", "_models")
+    A refresh makes blocking HTTP calls: coroutines call the public functions
+    of this module through ``asyncio.to_thread``. One refresh runs at a time;
+    after a failed one the cache keeps its last list for
+    _FAILURE_BACKOFF_SECONDS before it asks LiteLLM again.
+    """
+
+    __slots__ = ("_best", "_healthy", "_last_refresh", "_lock", "_models", "_refresh_lock", "_retry_at")
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._refresh_lock = threading.Lock()
         self._models: list[str] = []
         self._healthy: set[str] = set()
         self._best: str = ""
         self._last_refresh: float = 0.0
+        self._retry_at: float = 0.0
 
-    def _is_stale(self) -> bool:
-        return (time.monotonic() - self._last_refresh) > _CACHE_TTL_SECONDS
+    def _needs_refresh(self) -> bool:
+        now = time.monotonic()
+        return (now - self._last_refresh) > _CACHE_TTL_SECONDS and now >= self._retry_at
 
     def get_models(self) -> list[str]:
-        if self._is_stale():
-            self._refresh()
+        self._refresh_if_needed()
         with self._lock:
             models = list(self._models)
         from codeforge.routing.blocklist import get_blocklist
@@ -96,10 +107,17 @@ class _ModelCache:
         return get_blocklist().filter_available(models)
 
     def get_best(self) -> str:
-        if self._is_stale():
-            self._refresh()
+        self._refresh_if_needed()
         with self._lock:
             return self._best
+
+    def _refresh_if_needed(self) -> None:
+        if not self._needs_refresh():
+            return
+        with self._refresh_lock:
+            # Another caller may have refreshed (or failed) while this one waited.
+            if self._needs_refresh():
+                self._refresh()
 
     def _refresh(self) -> None:
         settings = get_settings()
@@ -116,6 +134,7 @@ class _ModelCache:
 
         models = self._fetch_and_filter_models(litellm_url, headers)
         if models is None:
+            self._retry_at = time.monotonic() + _FAILURE_BACKOFF_SECONDS
             return
 
         best = _select_best_model(models, healthy)
@@ -191,7 +210,8 @@ def resolve_model(explicit: str = "") -> str:
     """Return the best available model.
 
     Priority: explicit > CODEFORGE_DEFAULT_MODEL env var > LiteLLM auto-discovery.
-    Raises NoModelAvailableError if no model can be resolved.
+    Raises NoModelAvailableError if no model can be resolved. Discovery may
+    block on LiteLLM: coroutines call it through ``asyncio.to_thread``.
     """
     if explicit:
         return explicit
@@ -212,5 +232,5 @@ def resolve_model(explicit: str = "") -> str:
 
 
 def get_available_models() -> list[str]:
-    """Return cached list of available model names from LiteLLM."""
+    """Return cached list of available model names from LiteLLM (may block: see resolve_model)."""
     return _cache.get_models()
