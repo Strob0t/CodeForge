@@ -52,7 +52,8 @@ flowchart LR
     CF <-- "Sync" --> SPECS
 ```
 
-- Import: PM tool items become CodeForge features (mapping to tasks is planned).
+- Import: PM tool items become CodeForge features (mapping to tasks is planned). A PM import reuses its milestone and upserts features by external ID (KI-203).
+- Repo spec files (markdown checklists such as TODO.md, ROADMAP.md): only checkbox items become features (`[x]` gives done); headings and plain list items are not imported. Re-import matches by `spec_ref` line while the file is unchanged, else by title, so inserting a line does not duplicate features. Status is merged three ways: the last-seen checkbox state per feature is recorded (`roadmap_spec_files.checked`, migration 128), and on import the file wins only for a box that changed in the file; other features keep the roadmap's status. "Sync to file" never re-renders a file: it patches only the `[ ]`/`[x]` marker on the referenced lines, in place through `os.Root` (no truncate), after checking that the line is still a checkbox item; a file changed since the last import or sync gets 409 with a re-import hint; a `spec_ref` outside the workspace or to a non-markdown file is refused; the full-render fallback only creates a new ROADMAP.md (KI-203). Features from imports before this change (headings, plain items) are not cleaned up automatically.
 - Export: New features created as PM issues.
 - **Conflict resolution** (target): timestamp-based comparison plus user decision. Today it is last-writer-wins per direction: pull overwrites the CodeForge feature, push overwrites the PM item (`internal/service/sync.go`).
 - Sync triggers (target): Webhook (real-time), poll (periodic), manual. Today: manual `POST /projects/{id}/roadmap/sync` (pull/push/bidi) and PM webhooks for GitHub/GitLab/Plane (pull only). Periodic polling is planned.

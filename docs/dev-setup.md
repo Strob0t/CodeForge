@@ -1998,6 +1998,10 @@ Goal Discovery uses 1 PostgreSQL table (migration `056_project_goals.sql`): `pro
 | `internal/adapter/postgres/store_project_goal.go` | PostgreSQL persistence |
 | `internal/adapter/http/handlers_goals.go` | REST API handlers |
 
+### Branch Protection Rules for Agent Delivery (KI-205)
+
+Branch protection rules (`/api/v1/projects/{id}/branch-rules`) are checked by the Go Core before a delivery creates, pushes or moves a branch: a rule protects the branches its pattern matches; a branch no rule matches (such as the delivery branch `codeforge/<id>`) may be pushed. Commit-local delivery onto a protected branch is refused with a hint to use branch or PR delivery. Patterns are matched per `/` segment: `*` stays within one segment, a `**` segment spans zero or more (`release/**`, `**/hotfix`); a malformed pattern matches every branch, and create refuses it. If the rules cannot be read the delivery is refused (`delivery.failed` event and audit entry). Not covered: git commands the agent runs itself (Bash `git push`), and branch deletion (`EvaluateDelete` has no caller).
+
 ### Branch Protection (Recommended)
 
 For PRs to `main` (CI also runs for PRs to `staging`), configure these required status checks in GitHub. Checks match the job display names in `.github/workflows/ci.yml`; `scripts/setup-branch-protection.sh` applies `Go`, `Python` and `Frontend`:
