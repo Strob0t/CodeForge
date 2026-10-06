@@ -47,6 +47,21 @@ before the session starts. The hook only acts when `CLAUDE_CODE_REMOTE=true` and
   (`codeforge-test-nats`) bound to `127.0.0.1:5432` / `127.0.0.1:4222` (or reuses services already listening there) and exports
   `DATABASE_URL` / `NATS_URL` for the session, so `go test -race ./...` and the `integration`-tagged tests run like in CI
 
+- MCP servers (`.mcp.json`, best effort): installs gopls v0.21.1 into `$(go env GOPATH)/bin` and pre-warms the npx and uvx
+  caches with the pinned `@playwright/mcp` and `serena-agent`, so a server start does not download (Claude Code waits 30 s
+  for a stdio server). Context7 needs `mcp.context7.com` on the environment's network allowlist (an optional
+  `CONTEXT7_API_KEY` goes in as an environment credential, never committed); gopls' `go_vulncheck` needs `vuln.go.dev`.
+  `scripts/mcp-playwright.sh` picks the newest `$PLAYWRIGHT_BROWSERS_PATH/chromium-*` (cloud image: `/opt/pw-browsers`);
+  Playwright allows only `http://localhost:3000` and `http://localhost:8080` (`127.0.0.1` URLs are blocked) and writes to
+  `/tmp/playwright-mcp`. Serena's shared config is `.serena/project.yml` (keep every key, or Serena rewrites the file) and
+  `.serena/claude-code-context.yml`; its runtime files are gitignored. Because the hook runs after Claude Code starts, a
+  fresh machine may start a server before gopls is built: reconnect with `/mcp`, or put the gopls install and the two
+  pre-warm commands into the environment's setup script. Verify with `/mcp` (4 servers): `go_symbol_references` on
+  `internal/port/messagequeue/queue.go` `Queue.Publish` returns 66 references; Context7 `resolve-library-id("litellm")`
+  lists `/websites/litellm_ai`; Serena `find_implementations` of `Queue` returns 36. Bump versions in `.mcp.json` and
+  `GOPLS_VERSION` in the hook; after a serena-agent bump start it once and commit the keys it adds to `project.yml`.
+  `.mcp.json` is tracked now: keep personal servers in `claude mcp add --scope local`.
+
 Versions are kept in sync with `.github/workflows/ci.yml` and `.devcontainer/setup.sh`.
 
 ### Critical Startup Order (Manual / Outside Devcontainer)

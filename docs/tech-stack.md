@@ -88,6 +88,21 @@
 - Configuration: local `.mcp.json` (gitignored, not checked in; each developer creates it)
 - Enable the project servers via `enableAllProjectMcpServers: true` in your local Claude Code settings
 
+### Claude Code MCP Servers (Dev Tooling)
+
+Shared through `.mcp.json` (no secrets, versions pinned; owner decision 2026-10-06). Cloud sessions load it without a prompt at session start; local sessions ask once.
+
+| Server | Version | Start | Purpose |
+|---|---|---|---|
+| gopls | `golang.org/x/tools/gopls` v0.21.1 | stdio, `$(go env GOPATH)/bin/gopls mcp` | Type-checked Go navigation: `go_search`, `go_symbol_references`, `go_file_context`, `go_package_api`, `go_diagnostics`, `go_rename_symbol`, `go_vulncheck`, `go_workspace` |
+| Playwright MCP | `@playwright/mcp` 0.0.83 | stdio, npx through `scripts/mcp-playwright.sh` | Browser checks of the local stack (frontend :3000, backend :8080) |
+| Context7 | remote, 4.1.1 (Upstash) | HTTP `https://mcp.context7.com/mcp` | Library docs snippets (LiteLLM proxy config: `/websites/litellm_ai`) |
+| Serena (trial) | `serena-agent` 1.7.0 (GPL-3.0) | stdio, uvx | Read-only symbol navigation across Go, Python and TypeScript (`find_implementations` lists interface implementations including test mocks) |
+
+- gopls v0.21.1 is the newest gopls that builds with the repo's Go 1.25 (v0.22+ need Go 1.26); bump it with the Go version.
+- Risks: Playwright pages are a prompt-injection surface and `browser_evaluate` / `browser_run_code_unsafe` run code (`--allowed-origins` is not a security boundary and does not filter WebSockets; WebMCP page tools are off). Context7 returns third-party text (CVE-2026-75130 served library-owner rules verbatim) and sends library names and queries out; check answers against the pinned version (for Go APIs `go doc` is exact). Serena runs read-only with a project context (`.serena/claude-code-context.yml`), as an external tool only (GPL-3.0).
+- In agent worktrees the MCP servers describe the main checkout: use the gopls CLI there (`gopls implementation <file>:<line>:<col>`, `gopls references -d ...`, `gopls workspace_symbol <Name>`, `gopls check <file>`; 1-based positions; the MCP tools use 0-based lines).
+
 ### VS Code Extensions (in Devcontainer)
 
 | Extension | Purpose |
