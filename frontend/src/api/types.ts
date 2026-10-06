@@ -178,6 +178,12 @@ export interface DiscoverModelsResponse {
   ollama_url: string;
 }
 
+/** Response from GET /api/v1/llm/available: the model registry's models, as the worker routes from them */
+export interface AvailableModelsResponse {
+  models: DiscoveredModel[];
+  best_model: string;
+}
+
 /** Add model request for LiteLLM */
 export interface AddModelRequest {
   model_name: string;

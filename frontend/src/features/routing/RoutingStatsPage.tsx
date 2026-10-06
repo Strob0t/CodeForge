@@ -50,11 +50,14 @@ export default function RoutingStatsPage() {
     () => ({ taskType: taskType(), tier: tier() }),
     (opts) => api.routing.stats(opts.taskType || undefined, opts.tier || undefined),
   );
-  // The configured models; null when they could not be loaded, then no row
-  // is marked as removed.
+  // The models the router can pick: the configured LiteLLM models and the
+  // model registry's, which also holds discovered Ollama models under their
+  // bare names (the worker routes from it). null when either could not be
+  // loaded: then no row is marked as removed.
   const [configuredModels] = createResource(async (): Promise<string[] | null> => {
     try {
-      return (await api.llm.models()).map((m) => m.model_name);
+      const [configured, available] = await Promise.all([api.llm.models(), api.llm.available()]);
+      return [...configured, ...available.models].map((m) => m.model_name);
     } catch {
       return null;
     }

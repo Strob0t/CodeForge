@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@solidjs/testing-library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { LLMModel, ModelPerformanceStats } from "~/api/types";
+import type { AvailableModelsResponse, LLMModel, ModelPerformanceStats } from "~/api/types";
 
 // KI-129: the Routing page kept the stats of removed models; it marks them.
 
@@ -51,16 +51,21 @@ function statsRow(id: string, model: string): ModelPerformanceStats {
 
 const mocks = vi.hoisted(() => ({
   models: vi.fn<() => Promise<LLMModel[]>>(),
+  available: vi.fn<() => Promise<AvailableModelsResponse>>(),
 }));
 
 vi.mock("~/api/client", () => ({
   api: {
     routing: {
       stats: () =>
-        Promise.resolve([statsRow("s1", "openai/gpt-4o"), statsRow("s2", "openai/gpt-3.5-turbo")]),
+        Promise.resolve([
+          statsRow("s1", "openai/gpt-4o"),
+          statsRow("s2", "openai/gpt-3.5-turbo"),
+          statsRow("s3", "llama3.2:3b"),
+        ]),
       outcomes: () => Promise.resolve([]),
     },
-    llm: { models: mocks.models },
+    llm: { models: mocks.models, available: mocks.available },
   },
 }));
 
@@ -82,6 +87,19 @@ function renderPage(): void {
 describe("RoutingStatsPage", () => {
   beforeEach(() => {
     mocks.models.mockReset();
+    // The worker routes from /llm/available, which also holds the Ollama
+    // models the registry discovered, under their bare names.
+    mocks.available.mockReset().mockResolvedValue({
+      models: [
+        {
+          model_name: "llama3.2:3b",
+          model_id: "ollama/llama3.2:3b",
+          status: "reachable",
+          source: "ollama",
+        },
+      ],
+      best_model: "openai/gpt-4o",
+    });
   });
 
   it("marks the stats of a model that is no longer configured", async () => {
@@ -91,14 +109,19 @@ describe("RoutingStatsPage", () => {
       expect(screen.getByText("openai/gpt-3.5-turbo").className).toContain("line-through"),
     );
     expect(screen.getByText("openai/gpt-4o").className).not.toContain("line-through");
+    expect(screen.getByText("llama3.2:3b").className).not.toContain("line-through");
     expect(screen.getAllByText("removed")).toHaveLength(1);
   });
 
-  it("marks nothing when the configured models cannot be loaded", async () => {
-    mocks.models.mockRejectedValue(new Error("LLM service unavailable"));
+  it.each([
+    ["the configured models", "models"],
+    ["the available models", "available"],
+  ] as const)("marks nothing when %s cannot be loaded", async (_name, failing) => {
+    mocks.models.mockResolvedValue([{ model_name: "openai/gpt-4o" }]);
+    mocks[failing].mockRejectedValue(new Error("LLM service unavailable"));
     renderPage();
     await screen.findByText("openai/gpt-3.5-turbo");
-    await waitFor(() => expect(mocks.models).toHaveBeenCalled());
+    await waitFor(() => expect(mocks[failing]).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText("removed")).toBeNull();
   });
