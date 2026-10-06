@@ -118,8 +118,14 @@ services:
       - "ssl_key_file=/run/postgresql-tls/server.key"
       - "-c"
       - "wal_level=replica"
+      # WAL archiving for point-in-time recovery is off unless
+      # POSTGRES_ARCHIVE_MODE=on (KI-210): with archive_timeout every
+      # 5 minutes with writes closes a 16 MiB segment, and archived WAL is
+      # only useful together with base backups (pg_basebackup) and pruning
+      # (scripts/cleanup-wal-archives.sh), which the operator must run. Off,
+      # the archive volume stays empty.
       - "-c"
-      - "archive_mode=on"
+      - "archive_mode=${POSTGRES_ARCHIVE_MODE:-off}"
       - "-c"
       - "archive_command=test ! -f /archive/%f && cp %p /archive/%f"
       - "-c"
