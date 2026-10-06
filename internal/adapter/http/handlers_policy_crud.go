@@ -24,10 +24,12 @@ type PolicyHandlers struct {
 	Limits   *config.Limits
 }
 
-// ListPolicyProfiles handles GET /api/v1/policies
+// ListPolicyProfiles handles GET /api/v1/policies: the profiles the caller
+// can use, and which of them are built-in presets (read-only, never deleted).
 func (ph *PolicyHandlers) ListPolicyProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string][]string{
 		"profiles": ph.Policies.ListProfiles(r.Context()),
+		"presets":  policy.PresetNames(),
 	})
 }
 

@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -2645,6 +2646,12 @@ func TestListPolicyProfiles(t *testing.T) {
 	profiles := result["profiles"]
 	if len(profiles) != 5 {
 		t.Fatalf("expected 5 profiles (5 presets), got %d: %v", len(profiles), profiles)
+	}
+	// KI-129: the UI tells built-in presets (no delete) from custom profiles
+	// by this list, not by a copy of the names that went stale.
+	presets := result["presets"]
+	if !slices.Equal(presets, policy.PresetNames()) {
+		t.Fatalf("presets = %v, want %v", presets, policy.PresetNames())
 	}
 }
 

@@ -45,7 +45,7 @@ vi.mock("@solidjs/router", () => ({
 vi.mock("~/api/client", () => ({
   api: {
     runs: { start: apiMock.start, listByTask: apiMock.listByTask },
-    policies: { list: () => Promise.resolve({ profiles: [] }) },
+    policies: { list: () => Promise.resolve({ profiles: [], presets: [] }) },
   },
 }));
 

@@ -15,13 +15,6 @@ interface PolicyPanelProps {
   onError: (msg: string) => void;
 }
 
-const PRESET_NAMES = new Set([
-  "plan-readonly",
-  "headless-safe-sandbox",
-  "headless-permissive-sandbox",
-  "trusted-mount-autonomous",
-]);
-
 function decisionVariant(decision: PolicyDecision): "success" | "danger" | "warning" {
   switch (decision) {
     case "allow":
@@ -40,6 +33,8 @@ function decisionVariant(decision: PolicyDecision): "success" | "danger" | "warn
 export default function PolicyPanel(props: PolicyPanelProps) {
   const { t } = useI18n();
   const state = usePolicyPanel(props.onError);
+  // The server names the built-in presets; they are never offered for delete.
+  const isPreset = (name: string): boolean => (state.profiles()?.presets ?? []).includes(name);
 
   return (
     <Card>
@@ -96,11 +91,11 @@ export default function PolicyPanel(props: PolicyPanelProps) {
                       onClick={() => state.handleSelect(name)}
                     >
                       <span>{name}</span>
-                      <Badge variant={PRESET_NAMES.has(name) ? "info" : "default"}>
-                        {PRESET_NAMES.has(name) ? t("policy.preset") : t("policy.custom")}
+                      <Badge variant={isPreset(name) ? "info" : "default"}>
+                        {isPreset(name) ? t("policy.preset") : t("policy.custom")}
                       </Badge>
                     </Button>
-                    <Show when={!PRESET_NAMES.has(name)}>
+                    <Show when={!isPreset(name)}>
                       <Button
                         variant="ghost"
                         size="sm"

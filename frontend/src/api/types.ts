@@ -678,6 +678,13 @@ export interface ResourceLimits {
 }
 
 /** Matches Go domain/policy.PolicyProfile */
+/** GET /policies: the usable profiles and which of them are built-in presets. */
+export interface PolicyProfileList {
+  profiles: string[];
+  /** Built-in presets: read-only and never deleted (KI-129). */
+  presets: string[];
+}
+
 export interface PolicyProfile {
   name: string;
   description?: string;
