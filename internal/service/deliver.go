@@ -49,11 +49,16 @@ type DeliverService struct {
 	// deliver_protection.go); profiles tells which quality gate a run passed.
 	protection *BranchProtectionService
 	profiles   gateProfiles
+	// pushURL maps the project's repository URL to the URL branch delivery
+	// pushes to (the URL itself; tests point it at a local server).
+	pushURL func(repoURL string) string
 }
 
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
-	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider, protection: NewBranchProtectionService(store)}
+	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider,
+		protection: NewBranchProtectionService(store),
+		pushURL:    func(repoURL string) string { return repoURL }}
 }
 
 // SetOperatorGitHubToken sets the operator's GitHub token (github.token).
@@ -114,7 +119,7 @@ func (s *DeliverService) Deliver(ctx context.Context, r *run.Run, taskTitle stri
 	case run.DeliverModeCommitLocal:
 		return s.deliverCommitLocal(ctx, dir, r, shortID, taskTitle)
 	case run.DeliverModeBranch:
-		return s.deliverBranch(ctx, dir, r, shortID, taskTitle)
+		return s.deliverBranch(ctx, proj, r, shortID, taskTitle)
 	case run.DeliverModePR:
 		return s.deliverPR(ctx, proj, r, shortID, taskTitle)
 	default:
@@ -255,10 +260,14 @@ func (s *DeliverService) commitMessage(shortID, taskTitle string) string {
 	return fmt.Sprintf("%s %s [run %s]", s.cfg.DeliveryCommitPrefix, taskTitle, shortID)
 }
 
-func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
+// deliverBranch commits the run's change on the branch codeforge/<run> and
+// pushes it to the project's repository URL (KI-188), never to the remote
+// the agent-writable workspace config names. A project without a
+// repository URL keeps the branch local and reports why.
+func (s *DeliverService) deliverBranch(ctx context.Context, proj *project.Project, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	var result *DeliveryResult
 	err := s.pool.Run(ctx, func() error {
-		repo, err := git.OpenRepo(ctx, dir)
+		repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
 		if err != nil {
 			return fmt.Errorf("branch delivery: %w", err)
 		}
@@ -274,9 +283,12 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 		rc.syncIndex(ctx, repo)
 		commitHash := rc.commit
 
-		// The remote and its transport come from agent-writable config: a
-		// repository that configures transports is not pushed from (Push).
-		pushErr := repo.Push(ctx, "--no-verify", "-u", "origin", branchName)
+		// The transport settings come from agent-writable config: a
+		// repository that configures transports is not pushed from.
+		pushErr := errors.New("the project has no repository URL to push the branch to (set its repo_url)")
+		if proj.RepoURL != "" {
+			pushErr = repo.PushBranch(ctx, s.pushURL(proj.RepoURL), branchName)
+		}
 		var pushError string
 		if pushErr != nil {
 			pushError = pushErr.Error()
@@ -297,7 +309,7 @@ func (s *DeliverService) deliverBranch(ctx context.Context, dir string, r *run.R
 
 func (s *DeliverService) deliverPR(ctx context.Context, proj *project.Project, r *run.Run, shortID, taskTitle string) (*DeliveryResult, error) {
 	// First create branch (already uses pool internally)
-	branchResult, err := s.deliverBranch(ctx, proj.WorkspacePath, r, shortID, taskTitle)
+	branchResult, err := s.deliverBranch(ctx, proj, r, shortID, taskTitle)
 	if err != nil {
 		return nil, fmt.Errorf("branch for PR: %w", err)
 	}

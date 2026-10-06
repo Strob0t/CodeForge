@@ -84,7 +84,7 @@ type DeliveryEvent struct {
 	RunID      string `json:"run_id"`
 	TaskID     string `json:"task_id"`
 	ProjectID  string `json:"project_id"`
-	Status     string `json:"status"` // "started", "completed", "failed"
+	Status     string `json:"status"` // "started", "completed", "partial" (no pull request), "failed"
 	Mode       string `json:"mode"`
 	PatchPath  string `json:"patch_path,omitempty"`
 	CommitHash string `json:"commit_hash,omitempty"`

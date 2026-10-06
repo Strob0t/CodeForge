@@ -402,32 +402,51 @@ func (s *RuntimeService) triggerDelivery(ctx context.Context, r *run.Run) {
 		return
 	}
 
+	// A branch that was not pushed is a failed delivery, a pushed branch
+	// without its pull request a partial one (KI-188); both keep the local
+	// branch and commit in the report.
+	status, evType, action, problem := "completed", event.TypeDeliveryCompleted, "delivery.completed", ""
+	switch {
+	case deliverResult.PushError != "":
+		status, evType, action = "failed", event.TypeDeliveryFailed, "delivery.failed"
+		problem = fmt.Sprintf("branch %s was committed locally but not pushed: %s", deliverResult.BranchName, deliverResult.PushError)
+	case deliverResult.PRError != "":
+		status, evType, action = "partial", event.TypeDeliveryPartial, "delivery.partial"
+		problem = fmt.Sprintf("branch %s was pushed, the pull request was not opened: %s", deliverResult.BranchName, deliverResult.PRError)
+	}
 	deliverySpan.SetAttributes(
-		attribute.String("delivery.status", "completed"),
+		attribute.String("delivery.status", status),
 		attribute.String("delivery.branch", deliverResult.BranchName),
 	)
-	pr := deliverResult.PRURL
-	if deliverResult.PRError != "" {
-		pr = "not opened: " + deliverResult.PRError
+	if problem != "" {
+		deliverySpan.SetStatus(codes.Error, problem)
+		slog.Warn("delivery "+status, "run_id", r.ID, "mode", r.DeliverMode, "error", problem)
+		s.appendAudit(ctx, r, action, fmt.Sprintf("Delivery mode %s %s: %s", r.DeliverMode, status, problem))
+	} else {
+		s.appendAudit(ctx, r, action, fmt.Sprintf("Delivery mode %s completed (branch: %s, PR: %s)", deliverResult.Mode, deliverResult.BranchName, deliverResult.PRURL))
 	}
-	s.appendAudit(ctx, r, "delivery.completed", fmt.Sprintf("Delivery mode %s completed (branch: %s, PR: %s)", deliverResult.Mode, deliverResult.BranchName, pr))
-	s.appendRunEvent(ctx, event.TypeDeliveryCompleted, r, map[string]string{
+	payload := map[string]string{
 		"mode":        string(deliverResult.Mode),
 		"patch_path":  deliverResult.PatchPath,
 		"commit_hash": deliverResult.CommitHash,
 		"branch_name": deliverResult.BranchName,
 		"pr_url":      deliverResult.PRURL,
-	})
+	}
+	if problem != "" {
+		payload["error"] = problem
+	}
+	s.appendRunEvent(ctx, evType, r, payload)
 	s.hub.BroadcastEvent(ctx, event.EventDelivery, event.DeliveryEvent{
 		RunID:      r.ID,
 		TaskID:     r.TaskID,
 		ProjectID:  r.ProjectID,
-		Status:     "completed",
+		Status:     status,
 		Mode:       string(deliverResult.Mode),
 		PatchPath:  deliverResult.PatchPath,
 		CommitHash: deliverResult.CommitHash,
 		BranchName: deliverResult.BranchName,
 		PRURL:      deliverResult.PRURL,
+		Error:      problem,
 	})
 }
 

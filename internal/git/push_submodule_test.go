@@ -86,8 +86,8 @@ func TestPush_NeverRecursesIntoNestedRepositories(t *testing.T) {
 			marker := plantSubmodule(t, dir)
 			plainGit(t, dir, "config", "push.recurseSubmodules", value)
 			assertNestedRefused(t, dir, "sub")
-			if err := repo.Push(ctx, "--no-verify", "-u", "origin", "main"); err != nil {
-				t.Fatalf("Push: %v", err)
+			if err := repo.PushBranch(ctx, "ssh://example.invalid/outer", "main"); err != nil {
+				t.Fatalf("PushBranch: %v", err)
 			}
 			assertNotRun(t, marker)
 			assertNoConnection(t, log, "/sub")
@@ -112,8 +112,8 @@ func TestPush_RefusedInNetworkUnsafeRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Push(context.Background(), "origin", "main"); !errors.Is(err, git.ErrUnsafeRepository) {
-		t.Fatalf("Push = %v, want ErrUnsafeRepository", err)
+	if err := repo.PushBranch(context.Background(), "https://example.invalid/outer", "main"); !errors.Is(err, git.ErrUnsafeRepository) {
+		t.Fatalf("PushBranch = %v, want ErrUnsafeRepository", err)
 	}
 }
 

@@ -170,6 +170,10 @@ func TestDeliver_PROpensPullRequestThroughProvider(t *testing.T) {
 			svc.SetOperatorGitHubToken(tt.operatorToken)
 			fake := &fakePullRequests{err: tt.createErr}
 			svc.SetPullRequestProvider(fake.build)
+			// The branch goes to the project's repository (KI-188), served
+			// here by the local git server.
+			var pushedFor string
+			svc.SetPushURL(func(repoURL string) string { pushedFor = repoURL; return baseURL + "/app.git" })
 
 			ctx := tenantctx.WithTenant(context.Background(), tt.tenant)
 			result, err := svc.Deliver(ctx, &run.Run{ID: runID, ProjectID: "proj-1", DeliverMode: run.DeliverModePR}, "add feature")
@@ -178,6 +182,9 @@ func TestDeliver_PROpensPullRequestThroughProvider(t *testing.T) {
 			}
 			if result.PushError != "" {
 				t.Fatalf("push failed: %s", result.PushError)
+			}
+			if pushedFor != proj.RepoURL {
+				t.Fatalf("pushed to the URL for %q, want the project's repository URL %q", pushedFor, proj.RepoURL)
 			}
 			if pushed := runGit(t, bare, "rev-parse", "refs/heads/codeforge/run-abcd"); pushed != result.CommitHash {
 				t.Fatalf("pushed %s, delivered %s", pushed, result.CommitHash)
@@ -215,6 +222,7 @@ func TestDeliver_PROpensPullRequestThroughProvider(t *testing.T) {
 
 // A failed push leaves no branch to open a pull request from.
 func TestDeliver_PRSkippedWhenPushFails(t *testing.T) {
+	_, baseURL := gitHTTPServer(t)
 	dir := initDeliverTestRepo(t)
 	checkpointBeforeChange(t, dir, "run-abcd1234")
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("no remote"), 0o644); err != nil {
@@ -224,6 +232,7 @@ func TestDeliver_PRSkippedWhenPushFails(t *testing.T) {
 	svc := service.NewDeliverService(&deliverMockStore{proj: &proj}, &config.Runtime{}, git.NewPool(5))
 	fake := &fakePullRequests{err: errors.New("must not be called")}
 	svc.SetPullRequestProvider(fake.build)
+	svc.SetPushURL(func(string) string { return baseURL + "/missing.git" }) // no such repository
 
 	result, err := svc.Deliver(context.Background(), &run.Run{ID: "run-abcd1234", ProjectID: "proj-1", DeliverMode: run.DeliverModePR}, "t")
 	if err != nil {

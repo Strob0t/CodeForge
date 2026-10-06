@@ -400,23 +400,17 @@ func (r *Repo) Run(ctx context.Context, extraEnv []string, args ...string) (stri
 // FetchFrom fetches the branches of url into refs/remotes/origin. url is the
 // project's own clone URL, which the caller compared with the repository's
 // origin: unlike a remote from the agent-writable config it may be a local
-// path. Transport-configuring repositories are refused.
+// path. Transport-configuring repositories and remotes named like url
+// (which would redirect the fetch) are refused.
 func (r *Repo) FetchFrom(ctx context.Context, url string) error {
 	if err := r.RequireNetworkSafe(); err != nil {
 		return err
 	}
-	_, err := runGit(ctx, r.Dir, r.env([][2]string{{"protocol.file.allow", "always"}}),
-		"fetch", "--no-recurse-submodules", "--", url, "+refs/heads/*:refs/remotes/origin/*")
-	return err
-}
-
-// Push pushes from a network-safe repository, never into nested
-// repositories (submodules), whatever the config says.
-func (r *Repo) Push(ctx context.Context, args ...string) error {
-	if err := r.RequireNetworkSafe(); err != nil {
+	if err := r.refuseRemoteNamed(url); err != nil {
 		return err
 	}
-	_, err := runGit(ctx, r.Dir, r.env(nil), slices.Concat([]string{"push", "--no-recurse-submodules"}, args)...)
+	_, err := runGit(ctx, r.Dir, r.env([][2]string{{"protocol.file.allow", "always"}}),
+		"fetch", "--no-recurse-submodules", "--", url, "+refs/heads/*:refs/remotes/origin/*")
 	return err
 }
 

@@ -43,3 +43,9 @@ func (s *OrchestratorService) PreparedOutcomeCount() int {
 func (s *DeliverService) SetPullRequestProvider(f func(name string, cfg map[string]string) (gitprovider.PullRequestCreator, error)) {
 	s.pullRequests = f
 }
+
+// SetPushURL replaces how branch delivery maps the project's repository URL
+// to the URL it pushes to.
+func (s *DeliverService) SetPushURL(f func(repoURL string) string) {
+	s.pushURL = f
+}
