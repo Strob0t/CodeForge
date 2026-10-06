@@ -66,6 +66,8 @@ func TestAPIKeyScope_Table(t *testing.T) {
 		{http.MethodDelete, "/api/v1/prompt-sections/preview", user.ScopeRunsWrite},
 		{http.MethodPost, "/api/v1/projects/p1/search", user.ScopeProjectsRead},
 		{http.MethodPut, "/api/v1/projects/p1/search", user.ScopeProjectsWrite},
+		// The sub-agent search runs LLM calls: a write, not a read-only query.
+		{http.MethodPost, "/api/v1/projects/p1/search/agent", user.ScopeProjectsWrite},
 		// Classified on the raw path, as chi routes: an encoded "/" stays
 		// inside its segment.
 		{http.MethodPost, "/api/v1/projects/p1%2Fsearch/clone", user.ScopeProjectsWrite},

@@ -91,7 +91,6 @@ var viewerRoutes = map[string]string{
 	"POST /api/v1/search/conversations":          "read-only query",
 	"POST /api/v1/parse-repo-url":                "read-only query (parses the URL)",
 	"POST /api/v1/projects/{id}/search":          "read-only query",
-	"POST /api/v1/projects/{id}/search/agent":    "read-only query",
 	"POST /api/v1/projects/{id}/graph/search":    "read-only query",
 	"POST /api/v1/projects/{id}/memories/recall": "read-only query",
 	"POST /api/v1/scopes/{id}/search":            "read-only query",
@@ -592,7 +591,9 @@ func mountIntelligenceRoutes(r chi.Router, h *Handlers) {
 
 	// Retrieval (nested under projects)
 	r.Post("/projects/{id}/search", h.SearchProject)
-	r.Post("/projects/{id}/search/agent", h.AgentSearchProject)
+	// The sub-agent search makes up to 20 LLM calls on a model of the
+	// caller's choice: a start, not a read-only query.
+	r.With(editorOrAdmin).Post("/projects/{id}/search/agent", h.AgentSearchProject)
 	r.With(editorOrAdmin).Post("/projects/{id}/index", h.IndexProject)
 	r.Get("/projects/{id}/index", h.GetIndexStatus)
 

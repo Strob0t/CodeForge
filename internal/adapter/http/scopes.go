@@ -63,6 +63,7 @@ var apiKeyScopeRules = []scopeRule{
 
 	{pattern: "/search", group: scopeGroupProjects, readOnly: true},
 	{pattern: "/parse-repo-url", group: scopeGroupProjects, readOnly: true},
+	{pattern: "/projects/*/search/agent", group: scopeGroupProjects},
 	{pattern: "/projects/*/search", group: scopeGroupProjects, readOnly: true},
 	{pattern: "/projects/*/graph/search", group: scopeGroupProjects, readOnly: true},
 	{pattern: "/projects/*/memories/recall", group: scopeGroupProjects, readOnly: true},

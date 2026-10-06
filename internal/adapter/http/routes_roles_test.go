@@ -94,12 +94,14 @@ func TestMutatingRoutes_RequireEditorOrAdmin(t *testing.T) {
 	}
 }
 
-// The agentic starts the review named (R2-1, R3-1, R10a-1): a viewer is
-// refused, an editor is not.
+// The agentic starts the review named (R2-1, R3-1, R10a-1) and the
+// sub-agent search, which makes up to 20 LLM calls on a model of the
+// caller's choice (S10-A review): a viewer is refused, an editor is not.
 func TestAgenticStarts_NeedEditor(t *testing.T) {
 	viewer := &user.User{ID: "vi", Role: user.RoleViewer, TenantID: tenantctx.DefaultTenantID}
 	editor := &user.User{ID: "ed", Role: user.RoleEditor, TenantID: tenantctx.DefaultTenantID}
 	routes := []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/projects/p1/search/agent", `{"query":"x"}`},
 		{http.MethodPost, "/api/v1/projects/p1/conversations", `{"agentic":true,"mode":"prototyper"}`},
 		{http.MethodPost, "/api/v1/conversations/c1/messages", `{"content":"rm -rf","agentic":true,"mode":"prototyper"}`},
 		{http.MethodPost, "/api/v1/projects/p1/goals/ai-discover", `{}`},
