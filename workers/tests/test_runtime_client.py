@@ -253,6 +253,7 @@ async def test_request_tool_call_payload_contract() -> None:
         "mode_id",
         "turn_id",
         "arguments_preview",
+        "reports_result",
     }
     assert payload["tenant_id"] == "tenant-1"
     assert payload["run_id"] == "conv-1"
@@ -263,6 +264,15 @@ async def test_request_tool_call_payload_contract() -> None:
     assert payload["arguments_preview"] == '{"command": "go test ./..."}'
     # The conversation run's turn: Go rejects calls of a stopped run by it.
     assert payload["turn_id"] == "turn-1"
+    # The agent loop reports every call's result, so the chat shows it as a live card.
+    assert payload["reports_result"] is True
+
+
+async def test_request_tool_call_without_a_result_report() -> None:
+    """A caller that never reports the result (Claude Code's hook) says so: Go shows no card."""
+    js = _make_js_mock()
+    payload = await _published_tool_call_request(_make_client(js), js, tool="Bash", reports_result=False)
+    assert payload["reports_result"] is False
 
 
 async def test_request_tool_call_mode_id_defaults_to_empty() -> None:

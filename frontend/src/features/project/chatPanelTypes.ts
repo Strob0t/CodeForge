@@ -18,10 +18,14 @@ export interface ToolCallState {
   callId: string;
   name: string;
   args?: Record<string, unknown>;
+  /** The arguments as text when they are no JSON (a preview cut with "..."). */
+  argsText?: string;
   result?: string;
   status: "pending" | "running" | "completed" | "failed";
   diff?: {
     path: string;
+    /** The Core cut the diff's content to a few KB for the browser. */
+    truncated?: boolean;
     hunks: {
       old_start: number;
       old_lines: number;

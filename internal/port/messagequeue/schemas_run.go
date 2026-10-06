@@ -161,6 +161,11 @@ type ToolCallRequestPayload struct {
 	// ArgumentsPreview is truncated JSON of the tool arguments, shown to a
 	// human approver. Display only: the policy never evaluates it.
 	ArgumentsPreview string `json:"arguments_preview,omitempty"`
+	// ReportsResult: the worker reports the call's result on
+	// runs.toolcall.result. Only such a call is shown as a live tool card; a
+	// Claude Code turn decides its calls in a hook that never sees their
+	// results.
+	ReportsResult bool `json:"reports_result,omitempty"`
 }
 
 // ToolCallResponsePayload is the schema for runs.toolcall.response messages.

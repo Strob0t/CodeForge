@@ -137,15 +137,18 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
     const runId = payload.run_id as string;
     if (runId === opts.activeConversation()) {
       const callId = payload.call_id as string;
+      const rawArgs = (payload.args as string | undefined) ?? "";
       let args: Record<string, unknown> | undefined;
+      let argsText: string | undefined;
       try {
-        args = JSON.parse(payload.args as string) as Record<string, unknown>;
+        args = JSON.parse(rawArgs) as Record<string, unknown>;
       } catch {
-        // args may not be valid JSON
+        // No JSON (a preview cut with "..."): the card shows the text.
+        argsText = rawArgs || undefined;
       }
       setToolCalls((prev) => [
         ...prev,
-        { callId, name: payload.name as string, args, status: "running" },
+        { callId, name: payload.name as string, args, argsText, status: "running" },
       ]);
       setStepCount((n) => n + 1);
       opts.scrollToBottom();

@@ -61,6 +61,7 @@ class _FakeRuntime:
         self.delay = delay
         self.policy_wait_seconds = policy_wait_seconds
         self.calls: list[dict[str, str]] = []
+        self.reports_result: list[bool] = []
         self.outputs: list[str] = []
         self.is_cancelled = False
 
@@ -70,8 +71,10 @@ class _FakeRuntime:
         command: str = "",
         path: str = "",
         arguments_preview: str = "",
+        reports_result: bool = True,
     ) -> ToolCallDecision:
         self.calls.append({"tool": tool, "command": command, "path": path, "arguments_preview": arguments_preview})
+        self.reports_result.append(reports_result)
         if self.delay:
             await asyncio.sleep(self.delay)
         if self.exc is not None:
@@ -176,6 +179,16 @@ class TestPolicyRequestMapping:
                 "arguments_preview": '{"command": "rm -rf /", "description": "cleanup"}',
             }
         ]
+
+    async def test_calls_are_requested_without_a_result_report(self) -> None:
+        # The hook decides a call but never sees its result, so Go shows no
+        # live tool card for it (it would stay running, KI-161).
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, "Read", {"file_path": f"{_WS}/a.py"}))
+            await _ask(server, _request(server, "Bash", {"command": "ls"}))
+
+        assert runtime.reports_result == [False, False]
 
 
 # ---------------------------------------------------------------------------

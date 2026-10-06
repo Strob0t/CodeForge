@@ -166,6 +166,17 @@ describe("useChatAGUI", () => {
     dispose();
   });
 
+  // A long argument preview is cut with "..." and is no JSON any more.
+  it("keeps an argument preview that is no JSON as text", async () => {
+    apiMock.runState.mockReset().mockResolvedValue(idle);
+    const { agui, dispose } = setup("conv-1");
+    await settle();
+    const cut = '{"command": "grep -rn TODO src/ | he...';
+    emit("agui.tool_call", { run_id: "conv-1", call_id: "c1", name: "bash", args: cut });
+    expect(agui.toolCalls()[0]).toMatchObject({ args: undefined, argsText: cut });
+    dispose();
+  });
+
   it("ignores the tool calls of another conversation", async () => {
     apiMock.runState.mockReset().mockResolvedValue(idle);
     const { agui, dispose } = setup("conv-1");

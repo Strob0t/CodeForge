@@ -1,6 +1,7 @@
 import { createSignal, Show } from "solid-js";
 
 import { api } from "~/api/client";
+import { useI18n } from "~/i18n";
 import { Button, Card } from "~/ui";
 
 import DiffModal from "./DiffModal";
@@ -10,11 +11,15 @@ import DiffView from "./DiffView";
 interface ToolCallDiff {
   path: string;
   hunks: DiffHunk[];
+  /** The Core cut the diff's content to a few KB for the browser. */
+  truncated?: boolean;
 }
 
 interface ToolCallCardProps {
   name: string;
   args?: Record<string, unknown>;
+  /** The arguments as text when they are no JSON (a preview cut with "..."). */
+  argsText?: string;
   result?: string;
   status: "pending" | "running" | "completed" | "failed";
   diff?: ToolCallDiff;
@@ -66,6 +71,7 @@ const COLLAPSE_THRESHOLD = 200;
 const TRUNCATE_THRESHOLD = 500;
 
 export default function ToolCallCard(props: ToolCallCardProps) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = createSignal(false);
   const [argsExpanded, setArgsExpanded] = createSignal(false);
   const [resultExpanded, setResultExpanded] = createSignal(false);
@@ -75,7 +81,8 @@ export default function ToolCallCard(props: ToolCallCardProps) {
     "idle",
   );
 
-  const argsText = () => (props.args ? JSON.stringify(props.args, null, 2) : "");
+  const argsText = () =>
+    props.args ? JSON.stringify(props.args, null, 2) : (props.argsText ?? "");
   const isLongArgs = () => argsText().length > COLLAPSE_THRESHOLD;
   const isLongResult = () => (props.result?.length ?? 0) > TRUNCATE_THRESHOLD;
 
@@ -159,7 +166,7 @@ export default function ToolCallCard(props: ToolCallCardProps) {
       <Show when={expanded()}>
         <div class="border-t border-cf-border px-3 py-2">
           {/* Arguments section */}
-          <Show when={props.args && Object.keys(props.args).length > 0}>
+          <Show when={argsText() !== "" && argsText() !== "{}"}>
             <div class="mb-1">
               <Button
                 variant="ghost"
@@ -188,6 +195,9 @@ export default function ToolCallCard(props: ToolCallCardProps) {
             {(diff) => (
               <div>
                 <DiffView path={diff().path} hunks={diff().hunks} />
+                <Show when={diff().truncated}>
+                  <p class="mt-1 text-xs text-cf-text-muted">{t("chat.diffTruncated")}</p>
+                </Show>
                 <div class="flex items-center gap-2 mt-2">
                   <Show when={revertStatus() === "idle"}>
                     <Button

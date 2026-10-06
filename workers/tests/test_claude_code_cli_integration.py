@@ -47,7 +47,7 @@ class _FakeRuntime:
         self.calls: list[dict[str, str]] = []
 
     async def request_tool_call(
-        self, tool: str, command: str = "", path: str = "", arguments_preview: str = ""
+        self, tool: str, command: str = "", path: str = "", arguments_preview: str = "", reports_result: bool = True
     ) -> ToolCallDecision:
         self.calls.append({"tool": tool, "command": command, "path": path})
         return ToolCallDecision(call_id=f"c{len(self.calls)}", decision=self.decision, reason=self.reason)

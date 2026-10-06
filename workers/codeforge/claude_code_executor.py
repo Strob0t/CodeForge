@@ -401,8 +401,11 @@ class PolicySocketServer:
             self._waiting_since = time.monotonic()
         self._pending_decisions += 1
         try:
+            # The hook never sees the call's result: no live tool card for it (KI-161).
             decision = await asyncio.wait_for(
-                self._runtime.request_tool_call(tool=tool_name, command=command, path=path, arguments_preview=preview),
+                self._runtime.request_tool_call(
+                    tool=tool_name, command=command, path=path, arguments_preview=preview, reports_result=False
+                ),
                 timeout=self._decision_timeout,
             )
         except TimeoutError:

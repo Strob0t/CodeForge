@@ -1285,6 +1285,7 @@ const en = {
   "project.editAria": "Edit project {{name}}",
 
   // -- Chat -----------------------------------------------------------------
+  "chat.diffTruncated": "Only the start of this diff is shown.",
   "chat.tab": "Chat",
   "chat.new": "New Chat",
   "chat.newConversation": "New Conversation",

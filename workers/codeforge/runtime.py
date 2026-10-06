@@ -341,12 +341,15 @@ class RuntimeClient:
         command: str = "",
         path: str = "",
         arguments_preview: str = "",
+        reports_result: bool = True,
     ) -> ToolCallDecision:
         """Request permission from the control plane to execute a tool call.
 
         Publishes a request to NATS, then waits for the response.
         Returns the decision (allow/deny/ask). ``arguments_preview`` is shown
         to a human approver only; the policy evaluates tool, command and path.
+        ``reports_result`` is False for a caller that never reports the call's
+        result (``report_tool_result``): the chat then shows no live card for it.
         """
         if self._cancelled:
             return ToolCallDecision(
@@ -366,6 +369,7 @@ class RuntimeClient:
             "mode_id": self.mode_id,
             "arguments_preview": arguments_preview,
             "turn_id": self.turn_id,
+            "reports_result": reports_result,
         }
 
         start_time = time.monotonic()

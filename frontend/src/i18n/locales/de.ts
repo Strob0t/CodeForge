@@ -1291,6 +1291,7 @@ const de: Translations = {
   "project.editAria": "Projekt {{name}} bearbeiten",
 
   // -- Chat -----------------------------------------------------------------
+  "chat.diffTruncated": "Nur der Anfang dieses Diffs wird angezeigt.",
   "chat.tab": "Chat",
   "chat.new": "Neuer Chat",
   "chat.newConversation": "Neue Unterhaltung",

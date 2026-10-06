@@ -187,6 +187,7 @@ export default function ChatMessages(props: ChatMessagesProps) {
                 <ToolCallCard
                   name={tc.name}
                   args={tc.args}
+                  argsText={tc.argsText}
                   result={tc.result}
                   status={tc.status}
                   diff={tc.diff}

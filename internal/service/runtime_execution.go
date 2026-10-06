@@ -3,6 +3,7 @@ package service
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -343,15 +344,24 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	s.broadcastToolCallStatus(ctx, req.RunID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
 	// The chat shows the call as a live tool card, as for runs; the worker's
-	// result completes it (KI-161).
-	s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
-		RunID:  req.RunID,
-		CallID: req.CallID,
-		Name:   req.Tool,
-		Args:   cappedArgumentsPreview(req.ArgumentsPreview),
-	})
+	// result completes it (KI-161). A call whose result never follows gets
+	// no card: it would stay running.
+	if req.ReportsResult && !isLLMPermission(req.Tool) {
+		s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
+			RunID:  req.RunID,
+			CallID: req.CallID,
+			Name:   req.Tool,
+			Args:   cappedArgumentsPreview(req.ArgumentsPreview),
+		})
+	}
 
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
+}
+
+// isLLMPermission tells the permission the agent loop requests before each
+// LLM completion from a tool call: it is no tool the chat shows as a card.
+func isLLMPermission(tool string) bool {
+	return policy.CanonicalTool(tool) == policy.ToolLLM
 }
 
 // resolveMode loads the agent mode a tool call runs in. It returns nil
@@ -485,11 +495,8 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		// Conversation-based runs don't have a run record.
 		// Cost/token tracking for conversations happens via WebSocket events.
 		slog.Debug("tool call result for conversation run", "run_id", result.RunID, "cost", result.CostUSD)
-		// The result completes the conversation's live tool card (KI-161),
-		// shown to the tenant the worker reports; delivered again, it
-		// completes the same card again.
-		if _, hasTenant := tenantctx.Lookup(ctx); hasTenant && errors.Is(err, domain.ErrNotFound) {
-			s.hub.BroadcastEvent(ctx, event.AGUIToolResult, aguiToolResult(result.RunID, result))
+		if errors.Is(err, domain.ErrNotFound) {
+			s.broadcastConversationToolResult(ctx, result)
 		}
 		return nil
 	}
@@ -575,6 +582,24 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	return nil
 }
 
+// broadcastConversationToolResult completes the conversation's live tool
+// card (KI-161); delivered again, it completes the same card again. The
+// tenant comes from the worker, so the card is shown only when the
+// conversation is found in that tenant.
+func (s *RuntimeService) broadcastConversationToolResult(ctx context.Context, result *messagequeue.ToolCallResultPayload) {
+	if isLLMPermission(result.Tool) {
+		return
+	}
+	if _, hasTenant := tenantctx.Lookup(ctx); !hasTenant {
+		return
+	}
+	if _, err := s.store.GetConversation(ctx, result.RunID); err != nil {
+		slog.DebugContext(ctx, "tool call result of no conversation in its tenant, no card", "run_id", result.RunID, "error", err)
+		return
+	}
+	s.hub.BroadcastEvent(ctx, event.AGUIToolResult, aguiToolResult(result.RunID, result))
+}
+
 // aguiToolResult is the AG-UI result of a reported tool call. A failed call
 // always carries an error, so the chat marks its card failed: the worker's
 // error, else its output (a denied call has only an error).
@@ -583,7 +608,7 @@ func aguiToolResult(runID string, result *messagequeue.ToolCallResultPayload) ev
 		RunID:  runID,
 		CallID: result.CallID,
 		Result: result.Output,
-		Diff:   result.Diff,
+		Diff:   cappedDiff(result.Diff),
 	}
 	if !result.Success {
 		ev.Error = cmp.Or(result.Error, result.Output, "tool call failed")
@@ -618,3 +643,63 @@ func (s *RuntimeService) countToolUsage(ctx context.Context, r *run.Run, result 
 }
 
 // cleanupRunState removes heartbeat, stall tracker, and timeout goroutine for a run.
+
+// maxBroadcastDiffContentBytes caps the file content a tool result's diff
+// carries to the browser: a write_file diff holds the whole old and new
+// file (up to the workspace file limit, an overwritten .env included).
+const maxBroadcastDiffContentBytes = 8 << 10
+
+// broadcastDiff is the diff a worker reports with a file tool's result
+// (workers/codeforge/tools: write_file, edit_file).
+type broadcastDiff struct {
+	Path      string              `json:"path"`
+	Hunks     []broadcastDiffHunk `json:"hunks"`
+	Truncated bool                `json:"truncated,omitempty"`
+}
+
+type broadcastDiffHunk struct {
+	OldStart   int    `json:"old_start"`
+	OldLines   int    `json:"old_lines"`
+	NewStart   int    `json:"new_start"`
+	NewLines   int    `json:"new_lines"`
+	OldContent string `json:"old_content"`
+	NewContent string `json:"new_content"`
+}
+
+// cappedDiff returns a tool result's diff as broadcast: unchanged when
+// small, else with its hunks' content cut to maxBroadcastDiffContentBytes in
+// all and marked truncated. A large diff that is no diff is dropped.
+func cappedDiff(raw json.RawMessage) json.RawMessage {
+	if len(raw) <= maxBroadcastDiffContentBytes {
+		return raw
+	}
+	var d broadcastDiff
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return nil
+	}
+	budget := maxBroadcastDiffContentBytes
+	take := func(content string) string {
+		cut := truncateUTF8(content, budget)
+		budget -= len(cut)
+		if len(cut) < len(content) {
+			d.Truncated = true
+		}
+		return cut
+	}
+	hunks := make([]broadcastDiffHunk, 0, len(d.Hunks))
+	for _, h := range d.Hunks {
+		if budget == 0 {
+			d.Truncated = true
+			break
+		}
+		h.OldContent = take(h.OldContent)
+		h.NewContent = take(h.NewContent)
+		hunks = append(hunks, h)
+	}
+	d.Hunks = hunks
+	out, err := json.Marshal(d)
+	if err != nil {
+		return nil
+	}
+	return out
+}
