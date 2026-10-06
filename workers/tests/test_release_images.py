@@ -186,8 +186,8 @@ class _Repo:
         _git(self.work, "push", "-q", "origin", branch)
         return _git(self.work, "rev-parse", "HEAD")
 
-    def check(self, tag: str, sha: str, ref_type: str = "tag") -> tuple[int, str, str]:
-        """Run the release check for a push of tag at sha; returns (exit code, output, the latest output)."""
+    def check(self, tag: str, sha: str, ref_type: str = "tag") -> tuple[int, str, dict[str, str]]:
+        """Run the release check for a push of tag at sha; returns (exit code, output, the step's outputs)."""
         if ref_type == "tag":
             _git(self.work, "tag", "-a", "-m", tag, tag, sha)
         _git(self.work, "checkout", "-q", "--detach", sha)
@@ -202,8 +202,8 @@ class _Repo:
             text=True,
             check=False,
         )
-        latest = dict(line.split("=", 1) for line in output.read_text().splitlines()).get("latest", "")
-        return done.returncode, done.stdout + done.stderr, latest
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        return done.returncode, done.stdout + done.stderr, outputs
 
 
 def _release_script() -> str:
@@ -220,21 +220,22 @@ def repo(tmp_path: Path) -> _Repo:
 
 def test_release_check_branch_push(repo: _Repo) -> None:
     sha = repo.commit("0.9.0")
-    assert repo.check("main", sha, ref_type="branch")[::2] == (0, "false")
+    code, output, outputs = repo.check("main", sha, ref_type="branch")
+    assert (code, outputs) == (0, {"latest": "false", "minor": "false"}), output
 
 
 def test_release_check_first_release_moves_latest(repo: _Repo) -> None:
     repo.commit("0.8.0")
     sha = repo.commit("0.9.0")
-    code, output, latest = repo.check("v0.9.0", sha)
-    assert (code, latest) == (0, "true"), output
+    code, output, outputs = repo.check("v0.9.0", sha)
+    assert (code, outputs) == (0, {"latest": "true", "minor": "true"}), output
 
 
 def test_release_check_tag_must_name_version(repo: _Repo) -> None:
     sha = repo.commit("0.9.0")
-    code, output, latest = repo.check("v0.9.1", sha)
+    code, output, outputs = repo.check("v0.9.1", sha)
     assert code == 1
-    assert latest == ""
+    assert outputs == {}
     assert "does not name the version in VERSION (0.9.0)" in output
 
 
@@ -247,9 +248,9 @@ def test_release_check_commit_of_a_merged_branch_is_refused(repo: _Repo) -> None
     _git(repo.work, "push", "-q", "origin", "main")
 
     assert _git(repo.work, "merge-base", "--is-ancestor", feature, "main") == ""  # reachable, not first-parent
-    code, output, latest = repo.check("v0.9.0", feature)
+    code, output, outputs = repo.check("v0.9.0", feature)
     assert code == 1
-    assert latest == ""
+    assert outputs == {}
     assert "first-parent" in output
 
 
@@ -257,24 +258,56 @@ def test_release_check_commit_off_main_is_refused(repo: _Repo) -> None:
     base = repo.commit("0.8.0")
     _git(repo.work, "checkout", "-q", "-b", "staging", base)
     sha = repo.commit("0.9.0", branch="staging")
-    code, _, latest = repo.check("v0.9.0", sha)
+    code, _, outputs = repo.check("v0.9.0", sha)
     assert code == 1
-    assert latest == ""
+    assert outputs == {}
 
 
 @pytest.mark.parametrize(
-    ("existing", "version", "latest"),
+    ("existing", "version", "latest", "minor"),
     [
-        (["v1.0.0"], "0.9.1", "false"),  # a patch release of an older line
-        (["v0.9.0"], "0.10.0", "true"),  # semver, not text order
-        (["v0.9.0", "v0.10.0"], "0.9.1", "false"),
-        (["v0.9.0"], "0.9.0-rc.2", "false"),  # a prerelease never moves latest
-        (["v1.0.0-rc.1"], "0.9.0", "true"),  # prereleases do not count as released
+        (["v1.0.0"], "0.9.1", "false", "true"),  # a patch release of an older line
+        (["v0.9.0"], "0.10.0", "true", "true"),  # semver, not text order
+        (["v0.9.0", "v0.10.0"], "0.9.1", "false", "true"),
+        (["v0.9.0"], "0.9.0-rc.2", "false", "false"),  # a prerelease moves neither
+        (["v1.0.0-rc.1"], "0.9.0", "true", "true"),  # prereleases do not count as released
+        (["v0.9.2"], "0.9.1", "false", "false"),  # 0.9 stays on 0.9.2
     ],
 )
-def test_release_check_latest_moves_only_forward(repo: _Repo, existing: list[str], version: str, latest: str) -> None:
+def test_release_check_tags_move_only_forward(
+    repo: _Repo, existing: list[str], version: str, latest: str, minor: str
+) -> None:
     for tag in existing:
         repo.check(tag, repo.commit(tag[1:]))
     sha = repo.commit(version)
-    code, output, got = repo.check(f"v{version}", sha)
-    assert (code, got) == (0, latest), output
+    code, output, outputs = repo.check(f"v{version}", sha)
+    assert (code, outputs) == (0, {"latest": latest, "minor": minor}), output
+
+
+def test_release_check_an_older_commit_tagged_later(repo: _Repo) -> None:
+    """v0.9.0 tagged on its commit after v0.9.1 was released: neither latest nor 0.9 moves back."""
+    old = repo.commit("0.9.0")
+    repo.check("v0.9.1", repo.commit("0.9.1"))
+    code, output, outputs = repo.check("v0.9.0", old)
+    assert (code, outputs) == (0, {"latest": "false", "minor": "false"}), output
+
+
+def test_release_check_only_tags_on_main_count(repo: _Repo) -> None:
+    """A stray v* tag off main's first-parent history (a failed or mistaken tag) does not hold latest back."""
+    base = repo.commit("0.8.0")
+    _git(repo.work, "checkout", "-q", "-b", "staging", base)
+    stray = repo.commit("2.0.0", branch="staging")
+    _git(repo.work, "tag", "-a", "-m", "v2.0.0", "v2.0.0", stray)
+    _git(repo.work, "checkout", "-q", "main")
+    code, output, outputs = repo.check("v0.9.0", repo.commit("0.9.0"))
+    assert (code, outputs) == (0, {"latest": "true", "minor": "true"}), output
+
+
+def test_build_jobs_gate_the_minor_tag() -> None:
+    workflow = _workflow()
+    assert workflow["jobs"]["release"]["outputs"]["minor"] == "${{ steps.check.outputs.minor }}"  # type: ignore[index]
+    for name in BUILD_JOBS:
+        tags = [line.strip() for line in _metadata_step(workflow["jobs"][name])["with"]["tags"].splitlines()]  # type: ignore[index]
+        assert "type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}" in tags, (
+            name
+        )

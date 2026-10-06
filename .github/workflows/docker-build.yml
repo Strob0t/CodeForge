@@ -14,9 +14,11 @@ env:
 jobs:
   # A v* tag releases the version in VERSION (KI-116): it must name that
   # version and point at a commit of main's first-parent history, else
-  # nothing is built. It builds the images as <version> and <major>.<minor>,
-  # and as "latest" when it is a release at least as high as every released
-  # v* tag; docker-compose.prod.yml pins <version> (scripts/sync-version.sh).
+  # nothing is built. It builds the images as <version>; as <major>.<minor>
+  # when it is at least as high as every release of that line, and as
+  # "latest" when it is at least as high as every release (releases: the
+  # vX.Y.Z tags on main's first-parent history); docker-compose.prod.yml
+  # pins <version> (scripts/sync-version.sh).
   # workers/tests/test_release_images.py runs this check.
   release:
     runs-on: ubuntu-latest
@@ -24,6 +26,7 @@ jobs:
       contents: read
     outputs:
       latest: ${{ steps.check.outputs.latest }}
+      minor: ${{ steps.check.outputs.minor }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -38,6 +41,7 @@ jobs:
           set -euo pipefail
           if [ "$REF_TYPE" != "tag" ]; then
             echo "latest=false" >> "$GITHUB_OUTPUT"
+            echo "minor=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           version="$(tr -d '[:space:]' < VERSION)"
@@ -46,28 +50,38 @@ jobs:
             exit 1
           fi
           # A release is a commit of main itself (its first-parent history),
-          # not one of a branch merged into it. grep reads all of rev-list's
-          # output (no -q): an early exit would fail the pipeline (pipefail).
+          # not one of a branch merged into it.
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          commit="$(git rev-parse "$GITHUB_SHA^{commit}")"
-          if ! git rev-list --first-parent origin/main | grep -Fx "$commit" > /dev/null; then
+          first_parent="$(git rev-list --first-parent origin/main)"
+          on_main() { grep -Fx "$(git rev-parse "$1^{commit}")" <<< "$first_parent" > /dev/null; }
+          if ! on_main "$GITHUB_SHA"; then
             echo "::error::tag $TAG does not point at a commit of main's first-parent history"
             exit 1
           fi
-          # latest only moves forward: a release (not a prerelease) whose
-          # version is at least the highest released v* tag.
+          # Tags only move forward: "latest" for a release (not a prerelease)
+          # at least as high as every released version, <major>.<minor> for
+          # one at least as high as every release of its line. Released are
+          # the vX.Y.Z tags on main's first-parent history: a stray or
+          # failed tag elsewhere holds nothing back.
+          released=""
+          for tag in $(git tag -l 'v*'); do
+            if [[ "$tag" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]] && on_main "$tag"; then
+              released+="${tag#v}"$'\n'
+            fi
+          done
+          highest() { awk -v prefix="$1" 'NF && substr($0, 1, length(prefix)) == prefix' <<< "$released" | sort -V | tail -n 1; }
+          not_older() { [ -z "$1" ] || [ "$(printf '%s\n' "$1" "$version" | sort -V | tail -n 1)" = "$version" ]; }
           latest=false
+          minor=false
           case "$version" in
             *-*) ;; # a prerelease
             *)
-              highest="$(git tag -l 'v*' --sort=-v:refname | awk '/^v[0-9]+[.][0-9]+[.][0-9]+$/ && !n++')"
-              newest="$(printf '%s\n' "${highest#v}" "$version" | sort -V | tail -n 1)"
-              if [ -z "$highest" ] || [ "$newest" = "$version" ]; then
-                latest=true
-              fi
+              if not_older "$(highest "")"; then latest=true; fi
+              if not_older "$(highest "${version%.*}.")"; then minor=true; fi
               ;;
           esac
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "minor=$minor" >> "$GITHUB_OUTPUT"
 
   build-core:
     needs: [release]
@@ -105,7 +119,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}
             type=sha,prefix=
             type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
@@ -178,7 +192,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}
             type=sha,prefix=
             type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
@@ -251,7 +265,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.release.outputs.minor == 'true' }}
             type=sha,prefix=
             type=raw,value=latest,enable=${{ needs.release.outputs.latest == 'true' }}
           labels: |
