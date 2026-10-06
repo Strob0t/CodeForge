@@ -1276,7 +1276,7 @@ docker compose -f docker-compose.prod.yml up -d worker
 
 ### Inbound Webhooks (KI-85)
 
-VCS and PM webhooks are registered per project (admins; editors can list them without secrets). Each has a random ID, its own URL and its own secret,
+VCS and PM webhooks are registered per project (admins; editors can list them without secrets), in the UI under the project's **Webhooks** panel (project settings > Manage webhooks; KI-109) or through the API below. The panel shows the full inbound URL built from the browser's origin (use the address the provider reaches CodeForge under if that differs, e.g. behind a reverse proxy) and a generated secret exactly once. Each has a random ID, its own URL and its own secret,
 which name the tenant and the project; `X-Tenant-ID` is never read on `/api/v1/webhooks/`. Security model: [SECURITY.md](SECURITY.md#security-measures).
 
 ```bash
