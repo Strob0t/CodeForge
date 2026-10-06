@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
@@ -31,8 +33,11 @@ import (
 //	none      (no scope)                       the API version and GET /auth/me
 //
 // GET and HEAD need the group's read scope, every other method its write
-// scope, except the read-only queries that take a body (search, recall,
-// evaluate, preview: the read scope); admin:all satisfies every scope.
+// scope, except a POST to a read-only query that takes a body (search,
+// recall, evaluate, preview: the read scope); admin:all satisfies every
+// scope. A route is classified the way chi dispatches it: by the pattern
+// of the route the raw path matches (requireAPIKeyScope), so an escaped "/"
+// in an ID stays in its segment.
 type scopeGroup string
 
 const (
@@ -46,7 +51,7 @@ const (
 type scopeRule struct {
 	pattern string
 	group   scopeGroup
-	// readOnly: a query that takes a body; every method needs the read scope.
+	// readOnly: a query that takes a body; a POST needs the read scope only.
 	readOnly bool
 }
 
@@ -125,8 +130,9 @@ var apiKeyScopeRules = []scopeRule{
 // apiPrefix is where the API routes are mounted.
 const apiPrefix = "/api/v1"
 
-// APIKeyScope returns the scope an API key needs for method and path
-// (middleware.RequireScopeFunc): "" when none is needed.
+// APIKeyScope returns the scope an API key needs for method and path, a
+// request path or a route pattern (a {param} segment matches "*"), below
+// apiPrefix or not: "" when none is needed.
 func APIKeyScope(method, path string) string {
 	segments := pathSegments(strings.TrimPrefix(path, apiPrefix))
 	group := scopeGroupAdmin
@@ -146,8 +152,13 @@ func APIKeyScope(method, path string) string {
 	case scopeGroupAdmin:
 		return user.ScopeAdminAll
 	}
-	if readOnly || method == http.MethodGet || method == http.MethodHead {
+	switch method {
+	case http.MethodGet, http.MethodHead:
 		return string(group) + ":read"
+	case http.MethodPost:
+		if readOnly {
+			return string(group) + ":read"
+		}
 	}
 	return string(group) + ":write"
 }
@@ -177,7 +188,31 @@ func matchesPrefix(pattern, path []string) bool {
 	return true
 }
 
-// requireAPIKeyScope checks a scoped API key against the route's scope.
-var requireAPIKeyScope = middleware.RequireScopeFunc(func(r *http.Request) string {
-	return APIKeyScope(r.Method, r.URL.Path)
-})
+// requireAPIKeyScope checks a scoped API key against the scope of the route
+// of api (the router it is used on) that the request dispatches to. The
+// route is found the way chi routes: by method, on the raw path below the
+// mount (chi.Context.RoutePath, params not unescaped), so an encoded "/" in
+// an ID cannot move a request under another rule, and a method without a
+// route on the path (405) is a write. A path without any route is
+// classified by the table as before.
+func requireAPIKeyScope(api chi.Routes) func(http.Handler) http.Handler {
+	return middleware.RequireScopeFunc(func(r *http.Request) string {
+		path := rawRoutePath(r)
+		if pattern := api.Find(chi.NewRouteContext(), r.Method, path); pattern != "" {
+			path = pattern
+		}
+		return APIKeyScope(r.Method, path)
+	})
+}
+
+// rawRoutePath is the path chi routes the request on: what the parent
+// router left below its mount, else the URL's raw path.
+func rawRoutePath(r *http.Request) string {
+	if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePath != "" {
+		return rctx.RoutePath
+	}
+	if r.URL.RawPath != "" {
+		return r.URL.RawPath
+	}
+	return r.URL.Path
+}

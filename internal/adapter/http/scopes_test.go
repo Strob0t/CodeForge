@@ -60,6 +60,19 @@ func TestAPIKeyScope_Table(t *testing.T) {
 		{http.MethodGet, "/api/v1/tenants", user.ScopeAdminAll},
 		{http.MethodGet, "/api/v1/knowledge-bases", user.ScopeAdminAll},
 		{http.MethodGet, "/api/v1/unknown-future-route", user.ScopeAdminAll},
+		// A read-only query needs the read scope for POST only; any other
+		// method on its path is a write (S10-A review).
+		{http.MethodPost, "/api/v1/prompt-sections/preview", user.ScopeRunsRead},
+		{http.MethodDelete, "/api/v1/prompt-sections/preview", user.ScopeRunsWrite},
+		{http.MethodPost, "/api/v1/projects/p1/search", user.ScopeProjectsRead},
+		{http.MethodPut, "/api/v1/projects/p1/search", user.ScopeProjectsWrite},
+		// Classified on the raw path, as chi routes: an encoded "/" stays
+		// inside its segment.
+		{http.MethodPost, "/api/v1/projects/p1%2Fsearch/clone", user.ScopeProjectsWrite},
+		// Route patterns classify like their paths.
+		{http.MethodPost, "/projects/{id}/clone", user.ScopeProjectsWrite},
+		{http.MethodPost, "/projects/{id}/search", user.ScopeProjectsRead},
+		{http.MethodGet, "/routing/stats", user.ScopeRunsRead},
 	} {
 		if got := cfhttp.APIKeyScope(tc.method, tc.path); got != tc.want {
 			t.Errorf("%s %s: scope %q, want %q", tc.method, tc.path, got, tc.want)
@@ -81,6 +94,11 @@ func apiKeyRequest(t *testing.T, r http.Handler, key *user.APIKey, method, path,
 	return w
 }
 
+// scopePassed, as the wanted status, means any answer but 403: the scope
+// check let the request through to its handler, whose own answer (the
+// mocks behind it) is not under test.
+const scopePassed = 0
+
 // A key with scopes calls only the routes of its scope groups; a key
 // without scopes keeps its user's full rights (keys from before the
 // enforcement); admin:all is everything; a JWT request is not affected.
@@ -90,6 +108,7 @@ func TestAPIKeyScopes_AreEnforced(t *testing.T) {
 	readOnly := &user.APIKey{ID: "k1", UserID: "ad", Scopes: []string{user.ScopeProjectsRead}}
 	unscoped := &user.APIKey{ID: "k2", UserID: "ad"}
 	all := &user.APIKey{ID: "k3", UserID: "ad", Scopes: []string{user.ScopeAdminAll}}
+	runsRead := &user.APIKey{ID: "k4", UserID: "ad", Scopes: []string{user.ScopeRunsRead}}
 
 	for _, tc := range []struct {
 		name   string
@@ -110,10 +129,24 @@ func TestAPIKeyScopes_AreEnforced(t *testing.T) {
 		{"admin:all key reads settings", all, http.MethodGet, "/api/v1/settings", "", http.StatusOK},
 		{"admin:all key deletes a project", all, http.MethodDelete, "/api/v1/projects/p1", "", http.StatusNoContent},
 		{"jwt deletes a project", nil, http.MethodDelete, "/api/v1/projects/p1", "", http.StatusNoContent},
+		// The scope follows the route chi dispatches to: the raw path (an
+		// escaped "/" stays in its segment, so this is POST /projects/{id}/clone,
+		// not the read-only /projects/{id}/search) and the method (a read-only
+		// query is read for POST only).
+		{"read key clones a project with an encoded id", readOnly, http.MethodPost, "/api/v1/projects/p1%2Fsearch/clone", "", http.StatusForbidden},
+		{"read key searches a project", readOnly, http.MethodPost, "/api/v1/projects/p1/search", `{"query":"x"}`, scopePassed},
+		{"runs:read key previews prompt sections", runsRead, http.MethodPost, "/api/v1/prompt-sections/preview", `{}`, scopePassed},
+		{"runs:read key deletes the preview path", runsRead, http.MethodDelete, "/api/v1/prompt-sections/preview", "", http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store.projects = []project.Project{{ID: "p1", TenantID: tenantctx.DefaultTenantID}}
 			w := apiKeyRequest(t, r, tc.key, tc.method, tc.path, tc.body)
+			if tc.want == scopePassed {
+				if w.Code == http.StatusForbidden {
+					t.Fatalf("status 403 (%s), want the scope check passed", w.Body.String())
+				}
+				return
+			}
 			if w.Code != tc.want {
 				t.Fatalf("status %d, want %d (%s)", w.Code, tc.want, w.Body.String())
 			}

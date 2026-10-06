@@ -157,7 +157,7 @@ func MountRoutes(r chi.Router, h *Handlers, opts ...RouteOption) {
 		// a user's personal data).
 		r.Use(middleware.NoStore)
 		// A scoped API key reaches only the routes of its scopes (scopes.go, KI-175).
-		r.Use(requireAPIKeyScope)
+		r.Use(requireAPIKeyScope(r))
 
 		// Version
 		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
