@@ -503,7 +503,7 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 			s.updatePMFeature(ctx, f, item, result)
 			continue
 		}
-		_, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
+		f, err := s.store.CreateFeature(ctx, &roadmap.CreateFeatureRequest{
 			MilestoneID: ms.ID,
 			Title:       item.Title,
 			Description: item.Description,
@@ -515,6 +515,10 @@ func (s *RoadmapService) ImportPMItems(ctx context.Context, projectID, providerN
 			continue
 		}
 		result.FeaturesCreated++
+		// A later item of this batch with the same ID updates this feature.
+		if item.ExternalID != "" {
+			imported[item.ExternalID] = f
+		}
 	}
 
 	return result, nil

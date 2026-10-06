@@ -574,6 +574,29 @@ func TestImportPMItems_Upserts(t *testing.T) {
 	}
 }
 
+// A batch that lists one external ID twice creates one feature: the second
+// item updates the feature the first one created.
+func TestImportPMItems_DuplicateExternalIDInABatch(t *testing.T) {
+	env := newSpecEnv(t, nil)
+	env.svc.pmProvs = []pmprovider.Provider{&itemsPMProvider{name: "gitlab", items: []pmprovider.Item{
+		{ExternalID: "g/app#1", Title: "First"},
+		{ExternalID: "g/app#1", Title: "First (again)"},
+		{ExternalID: "", Title: "No ID"},
+		{ExternalID: "", Title: "No ID either"},
+	}}}
+
+	res, err := env.svc.ImportPMItems(defaultTenantCtx(), "p1", "gitlab", "g/app")
+	if err != nil || res.FeaturesCreated != 3 || res.FeaturesUpdated != 1 {
+		t.Fatalf("import = %+v, %v", res, err)
+	}
+	if f := env.store.feature(t, "First (again)"); f.ExternalIDs["gitlab"] != "g/app#1" {
+		t.Fatalf("feature = %+v", f)
+	}
+	if len(env.store.features) != 3 {
+		t.Fatalf("features %v", env.refs())
+	}
+}
+
 // itemsPMProvider lists a fixed set of items.
 type itemsPMProvider struct {
 	listingPMProvider
