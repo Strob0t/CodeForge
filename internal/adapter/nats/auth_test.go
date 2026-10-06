@@ -269,7 +269,7 @@ func TestConnectOpts_CoreInboxes(t *testing.T) {
 	if nopts.InboxPrefix != "_INBOX_core" {
 		t.Fatalf("InboxPrefix = %q, want _INBOX_core", nopts.InboxPrefix)
 	}
-	if nopts.MaxReconnect != 60 {
+	if nopts.MaxReconnect != -1 {
 		t.Fatalf("connectOpts drops the reconnect options: MaxReconnect = %d", nopts.MaxReconnect)
 	}
 }

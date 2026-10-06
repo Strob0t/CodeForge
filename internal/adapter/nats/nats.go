@@ -79,7 +79,10 @@ const inboxPrefix = "_INBOX_core"
 // and error reporting. Extracted for testability.
 func reconnectOpts() []nats.Option {
 	return []nats.Option{
-		nats.MaxReconnects(60),
+		// Reconnect until the process stops: a bounded count closed the
+		// connection for good after a longer outage (a NATS upgrade), and
+		// nothing restarts a running but disconnected Core (KI-213).
+		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2 * time.Second),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			if err != nil {

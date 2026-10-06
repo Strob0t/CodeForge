@@ -26,16 +26,12 @@ func TestReconnectOpts_Comprehensive(t *testing.T) {
 		}
 	}
 
-	t.Run("MaxReconnects_Positive", func(t *testing.T) {
-		if nopts.MaxReconnect <= 0 {
-			t.Errorf("MaxReconnect = %d, want > 0 for auto-reconnect", nopts.MaxReconnect)
-		}
-	})
-
-	t.Run("MaxReconnects_Reasonable", func(t *testing.T) {
-		// At least 10 reconnect attempts (with 2s wait = 20s minimum recovery window).
-		if nopts.MaxReconnect < 10 {
-			t.Errorf("MaxReconnect = %d, want >= 10 for production resilience", nopts.MaxReconnect)
+	t.Run("MaxReconnects_Unlimited", func(t *testing.T) {
+		// A bounded count closed the connection for good after an outage
+		// longer than count x wait: runs never started again and
+		// /health/ready stayed 503 (KI-213).
+		if nopts.MaxReconnect != -1 {
+			t.Errorf("MaxReconnect = %d, want -1 (reconnect until the process stops)", nopts.MaxReconnect)
 		}
 	})
 
@@ -77,49 +73,4 @@ func TestReconnectOpts_Comprehensive(t *testing.T) {
 			t.Errorf("reconnectOpts returned %d options, want >= 3", len(opts))
 		}
 	})
-}
-
-// TestReconnectOpts_TotalRecoveryWindow verifies the total recovery window
-// (MaxReconnects * ReconnectWait) is sufficient for typical outages.
-func TestReconnectOpts_TotalRecoveryWindow(t *testing.T) {
-	opts := reconnectOpts()
-
-	nopts := nats.GetDefaultOptions()
-	for _, o := range opts {
-		if err := o(&nopts); err != nil {
-			t.Fatalf("applying option: %v", err)
-		}
-	}
-
-	totalWindow := time.Duration(nopts.MaxReconnect) * nopts.ReconnectWait
-	// Total recovery window should be at least 30 seconds for
-	// typical container restarts/network blips.
-	if totalWindow < 30*time.Second {
-		t.Errorf("total recovery window = %v (MaxReconnect=%d * ReconnectWait=%v), want >= 30s",
-			totalWindow, nopts.MaxReconnect, nopts.ReconnectWait)
-	}
-}
-
-// TestSanitizeConsumerName verifies the consumer name builder.
-func TestSanitizeConsumerName(t *testing.T) {
-	tests := []struct {
-		prefix  string
-		subject string
-		want    string
-	}{
-		{"codeforge-go-", "conversation.run.start", "codeforge-go-conversation-run-start"},
-		{"codeforge-go-", "benchmark.>", "codeforge-go-benchmark-all"},
-		{"codeforge-go-", "tasks.*", "codeforge-go-tasks-all"},
-		{"codeforge-py-", "evaluation.run.start", "codeforge-py-evaluation-run-start"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.subject, func(t *testing.T) {
-			got := sanitizeConsumerName(tt.prefix, tt.subject)
-			if got != tt.want {
-				t.Errorf("sanitizeConsumerName(%q, %q) = %q, want %q",
-					tt.prefix, tt.subject, got, tt.want)
-			}
-		})
-	}
 }

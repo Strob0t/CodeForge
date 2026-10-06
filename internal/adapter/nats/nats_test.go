@@ -781,8 +781,8 @@ func TestReconnectOpts(t *testing.T) {
 		}
 	}
 
-	if nopts.MaxReconnect != 60 {
-		t.Errorf("MaxReconnect = %d, want 60", nopts.MaxReconnect)
+	if nopts.MaxReconnect != -1 {
+		t.Errorf("MaxReconnect = %d, want -1 (unlimited)", nopts.MaxReconnect)
 	}
 	if nopts.ReconnectWait != 2*time.Second {
 		t.Errorf("ReconnectWait = %v, want 2s", nopts.ReconnectWait)

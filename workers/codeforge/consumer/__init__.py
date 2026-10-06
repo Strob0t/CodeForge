@@ -235,8 +235,14 @@ class TaskConsumer(
         Returns without consuming if a stop was requested meanwhile (see
         request_stop); otherwise returns once every message loop ended.
         """
+        # Reconnect until the worker stops: nats-py's default of 60 attempts
+        # (about 2 minutes) left the worker without NATS for good after a
+        # longer outage (KI-213).
         self._nc = await nats.connect(
-            self.nats_url, inbox_prefix=INBOX_PREFIX, reconnected_cb=self._restore_notifications
+            self.nats_url,
+            inbox_prefix=INBOX_PREFIX,
+            reconnected_cb=self._restore_notifications,
+            max_reconnect_attempts=-1,
         )
         if self._stop_requested:
             # stop() may have run while connecting, with no connection to drain.

@@ -114,6 +114,24 @@ async def test_a_stop_while_waiting_for_the_stream_is_not_a_crash(
     await asyncio.wait_for(start, timeout=5)  # returns, does not raise
 
 
+async def test_the_worker_reconnects_to_nats_until_it_stops(
+    consumer: TaskConsumer, js: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """KI-213: nats-py gives up after 60 attempts (about 2 minutes); a longer NATS outage left a
+    running worker without a connection for good."""
+    connect = AsyncMock(return_value=_nats_client())
+    monkeypatch.setattr("codeforge.consumer.nats.connect", connect)
+    monkeypatch.setattr("codeforge.consumer._STREAM_WAIT_SECONDS", 0.05)
+    js.find_stream_name_by_subject = AsyncMock(side_effect=nats.js.errors.NotFoundError())
+
+    with pytest.raises(RuntimeError):
+        await asyncio.wait_for(consumer.start(), timeout=5)
+
+    connect.assert_awaited_once()
+    assert connect.await_args is not None
+    assert connect.await_args.kwargs["max_reconnect_attempts"] == -1
+
+
 def test_run_exits_without_waiting_for_worker_threads(monkeypatch: pytest.MonkeyPatch) -> None:
     """A thread still indexing (repo map, retrieval, graph) must not hold up the exit after the shutdown."""
     release = threading.Event()
