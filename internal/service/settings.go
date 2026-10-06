@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/settings"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 )
@@ -42,10 +43,10 @@ func (s *SettingsService) Get(ctx context.Context, key string) (*settings.Settin
 func (s *SettingsService) Update(ctx context.Context, req settings.UpdateRequest) error {
 	for key, value := range req.Settings {
 		if key == "" {
-			return fmt.Errorf("setting key must not be empty")
+			return fmt.Errorf("%w: setting key must not be empty", domain.ErrValidation)
 		}
 		if !json.Valid(value) {
-			return fmt.Errorf("invalid JSON value for setting %q", key)
+			return fmt.Errorf("%w: invalid JSON value for setting %q", domain.ErrValidation, key)
 		}
 		if err := s.store.UpsertSetting(ctx, key, value); err != nil {
 			return err

@@ -275,10 +275,14 @@ func (s *AuthService) UpdateUser(ctx context.Context, id string, req user.Update
 // DeleteUser erases a user like a GDPR erasure (eraseUser): personal data in
 // rows that outlive the user is anonymized, then the user is deleted with
 // their refresh tokens and other dependent rows. Their access tokens stop
-// working with the row (KI-143).
+// working with the row (KI-143); their sessions end once the user is
+// erased, so a refused erasure has no side effect (KI-176).
 func (s *AuthService) DeleteUser(ctx context.Context, id string) error {
-	defer s.tokens.EndUserSessions(id)
-	return eraseUser(ctx, s.store, id)
+	if err := eraseUser(ctx, s.store, id); err != nil {
+		return err
+	}
+	s.tokens.EndUserSessions(id)
+	return nil
 }
 
 // SetupStatus represents the initial setup state of the system.

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	"github.com/Strob0t/CodeForge/internal/config"
 	cfcontext "github.com/Strob0t/CodeForge/internal/domain/context"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
@@ -59,6 +60,7 @@ func newSharedCtxTestRouter(store *sharedCtxMockStore) chi.Router {
 
 	handlers := &cfhttp.Handlers{
 		SharedContext: sharedCtxSvc,
+		Limits:        &config.Limits{MaxRequestBodySize: 1 << 20},
 	}
 
 	r := chi.NewRouter()

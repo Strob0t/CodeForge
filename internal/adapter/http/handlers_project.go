@@ -1,8 +1,6 @@
 package http
 
 import (
-	"encoding/json"
-	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -153,13 +151,13 @@ func (ph *ProjectHandlers) CloneProject(w http.ResponseWriter, r *http.Request) 
 	id := chi.URLParam(r, "id")
 	tenantID := middleware.TenantIDFromContext(r.Context())
 
-	// Optionally accept a branch in the request body.
-	var body struct {
+	// Optionally accept a branch in the request body (optional for backward
+	// compatibility).
+	body, ok := readOptionalJSON[struct {
 		Branch string `json:"branch"`
-	}
-	// Body is optional for backward compatibility.
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		slog.Debug("optional body parse skipped", "handler", "CloneProject", "error", err)
+	}](w, r, ph.Limits.MaxRequestBodySize, "CloneProject")
+	if !ok {
+		return
 	}
 
 	p, err := ph.Projects.Clone(r.Context(), id, tenantID, body.Branch)
@@ -229,11 +227,11 @@ func (ph *ProjectHandlers) SetupProject(w http.ResponseWriter, r *http.Request) 
 	tenantID := middleware.TenantIDFromContext(r.Context())
 
 	// Optionally accept a branch in the request body.
-	var body struct {
+	body, ok := readOptionalJSON[struct {
 		Branch string `json:"branch"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		slog.Debug("optional body parse skipped", "handler", "SetupProject", "error", err)
+	}](w, r, ph.Limits.MaxRequestBodySize, "SetupProject")
+	if !ok {
+		return
 	}
 
 	result, err := ph.Projects.SetupProject(r.Context(), id, tenantID, body.Branch)

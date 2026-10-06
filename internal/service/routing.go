@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/benchmark"
 	"github.com/Strob0t/CodeForge/internal/domain/routing"
 	"github.com/Strob0t/CodeForge/internal/port/database"
@@ -39,13 +40,13 @@ func NewRoutingService(store database.Store) *RoutingService {
 // RecordOutcome persists a routing outcome from a completed LLM call.
 func (s *RoutingService) RecordOutcome(ctx context.Context, o *routing.RoutingOutcome) error {
 	if o.ModelName == "" {
-		return fmt.Errorf("model_name is required")
+		return fmt.Errorf("%w: model_name is required", domain.ErrValidation)
 	}
 	if !o.TaskType.IsValid() {
-		return fmt.Errorf("invalid task_type: %q", o.TaskType)
+		return fmt.Errorf("%w: invalid task_type: %q", domain.ErrValidation, o.TaskType)
 	}
 	if !o.ComplexityTier.IsValid() {
-		return fmt.Errorf("invalid complexity_tier: %q", o.ComplexityTier)
+		return fmt.Errorf("%w: invalid complexity_tier: %q", domain.ErrValidation, o.ComplexityTier)
 	}
 	return s.store.CreateRoutingOutcome(ctx, o)
 }

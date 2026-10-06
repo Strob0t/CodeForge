@@ -255,7 +255,7 @@ func (h *Handlers) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Settings.Update(r.Context(), req); err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "update settings failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

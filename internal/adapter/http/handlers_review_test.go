@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	cfhttp "github.com/Strob0t/CodeForge/internal/adapter/http"
+	"github.com/Strob0t/CodeForge/internal/config"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/agent"
 	"github.com/Strob0t/CodeForge/internal/domain/boundary"
@@ -57,6 +58,9 @@ func (s reviewStarter) StartBoundaryAnalysis(ctx context.Context, id string) (*p
 }
 
 func serveReview(h *cfhttp.Handlers, path, body string) *httptest.ResponseRecorder {
+	if h.Limits == nil {
+		h.Limits = &config.Limits{MaxRequestBodySize: 1 << 20}
+	}
 	r := chi.NewRouter()
 	r.Post("/projects/{id}/review-refactor", h.TriggerReviewRefactor)
 	r.Post("/projects/{id}/boundaries/analyze", h.TriggerBoundaryAnalysis)

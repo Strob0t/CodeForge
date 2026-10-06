@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -48,7 +47,7 @@ func (h *Handlers) DetectProjectGoals(w http.ResponseWriter, r *http.Request) {
 
 	proj, err := h.Projects.Get(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if proj.WorkspacePath == "" {
@@ -107,17 +106,16 @@ func (h *Handlers) AIDiscoverProjectGoals(w http.ResponseWriter, r *http.Request
 	projectID := chi.URLParam(r, "id")
 
 	// Accept optional model override from request body.
-	var body struct {
+	body, ok := readOptionalJSON[struct {
 		Model string `json:"model"`
-	}
-	// Body is optional — log but do not reject on parse errors.
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		slog.Debug("optional body parse skipped", "handler", "AIDiscoverProjectGoals", "error", err)
+	}](w, r, h.Limits.MaxRequestBodySize, "AIDiscoverProjectGoals")
+	if !ok {
+		return
 	}
 
 	proj, err := h.Projects.Get(r.Context(), projectID)
 	if err != nil {
-		writeInternalError(w, err)
+		writeDomainError(w, err, "project not found")
 		return
 	}
 	if proj.WorkspacePath == "" {

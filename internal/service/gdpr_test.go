@@ -15,6 +15,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/domain/task"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // gdprMockStore implements the subset of database.Store used by GDPRService.
@@ -41,8 +42,16 @@ type gdprMockStore struct {
 	stepErrs        map[string]error // failing erasure step
 }
 
-func (m *gdprMockStore) GetUser(_ context.Context, _ string) (*user.User, error) {
-	return m.user, m.getUserErr
+// GetUser returns the configured user, or a user of the default tenant when
+// none is configured (the erasure steps need one).
+func (m *gdprMockStore) GetUser(_ context.Context, id string) (*user.User, error) {
+	if m.getUserErr != nil {
+		return nil, m.getUserErr
+	}
+	if m.user != nil {
+		return m.user, nil
+	}
+	return &user.User{ID: id, TenantID: tenantctx.DefaultTenantID}, nil
 }
 
 func (m *gdprMockStore) ListAPIKeysByUser(_ context.Context, _ string) ([]user.APIKey, error) {
@@ -165,7 +174,7 @@ func TestAuthDeleteUser_ErasesLikeGDPR(t *testing.T) {
 
 func TestExportUserData_Complete(t *testing.T) {
 	store := &gdprMockStore{
-		user:          &user.User{ID: "u1", Email: "test@example.com"},
+		user:          &user.User{ID: "u1", Email: "test@example.com", TenantID: tenantctx.DefaultTenantID},
 		apiKeys:       []user.APIKey{{ID: "k1"}},
 		llmKeys:       []llmkey.LLMKey{{ID: "l1"}},
 		projects:      []project.Project{{ID: "p1", Name: "TestProject"}},
@@ -217,7 +226,7 @@ func TestExportUserData_Complete(t *testing.T) {
 
 func TestExportUserData_EmptyUser(t *testing.T) {
 	store := &gdprMockStore{
-		user: &user.User{ID: "u1", Email: "empty@example.com"},
+		user: &user.User{ID: "u1", Email: "empty@example.com", TenantID: tenantctx.DefaultTenantID},
 	}
 
 	svc := NewGDPRService(store)
@@ -248,7 +257,7 @@ func TestExportUserData_UserNotFound(t *testing.T) {
 
 func TestDeleteUserData_AnonymizesAuditLog(t *testing.T) {
 	store := &gdprMockStore{
-		user:           &user.User{ID: "u1"},
+		user:           &user.User{ID: "u1", TenantID: tenantctx.DefaultTenantID},
 		anonymizedRows: 5,
 	}
 

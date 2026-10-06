@@ -37,6 +37,26 @@ func readJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64) (T
 	return v, true
 }
 
+// readOptionalJSON decodes a JSON body that a handler accepts but does not
+// require, within bodyLimit: an empty or malformed body leaves the zero
+// value (logged at debug level, as before), a body over the limit is
+// refused with 413 (KI-176).
+func readOptionalJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64, handler string) (T, bool) {
+	var v T
+	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
+	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return v, false
+		}
+		slog.Debug("optional body parse skipped", "handler", handler, "error", err)
+		var zero T
+		return zero, true
+	}
+	return v, true
+}
+
 // urlParam is a short alias for chi.URLParam.
 func urlParam(r *http.Request, name string) string { //nolint:unparam // name varies by endpoint
 	return chi.URLParam(r, name)

@@ -1,9 +1,7 @@
 package http
 
 import (
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -81,12 +79,12 @@ func (h *Handlers) TriggerBoundaryAnalysis(w http.ResponseWriter, r *http.Reques
 func (h *Handlers) TriggerReviewRefactor(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
-	var body struct {
-		CommitSHA string `json:"commit_sha"`
-	}
 	// Body is optional — log but do not reject on parse errors.
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		slog.Debug("optional body parse skipped", "handler", "TriggerReviewRefactor", "error", err)
+	body, ok := readOptionalJSON[struct {
+		CommitSHA string `json:"commit_sha"`
+	}](w, r, h.Limits.MaxRequestBodySize, "TriggerReviewRefactor")
+	if !ok {
+		return
 	}
 
 	if h.ReviewTrigger == nil {

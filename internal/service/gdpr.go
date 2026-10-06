@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/conversation"
 	"github.com/Strob0t/CodeForge/internal/domain/llmkey"
 	"github.com/Strob0t/CodeForge/internal/domain/run"
 	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/port/database"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 // ConversationExport bundles a conversation with its messages for GDPR export.
@@ -62,10 +64,11 @@ func NewGDPRService(store database.Store) *GDPRService {
 // Data is gathered through project ownership: all projects in the tenant are
 // enumerated, then sessions/conversations/runs are collected per project.
 // Audit trail entries are filtered to the specific user (admin_id match).
+// The user must be of the caller's tenant (KI-176).
 func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserDataExport, error) {
-	u, err := s.store.GetUser(ctx, userID)
+	u, err := userInTenant(ctx, s.store, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, err
 	}
 
 	apiKeys, err := s.store.ListAPIKeysByUser(ctx, userID)
@@ -153,21 +156,43 @@ func (s *GDPRService) ExportUserData(ctx context.Context, userID string) (*UserD
 }
 
 // DeleteUserData removes all personal data for the given user (GDPR Article 17
-// - Right to Erasure), see eraseUser.
+// - Right to Erasure), see eraseUser. The user's sessions end once the user
+// is erased, so a refused erasure (another tenant's user, KI-176) has no
+// side effect.
 func (s *GDPRService) DeleteUserData(ctx context.Context, userID string) error {
-	if s.tokens != nil {
-		defer s.tokens.EndUserSessions(userID)
+	if err := eraseUser(ctx, s.store, userID); err != nil {
+		return err
 	}
-	return eraseUser(ctx, s.store, userID)
+	if s.tokens != nil {
+		s.tokens.EndUserSessions(userID)
+	}
+	return nil
 }
 
 // userErasureStore is what erasing a user needs.
 type userErasureStore interface {
+	GetUser(ctx context.Context, id string) (*user.User, error)
 	AnonymizeAuditLogForUser(ctx context.Context, userID string) (int64, error)
 	AnonymizeConsentsForUser(ctx context.Context, userID string) (int64, error)
 	AnonymizeChannelMessagesForUser(ctx context.Context, userID string) (int64, error)
 	AnonymizeQuarantineReviewsForUser(ctx context.Context, userID string) (int64, error)
 	DeleteUser(ctx context.Context, id string) error
+}
+
+// userInTenant reads a user of the caller's tenant; another tenant's user
+// is not found, so an admin acts only within their tenant (KI-176). The
+// store's GetUser is cross-tenant for the authentication path.
+func userInTenant(ctx context.Context, store interface {
+	GetUser(ctx context.Context, id string) (*user.User, error)
+}, userID string) (*user.User, error) {
+	u, err := store.GetUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	if u.TenantID != tenantctx.FromContext(ctx) {
+		return nil, fmt.Errorf("get user %s: %w", userID, domain.ErrNotFound)
+	}
+	return u, nil
 }
 
 // eraseUser is the one way a user is deleted, whether through the GDPR
@@ -179,8 +204,11 @@ type userErasureStore interface {
 // found by the user's ID; if one fails, the user is not
 // deleted and the erasure can be retried. Deleting the user then removes the
 // dependent rows (ON DELETE CASCADE) and unlinks the kept ones (ON DELETE SET
-// NULL).
+// NULL). A user of another tenant is not found and nothing runs (KI-176).
 func eraseUser(ctx context.Context, store userErasureStore, userID string) error {
+	if _, err := userInTenant(ctx, store, userID); err != nil {
+		return err
+	}
 	steps := []struct {
 		name      string
 		anonymize func(ctx context.Context, userID string) (int64, error)
