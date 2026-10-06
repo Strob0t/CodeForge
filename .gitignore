@@ -95,3 +95,7 @@ __debug_bin*
 
 # -- Test artifacts (agent test run outputs) ------
 tmp/
+
+# Written by scripts/deploy-blue-green.sh (the active color's Traefik routes)
+/traefik/dynamic/active-color.yaml
+/traefik/dynamic/active-color.yaml.tmp

@@ -297,38 +297,131 @@ def _compose_tag(loader: yaml.SafeLoader, _suffix: str, node: yaml.Node) -> obje
 _ComposeLoader.add_multi_constructor("!", _compose_tag)
 
 
-def test_traefik_reads_docker_through_a_read_only_socket_proxy() -> None:
+def _blue_green_overlay() -> dict[str, dict[str, dict[str, object]]]:
+    return yaml.load((REPO / "docker-compose.blue-green.yml").read_text(), Loader=_ComposeLoader)  # noqa: S506
+
+
+def test_traefik_has_no_docker_access() -> None:
     """KI-214 (R11-8): the internet-facing Traefik held the raw Docker socket (:ro does not limit
-    API calls), so a Traefik compromise meant host root. Only the proxy mounts the socket and
-    allows container reads; Traefik runs without capabilities except binding 80/443."""
-    overlay = yaml.load((REPO / "docker-compose.blue-green.yml").read_text(), Loader=_ComposeLoader)  # noqa: S506
+    API calls), and a socket proxy that allows container reads still serves /containers/{id}/archive,
+    /export and /logs (every container's files and /run/secrets). Traefik routes through its file
+    provider instead: deploy-blue-green.sh writes the active color's routes, so nothing in the
+    overlay reaches the Docker API. Traefik runs without capabilities except binding 80/443."""
+    overlay = _blue_green_overlay()
     services = overlay["services"]
     traefik = services["traefik"]
-    proxy = services["docker-socket-proxy"]
 
-    assert not any("docker.sock" in v for v in traefik["volumes"])
-    assert "--providers.docker.endpoint=tcp://docker-socket-proxy:2375" in traefik["command"]
+    for name, svc in services.items():
+        assert not any("docker.sock" in str(v) for v in svc.get("volumes") or []), name  # type: ignore[attr-defined]
+    assert "docker-socket-proxy" not in services
+    command = traefik["command"]
+    assert not any(flag.startswith("--providers.docker") for flag in command)  # type: ignore[attr-defined]
+    assert "--providers.file.directory=/etc/traefik/dynamic" in command  # type: ignore[operator]
+    assert "--providers.file.watch=true" in command  # type: ignore[operator]
+    assert "./traefik/dynamic:/etc/traefik/dynamic:ro" in traefik["volumes"]  # type: ignore[operator]
+    assert str(traefik["environment"]["CODEFORGE_DOMAIN"]).startswith("${CODEFORGE_DOMAIN:?")  # type: ignore[index]
     assert traefik["cap_drop"] == ["ALL"]
     assert traefik["cap_add"] == ["NET_BIND_SERVICE"]
-    assert "no-new-privileges:true" in traefik["security_opt"]
+    assert "no-new-privileges:true" in traefik["security_opt"]  # type: ignore[operator]
     assert traefik["read_only"] is True
-
-    assert proxy["volumes"] == ["/var/run/docker.sock:/var/run/docker.sock:ro"]
-    env = {k: str(v) for k, v in proxy["environment"].items()}
-    assert env["CONTAINERS"] == "1"
-    for write in ("POST", "EXEC", "ALLOW_START", "ALLOW_STOP", "ALLOW_RESTARTS", "BUILD", "IMAGES", "VOLUMES"):
-        assert env.get(write, "0") == "0", write
-    assert proxy["cap_drop"] == ["ALL"]
-    assert proxy["read_only"] is True
-    assert "ports" not in proxy
-    # The proxy is reachable only on an internal network it shares with Traefik.
-    assert proxy["networks"] == ["docker-api"]
-    assert overlay["networks"]["docker-api"]["internal"] is True
-    others = [name for name, svc in services.items() if "docker-api" in (svc.get("networks") or [])]
-    assert sorted(others) == ["docker-socket-proxy", "traefik"]
-    # A deployment recreates Traefik with --no-deps: the proxy must start with it.
+    for color in ("core-blue", "core-green", "frontend-blue", "frontend-green"):
+        labels = services[color].get("labels") or []
+        assert not any(str(label).startswith("traefik.") for label in labels), color  # type: ignore[attr-defined]
     deploy = (REPO / "scripts" / "deploy-blue-green.sh").read_text()
-    assert "change up -d --no-deps docker-socket-proxy traefik" in deploy
+    assert "change up -d --no-deps traefik" in deploy
+    assert "docker-socket-proxy" not in deploy
+
+
+_DOCKER_STUB = r"""#!/bin/bash
+# docker stub: compose services run per $STATE; containers are "id-<service>".
+echo "docker $*" >> "$LOG"
+routes() { grep -o 'core-[a-z]*:8080' "$ROOT/traefik/dynamic/active-color.yaml" 2>/dev/null || echo none; }
+if [ "$1" = inspect ]; then
+    case "${!#}" in id-*-"$UNHEALTHY") echo unhealthy;; *) echo healthy;; esac
+    exit 0
+fi
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[i]}" in
+    ps) service="${!#}"; grep -qx "$service" "$STATE" && echo "id-$service"; exit 0 ;;
+    up) for s in "${args[@]:i+1}"; do case $s in -*) ;; *) echo "$s" >> "$STATE"; echo "routes at up $s: $(routes)" >> "$LOG";; esac; done; exit 0 ;;
+    stop) for s in "${args[@]:i+1}"; do grep -vx "$s" "$STATE" > "$STATE.new"; mv "$STATE.new" "$STATE"; done
+          echo "routes at stop: $(routes)" >> "$LOG"; exit 0 ;;
+    pull) exit 0 ;;
+    esac
+done
+"""
+
+
+def _run_deploy(tmp_path: Path, unhealthy: str = "none") -> tuple[subprocess.CompletedProcess[str], Path, str]:
+    root = tmp_path / "repo"
+    (root / "scripts").mkdir(parents=True)
+    (root / "traefik" / "dynamic").mkdir(parents=True)
+    shutil.copy(REPO / "scripts" / "deploy-blue-green.sh", root / "scripts")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(_DOCKER_STUB)
+    (bin_dir / "docker").chmod(0o755)
+    state = tmp_path / "running"
+    state.write_text("postgres\nnats\nlitellm\ntraefik\ncore-blue\nfrontend-blue\n")
+    log = tmp_path / "calls.log"
+    log.touch()
+    result = subprocess.run(  # noqa: S603 - the repository's own script
+        [str(BASH), str(root / "scripts" / "deploy-blue-green.sh")],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "ROOT": str(root),
+            "STATE": str(state),
+            "LOG": str(log),
+            "UNHEALTHY": unhealthy,
+            "HEALTH_TIMEOUT": "1",
+            "HEALTH_INTERVAL": "1",
+            "ROUTE_SWITCH_WAIT": "0",
+        },
+        check=False,
+        timeout=60,
+    )
+    return result, root / "traefik" / "dynamic", log.read_text()
+
+
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+def test_deploy_routes_traefik_to_the_new_color_before_stopping_the_old(tmp_path: Path) -> None:
+    result, dynamic, calls = _run_deploy(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    # Traefik is (re)started with the active color's routes, the new color gets the
+    # traffic once it is healthy, and only then the old color stops.
+    assert "routes at up traefik: core-blue:8080" in calls, calls
+    assert "routes at stop: core-green:8080" in calls, calls
+    assert "docker-socket-proxy" not in calls
+    assert sorted(p.name for p in dynamic.iterdir()) == ["active-color.yaml"]
+
+    text = (dynamic / "active-color.yaml").read_text()
+    routes = yaml.safe_load(text.replace('{{ env "CODEFORGE_DOMAIN" }}', "x.example"))["http"]
+    middlewares = yaml.safe_load((REPO / "traefik" / "dynamic" / "middleware.yaml").read_text())["http"]["middlewares"]
+    core, frontend = routes["routers"]["core"], routes["routers"]["frontend"]
+    assert core["rule"].startswith("Host(`x.example`) && (PathPrefix(`/api`)")
+    for prefix in ("/api", "/health", "/ws", "/.well-known", "/a2a"):
+        assert f"PathPrefix(`{prefix}`)" in core["rule"], prefix
+    assert frontend["rule"] == "Host(`x.example`)"
+    assert core["priority"] > frontend["priority"]
+    for router in (core, frontend):
+        assert router["entryPoints"] == ["websecure"]
+        assert router["tls"] == {"certResolver": "letsencrypt"}
+        assert set(router["middlewares"]) <= set(middlewares)
+    assert "rate-limit" in core["middlewares"]
+    assert routes["services"]["core"]["loadBalancer"]["servers"] == [{"url": "http://core-green:8080"}]
+    assert routes["services"]["frontend"]["loadBalancer"]["servers"] == [{"url": "http://frontend-green:8080"}]
+
+
+@pytest.mark.skipif(BASH is None, reason="needs bash")
+def test_deploy_keeps_routing_to_the_active_color_when_the_new_one_fails(tmp_path: Path) -> None:
+    result, dynamic, calls = _run_deploy(tmp_path, unhealthy="green")
+    assert result.returncode == 1
+    assert "routes at stop: core-blue:8080" in calls, calls
+    assert "http://core-blue:8080" in (dynamic / "active-color.yaml").read_text()
 
 
 def test_core_api_port_is_published_on_loopback_only() -> None:
