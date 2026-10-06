@@ -10,6 +10,7 @@ Repeated identical failures keep their output too.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -123,10 +124,19 @@ async def test_real_bash_failure_reaches_the_result_text(tmp_path: Path, monkeyp
     assert "sk-worker-secret" not in text
 
 
+def _ended_stream(data: bytes) -> asyncio.StreamReader:
+    stream = asyncio.StreamReader()
+    stream.feed_data(data)
+    stream.feed_eof()
+    return stream
+
+
 async def test_search_files_error_keeps_the_matches(tmp_path: Path) -> None:
     """grep exits 2 when a file cannot be read; the matches it found are kept."""
     proc = MagicMock()
-    proc.communicate = AsyncMock(return_value=(b"a.py:1:needle\n", b"grep: b.py: Permission denied\n"))
+    proc.stdout = _ended_stream(b"a.py:1:needle\n")
+    proc.stderr = _ended_stream(b"grep: b.py: Permission denied\n")
+    proc.wait = AsyncMock(return_value=2)
     proc.returncode = 2
     with patch("codeforge.tools.search_files.start_tool_process", AsyncMock(return_value=proc)):
         result = await SearchFilesTool().execute({"pattern": "needle"}, str(tmp_path))

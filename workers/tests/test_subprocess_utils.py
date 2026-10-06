@@ -5,11 +5,21 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from codeforge.subprocess_utils import terminate_process_group
+from codeforge.subprocess_utils import (
+    communicate_in_group,
+    kill_process_group,
+    run_tool_shell,
+    terminate_process_group,
+)
+from tests.processes import alive, gone
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestTerminateProcessGroup:
@@ -85,3 +95,75 @@ class TestTerminateProcessGroup:
         await terminate_process_group(self._proc(os.getpgrp()), grace_period=0.01)
 
         killpg.assert_not_called()
+
+
+class TestKillOnlyAChildThatWasNotReaped:
+    """KI-194 review: the group's ID is the leader's PID; once the leader was reaped the PID may name
+    another process group (the worker starts many). Kill only while returncode is None, as
+    tool_process._kill_group does."""
+
+    @staticmethod
+    def _proc(returncode: int | None) -> MagicMock:
+        proc = MagicMock(spec=asyncio.subprocess.Process)
+        proc.pid = 424242
+        proc.returncode = returncode
+        return proc
+
+    def test_a_running_child_is_killed_with_its_group(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        killpg = MagicMock()
+        monkeypatch.setattr("codeforge.subprocess_utils.os.killpg", killpg)
+
+        kill_process_group(self._proc(None))
+
+        assert killpg.call_args_list == [call(424242, signal.SIGKILL)]
+
+    @pytest.mark.parametrize("returncode", [0, 1, -9])
+    def test_a_reaped_child_is_never_signalled(self, monkeypatch: pytest.MonkeyPatch, returncode: int) -> None:
+        killpg = MagicMock()
+        monkeypatch.setattr("codeforge.subprocess_utils.os.killpg", killpg)
+
+        kill_process_group(self._proc(returncode))
+
+        killpg.assert_not_called()
+
+
+# A command that ends at once and leaves a background job holding its output pipes.
+_LEAVES_A_JOB = "echo done; sleep 300 & echo $! > bg.pid"
+
+
+class TestAFinishedCommandIsNotATimeout:
+    """KI-194 review: a command that ended while what it started still held its pipes was reported
+    as timed out (and its group killed after its PID was free)."""
+
+    @pytest.mark.asyncio
+    async def test_communicate_returns_the_output_of_a_finished_command(self, tmp_path: Path) -> None:
+        proc = await asyncio.create_subprocess_exec(
+            "bash",
+            "-c",
+            _LEAVES_A_JOB,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=tmp_path,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = await communicate_in_group(proc, 1)
+
+            assert (stdout, stderr, proc.returncode) == (b"done\n", b"", 0)
+            assert alive(int((tmp_path / "bg.pid").read_text())), "a finished command keeps its background jobs"
+        finally:
+            os.kill(int((tmp_path / "bg.pid").read_text()), signal.SIGKILL)
+
+    @pytest.mark.asyncio
+    async def test_run_tool_shell_returns_the_output_of_a_finished_command(self, tmp_path: Path) -> None:
+        try:
+            assert await run_tool_shell(_LEAVES_A_JOB, cwd=str(tmp_path), timeout=1, max_output=1000) == (0, "done\n")
+        finally:
+            os.kill(int((tmp_path / "bg.pid").read_text()), signal.SIGKILL)
+
+    @pytest.mark.asyncio
+    async def test_a_command_still_running_times_out_with_its_group(self, tmp_path: Path) -> None:
+        with pytest.raises(TimeoutError):
+            await run_tool_shell("sleep 300 & echo $! > bg.pid; wait", cwd=str(tmp_path), timeout=1, max_output=1000)
+
+        assert await gone(int((tmp_path / "bg.pid").read_text()))

@@ -32,22 +32,74 @@ def kill_process_group(proc: asyncio.subprocess.Process) -> None:
     """SIGKILL the process group of *proc* (started with ``start_new_session=True``) at once.
 
     Synchronous: a cancelled caller runs it before it awaits anything, so
-    nothing the process started survives the cancel (KI-194).
+    nothing the process started survives the cancel (KI-194). Only while
+    *proc* was not reaped: the group's ID is its PID, which may name another
+    process group once it is free again (as tool_process._kill_group).
     """
-    _signal_group(proc.pid, signal.SIGKILL)
+    if proc.returncode is None:
+        _signal_group(proc.pid, signal.SIGKILL)
 
 
-async def communicate_in_group(proc: asyncio.subprocess.Process, timeout: float) -> tuple[bytes | None, bytes | None]:
-    """``proc.communicate()`` for at most *timeout* seconds; *proc* runs in a process group of its own.
+# How much a read of a command's output asks for at once.
+_READ_CHUNK = 64 * 1024
+
+
+class _CappedOutput:
+    """Output that keeps its first and last *limit*/2 bytes (the summary of a test run is at its end);
+    what lies between is dropped, with a note, as it arrives."""
+
+    def __init__(self, limit: int) -> None:
+        self._half = limit // 2
+        self._head = bytearray()
+        self._tail = bytearray()
+        self._total = 0
+
+    def extend(self, chunk: bytes) -> None:
+        self._total += len(chunk)
+        if len(self._head) < self._half:
+            room = self._half - len(self._head)
+            self._head += chunk[:room]
+            chunk = chunk[room:]
+        self._tail += chunk
+        del self._tail[: max(0, len(self._tail) - self._half)]
+
+    def value(self) -> bytes:
+        dropped = self._total - len(self._head) - len(self._tail)
+        if dropped <= 0:
+            return bytes(self._head + self._tail)
+        return bytes(self._head) + f"\n\n... {dropped} bytes of output truncated ...\n\n".encode() + bytes(self._tail)
+
+
+async def _collect(stream: asyncio.StreamReader | None, sink: bytearray | _CappedOutput) -> None:
+    """Read *stream* to its end into *sink*; what arrived stays there when the read is cancelled."""
+    if stream is None:
+        return
+    while chunk := await stream.read(_READ_CHUNK):
+        sink.extend(chunk)
+
+
+async def _wait_in_group(
+    proc: asyncio.subprocess.Process,
+    timeout: float,
+    *sinks: tuple[asyncio.StreamReader | None, bytearray | _CappedOutput],
+) -> None:
+    """Read the output of *proc* into the sinks and wait for it, for at most *timeout* seconds.
 
     When it does not end in time (TimeoutError), when the caller is
     cancelled (a Stop, a run's wall clock, a worker shutdown) and when the
     wait fails, the whole group is killed: neither the command nor anything
-    it started keeps running or holds its pipes (KI-194).
+    it started keeps running or holds its pipes (KI-194). A command that
+    ended while what it started in the background still holds its pipes is
+    not a timeout: the read stops with what arrived, and the job keeps
+    running (KI-194 review).
     """
     try:
-        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        async with asyncio.timeout(timeout):
+            await asyncio.gather(*(_collect(stream, sink) for stream, sink in sinks))
+            await proc.wait()
     except TimeoutError:
+        if proc.returncode is not None:
+            return
         kill_process_group(proc)
         await proc.wait()
         raise
@@ -56,31 +108,14 @@ async def communicate_in_group(proc: asyncio.subprocess.Process, timeout: float)
         raise
 
 
-# How much a read of capped output asks for at once.
-_READ_CHUNK = 64 * 1024
+async def communicate_in_group(proc: asyncio.subprocess.Process, timeout: float) -> tuple[bytes, bytes]:
+    """``proc.communicate()`` for at most *timeout* seconds; *proc* runs in a process group of its own.
 
-
-async def _read_capped(stream: asyncio.StreamReader | None, limit: int) -> bytes:
-    """Read *stream* to its end, keeping its first and last *limit*/2 bytes (the summary of a
-    test run is at its end); what lies between is dropped, with a note, as it arrives."""
-    if stream is None:
-        return b""
-    half = limit // 2
-    head = bytearray()
-    tail = bytearray()
-    total = 0
-    while chunk := await stream.read(_READ_CHUNK):
-        total += len(chunk)
-        if len(head) < half:
-            room = half - len(head)
-            head += chunk[:room]
-            chunk = chunk[room:]
-        tail += chunk
-        del tail[: max(0, len(tail) - half)]
-    dropped = total - len(head) - len(tail)
-    if dropped <= 0:
-        return bytes(head + tail)
-    return bytes(head) + f"\n\n... {dropped} bytes of output truncated ...\n\n".encode() + bytes(tail)
+    Raises TimeoutError when the command does not end in time; see _wait_in_group.
+    """
+    stdout, stderr = bytearray(), bytearray()
+    await _wait_in_group(proc, timeout, (proc.stdout, stdout), (proc.stderr, stderr))
+    return bytes(stdout), bytes(stderr)
 
 
 async def run_tool_shell(command: str, *, cwd: str | None, timeout: float, max_output: int) -> tuple[int, str]:
@@ -88,7 +123,8 @@ async def run_tool_shell(command: str, *, cwd: str | None, timeout: float, max_o
 
     It runs in a process group of its own for at most *timeout* seconds
     (then TimeoutError). On a timeout, a cancel or an error the whole group
-    is killed. The output keeps its first and last *max_output*/2 bytes.
+    is killed (see _wait_in_group). The output keeps its first and last
+    *max_output*/2 bytes.
     """
     proc = await start_tool_shell(
         command,
@@ -98,18 +134,9 @@ async def run_tool_shell(command: str, *, cwd: str | None, timeout: float, max_o
         env=tool_env(),
         start_new_session=True,
     )
-    try:
-        async with asyncio.timeout(timeout):
-            output = await _read_capped(proc.stdout, max_output)
-            await proc.wait()
-    except TimeoutError:
-        kill_process_group(proc)
-        await proc.wait()
-        raise
-    except BaseException:
-        kill_process_group(proc)
-        raise
-    return proc.returncode or 0, output.decode("utf-8", errors="replace")
+    output = _CappedOutput(max_output)
+    await _wait_in_group(proc, timeout, (proc.stdout, output))
+    return proc.returncode or 0, output.value().decode("utf-8", errors="replace")
 
 
 async def terminate_process_group(
