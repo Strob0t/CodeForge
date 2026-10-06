@@ -139,6 +139,22 @@ func (s *Store) UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, f
 	return s.guardedUpdateResult(ctx, tag, err, reviewPipelineExistsSQL, "update review pipeline of plan", rp.PlanID)
 }
 
+// SetReviewBaseline stores the workspace baseline of a review pipeline whose
+// refactoring started without one (KI-94 review F1: the record enters
+// refactoring before the workspace is snapshot), if it is still refactoring
+// and holds none (compare-and-swap): domain.ErrConflict when it moved on or
+// holds a baseline, domain.ErrNotFound when there is none in the tenant.
+func (s *Store) SetReviewBaseline(ctx context.Context, planID, baselineSHA string) error {
+	if baselineSHA == "" {
+		return fmt.Errorf("%w: a review baseline needs a commit", domain.ErrValidation)
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE review_pipelines SET baseline_sha = $3, updated_at = now()
+		 WHERE plan_id = $1 AND tenant_id = $2 AND state = $4 AND baseline_sha = ''`,
+		planID, tenantFromCtx(ctx), baselineSHA, string(review.PipelineRefactoring))
+	return s.guardedUpdateResult(ctx, tag, err, reviewPipelineExistsSQL, "store the baseline of the review pipeline of plan", planID)
+}
+
 // ListPendingReviewDecisions returns the review pipelines of a project in the
 // current tenant whose refactoring waits for a keep or undo decision, oldest
 // first.

@@ -61,6 +61,13 @@ type fakeReviewStore struct {
 	editsLimit   int
 	editsErr     error
 	editsDeleted []string
+	// beforeUpdate runs at the start of UpdateReviewPipeline and
+	// beforeBaseline at the start of SetReviewBaseline, once each (they may
+	// change the workspace or call into the service); baselineErr fails
+	// SetReviewBaseline.
+	beforeUpdate   func(from review.PipelineState)
+	beforeBaseline func()
+	baselineErr    error
 }
 
 func (f *fakeReviewStore) UpdateTaskStatus(_ context.Context, id string, status task.Status) error {
@@ -140,6 +147,10 @@ func (f *fakeReviewStore) ListPendingReviewDecisions(_ context.Context, projectI
 }
 
 func (f *fakeReviewStore) UpdateReviewPipeline(_ context.Context, rp *review.Pipeline, from review.PipelineState) error {
+	if hook := f.beforeUpdate; hook != nil {
+		f.beforeUpdate = nil
+		hook(from)
+	}
 	stored, ok := f.pipelines[rp.PlanID]
 	if !ok {
 		return domain.ErrNotFound

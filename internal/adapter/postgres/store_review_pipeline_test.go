@@ -93,6 +93,41 @@ func TestStore_ReviewPipeline(t *testing.T) {
 	}
 }
 
+// KI-94 review F1: the refactoring starts without a baseline, which is then
+// stored once, only while the record is refactoring and holds none.
+func TestStore_SetReviewBaseline(t *testing.T) {
+	a, b := newStatusFixture(t), newStatusFixture(t)
+	const baseline = "0123456789abcdef0123456789abcdef01234567"
+	p := a.reviewPlan(t)
+	rp := &review.Pipeline{PlanID: p.ID, ProjectID: a.project.ID}
+	if err := a.store.CreateReviewPipeline(a.ctx, rp); err != nil {
+		t.Fatalf("CreateReviewPipeline: %v", err)
+	}
+	if err := a.store.SetReviewBaseline(a.ctx, p.ID, baseline); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("SetReviewBaseline while pending = %v, want a conflict", err)
+	}
+	rp.State, rp.StepID = review.PipelineRefactoring, p.Steps[0].ID
+	if err := a.store.UpdateReviewPipeline(a.ctx, rp, review.PipelinePending); err != nil {
+		t.Fatalf("UpdateReviewPipeline: %v", err)
+	}
+	if err := a.store.SetReviewBaseline(a.ctx, p.ID, ""); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("SetReviewBaseline without a commit = %v, want a validation error", err)
+	}
+	if err := b.store.SetReviewBaseline(b.ctx, p.ID, baseline); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("SetReviewBaseline from another tenant = %v, want not found", err)
+	}
+	if err := a.store.SetReviewBaseline(a.ctx, p.ID, baseline); err != nil {
+		t.Fatalf("SetReviewBaseline: %v", err)
+	}
+	if err := a.store.SetReviewBaseline(a.ctx, p.ID, "89abcdef0123456789abcdef0123456789abcdef"); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("second SetReviewBaseline = %v, want a conflict", err)
+	}
+	got, err := a.store.GetReviewPipeline(a.ctx, p.ID)
+	if err != nil || got.State != review.PipelineRefactoring || got.BaselineSHA != baseline || got.StepID != p.Steps[0].ID {
+		t.Fatalf("review pipeline = %+v, %v, want refactoring with the first baseline", got, err)
+	}
+}
+
 // S6-F 7: one active review pipeline per project, and no agent shared with
 // another plan that has not ended.
 func TestStore_ReviewPipelineGuard(t *testing.T) {

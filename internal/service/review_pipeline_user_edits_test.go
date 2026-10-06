@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/plan"
+	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
@@ -92,6 +95,155 @@ func TestReviewPipeline_ApprovalRequestListsTheUserEdits(t *testing.T) {
 			t.Fatalf("request = %+v, want it announced without user edits", ev)
 		}
 	})
+}
+
+// --- review F1: edits while the baseline is taken ---
+
+func (f *fakeReviewStore) SetReviewBaseline(_ context.Context, planID, baselineSHA string) error {
+	if hook := f.beforeBaseline; hook != nil {
+		f.beforeBaseline = nil
+		hook()
+	}
+	if f.baselineErr != nil {
+		return f.baselineErr
+	}
+	stored, ok := f.pipelines[planID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if stored.State != review.PipelineRefactoring || stored.BaselineSHA != "" {
+		return domain.ErrConflict
+	}
+	updated := *stored
+	updated.BaselineSHA = baselineSHA
+	f.pipelines[planID] = &updated
+	return nil
+}
+
+// RecordReviewUserEdits records like postgres.Store: for each pipeline of
+// the project in state refactoring, one entry per path.
+func (f *fakeReviewStore) RecordReviewUserEdits(_ context.Context, projectID, userID string, op review.UserEditOp, paths []string) error {
+	for planID, rp := range f.pipelines {
+		if rp.ProjectID != projectID || rp.State != review.PipelineRefactoring {
+			continue
+		}
+		if f.userEdits == nil {
+			f.userEdits = map[string][]review.UserEdit{}
+		}
+		for _, p := range paths {
+			edits := slices.DeleteFunc(f.userEdits[planID], func(e review.UserEdit) bool { return e.Path == p })
+			f.userEdits[planID] = append(edits, review.UserEdit{Path: p, Operation: op, UserID: userID, EditedAt: time.Now()})
+		}
+	}
+	return nil
+}
+
+// preparingFixture is a started review pipeline whose refactorer step
+// (run-4) is about to be prepared, with the file API on its workspace
+// recording user edits.
+func preparingFixture(t *testing.T) (f *reviewFixture, step *plan.Step, files *FileService) {
+	t.Helper()
+	f = newReviewFixture(t)
+	if _, err := f.svc.StartReviewPipeline(f.ctx, "proj-1"); err != nil {
+		t.Fatalf("StartReviewPipeline: %v", err)
+	}
+	step = &plan.Step{ID: "step-3", PlanID: "plan-1", ModeID: "refactorer", RunID: "run-4", Status: plan.StepStatusRunning}
+	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusRunning, Steps: []plan.Step{*step}}
+	files = NewFileService(&mockStore{projects: []project.Project{{ID: "proj-1", WorkspacePath: f.dir}}})
+	files.SetReviewEditRecorder(f.store)
+	return f, step, files
+}
+
+// A user change made while PrepareStep takes the baseline is in the
+// baseline or listed for the decision, never part of the refactoring
+// unannounced: the pipeline enters state refactoring - and user edits are
+// recorded - before the workspace is snapshot.
+func TestReviewPipeline_EditsWhilePreparingAreInTheBaselineOrListed(t *testing.T) {
+	f, step, files := preparingFixture(t)
+	write := func(name string) {
+		if err := files.WriteFile(f.ctx, "proj-1", name, "user\n", "u1"); err != nil {
+			t.Errorf("WriteFile(%s): %v", name, err)
+		}
+	}
+	f.store.beforeUpdate = func(from review.PipelineState) {
+		if from == review.PipelinePending {
+			write("before.go") // the record is still pending
+		}
+	}
+	f.store.beforeBaseline = func() { write("after.go") } // the snapshot is taken, not stored yet
+
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
+	writeLines(t, f.dir, "a.go", 300, "rewritten") // the refactoring
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
+		t.Fatalf("GateStep = %s, want waiting for approval", got)
+	}
+	listed := map[string]bool{}
+	for _, e := range approvalRequest(t, f).UserEdits {
+		listed[e.Path] = true
+	}
+	baseline := f.store.pipelines["plan-1"].BaselineSHA
+	for _, name := range []string{"before.go", "after.go"} {
+		inBaseline := exec.Command("git", "cat-file", "-e", baseline+":"+name) //nolint:gosec // test command on a temp repository
+		inBaseline.Dir = f.dir
+		if inBaseline.Run() != nil && !listed[name] {
+			t.Errorf("%s was changed while the baseline was taken: neither in the baseline nor listed (listed %v)", name, listed)
+		}
+	}
+}
+
+// A baseline that cannot be stored leaves the refactoring without one,
+// which fails closed: the gate asks for a decision with the reason, and the
+// change can be kept but not undone.
+func TestReviewPipeline_UnstoredBaselineFailsClosed(t *testing.T) {
+	f, step, _ := preparingFixture(t)
+	f.store.baselineErr = errors.New("connection reset")
+
+	if err := f.svc.PrepareStep(f.ctx, step); err == nil {
+		t.Fatal("PrepareStep succeeded without storing the baseline")
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineRefactoring || rp.BaselineSHA != "" || rp.StepID != step.ID {
+		t.Fatalf("review record = %+v, want refactoring without a baseline", rp)
+	}
+	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+		t.Fatal("the ref of a baseline that was not stored is kept")
+	}
+
+	writeLines(t, f.dir, "a.go", 101, "line") // a small change
+	if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
+		t.Fatalf("GateStep = %s, want waiting for approval", got)
+	}
+	if ev := approvalRequest(t, f); ev.Reason == "" {
+		t.Fatalf("request = %+v, want the reason", ev)
+	}
+	step.Status = plan.StepStatusWaitingApproval
+	f.store.plans["plan-1"].Steps = []plan.Step{*step}
+	if _, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, false); !errors.Is(err, domain.ErrValidation) {
+		t.Fatalf("Decide(undo) = %v, want a validation error", err)
+	}
+	if d, err := f.svc.Decide(f.ctx, "run-4", "plan-1", step.ID, true); err != nil || d.Status != "approved" {
+		t.Fatalf("Decide(keep) = %+v, %v", d, err)
+	}
+}
+
+// The plan ends while the baseline is taken: the pipeline is done and the
+// baseline ref written meanwhile does not stay.
+func TestReviewPipeline_PlanEndWhileTheBaselineIsTaken(t *testing.T) {
+	f, step, _ := preparingFixture(t)
+	f.store.plans["plan-1"] = &plan.ExecutionPlan{ID: "plan-1", ProjectID: "proj-1", Status: plan.StatusCancelled,
+		Steps: []plan.Step{{ID: step.ID, PlanID: "plan-1", ModeID: "refactorer", Status: plan.StepStatusCancelled}}}
+	f.store.beforeBaseline = func() { f.svc.PlanEnded(f.ctx, "plan-1", string(plan.StatusCancelled)) }
+
+	if err := f.svc.PrepareStep(f.ctx, step); err != nil {
+		t.Fatalf("PrepareStep: %v", err)
+	}
+	if rp := f.store.pipelines["plan-1"]; rp.State != review.PipelineDone || rp.BaselineSHA != "" {
+		t.Fatalf("review record = %+v, want the ended pipeline done without a baseline", rp)
+	}
+	if hasRef(t, f.dir, reviewBaselineRef("plan-1")) {
+		t.Fatal("the baseline ref of a pipeline that ended meanwhile dangles")
+	}
 }
 
 func TestReviewPipeline_PendingDecisionsListTheUserEdits(t *testing.T) {

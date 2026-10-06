@@ -76,6 +76,7 @@ type reviewPipelineStore interface {
 	CreateReviewPipeline(ctx context.Context, rp *review.Pipeline) error
 	GetReviewPipeline(ctx context.Context, planID string) (*review.Pipeline, error)
 	UpdateReviewPipeline(ctx context.Context, rp *review.Pipeline, from review.PipelineState) error
+	SetReviewBaseline(ctx context.Context, planID, baselineSHA string) error
 	ListPendingReviewDecisions(ctx context.Context, projectID string) ([]review.Pipeline, error)
 	HasActiveReviewPipeline(ctx context.Context, projectID string) (bool, error)
 	GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error)
@@ -397,6 +398,14 @@ func (s *ReviewPipelineService) NeedsPreparation(step *plan.Step) bool {
 // re-planned refactoring step keeps the first baseline. A refactorer step of
 // a plan the review pipeline did not start needs nothing. An error fails the
 // step: the refactoring could be neither measured nor undone.
+//
+// The pipeline enters state refactoring before the workspace is snapshot
+// (KI-94 review F1): from then on user edits through the file API are
+// recorded, so a change made while the snapshot is taken is in the baseline
+// or listed for the decision. The baseline is then stored with a
+// compare-and-swap on (refactoring, no baseline). A record left without a
+// baseline fails closed: the gate asks for a decision and an undo is
+// refused.
 func (s *ReviewPipelineService) PrepareStep(ctx context.Context, step *plan.Step) error {
 	rp, err := s.store.GetReviewPipeline(ctx, step.PlanID)
 	if errors.Is(err, domain.ErrNotFound) {
@@ -412,24 +421,35 @@ func (s *ReviewPipelineService) PrepareStep(ctx context.Context, step *plan.Step
 	if err != nil {
 		return fmt.Errorf("get project: %w", err)
 	}
+	rp.State, rp.StepID, rp.BaselineSHA = review.PipelineRefactoring, step.ID, ""
+	err = s.store.UpdateReviewPipeline(ctx, rp, review.PipelinePending)
+	if errors.Is(err, domain.ErrConflict) {
+		// The pipeline moved on meanwhile: its plan ended, or another attempt
+		// started the refactoring and takes the baseline.
+		slog.Info("review baseline not taken: the review pipeline moved on", "plan_id", rp.PlanID, "step_id", step.ID)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("record the refactoring start: %w", err)
+	}
+
+	var ours string
 	err = s.git.Run(ctx, func() error {
 		repo, err := git.OpenRepo(ctx, proj.WorkspacePath)
 		if err != nil {
 			return err
 		}
-		rp.BaselineSHA, err = snapshotWorkspace(ctx, repo, rp.PlanID, reviewBaselineRef(rp.PlanID), "codeforge-review-baseline")
+		ours, err = snapshotWorkspace(ctx, repo, rp.PlanID, reviewBaselineRef(rp.PlanID), "codeforge-review-baseline")
 		return err
 	})
 	if err != nil {
+		// The record stays refactoring without a baseline, which fails closed.
 		return fmt.Errorf("record the workspace baseline: %w", err)
 	}
-	ours := rp.BaselineSHA
-	rp.State, rp.StepID = review.PipelineRefactoring, step.ID
-	err = s.store.UpdateReviewPipeline(ctx, rp, review.PipelinePending)
+	err = s.store.SetReviewBaseline(ctx, rp.PlanID, ours)
 	if errors.Is(err, domain.ErrConflict) {
 		// The pipeline moved on meanwhile - its plan ended (PlanEnded already
-		// dropped the refs) or another attempt recorded its baseline: the ref
-		// written here must not stay (S6-F review 8).
+		// dropped the refs): the ref written here must not stay (S6-F review 8).
 		s.releaseBaseline(ctx, proj.WorkspacePath, rp.PlanID, ours)
 		slog.Info("review baseline not recorded: the review pipeline moved on", "plan_id", rp.PlanID, "step_id", step.ID)
 		return nil
@@ -438,7 +458,7 @@ func (s *ReviewPipelineService) PrepareStep(ctx context.Context, step *plan.Step
 		s.releaseBaseline(ctx, proj.WorkspacePath, rp.PlanID, ours)
 		return fmt.Errorf("record the workspace baseline: %w", err)
 	}
-	slog.Info("review refactoring baseline recorded", "plan_id", rp.PlanID, "step_id", step.ID, "baseline", rp.BaselineSHA)
+	slog.Info("review refactoring baseline recorded", "plan_id", rp.PlanID, "step_id", step.ID, "baseline", ours)
 	return nil
 }
 

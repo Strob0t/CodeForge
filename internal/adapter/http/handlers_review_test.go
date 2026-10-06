@@ -164,6 +164,9 @@ func (decisionStore) ListReviewUserEdits(_ context.Context, planID string, _ int
 	return []review.UserEdit{{Path: "a.go", Operation: review.UserEditWrite, UserID: "u1", UserName: "Ada"}}, 1, nil
 }
 func (decisionStore) DeleteReviewUserEdits(context.Context, string) error { return nil }
+func (decisionStore) SetReviewBaseline(context.Context, string, string) error {
+	return domain.ErrConflict
+}
 func (decisionStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
 	if planID != "plan-1" {
 		return nil, domain.ErrNotFound
