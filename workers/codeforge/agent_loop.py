@@ -882,7 +882,7 @@ class AgentLoopExecutor:
         The repair message goes into the loop's messages only (not
         state.tool_messages), without the malformed reply.
         """
-        await self._record_llm_turn(cfg, state, response, llm_decision, full_text)
+        await self._record_llm_turn(cfg, state, response, llm_decision, full_text, usable=False)
         if state.protocol_repairs >= _MAX_PROTOCOL_REPAIRS:
             return IterationError(f"text tool protocol: {error.message}")
         state.protocol_repairs += 1
@@ -898,8 +898,15 @@ class AgentLoopExecutor:
         response: ChatCompletionResponse,
         llm_decision: ToolCallDecision,
         full_text: str,
+        *,
+        usable: bool = True,
     ) -> None:
-        """Account an LLM reply: cost and tokens, its LLM tool result, trajectory and routing outcome."""
+        """Account an LLM reply: cost and tokens, its LLM tool result, trajectory and routing outcome.
+
+        An unusable text protocol reply (*usable* False) is a failed routing
+        outcome: the call worked, but the MAB router must not learn that
+        the model did the job.
+        """
         cost = resolve_cost(response.cost_usd, response.model, response.tokens_in, response.tokens_out)
         state.total_cost += cost
         state.total_tokens_in += response.tokens_in
@@ -937,7 +944,7 @@ class AgentLoopExecutor:
                 model=response.model or cfg.model,
                 task_type=cfg.task_type,
                 complexity_tier=cfg.complexity_tier,
-                success=True,
+                success=usable,
                 cost_usd=cost,
                 latency_ms=0,
                 tokens_in=response.tokens_in,

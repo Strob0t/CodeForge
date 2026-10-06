@@ -285,6 +285,18 @@ async def test_two_unusable_replies_in_a_row_end_the_run(tmp_path: Path) -> None
     assert len(llm_reports) == 2
 
 
+async def test_an_unusable_reply_is_a_failed_routing_outcome(tmp_path: Path) -> None:
+    """S9-C review, finding 7: the MAB router learned that an unusable reply succeeded."""
+    llm = ScriptedLLM([_reply('{"thought": "x", "tool": "rm_rf", "args": {}}'), _final("Fixed.")])
+    record = AsyncMock()
+
+    with patch("codeforge.agent_loop._record_routing_outcome", record):
+        await _run(llm, tmp_path, routing_layer="mab", task_type="code", complexity_tier="simple")
+
+    assert [c.kwargs["success"] for c in record.await_args_list] == [False, True]
+    assert record.await_args_list[0].kwargs["tokens_out"] == 20, "the failed turn is still costed"
+
+
 async def test_repairs_are_counted_in_a_row_only(tmp_path: Path) -> None:
     bad = _reply('{"thought": "x", "tool": "nope", "args": {}}')
     llm = ScriptedLLM([bad, _call("bash", {"command": "ls"}), bad, _final("Done.")])
