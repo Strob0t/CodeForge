@@ -21,6 +21,11 @@ const (
 	DefaultNetworkTimeout = 10 * time.Minute
 )
 
+// checkTimeout bounds OpenRepo's checks as a whole (capped by the command
+// deadline): they run before any work, and each OpenRepo holds a slot of
+// the git pool all tenants share (a variable for tests).
+var checkTimeout = 20 * time.Second
+
 // ErrGitTimeout: a git command ran into its deadline or the caller's.
 var ErrGitTimeout = errors.New("git command deadline exceeded")
 

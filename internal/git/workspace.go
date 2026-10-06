@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,8 +33,9 @@ import (
 //     every filter driver the repository config defines, so LFS repositories
 //     keep working with their files as plain content; it also fixes the keys
 //     that size processes, threads and memory windows (KI-187);
-//   - every git process ends at a deadline (deadline.go), and OpenRepo
-//     refuses FIFOs and devices where git opens files by name (special.go);
+//   - every git process ends at a deadline (deadline.go), OpenRepo's checks
+//     at a shorter one, and OpenRepo refuses FIFOs and devices where git
+//     opens files by name (special.go);
 //   - OpenRepo reads the repository config without running anything and
 //     refuses the repository (fail closed) for any key outside an allowlist of
 //     data-only keys, for include/includeIf, core.worktree, a .git that is a
@@ -207,6 +209,8 @@ type Repo struct {
 // and returns it. It returns ErrNotRepository when dir has no .git and an
 // error wrapping ErrUnsafeRepository when git must not run in it.
 func OpenRepo(ctx context.Context, dir string) (*Repo, error) {
+	ctx, cancel := context.WithTimeout(ctx, min(checkTimeout, commandTimeout("")))
+	defer cancel()
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("workspace path: %w", err)
@@ -227,6 +231,9 @@ func OpenRepo(ctx context.Context, dir string) (*Repo, error) {
 		return nil, err
 	}
 	if err := r.refuseSpecialRootFiles(); err != nil {
+		return nil, err
+	}
+	if err := preScanIgnoreFiles(abs); err != nil {
 		return nil, err
 	}
 
@@ -295,12 +302,30 @@ func checkGitDir(gitDir string) error {
 	return nil
 }
 
+// maxObjectEntries bounds the entries of .git/objects the check reads; a
+// repository with more (loose objects git gc would pack) is refused.
+var maxObjectEntries = 200_000
+
+// looseObjectDir matches the fan-out directories of loose objects.
+var looseObjectDir = regexp.MustCompile(`^objects/[0-9a-f]{2}$`)
+
+// checkedObjectDir reports whether the walk of .git/objects enters the
+// directory rel: the fan-out directories of loose objects, info, the
+// commit-graph chain and pack (git opens their files by name).
+func checkedObjectDir(rel string) bool {
+	switch rel {
+	case "objects", "objects/info", "objects/info/commit-graphs", "objects/pack":
+		return true
+	}
+	return looseObjectDir.MatchString(rel)
+}
+
 // refuseSymlinkedDirs refuses a symlink, FIFO, socket or device anywhere in
-// the directory tree .git/name (objects: the directory, its immediate
-// entries and those of objects/info and objects/pack only; loose objects are
-// only read, and too many to check).
+// the directory tree .git/name (objects: the directories checkedObjectDir
+// names, at most maxObjectEntries entries).
 func refuseSymlinkedDirs(gitDir, name string) error {
 	root := filepath.Join(gitDir, name)
+	entries := 0
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && path == root {
 			return nil
@@ -316,7 +341,14 @@ func refuseSymlinkedDirs(gitDir, name string) error {
 		if isSpecial(d.Type()) {
 			return unsafeRepo(".git/" + rel + " is a FIFO, socket or device, which git would block on (KI-187)")
 		}
-		if name == "objects" && d.IsDir() && path != root && rel != "objects/info" && rel != "objects/pack" {
+		if name != "objects" {
+			return nil
+		}
+		entries++
+		if entries > maxObjectEntries {
+			return unsafeRepo(fmt.Sprintf(".git/objects has more than %d entries; pack them (git gc) to check the repository", maxObjectEntries))
+		}
+		if d.IsDir() && !checkedObjectDir(rel) {
 			return fs.SkipDir
 		}
 		return nil
@@ -445,6 +477,9 @@ func runGit(ctx context.Context, dir string, env []string, args ...string) (stri
 		op += " " + args[0]
 	}
 	timeout := commandTimeout(strings.TrimPrefix(op, "git "))
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < timeout {
+		timeout = time.Until(deadline) // the caller's deadline, reported as the effective one
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

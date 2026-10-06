@@ -63,11 +63,12 @@ func openWithin(ctx context.Context, t *testing.T, dir string) error {
 	}
 }
 
-// A FIFO .gitignore in a new directory is read by the listing of ignored
-// directories before any check can see it: the command's own deadline ends
-// it, without a deadline on the caller's context.
+// A FIFO .gitignore in a new directory that the pre-scan did not reach is
+// read by the listing of ignored directories: the command's own deadline
+// ends it, without a deadline on the caller's context.
 func TestOpenRepo_FIFOEndsAtTheCommandDeadline(t *testing.T) {
 	setTimeouts(t, 2*time.Second, time.Minute)
+	git.SetPreScanEntries(t, 1) // the pre-scan would refuse the FIFO first
 	dir := newRepo(t)
 	mkfifo(t, filepath.Join(dir, "new", ".gitignore"))
 
@@ -80,6 +81,7 @@ func TestOpenRepo_FIFOEndsAtTheCommandDeadline(t *testing.T) {
 // The caller's deadline still ends a command before its own.
 func TestOpenRepo_FIFOEndsAtTheCallersDeadline(t *testing.T) {
 	setTimeouts(t, time.Hour, time.Hour)
+	git.SetPreScanEntries(t, 1)
 	dir := newRepo(t)
 	mkfifo(t, filepath.Join(dir, "new", ".gitignore"))
 
