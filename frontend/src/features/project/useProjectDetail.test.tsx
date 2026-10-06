@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@solidjs/testing-library";
 import type { JSX } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Agent, Task } from "~/api/types";
+import type { Agent, GitStatus, Task } from "~/api/types";
 import type { WSMessage } from "~/api/websocket";
 
 const ws = vi.hoisted(() => {
@@ -18,6 +18,7 @@ const ws = vi.hoisted(() => {
 const apiMock = vi.hoisted(() => ({
   tasks: vi.fn<(projectId: string) => Promise<Task[]>>(),
   agents: vi.fn<(projectId: string) => Promise<Agent[]>>(),
+  gitStatus: vi.fn<(projectId: string) => Promise<GitStatus>>(),
 }));
 
 // jsdom has no matchMedia; the UI modules read it when they are loaded.
@@ -46,8 +47,8 @@ vi.mock("@solidjs/router", () => ({
 vi.mock("~/api/client", () => ({
   api: {
     projects: {
-      get: (id: string) => Promise.resolve({ id, name: "P", config: {} }),
-      gitStatus: () => Promise.resolve(null),
+      get: (id: string) => Promise.resolve({ id, name: "P", config: {}, workspace_path: "/ws" }),
+      gitStatus: apiMock.gitStatus,
       branches: () => Promise.resolve([]),
     },
     tasks: { list: apiMock.tasks },
@@ -99,8 +100,18 @@ function renderDetail() {
   return result;
 }
 
+const onMain: GitStatus = {
+  branch: "main",
+  commit_hash: "abc",
+  commit_message: "",
+  dirty: false,
+  ahead: 0,
+  behind: 0,
+};
+
 beforeEach(() => {
   ws.handlers.clear();
+  apiMock.gitStatus.mockReset().mockResolvedValue(onMain);
   apiMock.tasks.mockReset().mockResolvedValue([task("t-1", "a-1")]);
   apiMock.agents.mockReset().mockResolvedValue([
     {
@@ -220,5 +231,66 @@ describe("useProjectDetail live output", () => {
     });
 
     await waitFor(() => expect(detail.activeRunCost()?.steps).toBe(12));
+  });
+});
+
+// KI-129: the branch badge updated only on a reload.
+describe("useProjectDetail branch badge", () => {
+  async function loaded() {
+    const detail = renderDetail();
+    await waitFor(() => expect(detail.gitStatus()?.branch).toBe("main"));
+    return detail;
+  }
+
+  it("refreshes when a run of the project ends", async () => {
+    const detail = await loaded();
+    const before = apiMock.gitStatus.mock.calls.length;
+    const runStatus = (projectId: string, status: string) =>
+      ws.emit("run.status", { run_id: "r-1", task_id: "t-1", project_id: projectId, status });
+
+    runStatus("p-1", "running");
+    runStatus("p-2", "completed");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(apiMock.gitStatus.mock.calls.length).toBe(before);
+
+    apiMock.gitStatus.mockResolvedValue({ ...onMain, branch: "agent/fix" });
+    runStatus("p-1", "completed");
+    await waitFor(() => expect(detail.gitStatus()?.branch).toBe("agent/fix"));
+    expect(apiMock.gitStatus.mock.calls.length).toBe(before + 1);
+  });
+
+  it("refreshes when a delivery of the project completes", async () => {
+    await loaded();
+    const before = apiMock.gitStatus.mock.calls.length;
+    ws.emit("run.delivery", { run_id: "r-1", project_id: "p-1", status: "started" });
+    ws.emit("run.delivery", { run_id: "r-9", project_id: "p-2", status: "completed" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(apiMock.gitStatus.mock.calls.length).toBe(before);
+
+    ws.emit("run.delivery", { run_id: "r-1", project_id: "p-1", status: "completed" });
+    await waitFor(() => expect(apiMock.gitStatus.mock.calls.length).toBe(before + 1));
+  });
+
+  // A burst of tool results asks for the status once, and once more after.
+  it("coalesces refreshes while one is in flight", async () => {
+    const detail = await loaded();
+    const before = apiMock.gitStatus.mock.calls.length;
+    detail.refreshGitStatus();
+    detail.refreshGitStatus();
+    detail.refreshGitStatus();
+    expect(apiMock.gitStatus.mock.calls.length).toBe(before + 1);
+    await waitFor(() => expect(apiMock.gitStatus.mock.calls.length).toBe(before + 2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(apiMock.gitStatus.mock.calls.length).toBe(before + 2);
+  });
+
+  it("keeps refreshing after a failed request", async () => {
+    await loaded();
+    const before = apiMock.gitStatus.mock.calls.length;
+    apiMock.gitStatus.mockRejectedValueOnce(new Error("git failed"));
+    ws.emit("run.status", { run_id: "r-1", task_id: "t-1", project_id: "p-1", status: "failed" });
+    await waitFor(() => expect(apiMock.gitStatus.mock.calls.length).toBe(before + 1));
+    ws.emit("run.status", { run_id: "r-2", task_id: "t-1", project_id: "p-1", status: "failed" });
+    await waitFor(() => expect(apiMock.gitStatus.mock.calls.length).toBe(before + 2));
   });
 });

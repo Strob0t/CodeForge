@@ -20,6 +20,12 @@ interface UseChatAGUIOptions {
   scrollToBottom: () => void;
   refetchMessages: () => void;
   refetchSession: () => void;
+  /**
+   * Called when the active conversation's agent may have changed the
+   * workspace (a tool result, the turn's end), e.g. to refresh the branch
+   * badge (KI-129).
+   */
+  onWorkspaceActivity?: () => void;
 }
 
 export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
@@ -159,13 +165,15 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
           tc.callId === callId
             ? {
                 ...tc,
-                result: payload.result as string,
+                // A denied call has no output, only the reason as its error.
+                result: (payload.result as string | undefined) || error,
                 status: error ? "failed" : "completed",
                 diff,
               }
             : tc,
         ),
       );
+      opts.onWorkspaceActivity?.();
       // Track running cost if the event carries it
       if (typeof payload.cost_usd === "number") {
         setRunningCost((prev) => prev + (payload.cost_usd as number));
@@ -237,6 +245,7 @@ export function useChatAGUI(opts: UseChatAGUIOptions): ChatAGUIState {
 
       opts.refetchMessages();
       opts.refetchSession();
+      opts.onWorkspaceActivity?.();
     }
   });
 

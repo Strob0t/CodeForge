@@ -879,6 +879,7 @@ export default function ProjectDetailPage() {
                       activeTab={leftTab()}
                       switchToConversation={switchToConversation}
                       prefillMessage={prefillMessage()}
+                      onWorkspaceActivity={pd.refreshGitStatus}
                     />
                   </ErrorBoundary>
                 </div>

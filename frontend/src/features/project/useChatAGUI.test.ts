@@ -49,7 +49,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   return { promise, resolve };
 }
 
-function setup(first: string) {
+function setup(first: string, onWorkspaceActivity?: () => void) {
   ws.handlers.clear();
   return createRoot((dispose) => {
     const [conv, setConv] = createSignal<string | null>(first);
@@ -58,6 +58,7 @@ function setup(first: string) {
       scrollToBottom: () => undefined,
       refetchMessages: () => undefined,
       refetchSession: () => undefined,
+      onWorkspaceActivity,
     });
     return { agui, setConv, dispose };
   });
@@ -124,6 +125,72 @@ describe("useChatAGUI", () => {
     await settle();
     emit("agui.permission_request", { ...approval("c1") });
     expect(agui.permissionRequests()).toHaveLength(1);
+    dispose();
+  });
+
+  // KI-129, KI-161: a conversation turn shows its tool calls while it runs.
+  it("shows a tool card live and completes it from its result", async () => {
+    apiMock.runState.mockReset().mockResolvedValue(idle);
+    const { agui, dispose } = setup("conv-1");
+    await settle();
+    emit("agui.tool_call", {
+      run_id: "conv-1",
+      call_id: "c1",
+      name: "read_file",
+      args: '{"path": "a.go"}',
+    });
+    expect(agui.toolCalls()).toEqual([
+      { callId: "c1", name: "read_file", args: { path: "a.go" }, status: "running" },
+    ]);
+    emit("agui.tool_result", { run_id: "conv-1", call_id: "c1", result: "package a" });
+    expect(agui.toolCalls()[0]).toMatchObject({ status: "completed", result: "package a" });
+    dispose();
+  });
+
+  // A denied call has no output; its card shows why it was denied.
+  it("shows the error of a failed call without output", async () => {
+    apiMock.runState.mockReset().mockResolvedValue(idle);
+    const { agui, dispose } = setup("conv-1");
+    await settle();
+    emit("agui.tool_call", { run_id: "conv-1", call_id: "c1", name: "bash", args: "" });
+    emit("agui.tool_result", {
+      run_id: "conv-1",
+      call_id: "c1",
+      result: "",
+      error: "Permission denied: not allowed",
+    });
+    expect(agui.toolCalls()[0]).toMatchObject({
+      status: "failed",
+      result: "Permission denied: not allowed",
+    });
+    dispose();
+  });
+
+  it("ignores the tool calls of another conversation", async () => {
+    apiMock.runState.mockReset().mockResolvedValue(idle);
+    const { agui, dispose } = setup("conv-1");
+    await settle();
+    emit("agui.tool_call", { run_id: "conv-2", call_id: "c1", name: "bash", args: "" });
+    emit("agui.tool_result", { run_id: "conv-2", call_id: "c1", result: "x" });
+    expect(agui.toolCalls()).toEqual([]);
+    dispose();
+  });
+
+  // The branch badge follows what the agent did in the workspace.
+  it("reports workspace activity on tool results and the turn's end", async () => {
+    apiMock.runState.mockReset().mockResolvedValue(idle);
+    const activity = vi.fn();
+    const { dispose } = setup("conv-1", activity);
+    await settle();
+    emit("agui.tool_call", { run_id: "conv-1", call_id: "c1", name: "bash", args: "" });
+    expect(activity).not.toHaveBeenCalled();
+    emit("agui.tool_result", { run_id: "conv-1", call_id: "c1", result: "ok" });
+    expect(activity).toHaveBeenCalledTimes(1);
+    emit("agui.tool_result", { run_id: "conv-2", call_id: "c9", result: "ok" });
+    emit("agui.run_finished", { run_id: "conv-2", status: "completed" });
+    expect(activity).toHaveBeenCalledTimes(1);
+    emit("agui.run_finished", { run_id: "conv-1", status: "completed" });
+    expect(activity).toHaveBeenCalledTimes(2);
     dispose();
   });
 });

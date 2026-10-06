@@ -21,6 +21,9 @@ function isAutoAgentStatus(p: unknown): p is AutoAgentStatus {
   return typeof p === "object" && p !== null && "id" in p && "project_id" in p && "status" in p;
 }
 
+/** The run statuses after which the run no longer changes the workspace. */
+const RUN_ENDED = new Set(["completed", "failed", "cancelled", "timeout"]);
+
 export interface RunCostState {
   costUsd: number;
   tokensIn: number;
@@ -57,6 +60,28 @@ export function useProjectDetail(projectId: () => string) {
   const [agents, { refetch: refetchAgents }] = createResource(projectId, (id) =>
     api.agents.list(id),
   );
+
+  // What agents do in the workspace (a run ends or delivers, a chat tool
+  // call) refreshes the branch badge (KI-129): one git status request at a
+  // time, and one more after it when activity came in meanwhile.
+  let gitStatusInFlight = false;
+  let gitStatusAgain = false;
+  const refreshGitStatus = (): void => {
+    if (!project()?.workspace_path) return;
+    if (gitStatusInFlight) {
+      gitStatusAgain = true;
+      return;
+    }
+    gitStatusInFlight = true;
+    const done = (): void => {
+      gitStatusInFlight = false;
+      if (gitStatusAgain) {
+        gitStatusAgain = false;
+        refreshGitStatus();
+      }
+    };
+    void Promise.resolve(refetchGitStatus()).then(done, done);
+  };
 
   // Onboarding data
   const [onboardGoals] = createResource(projectId, (pid) => api.goals.list(pid).catch(() => []));
@@ -118,6 +143,7 @@ export function useProjectDetail(projectId: () => string) {
           if (status === "completed") toast("info", t("detail.toast.runCompleted"));
           else if (status === "failed") toast("error", t("detail.toast.runFailed"));
           else if (status === "cancelled") toast("info", t("detail.toast.runCancelled"));
+          if (RUN_ENDED.has(status)) refreshGitStatus();
 
           const costUsd = payload.cost_usd as number | undefined;
           if (costUsd !== undefined) {
@@ -134,8 +160,14 @@ export function useProjectDetail(projectId: () => string) {
       }
       case "run.toolcall":
         break;
+      case "run.delivery": {
+        // A delivery commits, and may create and check out a branch.
+        if ((payload.project_id as string) === pid && payload.status === "completed") {
+          refreshGitStatus();
+        }
+        break;
+      }
       case "run.qualitygate":
-      case "run.delivery":
       case "plan.step.status":
       case "repomap.status":
       case "retrieval.status":
@@ -245,6 +277,7 @@ export function useProjectDetail(projectId: () => string) {
     tasks,
     refetchTasks,
     gitStatus,
+    refreshGitStatus,
     agents,
     refetchAgents,
     onboardGoals,

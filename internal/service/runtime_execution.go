@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/Strob0t/CodeForge/internal/git"
 	"github.com/Strob0t/CodeForge/internal/port/messagequeue"
 	"github.com/Strob0t/CodeForge/internal/telemetry"
+	"github.com/Strob0t/CodeForge/internal/tenantctx"
 )
 
 func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *messagequeue.ToolCallRequestPayload) error {
@@ -340,6 +342,15 @@ func (s *RuntimeService) handleConversationToolCall(ctx context.Context, req *me
 	// Broadcast WS tool call status.
 	s.broadcastToolCallStatus(ctx, req.RunID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
+	// The chat shows the call as a live tool card, as for runs; the worker's
+	// result completes it (KI-161).
+	s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
+		RunID:  req.RunID,
+		CallID: req.CallID,
+		Name:   req.Tool,
+		Args:   cappedArgumentsPreview(req.ArgumentsPreview),
+	})
+
 	return s.sendToolCallResponse(ctx, req.RunID, req.CallID, string(decision), denialReason(decision, result))
 }
 
@@ -380,10 +391,6 @@ const maxArgumentsPreviewBytes = 4096
 // before the project's Allow-Always clone was applied: Allow-Always extends
 // the project's clone of it.
 func permissionRequest(runID string, req *messagequeue.ToolCallRequestPayload, profile string) *event.AGUIPermissionRequestEvent {
-	preview := req.ArgumentsPreview
-	if len(preview) > maxArgumentsPreviewBytes {
-		preview = truncateUTF8(preview, maxArgumentsPreviewBytes-len("...")) + "..."
-	}
 	return &event.AGUIPermissionRequestEvent{
 		RunID:            runID,
 		CallID:           req.CallID,
@@ -391,8 +398,17 @@ func permissionRequest(runID string, req *messagequeue.ToolCallRequestPayload, p
 		Command:          req.Command,
 		Path:             req.Path,
 		Profile:          profile,
-		ArgumentsPreview: preview,
+		ArgumentsPreview: cappedArgumentsPreview(req.ArgumentsPreview),
 	}
+}
+
+// cappedArgumentsPreview caps a worker's arguments preview at
+// maxArgumentsPreviewBytes without splitting a UTF-8 character.
+func cappedArgumentsPreview(preview string) string {
+	if len(preview) <= maxArgumentsPreviewBytes {
+		return preview
+	}
+	return truncateUTF8(preview, maxArgumentsPreviewBytes-len("...")) + "..."
 }
 
 // policyEvalOptions returns the policy evaluation options for a tool call:
@@ -469,6 +485,12 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 		// Conversation-based runs don't have a run record.
 		// Cost/token tracking for conversations happens via WebSocket events.
 		slog.Debug("tool call result for conversation run", "run_id", result.RunID, "cost", result.CostUSD)
+		// The result completes the conversation's live tool card (KI-161),
+		// shown to the tenant the worker reports; delivered again, it
+		// completes the same card again.
+		if _, hasTenant := tenantctx.Lookup(ctx); hasTenant && errors.Is(err, domain.ErrNotFound) {
+			s.hub.BroadcastEvent(ctx, event.AGUIToolResult, aguiToolResult(result.RunID, result))
+		}
 		return nil
 	}
 
@@ -548,19 +570,25 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	s.broadcastToolCallStatus(ctx, r.ID, result.CallID, result.Tool, "result", "")
 
 	// Broadcast AG-UI tool_result alongside native event
-	toolResultErr := ""
-	if !result.Success {
-		toolResultErr = result.Output
-	}
-	s.hub.BroadcastEvent(ctx, event.AGUIToolResult, event.AGUIToolResultEvent{
-		RunID:  r.ID,
-		CallID: result.CallID,
-		Result: result.Output,
-		Error:  toolResultErr,
-		Diff:   result.Diff,
-	})
+	s.hub.BroadcastEvent(ctx, event.AGUIToolResult, aguiToolResult(r.ID, result))
 
 	return nil
+}
+
+// aguiToolResult is the AG-UI result of a reported tool call. A failed call
+// always carries an error, so the chat marks its card failed: the worker's
+// error, else its output (a denied call has only an error).
+func aguiToolResult(runID string, result *messagequeue.ToolCallResultPayload) event.AGUIToolResultEvent {
+	ev := event.AGUIToolResultEvent{
+		RunID:  runID,
+		CallID: result.CallID,
+		Result: result.Output,
+		Diff:   result.Diff,
+	}
+	if !result.Success {
+		ev.Error = cmp.Or(result.Error, result.Output, "tool call failed")
+	}
+	return ev
 }
 
 // countToolUsage adds a tool call's usage to the counters of a running run

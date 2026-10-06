@@ -46,6 +46,8 @@ interface ChatPanelProps {
   activeTab?: string;
   /** External signal to switch to a specific conversation (e.g., from AI Discover). */
   switchToConversation?: () => string | null;
+  /** The agent may have changed the workspace (a tool result, the turn's end). */
+  onWorkspaceActivity?: () => void;
 }
 
 export default function ChatPanel(props: ChatPanelProps) {
@@ -159,6 +161,7 @@ export default function ChatPanel(props: ChatPanelProps) {
     scrollToBottom,
     refetchMessages: () => void refetchMessages(),
     refetchSession: () => void refetchSession(),
+    onWorkspaceActivity: () => props.onWorkspaceActivity?.(),
   });
 
   // Auto-scroll when messages change
