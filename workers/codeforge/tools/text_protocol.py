@@ -92,10 +92,11 @@ _EXAMPLES: tuple[tuple[str, str, dict[str, object]], ...] = (
 
 
 # Parser bounds: a reply is searched for its object in this many characters,
-# at this many "{" positions, with this many trailing commas removed.
+# at most at this many "{" positions.
 _MAX_SCAN_CHARS = 200_000
 _MAX_DECODE_ATTEMPTS = 64
-_MAX_COMMA_FIXES = 32
+# Characters that matter for an object's span: brackets, quotes, escapes, commas.
+_STRUCTURE = re.compile(r'[\\"{}\[\],]')
 
 # Key names of the protocol and of the formats models fall back to (Hermes
 # <tool_call>, OpenAI function objects, LangChain action/action_input).
@@ -120,6 +121,7 @@ _CALL_HINT = re.compile(
 )
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
+_WRITE_ONE_OBJECT = "write it as one JSON object with double quotes"
 _CUT_OFF = (
     "the reply was cut off at the output limit before its JSON object was complete; "
     "keep replies short and write large files in parts"
@@ -497,30 +499,34 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
 
     The object is searched in fences, <tool_call> blocks and prose (the
     first JSON object that is a turn); trailing commas and raw newlines in
-    strings are repaired. A reply without any turn object is a final answer,
-    unless it was cut off or holds a broken call.
+    strings are repaired. A broken object that looks like a call before the
+    turn is an error, and nothing inside a broken object is ever run. A
+    reply without any turn object is a final answer, unless it was cut off
+    or holds a broken call.
     """
     body, open_think = _strip_reasoning(text)
     if not body.strip():
         return TextProtocolError(_CUT_OFF if truncated else "the reply was empty")
     window = body[:_MAX_SCAN_CHARS]
-    found, decode_error = _scan_objects(window)
-    turns = [(start, end, obj) for start, end, obj in found if _is_turn(obj, tool_names)]
-    if turns:
-        start, end, obj = turns[0]
-        ignored = len(turns) - 1
-        if not ignored and "<tool_result" in window[end:]:
+    candidates = _scan_candidates(window)
+    turns = [c for c in candidates if c.value is not None and _is_turn(c.value, tool_names)]
+    broken = [c for c in candidates if c.value is None and _CALL_HINT.search(window, c.start, c.end)]
+    first = turns[0] if turns else None
+    if broken and (first is None or broken[0].start < first.start):
+        if truncated:
+            return TextProtocolError(_CUT_OFF)
+        return TextProtocolError(f"the tool call could not be read ({broken[0].error}); {_WRITE_ONE_OBJECT}")
+    if first is not None and first.value is not None:
+        ignored = len(turns) - 1 + len(broken)
+        if not ignored and "<tool_result" in window[first.end :]:
             ignored = 1  # a made-up result: the model went on without the real one
-        return _to_turn(obj, _prose_before(window[:start]), tool_names, ignored)
+        return _to_turn(first.value, _prose_before(window[: first.start]), tool_names, ignored)
     if truncated:
         return TextProtocolError(_CUT_OFF)
     if open_think:
         return TextProtocolError("the reply ended inside a <think> block without a JSON object")
     if _CALL_HINT.search(window):
-        detail = f" ({decode_error})" if decode_error else ""
-        return TextProtocolError(
-            f"the tool call could not be read{detail}; write it as one JSON object with double quotes"
-        )
+        return TextProtocolError(f"the tool call could not be read; {_WRITE_ONE_OBJECT}")
     return TextFinal(content=_utf8_safe(body.strip()))
 
 
@@ -547,58 +553,109 @@ def _strip_reasoning(text: str) -> tuple[str, bool]:
     return text, False
 
 
-def _scan_objects(text: str) -> tuple[list[tuple[int, int, dict[str, object]]], str]:
-    """The JSON objects in *text* as (start, end, object), and why the likely call did not decode."""
+@dataclass(frozen=True, slots=True)
+class _Candidate:
+    """A JSON object candidate at a "{": its span, and the object or why it did not decode."""
+
+    start: int
+    end: int
+    value: dict[str, object] | None
+    error: str = ""
+
+
+def _scan_candidates(text: str) -> list[_Candidate]:
+    """The object candidates in *text*, in order, at most _MAX_DECODE_ATTEMPTS.
+
+    The scan goes on after each candidate's span, decoded or not, so an
+    object inside another one (a call in a broken call's arguments) is never
+    a candidate of its own. Spans do not overlap: the work is linear in the
+    text.
+    """
     decoder = json.JSONDecoder(strict=False)
-    found: list[tuple[int, int, dict[str, object]]] = []
-    first_error = ""
-    call_error = ""
+    candidates: list[_Candidate] = []
     pos = 0
     for _ in range(_MAX_DECODE_ATTEMPTS):
         start = text.find("{", pos)
         if start < 0:
             break
-        value, end, error = _decode_at(decoder, text, start)
-        if isinstance(value, dict):
-            found.append((start, end, value))
-            pos = end
-            continue
-        first_error = first_error or error
-        if not call_error and _CALL_HINT.search(text, start, start + 200):
-            call_error = error
-        pos = start + 1
-    return found, call_error or first_error
+        candidate = _decode_at(decoder, text, start)
+        candidates.append(candidate)
+        pos = max(candidate.end, start + 1)
+    return candidates
 
 
-def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> tuple[object, int, str]:
-    """The JSON value at *start*, its end and the decode error ("" when it decoded).
+def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate:
+    """The candidate at *start*: decoded as is, else with its trailing commas removed.
 
-    A trailing comma before "}" or "]" is replaced by a space (the decoder's
-    error position is structural, never inside a string) and the decode
-    retried, so positions keep matching *text*.
+    A candidate that does not decode spans to its closing bracket (or the
+    end of the text when it never closes).
     """
-    candidate = text
-    for _ in range(_MAX_COMMA_FIXES):
+    try:
+        value, end = decoder.raw_decode(text, start)
+    except json.JSONDecodeError as exc:
+        error = f"{exc.msg} at character {exc.pos - start + 1} of the object"
+    else:
+        return _Candidate(start, end, value if isinstance(value, dict) else None)
+    end, repaired = _object_span(text, start)
+    if repaired is not None:
         try:
-            value, end = decoder.raw_decode(candidate, start)
+            value, length = decoder.raw_decode(repaired)
         except json.JSONDecodeError as exc:
-            comma = _trailing_comma(candidate, exc.pos)
-            if comma < 0:
-                return None, start, f"{exc.msg} at character {exc.pos - start + 1} of the object"
-            candidate = f"{candidate[:comma]} {candidate[comma + 1 :]}"
+            error = f"{exc.msg} at character {exc.pos + 1} of the object"
+        else:
+            if isinstance(value, dict):
+                return _Candidate(start, start + length, value)
+    return _Candidate(start, end, None, error)
+
+
+def _object_span(text: str, start: int) -> tuple[int, str | None]:
+    """The end of the object at *start* (after its closing bracket, or the text's end) and its repaired text.
+
+    One pass over the structural characters, aware of strings and escapes:
+    a comma followed only by whitespace before "}" or "]" is a trailing
+    comma and becomes a space (positions stay). The repaired text is None
+    when there is no trailing comma.
+    """
+    depth = 0
+    in_string = False
+    escaped = -1  # position of the character after a backslash
+    comma = -1  # the last comma outside strings, until another token follows
+    trailing: list[int] = []
+    end = len(text)
+    for match in _STRUCTURE.finditer(text, start):
+        i = match.start()
+        if i == escaped:
             continue
-        return value, end, ""
-    return None, start, "too many trailing commas"
+        ch = text[i]
+        if in_string:
+            if ch == "\\":
+                escaped = i + 1
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch in "}]":
+            if comma >= 0 and not text[comma + 1 : i].strip():
+                trailing.append(comma)
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+        elif ch in "{[":
+            depth += 1
+        elif ch == '"':
+            in_string = True
+        comma = i if ch == "," else -1
+    return end, _blanked(text, start, end, trailing)
 
 
-def _trailing_comma(text: str, pos: int) -> int:
-    """The position of a trailing comma before a closing bracket at *pos*, or -1."""
-    if pos >= len(text) or text[pos] not in "}]":
-        return -1
-    i = pos - 1
-    while i >= 0 and text[i].isspace():
-        i -= 1
-    return i if i >= 0 and text[i] == "," else -1
+def _blanked(text: str, start: int, end: int, positions: list[int]) -> str | None:
+    """``text[start:end]`` with a space at each of *positions*, or None without any."""
+    if not positions:
+        return None
+    chars = list(text[start:end])
+    for position in positions:
+        chars[position - start] = " "
+    return "".join(chars)
 
 
 def _is_turn(obj: dict[str, object], tool_names: Sequence[str]) -> bool:

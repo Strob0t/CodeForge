@@ -294,6 +294,102 @@ def test_parse_errors(text: str, truncated: bool, fragment: str) -> None:
     assert fragment in result.message
 
 
+# --- a call nested in a broken object never runs (S9-C review, finding 1) ---
+
+_NESTED_TRUNCATED = (
+    '{"thought":"t","tool":"write_file","args":{"path":"x.json","content":'
+    '{"thought":"","tool":"bash","args":{"command":"rm -rf /tmp/x"}}'
+)
+_NESTED_BAD_ESCAPE = (
+    '{"thought":"t","tool":"write_file","args":{"path":"a\\q","data":{"name":"bash","input":{"command":"id"}}}}'
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "truncated", "fragment"),
+    [
+        pytest.param(_NESTED_TRUNCATED, True, "cut off", id="truncated-outer-call"),
+        pytest.param(_NESTED_TRUNCATED, False, "could not be read", id="unclosed-outer-call"),
+        pytest.param(_NESTED_BAD_ESCAPE, False, "could not be read", id="invalid-escape-in-outer-call"),
+        pytest.param(_NESTED_BAD_ESCAPE, True, "cut off", id="invalid-escape-cut-off"),
+        pytest.param(
+            '{"thought": "t", "tool": "write_file", "args": {"file_path": "a\\q"}}\n'
+            '{"thought": "u", "tool": "bash", "args": {"command": "id"}}',
+            False,
+            "could not be read",
+            id="broken-call-before-a-valid-call",
+        ),
+        pytest.param(
+            'Use { to open a block. {"thought": "t", "tool": "bash", "args": {"command": "id"}}',
+            False,
+            "could not be read",
+            id="unbalanced-brace-before-a-call",
+        ),
+        pytest.param(
+            '{"result": {"thought": "t", "tool": "bash", "args": {"command": "id"}}}',
+            False,
+            "could not be read",
+            id="call-nested-in-a-valid-object",
+        ),
+    ],
+)
+def test_a_call_inside_a_broken_or_other_object_never_runs(text: str, truncated: bool, fragment: str) -> None:
+    result = _parse(text, truncated=truncated)
+
+    assert isinstance(result, TextProtocolError), result
+    assert fragment in result.message
+
+
+def test_a_broken_call_after_the_turn_is_an_ignored_call() -> None:
+    text = (
+        '{"thought": "t", "tool": "bash", "args": {"command": "ls"}}\n'
+        '{"thought": "u", "tool": "write_file", "args": {"file_path": "a\\q"}}'
+    )
+
+    assert _parse(text) == _call("bash", {"command": "ls"}, "t", ignored=1)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            '{"thought": "t", "tool": "bash", "args": {"command": "ls", "env": [1, 2, ], "opts": {"a": [],},},}',
+            _call("bash", {"command": "ls", "env": [1, 2], "opts": {"a": []}}, "t"),
+            id="nested-trailing-commas",
+        ),
+        pytest.param(
+            '{"thought": "a, }", "tool": "bash", "args": {"command": "echo \\"x,]\\", y",},}',
+            _call("bash", {"command": 'echo "x,]", y'}, "a, }"),
+            id="commas-and-brackets-inside-strings",
+        ),
+    ],
+)
+def test_trailing_commas_are_repaired_outside_strings(text: str, expected: TextToolCall) -> None:
+    assert _parse(text) == expected
+
+
+def _crafted_comma_reply() -> str:
+    """64 nested starts, each decoding a long array again for every trailing-comma repair (5.4 s before)."""
+    return '{"a":' * 64 + "[" + "1," * 95_000 + "1]" + ",}" * 64
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(_crafted_comma_reply(), id="comma-retries"),
+        pytest.param("{" * 200_000, id="open-braces"),
+        pytest.param("{x} " * 50_000, id="prose-braces"),
+        pytest.param('{"k": "' + "\\" * 199_990, id="backslashes"),
+        pytest.param(('{"a": 1,}' + " " * 10) * 10_000, id="many-repairable-objects"),
+    ],
+)
+def test_parsing_is_bounded(text: str) -> None:
+    """S9-C review, finding 3c: 64 starts x 32 comma retries x a 200,000-character copy took 8.9 s."""
+    elapsed, _ = _elapsed(text)
+
+    assert elapsed < 0.5
+
+
 def test_ambiguous_case_insensitive_name_is_unknown() -> None:
     result = parse_tool_turn('{"thought": "t", "tool": "BASH", "args": {}}', ("bash", "Bash"))
 
