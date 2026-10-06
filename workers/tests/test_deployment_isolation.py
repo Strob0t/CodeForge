@@ -273,6 +273,55 @@ def test_core_trusts_only_the_proxy_addresses_of_the_public_network() -> None:
     assert _default(trusted) == str(ip_range)
 
 
+class _ComposeLoader(yaml.SafeLoader):
+    """Reads Compose's !reset and !override tags as their plain values."""
+
+
+def _compose_tag(loader: yaml.SafeLoader, _suffix: str, node: yaml.Node) -> object:
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    return loader.construct_scalar(node)  # type: ignore[arg-type]
+
+
+_ComposeLoader.add_multi_constructor("!", _compose_tag)
+
+
+def test_traefik_reads_docker_through_a_read_only_socket_proxy() -> None:
+    """KI-214 (R11-8): the internet-facing Traefik held the raw Docker socket (:ro does not limit
+    API calls), so a Traefik compromise meant host root. Only the proxy mounts the socket and
+    allows container reads; Traefik runs without capabilities except binding 80/443."""
+    overlay = yaml.load((REPO / "docker-compose.blue-green.yml").read_text(), Loader=_ComposeLoader)  # noqa: S506
+    services = overlay["services"]
+    traefik = services["traefik"]
+    proxy = services["docker-socket-proxy"]
+
+    assert not any("docker.sock" in v for v in traefik["volumes"])
+    assert "--providers.docker.endpoint=tcp://docker-socket-proxy:2375" in traefik["command"]
+    assert traefik["cap_drop"] == ["ALL"]
+    assert traefik["cap_add"] == ["NET_BIND_SERVICE"]
+    assert "no-new-privileges:true" in traefik["security_opt"]
+    assert traefik["read_only"] is True
+
+    assert proxy["volumes"] == ["/var/run/docker.sock:/var/run/docker.sock:ro"]
+    env = {k: str(v) for k, v in proxy["environment"].items()}
+    assert env["CONTAINERS"] == "1"
+    for write in ("POST", "EXEC", "ALLOW_START", "ALLOW_STOP", "ALLOW_RESTARTS", "BUILD", "IMAGES", "VOLUMES"):
+        assert env.get(write, "0") == "0", write
+    assert proxy["cap_drop"] == ["ALL"]
+    assert proxy["read_only"] is True
+    assert "ports" not in proxy
+    # The proxy is reachable only on an internal network it shares with Traefik.
+    assert proxy["networks"] == ["docker-api"]
+    assert overlay["networks"]["docker-api"]["internal"] is True
+    others = [name for name, svc in services.items() if "docker-api" in (svc.get("networks") or [])]
+    assert sorted(others) == ["docker-socket-proxy", "traefik"]
+    # A deployment recreates Traefik with --no-deps: the proxy must start with it.
+    deploy = (REPO / "scripts" / "deploy-blue-green.sh").read_text()
+    assert "change up -d --no-deps docker-socket-proxy traefik" in deploy
+
+
 def test_core_api_port_is_published_on_loopback_only() -> None:
     """KI-213: clients use the frontend's port; the plain-HTTP API port is for checks on the host."""
     assert CORE["ports"] == ["127.0.0.1:${CORE_PORT:-8080}:8080"]

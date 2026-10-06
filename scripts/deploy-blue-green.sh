@@ -161,8 +161,9 @@ start_healthy() {
     fi
 }
 
-# Traefik routes to the colors; it is started here if it is not running yet.
-change up -d --no-deps traefik
+# Traefik routes to the colors; it and the Docker socket proxy it reads the
+# containers through are started here if they are not running yet.
+change up -d --no-deps docker-socket-proxy traefik
 # The frontend proxies to its color's core: the core first.
 start_healthy "core-$TARGET"
 start_healthy "frontend-$TARGET"

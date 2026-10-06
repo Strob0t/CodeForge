@@ -7,7 +7,9 @@
 #     starts the inactive (or given) color, waits until it is healthy and
 #     stops the active one; DRY_RUN=1 only prints what it would do
 #
-# Traefik is the only service that publishes ports (80, 443). It terminates
+# Traefik is the only service that publishes ports (80, 443). It reads the
+# running containers through docker-socket-proxy, which alone mounts the
+# Docker socket and answers container reads only (KI-214). It terminates
 # TLS for CODEFORGE_DOMAIN with a Let's Encrypt certificate (HTTP challenge)
 # and routes /api, /health, /ws, /.well-known and /a2a to core-<color> and
 # everything else to frontend-<color>; it follows the running containers.
@@ -39,6 +41,30 @@ x-frontend-color: &frontend-color
     service: frontend
 
 services:
+  # The only service with the Docker socket: an HAProxy that forwards the
+  # container and event reads Traefik's provider makes and refuses every
+  # other API call (POST, exec, images, volumes). The internet-facing Traefik
+  # never holds the socket, so its compromise is not host root (KI-214).
+  docker-socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:v0.5.0
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      # The proxy listens on the internal network only (IPv4).
+      DISABLE_IPV6: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - docker-api
+
   traefik:
     # v3.6 or later: the Docker provider of older releases speaks API 1.24,
     # which Docker Engine 29 refuses.
@@ -50,6 +76,7 @@ services:
       - --global.checknewversion=false
       - --global.sendanonymoususage=false
       - --providers.docker=true
+      - --providers.docker.endpoint=tcp://docker-socket-proxy:2375
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=codeforge-public
       - --providers.file.directory=/etc/traefik/dynamic
@@ -74,9 +101,18 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
       - acme_data:/acme
+    # Writes only the ACME volume; binds 80 and 443 without root's other rights.
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - docker-socket-proxy
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 10s
@@ -84,6 +120,7 @@ services:
       retries: 3
     networks:
       - public
+      - docker-api
 
   core-blue:
     <<: *core-color
@@ -167,6 +204,9 @@ networks:
   # on it whatever the Compose project is called.
   public:
     name: codeforge-public
+  # Traefik and the Docker socket proxy only; no route out.
+  docker-api:
+    internal: true
 
 volumes:
   acme_data:
