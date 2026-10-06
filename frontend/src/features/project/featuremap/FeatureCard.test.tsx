@@ -30,12 +30,12 @@ vi.mock("@solidjs/router", () => ({
 
 import FeatureCard from "./FeatureCard";
 
-function feature(result?: string): RoadmapFeature {
+function feature(result?: string, title = "Add CLI"): RoadmapFeature {
   return {
     id: "f1",
     milestone_id: "m1",
     roadmap_id: "r1",
-    title: "Add CLI",
+    title,
     description: "",
     status: result?.startsWith("failed") ? "cancelled" : "done",
     sort_order: 0,
@@ -74,5 +74,16 @@ describe("FeatureCard", () => {
   it("shows no result line for a feature the auto-agent did not run", () => {
     const { container } = renderCard(feature());
     expect(container.querySelector("p")).toBeNull();
+  });
+
+  // KI-129: long titles were cut off after one line.
+  it("wraps a long title to two lines and shows it in full on hover", () => {
+    const title =
+      "Support importing OpenSpec change proposals from nested monorepo packages with a preview";
+    renderCard(feature(undefined, title));
+    const el = screen.getByText(title);
+    expect(el.getAttribute("title")).toBe(title);
+    expect(el.className).toContain("line-clamp-2");
+    expect(el.className).not.toContain("truncate");
   });
 });

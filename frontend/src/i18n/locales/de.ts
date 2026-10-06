@@ -626,7 +626,6 @@ const de: Translations = {
   "featuremap.empty": "Keine Roadmap-Daten. Erstellen Sie zuerst eine Roadmap.",
   "featuremap.addMilestone": "+ Meilenstein hinzufügen",
   "featuremap.addFeature": "+ Feature hinzufügen",
-  "featuremap.editFeature": "Bearbeiten",
   "featuremap.deleteFeature": "Löschen",
   "featuremap.featurePlaceholder": "Feature-Titel...",
   "featuremap.descriptionPlaceholder": "Feature-Beschreibung (optional)...",

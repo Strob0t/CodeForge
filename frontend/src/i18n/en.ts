@@ -635,7 +635,6 @@ const en = {
   "featuremap.empty": "No roadmap data. Create a roadmap first.",
   "featuremap.addMilestone": "+ Add Milestone",
   "featuremap.addFeature": "+ Add Feature",
-  "featuremap.editFeature": "Edit",
   "featuremap.deleteFeature": "Delete",
   "featuremap.featurePlaceholder": "Feature title...",
   "featuremap.descriptionPlaceholder": "Feature description (optional)...",
