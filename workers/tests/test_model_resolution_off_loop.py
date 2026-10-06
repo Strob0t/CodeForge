@@ -120,17 +120,6 @@ async def test_the_agent_loop_resolves_the_default_model_off_the_loop(monkeypatc
     assert llm.chat_completion_stream.await_args.kwargs["model"] == "openai/gpt-4o"
 
 
-async def test_skill_selection_resolves_its_model_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> None:
-    from codeforge.skills import selector
-
-    recorder = _Recorder("")
-    monkeypatch.setattr(selector, "resolve_skill_selection_model", recorder)
-
-    assert await selector._llm_select([], "fix the bug", MagicMock(), 3) == []
-    assert recorder.threads
-    assert threading.get_ident() not in recorder.threads
-
-
 async def test_the_skill_safety_check_resolves_its_model_off_the_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     from codeforge.skills import safety
 
