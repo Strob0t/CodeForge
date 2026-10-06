@@ -542,7 +542,7 @@ class TestBuildSystemPrompt:
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
             prompt, _skills = await build_system_prompt(
-                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
+                run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY
             )
 
         assert isinstance(prompt, str)
@@ -569,9 +569,7 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _ = await build_system_prompt(
-                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
-            )
+            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY)
 
         assert "Microagent Instructions" in prompt
         assert "Do X carefully" in prompt
@@ -598,9 +596,7 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            prompt, _ = await build_system_prompt(
-                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
-            )
+            prompt, _ = await build_system_prompt(run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY)
 
         assert "System Reminders" in prompt
         assert "Remember to commit" in prompt
@@ -627,9 +623,7 @@ class TestBuildSystemPrompt:
         ):
             from codeforge.consumer._conversation_prompt_builder import build_system_prompt
 
-            _, skills = await build_system_prompt(
-                run_msg, registry, log, "postgresql://fake", MagicMock(), capability=_CAPABILITY
-            )
+            _, skills = await build_system_prompt(run_msg, registry, log, "postgresql://fake", capability=_CAPABILITY)
 
         assert skills == fake_skills
         assert len(skills) == 2

@@ -91,9 +91,8 @@ async def test_skills_are_selected_for_the_last_user_message() -> None:
 
     with (
         patch("psycopg.AsyncConnection.connect", AsyncMock(return_value=conn)),
-        patch("codeforge.skills.selector.select_skills_for_task", AsyncMock(side_effect=select)),
-        patch("codeforge.skills.selector.rank_skills", side_effect=select, create=True),
+        patch("codeforge.skills.selector.rank_skills", side_effect=select),
     ):
-        await inject_skills("prompt", "p1", HISTORY, "t1", MagicMock(), "postgresql://fake", MagicMock())
+        await inject_skills("prompt", "p1", HISTORY, "t1", MagicMock(), "postgresql://fake")
 
     assert seen == ["refactor the parser and run the tests"]

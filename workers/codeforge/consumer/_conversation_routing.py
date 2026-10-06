@@ -10,6 +10,8 @@ import structlog
 from codeforge.config import get_settings
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from codeforge.llm import RoutingResult
     from codeforge.routing.router import HybridRouter
 
@@ -28,13 +30,23 @@ async def resolve_model_and_fallbacks(
 ) -> tuple[str, RoutingResult, list[str]]:
     """Resolve the primary model via routing and build its fallback chain.
 
-    An explicit model wins over the routed one; without either (routing off,
-    no model in the config) the default model is resolved here, so that the
-    run's tool capability is that of the model it calls (KI-125). Returns
-    (primary_model, routing_result, fallback_models).
+    An explicit model is used as is: no router is built, so neither its MAB
+    nor its meta-router LLM sees the prompt (KI-192), and the fallbacks are
+    the other available models. Without one the router decides; without
+    either (routing off, no model in the config) the default model is
+    resolved here, so that the run's tool capability is that of the model it
+    calls (KI-125). Returns (primary_model, routing_result, fallback_models).
     """
     from codeforge.llm import resolve_model_with_routing
     from codeforge.model_resolver import resolve_model
+
+    def available_models() -> Awaitable[list[str]]:
+        return get_available_models(litellm_url, litellm_key)
+
+    if explicit_model:
+        routing = resolve_model_with_routing(prompt=prompt, scenario=scenario, router=None)
+        fallbacks = await build_fallback_chain(None, prompt, explicit_model, max_cost, routing, available_models)
+        return explicit_model, routing, fallbacks
 
     router = await get_hybrid_router(litellm_url, litellm_key)
     routing = await asyncio.to_thread(
@@ -44,23 +56,14 @@ async def resolve_model_and_fallbacks(
         router=router,
         max_cost=max_cost if max_cost > 0 else None,
     )
-    primary_model = explicit_model or routing.model
-    if explicit_model and routing.model and routing.model != explicit_model:
-        log.info("explicit model overrides routing", explicit=explicit_model, routed=routing.model)
-    elif not explicit_model and routing.model:
-        log.info("routing selected model", model=routing.model, scenario=scenario)
-    if not primary_model:
+    primary_model = routing.model
+    if primary_model:
+        log.info("routing selected model", model=primary_model, scenario=scenario)
+    else:
         primary_model = await asyncio.to_thread(resolve_model)
         log.info("default model selected", model=primary_model)
 
-    fallback_models = await build_fallback_chain(
-        router,
-        prompt,
-        primary_model,
-        max_cost,
-        routing,
-        lambda: get_available_models(litellm_url, litellm_key),
-    )
+    fallback_models = await build_fallback_chain(router, prompt, primary_model, max_cost, routing, available_models)
     return primary_model, routing, fallback_models
 
 

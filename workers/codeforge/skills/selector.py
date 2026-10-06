@@ -44,6 +44,17 @@ def resolve_skill_selection_model() -> str:
     )
 
 
+def rank_skills(skills: list[Skill], task_context: str, max_skills: int = _MAX_SKILLS_PER_RUN) -> list[Skill]:
+    """Select the skills relevant to a task locally (BM25), without an LLM call.
+
+    The conversation path uses it (KI-192): the LLM selection sent the user's
+    message to a model the user did not choose, uncosted.
+    """
+    if not skills or not task_context:
+        return []
+    return _bm25_fallback(skills, task_context, max_skills)
+
+
 async def select_skills_for_task(
     skills: list[Skill],
     task_context: str,

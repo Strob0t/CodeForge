@@ -13,7 +13,6 @@ from codeforge.tools.capability import CapabilityLevel
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from codeforge.llm import LiteLLMClient
     from codeforge.loop_config import ModelCapability
     from codeforge.models import ConversationMessagePayload
 
@@ -107,19 +106,20 @@ async def inject_skills(
     tenant_id: str,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
-    llm: LiteLLMClient,
 ) -> tuple[str, list]:
-    """Augment system prompt with LLM-selected skills (BM25 fallback).
+    """Augment system prompt with the skills relevant to the turn's message.
 
+    The skills are selected locally (BM25, ``rank_skills``): an LLM selection
+    sent the message to a model the user did not choose, uncosted (KI-192).
     Returns (augmented_prompt, all_loaded_skills).
     """
     all_skills: list = []
     try:
         import psycopg
 
+        from codeforge.skills import selector
         from codeforge.skills.models import Skill
         from codeforge.skills.registry import load_builtin_skills
-        from codeforge.skills.selector import select_skills_for_task
 
         async with await psycopg.AsyncConnection.connect(db_url) as conn, conn.cursor() as cur:
             await cur.execute(
@@ -159,7 +159,7 @@ async def inject_skills(
         if not task_ctx:
             return system_prompt, all_skills
 
-        selected = await select_skills_for_task(skills, task_ctx, llm)
+        selected = selector.rank_skills(skills, task_ctx)
 
         if not selected:
             return system_prompt, all_skills
@@ -188,7 +188,7 @@ async def inject_skills(
             )
             system_prompt = f"{system_prompt}\n\n{skill_section}\n\n{sandboxing}"
             log.info(
-                "skills injected via LLM selection",
+                "skills injected",
                 count=len(selected),
                 workflows=len(workflow_blocks),
                 patterns=len(pattern_blocks),
@@ -204,7 +204,6 @@ async def build_system_prompt(
     registry: object,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
-    llm: LiteLLMClient,
     *,
     capability: ModelCapability,
 ) -> tuple[str, list]:
@@ -245,7 +244,6 @@ async def build_system_prompt(
         tenant_id,
         log,
         db_url,
-        llm,
     )
 
     prompt = inject_tool_guide(system_prompt, registry, capability.level, log, context_limit=capability.context_limit)

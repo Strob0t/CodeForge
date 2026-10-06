@@ -291,7 +291,6 @@ class ConversationHandlerMixin:
             registry,
             log,
             self._db_url,
-            self._llm,
             capability=capability,
         )
 
