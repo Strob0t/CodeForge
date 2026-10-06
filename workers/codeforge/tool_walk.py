@@ -74,6 +74,8 @@ else:  # pragma: no cover - exercised through the launcher and test_the_walker_r
     posix_acl = _sibling("posix_acl")
 
 _MAX_ERRORS = 20
+# Directories of other owners a report lists at most (more count as not walked).
+_MAX_FOREIGN_UNENTERED = 1000
 # Directory descriptors a walk holds at once (KI-223): those of the deepest
 # levels of its path. A level above them is reopened from the root, one
 # component at a time, when the walk gets back to it.
@@ -105,6 +107,10 @@ class Report:
     # visited) and entries it could not examine.
     unentered: int = 0
     errors: list[str] = field(default_factory=list)
+    # Directories of other owners the walk could not list or search: only
+    # their owner could have locked it out, so their owner's walk checks
+    # them (the migration: the worker checks what 10002's walks skipped).
+    foreign_unentered: list[str] = field(default_factory=list)
 
     def error(self, message: str) -> None:
         if len(self.errors) < _MAX_ERRORS:
@@ -114,11 +120,25 @@ class Report:
         self.unentered += 1
         self.error(f"{path}: {reason}")
 
+    def not_entered(self, path: str, uid: int, owner: int, reason: str) -> None:
+        """The directory *path* of *uid* could not be listed or searched by the walk of *owner*'s entries."""
+        if uid == owner:
+            self.not_walked(path, reason)
+        elif path in self.foreign_unentered:
+            pass
+        elif len(self.foreign_unentered) < _MAX_FOREIGN_UNENTERED:
+            self.foreign_unentered.append(path)
+        else:
+            self.not_walked(path, f"{reason} (uid {uid}; too many directories of other owners to list)")
+
     def missed(self, other: Report) -> None:
         """Count what an earlier walk this one relies on (a census) could not walk."""
         self.unentered += other.unentered
         for message in other.errors:
             self.error(message)
+        for path in other.foreign_unentered:
+            if path not in self.foreign_unentered:
+                self.foreign_unentered.append(path)
 
 
 def open_root(path: str) -> int:
@@ -192,6 +212,7 @@ class _Dir:
     names: tuple[str, ...]
     ident: Inode
     fd: int
+    uid: int  # its owner
     pending: list[tuple[str, os.stat_result]] = field(default_factory=list)
 
 
@@ -271,6 +292,7 @@ def walk(
     report: Report,
     *,
     include_root: bool = True,
+    owner: int | None = None,
 ) -> Report:
     """Call *visit* for *root* (unless excluded) and every directory and regular file below it on its file system.
 
@@ -279,9 +301,13 @@ def walk(
     are counted as skipped. The walk is depth-first and enters a
     subdirectory only when it gets to it, so it holds at most
     _MAX_HELD_DIRS directory descriptors plus a few, however wide or deep
-    the tree is (KI-223). A directory it cannot list or enter, or deeper
-    than _MAX_DEPTH, is counted in ``report.unentered``.
+    the tree is (KI-223). A directory of *owner* (default: this process's
+    UID) it cannot list or enter, one deeper than _MAX_DEPTH, and an entry
+    it cannot examine are counted in ``report.unentered``; a directory of
+    another owner it cannot list or search is listed in
+    ``report.foreign_unentered`` for that owner to check.
     """
+    owner = os.geteuid() if owner is None else owner
     root_fd = open_root(root)
     path = _Path(root_fd)
     try:
@@ -292,9 +318,9 @@ def walk(
                 visit(parent_fd, os.path.basename(os.path.normpath(root)) or ".", root_info, report)
             finally:
                 os.close(parent_fd)
-        current: _Dir | None = _Dir(root, (), _inode(root_info), os.dup(root_fd))
+        current: _Dir | None = _Dir(root, (), _inode(root_info), os.dup(root_fd), root_info.st_uid)
         while current is not None:
-            _list(current, root_info.st_dev, visit, report)
+            _list(current, root_info.st_dev, visit, report, owner)
             if current.pending and len(current.names) >= _MAX_DEPTH:
                 for name, _listed in current.pending:
                     report.not_walked(f"{current.path}/{name}", f"deeper than {_MAX_DEPTH} levels: not entered")
@@ -303,7 +329,7 @@ def walk(
                 path.push(current)
             else:
                 os.close(current.fd)
-            current = _enter_next(path, report)
+            current = _enter_next(path, report, owner)
     finally:
         path.close()
         os.close(root_fd)
@@ -318,18 +344,29 @@ def _lstat_at(dir_fd: int, name: str) -> os.stat_result:
     return os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
 
 
-def _list(directory: _Dir, dev: int, visit: Callable[[int, str, os.stat_result, Report], None], report: Report) -> None:
+def _list(
+    directory: _Dir,
+    dev: int,
+    visit: Callable[[int, str, os.stat_result, Report], None],
+    report: Report,
+    owner: int,
+) -> None:
     """Visit the entries of *directory* and keep its subdirectories in its pending list."""
     try:
         names = os.listdir(directory.fd)
     except OSError as exc:
-        report.not_walked(directory.path, exc.strerror or str(exc))
+        report.not_entered(directory.path, directory.uid, owner, exc.strerror or str(exc))
         return
     for name in names:
         try:
             info = _lstat_at(directory.fd, name)
         except FileNotFoundError:
             continue  # removed meanwhile
+        except PermissionError as exc:
+            # No search permission: none of its entries can be examined or entered.
+            report.not_entered(directory.path, directory.uid, owner, exc.strerror or str(exc))
+            directory.pending.clear()
+            return
         except OSError as exc:
             report.not_walked(f"{directory.path}/{name}", exc.strerror or str(exc))
             continue
@@ -341,7 +378,7 @@ def _list(directory: _Dir, dev: int, visit: Callable[[int, str, os.stat_result, 
             directory.pending.append((name, info))
 
 
-def _enter_next(path: _Path, report: Report) -> _Dir | None:
+def _enter_next(path: _Path, report: Report, owner: int) -> _Dir | None:
     """Open the next subdirectory of the walk; None when the walk is done."""
     while path.dirs:
         top = path.dirs[-1]
@@ -355,9 +392,9 @@ def _enter_next(path: _Path, report: Report) -> _Dir | None:
         name, listed = top.pending.pop()
         sub = _open_subdir(top.fd, name, listed)
         if sub is None:
-            report.not_walked(f"{top.path}/{name}", "cannot be entered")
+            report.not_entered(f"{top.path}/{name}", listed.st_uid, owner, "cannot be entered")
             continue
-        return _Dir(f"{top.path}/{name}", (*top.names, name), _inode(listed), sub)
+        return _Dir(f"{top.path}/{name}", (*top.names, name), _inode(listed), sub, listed.st_uid)
     return None
 
 
@@ -450,7 +487,7 @@ def share(root: str, *, since: float | None = None, uid: int | None = None) -> R
             return
         _owned(dir_fd, name, info, owner, report, change)
 
-    return walk(root, visit, Report())
+    return walk(root, visit, Report(), owner=owner)
 
 
 def legacy_open(root: str, *, uid: int | None = None) -> Report:
@@ -462,10 +499,10 @@ def legacy_open(root: str, *, uid: int | None = None) -> Report:
         wanted = wanted_access(current or _minimal(info.st_mode), directory=stat.S_ISDIR(info.st_mode))
         return _set_if_different(target, posix_acl.ACCESS, wanted)
 
-    return walk(root, lambda d, n, i, r: _owned(d, n, i, owner, r, change), Report())
+    return walk(root, lambda d, n, i, r: _owned(d, n, i, owner, r, change), Report(), owner=owner)
 
 
-def census(root: str) -> tuple[dict[Inode, int], Report]:
+def census(root: str, *, owner: int | None = None) -> tuple[dict[Inode, int], Report]:
     """How many names inside *root* each regular file with more than one link has, and the walk's report.
 
     A census that missed a subtree takes links into it for links outside
@@ -478,7 +515,7 @@ def census(root: str) -> tuple[dict[Inode, int], Report]:
             key = (info.st_dev, info.st_ino)
             counts[key] = counts.get(key, 0) + 1
 
-    return counts, walk(root, visit, Report())
+    return counts, walk(root, visit, Report(), owner=owner)
 
 
 def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: bool = True) -> Report:
@@ -490,7 +527,7 @@ def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: boo
     directory gets the tenant's ACLs, not a project's).
     """
     owner = os.getuid() if uid is None else uid
-    inside, counted = census(root)
+    inside, counted = census(root, owner=owner)
     report = Report()
     report.missed(counted)
 
@@ -510,7 +547,7 @@ def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: boo
             return
         _owned(dir_fd, name, info, owner, report, change)
 
-    return walk(root, visit, report, include_root=include_root)
+    return walk(root, visit, report, include_root=include_root, owner=owner)
 
 
 _USAGE = (

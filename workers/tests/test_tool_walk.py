@@ -488,9 +488,80 @@ def test_exact_fails_when_its_census_missed_a_subtree(tmp_path: Path, monkeypatc
     would leave those files' legacy ACLs (and planted entries) as they are."""
     (tmp_path / "f").write_text("x")
     missed = tool_walk.Report(unentered=1, errors=[f"{tmp_path}/hidden: cannot be entered"])
-    monkeypatch.setattr(tool_walk, "census", lambda _root: ({}, missed))
+    monkeypatch.setattr(tool_walk, "census", lambda _root, **_kwargs: ({}, missed))
 
     report = tool_walk.exact(str(tmp_path), 20009)
 
     assert report.unentered == 1
     assert any("hidden" in message for message in report.errors)
+
+
+# ---------------------------------------------------------------------------
+# Directories of other owners (KI-223 review)
+# ---------------------------------------------------------------------------
+# The legacy walks run as 10002; the Go Core (the worker's UID) makes some
+# directories 0700 (.git/codeforge/patches), and under the tenant's default
+# ACL 10002 cannot list them. Only their owner could have locked 10002 out,
+# and 10002 never had them to write into: the walk lists them for the
+# worker, which checks them as their owner, instead of failing the migration.
+
+
+def _refuse(monkeypatch: pytest.MonkeyPatch, *refused: str) -> None:
+    real = tool_walk._open_subdir
+
+    def open_subdir(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
+        return None if name in refused else real(dir_fd, name, listed)
+
+    monkeypatch.setattr(tool_walk, "_open_subdir", open_subdir)
+
+
+def test_a_directory_of_another_owner_it_cannot_enter_is_listed_for_that_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "patches" / "inner").mkdir(parents=True)
+    _refuse(monkeypatch, "patches")
+
+    theirs = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report(), owner=UID + 1)
+    own = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report(), owner=UID)
+
+    assert (theirs.unentered, theirs.errors, theirs.foreign_unentered) == (0, [], [f"{tmp_path}/patches"])
+    assert (own.unentered, own.foreign_unentered) == (1, [])
+
+
+def test_a_directory_of_another_owner_it_cannot_search_is_listed_for_that_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Readable but not searchable (0740 under a mask r--): it lists the names, cannot examine them."""
+    (tmp_path / "patches" / "p1").mkdir(parents=True)
+    _failing_lstat(monkeypatch, "p1", PermissionError(errno.EACCES, "Permission denied"))
+
+    theirs = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report(), owner=UID + 1)
+    own = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report(), owner=UID)
+
+    assert (theirs.unentered, theirs.foreign_unentered) == (0, [f"{tmp_path}/patches"])
+    assert (own.unentered, own.foreign_unentered) == (1, [])
+
+
+def test_too_many_directories_of_other_owners_count_as_not_walked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_walk, "_MAX_FOREIGN_UNENTERED", 1)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    _refuse(monkeypatch, "a", "b")
+
+    report = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report(), owner=UID + 1)
+
+    assert len(report.foreign_unentered) == 1
+    assert report.unentered == 1
+
+
+def test_the_walker_reports_directories_of_other_owners_without_failing(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (workspace / "patches").mkdir()
+    _refuse(monkeypatch, "patches")
+    monkeypatch.setattr(os, "getuid", lambda: UID + 1)  # the walker runs as another UID than the owner
+
+    assert tool_walk.main(["legacy-open", str(workspace)]) == 0
+    assert json.loads(capsys.readouterr().out)["foreign_unentered"] == [f"{workspace}/patches"]

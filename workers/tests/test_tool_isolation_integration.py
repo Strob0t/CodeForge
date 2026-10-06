@@ -390,6 +390,49 @@ async def test_a_tree_from_before_the_upgrade_is_migrated_once(volumes: tuple[st
     assert stamp.stat().st_mtime_ns == first, "migrated once"
 
 
+def _go_core_patches(project: Path) -> Path:
+    """What the Go Core's writePatch leaves: .git/codeforge/patches 0700 with a 0600 patch, its own."""
+    patches = project / ".git" / "codeforge" / "patches"
+    patches.mkdir(parents=True)
+    patches.chmod(0o700)
+    (patches / "run-1.patch").write_text("diff\n")
+    (patches / "run-1.patch").chmod(0o600)
+    return patches
+
+
+async def test_a_directory_the_retired_tool_user_cannot_list_is_checked_by_the_worker(
+    volumes: tuple[str, str],
+) -> None:
+    """KI-223 review: 10002 cannot list the Go Core's 0700 patch directory, and the migration failed
+    for good. Only its owner could have locked 10002 out: the worker, its owner, checks it instead."""
+    root, home_base = volumes
+    assert configure_tool_isolation(isolation_config(root, home_base)).ready
+    project_a = _legacy_tree(root, TENANT_A)
+    _go_core_patches(project_a)
+
+    async with tool_tenant(TENANT_A, UID_A, str(project_a)):
+        pass
+
+    assert (Path(root) / ".codeforge" / "tenants" / TENANT_A).exists(), "migrated"
+
+
+async def test_an_entry_of_the_retired_tool_user_the_walks_could_not_reach_fails_the_migration(
+    volumes: tuple[str, str],
+) -> None:
+    from codeforge.tool_identity import ToolIsolationError
+
+    root, home_base = volumes
+    assert configure_tool_isolation(isolation_config(root, home_base)).ready
+    project_a = _legacy_tree(root, TENANT_A)
+    patches = _go_core_patches(project_a)
+    os.chown(patches / "run-1.patch", LEGACY_UID, LEGACY_UID)
+
+    with pytest.raises(ToolIsolationError, match=r"run-1\.patch"):
+        async with tool_tenant(TENANT_A, UID_A, str(project_a)):
+            pytest.fail("entered")
+    assert not (Path(root) / ".codeforge" / "tenants" / TENANT_A).exists(), "not stamped"
+
+
 async def test_a_running_legacy_process_blocks_the_migration(volumes: tuple[str, str]) -> None:
     from codeforge.tool_identity import ToolIsolationError
 

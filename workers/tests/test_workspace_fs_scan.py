@@ -200,6 +200,7 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_migration.py", "_copy_over", "os.rename"): (1, _MIGRATION),
     ("tool_migration.py", "_copy_over", "os.unlink"): (1, _MIGRATION),
     ("tool_migration.py", "unshare_links", "tool_walk.walk"): (1, _MIGRATION),
+    ("tool_migration.py", "_legacy_entries", "tool_walk.walk"): (1, _MIGRATION),
     ("tool_migration.py", "needs_migration", "os.open"): (
         1,
         "an adopted workspace's top directory, opened with O_NOFOLLOW to read its owner and inode",

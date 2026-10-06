@@ -15,7 +15,10 @@ change is made by the entry's owner.
    name: the other tree's file is no longer reachable from this one.
 4. As 10002 (``tool_walk.py legacy-exact``): exact ACLs for the tenant's
    UID on its entries (planted entries go); an inode still linked outside
-   is skipped and logged.
+   is skipped and logged. Directories of other owners 10002 cannot list
+   (the Go Core's 0700 ``.git/codeforge/patches``) are only listed: their
+   owner locked 10002 out. The worker, their owner, walks them, and an
+   entry of 10002 there fails the migration.
 5. As the worker: the same on its own entries; last, the tenant directory
    gets the tenant's ACLs (2770, ``u:T:--x``, the default ACL).
 6. A stamp ``<root>/.codeforge/tenants/<tenant>`` = ``1 <T> <dev> <ino>``
@@ -48,6 +51,7 @@ import logging
 import os
 import stat
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from codeforge import posix_acl, tool_reaper, tool_state, tool_walk
@@ -61,7 +65,7 @@ from codeforge.tool_identity import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +304,7 @@ def _copy_over(dir_fd: int, name: str, listed: os.stat_result) -> None:
 def unshare_links(tree: str) -> int:
     """Copy every regular file of *tree* whose inode has links outside it (D9 step 3); how many were copied."""
     inside, counted = tool_walk.census(tree)
-    _fail_if_not_walked("the hard-link census", tree, counted.unentered, counted.errors)
+    _fail_if_worker_walk_incomplete("the hard-link census", tree, counted)
     copied = 0
 
     def visit(dir_fd: int, name: str, info: os.stat_result, report: tool_walk.Report) -> None:
@@ -317,7 +321,7 @@ def unshare_links(tree: str) -> int:
         copied += 1
 
     report = tool_walk.walk(tree, visit, tool_walk.Report())
-    _fail_if_not_walked("unsharing the hard links", tree, report.unentered, report.errors)
+    _fail_if_worker_walk_incomplete("unsharing the hard links", tree, report)
     if report.errors:
         logger.warning("could not unshare every hard link in %s: %s", tree, "; ".join(report.errors))
     return copied
@@ -332,6 +336,17 @@ def _fail_if_not_walked(step: str, tree: str, unentered: int, errors: list[str])
         )
 
 
+def _fail_if_worker_walk_incomplete(step: str, tree: str, report: tool_walk.Report) -> None:
+    """The worker's walks check everything: a directory it could not list fails the migration, whoever
+    owns it (nobody checks after the worker)."""
+    _fail_if_not_walked(
+        step,
+        tree,
+        report.unentered + len(report.foreign_unentered),
+        [*report.errors, *(f"{path}: the worker cannot list it" for path in report.foreign_unentered)],
+    )
+
+
 def legacy_identity(tenant_id: str, tree: str) -> ToolIdentity:
     """The retired shared tool user, in the workspace group: it changes its own entries in *tree*."""
     return ToolIdentity(
@@ -344,7 +359,16 @@ def legacy_identity(tenant_id: str, tree: str) -> ToolIdentity:
     )
 
 
-def _run_legacy_walk(tenant_id: str, tree: str, args: list[str]) -> dict[str, object]:
+@dataclass(frozen=True)
+class _LegacyWalk:
+    """A walk as 10002: its exit status, its JSON report, the directories of other owners it could not list."""
+
+    exit: int
+    report: str
+    foreign_unentered: tuple[str, ...]
+
+
+def _run_legacy_walk(tenant_id: str, tree: str, args: list[str]) -> _LegacyWalk:
     from codeforge import tool_process
 
     done = tool_process.run_walker(
@@ -366,6 +390,12 @@ def _run_legacy_walk(tenant_id: str, tree: str, args: list[str]) -> dict[str, ob
         )
     unentered = report.get("unentered", 0)
     errors = report.get("errors", [])
+    foreign = report.get("foreign_unentered", [])
+    if not isinstance(foreign, list) or not all(isinstance(path, str) for path in foreign):
+        raise ToolIsolationError(
+            f"the migration walk {args[0]} of {tree} printed no list of the directories it skipped: "
+            f"{done.stdout.strip()[-500:]}"
+        )
     _fail_if_not_walked(
         f"the walk {args[0]}",
         tree,
@@ -374,7 +404,50 @@ def _run_legacy_walk(tenant_id: str, tree: str, args: list[str]) -> dict[str, ob
     )
     if done.returncode:
         logger.warning("the migration walk %s of %s left entries: %s", args[0], tree, done.stdout.strip()[-1000:])
-    return {"walk": args[0], "exit": done.returncode, "report": done.stdout.strip()}
+    return _LegacyWalk(exit=done.returncode, report=done.stdout.strip(), foreign_unentered=tuple(foreign))
+
+
+def _legacy_entries(path: str) -> tuple[list[str], tool_walk.Report]:
+    """Names of entries of 10002 in and below the directory *path* (at most 5), and the walk's report."""
+    names: list[str] = []
+
+    def visit(_dir_fd: int, name: str, info: os.stat_result, _report: tool_walk.Report) -> None:
+        if info.st_uid == LEGACY_TOOL_UID and len(names) < 5:
+            names.append(name)
+
+    return names, tool_walk.walk(path, visit, tool_walk.Report())
+
+
+def _check_skipped_by_legacy(tree: str, paths: Iterable[str]) -> None:
+    """Walk the directories of other owners that the legacy walks could not list (KI-223 review).
+
+    The Go Core makes some directories 0700 (``.git/codeforge/patches``):
+    under the tenant's default ACL 10002 cannot list them, and only their
+    owner could have locked it out. The worker (the Go Core's UID) walks
+    them: an entry of 10002 there kept its legacy ACL, and the migration
+    fails. A directory the worker cannot list fails it too.
+    """
+    prefix = f"{tree}/"
+    for path in sorted(set(paths)):
+        relative = path[len(prefix) :] if path.startswith(prefix) else ""
+        if not relative or any(part in ("", ".", "..") for part in relative.split("/")):
+            raise ToolIsolationError(f"the migration of {tree} failed: a legacy walk skipped {path!r}, not inside it")
+        try:
+            names, report = _legacy_entries(path)
+        except FileNotFoundError:
+            continue  # its owner removed it meanwhile
+        except OSError as exc:
+            raise ToolIsolationError(
+                f"the migration of {tree} failed: {path}, which the legacy walks could not list, cannot be "
+                f"checked: {exc}"
+            ) from exc
+        _fail_if_worker_walk_incomplete(f"checking {path}", tree, report)
+        if names:
+            raise ToolIsolationError(
+                f"the migration of {tree} failed: {path}, which its owner keeps from the workspace group, holds "
+                f"entries of uid {LEGACY_TOOL_UID} the legacy walks could not reach ({', '.join(names)}): let "
+                f"the group in (setfacl -R -m g:{WORKSPACE_GID}:rX) or remove them"
+            )
 
 
 def migrate_tree(tree: str, tenant_id: str, uid: int, *, include_root: bool) -> None:
@@ -392,8 +465,9 @@ def migrate_tree(tree: str, tenant_id: str, uid: int, *, include_root: bool) -> 
     opened = _run_legacy_walk(tenant_id, tree, ["legacy-open", tree])
     copied = unshare_links(tree)
     exact_legacy = _run_legacy_walk(tenant_id, tree, ["legacy-exact", tree, str(uid)])
+    _check_skipped_by_legacy(tree, (*opened.foreign_unentered, *exact_legacy.foreign_unentered))
     own = tool_walk.exact(tree, uid, include_root=include_root)
-    _fail_if_not_walked("the worker's walk", tree, own.unentered, own.errors)
+    _fail_if_worker_walk_incomplete("the worker's walk", tree, own)
     if own.errors:
         logger.warning("could not set the ACLs of every worker entry in %s: %s", tree, "; ".join(own.errors))
     logger.info(
@@ -402,9 +476,9 @@ def migrate_tree(tree: str, tenant_id: str, uid: int, *, include_root: bool) -> 
         tenant_id,
         uid,
         time.monotonic() - started,
-        opened["report"],
+        opened.report,
         copied,
-        exact_legacy["report"],
+        exact_legacy.report,
         own.checked,
         own.changed,
         own.linked_outside,

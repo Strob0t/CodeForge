@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import fcntl
+import json
 import os
 import signal
 import stat
@@ -503,7 +504,7 @@ def test_a_walk_that_ran_through_lets_the_migration_go_on(returncode: int, monke
 
     monkeypatch.setattr(tool_process, "run_walker", walker)
     done = tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
-    assert done["exit"] == returncode
+    assert done.exit == returncode
 
 
 # ---------------------------------------------------------------------------
@@ -579,3 +580,104 @@ def test_the_worker_walk_fails_the_migration_when_a_subtree_was_skipped(
 
     with pytest.raises(ToolIsolationError, match="skipped"):
         tool_migration.migrate_tree(str(tree), "tenant-a", TOOL_UID, include_root=False)
+
+
+# ---------------------------------------------------------------------------
+# Directories of other owners the legacy walks could not list (KI-223 review)
+# ---------------------------------------------------------------------------
+# The Go Core makes .git/codeforge/patches 0700: under the tenant default ACL
+# 10002 cannot list it, and the migration failed for good. Only its owner
+# could have locked 10002 out; the worker (the Go Core's UID) checks it.
+
+
+def _reporting_walker(report: dict[str, object]) -> object:
+    def walker(_identity: object, args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, json.dumps(report), "")
+
+    return walker
+
+
+def test_a_legacy_walk_lists_the_directories_of_other_owners_it_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    skipped = "/w/tenant-a/p/.git/codeforge/patches"
+    monkeypatch.setattr(tool_process, "run_walker", _reporting_walker({"unentered": 0, "foreign_unentered": [skipped]}))
+
+    done = tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
+
+    assert done.foreign_unentered == (skipped,)
+
+
+@pytest.mark.parametrize("listed", ["/w/tenant-a/x", [1], None])
+def test_an_unreadable_list_of_skipped_directories_fails_the_migration(
+    listed: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tool_process, "run_walker", _reporting_walker({"unentered": 0, "foreign_unentered": listed}))
+
+    with pytest.raises(ToolIsolationError, match="legacy-open"):
+        tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
+
+
+def _migrate_skipping(tree: Path, skipped: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """migrate_tree with legacy walks that could not list *skipped*."""
+    monkeypatch.setattr(tool_process, "run_walker", _reporting_walker({"unentered": 0, "foreign_unentered": skipped}))
+    monkeypatch.setattr(tool_reaper, "reap", lambda _uid: 0)
+    monkeypatch.setattr(tool_reaper, "running_processes_of", lambda _uids: {})
+    monkeypatch.setattr(tool_migration, "unshare_links", lambda _tree: 0)
+    tool_migration.migrate_tree(str(tree), "tenant-a", TOOL_UID, include_root=False)
+
+
+def _patches(tmp_path: Path) -> tuple[Path, Path]:
+    tree = tmp_path / "tenant"
+    patches = tree / "p" / ".git" / "codeforge" / "patches"
+    patches.mkdir(parents=True, mode=0o700)
+    (patches / "run-1.patch").write_text("diff\n")
+    return tree, patches
+
+
+def test_a_directory_of_the_go_core_the_legacy_walks_skipped_is_checked_by_the_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree, patches = _patches(tmp_path)
+
+    _migrate_skipping(tree, [str(patches)], monkeypatch)  # nothing of 10002 there: the migration goes on
+
+
+def test_an_entry_of_10002_in_a_skipped_directory_fails_the_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """10002's walks did not reach it: its ACL (planted entries included) is the legacy one."""
+    tree, patches = _patches(tmp_path)
+    monkeypatch.setattr(tool_migration, "LEGACY_TOOL_UID", UID)  # the test's files play 10002's
+
+    with pytest.raises(ToolIsolationError, match=r"patches.*run-1\.patch"):
+        _migrate_skipping(tree, [str(patches)], monkeypatch)
+
+
+def test_a_skipped_directory_removed_meanwhile_is_nothing_to_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree, patches = _patches(tmp_path)
+
+    _migrate_skipping(tree, [f"{patches}-gone"], monkeypatch)
+
+
+@pytest.mark.parametrize("relative", ["../other", "p/./x", "p//x", ""])
+def test_a_skipped_directory_outside_the_tree_fails_the_migration(
+    relative: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree, _ = _patches(tmp_path)
+    (tmp_path / "other").mkdir()
+
+    with pytest.raises(ToolIsolationError, match="not inside"):
+        _migrate_skipping(tree, [f"{tree}/{relative}"], monkeypatch)
+
+
+def test_a_directory_the_worker_cannot_enter_fails_its_walk_whoever_owns_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker's own walks check everything: nobody checks what they skip."""
+    tree, _ = _patches(tmp_path)
+    skipped = tool_walk.Report(foreign_unentered=[f"{tree}/p/private"])
+    monkeypatch.setattr(tool_walk, "exact", lambda *_args, **_kwargs: skipped)
+
+    with pytest.raises(ToolIsolationError, match="private"):
+        _migrate_skipping(tree, [], monkeypatch)
