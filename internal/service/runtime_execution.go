@@ -153,13 +153,16 @@ func (s *RuntimeService) HandleToolCallRequest(ctx context.Context, req *message
 	// Broadcast WS
 	s.broadcastToolCallStatus(ctx, r.ID, req.CallID, req.Tool, decisionPhase(decision), string(decision))
 
-	// Broadcast AG-UI tool_call alongside native event
-	s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
-		RunID:  r.ID,
-		CallID: req.CallID,
-		Name:   req.Tool,
-		Args:   req.Command,
-	})
+	// Broadcast AG-UI tool_call alongside native event. The agent loop's
+	// "LLM" permission before each completion is no tool call: no card.
+	if !isLLMPermission(req.Tool) {
+		s.hub.BroadcastEvent(ctx, event.AGUIToolCall, event.AGUIToolCallEvent{
+			RunID:  r.ID,
+			CallID: req.CallID,
+			Name:   req.Tool,
+			Args:   req.Command,
+		})
+	}
 
 	// OTEL: record tool call span and metric
 	_, toolSpan := telemetry.StartToolCallSpan(ctx, req.CallID, req.Tool)
@@ -576,8 +579,11 @@ func (s *RuntimeService) HandleToolCallResult(ctx context.Context, result *messa
 	// Broadcast WS with token data
 	s.broadcastToolCallStatus(ctx, r.ID, result.CallID, result.Tool, "result", "")
 
-	// Broadcast AG-UI tool_result alongside native event
-	s.hub.BroadcastEvent(ctx, event.AGUIToolResult, aguiToolResult(r.ID, result))
+	// Broadcast AG-UI tool_result alongside native event (none for the "LLM"
+	// permission's usage report, which has no card).
+	if !isLLMPermission(result.Tool) {
+		s.hub.BroadcastEvent(ctx, event.AGUIToolResult, aguiToolResult(r.ID, result))
+	}
 
 	return nil
 }

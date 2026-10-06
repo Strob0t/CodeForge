@@ -325,3 +325,41 @@ func TestToolResult_SmallDiffIsBroadcastUnchanged(t *testing.T) {
 		t.Fatalf("broadcast %+v, want the diff unchanged", results)
 	}
 }
+
+// The agent loop requests an "LLM" permission before each completion and
+// reports its usage as that call's result; runs use the same loop, so the
+// run path shows no card for it either (neither agui.tool_call nor
+// agui.tool_result), while its native run.toolcall status events stay.
+func TestRunToolCall_LLMPermissionGetsNoCard(t *testing.T) {
+	svc, hub, store := newToolCardsEnvWithStore("headless-safe-sandbox")
+	store.mu.Lock()
+	store.runs = append(store.runs, run.Run{
+		ID: "run-llm", TaskID: "task-1", ProjectID: "proj-tc", TenantID: "tenant-a",
+		PolicyProfile: "headless-safe-sandbox", Status: run.StatusRunning, StartedAt: time.Now(),
+	})
+	store.mu.Unlock()
+
+	req := messagequeue.ToolCallRequestPayload{
+		RunID: "run-llm", CallID: "call-llm", TenantID: "tenant-a", Tool: "LLM", Command: "chat_completion", ReportsResult: true,
+	}
+	if err := svc.HandleToolCallRequest(context.Background(), &req); err != nil {
+		t.Fatalf("HandleToolCallRequest: %v", err)
+	}
+	res := messagequeue.ToolCallResultPayload{
+		RunID: "run-llm", CallID: "call-llm", TenantID: "tenant-a", Tool: "LLM", Success: true, Output: "(tool_calls)",
+		TokensIn: 10, TokensOut: 5, CostUSD: 0.001,
+	}
+	if err := svc.HandleToolCallResult(context.Background(), &res); err != nil {
+		t.Fatalf("HandleToolCallResult: %v", err)
+	}
+
+	if calls := broadcastsOf(hub, event.AGUIToolCall); len(calls) != 0 {
+		t.Errorf("got %d agui.tool_call events for the LLM permission, want 0", len(calls))
+	}
+	if results := broadcastsOf(hub, event.AGUIToolResult); len(results) != 0 {
+		t.Errorf("got %d agui.tool_result events for the LLM permission, want 0", len(results))
+	}
+	if statuses := broadcastsOf(hub, event.EventToolCallStatus); len(statuses) != 2 {
+		t.Errorf("got %d run.toolcall status events, want 2 (decision and result)", len(statuses))
+	}
+}
