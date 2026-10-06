@@ -439,3 +439,55 @@ async def test_loop_repeat_cycle_aborts_with_the_repeated_tool(tmp_path: Path) -
     same = ("bash", {"command": "python -m pytest -q"})
     result, _ = await _run_loop([same] * 30, str(tmp_path))
     assert result.error == "stall detected: repeated bash after 2 escape attempts"  # type: ignore[attr-defined]
+
+
+# ---- A cycle of two calls (KI-191 review) ----
+
+
+class TestTwoCallCycle:
+    EDIT = ("edit_file", {"path": "a.py", "old": "x", "new": "y"})
+    TEST = ("bash", {"command": "pytest"})
+
+    def test_an_identical_edit_and_test_repeated_stalls(self) -> None:
+        detector = StallDetector()
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            assert detector.is_stalled() is False
+            detector.record(*self.TEST)
+        assert detector.is_stalled() is True
+        assert detector.get_repeated_action() == "edit_file, bash"
+
+    def test_two_cycles_are_no_stall(self) -> None:
+        detector = StallDetector()
+        for _ in range(2):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        assert detector.is_stalled() is False
+
+    def test_changing_edits_with_the_same_test_are_progress(self) -> None:
+        detector = StallDetector()
+        for i in range(10):
+            detector.record("edit_file", {"path": "a.py", "old": f"x{i}", "new": f"y{i}"})
+            detector.record(*self.TEST)
+        assert detector.is_stalled() is False
+
+    def test_an_escape_clears_the_cycle(self) -> None:
+        detector = StallDetector()
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        detector.record_escape()
+        detector.record(*self.EDIT)
+        detector.record(*self.TEST)
+        assert detector.is_stalled() is False
+
+    def test_a_cycle_stalls_again_after_the_escapes_and_aborts(self) -> None:
+        detector = StallDetector(max_escapes=1)
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        detector.record_escape()
+        for _ in range(3):
+            detector.record(*self.EDIT)
+            detector.record(*self.TEST)
+        assert detector.should_abort() is True

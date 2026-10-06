@@ -33,11 +33,12 @@ class StallDetector:
 
     A stall is *stall_threshold* identical ``(tool_name, args)`` calls in a
     row, with no other call in between (KI-191): an edit/test loop repeats
-    its test command, but with an edit in between, which is progress. An
-    escape prompt clears the window, so only a new run of repeats stalls
-    again; a stall after *max_escapes* escape prompts aborts the loop. The
-    window keeps the last *window_size* calls for the contextual escape
-    prompt.
+    its test command, but with an edit in between, which is progress. A pair
+    of two different calls repeated *stall_threshold* times in a row (the
+    same edit and the same test, again and again) is a stall too. An escape
+    prompt clears the window, so only a new run of repeats stalls again; a
+    stall after *max_escapes* escape prompts aborts the loop. The window
+    keeps the last *window_size* calls for the contextual escape prompt.
     """
 
     def __init__(self, window_size: int = 5, stall_threshold: int = 3, max_escapes: int = 2) -> None:
@@ -47,6 +48,8 @@ class StallDetector:
         self._escape_count = 0
         # Length of the run of identical calls at the end of the window.
         self._repeats = 0
+        # Length of the run of calls equal to the call two before them.
+        self._cycle = 0
 
     @staticmethod
     def _hash_args(name: str, args: dict[str, object]) -> str:
@@ -57,23 +60,33 @@ class StallDetector:
         """Append a tool call to the window and extend or restart the run of repeats."""
         entry = (tool_name, self._hash_args(tool_name, args))
         self._repeats = self._repeats + 1 if self._window and self._window[-1] == entry else 1
+        self._cycle = self._cycle + 1 if len(self._window) >= 2 and self._window[-2] == entry else 0
         self._window.append(entry)
 
+    def _pair_repeats(self) -> int:
+        """Return how often the last two (different) calls repeat as a pair at the end of the window."""
+        if len(self._window) < 2 or self._window[-1] == self._window[-2]:
+            return 0
+        return self._cycle // 2 + 1
+
     def is_stalled(self) -> bool:
-        """Return True if the last *stall_threshold* calls are one identical call."""
-        return self._repeats >= self._threshold
+        """Return True if the last calls repeat one call or one pair of calls *stall_threshold* times."""
+        return self._repeats >= self._threshold or self._pair_repeats() >= self._threshold
 
     def get_repeated_action(self) -> str | None:
-        """Return the tool name of the repeated call while stalled, or None."""
-        if not self.is_stalled():
-            return None
-        return self._window[-1][0]  # tool_name from (tool_name, args_hash)
+        """Return the tool name of the repeated call (or both names of a pair) while stalled, or None."""
+        if self._repeats >= self._threshold:
+            return self._window[-1][0]  # tool_name from (tool_name, args_hash)
+        if self._pair_repeats() >= self._threshold:
+            return f"{self._window[-2][0]}, {self._window[-1][0]}"
+        return None
 
     def record_escape(self) -> None:
         """Record an injected escape prompt and clear the window for a fresh start."""
         self._escape_count += 1
         self._window.clear()
         self._repeats = 0
+        self._cycle = 0
 
     def should_abort(self) -> bool:
         """Return True if the agent stalls again after *max_escapes* escape prompts."""
