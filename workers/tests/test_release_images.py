@@ -10,6 +10,7 @@ version bump.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -92,7 +93,7 @@ def test_release_tag_builds_version_and_latest() -> None:
     assert on["push"]["tags"] == ["v*"]  # type: ignore[index]
     release = workflow["jobs"]["release"]  # type: ignore[index]
     script = "\n".join(str(step.get("run", "")) for step in release["steps"])
-    assert "merge-base --is-ancestor" in script, "a release tag must point at a commit on main"
+    assert "rev-list --first-parent origin/main" in script, "a release tag must point at a commit of main"
     assert "VERSION" in script, "a release tag must name the version in VERSION"
     for name in BUILD_JOBS:
         job = workflow["jobs"][name]  # type: ignore[index]
@@ -135,3 +136,145 @@ def test_jobs_that_attest_may_write_attestations() -> None:
             assert job["permissions"].get("attestations") == "write", name
             assert job["permissions"].get("id-token") == "write", name
     assert sorted(attesting) == sorted(BUILD_JOBS)
+
+
+# The release job's check, run in a scratch repository: a v* tag must name
+# VERSION and point at a commit of main's first-parent history; latest moves
+# only forward (a release whose version is at least the highest v* release).
+
+GIT = shutil.which("git")
+_GIT_ENV = {
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "PATH": os.environ.get("PATH", ""),
+}
+
+
+def _git(cwd: Path, *args: str) -> str:
+    done = subprocess.run([GIT, *args], cwd=cwd, env=_GIT_ENV, capture_output=True, text=True, check=True)  # type: ignore[list-item]  # noqa: S603
+    return done.stdout.strip()
+
+
+class _Repo:
+    """A clone ("the checkout") of a bare origin whose main gets commits."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self.origin = tmp_path / "origin.git"
+        self.work = tmp_path / "work"
+        _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(self.origin))
+        _git(tmp_path, "init", "-q", "-b", "main", str(self.work))
+        _git(self.work, "remote", "add", "origin", str(self.origin))
+
+    def commit(self, version: str, branch: str = "main") -> str:
+        current = subprocess.run(  # noqa: S603 - git of the scratch repository
+            [GIT, "symbolic-ref", "-q", "--short", "HEAD"],  # type: ignore[list-item]
+            cwd=self.work,
+            env=_GIT_ENV,
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if current != branch:
+            _git(self.work, "checkout", "-q", branch)
+        (self.work / "VERSION").write_text(version + "\n")
+        _git(self.work, "add", "VERSION")
+        _git(self.work, "commit", "-q", "--allow-empty", "-m", f"version {version}")
+        _git(self.work, "push", "-q", "origin", branch)
+        return _git(self.work, "rev-parse", "HEAD")
+
+    def check(self, tag: str, sha: str, ref_type: str = "tag") -> tuple[int, str, str]:
+        """Run the release check for a push of tag at sha; returns (exit code, output, the latest output)."""
+        if ref_type == "tag":
+            _git(self.work, "tag", "-a", "-m", tag, tag, sha)
+        _git(self.work, "checkout", "-q", "--detach", sha)
+        output = self.work.parent / "github-output"
+        output.write_text("")
+        env = {**_GIT_ENV, "REF_TYPE": ref_type, "TAG": tag, "GITHUB_SHA": sha, "GITHUB_OUTPUT": str(output)}
+        done = subprocess.run(  # noqa: S603 - the workflow's own script
+            [BASH, "-c", _release_script()],  # type: ignore[list-item]
+            cwd=self.work,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        latest = dict(line.split("=", 1) for line in output.read_text().splitlines()).get("latest", "")
+        return done.returncode, done.stdout + done.stderr, latest
+
+
+def _release_script() -> str:
+    release = _workflow()["jobs"]["release"]  # type: ignore[index]
+    return next(str(s["run"]) for s in release["steps"] if s.get("id") == "check")
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> _Repo:
+    if GIT is None or BASH is None:
+        pytest.skip("needs git and bash")
+    return _Repo(tmp_path)
+
+
+def test_release_check_branch_push(repo: _Repo) -> None:
+    sha = repo.commit("0.9.0")
+    assert repo.check("main", sha, ref_type="branch")[::2] == (0, "false")
+
+
+def test_release_check_first_release_moves_latest(repo: _Repo) -> None:
+    repo.commit("0.8.0")
+    sha = repo.commit("0.9.0")
+    code, output, latest = repo.check("v0.9.0", sha)
+    assert (code, latest) == (0, "true"), output
+
+
+def test_release_check_tag_must_name_version(repo: _Repo) -> None:
+    sha = repo.commit("0.9.0")
+    code, output, latest = repo.check("v0.9.1", sha)
+    assert code == 1
+    assert latest == ""
+    assert "does not name the version in VERSION (0.9.0)" in output
+
+
+def test_release_check_commit_of_a_merged_branch_is_refused(repo: _Repo) -> None:
+    base = repo.commit("0.8.0")
+    _git(repo.work, "checkout", "-q", "-b", "feature", base)
+    feature = repo.commit("0.9.0", branch="feature")
+    _git(repo.work, "checkout", "-q", "main")
+    _git(repo.work, "merge", "-q", "--no-ff", "-m", "merge feature", "feature")
+    _git(repo.work, "push", "-q", "origin", "main")
+
+    assert _git(repo.work, "merge-base", "--is-ancestor", feature, "main") == ""  # reachable, not first-parent
+    code, output, latest = repo.check("v0.9.0", feature)
+    assert code == 1
+    assert latest == ""
+    assert "first-parent" in output
+
+
+def test_release_check_commit_off_main_is_refused(repo: _Repo) -> None:
+    base = repo.commit("0.8.0")
+    _git(repo.work, "checkout", "-q", "-b", "staging", base)
+    sha = repo.commit("0.9.0", branch="staging")
+    code, _, latest = repo.check("v0.9.0", sha)
+    assert code == 1
+    assert latest == ""
+
+
+@pytest.mark.parametrize(
+    ("existing", "version", "latest"),
+    [
+        (["v1.0.0"], "0.9.1", "false"),  # a patch release of an older line
+        (["v0.9.0"], "0.10.0", "true"),  # semver, not text order
+        (["v0.9.0", "v0.10.0"], "0.9.1", "false"),
+        (["v0.9.0"], "0.9.0-rc.2", "false"),  # a prerelease never moves latest
+        (["v1.0.0-rc.1"], "0.9.0", "true"),  # prereleases do not count as released
+    ],
+)
+def test_release_check_latest_moves_only_forward(repo: _Repo, existing: list[str], version: str, latest: str) -> None:
+    for tag in existing:
+        repo.check(tag, repo.commit(tag[1:]))
+    sha = repo.commit(version)
+    code, output, got = repo.check(f"v{version}", sha)
+    assert (code, got) == (0, latest), output

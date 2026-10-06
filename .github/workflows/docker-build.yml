@@ -13,9 +13,11 @@ env:
 
 jobs:
   # A v* tag releases the version in VERSION (KI-116): it must name that
-  # version and point at a commit on main, else nothing is built. Such a tag
-  # (not a prerelease) builds the images as <version>, <major>.<minor> and
-  # "latest"; docker-compose.prod.yml pins <version> (scripts/sync-version.sh).
+  # version and point at a commit of main's first-parent history, else
+  # nothing is built. It builds the images as <version> and <major>.<minor>,
+  # and as "latest" when it is a release at least as high as every released
+  # v* tag; docker-compose.prod.yml pins <version> (scripts/sync-version.sh).
+  # workers/tests/test_release_images.py runs this check.
   release:
     runs-on: ubuntu-latest
     permissions:
@@ -25,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0 # the history of main, for the ancestry check
+          fetch-depth: 0 # all history and the v* tags, for the checks below
 
       - name: Check the release tag
         id: check
@@ -43,15 +45,29 @@ jobs:
             echo "::error::tag $TAG does not name the version in VERSION ($version)"
             exit 1
           fi
+          # A release is a commit of main itself (its first-parent history),
+          # not one of a branch merged into it. grep reads all of rev-list's
+          # output (no -q): an early exit would fail the pipeline (pipefail).
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::tag $TAG does not point at a commit on main"
+          commit="$(git rev-parse "$GITHUB_SHA^{commit}")"
+          if ! git rev-list --first-parent origin/main | grep -Fx "$commit" > /dev/null; then
+            echo "::error::tag $TAG does not point at a commit of main's first-parent history"
             exit 1
           fi
+          # latest only moves forward: a release (not a prerelease) whose
+          # version is at least the highest released v* tag.
+          latest=false
           case "$version" in
-            *-*) echo "latest=false" >> "$GITHUB_OUTPUT" ;; # a prerelease
-            *) echo "latest=true" >> "$GITHUB_OUTPUT" ;;
+            *-*) ;; # a prerelease
+            *)
+              highest="$(git tag -l 'v*' --sort=-v:refname | awk '/^v[0-9]+[.][0-9]+[.][0-9]+$/ && !n++')"
+              newest="$(printf '%s\n' "${highest#v}" "$version" | sort -V | tail -n 1)"
+              if [ -z "$highest" ] || [ "$newest" = "$version" ]; then
+                latest=true
+              fi
+              ;;
           esac
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
 
   build-core:
     needs: [release]
