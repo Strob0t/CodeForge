@@ -145,6 +145,47 @@ describe("CompactSettingsPopover", () => {
     },
   );
 
+  // KI-109: the project settings lead to the project's Webhooks panel, for
+  // the roles the Go Core lists webhooks to (admins and editors).
+  it.each(["admin", "editor"] as const)("opens the webhooks panel for a %s", async (role) => {
+    auth.role = role;
+    const onOpenWebhooks = vi.fn();
+    render(() => (
+      <I18nProvider>
+        <ToastProvider>
+          <CompactSettingsPopover
+            projectId="p-1"
+            open
+            onClose={() => undefined}
+            onOpenWebhooks={onOpenWebhooks}
+          />
+        </ToastProvider>
+      </I18nProvider>
+    ));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage webhooks" }));
+    expect(onOpenWebhooks).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a viewer no webhooks link", async () => {
+    auth.role = "viewer";
+    render(() => (
+      <I18nProvider>
+        <ToastProvider>
+          <CompactSettingsPopover
+            projectId="p-1"
+            open
+            onClose={() => undefined}
+            onOpenWebhooks={() => undefined}
+          />
+        </ToastProvider>
+      </I18nProvider>
+    ));
+
+    await screen.findByText("docs");
+    expect(screen.queryByRole("button", { name: "Manage webhooks" })).toBeNull();
+  });
+
   it("tells a viewer when no server is assigned", async () => {
     auth.role = "viewer";
     apiMock.listProjectServers.mockResolvedValue([]);

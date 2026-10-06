@@ -5,6 +5,7 @@ import type { MCPServer } from "~/api/types";
 import { useAuth } from "~/components/AuthProvider";
 import { useToast } from "~/components/Toast";
 import { useI18n } from "~/i18n";
+import { Button } from "~/ui";
 import { getErrorMessage } from "~/utils/getErrorMessage";
 
 import { ProjectCostSection } from "../costs/CostDashboardPage";
@@ -13,6 +14,8 @@ interface CompactSettingsPopoverProps {
   projectId: string;
   open: boolean;
   onClose: () => void;
+  /** Opens the project's Webhooks panel (KI-109). */
+  onOpenWebhooks?: () => void;
 }
 
 export default function CompactSettingsPopover(props: CompactSettingsPopoverProps) {
@@ -21,6 +24,8 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
   const { hasRole } = useAuth();
   // Only the tenant's admins assign MCP servers (the Go Core refuses others).
   const isAdmin = (): boolean => hasRole("admin");
+  // The Go Core lists a project's webhooks to admins and editors.
+  const seesWebhooks = (): boolean => hasRole("admin", "editor");
 
   const [assignedIds, setAssignedIds] = createSignal<Set<string>>(new Set());
   const [togglingId, setTogglingId] = createSignal<string | null>(null);
@@ -152,6 +157,21 @@ export default function CompactSettingsPopover(props: CompactSettingsPopoverProp
             </Show>
           </Show>
         </div>
+
+        {/* Webhooks */}
+        <Show when={seesWebhooks() && props.onOpenWebhooks !== undefined}>
+          <div class="mb-3 border-t border-cf-border pt-3">
+            <h4 class="text-xs font-medium text-cf-text-tertiary mb-1">
+              {t("detail.settings.webhooks")}
+            </h4>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs text-cf-text-tertiary">{t("detail.settings.webhooksHelp")}</p>
+              <Button variant="secondary" size="xs" onClick={() => props.onOpenWebhooks?.()}>
+                {t("detail.settings.webhooksManage")}
+              </Button>
+            </div>
+          </div>
+        </Show>
 
         {/* Cost Summary */}
         <div class="border-t border-cf-border pt-3">

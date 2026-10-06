@@ -717,6 +717,9 @@ const de: Translations = {
   "detail.chat.linkedFailed": "Die verlinkte Unterhaltung konnte nicht geöffnet werden.",
   "detail.settings.mcpAdminOnly": "Nur Administratoren weisen einem Projekt MCP-Server zu.",
   "detail.settings.mcpNoneAssigned": "Diesem Projekt ist kein MCP-Server zugewiesen.",
+  "detail.settings.webhooks": "Webhooks",
+  "detail.settings.webhooksHelp": "Eingehende Webhooks von GitHub, GitLab und Plane.",
+  "detail.settings.webhooksManage": "Webhooks verwalten",
 
   // -- Project webhooks (KI-109) --------------------------------------------
   "webhooks.title": "Webhooks",

@@ -726,6 +726,9 @@ const en = {
   "detail.chat.linkedFailed": "The linked conversation could not be opened.",
   "detail.settings.mcpAdminOnly": "Only admins assign MCP servers to a project.",
   "detail.settings.mcpNoneAssigned": "No MCP server is assigned to this project.",
+  "detail.settings.webhooks": "Webhooks",
+  "detail.settings.webhooksHelp": "Inbound webhooks from GitHub, GitLab and Plane.",
+  "detail.settings.webhooksManage": "Manage webhooks",
 
   // -- Project webhooks (KI-109) --------------------------------------------
   "webhooks.title": "Webhooks",

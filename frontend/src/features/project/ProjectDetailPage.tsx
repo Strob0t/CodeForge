@@ -51,6 +51,7 @@ import RunPanel from "./RunPanel";
 import SessionPanel from "./SessionPanel";
 import TaskPanel from "./TaskPanel";
 import { useProjectDetail } from "./useProjectDetail";
+import WebhooksPanel from "./WebhooksPanel";
 
 // Lazy-loaded panels: infrequently used, heavy, or deeply nested
 const AuditTable = lazy(() => import("../audit/AuditTable"));
@@ -208,7 +209,8 @@ export default function ProjectDetailPage() {
     | "retrieval"
     | "plans"
     | "tasks"
-    | "policy";
+    | "policy"
+    | "webhooks";
   const [leftTab, setLeftTab] = createSignal<LeftTab>("files");
   const [selectedRunId, setSelectedRunId] = createSignal<string | null>(null);
   const [switchToConversation, setSwitchToConversation] = createSignal<string | null>(null);
@@ -438,6 +440,12 @@ export default function ProjectDetailPage() {
                     projectId={params.id}
                     open={settingsOpen()}
                     onClose={() => setSettingsOpen(false)}
+                    onOpenWebhooks={() => {
+                      setSettingsOpen(false);
+                      if (roadmapCollapsed()) toggleRoadmap();
+                      handleNavigate("webhooks");
+                      if (isMobile()) setMobileView("panels");
+                    }}
                   />
                 </div>
               </div>
@@ -487,7 +495,7 @@ export default function ProjectDetailPage() {
               <Show when={!isMobile() || mobileView() === "panels"}>
                 <Show when={!roadmapCollapsed()}>
                   <div
-                    class={`flex flex-col min-h-0 overflow-hidden ${["plan", "execute", "govern", "featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
+                    class={`flex flex-col min-h-0 overflow-hidden ${["plan", "execute", "govern", "featuremap", "files", "warroom", "goals", "audit", "sessions", "trajectory", "boundaries", "agents", "code", "retrieval", "plans", "tasks", "policy", "webhooks"].includes(leftTab()) ? "" : "overflow-y-auto"}`}
                     style={
                       isMobile()
                         ? { height: "100%" }
@@ -802,6 +810,15 @@ export default function ProjectDetailPage() {
                       >
                         <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                           <PolicyPanel projectId={params.id} onError={setError} />
+                        </div>
+                      </ErrorBoundary>
+                    </Show>
+                    <Show when={leftTab() === "webhooks"}>
+                      <ErrorBoundary
+                        fallback={(err, reset) => <PanelErrorFallback error={err} reset={reset} />}
+                      >
+                        <div class="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                          <WebhooksPanel projectId={params.id} />
                         </div>
                       </ErrorBoundary>
                     </Show>
