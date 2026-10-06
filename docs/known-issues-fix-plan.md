@@ -191,7 +191,7 @@ and GDPR work. Order:
 | **S9-A** | KI-119, KI-143, KI-131, KI-124 | A safe first start: one-time setup token; token epoch per user; scenario tags on every cloud route; a dev container that starts a working stack |
 | **S9-B** | KI-116, KI-117, KI-118 | A deployment that works out of the box: release tags with the version pinned in compose; GitHub PM over REST and `svn` in the Core image; backend CLIs in the standard worker image with a documented egress path |
 | **S9-C** | new feature, KI-125 follow-up | Pure-completion models use tools through a text tool protocol parsed by the worker, with grammar-constrained output where the server supports it (Ollama `format`, JSON schema); plan: [text-tool-protocol-plan.md](plans/text-tool-protocol-plan.md) |
-| **S9-D** | KI-129 (vision part), KI-94 (decided parts), KI-138, KI-142, KI-146, KI-109 | One "agent work" read model for the dashboard, costs and a new page; refactorer write warning, `approve-partial` removed; small UI gaps |
+| **S9-D** | KI-129 (vision part), KI-94 (decided parts), KI-138, KI-142, KI-146, KI-109 | One "agent work" read model for the dashboard, costs and a new page ([plan](plans/2026-10-06-agent-work-read-model.md), migrations 128-129; KI-94 uses 127); refactorer write warning, `approve-partial` removed; small UI gaps |
 | **S9-E** (low) | KI-145, KI-144, KI-120, KI-141 | Last-admin rule, export scope and user attribution, tenant from the e-mail at login, never-done claims |
 | closed | KI-140 | Decision: keep the current rule (allow rules match the inner command) |
 
