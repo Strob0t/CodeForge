@@ -38,23 +38,29 @@ func readJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64) (T
 }
 
 // readOptionalJSON decodes a JSON body that a handler accepts but does not
-// require, within bodyLimit: an empty or malformed body leaves the zero
-// value (logged at debug level, as before), a body over the limit is
-// refused with 413 (KI-176).
+// require, within bodyLimit: no body (nothing but whitespace) leaves the
+// zero value; a body that is there but is not JSON of T is refused with
+// 400, never taken as the zero value; a body over the limit is refused
+// with 413 (KI-176, S10-A review).
 func readOptionalJSON[T any](w http.ResponseWriter, r *http.Request, bodyLimit int64, handler string) (T, bool) {
 	var v T
 	r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
-			return v, false
-		}
-		slog.Debug("optional body parse skipped", "handler", handler, "error", err)
+	err := json.NewDecoder(r.Body).Decode(&v)
+	if err == nil {
+		return v, true
+	}
+	if errors.Is(err, io.EOF) {
 		var zero T
 		return zero, true
 	}
-	return v, true
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return v, false
+	}
+	slog.Debug("optional body refused", "handler", handler, "error", err)
+	writeError(w, http.StatusBadRequest, "invalid request body")
+	return v, false
 }
 
 // urlParam is a short alias for chi.URLParam.
