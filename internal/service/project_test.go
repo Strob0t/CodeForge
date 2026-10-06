@@ -1044,6 +1044,9 @@ func (m *mockStore) ListRunsWithStaleHeartbeat(_ context.Context, _ time.Duratio
 	return nil, nil
 }
 func (m *mockStore) BeginConversationTurn(_ context.Context, _, _ string) error { return nil }
+func (m *mockStore) ProjectHasOtherActiveWork(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
 func (m *mockStore) EndConversationTurn(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }

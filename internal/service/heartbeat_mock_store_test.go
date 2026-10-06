@@ -72,6 +72,35 @@ func (m *runtimeMockStore) BeginConversationTurn(ctx context.Context, conversati
 	return nil
 }
 
+// ProjectHasOtherActiveWork mirrors the Postgres store; the mock maps no
+// conversation to its project, so every other conversation's turn counts.
+func (m *runtimeMockStore) ProjectHasOtherActiveWork(_ context.Context, projectID, conversationID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.activeWorkErr != nil {
+		return false, m.activeWorkErr
+	}
+	for i := range m.runs {
+		switch m.runs[i].Status {
+		case run.StatusRunning, run.StatusQualityGate:
+			if m.runs[i].ProjectID == projectID {
+				return true, nil
+			}
+		}
+	}
+	for i := range m.tasks {
+		if m.tasks[i].ProjectID == projectID && (m.tasks[i].Status == task.StatusQueued || m.tasks[i].Status == task.StatusRunning) {
+			return true, nil
+		}
+	}
+	for id := range m.turns {
+		if id != conversationID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *runtimeMockStore) EndConversationTurn(_ context.Context, conversationID, turnID string) (bool, error) {
 	if hook := m.endTurnHook; hook != nil {
 		hook(conversationID, turnID)

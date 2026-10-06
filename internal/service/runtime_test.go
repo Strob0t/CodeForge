@@ -79,6 +79,8 @@ type runtimeMockStore struct {
 	// endTurnHook, if set, runs at the start of EndConversationTurn, outside
 	// the lock: a test injects what happens concurrently with the end.
 	endTurnHook func(conversationID, turnID string)
+	// activeWorkErr, if set, is the error of ProjectHasOtherActiveWork.
+	activeWorkErr error
 }
 
 func (m *runtimeMockStore) ListProjects(_ context.Context) ([]project.Project, error) {

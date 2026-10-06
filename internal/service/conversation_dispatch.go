@@ -207,6 +207,24 @@ func WithContextEntries(entries []messagequeue.ContextEntryPayload) AgenticOptio
 	}
 }
 
+// multiRolloutRefusal returns why a multi-rollout turn cannot run on the
+// project now, or "". The rollouts reset the workspace between them
+// (KI-195): another run, task or conversation turn working there would lose
+// its changes. It is checked after the turn began, so two turns dispatched
+// at once see each other; a check that fails refuses (fail closed).
+func (s *ConversationService) multiRolloutRefusal(ctx context.Context, projectID, conversationID string) string {
+	busy, err := s.db.ProjectHasOtherActiveWork(ctx, projectID, conversationID)
+	if err != nil {
+		slog.Warn("multi-rollout refused: the project's active work is unknown",
+			"project_id", projectID, "conversation_id", conversationID, "error", err)
+		return "the project's active work could not be checked"
+	}
+	if busy {
+		return "another run, task or conversation turn is active on this project"
+	}
+	return ""
+}
+
 // dispatchAgenticRun is the shared core for SendMessageAgentic and SendMessageAgenticWithMode.
 // It stores the user message, builds the NATS payload, and publishes the conversation run start.
 func (s *ConversationService) dispatchAgenticRun(
@@ -312,6 +330,12 @@ func (s *ConversationService) dispatchAgenticRun(
 	if rolloutCount <= 0 {
 		rolloutCount = 1
 	}
+	rolloutSkipped := ""
+	if rolloutCount > 1 {
+		if rolloutSkipped = s.multiRolloutRefusal(ctx, proj.ID, conversationID); rolloutSkipped != "" {
+			rolloutCount = 1
+		}
+	}
 
 	runID := conversationID
 	payload := messagequeue.ConversationRunStartPayload{
@@ -362,6 +386,13 @@ func (s *ConversationService) dispatchAgenticRun(
 		ThreadID:  conversationID,
 		AgentName: agentName,
 	})
+	if rolloutSkipped != "" {
+		s.hub.BroadcastEvent(ctx, event.AGUITextMessage, event.AGUITextMessageEvent{
+			RunID:   runID,
+			Role:    "assistant",
+			Content: "[Multi-rollout skipped: " + rolloutSkipped + ". Running once.]\n",
+		})
+	}
 
 	// Publish with dedup key when provided, plain publish otherwise.
 	if opts.dedupKey != "" {

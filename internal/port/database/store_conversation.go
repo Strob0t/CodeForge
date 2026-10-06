@@ -34,4 +34,10 @@ type ConversationStore interface {
 	ClaimConversationTurnCompletion(ctx context.Context, conversationID, turnID string) (bool, error)
 	TouchConversationTurnHeartbeat(ctx context.Context, conversationID, turnID string) error
 	ListConversationTurnsWithStaleHeartbeat(ctx context.Context, idleFor time.Duration, limit int) ([]conversation.ActiveTurn, error)
+
+	// ProjectHasOtherActiveWork reports whether a run or task of the project
+	// is running, or a conversation of the project other than
+	// conversationID has an active turn (KI-195: a multi-rollout turn resets
+	// the workspace between rollouts).
+	ProjectHasOtherActiveWork(ctx context.Context, projectID, conversationID string) (bool, error)
 }

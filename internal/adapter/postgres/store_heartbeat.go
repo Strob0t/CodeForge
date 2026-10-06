@@ -61,6 +61,25 @@ func (s *Store) BeginConversationTurn(ctx context.Context, conversationID, turnI
 	return nil
 }
 
+// ProjectHasOtherActiveWork reports whether a run or task of the caller's
+// tenant's project is running (a pending run turns running when it is
+// created, so a stale pending row never blocks), or a conversation of the
+// project other than conversationID has an active turn (KI-195).
+func (s *Store) ProjectHasOtherActiveWork(ctx context.Context, projectID, conversationID string) (bool, error) {
+	const q = `SELECT
+		EXISTS (SELECT 1 FROM runs WHERE project_id = $1 AND tenant_id = $3
+			AND status IN ('running', 'quality_gate'))
+		OR EXISTS (SELECT 1 FROM tasks WHERE project_id = $1 AND tenant_id = $3
+			AND status IN ('queued', 'running'))
+		OR EXISTS (SELECT 1 FROM conversations WHERE project_id = $1 AND tenant_id = $3
+			AND id::text <> $2 AND active_turn_id IS NOT NULL)`
+	var busy bool
+	if err := s.pool.QueryRow(ctx, q, projectID, conversationID, tenantFromCtx(ctx)).Scan(&busy); err != nil {
+		return false, fmt.Errorf("active work of project %s: %w", projectID, err)
+	}
+	return busy, nil
+}
+
 // EndConversationTurn clears the active turn of a conversation of the
 // caller's tenant if it is turnID (turnID "" clears any active turn), and
 // reports whether it did: false when the turn already ended or another turn
