@@ -44,7 +44,7 @@
 ### Known Issues
 
 > Verified defects found in the docs/code reconciliation of 2026-09-29 on `staging` (HEAD `cb9b63ce`).
-> IDs (KI-1..KI-167) are stable and never renumbered; other docs link here (`todo.md#known-issues`) by ID.
+> IDs (KI-1..KI-168) are stable and never renumbered; other docs link here (`todo.md#known-issues`) by ID.
 > Every unchecked item is an open task: when its fix lands, check it `[x]` with the date and keep the entry.
 
 #### CI and tooling
@@ -296,6 +296,7 @@
 - [ ] **KI-165 Goose is pinned to 1.29.0** (low): the last versioned upstream image; a newer version needs the release archive and its checksum. Found in S9-B.
 - [ ] **KI-166 GitHub Enterprise on a private network is refused** (low): PR delivery and github-api `ListRepos` reach public addresses only, and the github-issues provider supports github.com only (as `gh` did by default). Found in S9-B.
 - [x] (2026-10-06) **KI-167 multidict advisory GHSA-54p9-h82j-f925** (medium): pip-audit in the Security Scanning job flagged multidict 6.7.1 (a transitive dependency of aiohttp and yarl) after the advisory was published; no dependency file had changed. **Fixed:** `poetry.lock` pins multidict 6.9.1; pip-audit is clean and the Python suite passes.
+- [x] (2026-10-06) **KI-168 seroval advisories GHSA-p6vx-979v-rg4c, GHSA-jp82-f5mq-hwhp** (medium): `npm audit --omit=dev` in the Security Scanning job flagged seroval 1.5.6 (critical, fixed in 1.6.3), which solid-js 1.9.x pins to `~1.5.4` (no solid-js 1.9 release depends on a fixed seroval). The SPA bundle does not contain seroval (only Solid's SSR code uses it), so the frontend was not exposed. **Fixed:** `frontend/package.json` `overrides` pins seroval and seroval-plugins to `~1.6.8`; npm audit is clean, typecheck, the 754 vitest tests and the build pass. Remove the override once solid-js depends on a fixed seroval.
 - [x] (2026-10-04) **S7-F review, pre-existing fixes:** a run with a user's own provider key falls back only to models of that provider, so the key is never sent to another one; the retrieval and graph routes (`/projects/{id}/index`, `/graph/status`, `/search`, `/search/agent`, `/graph/search`) and `POST /search` with `project_ids` answer 404 for another tenant's project; retrieval scopes accept and change only their own tenant's projects (create, update, add and remove across tenants answer 404; legacy cross-tenant links are ignored).
 
 ---
