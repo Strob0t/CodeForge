@@ -6,7 +6,7 @@ import (
 
 // RequireScope returns middleware that checks API key scopes.
 // JWT requests pass through (JWT users have role-based access via RBAC).
-// API keys with nil scopes pass through (backward compat for old keys).
+// API keys without scopes pass through (they keep their user's rights).
 func RequireScope(scope string) func(http.Handler) http.Handler {
 	return RequireScopeFunc(func(*http.Request) string { return scope })
 }
@@ -23,8 +23,10 @@ func RequireScopeFunc(scopeOf func(r *http.Request) string) func(http.Handler) h
 				return
 			}
 
-			// Nil scopes means unrestricted (backward compat for old keys).
-			if key.Scopes == nil {
+			// No scopes, nil or empty, means unrestricted: keys from before
+			// the enforcement, and a key created with "scopes": [] once
+			// stored and read back (an empty list, not nil).
+			if len(key.Scopes) == 0 {
 				next.ServeHTTP(w, r)
 				return
 			}

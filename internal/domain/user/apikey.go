@@ -47,8 +47,10 @@ type APIKey struct {
 // A nil/empty Scopes slice means full access (backward compat for old keys).
 // The admin:all scope grants access to everything.
 func (k *APIKey) HasScope(required string) bool {
-	if k.Scopes == nil {
-		return true // nil = full access (backward compat)
+	// No scopes, nil or empty (a key created with "scopes": [] is stored
+	// and read back as an empty list): the key keeps its user's rights.
+	if len(k.Scopes) == 0 {
+		return true
 	}
 	for _, s := range k.Scopes {
 		if s == required || s == ScopeAdminAll {
