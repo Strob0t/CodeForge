@@ -94,10 +94,27 @@ with open('sample.csv', 'w') as f:
         ;;
 esac
 
+# Request bodies are built with json.dumps from the environment: hand-built
+# JSON broke on the prompt's newlines and on quotes in paths (KI-214).
+PROJECT_BODY=$(EVAL_NAME="eval-$SCENARIO" EVAL_PATH="$WS_DIR" python3 -c '
+import json, os
+print(json.dumps({
+    "name": os.environ["EVAL_NAME"],
+    "local_path": os.environ["EVAL_PATH"],
+    "config": {"autonomy_level": "4", "policy_preset": "trusted-mount-autonomous", "execution_mode": "mount"},
+}))')
+CONVERSATION_BODY=$(EVAL_TITLE="eval-$SCENARIO" python3 -c '
+import json, os
+print(json.dumps({"title": os.environ["EVAL_TITLE"]}))')
+# printf %b turns the prompt's \n into newlines (as echo -e did).
+MESSAGE_BODY=$(EVAL_PROMPT="$(printf '%b' "$PROMPT")" EVAL_MODEL="$MODEL" python3 -c '
+import json, os
+print(json.dumps({"content": os.environ["EVAL_PROMPT"], "role": "user", "model": os.environ["EVAL_MODEL"], "agentic": True}))')
+
 # Create project
 PID=$(curl -s -X POST "$BASE_URL/api/v1/projects" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d '{"name":"eval-'"$SCENARIO"'","local_path":"'"$WS_DIR"'","config":{"autonomy_level":"4","policy_preset":"trusted-mount-autonomous","execution_mode":"mount"}}' \
+    -d "$PROJECT_BODY" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
 
 if [[ -z "$PID" ]]; then
@@ -108,15 +125,24 @@ fi
 # Create conversation + bypass
 CONV_ID=$(curl -s -X POST "$BASE_URL/api/v1/projects/$PID/conversations" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d '{"title":"eval-'"$SCENARIO"'"}' \
+    -d "$CONVERSATION_BODY" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+
+if [[ -z "$CONV_ID" ]]; then
+    echo "FAIL: Could not create conversation"
+    exit 1
+fi
 
 curl -s -X POST "$BASE_URL/api/v1/conversations/$CONV_ID/bypass-approvals" -H "$AUTH" > /dev/null
 
-# Dispatch agentic message
-curl -s -X POST "$BASE_URL/api/v1/conversations/$CONV_ID/messages" \
+# Dispatch agentic message; a refused dispatch fails now instead of waiting
+# out the timeout.
+if ! curl -sf -X POST "$BASE_URL/api/v1/conversations/$CONV_ID/messages" \
     -H "$AUTH" -H "Content-Type: application/json" \
-    -d '{"content":"'"$(echo -e "$PROMPT")"'","role":"user","model":"'"$MODEL"'","agentic":true}' > /dev/null
+    -d "$MESSAGE_BODY" > /dev/null; then
+    echo "FAIL: Could not dispatch the message"
+    exit 1
+fi
 
 echo "Dispatched. Polling until completion (timeout: ${TIMEOUT}s)..."
 
@@ -177,13 +203,13 @@ case "$SCENARIO" in
         check "test -f test_ccwc.py" "test_ccwc.py exists"
         check "python3 -m py_compile ccwc.py" "syntax valid"
         EXPECTED_L=$(wc -l < test.txt | tr -d ' ')
-        ACTUAL_L=$(python3 ccwc.py -l test.txt 2>/dev/null | grep -oP '\d+' | head -1)
+        ACTUAL_L=$(python3 ccwc.py -l test.txt 2>/dev/null | grep -oP '\d+' | head -1 || true)
         check "[ '$EXPECTED_L' = '$ACTUAL_L' ]" "-l line count"
         EXPECTED_W=$(wc -w < test.txt | tr -d ' ')
-        ACTUAL_W=$(python3 ccwc.py -w test.txt 2>/dev/null | grep -oP '\d+' | head -1)
+        ACTUAL_W=$(python3 ccwc.py -w test.txt 2>/dev/null | grep -oP '\d+' | head -1 || true)
         check "[ '$EXPECTED_W' = '$ACTUAL_W' ]" "-w word count"
         EXPECTED_C=$(wc -c < test.txt | tr -d ' ')
-        ACTUAL_C=$(python3 ccwc.py -c test.txt 2>/dev/null | grep -oP '\d+' | head -1)
+        ACTUAL_C=$(python3 ccwc.py -c test.txt 2>/dev/null | grep -oP '\d+' | head -1 || true)
         check "[ '$EXPECTED_C' = '$ACTUAL_C' ]" "-c byte count"
         check "python3 ccwc.py test.txt 2>/dev/null | grep -qP '\d+\s+\d+\s+\d+'" "default output"
         ;;
@@ -208,17 +234,23 @@ echo "=== Result: $RESULT ($PASS/$TOTAL) ==="
 echo ""
 
 # JSON output
-python3 -c "
-import json
+EVAL_SCENARIO="$SCENARIO" EVAL_MODEL="$MODEL" EVAL_RESULT="$RESULT" EVAL_WORKSPACE="$WS_DIR" \
+EVAL_PASSED="$PASS" EVAL_TOTAL="$TOTAL" EVAL_MESSAGES="${MSG_COUNT:-0}" EVAL_TOOL_CALLS="${TOOL_COUNT:-0}" \
+EVAL_DURATION="${ELAPSED:-0}" python3 -c '
+import json, os
+
+def number(key):
+    value = os.environ[key]
+    return int(value) if value.isdigit() else 0
+
 print(json.dumps({
-    'scenario': '$SCENARIO',
-    'model': '$MODEL',
-    'result': '$RESULT',
-    'passed': $PASS,
-    'total': $TOTAL,
-    'messages': ${MSG_COUNT:-0},
-    'tool_calls': ${TOOL_COUNT:-0},
-    'duration_s': ${ELAPSED:-0},
-    'workspace': '$WS_DIR',
-}, indent=2))
-"
+    "scenario": os.environ["EVAL_SCENARIO"],
+    "model": os.environ["EVAL_MODEL"],
+    "result": os.environ["EVAL_RESULT"],
+    "passed": number("EVAL_PASSED"),
+    "total": number("EVAL_TOTAL"),
+    "messages": number("EVAL_MESSAGES"),
+    "tool_calls": number("EVAL_TOOL_CALLS"),
+    "duration_s": number("EVAL_DURATION"),
+    "workspace": os.environ["EVAL_WORKSPACE"],
+}, indent=2))'

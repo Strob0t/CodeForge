@@ -6,10 +6,15 @@ compose settings around shutdown and the dev browser container.
 
 from __future__ import annotations
 
+import http.server
+import json
+import os
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 import yaml
@@ -198,6 +203,96 @@ def test_dev_browser_has_its_own_ipc_namespace() -> None:
     browser = DEV["services"]["playwright-mcp"]
     assert "ipc" not in browser
     assert browser["shm_size"]
+
+
+class _FakeCore(http.server.BaseHTTPRequestHandler):
+    """The API calls of scripts/run-agent-eval.sh; POST bodies must be JSON."""
+
+    bodies: ClassVar[list[dict[str, object]]] = []
+
+    def log_message(self, *_args: object) -> None:
+        pass
+
+    def _send(self, payload: object, status: int = 200) -> None:
+        data = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self) -> None:
+        raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        try:
+            body = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            self._send({"error": "invalid JSON"}, 400)
+            return
+        type(self).bodies.append({"path": self.path, "body": body})
+        if self.path.endswith("/auth/login"):
+            self._send({"access_token": "t"})
+        elif self.path.endswith("/projects"):
+            self._send({"id": "p1"})
+        elif self.path.endswith("/conversations"):
+            self._send({"id": "c1"})
+        else:
+            self._send({})
+
+    def do_GET(self) -> None:
+        self._send([{"role": "assistant", "content": "done " * 20, "tool_calls": []}])
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("git") is None, reason="needs bash and git")
+def test_agent_eval_sends_valid_json(tmp_path: Path) -> None:
+    """The prompt went into hand-built JSON with raw newlines: the POST failed silently and every
+    scenario waited out its timeout."""
+    _FakeCore.bodies = []
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _FakeCore)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "sleep").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "sleep").chmod(0o755)
+    workspaces = tmp_path / 'ws "quoted"'
+    try:
+        result = subprocess.run(  # noqa: S603 - the repository's own script against a fake Core
+            [str(shutil.which("bash")), str(REPO / "scripts" / "run-agent-eval.sh"), "--scenario", "S1"],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "BASE_URL": f"http://127.0.0.1:{server.server_address[1]}",
+                "WORKSPACE_ROOT": str(workspaces),
+                "MODEL": 'model "x"',
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@example.com",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@example.com",
+            },
+            cwd=tmp_path,
+            check=False,
+            timeout=120,
+        )
+    finally:
+        server.shutdown()
+    assert "Agent completed" in result.stdout, result.stdout + result.stderr
+    messages = [b["body"] for b in _FakeCore.bodies if str(b["path"]).endswith("/messages")]
+    assert len(messages) == 1, _FakeCore.bodies
+    message = messages[0]
+    assert isinstance(message, dict)
+    assert "\n2. Count lines" in str(message["content"])
+    assert str(workspaces) in str(message["content"])
+    assert message["model"] == 'model "x"'
+    assert message["agentic"] is True
+    projects = [b["body"] for b in _FakeCore.bodies if str(b["path"]).endswith("/projects")]
+    assert isinstance(projects[0], dict)
+    assert str(projects[0]["local_path"]).startswith(str(workspaces))
+    assert "\n{" in result.stdout, result.stdout + result.stderr
+    summary = json.loads(result.stdout[result.stdout.rindex("\n{") :])
+    assert summary["scenario"] == "S1"
+    assert summary["model"] == 'model "x"'
 
 
 def test_dev_and_live_e2e_run_the_litellm_of_production() -> None:
