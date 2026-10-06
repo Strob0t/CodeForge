@@ -46,3 +46,4 @@ export {
   createSettingsResource,
   createUsersResource,
 } from "./settings";
+export { createWebhooksResource } from "./webhooks";

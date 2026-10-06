@@ -6,6 +6,7 @@ import { createLLMResource } from "./llm";
 import { createMCPResource } from "./misc";
 import { createPrivacyResource } from "./privacy";
 import { createRoadmapResource } from "./roadmap";
+import { createWebhooksResource } from "./webhooks";
 
 interface Call {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -32,7 +33,12 @@ function recordingClient(): { client: CoreClient; calls: Call[] } {
     patch: record("PATCH"),
     del: record("DELETE"),
     requestOnce: <T>(path: string, init?: RequestInit): Promise<T> => {
-      calls.push({ method: (init?.method ?? "GET") as Call["method"], path, once: true });
+      const method = (init?.method ?? "GET") as Call["method"];
+      calls.push(
+        typeof init?.body === "string"
+          ? { method, path, body: JSON.parse(init.body) as unknown, once: true }
+          : { method, path, once: true },
+      );
       return Promise.resolve(undefined as T);
     },
     BASE: "/api/v1",
@@ -148,5 +154,77 @@ describe("privacy routes", () => {
 
     await expect(createPrivacyResource(client).exportMyData()).rejects.toThrow("offline");
     expect(invalidated).toEqual(["/me/export"]);
+  });
+});
+
+// KI-109: the project's Webhooks panel manages the per-project inbound
+// webhooks of KI-85 (internal/adapter/http/routes.go, "Inbound webhooks of a
+// project"). Changes are sent once: a retried registration would only get
+// 409 and lose the secret of the first answer, a retried rotation would
+// rotate again, and the offline queue would hold secrets and tokens.
+describe("project webhook routes", () => {
+  it("lists with GET /projects/{id}/webhooks", async () => {
+    const { client, calls } = recordingClient();
+    await createWebhooksResource(client).list("p/1");
+    expect(calls).toEqual([{ method: "GET", path: "/projects/p%2F1/webhooks" }]);
+  });
+
+  it.each([
+    [{ kind: "vcs", provider: "github" } as const],
+    [{ kind: "pm", provider: "gitlab", api_token: "glpat-x" } as const],
+    [{ kind: "pm", provider: "plane", secret: "plane_wh_0123456789abcdef" } as const],
+  ])("registers %o with POST /projects/{id}/webhooks, once", async (req) => {
+    const { client, calls } = recordingClient();
+    await createWebhooksResource(client).create("p 1", req);
+    expect(calls).toEqual([
+      { method: "POST", path: "/projects/p%201/webhooks", body: req, once: true },
+    ]);
+  });
+
+  it("rotates with an empty body, or with the secret Plane regenerated", async () => {
+    const { client, calls } = recordingClient();
+    const webhooks = createWebhooksResource(client);
+
+    await webhooks.rotate("p1", "w/1");
+    await webhooks.rotate("p1", "w2", "plane_wh_new_0123456789");
+
+    expect(calls).toEqual([
+      { method: "POST", path: "/projects/p1/webhooks/w%2F1/rotate", once: true },
+      {
+        method: "POST",
+        path: "/projects/p1/webhooks/w2/rotate",
+        body: { secret: "plane_wh_new_0123456789" },
+        once: true,
+      },
+    ]);
+  });
+
+  it("sets and removes a PM webhook's API token with PUT .../api-token", async () => {
+    const { client, calls } = recordingClient();
+    const webhooks = createWebhooksResource(client);
+
+    await webhooks.setAPIToken("p1", "w1", "glpat-x");
+    await webhooks.setAPIToken("p1", "w1", "");
+
+    expect(calls).toEqual([
+      {
+        method: "PUT",
+        path: "/projects/p1/webhooks/w1/api-token",
+        body: { api_token: "glpat-x" },
+        once: true,
+      },
+      {
+        method: "PUT",
+        path: "/projects/p1/webhooks/w1/api-token",
+        body: { api_token: "" },
+        once: true,
+      },
+    ]);
+  });
+
+  it("deletes with DELETE /projects/{id}/webhooks/{webhookId}, once", async () => {
+    const { client, calls } = recordingClient();
+    await createWebhooksResource(client).delete("p1", "w?1");
+    expect(calls).toEqual([{ method: "DELETE", path: "/projects/p1/webhooks/w%3F1", once: true }]);
   });
 });

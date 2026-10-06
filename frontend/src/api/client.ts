@@ -48,6 +48,7 @@ import {
   createSettingsResource,
   createUsersResource,
 } from "./resources/settings";
+import { createWebhooksResource } from "./resources/webhooks";
 
 export { FetchError, getAccessToken, setAccessTokenGetter };
 
@@ -101,5 +102,6 @@ export const api = {
   audit: createAuditResource(core),
   quarantine: createQuarantineResource(core),
   routing: createRoutingResource(core),
+  webhooks: createWebhooksResource(core),
   commands: createCommandsResource(core),
 };

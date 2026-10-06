@@ -1246,6 +1246,43 @@ export interface CreateVCSAccountRequest {
   token: string;
 }
 
+// --- Project webhooks (KI-85) ---
+
+/** What a webhook feeds: VCS events or a roadmap sync (Go domain/webhook.Kind). */
+export type WebhookKind = "vcs" | "pm";
+
+/** The providers inbound webhooks exist for (Go domain/webhook providers). */
+export type WebhookProvider = "github" | "gitlab" | "plane";
+
+/** Matches Go domain/webhook.Endpoint: never a secret or an API token. */
+export interface WebhookEndpoint {
+  id: string;
+  project_id: string;
+  kind: WebhookKind;
+  provider: WebhookProvider;
+  /** The path the provider delivers to, on the API's origin. */
+  url: string;
+  /** A PM webhook's sync has its own API token. */
+  has_api_token: boolean;
+  created_at: string;
+  secret_rotated_at: string;
+}
+
+/** Matches Go domain/webhook.Registered: the only answer that carries the secret. */
+export interface WebhookRegistered extends WebhookEndpoint {
+  secret: string;
+}
+
+/** Matches Go domain/webhook.CreateRequest. */
+export interface CreateWebhookRequest {
+  kind: WebhookKind;
+  provider: WebhookProvider;
+  /** The PM integration's own token for the provider's API; PM webhooks only. */
+  api_token?: string;
+  /** The signing secret Plane generated; Plane only, and required there. */
+  secret?: string;
+}
+
 // --- Audit Trail ---
 
 /** Matches Go domain/event.AuditEntry */
