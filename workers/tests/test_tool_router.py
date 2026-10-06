@@ -9,9 +9,12 @@ agent mode allows); the planning tools only in planning turns (KI-153).
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from codeforge.agent_loop import AgentLoopExecutor
+from codeforge.constants import MAX_MCP_TOOLS_PER_TURN
 from codeforge.llm import RoutingResult
 from codeforge.loop_config import build_loop_config
 from codeforge.tools.capability import CapabilityLevel
@@ -110,3 +113,28 @@ def test_a_tool_the_mode_denies_is_not_offered() -> None:
     assert "bash" not in offered
     assert "write_file" not in offered, "a built-in tool missing from the mode's tools"
     assert {"read_file", "mcp__gh__search_issues", "search_skills"} <= offered
+
+
+def test_mcp_tools_are_capped_in_a_stable_order_and_builtins_kept(caplog: pytest.LogCaptureFixture) -> None:
+    mcp = [f"mcp__srv__tool_{i:03d}" for i in range(MAX_MCP_TOOLS_PER_TURN + 10)]
+    router = ToolRouter(all_tool_names=[*reversed(mcp), *BUILTIN, "search_skills"])
+
+    with caplog.at_level(logging.WARNING, logger="codeforge.tools.tool_router"):
+        selected = router.select()
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "10 not offered" in warnings[0].getMessage()
+    assert set(selected) >= {*BUILTIN, "search_skills"}
+    assert [n for n in selected if n.startswith("mcp__")] == mcp[:MAX_MCP_TOOLS_PER_TURN]
+    assert selected == router.select()
+
+
+def test_mcp_tools_up_to_the_cap_are_all_offered(caplog: pytest.LogCaptureFixture) -> None:
+    mcp = [f"mcp__srv__tool_{i:03d}" for i in range(MAX_MCP_TOOLS_PER_TURN)]
+
+    with caplog.at_level(logging.WARNING, logger="codeforge.tools.tool_router"):
+        selected = ToolRouter(all_tool_names=[*mcp, *BUILTIN]).select()
+
+    assert set(selected) == {*mcp, *BUILTIN}
+    assert not caplog.records

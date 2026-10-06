@@ -15,6 +15,9 @@ MAX_TOOL_RESULTS = 500  # Glob tool: max file paths returned.
 MAX_DIR_ENTRIES = 500  # ListDirectory tool: max entries.
 MAX_LIST_DEPTH = 3  # ListDirectory tool: max recursive depth.
 MAX_SEARCH_MATCHES = 100  # SearchFiles tool: max grep matches.
+# MCP tools offered in one turn: every server's tools are offered (KI-192), and
+# a few large servers would otherwise fill the model's context with tool schemas.
+MAX_MCP_TOOLS_PER_TURN = 40
 # Largest agent.tool_output_max_chars the worker uses (a larger value is
 # clamped to it, a negative one to 0 = the default). The Go Core refuses
 # larger values at startup (maxToolOutputMaxChars in internal/config): two
