@@ -54,6 +54,7 @@ from codeforge.routing.blocklist import get_blocklist
 from codeforge.routing.rate_tracker import RateLimitTracker, get_tracker
 from codeforge.stall_detection import StallDetector, stall_error
 from codeforge.subprocess_env import tool_env
+from codeforge.subprocess_utils import terminate_process_group
 from codeforge.tool_executor import ToolExecutor
 from codeforge.tool_process import start_tool_process
 from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY, CapabilityLevel
@@ -1104,11 +1105,17 @@ class AgentLoopExecutor:
 # ---------------------------------------------------------------------------
 
 
+# A git call of the rollout workspace runs the workspace's hooks and config;
+# one that hangs (a hook, a lock) must not hold the conversation turn.
+_GIT_TIMEOUT_SECONDS: float = 120
+
+
 async def _run_git(workspace_path: str, *args: str) -> str:
-    """Run a git sub-command, return its stdout and raise on non-zero exit.
+    """Run a git sub-command, return its stdout and raise on non-zero exit or timeout.
 
     No shell, to avoid injection risks; git runs as a tool process (it
-    executes the workspace's hooks and config).
+    executes the workspace's hooks and config), in a session of its own, so
+    that a timeout or cancel stops it and everything it started.
     """
     proc = await start_tool_process(
         "git",
@@ -1117,10 +1124,18 @@ async def _run_git(workspace_path: str, *args: str) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=tool_env(),
+        start_new_session=True,
     )
-    stdout, stderr = await proc.communicate()
+    cmd = " ".join(args)
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT_SECONDS)
+    except TimeoutError:
+        await terminate_process_group(proc)
+        raise RuntimeError(f"git {cmd} timed out after {_GIT_TIMEOUT_SECONDS} s") from None
+    except asyncio.CancelledError:
+        await terminate_process_group(proc)
+        raise
     if proc.returncode:
-        cmd = " ".join(args)
         raise RuntimeError(f"git {cmd} failed (exit {proc.returncode}): {stderr.decode()}")
     return stdout.decode()
 

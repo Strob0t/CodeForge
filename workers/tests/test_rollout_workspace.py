@@ -9,12 +9,14 @@ reported. These tests run real git in a temporary repository.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
 
+from codeforge import agent_loop
 from codeforge.agent_loop import ConversationRolloutExecutor, LoopConfig
 from codeforge.models import AgentLoopResult
 
@@ -155,3 +157,46 @@ async def test_a_rollout_that_commits_or_changes_nothing(repo: Path) -> None:
     assert _git(repo, "rev-parse", "HEAD") == head
     assert (repo / "a.txt").read_text() == "committed by rollout 1\n"
     assert _git(repo, "status", "--porcelain") == " M a.txt\n"
+
+
+class _HangingGit:
+    """Starts ``sleep`` in place of git, as git stuck on a hook or a lock would hang."""
+
+    def __init__(self, real: object) -> None:
+        self._real = real
+        self.procs: list[asyncio.subprocess.Process] = []
+        self.options: list[dict[str, object]] = []
+
+    async def __call__(self, program: str, *args: str, **kwargs: object) -> asyncio.subprocess.Process:
+        self.options.append(kwargs)
+        proc = await self._real("sleep", "30", **kwargs)  # type: ignore[operator]
+        self.procs.append(proc)
+        return proc
+
+
+async def test_a_hanging_git_call_times_out_and_its_process_group_is_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hanging = _HangingGit(agent_loop.start_tool_process)
+    monkeypatch.setattr(agent_loop, "start_tool_process", hanging)
+    monkeypatch.setattr(agent_loop, "_GIT_TIMEOUT_SECONDS", 0.2)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        await agent_loop._run_git(str(tmp_path), "status")
+
+    assert hanging.options[0]["start_new_session"] is True
+    assert hanging.procs[0].returncode is not None
+
+
+async def test_a_cancelled_git_call_stops_its_process_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    hanging = _HangingGit(agent_loop.start_tool_process)
+    monkeypatch.setattr(agent_loop, "start_tool_process", hanging)
+
+    call = asyncio.create_task(agent_loop._run_git(str(tmp_path), "status"))
+    while not hanging.procs:
+        await asyncio.sleep(0.01)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+
+    assert hanging.procs[0].returncode is not None
