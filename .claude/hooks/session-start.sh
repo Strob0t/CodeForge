@@ -12,6 +12,8 @@ fi
 
 GO_TOOLCHAIN="go1.25.14"      # CI: setup-go "1.25" (latest patch)
 GOLANGCI_LINT_VERSION="2.11.4"
+# sha256 of golangci-lint-<version>-linux-amd64.tar.gz (the release's checksums file).
+GOLANGCI_LINT_SHA256="200c5b7503f67b59a6743ccf32133026c174e272b930ee79aa2aa6f37aca7ef1"
 GOIMPORTS_VERSION="v0.42.0"
 GOPLS_VERSION="v0.21.1"       # gopls MCP server (.mcp.json); v0.22+ need Go 1.26 to build
 PYTHON="python3.12"
@@ -30,8 +32,10 @@ go mod download >&2
 if ! "$GOBIN/golangci-lint" version 2>/dev/null | grep -q "version $GOLANGCI_LINT_VERSION "; then
   log "installing golangci-lint $GOLANGCI_LINT_VERSION"
   tmp="$(mktemp -d)"
-  curl -sSfL "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz" \
-    | tar -xz -C "$tmp"
+  curl -sSfL -o "$tmp/golangci-lint.tar.gz" \
+    "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64.tar.gz"
+  echo "$GOLANGCI_LINT_SHA256  $tmp/golangci-lint.tar.gz" | sha256sum -c - >&2
+  tar -xzf "$tmp/golangci-lint.tar.gz" -C "$tmp"
   install -m 0755 "$tmp/golangci-lint-${GOLANGCI_LINT_VERSION}-linux-amd64/golangci-lint" "$GOBIN/golangci-lint"
   rm -rf "$tmp"
 fi

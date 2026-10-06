@@ -14,13 +14,29 @@ poetry config virtualenvs.in-project true
 # -- Go: golangci-lint v2 --------------------------
 echo ""
 echo "> Installing golangci-lint..."
-GOLANGCI_LINT_VERSION=v2.11.4  # keep in sync with .github/workflows/ci.yml
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "$GOLANGCI_LINT_VERSION"
+# Keep in sync with .github/workflows/ci.yml and .claude/hooks/session-start.sh.
+# The release tarball, checked against the checksums of
+# golangci-lint-<version>-checksums.txt (KI-214).
+GOLANGCI_LINT_VERSION="2.11.4"
+case "$(uname -m)" in
+    x86_64) golangci_arch=amd64; golangci_sha256=200c5b7503f67b59a6743ccf32133026c174e272b930ee79aa2aa6f37aca7ef1 ;;
+    aarch64 | arm64) golangci_arch=arm64; golangci_sha256=3bcfa2e6f3d32b2bf5cd75eaa876447507025e0303698633f722a05331988db4 ;;
+    *) echo "  unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+golangci_tmp="$(mktemp -d)"
+golangci_name="golangci-lint-${GOLANGCI_LINT_VERSION}-linux-${golangci_arch}"
+curl -sSfL -o "$golangci_tmp/$golangci_name.tar.gz" \
+    "https://github.com/golangci/golangci-lint/releases/download/v${GOLANGCI_LINT_VERSION}/$golangci_name.tar.gz"
+echo "$golangci_sha256  $golangci_tmp/$golangci_name.tar.gz" | sha256sum -c -
+tar -xzf "$golangci_tmp/$golangci_name.tar.gz" -C "$golangci_tmp"
+install -m 0755 "$golangci_tmp/$golangci_name/golangci-lint" "$(go env GOPATH)/bin/golangci-lint"
+rm -rf "$golangci_tmp"
 
 # -- Go: goimports --------------------------------
 echo ""
 echo "> Installing goimports..."
-go install golang.org/x/tools/cmd/goimports@latest
+GOIMPORTS_VERSION="v0.42.0"  # keep in sync with .claude/hooks/session-start.sh
+go install "golang.org/x/tools/cmd/goimports@$GOIMPORTS_VERSION"
 
 # -- Claude Code (native installer) ---------------
 echo ""

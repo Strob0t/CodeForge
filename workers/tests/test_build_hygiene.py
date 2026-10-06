@@ -310,6 +310,39 @@ def test_alert_rules_use_only_exported_metrics() -> None:
                 assert metric.startswith(exporters), f"{rule['alert']}: {metric}"
 
 
+SETUP = (REPO / ".devcontainer" / "setup.sh").read_text()
+SESSION_START = (REPO / ".claude" / "hooks" / "session-start.sh").read_text()
+# golangci-lint-2.11.4-checksums.txt of the release (linux-amd64, linux-arm64).
+GOLANGCI_SHA256 = {
+    "amd64": "200c5b7503f67b59a6743ccf32133026c174e272b930ee79aa2aa6f37aca7ef1",
+    "arm64": "3bcfa2e6f3d32b2bf5cd75eaa876447507025e0303698633f722a05331988db4",
+}
+
+
+def _assigned(text: str, name: str) -> str:
+    match = re.search(rf'^{name}="?([^"\s]+)"?', text, re.MULTILINE)
+    assert match, name
+    return match.group(1)
+
+
+def test_dev_toolchain_versions_match_ci() -> None:
+    ci_lint = next(s["with"]["version"] for s in _steps("test-go") if "golangci-lint-action" in s.get("uses", ""))
+    assert ci_lint == "v" + _assigned(SETUP, "GOLANGCI_LINT_VERSION")
+    assert ci_lint == "v" + _assigned(SESSION_START, "GOLANGCI_LINT_VERSION")
+    assert _assigned(SETUP, "GOIMPORTS_VERSION") == _assigned(SESSION_START, "GOIMPORTS_VERSION")
+    assert "goimports@latest" not in SETUP
+
+
+def test_golangci_lint_downloads_are_verified() -> None:
+    """The devcontainer piped the install script of golangci-lint's HEAD to sh; session-start used
+    the tarball without a checksum."""
+    assert "install.sh | sh" not in SETUP
+    for script in (SETUP, SESSION_START):
+        assert "sha256sum -c" in script
+        assert GOLANGCI_SHA256["amd64"] in script
+    assert GOLANGCI_SHA256["arm64"] in SETUP
+
+
 def test_dev_and_live_e2e_run_the_litellm_of_production() -> None:
     prod_image = PROD["services"]["litellm"]["image"]
     tag = prod_image.rsplit(":", 1)[1]
