@@ -8,9 +8,15 @@
 # the restore; the script refuses to run while other sessions are connected:
 #   docker compose -f docker-compose.prod.yml stop core worker litellm
 #
+# Encrypted backups (*.sql.gz.gpg, see backup-postgres.sh) are decrypted with
+# BACKUP_ENCRYPTION_KEY_FILE into a private temporary file (TMPDIR), which is
+# removed afterwards. Nothing is dropped unless pg_restore can read the
+# backup's table of contents.
+#
 # Environment:
 #   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE (standard libpq vars)
 #   BACKUP_DIR (default: ./backups/postgres)
+#   BACKUP_ENCRYPTION_KEY_FILE (the backup script's passphrase file; for .gpg)
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-./backups/postgres}"
@@ -24,7 +30,9 @@ if [[ ! "$DB" =~ ^[a-zA-Z0-9_-]+$ ]]; then
 fi
 
 if [[ "$TARGET" == "latest" ]]; then
-  TARGET="$(find "$BACKUP_DIR" -name "codeforge_*.sql.gz" -print0 | xargs -0 ls -t 2>/dev/null | head -1)"
+  # -r: without backups, ls must not run (it would list the current directory).
+  TARGET="$(find "$BACKUP_DIR" -type f \( -name 'codeforge_*.sql.gz' -o -name 'codeforge_*.sql.gz.gpg' \) -print0 \
+    | xargs -0 -r ls -t | sed -n 1p)"
   if [[ -z "$TARGET" ]]; then
     echo "No backups found in $BACKUP_DIR"
     exit 1
@@ -33,6 +41,28 @@ fi
 
 if [[ ! -f "$TARGET" ]]; then
   echo "Backup file not found: $TARGET"
+  exit 1
+fi
+
+DUMP="$TARGET"
+if [[ "$TARGET" == *.gpg ]]; then
+  if [[ -z "${BACKUP_ENCRYPTION_KEY_FILE:-}" || ! -r "$BACKUP_ENCRYPTION_KEY_FILE" ]]; then
+    echo "ERROR: $TARGET is encrypted: set BACKUP_ENCRYPTION_KEY_FILE to the backup's passphrase file." >&2
+    exit 1
+  fi
+  DUMP="$(mktemp)"
+  trap 'rm -f "$DUMP"' EXIT
+  if ! gpg --batch --yes --quiet --passphrase-file "$BACKUP_ENCRYPTION_KEY_FILE" \
+      --output "$DUMP" --decrypt "$TARGET"; then
+    echo "ERROR: cannot decrypt $TARGET with $BACKUP_ENCRYPTION_KEY_FILE; nothing was changed." >&2
+    exit 1
+  fi
+fi
+
+# The backup must be a pg_dump archive pg_restore can read before anything
+# is dropped.
+if ! pg_restore --list "$DUMP" > /dev/null; then
+  echo "ERROR: $TARGET is not a pg_dump archive pg_restore can read; nothing was changed." >&2
   exit 1
 fi
 
@@ -78,6 +108,6 @@ pg_restore \
   --dbname="$DB" \
   --no-owner \
   --no-privileges \
-  "$TARGET"
+  "$DUMP"
 
 echo "Restore complete."
