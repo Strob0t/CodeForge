@@ -81,9 +81,10 @@ func ruleDisabled(r *bp.ProtectionRule) { r.Enabled = false }
 // KI-205: the project's branch protection rules are evaluated on delivery.
 // Commit-local delivery moves the checked-out branch with an unreviewed
 // commit (a merge without review into that branch); its tests and lint
-// passed only if the run's quality gate required them. Branch and PR
-// delivery push the branch codeforge/<run>. With enabled rules, a branch no
-// rule matches is refused (default deny, P1-4).
+// passed only if the run's quality gate required them; its refusal points
+// to branch and PR delivery. Branch and PR delivery push the branch
+// codeforge/<run>. A rule protects only the branches it matches: a branch
+// no rule matches is pushed or committed to.
 func TestDeliver_BranchProtection(t *testing.T) {
 	const runID = "run-abcd1234"
 	gated := fakeGateProfiles{
@@ -106,11 +107,16 @@ func TestDeliver_BranchProtection(t *testing.T) {
 		{name: "commit-local onto a branch that requires reviews", mode: run.DeliverModeCommitLocal, branch: "main",
 			rules:     []bp.ProtectionRule{protectionRule("main", withReviews)},
 			wantError: "at least one review is required"},
+		{name: "commit-local refusal points to branch and pr delivery", mode: run.DeliverModeCommitLocal, branch: "main",
+			rules:     []bp.ProtectionRule{protectionRule("main", withReviews)},
+			wantError: `deliver mode "branch" or "pr" instead, which pushes the branch codeforge/run-abcd`},
+		{name: "commit-local onto a nested branch a ** rule matches", mode: run.DeliverModeCommitLocal, branch: "release/1.0/hotfix",
+			rules:     []bp.ProtectionRule{protectionRule("release/**", withReviews)},
+			wantError: "at least one review is required"},
 		{name: "commit-local onto a branch without requirements", mode: run.DeliverModeCommitLocal, branch: "main",
 			rules: []bp.ProtectionRule{protectionRule("main", nil)}},
 		{name: "commit-local onto a branch no rule matches", mode: run.DeliverModeCommitLocal, branch: "feature",
-			rules:     []bp.ProtectionRule{protectionRule("main", nil)},
-			wantError: "default deny"},
+			rules: []bp.ProtectionRule{protectionRule("main", withReviews)}},
 		{name: "commit-local on a detached HEAD moves no branch", mode: run.DeliverModeCommitLocal, branch: "",
 			rules: []bp.ProtectionRule{protectionRule("main", withReviews)}},
 		{name: "commit-local requiring tests, run without a test gate", mode: run.DeliverModeCommitLocal, branch: "main",
@@ -126,13 +132,11 @@ func TestDeliver_BranchProtection(t *testing.T) {
 		{name: "branch push a rule allows", mode: run.DeliverModeBranch, branch: "main",
 			rules: []bp.ProtectionRule{protectionRule("main", withReviews), protectionRule("codeforge/*", nil)}},
 		{name: "branch push no rule matches", mode: run.DeliverModeBranch, branch: "main",
-			rules:     []bp.ProtectionRule{protectionRule("main", withReviews)},
-			wantError: "default deny"},
+			rules: []bp.ProtectionRule{protectionRule("main", withReviews), protectionRule("*", withReviews)}},
 		{name: "branch push when the rules cannot be read", mode: run.DeliverModeBranch, branch: "main",
 			listErr: errors.New("db down"), wantError: "db down"},
-		{name: "pr push no rule matches", mode: run.DeliverModePR, branch: "main",
-			rules:     []bp.ProtectionRule{protectionRule("release/*", nil)},
-			wantError: "default deny"},
+		{name: "pr push when the rules cannot be read", mode: run.DeliverModePR, branch: "main",
+			listErr: errors.New("db down"), wantError: "db down"},
 		{name: "patch changes no branch", mode: run.DeliverModePatch, branch: "main",
 			rules: []bp.ProtectionRule{protectionRule("release/*", nil)}},
 	}

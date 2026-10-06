@@ -234,7 +234,7 @@ func (s *DeliverService) deliverCommitLocal(ctx context.Context, dir string, r *
 		if err != nil {
 			return fmt.Errorf("commit-local delivery: %w", err)
 		}
-		if err := s.checkCommitLocal(ctx, r, rc.headRef); err != nil {
+		if err := s.checkCommitLocal(ctx, r, shortID, rc.headRef); err != nil {
 			return fmt.Errorf("commit-local delivery: %w", err)
 		}
 		if err := rc.advanceHead(ctx, repo); err != nil {
