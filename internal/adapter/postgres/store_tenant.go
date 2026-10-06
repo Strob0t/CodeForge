@@ -48,6 +48,10 @@ func (s *Store) CreateTenant(ctx context.Context, req tenant.CreateRequest) (*te
 	return &t, nil
 }
 
+// GetTenant reads a tenant by ID. INTENTIONALLY CROSS-TENANT: the tenant is
+// the row itself, and the authentication path checks a user's tenant before
+// a tenant context exists (KI-174); the TenantService scopes the admin
+// reads to the caller's tenant.
 func (s *Store) GetTenant(ctx context.Context, id string) (*tenant.Tenant, error) {
 	t, err := scanTenant(s.pool.QueryRow(ctx, `SELECT `+tenantColumns+` FROM tenants WHERE id = $1`, id))
 	if err != nil {
@@ -56,6 +60,8 @@ func (s *Store) GetTenant(ctx context.Context, id string) (*tenant.Tenant, error
 	return &t, nil
 }
 
+// ListTenants lists every tenant. INTENTIONALLY CROSS-TENANT: the listing
+// is for platform admins (the route requires them, KI-174).
 func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+tenantColumns+` FROM tenants ORDER BY created_at ASC`)
 	if err != nil {
@@ -64,6 +70,9 @@ func (s *Store) ListTenants(ctx context.Context) ([]tenant.Tenant, error) {
 	return scanRows(rows, func(r pgx.Rows) (tenant.Tenant, error) { return scanTenant(r) })
 }
 
+// UpdateTenant saves a tenant's name and enabled flag. INTENTIONALLY
+// CROSS-TENANT: the tenant is the row itself; the TenantService scopes the
+// update to the caller's own tenant or a platform admin (KI-174).
 func (s *Store) UpdateTenant(ctx context.Context, t *tenant.Tenant) error {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE tenants SET name = $2, enabled = $3, updated_at = now()

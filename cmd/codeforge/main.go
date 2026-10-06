@@ -1051,6 +1051,9 @@ func run() error {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Auth(authSvc, cfg.Auth.Enabled, cfg.InternalKey))
 	r.Use(middleware.TenantID)
+	// A disabled tenant's users are refused on every authenticated request;
+	// the verdict is cached briefly, so the common case costs no query (KI-174).
+	r.Use(middleware.EnabledTenant(tenantSvc, 30*time.Second))
 	r.Use(cfhttp.Logger)
 	r.Use(chimw.Recoverer)
 

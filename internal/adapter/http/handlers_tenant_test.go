@@ -86,6 +86,7 @@ func TestTenantToolUIDOnlyForPlatformAdmins(t *testing.T) {
 	store := &mockStore{tenants: []tenant.Tenant{
 		{ID: "t1", Name: "With", Slug: "with", ToolUID: &uid},
 		{ID: "t2", Name: "Without", Slug: "without"},
+		{ID: otherTenantID, Name: "Own", Slug: "own", ToolUID: &uid},
 	}}
 
 	decodeOne := func(t *testing.T, w *httptest.ResponseRecorder) map[string]json.RawMessage {
@@ -108,31 +109,65 @@ func TestTenantToolUIDOnlyForPlatformAdmins(t *testing.T) {
 	if raw, ok := got["tool_uid"]; !ok || string(raw) != "null" {
 		t.Fatalf("platform admin, no uid yet: tool_uid = %s (present %v), want null", raw, ok)
 	}
-	got = decodeOne(t, tenantRequest(t, http.MethodGet, "/api/v1/tenants/t1", "", tenantsTenantAdmin, store))
+	// A tenant admin reads its own tenant (KI-174), without the tool UID.
+	got = decodeOne(t, tenantRequest(t, http.MethodGet, "/api/v1/tenants/"+otherTenantID, "", tenantsTenantAdmin, store))
 	if _, ok := got["tool_uid"]; ok {
 		t.Fatalf("tenant admin sees tool_uid: %v", got)
 	}
 
+	w := tenantRequest(t, http.MethodGet, "/api/v1/tenants", "", tenantsPlatformAdmin, store)
+	if w.Code != http.StatusOK {
+		t.Fatalf("platform admin list: status = %d", w.Code)
+	}
+	var list []map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("platform admin list: %d tenants, want 3", len(list))
+	}
+	for _, item := range list {
+		if _, ok := item["tool_uid"]; !ok {
+			t.Fatalf("platform admin list: tool_uid missing in %v", item)
+		}
+	}
+}
+
+// KI-174: listing tenants and reading or updating another tenant are for
+// platform admins; a tenant admin reads and updates its own tenant only,
+// and gets 403 for any other ID, whether it exists or not.
+func TestTenantRoutes_OtherTenantsArePlatformAdminOnly(t *testing.T) {
+	newStore := func() *mockStore {
+		return &mockStore{tenants: []tenant.Tenant{
+			{ID: tenantctx.DefaultTenantID, Name: "Default", Slug: "default", Enabled: true},
+			{ID: otherTenantID, Name: "Other", Slug: "other", Enabled: true},
+		}}
+	}
 	for _, tc := range []struct {
-		name    string
-		u       *user.User
-		present bool
-	}{{"platform admin", tenantsPlatformAdmin, true}, {"tenant admin", tenantsTenantAdmin, false}} {
-		w := tenantRequest(t, http.MethodGet, "/api/v1/tenants", "", tc.u, store)
-		if w.Code != http.StatusOK {
-			t.Fatalf("%s list: status = %d", tc.name, w.Code)
-		}
-		var list []map[string]json.RawMessage
-		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
-			t.Fatal(err)
-		}
-		if len(list) != 2 {
-			t.Fatalf("%s list: %d tenants, want 2", tc.name, len(list))
-		}
-		for _, item := range list {
-			if _, ok := item["tool_uid"]; ok != tc.present {
-				t.Fatalf("%s list: tool_uid present = %v, want %v", tc.name, ok, tc.present)
+		name   string
+		method string
+		path   string
+		body   string
+		u      *user.User
+		want   int
+	}{
+		{"tenant admin lists", http.MethodGet, "/api/v1/tenants", "", tenantsTenantAdmin, http.StatusForbidden},
+		{"platform admin lists", http.MethodGet, "/api/v1/tenants", "", tenantsPlatformAdmin, http.StatusOK},
+		{"tenant admin reads own", http.MethodGet, "/api/v1/tenants/" + otherTenantID, "", tenantsTenantAdmin, http.StatusOK},
+		{"tenant admin reads default", http.MethodGet, "/api/v1/tenants/" + tenantctx.DefaultTenantID, "", tenantsTenantAdmin, http.StatusForbidden},
+		{"tenant admin reads unknown", http.MethodGet, "/api/v1/tenants/no-such", "", tenantsTenantAdmin, http.StatusForbidden},
+		{"tenant admin updates own", http.MethodPut, "/api/v1/tenants/" + otherTenantID, `{"name":"Mine"}`, tenantsTenantAdmin, http.StatusOK},
+		{"tenant admin updates default", http.MethodPut, "/api/v1/tenants/" + tenantctx.DefaultTenantID, `{"name":"x","enabled":false}`, tenantsTenantAdmin, http.StatusForbidden},
+		{"platform admin reads other", http.MethodGet, "/api/v1/tenants/" + otherTenantID, "", tenantsPlatformAdmin, http.StatusOK},
+		{"platform admin updates other", http.MethodPut, "/api/v1/tenants/" + otherTenantID, `{"name":"Renamed"}`, tenantsPlatformAdmin, http.StatusOK},
+		{"platform admin disables default", http.MethodPut, "/api/v1/tenants/" + tenantctx.DefaultTenantID, `{"enabled":false}`, tenantsPlatformAdmin, http.StatusBadRequest},
+		{"editor reads own", http.MethodGet, "/api/v1/tenants/" + otherTenantID, "", &user.User{ID: "ed", Role: user.RoleEditor, TenantID: otherTenantID}, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := tenantRequest(t, tc.method, tc.path, tc.body, tc.u, newStore())
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d (body %s)", w.Code, tc.want, w.Body.String())
 			}
-		}
+		})
 	}
 }

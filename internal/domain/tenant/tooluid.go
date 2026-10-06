@@ -26,3 +26,7 @@ var ErrToolUIDRangeExhausted = errors.New("tool UID range exhausted (10,000 tena
 func IsToolUID(uid int) bool {
 	return uid >= ToolUIDMin && uid <= ToolUIDMax
 }
+
+// ErrDisabled is returned for a tenant whose enabled flag is off: every
+// authenticated request of its users is refused (KI-174).
+var ErrDisabled = errors.New("tenant is disabled")
