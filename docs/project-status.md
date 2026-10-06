@@ -51,7 +51,7 @@ Roadmap/Feature-Map domain model (Roadmap, Milestone, Feature), spec provider an
 
 ### Phase 10: Frontend Foundations (COMPLETED)
 
-JWT authentication (HS256, access + refresh tokens), RBAC middleware (admin/editor/viewer), API key management, signal-based i18n (480+ keys, EN + DE), CSS design tokens with dark/light mode, command palette (Ctrl+K), toast notification system, WCAG 2.2 AA conformance with axe-core E2E audits, error boundaries and offline detection.
+JWT authentication (HS256, access + refresh tokens), RBAC middleware (admin/editor/viewer; every mutating route guarded since S10-A), API key management (scopes enforced since S10-A), signal-based i18n (480+ keys, EN + DE), CSS design tokens with dark/light mode, command palette (Ctrl+K), toast notification system, WCAG 2.2 AA conformance with axe-core E2E audits, error boundaries and offline detection.
 
 ### Phase 11: GUI Enhancements (COMPLETED)
 
