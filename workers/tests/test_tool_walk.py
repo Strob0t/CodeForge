@@ -274,8 +274,8 @@ def test_a_wide_tree_is_walked_under_a_low_descriptor_limit(tmp_path: Path) -> N
 
 
 def test_a_deep_tree_is_walked_under_a_low_descriptor_limit(tmp_path: Path) -> None:
-    """Deeper than the descriptors the walk holds: the deep levels are reopened from the root."""
-    depth = 200
+    """Deeper than the descriptors the walk holds (below its depth limit): levels above them are reopened."""
+    depth = 120
     path = tmp_path
     for level in range(depth):
         path = path / f"d{level}"
@@ -289,32 +289,127 @@ def test_a_deep_tree_is_walked_under_a_low_descriptor_limit(tmp_path: Path) -> N
     assert result["visited"] == 1 + depth * 2 + 1
 
 
-def test_a_deep_directory_replaced_meanwhile_is_not_entered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A level the walk reopens from the root must still be the listed inode."""
+def test_a_directory_replaced_meanwhile_is_not_entered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A level the walk no longer holds is reopened from the root and must still be the listed inode."""
     monkeypatch.setattr(tool_walk, "_MAX_HELD_DIRS", 2)
-    path = tmp_path
-    for level in range(5):
-        path = path / f"d{level}"
-        path.mkdir()
-    deep = tmp_path / "d0" / "d1" / "d2" / "d3"
-    (deep / "a").mkdir()
-    (deep / "b").mkdir()
+    for chain in ("a", "b"):
+        (tmp_path / "d0" / chain / "x" / "y").mkdir(parents=True)
+        (tmp_path / "d0" / chain / "x" / "y" / "leaf").write_text("x")
     swapped: list[str] = []
 
     def visit(_dir_fd: int, name: str, _info: os.stat_result, _report: tool_walk.Report) -> None:
-        if name == "a" and not swapped:
-            # The walk listed d3 and holds no descriptor for it: replace it before b is entered.
-            moved = tmp_path / "moved"
-            deep.rename(moved)
-            deep.mkdir()
-            (deep / "b").mkdir()
+        if name == "leaf" and not swapped:
+            # Deep in the first chain the walk holds no descriptor of d0: replace it before the other chain.
+            (tmp_path / "d0").rename(tmp_path / "moved")
+            (tmp_path / "d0" / "a").mkdir(parents=True)
+            (tmp_path / "d0" / "b").mkdir()
             swapped.append(name)
 
     report = tool_walk.walk(str(tmp_path), visit, tool_walk.Report())
 
     assert swapped
-    assert report.unentered >= 1
-    assert any("d3" in error for error in report.errors)
+    assert report.unentered == 1
+    assert any(error.startswith(f"{tmp_path}/d0: changed while the walk ran") for error in report.errors)
+
+
+def test_a_comb_is_walked_with_few_descriptors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every level has a side directory the walk enters after the deep chain: it gets back to levels it
+    no longer holds."""
+    monkeypatch.setattr(tool_walk, "_MAX_HELD_DIRS", 2)
+    depth = 12
+    path = tmp_path
+    for level in range(depth):
+        path = path / f"d{level}"
+        (path / "side" / "inner").mkdir(parents=True)
+    seen: list[str] = []
+
+    report = tool_walk.walk(str(tmp_path), lambda _d, n, _i, _r: seen.append(n), tool_walk.Report())
+
+    assert report.errors == []
+    assert len(seen) == 1 + depth * 3
+
+
+def _chain(top: Path, depth: int) -> None:
+    """*depth* nested directories d/d/... below *top*, each with a file, made relative to descriptors."""
+    fd = os.open(top, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for _ in range(depth):
+            os.mkdir("d", dir_fd=fd)
+            os.close(os.open("f", os.O_WRONLY | os.O_CREAT, 0o644, dir_fd=fd))
+            next_fd = os.open("d", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    finally:
+        os.close(fd)
+
+
+def _remove_chain(top: Path) -> None:
+    """Remove a _chain below *top* level by level (deeper than shutil.rmtree's recursion reaches)."""
+    fd = os.open(top, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        current, level = "d", 0
+        while True:
+            sub = os.open(current, os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd)
+            try:
+                if "f" in os.listdir(sub):
+                    os.unlink("f", dir_fd=sub)
+                deeper = "d" in os.listdir(sub)
+                if deeper:
+                    os.rename("d", f"next{level}", src_dir_fd=sub, dst_dir_fd=fd)
+            finally:
+                os.close(sub)
+            os.rmdir(current, dir_fd=fd)
+            if not deeper:
+                break
+            current, level = f"next{level}", level + 1
+    finally:
+        os.close(fd)
+
+
+def test_a_very_deep_tree_is_walked_in_linear_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every level below the held ones was reopened from the root: depth 4000 took 10 s (KI-223 review).
+
+    The walk holds the deepest levels and enters each subdirectory from its
+    parent's descriptor. The bound is generous: linear takes well under a second.
+    """
+    depth = 4000
+    monkeypatch.setattr(tool_walk, "_MAX_DEPTH", depth + 1)
+    _chain(tmp_path, depth)
+    seen = [0]
+    try:
+        started = time.monotonic()
+        report = tool_walk.walk(
+            str(tmp_path), lambda *_: seen.__setitem__(0, seen[0] + 1), tool_walk.Report(), include_root=False
+        )
+        elapsed = time.monotonic() - started
+    finally:
+        _remove_chain(tmp_path)
+
+    assert report.errors == []
+    assert seen[0] == 2 * depth
+    assert elapsed < 3.0, f"{elapsed:.2f} s"
+
+
+def test_a_walk_does_not_enter_directories_below_its_depth_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deeper levels count as not walked: a migration does not stamp a tree it did not walk."""
+    monkeypatch.setattr(tool_walk, "_MAX_DEPTH", 5)
+    _chain(tmp_path, 9)
+    seen: list[str] = []
+
+    report = tool_walk.walk(str(tmp_path), lambda _d, n, _i, _r: seen.append(n), tool_walk.Report())
+
+    assert report.unentered == 1
+    assert report.errors == [f"{tmp_path}{'/d' * 6}: deeper than 5 levels: not entered"]
+    assert seen.count("d") == 6  # the directories at depths 1..6 are visited, 1..5 entered
+    assert seen.count("f") == 6
+
+
+def test_the_depth_limit_is_the_worker_walks_limit() -> None:
+    from codeforge.workspace_fs import MAX_WALK_DEPTH
+
+    assert tool_walk._MAX_DEPTH == MAX_WALK_DEPTH
 
 
 def test_a_subtree_that_cannot_be_entered_is_counted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

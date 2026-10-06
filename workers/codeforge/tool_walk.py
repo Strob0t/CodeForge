@@ -41,6 +41,7 @@ could not be checked, 2 when *root* cannot be walked.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import stat
@@ -73,10 +74,13 @@ else:  # pragma: no cover - exercised through the launcher and test_the_walker_r
     posix_acl = _sibling("posix_acl")
 
 _MAX_ERRORS = 20
-# Directory descriptors a walk holds at once (KI-223): below that depth a
-# directory is reopened from the root, one component at a time, when its next
-# subdirectory is entered.
+# Directory descriptors a walk holds at once (KI-223): those of the deepest
+# levels of its path. A level above them is reopened from the root, one
+# component at a time, when the walk gets back to it.
 _MAX_HELD_DIRS = 32
+# Directories deeper than this below the root are not entered (they count as
+# not walked), as in the worker's own walks (workspace_fs.MAX_WALK_DEPTH).
+_MAX_DEPTH = 128
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _PATH_FLAGS = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 # Entries changed this long before --since are still checked (time stamps of
@@ -179,9 +183,9 @@ def _open_subdir(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
 class _Dir:
     """A directory of a walk whose subdirectories are still to be entered.
 
-    fd is -1 once the walk closed it to bound its descriptors; *names* lead
-    to it from the root and *ident* is its inode, which a reopened descriptor
-    must have.
+    fd is -1 while the walk does not hold it (to bound its descriptors);
+    *names* lead to it from the root and *ident* is its inode, which a
+    reopened descriptor must have.
     """
 
     path: str
@@ -189,6 +193,76 @@ class _Dir:
     ident: Inode
     fd: int
     pending: list[tuple[str, os.stat_result]] = field(default_factory=list)
+
+
+class _Path:
+    """The directories from the root down to where the walk is, each with subdirectories still to enter.
+
+    Each is a subdirectory of the one before (the root first). The deepest
+    _MAX_HELD_DIRS hold a descriptor, so the walk enters the next
+    subdirectory from its parent's descriptor and a deep chain costs one
+    open per level (KI-223 review: reopening every deep level from the root
+    made the walk quadratic in the depth). Only when the walk gets back to
+    a level it no longer holds are the deepest levels reopened from the
+    root, and held again.
+    """
+
+    def __init__(self, root_fd: int) -> None:
+        self.root_fd = root_fd
+        self.dirs: list[_Dir] = []
+        # The held descriptors are those of the last self.held levels.
+        self.held = 0
+
+    def push(self, directory: _Dir) -> None:
+        """Add *directory*, a held subdirectory of the last level."""
+        self.dirs.append(directory)
+        self.held += 1
+        if self.held > _MAX_HELD_DIRS:
+            shallowest = self.dirs[len(self.dirs) - self.held]
+            os.close(shallowest.fd)
+            shallowest.fd = -1
+            self.held -= 1
+
+    def pop(self) -> None:
+        directory = self.dirs.pop()
+        if directory.fd >= 0:
+            os.close(directory.fd)
+            self.held -= 1
+
+    def reopen(self) -> bool:
+        """Hold the deepest levels again (none is held), opened from the root one component at a time
+        without following a symlink; False when a level is no longer the walked inode."""
+        first = max(0, len(self.dirs) - _MAX_HELD_DIRS)
+        opened: list[int] = []
+        fd = os.dup(self.root_fd)
+        try:
+            for index, directory in enumerate(self.dirs):
+                if index:
+                    next_fd = os.open(directory.names[-1], _DIR_FLAGS, dir_fd=fd)
+                    if index - 1 < first:
+                        os.close(fd)
+                    fd = next_fd
+                if _inode(os.fstat(fd)) != directory.ident:
+                    raise OSError(errno.ESTALE, "replaced meanwhile")
+                if index >= first:
+                    opened.append(fd)
+        except OSError:
+            if not opened or opened[-1] != fd:
+                os.close(fd)
+            for held in opened:
+                os.close(held)
+            return False
+        for directory, held in zip(self.dirs[first:], opened, strict=True):
+            directory.fd = held
+        self.held = len(opened)
+        return True
+
+    def close(self) -> None:
+        for directory in self.dirs:
+            if directory.fd >= 0:
+                os.close(directory.fd)
+                directory.fd = -1
+        self.held = 0
 
 
 def walk(
@@ -205,11 +279,11 @@ def walk(
     are counted as skipped. The walk is depth-first and enters a
     subdirectory only when it gets to it, so it holds at most
     _MAX_HELD_DIRS directory descriptors plus a few, however wide or deep
-    the tree is (KI-223). A directory it cannot list or enter is counted in
-    ``report.unentered``.
+    the tree is (KI-223). A directory it cannot list or enter, or deeper
+    than _MAX_DEPTH, is counted in ``report.unentered``.
     """
     root_fd = open_root(root)
-    stack: list[_Dir] = []
+    path = _Path(root_fd)
     try:
         root_info = os.fstat(root_fd)
         if include_root:
@@ -221,18 +295,17 @@ def walk(
         current: _Dir | None = _Dir(root, (), _inode(root_info), os.dup(root_fd))
         while current is not None:
             _list(current, root_info.st_dev, visit, report)
-            if current.pending and len(stack) < _MAX_HELD_DIRS:
-                stack.append(current)
+            if current.pending and len(current.names) >= _MAX_DEPTH:
+                for name, _listed in current.pending:
+                    report.not_walked(f"{current.path}/{name}", f"deeper than {_MAX_DEPTH} levels: not entered")
+                current.pending.clear()
+            if current.pending:
+                path.push(current)
             else:
                 os.close(current.fd)
-                current.fd = -1
-                if current.pending:
-                    stack.append(current)
-            current = _enter_next(stack, root_fd, report)
+            current = _enter_next(path, report)
     finally:
-        for held in stack:
-            if held.fd >= 0:
-                os.close(held.fd)
+        path.close()
         os.close(root_fd)
     return report
 
@@ -268,49 +341,24 @@ def _list(directory: _Dir, dev: int, visit: Callable[[int, str, os.stat_result, 
             directory.pending.append((name, info))
 
 
-def _enter_next(stack: list[_Dir], root_fd: int, report: Report) -> _Dir | None:
+def _enter_next(path: _Path, report: Report) -> _Dir | None:
     """Open the next subdirectory of the walk; None when the walk is done."""
-    while stack:
-        top = stack[-1]
+    while path.dirs:
+        top = path.dirs[-1]
         if not top.pending:
-            if top.fd >= 0:
-                os.close(top.fd)
-            stack.pop()
+            path.pop()
             continue
-        name, listed = top.pending.pop()
-        parent_fd = top.fd if top.fd >= 0 else _reopen(root_fd, top)
-        if parent_fd < 0:
+        if top.fd < 0 and not path.reopen():
             report.not_walked(top.path, "changed while the walk ran: its subdirectories were not entered")
             top.pending.clear()
             continue
-        try:
-            sub = _open_subdir(parent_fd, name, listed)
-        finally:
-            if parent_fd != top.fd:
-                os.close(parent_fd)
+        name, listed = top.pending.pop()
+        sub = _open_subdir(top.fd, name, listed)
         if sub is None:
             report.not_walked(f"{top.path}/{name}", "cannot be entered")
             continue
         return _Dir(f"{top.path}/{name}", (*top.names, name), _inode(listed), sub)
     return None
-
-
-def _reopen(root_fd: int, directory: _Dir) -> int:
-    """A new descriptor of *directory*, opened from the root without following a symlink; -1 when that
-    is no longer the walked inode."""
-    fd = os.dup(root_fd)
-    try:
-        for name in directory.names:
-            next_fd = os.open(name, _DIR_FLAGS, dir_fd=fd)
-            os.close(fd)
-            fd = next_fd
-    except OSError:
-        os.close(fd)
-        return -1
-    if _inode(os.fstat(fd)) != directory.ident:
-        os.close(fd)
-        return -1
-    return fd
 
 
 def _minimal(mode: int) -> list[posix_acl.Entry]:

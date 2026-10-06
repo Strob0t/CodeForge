@@ -185,7 +185,7 @@ ALLOWED: dict[tuple[str, str, str], tuple[int, str]] = {
     ("tool_walk.py", "walk", "os.open"): (1, _WALK),
     ("tool_walk.py", "_list", "os.listdir"): (1, _WALK),
     # A directory the walk closed to bound its descriptors (KI-223), reopened from the walk's root.
-    ("tool_walk.py", "_reopen", "os.open"): (1, _WALK),
+    ("tool_walk.py", "_Path.reopen", "os.open"): (1, _WALK),
     ("tool_migration.py", "TenantLock.__init__", "os.open"): (1, _TOOL_STATE),
     ("tool_migration.py", "_replace_file", "os.rename"): (1, _TOOL_STATE),
     ("tool_migration.py", "_replace_file", "os.unlink"): (1, _TOOL_STATE),
