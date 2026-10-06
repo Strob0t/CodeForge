@@ -1104,8 +1104,8 @@ class AgentLoopExecutor:
 # ---------------------------------------------------------------------------
 
 
-async def _run_git(workspace_path: str, *args: str) -> None:
-    """Run a git sub-command and raise on non-zero exit.
+async def _run_git(workspace_path: str, *args: str) -> str:
+    """Run a git sub-command, return its stdout and raise on non-zero exit.
 
     No shell, to avoid injection risks; git runs as a tool process (it
     executes the workspace's hooks and config).
@@ -1118,21 +1118,58 @@ async def _run_git(workspace_path: str, *args: str) -> None:
         stderr=asyncio.subprocess.PIPE,
         env=tool_env(),
     )
-    _, stderr = await proc.communicate()
+    stdout, stderr = await proc.communicate()
     if proc.returncode:
         cmd = " ".join(args)
         raise RuntimeError(f"git {cmd} failed (exit {proc.returncode}): {stderr.decode()}")
+    return stdout.decode()
 
 
-async def _snapshot_workspace(workspace_path: str, rollout_id: int) -> None:
-    """Snapshot workspace state via git stash."""
-    await _run_git(workspace_path, "stash", "push", "-m", f"rollout-{rollout_id}", "--include-untracked")
+class _RolloutWorkspace:
+    """The git workspace a multi-rollout conversation runs in (KI-195).
+
+    Rollouts run only from a clean workspace (no uncommitted change, no
+    untracked file), so the user's own work is never stashed, reset or lost.
+    Each rollout's result is recorded as a git tree, the workspace is reset to
+    the start commit between rollouts, and the best rollout's tree is left in
+    the working tree, as uncommitted changes on the start commit. No ref or
+    stash entry is created.
+    """
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._head = ""
+
+    async def start(self) -> str:
+        """Record the start commit; return why rollouts cannot run here, or ""."""
+        try:
+            self._head = (await _run_git(self._path, "rev-parse", "--verify", "HEAD")).strip()
+        except RuntimeError:
+            return "no_commit"
+        status = await _run_git(self._path, "status", "--porcelain", "--untracked-files=all")
+        return "uncommitted_changes" if status.strip() else ""
+
+    async def capture(self) -> str:
+        """Record the working tree (every file but ignored ones) as a git tree."""
+        await _run_git(self._path, "add", "--all")
+        return (await _run_git(self._path, "write-tree")).strip()
+
+    async def reset(self) -> None:
+        """Return the workspace to the start commit, without the rollout's files."""
+        await _run_git(self._path, "reset", "--quiet", "--hard", self._head)
+        await _run_git(self._path, "clean", "--quiet", "-d", "--force")
+
+    async def keep(self, tree: str) -> None:
+        """Leave *tree* in the working tree as uncommitted changes on the start commit."""
+        await self.reset()
+        await _run_git(self._path, "read-tree", "-u", "--reset", tree)
+        await _run_git(self._path, "reset", "--quiet", "--mixed", self._head)
 
 
-async def _restore_workspace(workspace_path: str) -> None:
-    """Restore workspace state via git checkout + clean."""
-    await _run_git(workspace_path, "checkout", ".")
-    await _run_git(workspace_path, "clean", "-fd")
+_ROLLOUT_REFUSALS = {
+    "no_commit": "the repository has no commit yet",
+    "uncommitted_changes": "the workspace has uncommitted changes",
+}
 
 
 _MAX_ROLLOUT_COUNT = 8
@@ -1164,7 +1201,21 @@ class ConversationRolloutExecutor:
         if self._rollout_count <= 1:
             return await self._executor.run(messages, config=config)
 
+        workspace = _RolloutWorkspace(self._workspace)
+        refusal = await workspace.start()
+        if refusal:
+            # Rollouts reset the workspace between runs; the user's own work
+            # must not be touched (KI-195).
+            reason = _ROLLOUT_REFUSALS[refusal]
+            logger.warning("multi-rollout refused (%s), running once", reason)
+            if self._runtime is not None:
+                await self._runtime.send_output(f"\n[Multi-rollout skipped: {reason}. Running once.]\n")
+            result = await self._executor.run(messages, config=config)
+            result.metadata = {"fallback_reason": refusal}
+            return result
+
         results: list[AgentLoopResult] = []
+        trees: list[str] = []
         outputs: list[str] = []
         exit_codes: list[int] = []
         total_cost = 0.0
@@ -1174,10 +1225,10 @@ class ConversationRolloutExecutor:
 
         for rollout_id in range(self._rollout_count):
             if rollout_id > 0:
-                await _restore_workspace(self._workspace)
+                await workspace.reset()
             config.rollout_id = rollout_id
-            await _snapshot_workspace(self._workspace, rollout_id)
             result = await self._executor.run(list(messages), config=config)
+            trees.append(await workspace.capture())
             results.append(result)
             outputs.append(result.final_content)
             exit_codes.append(1 if result.error else 0)
@@ -1193,6 +1244,8 @@ class ConversationRolloutExecutor:
         scores = [compute_rollout_score(r) for r in results]
         best_idx = select_best_rollout(results, scores)
         best = results[best_idx]
+        # The workspace ends with the rollout that is reported.
+        await workspace.keep(trees[best_idx])
         await self._publish_rollout_trajectory(
             total_rollouts=len(results), selected_index=best_idx, scores=scores, early_stopped=early_stopped
         )

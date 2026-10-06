@@ -6,6 +6,26 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+
+class _FakeWorkspace:
+    """A clean git workspace: rollouts may run; no git is called."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+    async def start(self) -> str:
+        return ""
+
+    async def capture(self) -> str:
+        return "tree"
+
+    async def reset(self) -> None:
+        return None
+
+    async def keep(self, tree: str) -> None:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # A4.1 — Single rollout (default) behaves identically
 # ---------------------------------------------------------------------------
@@ -69,13 +89,9 @@ class TestSingleRollout:
             workspace_path="/tmp/test",
         )
 
-        with (
-            patch("codeforge.agent_loop._snapshot_workspace") as snap,
-            patch("codeforge.agent_loop._restore_workspace") as restore,
-        ):
+        with patch("codeforge.agent_loop._RolloutWorkspace") as workspace:
             await rollout_exec.execute(messages=[], config=MagicMock())
-            snap.assert_not_called()
-            restore.assert_not_called()
+            workspace.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +133,7 @@ class TestMultiRollout:
         )
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
             patch("codeforge.agent_loop.select_best_rollout", return_value=0),
         ):
             result = await rollout_exec.execute(messages=[{"role": "user", "content": "test"}], config=MagicMock())
@@ -158,8 +173,7 @@ class TestMultiRollout:
         cfg = LoopConfig()
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
             patch("codeforge.agent_loop.select_best_rollout", return_value=0),
         ):
             await rollout_exec.execute(messages=[], config=cfg)
@@ -279,8 +293,7 @@ class TestCostAggregation:
         )
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
             patch("codeforge.agent_loop.select_best_rollout", return_value=0),
         ):
             result = await rollout_exec.execute(messages=[], config=LoopConfig())
@@ -332,59 +345,9 @@ class TestNonGitFallback:
 
 
 # ---------------------------------------------------------------------------
-# A4.6 — Snapshot creates git stash, restore cleans workspace
+# A4.6 — Workspace handling between rollouts: tests/test_rollout_workspace.py
+# runs real git (KI-195).
 # ---------------------------------------------------------------------------
-
-
-class TestSnapshotRestore:
-    """Verify git stash/restore operations are called with correct arguments."""
-
-    @pytest.mark.asyncio
-    async def test_snapshot_calls_git_stash(self) -> None:
-        """_snapshot_workspace calls git stash push with rollout tag."""
-        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
-            mock_proc = AsyncMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_proc.returncode = 0  # _run_git raises on a non-zero exit code
-            mock_exec.return_value = mock_proc
-
-            from codeforge.agent_loop import _snapshot_workspace
-
-            await _snapshot_workspace("/tmp/ws", 2)
-
-            mock_exec.assert_called_once()
-            args = mock_exec.call_args
-            # Positional args: git stash push -m rollout-2 --include-untracked
-            assert args[0][0] == "git"
-            assert args[0][1] == "stash"
-            assert args[0][2] == "push"
-            assert args[0][3] == "-m"
-            assert args[0][4] == "rollout-2"
-            assert args[0][5] == "--include-untracked"
-            assert args[1]["cwd"] == "/tmp/ws"
-
-    @pytest.mark.asyncio
-    async def test_restore_calls_git_checkout_and_clean(self) -> None:
-        """_restore_workspace calls git checkout . then git clean -fd."""
-        calls: list[tuple] = []
-
-        async def _fake_exec(*args, **kwargs):
-            calls.append(args)
-            mock_proc = AsyncMock()
-            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
-            mock_proc.returncode = 0  # _run_git raises on a non-zero exit code
-            return mock_proc
-
-        with patch("asyncio.create_subprocess_exec", side_effect=_fake_exec):
-            from codeforge.agent_loop import _restore_workspace
-
-            await _restore_workspace("/tmp/ws")
-
-        assert len(calls) == 2
-        # First: git checkout .
-        assert calls[0][:3] == ("git", "checkout", ".")
-        # Second: git clean -fd
-        assert calls[1][:3] == ("git", "clean", "-fd")
 
 
 # ---------------------------------------------------------------------------
@@ -517,8 +480,7 @@ class TestTrajectoryMetadata:
         )
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
         ):
             await rollout_exec.execute(messages=[], config=LoopConfig())
 
@@ -558,8 +520,7 @@ class TestTrajectoryMetadata:
         )
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
         ):
             # Should not raise even without runtime.
             result = await rollout_exec.execute(messages=[], config=LoopConfig())
@@ -593,8 +554,7 @@ class TestTrajectoryMetadata:
         )
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
         ):
             result = await rollout_exec.execute(messages=[], config=LoopConfig())
 
@@ -632,8 +592,7 @@ class TestTrajectoryMetadata:
         )
         with (
             patch("os.path.isdir", return_value=True),
-            patch("codeforge.agent_loop._snapshot_workspace", new_callable=AsyncMock),
-            patch("codeforge.agent_loop._restore_workspace", new_callable=AsyncMock),
+            patch("codeforge.agent_loop._RolloutWorkspace", _FakeWorkspace),
         ):
             result = await rollout_exec.execute(messages=[], config=LoopConfig())
 
