@@ -75,6 +75,8 @@ type ProjectService struct {
 // the tenant's tool UID (WorkspaceDeletionService).
 type workspaceDeleter interface {
 	Delete(ctx context.Context, p *project.Project) error
+	// Discard removes the workspace dir of p that a re-clone replaces (KI-189).
+	Discard(ctx context.Context, p *project.Project, dir string) error
 }
 
 // SetWorkspaceDeletions sets who deletes projects with tool ACLs required (KI-96 D11).

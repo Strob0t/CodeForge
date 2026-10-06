@@ -169,6 +169,40 @@ func TestDeleteProjectForWorkspaceDeletion_ActiveWork(t *testing.T) {
 	}
 }
 
+// TestRecordWorkspaceDeletion: a workspace a re-clone replaces (KI-189) is
+// recorded for a project of the tenant in ctx; the project stays.
+func TestRecordWorkspaceDeletion(t *testing.T) {
+	store, pool := toolUIDDatabase(t)
+	a := insertTenant(t, pool, "a", time.Now())
+	b := insertTenant(t, pool, "b", time.Now())
+	ctxA := tenantctx.WithTenant(context.Background(), a)
+	ctxB := tenantctx.WithTenant(context.Background(), b)
+	p := insertProject(t, pool, a)
+
+	if err := store.RecordWorkspaceDeletion(ctxB, newDeletion(b, p)); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("other tenant's project: err = %v, want ErrNotFound", err)
+	}
+	if deletionCount(t, pool, p) != 0 {
+		t.Fatal("a deletion was recorded for another tenant's project")
+	}
+	d := newDeletion(a, p)
+	d.WorkspacePath += ".discarded-" + d.ID
+	if err := store.RecordWorkspaceDeletion(ctxA, d); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if !projectExists(t, pool, p) {
+		t.Fatal("the project row was deleted")
+	}
+	pending, err := store.ListPendingWorkspaceDeletions(context.Background(), -time.Minute, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != d.ID || pending[0].TenantID != a || pending[0].ProjectID != p ||
+		pending[0].WorkspacePath != d.WorkspacePath || pending[0].ToolUID != d.ToolUID {
+		t.Fatalf("pending = %+v, want %+v", pending, d)
+	}
+}
+
 func TestWorkspaceDeletionLifecycle(t *testing.T) {
 	store, pool := toolUIDDatabase(t)
 	ctx := context.Background()

@@ -47,6 +47,16 @@ func (f *fakeDeletionStore) DeleteProjectForWorkspaceDeletion(ctx context.Contex
 	return nil
 }
 
+func (f *fakeDeletionStore) RecordWorkspaceDeletion(ctx context.Context, d *project.WorkspaceDeletion) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if tenantctx.FromContext(ctx) != d.TenantID {
+		return errors.New("tenant of the context differs")
+	}
+	f.recorded = append(f.recorded, *d)
+	return nil
+}
+
 func (f *fakeDeletionStore) MarkWorkspaceDeletionDone(ctx context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

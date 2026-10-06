@@ -121,7 +121,7 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 	return p.pool.Run(ctx, func() error {
 		// Handle existing directory.
 		if info, statErr := os.Stat(absPath); statErr == nil && info.IsDir() {
-			return p.reclone(ctx, checkoutURL, absPath)
+			return p.reclone(ctx, checkoutURL, absPath, &o)
 		}
 
 		if _, execErr := p.runSVN(ctx, "", "checkout", "--ignore-externals", checkoutURL, absPath); execErr != nil {
@@ -133,9 +133,9 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 
 // reclone handles re-checkout when the destination directory already exists.
 // If it's an SVN working copy with the same URL, runs svn update.
-// Otherwise removes the directory and does a fresh checkout. A working copy
-// whose metadata is unsafe is reported, not removed.
-func (p *Provider) reclone(ctx context.Context, url, absPath string) error {
+// Otherwise removes the directory (o.RemoveDestination) and does a fresh
+// checkout. A working copy whose metadata is unsafe is reported, not removed.
+func (p *Provider) reclone(ctx context.Context, url, absPath string, o *gitprovider.CloneOptions) error {
 	wcErr := checkWorkingCopy(absPath)
 	if errors.Is(wcErr, errUnsafeWorkingCopy) {
 		return wcErr
@@ -152,7 +152,7 @@ func (p *Provider) reclone(ctx context.Context, url, absPath string) error {
 	}
 
 	// Not an SVN working copy or different URL — remove and re-checkout.
-	if rmErr := os.RemoveAll(absPath); rmErr != nil {
+	if rmErr := o.RemoveDestination(ctx, absPath); rmErr != nil {
 		return fmt.Errorf("svn: remove existing directory: %w", rmErr)
 	}
 	if _, coErr := p.runSVN(ctx, "", "checkout", "--ignore-externals", url, absPath); coErr != nil {

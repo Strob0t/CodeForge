@@ -8,17 +8,49 @@ import (
 	"testing"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
 // recordingDeleter stands in for the WorkspaceDeletionService (KI-96 D11).
 type recordingDeleter struct {
-	deleted []string
-	err     error
+	deleted   []string
+	discarded []string // project:dir
+	err       error
 }
 
 func (d *recordingDeleter) Delete(_ context.Context, p *project.Project) error {
 	d.deleted = append(d.deleted, p.ID)
 	return d.err
+}
+
+func (d *recordingDeleter) Discard(_ context.Context, p *project.Project, dir string) error {
+	d.discarded = append(d.discarded, p.ID+":"+dir)
+	return d.err
+}
+
+// KI-189 (R6-15): a re-clone that replaces an existing workspace removes it
+// through the worker when tool ACLs are required, like a project deletion.
+func TestProjectServiceClone_WithToolACLsTheWorkerRemovesAReplacedWorkspace(t *testing.T) {
+	svc, _, deleter, wsDir := deleteFixture(t, true)
+	p := &project.Project{ID: "p1"}
+	o := gitprovider.ApplyCloneOptions(svc.cloneOptions(p, "dev"))
+	if o.Branch != "dev" || o.RemoveExisting == nil {
+		t.Fatalf("clone options %+v, want branch dev and the worker's removal", o)
+	}
+	if err := o.RemoveDestination(context.Background(), wsDir); err != nil {
+		t.Fatal(err)
+	}
+	if len(deleter.discarded) != 1 || deleter.discarded[0] != "p1:"+wsDir {
+		t.Fatalf("discarded through the worker: %v", deleter.discarded)
+	}
+	if _, err := os.Stat(wsDir); err != nil {
+		t.Fatalf("the Go Core removed the workspace itself: %v", err)
+	}
+
+	svc, _, _, _ = deleteFixture(t, false)
+	if o := gitprovider.ApplyCloneOptions(svc.cloneOptions(p, "")); o.RemoveExisting != nil {
+		t.Fatal("development (tool ACLs off) keeps the Go Core's own removal")
+	}
 }
 
 func deleteFixture(t *testing.T, required bool) (svc *ProjectService, store *mockStore, deleter *recordingDeleter, wsDir string) {

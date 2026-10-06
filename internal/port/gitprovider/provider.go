@@ -3,6 +3,7 @@ package gitprovider
 
 import (
 	"context"
+	"os"
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 )
@@ -22,6 +23,25 @@ type CloneOption func(*CloneOptions)
 // CloneOptions holds the resolved values from CloneOption functions.
 type CloneOptions struct {
 	Branch string
+	// RemoveExisting removes a destination that is no clone of the URL
+	// before the fresh clone (nil: os.RemoveAll). With tool ACLs required
+	// the caller hands the removal to the worker, which runs it as the
+	// tenant's tool UID (KI-189).
+	RemoveExisting func(ctx context.Context, dir string) error
+}
+
+// WithRemoveExisting sets how a destination that is no clone of the URL is
+// removed before the fresh clone.
+func WithRemoveExisting(remove func(ctx context.Context, dir string) error) CloneOption {
+	return func(o *CloneOptions) { o.RemoveExisting = remove }
+}
+
+// RemoveDestination removes the existing destination dir for a fresh clone.
+func (o *CloneOptions) RemoveDestination(ctx context.Context, dir string) error {
+	if o.RemoveExisting != nil {
+		return o.RemoveExisting(ctx, dir)
+	}
+	return os.RemoveAll(dir)
 }
 
 // WithBranch sets the branch to clone. When set, only that branch is fetched

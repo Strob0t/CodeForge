@@ -59,6 +59,17 @@ func (s *Store) DeleteProjectForWorkspaceDeletion(ctx context.Context, projectID
 	return nil
 }
 
+// RecordWorkspaceDeletion records the deletion of a workspace a re-clone
+// replaces, for a project of the tenant in ctx (domain.ErrNotFound for
+// another's); the project stays.
+func (s *Store) RecordWorkspaceDeletion(ctx context.Context, d *project.WorkspaceDeletion) error {
+	tag, err := s.pool.Exec(ctx,
+		`INSERT INTO workspace_deletions (id, tenant_id, project_id, workspace_path, tool_uid)
+		 SELECT $1::uuid, tenant_id, id, $4::text, $5::integer FROM projects WHERE id = $3 AND tenant_id = $2`,
+		d.ID, tenantFromCtx(ctx), d.ProjectID, d.WorkspacePath, d.ToolUID)
+	return execExpectOne(tag, err, "record workspace deletion of project %s", d.ProjectID)
+}
+
 // MarkWorkspaceDeletionDone marks a deletion of the tenant in ctx done.
 func (s *Store) MarkWorkspaceDeletionDone(ctx context.Context, id string) error {
 	tag, err := s.pool.Exec(ctx,

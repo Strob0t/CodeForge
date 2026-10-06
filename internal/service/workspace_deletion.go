@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,6 +62,36 @@ func (s *WorkspaceDeletionService) Delete(ctx context.Context, p *project.Projec
 	}
 	if err := s.store.DeleteProjectForWorkspaceDeletion(ctx, p.ID, d); err != nil {
 		return err
+	}
+	s.publish(ctx, d)
+	return nil
+}
+
+// Discard hands the workspace dir of p, which a re-clone replaces, to the
+// worker (KI-189): the Go Core only renames the entry in the tenant
+// directory it owns to <project>.discarded-<id>, never walks the tree, and
+// the worker removes it as the tenant's tool UID like a deleted project's.
+// The deletion is recorded before the rename, so a failed rename leaves a
+// record of a path that is gone, which the worker reports done.
+func (s *WorkspaceDeletionService) Discard(ctx context.Context, p *project.Project, dir string) error {
+	tenantID := tenantctx.FromContext(ctx)
+	uid, err := s.toolUIDs.ToolUIDFor(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("discard workspace of project %s: %w", p.ID, err)
+	}
+	id := uuid.NewString()
+	d := &project.WorkspaceDeletion{
+		ID:            id,
+		TenantID:      tenantID,
+		ProjectID:     p.ID,
+		WorkspacePath: filepath.Join(filepath.Dir(dir), p.ID+".discarded-"+id),
+		ToolUID:       uid,
+	}
+	if err := s.store.RecordWorkspaceDeletion(ctx, d); err != nil {
+		return fmt.Errorf("discard workspace of project %s: %w", p.ID, err)
+	}
+	if err := os.Rename(dir, d.WorkspacePath); err != nil {
+		return fmt.Errorf("discard workspace of project %s: move it aside: %w", p.ID, err)
 	}
 	s.publish(ctx, d)
 	return nil

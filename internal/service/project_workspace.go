@@ -40,10 +40,7 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 		return nil, fmt.Errorf("create git provider: %w", err)
 	}
 
-	var opts []gitprovider.CloneOption
-	if branch != "" {
-		opts = append(opts, gitprovider.WithBranch(branch))
-	}
+	opts := s.cloneOptions(p, branch)
 
 	// The tenant directory exists with its ACLs before git could create it
 	// with plain modes (KI-96).
@@ -276,6 +273,23 @@ func (s *ProjectService) inAdoptRoot(realPath string) bool {
 
 func strictlyInside(path, dir string) bool {
 	return strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
+// cloneOptions are the options of p's clone into its workspace. With tool
+// ACLs required, an existing workspace that is no clone of the repository
+// is removed by the worker as the tenant's tool UID (KI-189), as on
+// project deletion: tools can create entries the Go Core cannot remove.
+func (s *ProjectService) cloneOptions(p *project.Project, branch string) []gitprovider.CloneOption {
+	var opts []gitprovider.CloneOption
+	if branch != "" {
+		opts = append(opts, gitprovider.WithBranch(branch))
+	}
+	if s.deletions != nil && s.toolUIDs.Required() {
+		opts = append(opts, gitprovider.WithRemoveExisting(func(ctx context.Context, dir string) error {
+			return s.deletions.Discard(ctx, p, dir)
+		}))
+	}
+	return opts
 }
 
 // checkCloneSource allows remote repository URLs of the provider

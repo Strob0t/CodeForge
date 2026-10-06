@@ -15,6 +15,9 @@ type WorkspaceDeletionStore interface {
 	// run, conversation turn or backend task, domain.ErrNotFound for an
 	// unknown project or one of another tenant.
 	DeleteProjectForWorkspaceDeletion(ctx context.Context, projectID string, d *project.WorkspaceDeletion) error
+	// RecordWorkspaceDeletion records d for the tenant in ctx, the project
+	// stays (a workspace a re-clone replaces, KI-189).
+	RecordWorkspaceDeletion(ctx context.Context, d *project.WorkspaceDeletion) error
 	// MarkWorkspaceDeletionDone marks the deletion of the tenant in ctx done.
 	MarkWorkspaceDeletionDone(ctx context.Context, id string) error
 	// RecordWorkspaceDeletionFailure counts a failed attempt and keeps its error.

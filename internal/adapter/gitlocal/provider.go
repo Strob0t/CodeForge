@@ -128,7 +128,7 @@ func (p *Provider) reclone(ctx context.Context, url, absPath string, o gitprovid
 	}
 
 	// Not a git repo or different remote — remove and re-clone.
-	if err := os.RemoveAll(absPath); err != nil {
+	if err := o.RemoveDestination(ctx, absPath); err != nil {
 		return fmt.Errorf("gitlocal: remove existing directory: %w", err)
 	}
 
