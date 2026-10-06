@@ -306,6 +306,36 @@ describe("RefactorApproval", () => {
 
       await screen.findByRole("dialog", { name: "Refactor approval" });
       expect(screen.queryByText(/changed by users/)).toBeNull();
+      expect(screen.queryByText(/could not be loaded/)).toBeNull();
+      expect(apiMock.pending).toHaveBeenCalledTimes(1); // on mount only
+    });
+
+    // Review F2: the server could not read them when it announced the
+    // request; the dialog loads them with the pending decisions.
+    it("loads them when the request could not list them", async () => {
+      renderDialog();
+      await waitFor(() => expect(apiMock.pending).toHaveBeenCalledTimes(1));
+      apiMock.pending.mockResolvedValue([
+        pendingDecision({ user_edits: edits.slice(0, 1), user_edits_total: 1 }),
+      ]);
+
+      ws.emit("review.approval_required", impact({ user_edits_unavailable: true }));
+
+      await screen.findByText("src/a.go");
+      expect(apiMock.pending).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    });
+
+    it("says they could not be loaded when loading them fails too", async () => {
+      renderDialog();
+      await waitFor(() => expect(apiMock.pending).toHaveBeenCalledTimes(1));
+      apiMock.pending.mockRejectedValue(new Error("connection reset"));
+
+      ws.emit("review.approval_required", impact({ user_edits_unavailable: true }));
+
+      await screen.findByText(/could not be loaded/);
+      expect(screen.getByRole("dialog", { name: "Refactor approval" })).toBeTruthy();
+      expect(apiMock.pending).toHaveBeenCalledTimes(2);
     });
   });
 });

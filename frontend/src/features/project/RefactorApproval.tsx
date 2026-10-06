@@ -74,6 +74,7 @@ export default function RefactorApproval(props: { projectId: string }) {
   const [error, setError] = createSignal("");
   const { onMessage, connected } = useWebSocket();
   const { show: toast } = useToast();
+  const { t } = useI18n();
   let dialogRef: HTMLDivElement | undefined;
 
   const current = (): Pending | undefined => queue()[0];
@@ -114,6 +115,10 @@ export default function RefactorApproval(props: { projectId: string }) {
     if (!isReviewImpact(msg.payload) || msg.payload.project_id !== props.projectId) return;
     if (msg.type === "review.approval_required") {
       const req = msg.payload;
+      // The server could not read the files users changed (KI-94 review F2):
+      // load them with the pending decisions. load() starts a new announced
+      // set, so this request is added after it and kept if the load fails.
+      if (req.user_edits_unavailable) void load();
       announced.set(key(req), req);
       setQueue((q) => (q.some((p) => key(p) === key(req)) ? q : [...q, req]));
     } else if (msg.type === "review.refactor_applied") {
@@ -202,6 +207,9 @@ export default function RefactorApproval(props: { projectId: string }) {
                 <div class="rounded bg-cf-danger-bg px-2 py-1 text-cf-danger-fg">
                   Structural changes (files added, deleted or renamed)
                 </div>
+              </Show>
+              <Show when={req().user_edits_unavailable}>
+                <Alert variant="warning">{t("reviewApproval.userEdits.unavailable")}</Alert>
               </Show>
               <Show when={req().user_edits?.length}>
                 <UserEdits

@@ -1810,6 +1810,8 @@ const de: Translations = {
   "reviewApproval.userEdits.op.write": "bearbeitet",
   "reviewApproval.userEdits.op.delete": "gelöscht",
   "reviewApproval.userEdits.op.rename": "umbenannt",
+  "reviewApproval.userEdits.unavailable":
+    "Die Dateien, die Benutzer w\u00e4hrend des Refactorings ge\u00e4ndert haben, konnten nicht geladen werden: R\u00fcckg\u00e4ngigmachen kann auch ihre \u00c4nderungen zur\u00fccksetzen.",
 
   // -- Files ------------------------------------------------------------------
   "files.createFile": "Neue Datei",

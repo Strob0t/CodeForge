@@ -219,6 +219,10 @@ type ReviewImpactEvent struct {
 	// and UserEditsTotal counts them all.
 	UserEdits      []review.UserEdit `json:"user_edits,omitempty"`
 	UserEditsTotal int               `json:"user_edits_total,omitempty"`
+	// UserEditsUnavailable: the user edits could not be read when the
+	// request was announced; the dialog loads them with the pending
+	// decisions (GET /projects/{id}/review/pending).
+	UserEditsUnavailable bool `json:"user_edits_unavailable,omitempty"`
 }
 
 // ReviewStatusEvent is broadcast when a review's status changes.

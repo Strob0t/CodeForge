@@ -1796,6 +1796,8 @@ const en = {
   "reviewApproval.userEdits.op.write": "edited",
   "reviewApproval.userEdits.op.delete": "deleted",
   "reviewApproval.userEdits.op.rename": "renamed",
+  "reviewApproval.userEdits.unavailable":
+    "The files users changed while the refactorer ran could not be loaded: undoing may set their changes back too.",
 
   // -- Files ------------------------------------------------------------------
   "files.createFile": "New File",

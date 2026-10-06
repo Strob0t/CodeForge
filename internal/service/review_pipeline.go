@@ -674,13 +674,13 @@ func (s *ReviewPipelineService) requireApproval(_ context.Context, ev *event.Rev
 // announceApproval broadcasts review.approval_required with the paths users
 // changed while the refactoring ran (KI-94). They are read once the decision
 // is recorded, when no more are recorded for it. A failed read is logged and
-// the request is announced without them: the dialog loads them again with
-// the pending decisions (PendingDecisions).
+// the request is announced with UserEditsUnavailable: the dialog loads them
+// with the pending decisions (PendingDecisions, review F2).
 func (s *ReviewPipelineService) announceApproval(ctx context.Context, ev *event.ReviewImpactEvent) {
 	edits, total, err := s.store.ListReviewUserEdits(ctx, ev.PlanID, maxListedUserEdits)
 	logBestEffort(ctx, err, "ListReviewUserEdits: approval request announced without the user edits",
 		slog.String("plan_id", ev.PlanID))
-	ev.UserEdits, ev.UserEditsTotal = edits, total
+	ev.UserEdits, ev.UserEditsTotal, ev.UserEditsUnavailable = edits, total, err != nil
 	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, *ev)
 }
 

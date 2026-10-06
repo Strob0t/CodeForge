@@ -119,4 +119,16 @@ func TestReviewImpactEvent_UserEditsJSON(t *testing.T) {
 			t.Errorf("user edit JSON has no %q: %s", key, data)
 		}
 	}
+
+	// Review F2: a request whose user edits could not be read says so.
+	data, err = json.Marshal(event.ReviewImpactEvent{RunID: "r", UserEditsUnavailable: true})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var flag struct {
+		Unavailable bool `json:"user_edits_unavailable"`
+	}
+	if err := json.Unmarshal(data, &flag); err != nil || !flag.Unavailable {
+		t.Fatalf("ReviewImpactEvent JSON = %s, want user_edits_unavailable", data)
+	}
 }

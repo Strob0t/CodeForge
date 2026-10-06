@@ -83,16 +83,22 @@ func TestReviewPipeline_ApprovalRequestListsTheUserEdits(t *testing.T) {
 			t.Fatalf("request lists %+v (%d), want none", ev.UserEdits, ev.UserEditsTotal)
 		}
 	})
-	// The request is not lost with the edits: the dialog loads them again
-	// with the pending decisions.
+	// The request is not lost with the edits, and says they are missing
+	// (review F2): the dialog loads them again with the pending decisions.
 	t.Run("the edits cannot be read", func(t *testing.T) {
 		f, step := gateFixture(t, nil, func(dir string) { writeLines(t, dir, "a.go", 300, "rewritten") })
 		f.store.editsErr = errors.New("connection reset")
 		if got := gateNow(f, step); got != plan.StepStatusWaitingApproval {
 			t.Fatalf("GateStep = %s, want waiting for approval", got)
 		}
-		if ev := approvalRequest(t, f); ev.UserEdits != nil || ev.RunID != "run-4" {
-			t.Fatalf("request = %+v, want it announced without user edits", ev)
+		if ev := approvalRequest(t, f); ev.UserEdits != nil || !ev.UserEditsUnavailable || ev.RunID != "run-4" {
+			t.Fatalf("request = %+v, want it announced with the user edits marked unavailable", ev)
+		}
+	})
+	t.Run("read edits are not marked unavailable", func(t *testing.T) {
+		f, _ := waitingStep(t)
+		if ev := approvalRequest(t, f); ev.UserEditsUnavailable {
+			t.Fatalf("request = %+v, want the user edits available", ev)
 		}
 	})
 }

@@ -2026,6 +2026,11 @@ export interface ReviewImpactEvent {
    */
   user_edits?: ReviewUserEdit[];
   user_edits_total?: number;
+  /**
+   * The server could not read the user edits when it announced the request
+   * (WS only): load them with the pending decisions.
+   */
+  user_edits_unavailable?: boolean;
 }
 
 /** A path a user changed while a review refactoring ran; Go review.UserEdit. */
