@@ -1,5 +1,12 @@
 # syntax=docker/dockerfile:1
 
+# Claude Code is a build option, not part of the published images (owner
+# decision 2026-10-06: its licence is proprietary). A worker image with the
+# pinned, checksummed Claude Code CLI:
+#   docker build -f Dockerfile.worker --build-arg INSTALL_CLAUDE_CODE=true -t codeforge-worker:claude-code .
+# The value must be true or false (it names the stage that provides the CLI).
+ARG INSTALL_CLAUDE_CODE=false
+
 FROM python:3.12-slim AS build
 
 ARG APP_VERSION=dev
@@ -25,12 +32,13 @@ RUN poetry install --only main --no-interaction --no-ansi
 # --- Agent backend CLIs (KI-118) ---
 # The backends' CLIs, each pinned and verified: Aider from hash-locked wheels
 # (workers/aider-requirements.txt) in a virtual environment of its own below
-# /usr/local; Claude Code and OpenCode as the native binaries of their npm
-# platform packages (the tarballs' sha256; npm's sha512 integrity matched
-# when the pins were recorded); Goose from Block's multi-arch image by
-# digest (Block publishes no versioned image after 1.29.0; a newer Goose
-# needs its GitHub release archive and checksum). Plandex, SWE-agent and
-# OpenHands are not installed (workers/tests/test_backend_clis.py says why).
+# /usr/local; OpenCode and, with INSTALL_CLAUDE_CODE=true only, Claude Code
+# as the native binaries of their npm platform packages (the tarballs'
+# sha256; npm's sha512 integrity matched when the pins were recorded); Goose
+# from Block's multi-arch image by digest (Block publishes no versioned image
+# after 1.29.0; a newer Goose needs its GitHub release archive and checksum).
+# Plandex, SWE-agent and OpenHands are not installed
+# (workers/tests/test_backend_clis.py says why).
 FROM python:3.12-slim AS aider
 RUN --mount=type=bind,source=workers/aider-requirements.txt,target=/tmp/aider-requirements.txt \
     python -m venv /usr/local/lib/codeforge-backends/aider && \
@@ -40,14 +48,27 @@ RUN --mount=type=bind,source=workers/aider-requirements.txt,target=/tmp/aider-re
 FROM ghcr.io/block/goose:1.29.0@sha256:3554583b63d9513d88417922c83a7781fab5b6ae0ec98341dd56e5a3e780d2af AS goose
 
 FROM scratch AS backend-clis-amd64
-ADD --checksum=sha256:50a6eb433422febcfa7b7ac1e78ba795cdf79f1fe58f017fb1d9aeb9491b337d https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.289.tgz /claude-code.tgz
 ADD --checksum=sha256:585bc53a8ae7e839b8702752a283ba826e1ca2152e8c14188efc5b6a738d9834 https://registry.npmjs.org/opencode-linux-x64-baseline/-/opencode-linux-x64-baseline-1.18.34.tgz /opencode.tgz
 
 FROM scratch AS backend-clis-arm64
-ADD --checksum=sha256:45ad1d2f955ebe14ffdbc651e86ca713063e63b616b41a184c93be89c28e5fb4 https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.289.tgz /claude-code.tgz
 ADD --checksum=sha256:6f212b830b26bf72012f1665559ddb5fd7e928294971d3d1c99a0f9097a3d311 https://registry.npmjs.org/opencode-linux-arm64/-/opencode-linux-arm64-1.18.34.tgz /opencode.tgz
 
 FROM backend-clis-${TARGETARCH} AS backend-clis
+
+# Claude Code: the stage claude-code is the CLI's tarball with
+# INSTALL_CLAUDE_CODE=true and empty with false, so a default build never
+# downloads it.
+FROM scratch AS claude-code-amd64
+ADD --checksum=sha256:50a6eb433422febcfa7b7ac1e78ba795cdf79f1fe58f017fb1d9aeb9491b337d https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-2.1.289.tgz /claude-code.tgz
+
+FROM scratch AS claude-code-arm64
+ADD --checksum=sha256:45ad1d2f955ebe14ffdbc651e86ca713063e63b616b41a184c93be89c28e5fb4 https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-2.1.289.tgz /claude-code.tgz
+
+FROM claude-code-${TARGETARCH} AS claude-code-true
+
+FROM scratch AS claude-code-false
+
+FROM claude-code-${INSTALL_CLAUDE_CODE} AS claude-code
 
 # --- Runtime stage ---
 FROM python:3.12-slim
@@ -128,13 +149,19 @@ COPY scripts/worker-healthcheck.py /app/scripts/worker-healthcheck.py
 # Agent backend CLIs (KI-118): on the tool PATH (/usr/local/bin) and below
 # /usr, which Landlock lets tool processes read and execute. Like every tool
 # they start only through codeforge.tool_process, as the tenant's tool user;
-# they write their settings and caches to that user's HOME.
+# they write their settings and caches to that user's HOME. Claude Code only
+# with INSTALL_CLAUDE_CODE=true (see the top of this file).
+ARG INSTALL_CLAUDE_CODE
 COPY --from=aider /usr/local/lib/codeforge-backends/aider /usr/local/lib/codeforge-backends/aider
 COPY --from=goose /usr/local/bin/goose /usr/local/bin/goose
 RUN --mount=type=bind,from=backend-clis,target=/tmp/backend-clis \
-    tar -xzf /tmp/backend-clis/claude-code.tgz -C /usr/local/bin --strip-components=1 --no-same-owner package/claude && \
+    --mount=type=bind,from=claude-code,target=/tmp/claude-code \
     tar -xzf /tmp/backend-clis/opencode.tgz -C /usr/local/bin --strip-components=2 --no-same-owner package/bin/opencode && \
-    chmod 0755 /usr/local/bin/claude /usr/local/bin/opencode && \
+    chmod 0755 /usr/local/bin/opencode && \
+    if [ "$INSTALL_CLAUDE_CODE" = true ]; then \
+        tar -xzf /tmp/claude-code/claude-code.tgz -C /usr/local/bin --strip-components=1 --no-same-owner package/claude && \
+        chmod 0755 /usr/local/bin/claude; \
+    fi && \
     ln -s ../lib/codeforge-backends/aider/bin/aider /usr/local/bin/aider
 
 # The pinned CLIs do not update themselves (the root is read-only, and a

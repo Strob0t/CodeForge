@@ -1080,7 +1080,13 @@ class TestCliSupport:
 
         result = await _run(tmp_path, _FakeRuntime())
 
-        assert "not found" in result.error
+        # The public worker image ships without the CLI (owner decision
+        # 2026-10-06): the error says how to get one that has it.
+        assert result.error.startswith(
+            "Claude Code CLI not installed in this worker image; build with --build-arg INSTALL_CLAUDE_CODE=true"
+        )
+        assert "no-such-claude" in result.error
+        assert result.metadata["fallback_safe"] is True
 
 
 # ---------------------------------------------------------------------------

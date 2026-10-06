@@ -533,7 +533,11 @@ async def resolve_cli(cli_path: str) -> str:
     global _cli_check_lock
     resolved = shutil.which(cli_path, path=tool_isolation().config.tool_path if _isolated() else None)
     if resolved is None:
-        raise ClaudeCodeCLIError(f"Claude Code CLI {cli_path!r} not found")
+        # The public worker image ships without it (proprietary licence).
+        raise ClaudeCodeCLIError(
+            f"Claude Code CLI not installed in this worker image; build with --build-arg INSTALL_CLAUDE_CODE=true "
+            f"(no {cli_path!r} on the {'tool ' if _isolated() else ''}PATH; CODEFORGE_CLAUDECODE_PATH names another CLI)"
+        )
     resolved = os.path.abspath(resolved)
     try:
         key = (os.path.realpath(resolved), os.stat(resolved).st_mtime_ns)

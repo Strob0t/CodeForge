@@ -114,3 +114,13 @@ def test_branch_pushes_keep_branch_and_sha_tags_only() -> None:
         assert not [tag for tag in tags if "steps.version.outputs.value" in tag], (
             f"{name}: VERSION tag on branch pushes"
         )
+
+
+def test_published_images_have_no_claude_code() -> None:
+    """Claude Code is a build option (proprietary licence): the release workflow never sets it."""
+    workflow = _workflow()
+    assert "INSTALL_CLAUDE_CODE" not in (REPO / ".github" / "workflows" / "docker-build.yml").read_text()
+    worker = workflow["jobs"]["build-worker"]  # type: ignore[index]
+    build = next(s for s in worker["steps"] if str(s.get("uses", "")).startswith("docker/build-push-action"))
+    assert build["with"]["file"] == "Dockerfile.worker"
+    assert "INSTALL_CLAUDE_CODE" not in build["with"].get("build-args", "")

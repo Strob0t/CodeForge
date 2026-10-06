@@ -3,14 +3,16 @@
 Owner decision (2026-10-04): the backend CLIs go into the standard worker
 image. Dockerfile.worker installs each pinned and verified: Aider from
 hash-locked wheels (workers/aider-requirements.txt) in its own virtual
-environment, Claude Code and OpenCode as the native binaries of their npm
-platform packages (sha256 of each tarball), Goose from Block's multi-arch
-image by digest. They live below /usr, which Landlock lets tool processes
-read and execute, and on the tool PATH (CODEFORGE_TOOL_PATH), where the
-worker's backend executors look them up; they start, like every tool, only
-through codeforge.tool_process as the tenant's tool user. Every backend the
-worker registers is shipped or listed in NOT_SHIPPED with the reason. The
-Docker suite runs each shipped CLI as a tenant's tool user in the built image
+environment, OpenCode as the native binary of its npm platform package
+(sha256 of each tarball), Goose from Block's multi-arch image by digest.
+Claude Code is a build option (INSTALL_CLAUDE_CODE=true), not part of the
+published images (owner decision 2026-10-06). They live below /usr, which
+Landlock lets tool processes read and execute, and on the tool PATH
+(CODEFORGE_TOOL_PATH), where the worker's backend executors look them up;
+they start, like every tool, only through codeforge.tool_process as the
+tenant's tool user. Every backend the worker registers is shipped, a build
+option or listed in NOT_SHIPPED with the reason. The Docker suite runs each
+installed CLI as a tenant's tool user in the built image
 (docker_isolation_checks "backends").
 """
 
@@ -38,10 +40,13 @@ AIDER_REQUIREMENTS = REPO / "workers" / "aider-requirements.txt"
 # Backend name -> the CLI the image installs.
 SHIPPED = {
     "aider": "/usr/local/bin/aider",
-    "claudecode": "/usr/local/bin/claude",
     "goose": "/usr/local/bin/goose",
     "opencode": "/usr/local/bin/opencode",
 }
+# Installed only with --build-arg INSTALL_CLAUDE_CODE=true: Claude Code's
+# licence is proprietary, so the published images do not carry it (owner
+# decision 2026-10-06).
+BUILD_OPTION = {"claudecode": "/usr/local/bin/claude"}
 NOT_SHIPPED = {
     "openhands": "an HTTP service of its own (CODEFORGE_OPENHANDS_URL), not a CLI",
     "plandex": "needs a Plandex server and an interactive sign-in per HOME; plandex 2.2.1 (upstream inactive "
@@ -63,8 +68,8 @@ def _runtime() -> str:
 def test_every_registered_backend_is_shipped_or_explained() -> None:
     registered = {*build_default_router().available_backends(), "claudecode"}
 
-    assert registered == set(SHIPPED) | set(NOT_SHIPPED)
-    assert not set(SHIPPED) & set(NOT_SHIPPED)
+    assert registered == set(SHIPPED) | set(BUILD_OPTION) | set(NOT_SHIPPED)
+    assert len(registered) == len(SHIPPED) + len(BUILD_OPTION) + len(NOT_SHIPPED)
 
 
 def test_the_executors_find_the_shipped_clis_on_the_tool_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +85,7 @@ def test_the_executors_find_the_shipped_clis_on_the_tool_path(monkeypatch: pytes
     commands["claudecode"] = WorkerSettings().claudecode_path
     tool_path = DEFAULT_TOOL_PATH.split(":")
 
-    for name, path in SHIPPED.items():
+    for name, path in (SHIPPED | BUILD_OPTION).items():
         assert os.path.dirname(path) in tool_path, name
         assert os.path.basename(path) == commands[name], (
             f"{name}: the executor runs {commands[name]!r}, the image installs {path}"
@@ -96,7 +101,6 @@ def test_the_runtime_stage_installs_each_shipped_cli() -> None:
     assert "ln -s ../lib/codeforge-backends/aider/bin/aider /usr/local/bin/aider" in runtime
     assert "COPY --from=goose /usr/local/bin/goose /usr/local/bin/goose" in runtime
     assert re.search(r"apt-get install[^&]*\blibgomp1\b", runtime), "goose links libgomp"
-    assert "-C /usr/local/bin --strip-components=1 --no-same-owner package/claude" in runtime
     assert "-C /usr/local/bin --strip-components=2 --no-same-owner package/bin/opencode" in runtime
     assert "--mount=type=bind,from=backend-clis,target=/tmp/backend-clis" in runtime
     # The tool processes' environment turns off the CLIs' self-updates and
@@ -110,24 +114,47 @@ def test_the_runtime_stage_installs_each_shipped_cli() -> None:
         assert setting in runtime, setting
 
 
-def test_downloads_are_pinned_and_checksummed() -> None:
-    assert "FROM backend-clis-${TARGETARCH} AS backend-clis" in DOCKERFILE
-    versions: dict[str, set[str]] = {}
+def _checksummed_downloads(stage_prefix: str, target: str) -> None:
+    """Each architecture's stage is one sha256-checked download of the same pinned npm tarball."""
+    assert f"FROM {stage_prefix}-${{TARGETARCH}} AS " in DOCKERFILE
+    versions = set()
     for arch, npm_arch in (("amd64", "x64"), ("arm64", "arm64")):
-        stage = _stage(f"backend-clis-{arch}")
+        stage = _stage(f"{stage_prefix}-{arch}")
         adds = re.findall(r"^ADD --checksum=sha256:([0-9a-f]{64}) (\S+) (\S+)$", stage, re.MULTILINE)
-        assert {target for _, _, target in adds} == {"/claude-code.tgz", "/opencode.tgz"}, stage
-        assert len(adds) == len(stage.strip().splitlines()), "every line of the stage is a checksummed download"
-        for _, url, target in adds:
-            match = re.fullmatch(r"https://registry\.npmjs\.org/(\S+)/-/(\S+)-(\d+\.\d+\.\d+)\.tgz", url)
-            assert match, url
-            assert npm_arch in match.group(1), f"{arch}: {url}"
-            versions.setdefault(target, set()).add(match.group(3))
-    assert all(len(v) == 1 for v in versions.values()), f"both architectures get the same version: {versions}"
+        assert [added for _, _, added in adds] == [target], stage
+        assert len(stage.strip().splitlines()) == 1, "the stage is the checksummed download only"
+        match = re.fullmatch(r"https://registry\.npmjs\.org/(\S+)/-/(\S+)-(\d+\.\d+\.\d+)\.tgz", adds[0][1])
+        assert match, adds[0][1]
+        assert npm_arch in match.group(1), f"{arch}: {adds[0][1]}"
+        versions.add(match.group(3))
+    assert len(versions) == 1, f"both architectures get the same version: {versions}"
+
+
+def test_downloads_are_pinned_and_checksummed() -> None:
+    _checksummed_downloads("backend-clis", "/opencode.tgz")
+    _checksummed_downloads("claude-code", "/claude-code.tgz")
     assert re.search(
         r"^FROM ghcr\.io/block/goose:\d+\.\d+\.\d+@sha256:[0-9a-f]{64} AS goose$", DOCKERFILE, re.MULTILINE
     )
     assert not re.search(r"curl[^\n]*\|\s*(ba)?sh|npm install|:latest|releases/latest", DOCKERFILE)
+
+
+def test_claude_code_is_a_build_option_off_by_default() -> None:
+    """The default build neither downloads nor installs Claude Code; INSTALL_CLAUDE_CODE=true does both."""
+    head = DOCKERFILE.split("\nFROM ", 1)[0]
+    assert re.search(r"^ARG INSTALL_CLAUDE_CODE=false$", head, re.MULTILINE), "a global default of false"
+    assert "--build-arg INSTALL_CLAUDE_CODE=true" in head, "the build command is in the header comment"
+    assert "FROM claude-code-${INSTALL_CLAUDE_CODE} AS claude-code" in DOCKERFILE
+    assert "FROM claude-code-${TARGETARCH} AS claude-code-true" in DOCKERFILE
+    assert _stage("claude-code-false").strip() == "", "false selects an empty stage: nothing is downloaded"
+    assert "claude" not in _stage("backend-clis-amd64") + _stage("backend-clis-arm64")
+    runtime = _runtime()
+    assert "--mount=type=bind,from=claude-code,target=/tmp/claude-code" in runtime
+    install = re.search(r'if \[ "\$INSTALL_CLAUDE_CODE" = true \]; then \\\n(.*?)\n\s*fi', runtime, re.DOTALL)
+    assert install, "Claude Code is extracted only with INSTALL_CLAUDE_CODE=true"
+    assert "-C /usr/local/bin --strip-components=1 --no-same-owner package/claude" in install.group(1)
+    assert runtime.count("package/claude") == 1
+    assert re.search(r"^ARG INSTALL_CLAUDE_CODE$", runtime, re.MULTILINE)
 
 
 def test_aider_is_hash_locked() -> None:

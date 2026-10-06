@@ -21,8 +21,9 @@ Commands (each prints one ``CF-REPORT <json>`` line, exits 1 on a problem):
   Python projects and the auto-agent's workspace test); node/npm/npx, go
   test and java when the image has them (the battery image).
 - ``backends``: the agent backend CLIs of the image (KI-118): the executors
-  find them on the tool PATH, Claude Code's has every option its executor
-  uses, and each runs as tenant A's tool user under Landlock.
+  find them on the tool PATH and each runs as tenant A's tool user under
+  Landlock; Claude Code (build option INSTALL_CLAUDE_CODE) has every option
+  its executor uses, or, not installed, its error names the build option.
 - ``refused-call``: a tool call when isolation is not ready starts nothing.
 - ``migration``: a tree the KI-71 worker left (files of 10002, hard links
   into another tenant's tree, planted ACL entries) is migrated (D9); a
@@ -335,10 +336,13 @@ async def _battery() -> int:
 BACKEND_EXECUTORS = ("aider", "goose", "opencode")
 BACKEND_VERSIONS: dict[str, tuple[str, str]] = {
     "aider": ("aider --version", "aider 0.86.2"),
-    "claude": ("claude --version", "2.1.289 (Claude Code)"),
     "goose": ("goose --version", "1.29.0"),
     "opencode": ("opencode --version", "1.18.34"),
 }
+# Only in an image built with INSTALL_CLAUDE_CODE=true; without it the
+# executor's error says how to get it.
+CLAUDE_VERSION = ("claude --version", "2.1.289 (Claude Code)")
+CLAUDE_BUILD_HINT = "build with --build-arg INSTALL_CLAUDE_CODE=true"
 
 
 async def _backends() -> int:
@@ -352,13 +356,20 @@ async def _backends() -> int:
         report[f"{name} executor finds its CLI"] = available
         if not available:
             problems.append(f"{name}: the executor does not find its CLI on the tool PATH")
+    versions = dict(BACKEND_VERSIONS)
+    claude = get_settings().claudecode_path
+    installed = shutil.which(claude, path=config.tool_path) is not None
+    report["claude code installed (build option)"] = installed
     try:
-        report["claude code cli"] = await resolve_cli(get_settings().claudecode_path)
+        report["claude code cli"] = await resolve_cli(claude)
+        versions["claude"] = CLAUDE_VERSION
     except ClaudeCodeCLIError as exc:
-        problems.append(f"claude: {exc}")
+        report["claude code cli"] = str(exc)
+        if installed or CLAUDE_BUILD_HINT not in str(exc):
+            problems.append(f"claude: {exc}")
     workspace = make_tenant_dir(config.workspace_root, TENANT_A, UID_A)
     async with tool_tenant(TENANT_A, UID_A, workspace):
-        for name, (command, expected) in BACKEND_VERSIONS.items():
+        for name, (command, expected) in versions.items():
             code, out = await _sh(command, workspace)
             report[command] = f"exit {code}: {out[-300:]}"
             if code != 0 or expected not in out:
