@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
+
+import pytest
 
 from codeforge.llm import LLMError, ToolCallPart, _StreamAccumulator, _strip_think_blocks, classify_error_type
 
@@ -246,6 +249,26 @@ class TestStripThinkBlocks:
 
     def test_leading_whitespace_stripped(self) -> None:
         assert _strip_think_blocks("<think>x</think>  Answer") == "Answer"
+
+    def test_unterminated_block_is_kept(self) -> None:
+        assert _strip_think_blocks("Answer <think>no end") == "Answer <think>no end"
+
+    def test_nested_opening_tags_end_at_the_first_closing_tag(self) -> None:
+        assert _strip_think_blocks("<think>a<think>b</think>c</think>d") == "c</think>d"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("<think>" * 8000, id="unterminated"),
+            pytest.param("<think>" * 8000 + "</think>", id="closed-once"),
+            pytest.param("a" + "<think>x" * 20_000, id="many-unterminated"),
+        ],
+    )
+    def test_linear_time(self, text: str) -> None:
+        """S9-C review: <think>.*?</think> over the whole reply was quadratic."""
+        start = time.monotonic()
+        _strip_think_blocks(text)
+        assert time.monotonic() - start < 0.5
 
 
 class TestStreamAccumulatorThinkTokenFilter:

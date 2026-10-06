@@ -38,13 +38,28 @@ _LLM_REQUEST_LOG_DIR = pathlib.Path(
 # Override via CODEFORGE_DEFAULT_MODEL env var or codeforge.yaml if needed.
 DEFAULT_MODEL: str = get_settings().default_model
 
-# Regex to strip <think>...</think> blocks from final LLM output.
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
 
 
 def _strip_think_blocks(text: str) -> str:
-    """Remove <think>...</think> reasoning blocks from assembled LLM output."""
-    return _THINK_RE.sub("", text).lstrip()
+    """Remove <think>...</think> reasoning blocks from assembled LLM output.
+
+    Each block ends at the first closing tag after its opening tag; an
+    unterminated block is kept. Linear in the text (a regex with ``.*?``
+    was quadratic for many unterminated tags).
+    """
+    parts: list[str] = []
+    pos = 0
+    while True:
+        start = text.find(_THINK_OPEN, pos)
+        end = text.find(_THINK_CLOSE, start + len(_THINK_OPEN)) if start >= 0 else -1
+        if end < 0:
+            parts.append(text[pos:])
+            break
+        parts.append(text[pos:start])
+        pos = end + len(_THINK_CLOSE)
+    return "".join(parts).lstrip()
 
 
 def _log_request_metadata(
@@ -201,6 +216,10 @@ class ChatCompletionResponse:
     # The most likely candidates for the first output token, when requested
     # with chat_completion(logprobs=True, top_logprobs=n).
     top_logprobs: list[TokenLogprob] = field(default_factory=list)
+    # The reply text as the model sent it: content has every <think> block
+    # removed, also inside JSON strings, which the text tool protocol parses
+    # itself ("" when a client or test double does not set it).
+    raw_content: str = ""
 
 
 @dataclass(frozen=True)
@@ -800,6 +819,7 @@ class LiteLLMClient:
             model=model,
             cost_usd=cost,
             top_logprobs=_parse_top_logprobs(choice.get("logprobs") if isinstance(choice, dict) else None),
+            raw_content=str(content),
         )
 
     async def chat_completion_stream(
@@ -883,15 +903,17 @@ class LiteLLMClient:
                     acc.process_chunk(raw, on_chunk)
 
             tool_calls = acc.build_tool_calls(on_tool_call)
+            raw_content = "".join(acc.content_parts)
 
             return ChatCompletionResponse(
-                content=_strip_think_blocks("".join(acc.content_parts)),
+                content=_strip_think_blocks(raw_content),
                 tool_calls=tool_calls,
                 finish_reason=acc.finish_reason,
                 tokens_in=int(acc.tokens_in),
                 tokens_out=int(acc.tokens_out),
                 model=model,
                 cost_usd=acc.cost,
+                raw_content=raw_content,
             )
 
         return cast("ChatCompletionResponse", await self._with_retry(_inner))

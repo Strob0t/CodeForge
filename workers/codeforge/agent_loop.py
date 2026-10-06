@@ -703,7 +703,8 @@ class AgentLoopExecutor:
         protocol = state.tool_protocol
         ignored_calls = 0
         if protocol is not None and not response.tool_calls:
-            turn = protocol.parse(response.content, truncated=response.finish_reason == "length")
+            reply_text = response.raw_content or response.content
+            turn = protocol.parse(reply_text, truncated=response.finish_reason == "length")
             if isinstance(turn, TextProtocolError):
                 return await self._handle_protocol_error(cfg, state, response, llm_decision, full_text, messages, turn)
             response = native_response(response, turn)

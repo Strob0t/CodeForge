@@ -109,7 +109,8 @@ TURN_KEYS = frozenset({"thought", "tool", "function", "final", "final_answer", "
 _FINAL_ACTION = "final answer"
 _MISSING = object()
 
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
 _PROSE_TAIL = re.compile(r"(?:```[\w-]*|<tool_call>|\[)\s*$")
 # A reply that looks like a call without a usable object: protocol keys (also
 # single-quoted), a <tool_call> block or ReAct's "Action Input:" line.
@@ -524,21 +525,26 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
 
 
 def _strip_reasoning(text: str) -> tuple[str, bool]:
-    """*text* without <think> blocks, and whether a <think> block never ended.
+    """*text* without its leading reasoning, and whether a leading <think> block never ended.
 
-    Text up to a closing tag without an opening one (a chat template that
-    opens the block in the prompt) is reasoning too. An unterminated
-    block's text is kept: a model that forgets to close it still gets its
-    call run.
+    Only reasoning before the turn is removed: a <think> block at the start,
+    or text up to a closing tag that comes before the first "{" (a chat
+    template that opens the block in the prompt). Tags further on may be in
+    the object's strings (a file the model writes) and stay. An
+    unterminated block's text is kept: a model that forgets to close it
+    still gets its call run.
     """
-    text = _THINK_BLOCK.sub("", text)
-    close = text.rfind("</think>")
-    if close >= 0:
-        text = text[close + len("</think>") :]
-    start = text.find("<think>")
-    if start < 0:
-        return text, False
-    return text[:start] + text[start + len("<think>") :], True
+    stripped = text.lstrip()
+    if stripped.startswith(_THINK_OPEN):
+        close = stripped.find(_THINK_CLOSE, len(_THINK_OPEN))
+        if close < 0:
+            return stripped[len(_THINK_OPEN) :], True
+        return stripped[close + len(_THINK_CLOSE) :], False
+    close = text.find(_THINK_CLOSE)
+    brace = text.find("{")
+    if close >= 0 and (brace < 0 or close < brace):
+        return text[close + len(_THINK_CLOSE) :], False
+    return text, False
 
 
 def _scan_objects(text: str) -> tuple[list[tuple[int, int, dict[str, object]]], str]:

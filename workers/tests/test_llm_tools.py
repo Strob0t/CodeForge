@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -316,6 +317,30 @@ async def test_stream_multiple_tool_calls(client: LiteLLMClient) -> None:
     assert len(result.tool_calls) == 2
     assert result.tool_calls[0].name == "read_file"
     assert result.tool_calls[1].name == "bash"
+
+
+async def test_stream_keeps_the_raw_content(client: LiteLLMClient) -> None:
+    """content drops <think> blocks anywhere; the text tool protocol parses raw_content (S9-C review)."""
+    reply = '<think>plan</think>{"tool": "write_file", "args": {"content": "s = \'<think>x</think>\'"}}'
+    lines = [
+        "data: " + json.dumps({"choices": [{"delta": {"content": reply[:20]}, "finish_reason": None}]}),
+        "data: " + json.dumps({"choices": [{"delta": {"content": reply[20:]}, "finish_reason": "stop"}]}),
+        "data: [DONE]",
+    ]
+
+    with patch.object(client._client, "stream", return_value=FakeStreamResponse(lines)):
+        result = await client.chat_completion_stream(messages=[{"role": "user", "content": "x"}], model="m")
+
+    assert result.raw_content == reply
+    assert result.content == '{"tool": "write_file", "args": {"content": "s = \'\'"}}'
+
+
+def test_parsed_response_keeps_the_raw_content() -> None:
+    data = {"choices": [{"message": {"content": "<think>a</think>b"}, "finish_reason": "stop"}]}
+
+    result = LiteLLMClient._parse_chat_response(data, "m", 0.0)
+
+    assert (result.content, result.raw_content) == ("b", "<think>a</think>b")
 
 
 _TURN_FORMAT: dict[str, object] = {

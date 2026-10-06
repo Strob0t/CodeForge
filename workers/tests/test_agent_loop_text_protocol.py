@@ -201,6 +201,28 @@ async def test_the_result_comes_back_as_tool_result_text(tmp_path: Path) -> None
     assert "print(1)" in str(second[3]["content"])
 
 
+async def test_the_protocol_parses_the_raw_reply(tmp_path: Path) -> None:
+    """The client drops <think> blocks anywhere in content, also inside JSON strings (S9-C review)."""
+    raw = json.dumps(
+        {"thought": "t", "tool": "write_file", "args": {"file_path": "a.py", "content": "s = '<think>x</think>'\n"}}
+    )
+    stripped = raw.replace("<think>x</think>", "")
+    reply = ChatCompletionResponse(
+        content=stripped,
+        raw_content=raw,
+        tool_calls=[],
+        finish_reason="stop",
+        tokens_in=1,
+        tokens_out=1,
+        model=MODEL,
+    )
+    llm = ScriptedLLM([reply, _final("Done.")])
+
+    await _run(llm, tmp_path)
+
+    assert (tmp_path / "a.py").read_text() == "s = '<think>x</think>'\n"
+
+
 async def test_final_answer_ends_the_turn(tmp_path: Path) -> None:
     llm = ScriptedLLM([_final("The code is fine.", "I checked it.")])
 

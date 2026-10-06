@@ -200,6 +200,26 @@ READ = {"file_path": "a.py"}
             _call("read_file", READ, "t"),
             id="unterminated-think-with-a-call",
         ),
+        pytest.param(
+            '{"thought": "t", "tool": "write_file", "args": {"file_path": "a.py", "content": "s = \'<think>x</think>\'"}}',
+            _call("write_file", {"file_path": "a.py", "content": "s = '<think>x</think>'"}, "t"),
+            id="think-tags-inside-a-string-are-kept",
+        ),
+        pytest.param(
+            '{"thought": "t", "tool": "write_file", "args": {"file_path": "a.md", "content": "close with </think> then"}}',
+            _call("write_file", {"file_path": "a.md", "content": "close with </think> then"}, "t"),
+            id="closing-tag-inside-a-string",
+        ),
+        pytest.param(
+            '<think>plan</think>{"thought": "t", "tool": "write_file", "args": {"file_path": "a.md", "content": "a </think> b"}}',
+            _call("write_file", {"file_path": "a.md", "content": "a </think> b"}, "t"),
+            id="leading-block-and-a-closing-tag-in-a-string",
+        ),
+        pytest.param(
+            '{"thought": "t", "final": "x"}\nmore </think> text',
+            TextFinal(content="x", thought="t"),
+            id="closing-tag-after-the-object",
+        ),
     ],
 )
 def test_parse(text: str, expected: TextToolCall | TextFinal) -> None:
@@ -320,6 +340,26 @@ def test_a_1mb_reply_is_parsed_in_bounded_time() -> None:
 
     assert elapsed < 2.0
     assert isinstance(result, (TextFinal, TextProtocolError))
+
+
+def _elapsed(text: str, *, truncated: bool = False) -> tuple[float, TextToolCall | TextFinal | TextProtocolError]:
+    start = time.monotonic()
+    result = _parse(text, truncated=truncated)
+    return time.monotonic() - start, result
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("<think>" * 8000, id="unterminated-think-tags"),
+        pytest.param("<think>" * 8000 + "</think>", id="think-tags-closed-once"),
+        pytest.param("x" + "<think>" * 40_000 + '{"thought": "t", "final": "x"}', id="think-tags-in-prose"),
+    ],
+)
+def test_think_handling_is_linear(text: str) -> None:
+    elapsed, _ = _elapsed(text)
+
+    assert elapsed < 0.5
 
 
 def test_a_huge_valid_call_is_parsed() -> None:
