@@ -74,3 +74,27 @@ func TestReconnectOpts_Comprehensive(t *testing.T) {
 		}
 	})
 }
+
+// TestSanitizeConsumerName verifies the consumer name builder.
+func TestSanitizeConsumerName(t *testing.T) {
+	tests := []struct {
+		prefix  string
+		subject string
+		want    string
+	}{
+		{"codeforge-go-", "conversation.run.start", "codeforge-go-conversation-run-start"},
+		{"codeforge-go-", "benchmark.>", "codeforge-go-benchmark-all"},
+		{"codeforge-go-", "tasks.*", "codeforge-go-tasks-all"},
+		{"codeforge-py-", "evaluation.run.start", "codeforge-py-evaluation-run-start"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.subject, func(t *testing.T) {
+			got := sanitizeConsumerName(tt.prefix, tt.subject)
+			if got != tt.want {
+				t.Errorf("sanitizeConsumerName(%q, %q) = %q, want %q",
+					tt.prefix, tt.subject, got, tt.want)
+			}
+		})
+	}
+}
