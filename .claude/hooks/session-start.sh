@@ -45,7 +45,7 @@ fi
 if ! go version -m "$GOBIN/gopls" 2>/dev/null | grep -q "golang.org/x/tools/gopls[[:space:]]*$GOPLS_VERSION"; then
   log "installing gopls $GOPLS_VERSION"
   go install "golang.org/x/tools/gopls@$GOPLS_VERSION" >&2 \
-    || log "gopls install failed; the gopls MCP server will not start"
+    || log "gopls install failed; the gopls and serena MCP servers will not work"
 fi
 
 env_line "export GOTOOLCHAIN=$GO_TOOLCHAIN"
@@ -67,7 +67,7 @@ pre-commit install-hooks >&2
 
 # -- MCP servers (.mcp.json, best effort) ------------------------------------
 # Claude Code waits 30 s (MCP_TIMEOUT) for a stdio server to start. Fill the npx
-# cache with the package .mcp.json pins, so a start does not download.
+# and uv caches with the packages .mcp.json pins, so a start does not download.
 prewarm() {
   local pkg="$1"; shift
   [ -n "$pkg" ] || { log "MCP pre-warm: package not found in .mcp.json"; return 0; }
@@ -75,7 +75,13 @@ prewarm() {
   "$@" >/dev/null 2>&1 || log "MCP pre-warm failed: $pkg (its first start may time out)"
 }
 playwright_mcp="$(grep -o '@playwright/mcp@[0-9.]*' .mcp.json || true)"
+serena_agent="$(grep -o 'serena-agent==[0-9.]*' .mcp.json || true)"
 prewarm "$playwright_mcp" npx -y "$playwright_mcp" --help
+if command -v uvx >/dev/null 2>&1; then
+  prewarm "$serena_agent" uvx --from "$serena_agent" serena --help
+else
+  log "uvx not found: the serena MCP server needs uv (https://docs.astral.sh/uv/)"
+fi
 
 # -- Test services (best effort) ---------------------------------------------
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }

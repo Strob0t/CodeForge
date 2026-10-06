@@ -75,6 +75,13 @@ backups/
 !.claude/hooks/
 .superpowers/
 
+# -- Serena MCP server (.mcp.json) -----------------
+# Keep the shared project config; ignore caches, logs, memories and
+# project.local.yml.
+.serena/*
+!.serena/project.yml
+!.serena/claude-code-context.yml
+
 # -- DeepEval (runtime telemetry) ------------------
 .deepeval/
 
