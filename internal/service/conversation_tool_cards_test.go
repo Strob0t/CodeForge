@@ -110,9 +110,9 @@ func TestConversationToolCall_BroadcastsAGUIToolCall(t *testing.T) {
 }
 
 // No card for a call whose result never follows: the agent loop's "LLM"
-// permission before each completion is no tool call, and Claude Code turns
-// decide calls in a hook that never sees their results (the card would stay
-// running).
+// permission before each completion is no tool call, and a Claude Code turn
+// cannot match the result of a call the CLI gave no tool_use_id (the card
+// would stay running).
 func TestConversationToolCall_NoCardWithoutAToolResult(t *testing.T) {
 	tests := []struct {
 		name string

@@ -51,7 +51,7 @@ from codeforge.tool_process import base_interpreter, grant_tool_access, start_to
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from codeforge.runtime import RuntimeClient
+    from codeforge.runtime import RuntimeClient, ToolCallDecision
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,8 @@ _REQUEST_READ_TIMEOUT_SECONDS = 10.0
 
 _ALLOW = "allow"
 _DENY = "deny"
+# The output of a tool result reported to the Core (as the agent loop's tool executor reports it).
+_RESULT_OUTPUT_CHARS = 500
 
 # Command line options the policy enforcement relies on, checked against
 # ``claude --help`` before a run.
@@ -291,6 +293,12 @@ class PolicySocketServer:
     the Go policy's (``request_tool_call``, which also waits for a HITL
     approval); a wrong token, a malformed request, an error or a decision that
     takes longer than ``decision_timeout`` is a deny.
+
+    The chat's live tool card of a call completes with its result (KI-161):
+    a denied call is reported at once with its reason, an allowed one when
+    the CLI's output carries its ``tool_result`` (``report_cli_result``,
+    matched by the ``tool_use_id`` the hook forwards). A call the CLI gave no
+    id gets no card: its result could not be matched.
     """
 
     def __init__(self, runtime: RuntimeClient, workspace: str, decision_timeout: float) -> None:
@@ -305,6 +313,8 @@ class PolicySocketServer:
         self._pending_decisions = 0
         self._waiting_since = 0.0
         self._waited = 0.0
+        # Allowed calls whose result the CLI has not reported yet: tool_use_id -> (call_id, tool name).
+        self._awaiting_results: dict[str, tuple[str, str]] = {}
         # Allowed calls of tools that can change the workspace.
         self.changes_allowed = 0
 
@@ -359,6 +369,14 @@ class PolicySocketServer:
             task.cancel()
         await asyncio.gather(*handlers, return_exceptions=True)
         shutil.rmtree(self._dir, ignore_errors=True)
+        if self._awaiting_results:
+            # The CLI ended (or was stopped) before it reported them; the chat
+            # clears the running cards when the turn ends.
+            logger.warning(
+                "%d allowed tool call(s) without a result from Claude Code: %s",
+                len(self._awaiting_results),
+                ", ".join(tool for _, tool in self._awaiting_results.values()),
+            )
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         task = asyncio.current_task()
@@ -387,7 +405,7 @@ class PolicySocketServer:
         except TimeoutError:
             return _DENY, "policy request timed out"
         try:
-            tool_name, tool_input = self._parse_request(line)
+            tool_name, tool_input, tool_use_id = self._parse_request(line)
         except _BadPolicyRequestError as exc:
             logger.warning("claude code policy request rejected: %s", exc)
             return _DENY, str(exc)
@@ -401,10 +419,13 @@ class PolicySocketServer:
             self._waiting_since = time.monotonic()
         self._pending_decisions += 1
         try:
-            # The hook never sees the call's result: no live tool card for it (KI-161).
             decision = await asyncio.wait_for(
                 self._runtime.request_tool_call(
-                    tool=tool_name, command=command, path=path, arguments_preview=preview, reports_result=False
+                    tool=tool_name,
+                    command=command,
+                    path=path,
+                    arguments_preview=preview,
+                    reports_result=bool(tool_use_id),
                 ),
                 timeout=self._decision_timeout,
             )
@@ -419,13 +440,53 @@ class PolicySocketServer:
             if not self._pending_decisions:
                 self._waited += time.monotonic() - self._waiting_since
 
+        return await self._settle(decision, tool_name, tool_use_id)
+
+    async def _settle(self, decision: ToolCallDecision, tool_name: str, tool_use_id: str) -> tuple[str, str]:
+        """Record the decision for the card and the retry check; return the hook's answer."""
         if decision.decision == _ALLOW:
             if tool_name not in _READ_ONLY_TOOLS:
                 self.changes_allowed += 1
+            if tool_use_id:
+                self._awaiting_results[tool_use_id] = (decision.call_id, tool_name)
             return _ALLOW, decision.reason
-        return _DENY, decision.reason or "denied by policy"
+        reason = decision.reason or "denied by policy"
+        if tool_use_id and decision.call_id:
+            await self._report_result(decision.call_id, tool_name, success=False, error=f"Permission denied: {reason}")
+        return _DENY, reason
 
-    def _parse_request(self, line: bytes) -> tuple[str, dict[str, object]]:
+    async def report_cli_result(self, block: dict[str, object]) -> None:
+        """Report the result of an allowed call from a ``tool_result`` block of the CLI's output.
+
+        A block of no awaited call is ignored: a call without an id, one the
+        hook did not see, or a denied call's synthesized error (reported with
+        the decision).
+        """
+        tool_use_id = block.get("tool_use_id")
+        if not isinstance(tool_use_id, str):
+            return
+        awaited = self._awaiting_results.pop(tool_use_id, None)
+        if awaited is None:
+            return
+        call_id, tool_name = awaited
+        text = _tool_result_text(block.get("content"))
+        if block.get("is_error") is True:
+            await self._report_result(call_id, tool_name, success=False, error=text or "tool call failed")
+        else:
+            await self._report_result(call_id, tool_name, success=True, output=text[:_RESULT_OUTPUT_CHARS])
+
+    async def _report_result(
+        self, call_id: str, tool_name: str, *, success: bool, output: str = "", error: str = ""
+    ) -> None:
+        try:
+            await self._runtime.report_tool_result(
+                call_id=call_id, tool=tool_name, success=success, output=output, error=error
+            )
+        except Exception as exc:
+            # The decision stands; only the card misses its result.
+            logger.warning("claude code tool result not reported: tool=%s error=%s", tool_name, exc)
+
+    def _parse_request(self, line: bytes) -> tuple[str, dict[str, object], str]:
         try:
             request = json.loads(line)
         except ValueError as exc:
@@ -439,7 +500,21 @@ class PolicySocketServer:
         tool_input = request.get("tool_input")
         if not isinstance(tool_name, str) or not tool_name or not isinstance(tool_input, dict):
             raise _BadPolicyRequestError("malformed policy request")
-        return tool_name, tool_input
+        tool_use_id = request.get("tool_use_id")
+        return tool_name, tool_input, tool_use_id if isinstance(tool_use_id, str) else ""
+
+
+def _tool_result_text(content: object) -> str:
+    """The text of a ``tool_result`` block's content: a string, or the text blocks of a list."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(
+        block["text"]
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+    )
 
 
 # ----------------------------------------------------------------------
@@ -747,22 +822,27 @@ class ClaudeCodeExecutor:
     # CLI path
     # ------------------------------------------------------------------
 
-    async def _parse_cli_event(self, event: dict[str, object], acc: _RunAccumulator) -> None:
-        """Take the text, tool uses and usage out of one stream-json event; ignore what does not fit."""
+    async def _parse_cli_event(
+        self, event: dict[str, object], acc: _RunAccumulator, policy: PolicySocketServer
+    ) -> None:
+        """Take the text, tool uses, tool results and usage out of one stream-json event; ignore what does not fit."""
         event_type = event.get("type")
         if event_type == "assistant":
             message = event.get("message")
             if not isinstance(message, dict):
                 return
             acc.record_message_usage(message)
-            content = message.get("content")
-            for block in content if isinstance(content, list) else []:
-                if not isinstance(block, dict):
-                    continue
+            for block in _content_blocks(message):
                 if block.get("type") == "text" and isinstance(block.get("text"), str):
                     await self._emit_text(block["text"], acc)
                 elif block.get("type") == "tool_use":
                     acc.tool_uses += 1
+        elif event_type == "user":
+            # The results of the tools the CLI ran come back as a user message.
+            message = event.get("message")
+            for block in _content_blocks(message) if isinstance(message, dict) else []:
+                if block.get("type") == "tool_result":
+                    await policy.report_cli_result(block)
         elif event_type == "result":
             acc.record_result(event)
 
@@ -871,7 +951,7 @@ class ClaudeCodeExecutor:
             limit=_MAX_EVENT_LINE_BYTES,
         )
         feed = asyncio.create_task(_feed_stdin(process, prompt))
-        events = asyncio.create_task(self._read_events(process, acc))
+        events = asyncio.create_task(self._read_events(process, acc, policy))
         errors = asyncio.create_task(_read_tail(process.stderr))
         try:
             status = await self._watch(process, events, policy)
@@ -922,7 +1002,9 @@ class ClaudeCodeExecutor:
         finally:
             exited.cancel()
 
-    async def _read_events(self, process: asyncio.subprocess.Process, acc: _RunAccumulator) -> None:
+    async def _read_events(
+        self, process: asyncio.subprocess.Process, acc: _RunAccumulator, policy: PolicySocketServer
+    ) -> None:
         stdout = process.stdout
         if stdout is None:
             return
@@ -934,9 +1016,9 @@ class ClaudeCodeExecutor:
                 continue
             if not raw:
                 return
-            await self._handle_line(raw, acc)
+            await self._handle_line(raw, acc, policy)
 
-    async def _handle_line(self, raw: bytes, acc: _RunAccumulator) -> None:
+    async def _handle_line(self, raw: bytes, acc: _RunAccumulator, policy: PolicySocketServer) -> None:
         try:
             event = json.loads(raw)
         except ValueError:
@@ -944,10 +1026,16 @@ class ClaudeCodeExecutor:
         if not isinstance(event, dict):
             return
         try:
-            await self._parse_cli_event(event, acc)
+            await self._parse_cli_event(event, acc, policy)
         except Exception as exc:
             # One odd event must not lose the rest of the turn's output.
             logger.warning("skipped a Claude Code output event: %s", exc)
+
+
+def _content_blocks(message: dict[str, object]) -> list[dict[str, object]]:
+    """The dict blocks of a message's content list (anything else is ignored)."""
+    content = message.get("content")
+    return [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
 
 
 _EXITED = "exited"

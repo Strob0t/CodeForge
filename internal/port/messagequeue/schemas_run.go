@@ -163,8 +163,8 @@ type ToolCallRequestPayload struct {
 	ArgumentsPreview string `json:"arguments_preview,omitempty"`
 	// ReportsResult: the worker reports the call's result on
 	// runs.toolcall.result. Only such a call is shown as a live tool card; a
-	// Claude Code turn decides its calls in a hook that never sees their
-	// results.
+	// Claude Code turn reports a result only for a call whose tool_use_id
+	// the CLI gave its hook (it matches the result in the CLI's output).
 	ReportsResult bool `json:"reports_result,omitempty"`
 }
 

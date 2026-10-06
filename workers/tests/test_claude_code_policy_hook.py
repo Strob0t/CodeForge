@@ -136,9 +136,14 @@ class TestMain:
             }
         }
         assert err == ""
-        # Only the token, tool name and tool input go to the socket.
+        # Only the token, tool name, tool input and tool_use_id go to the socket.
         assert server.requests == [
-            {"token": "secret-token", "tool_name": "Bash", "tool_input": BASH_CALL["tool_input"]},
+            {
+                "token": "secret-token",
+                "tool_name": "Bash",
+                "tool_input": BASH_CALL["tool_input"],
+                "tool_use_id": "toolu_1",
+            },
         ]
 
     def test_deny_exits_2_with_reason_on_stderr(self, policy_socket) -> None:
@@ -238,6 +243,27 @@ class TestMain:
         assert out == ""
         assert "blocked" in err
         assert server.requests == []
+
+    def test_tool_use_id_is_forwarded(self, policy_socket) -> None:
+        # The executor matches the call's result in the CLI's output by it (KI-161).
+        server = policy_socket(_reply("allow"))
+
+        code, _, _ = _run_main(json.dumps(BASH_CALL), _env(server))
+
+        assert code == 0
+        assert server.requests[0]["tool_use_id"] == "toolu_1"
+
+    @pytest.mark.parametrize("tool_use_id", [None, 7, ""])
+    def test_call_without_a_usable_tool_use_id_is_sent_without_one(self, policy_socket, tool_use_id: object) -> None:
+        server = policy_socket(_reply("allow"))
+        call = {**BASH_CALL, "tool_use_id": tool_use_id}
+        if tool_use_id is None:
+            del call["tool_use_id"]
+
+        code, _, _ = _run_main(json.dumps(call), _env(server))
+
+        assert code == 0
+        assert "tool_use_id" not in server.requests[0]
 
     def test_tool_without_input_is_sent_with_empty_input(self, policy_socket) -> None:
         server = policy_socket(_reply("allow"))

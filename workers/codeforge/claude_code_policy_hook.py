@@ -49,9 +49,17 @@ def ask_policy(
     tool_name: str,
     tool_input: dict[str, object],
     timeout: float,
+    tool_use_id: str = "",
 ) -> tuple[str, str]:
-    """Send one decision request to the policy socket and return (decision, reason)."""
-    request = json.dumps({"token": token, "tool_name": tool_name, "tool_input": tool_input}) + "\n"
+    """Send one decision request to the policy socket and return (decision, reason).
+
+    ``tool_use_id`` (when the CLI gave one) lets the executor match the call's
+    result in the CLI's output, which completes the chat's tool card.
+    """
+    body: dict[str, object] = {"token": token, "tool_name": tool_name, "tool_input": tool_input}
+    if tool_use_id:
+        body["tool_use_id"] = tool_use_id
+    request = json.dumps(body) + "\n"
     deadline = time.monotonic() + timeout
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(timeout)
@@ -99,7 +107,8 @@ def _parse_timeout(argv: Sequence[str]) -> float:
     return timeout
 
 
-def _read_tool_call(stdin: TextIO) -> tuple[str, dict[str, object]]:
+def _read_tool_call(stdin: TextIO) -> tuple[str, dict[str, object], str]:
+    """Return the call's tool name, input and tool_use_id ("" when the CLI gave none)."""
     try:
         hook_input = json.loads(stdin.read())
     except ValueError as exc:
@@ -112,19 +121,20 @@ def _read_tool_call(stdin: TextIO) -> tuple[str, dict[str, object]]:
         raise PolicyHookError("malformed hook input: no tool_name")
     if not isinstance(tool_input, dict):
         raise PolicyHookError("malformed hook input: tool_input is not an object")
-    return tool_name, tool_input
+    tool_use_id = hook_input.get("tool_use_id")
+    return tool_name, tool_input, tool_use_id if isinstance(tool_use_id, str) else ""
 
 
 def main(argv: Sequence[str], stdin: TextIO, stdout: TextIO, stderr: TextIO, environ: Mapping[str, str]) -> int:
     """Decide one tool call; return the hook's exit code (0 allow, 2 block)."""
     try:
         timeout = _parse_timeout(argv)
-        tool_name, tool_input = _read_tool_call(stdin)
+        tool_name, tool_input, tool_use_id = _read_tool_call(stdin)
         socket_path = environ.get(SOCKET_ENV, "")
         token = environ.get(TOKEN_ENV, "")
         if not socket_path or not token:
             raise PolicyHookError(f"{SOCKET_ENV} or {TOKEN_ENV} is not set")
-        decision, reason = ask_policy(socket_path, token, tool_name, tool_input, timeout)
+        decision, reason = ask_policy(socket_path, token, tool_name, tool_input, timeout, tool_use_id)
     except Exception as exc:
         print(f"CodeForge policy check failed, tool call blocked: {exc}", file=stderr)
         return BLOCK_EXIT_CODE

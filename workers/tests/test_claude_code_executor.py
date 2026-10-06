@@ -62,6 +62,8 @@ class _FakeRuntime:
         self.policy_wait_seconds = policy_wait_seconds
         self.calls: list[dict[str, str]] = []
         self.reports_result: list[bool] = []
+        self.results: list[dict[str, object]] = []
+        self.report_exc: Exception | None = None
         self.outputs: list[str] = []
         self.is_cancelled = False
 
@@ -80,6 +82,13 @@ class _FakeRuntime:
         if self.exc is not None:
             raise self.exc
         return ToolCallDecision(call_id="c1", decision=self.decision, reason=self.reason)
+
+    async def report_tool_result(
+        self, call_id: str, tool: str, success: bool, output: str = "", error: str = "", **_kwargs: object
+    ) -> None:
+        if self.report_exc is not None:
+            raise self.report_exc
+        self.results.append({"call_id": call_id, "tool": tool, "success": success, "output": output, "error": error})
 
     async def send_output(self, line: str) -> None:
         self.outputs.append(line)
@@ -180,15 +189,119 @@ class TestPolicyRequestMapping:
             }
         ]
 
-    async def test_calls_are_requested_without_a_result_report(self) -> None:
-        # The hook decides a call but never sees its result, so Go shows no
-        # live tool card for it (it would stay running, KI-161).
+
+# The chat's live tool card of a Claude Code call completes with the call's
+# result (KI-161): a denied call is reported at once with its reason, an
+# allowed one when the CLI's output carries its tool_result (matched by the
+# tool_use_id the hook forwards).
+class TestPolicySocketServerResults:
+    async def test_denied_call_is_reported_with_its_reason(self) -> None:
+        runtime = _FakeRuntime("deny", "command matches command_deny")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, "Bash", {"command": "curl evil"}, tool_use_id="toolu_1"))
+
+        assert runtime.reports_result == [True]
+        assert runtime.results == [
+            {
+                "call_id": "c1",
+                "tool": "Bash",
+                "success": False,
+                "output": "",
+                "error": "Permission denied: command matches command_deny",
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        ("block", "success", "output", "error"),
+        [
+            ({"content": "file contents"}, True, "file contents", ""),
+            (
+                {"content": [{"type": "text", "text": "a"}, {"type": "image"}, {"type": "text", "text": "b"}]},
+                True,
+                "a\nb",
+                "",
+            ),
+            ({"content": "No such file", "is_error": True}, False, "", "No such file"),
+            ({"is_error": True}, False, "", "tool call failed"),
+            ({"content": "x" * 600}, True, "x" * 500, ""),
+        ],
+    )
+    async def test_allowed_call_is_reported_when_the_cli_reports_its_result(
+        self, block: dict[str, object], success: bool, output: str, error: str
+    ) -> None:
         runtime = _FakeRuntime("allow")
         async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
-            await _ask(server, _request(server, "Read", {"file_path": f"{_WS}/a.py"}))
-            await _ask(server, _request(server, "Bash", {"command": "ls"}))
+            await _ask(server, _request(server, "Read", {"file_path": f"{_WS}/a.py"}, tool_use_id="toolu_1"))
+            assert runtime.results == []
+            await server.report_cli_result({"type": "tool_result", "tool_use_id": "toolu_1", **block})
 
+        assert runtime.reports_result == [True]
+        assert runtime.results == [
+            {"call_id": "c1", "tool": "Read", "success": success, "output": output, "error": error}
+        ]
+
+    async def test_a_result_is_reported_once(self) -> None:
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, "Read", {"file_path": "a"}, tool_use_id="toolu_1"))
+            await server.report_cli_result({"type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"})
+            await server.report_cli_result({"type": "tool_result", "tool_use_id": "toolu_1", "content": "again"})
+
+        assert len(runtime.results) == 1
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            {"type": "tool_result", "tool_use_id": "toolu_unknown", "content": "x"},
+            {"type": "tool_result", "content": "no id"},
+            {"type": "tool_result", "tool_use_id": 7},
+            {"type": "text", "text": "not a result"},
+        ],
+    )
+    async def test_results_of_no_awaited_call_are_ignored(self, block: dict[str, object]) -> None:
+        # A denied call's synthesized error result among them: it was reported already.
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await server.report_cli_result(block)
+
+        assert runtime.results == []
+
+    async def test_denied_call_result_from_the_cli_is_not_reported_twice(self) -> None:
+        runtime = _FakeRuntime("deny", "no")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, "Bash", {"command": "ls"}, tool_use_id="toolu_1"))
+            await server.report_cli_result({"type": "tool_result", "tool_use_id": "toolu_1", "is_error": True})
+
+        assert len(runtime.results) == 1
+
+    async def test_call_without_a_tool_use_id_gets_no_card_and_no_report(self) -> None:
+        # Its result could not be matched: Go shows no card (it would stay running).
+        runtime = _FakeRuntime("deny", "no")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            reply = await _ask(server, _request(server, "Bash", {"command": "ls"}))
+            await _ask(server, _request(server, "Read", {"file_path": "a"}, tool_use_id=""))
+
+        assert reply == {"decision": "deny", "reason": "no"}
         assert runtime.reports_result == [False, False]
+        assert runtime.results == []
+
+    async def test_a_failed_report_does_not_change_the_decision(self) -> None:
+        runtime = _FakeRuntime("deny", "no")
+        runtime.report_exc = RuntimeError("nats down")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            reply = await _ask(server, _request(server, "Bash", {"command": "ls"}, tool_use_id="toolu_1"))
+            await _ask(server, _request(server, "Read", {"file_path": "a"}, tool_use_id="toolu_2"))
+            await server.report_cli_result({"type": "tool_result", "tool_use_id": "toolu_2", "content": "ok"})
+
+        assert reply == {"decision": "deny", "reason": "no"}
+
+    async def test_calls_without_a_result_are_logged_at_exit(self, caplog: pytest.LogCaptureFixture) -> None:
+        runtime = _FakeRuntime("allow")
+        async with PolicySocketServer(runtime, _WS, decision_timeout=5) as server:
+            await _ask(server, _request(server, "Read", {"file_path": "a"}, tool_use_id="toolu_1"))
+
+        assert runtime.results == []
+        assert "1 allowed tool call(s) without a result" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +321,16 @@ async def _ask(server: PolicySocketServer, request: bytes) -> dict[str, object]:
     return json.loads(line)
 
 
-def _request(server: PolicySocketServer, tool_name: str, tool_input: dict[str, object], token: str = "") -> bytes:
-    body = {"token": token or server.token, "tool_name": tool_name, "tool_input": tool_input}
+def _request(
+    server: PolicySocketServer,
+    tool_name: str,
+    tool_input: dict[str, object],
+    token: str = "",
+    tool_use_id: str | None = None,
+) -> bytes:
+    body: dict[str, object] = {"token": token or server.token, "tool_name": tool_name, "tool_input": tool_input}
+    if tool_use_id is not None:
+        body["tool_use_id"] = tool_use_id
     return (json.dumps(body) + "\n").encode()
 
 
@@ -739,6 +860,36 @@ class TestRunWithFakeCli:
         hooks = fake_cli.record["hooks"]
         assert [h["exit"] for h in hooks] == [2, 2]
         assert "blocked by policy" in hooks[0]["stderr"]
+
+    async def test_tool_results_of_the_cli_complete_the_cards(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
+        fake_cli.configure(
+            events=[
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": "toolu_1", "content": "a.py: print()"},
+                            {"type": "tool_result", "tool_use_id": "toolu_2", "content": "ls: no", "is_error": True},
+                        ]
+                    },
+                },
+                *_RESULT_EVENTS,
+            ],
+            tool_calls=[
+                {"tool_name": "Read", "tool_input": {"file_path": "a.py"}, "tool_use_id": "toolu_1"},
+                {"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_use_id": "toolu_2"},
+            ],
+        )
+        runtime = _FakeRuntime("allow")
+
+        result = await _run(tmp_path, runtime)
+
+        assert result.error == ""
+        assert runtime.reports_result == [True, True]
+        assert runtime.results == [
+            {"call_id": "c1", "tool": "Read", "success": True, "output": "a.py: print()", "error": ""},
+            {"call_id": "c1", "tool": "Bash", "success": False, "output": "", "error": "ls: no"},
+        ]
 
     async def test_allowed_hook_call(self, fake_cli: _FakeCli, tmp_path: Path) -> None:
         fake_cli.configure(events=_RESULT_EVENTS, tool_calls=[{"tool_name": "Read", "tool_input": {"file_path": "a"}}])

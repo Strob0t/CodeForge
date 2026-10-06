@@ -52,6 +52,9 @@ class _FakeRuntime:
         self.calls.append({"tool": tool, "command": command, "path": path})
         return ToolCallDecision(call_id=f"c{len(self.calls)}", decision=self.decision, reason=self.reason)
 
+    async def report_tool_result(self, **_kwargs: object) -> None:
+        return None
+
     async def send_output(self, line: str) -> None:
         return None
 
