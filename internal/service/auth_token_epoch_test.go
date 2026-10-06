@@ -328,7 +328,8 @@ func TestTokenEpoch_PasswordPathsEndSessions(t *testing.T) {
 			if err != nil || raw == "" {
 				return fmt.Errorf("request reset: %q %w", raw, err)
 			}
-			return svc.ConfirmPasswordReset(ctx, raw, newPassword)
+			_, err = svc.ConfirmPasswordReset(ctx, raw, newPassword)
+			return err
 		}},
 		{"change password", func(ctx context.Context, svc *AuthService, u *user.User) error {
 			return svc.ChangePassword(ctx, u.ID, user.ChangePasswordRequest{OldPassword: oldPassword, NewPassword: newPassword})

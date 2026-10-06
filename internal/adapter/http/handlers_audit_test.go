@@ -177,6 +177,12 @@ func newAuditTestRouterWithStore(auditStore *auditStoreMock, ctxUser *user.User,
 		})
 	})
 	mountTestRoutes(r, handlers, cfhttp.WithAuditStore(auditStore))
+	// Arm the one-time setup token as main.go does on a first start (KI-119).
+	setupToken, err := authSvc.PrepareSetupToken(context.Background(), middleware.DefaultTenantID)
+	if err != nil {
+		panic(err)
+	}
+	testSetupTokens.Store(r, setupToken)
 	return r
 }
 

@@ -60,18 +60,16 @@ type auditRecorder struct {
 // from a second reading of the request: a requester could make that differ
 // (trailing data, case-insensitive duplicate keys, padding). A request the
 // handler refused before recording is audited after it, with its status.
+// A request without a user (the public auth routes, KI-172) is audited only
+// when its handler records it with the actor it resolved (RecordAuditAs).
 func AuditLogByHandler(store AuditStore, action, resource string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			u := UserFromContext(r.Context())
-			if u == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
 			rec := &auditRecorder{store: store, entry: newAuditEntry(u, action, resource, r)}
 			sw := &statusWriter{ResponseWriter: w}
 			next.ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), auditRecorderKey{}, rec)))
-			if rec.recorded {
+			if rec.recorded || u == nil {
 				return
 			}
 			rec.entry.Details = auditDetails(rec.known, map[string]string{"status": strconv.Itoa(sw.status())})
@@ -101,29 +99,62 @@ func RecordAudit(ctx context.Context, resourceID string, details map[string]stri
 	if !ok {
 		return nil
 	}
+	return rec.record(ctx, rec.entry.AdminID, rec.entry.AdminEmail, resourceID, details)
+}
+
+// AnonymousActorID is the actor of an audit entry whose request resolved no
+// user (a failed login, a password reset request): the nil UUID, as the
+// entry's admin_id must be a UUID.
+const AnonymousActorID = "00000000-0000-0000-0000-000000000000"
+
+// RecordAuditAs is RecordAudit for a request without a user in its context
+// (the public auth routes, KI-172): the handler names the actor it resolved
+// from the outcome, the user on success or AnonymousActorID with the
+// attempted email on a failure. The details never hold a credential.
+func RecordAuditAs(ctx context.Context, actorID, actorEmail, resourceID string, details map[string]string) error {
+	rec, ok := ctx.Value(auditRecorderKey{}).(*auditRecorder)
+	if !ok {
+		return nil
+	}
+	email := auditText(actorEmail)
+	return rec.record(ctx, auditText(actorID), &email, resourceID, details)
+}
+
+// record writes one entry for resourceID with the actor and details. The
+// request's entry is copied, so a handler that acts on several resources
+// (a batch) records each with its own call.
+func (rec *auditRecorder) record(ctx context.Context, actorID string, actorEmail *string, resourceID string, details map[string]string) error {
 	rec.recorded = true
-	rec.entry.ResourceID = auditText(resourceID)
-	rec.entry.Details = auditDetails(rec.known, details)
-	if err := rec.store.InsertAuditEntry(ctx, rec.entry); err != nil {
-		logAuditFailure(ctx, rec.entry, err)
+	entry := *rec.entry
+	entry.AdminID = actorID
+	entry.AdminEmail = actorEmail
+	entry.ResourceID = auditText(resourceID)
+	entry.Details = auditDetails(rec.known, details)
+	if err := rec.store.InsertAuditEntry(ctx, &entry); err != nil {
+		logAuditFailure(ctx, &entry, err)
 		return errors.Join(ErrAuditUnavailable, err)
 	}
 	return nil
 }
 
+// newAuditEntry starts the entry of a request by u, which is nil on the
+// public auth routes until the handler resolves the actor (RecordAuditAs).
 func newAuditEntry(u *user.User, action, resource string, r *http.Request) *database.AuditEntry {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if ip == "" {
 		ip = r.RemoteAddr
 	}
-	email := u.Email
-	return &database.AuditEntry{
-		AdminID:    u.ID,
-		AdminEmail: &email,
-		Action:     action,
-		Resource:   resource,
-		IPAddress:  ip,
+	entry := &database.AuditEntry{
+		Action:    action,
+		Resource:  resource,
+		IPAddress: ip,
 	}
+	if u != nil {
+		email := u.Email
+		entry.AdminID = u.ID
+		entry.AdminEmail = &email
+	}
+	return entry
 }
 
 // auditText makes a requester's value storable: PostgreSQL text holds no NUL

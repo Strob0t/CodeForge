@@ -685,9 +685,12 @@ func TestAuthService_ConfirmPasswordReset(t *testing.T) {
 	}
 
 	// Confirm the reset
-	err = svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
+	reset, err := svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
 	if err != nil {
 		t.Fatalf("confirm reset: %v", err)
+	}
+	if reset == nil || reset.ID != u.ID {
+		t.Fatalf("confirm reset returned %+v, want user %s", reset, u.ID)
 	}
 
 	// Token should be marked as used
@@ -728,12 +731,12 @@ func TestAuthService_ConfirmPasswordReset_UsedToken(t *testing.T) {
 	}
 
 	// Use the token once
-	if err := svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345"); err != nil {
+	if _, err := svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345"); err != nil {
 		t.Fatalf("first confirm: %v", err)
 	}
 
 	// Second use should fail
-	err = svc.ConfirmPasswordReset(ctx, rawToken, "AnotherPass123")
+	_, err = svc.ConfirmPasswordReset(ctx, rawToken, "AnotherPass123")
 	if err == nil {
 		t.Fatal("expected error for already-used token")
 	}
@@ -761,7 +764,7 @@ func TestAuthService_ConfirmPasswordReset_ExpiredToken(t *testing.T) {
 		store.passwordResetTokens[i].ExpiresAt = time.Now().Add(-1 * time.Hour)
 	}
 
-	err = svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
+	_, err = svc.ConfirmPasswordReset(ctx, rawToken, "NewReset12345")
 	if err == nil {
 		t.Fatal("expected error for expired reset token")
 	}
@@ -774,7 +777,7 @@ func TestAuthService_ConfirmPasswordReset_InvalidToken(t *testing.T) {
 	store := &mockStore{}
 	svc := newTestAuthService(store)
 
-	err := svc.ConfirmPasswordReset(context.Background(), "nonexistent-token", "NewReset12345")
+	_, err := svc.ConfirmPasswordReset(context.Background(), "nonexistent-token", "NewReset12345")
 	if err == nil {
 		t.Fatal("expected error for unknown reset token")
 	}

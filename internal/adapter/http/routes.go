@@ -12,8 +12,8 @@ import (
 	"github.com/Strob0t/CodeForge/internal/version"
 )
 
-// auditDB groups the store methods needed by audit logging (write + read).
-type auditDB interface {
+// AuditDB groups the store methods needed by audit logging (write + read).
+type AuditDB interface {
 	middleware.AuditStore
 	auditLogReader
 }
@@ -21,7 +21,7 @@ type auditDB interface {
 // routeOptions holds optional configuration for MountRoutes.
 type routeOptions struct {
 	authRateLimiter *middleware.RateLimiter
-	auditStore      auditDB
+	auditStore      AuditDB
 }
 
 // RouteOption configures optional behavior in MountRoutes.
@@ -35,7 +35,7 @@ func WithAuthRateLimiter(rl *middleware.RateLimiter) RouteOption {
 }
 
 // WithAuditStore enables audit logging middleware and the GET /audit-logs endpoint.
-func WithAuditStore(s auditDB) RouteOption {
+func WithAuditStore(s AuditDB) RouteOption {
 	return func(o *routeOptions) { o.auditStore = s }
 }
 
@@ -631,22 +631,24 @@ func mountSecurityRoutes(r chi.Router, h *Handlers, ro *routeOptions, audit audi
 	// Auth (public routes handled by middleware exemption)
 	// FIX-084: Apply stricter per-route rate limiting for auth endpoints
 	// to mitigate brute-force attacks independently of the global rate limiter.
+	// These public routes have no user in their context: the handlers record
+	// the audit entries with the actor they resolved (KI-172).
 	if ro.authRateLimiter != nil {
-		r.With(ro.authRateLimiter.Handler, audit("login", "auth")).Post("/auth/login", h.Login)
-		r.With(audit("refresh", "auth")).Post("/auth/refresh", h.Refresh)
+		r.With(ro.authRateLimiter.Handler, audit("login", "auth", auditByHandler)).Post("/auth/login", h.Login)
+		r.With(audit("refresh", "auth", auditByHandler)).Post("/auth/refresh", h.Refresh)
 		r.Get("/auth/setup-status", h.SetupStatus)
-		r.With(ro.authRateLimiter.Handler, audit("setup", "auth")).Post("/auth/setup", h.InitialSetup)
-		r.With(ro.authRateLimiter.Handler, audit("forgot_password", "auth")).Post("/auth/forgot-password", h.RequestPasswordReset)
-		r.With(ro.authRateLimiter.Handler, audit("reset_password", "auth")).Post("/auth/reset-password", h.ConfirmPasswordReset)
+		r.With(ro.authRateLimiter.Handler, audit("setup", "auth", auditByHandler)).Post("/auth/setup", h.InitialSetup)
+		r.With(ro.authRateLimiter.Handler, audit("forgot_password", "auth", auditByHandler)).Post("/auth/forgot-password", h.RequestPasswordReset)
+		r.With(ro.authRateLimiter.Handler, audit("reset_password", "auth", auditByHandler)).Post("/auth/reset-password", h.ConfirmPasswordReset)
 		r.Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	} else {
-		r.With(audit("login", "auth")).Post("/auth/login", h.Login)
-		r.With(audit("refresh", "auth")).Post("/auth/refresh", h.Refresh)
+		r.With(audit("login", "auth", auditByHandler)).Post("/auth/login", h.Login)
+		r.With(audit("refresh", "auth", auditByHandler)).Post("/auth/refresh", h.Refresh)
 		r.Get("/auth/setup-status", h.SetupStatus)
-		r.With(audit("setup", "auth")).Post("/auth/setup", h.InitialSetup)
-		r.With(audit("forgot_password", "auth")).Post("/auth/forgot-password", h.RequestPasswordReset)
-		r.With(audit("reset_password", "auth")).Post("/auth/reset-password", h.ConfirmPasswordReset)
+		r.With(audit("setup", "auth", auditByHandler)).Post("/auth/setup", h.InitialSetup)
+		r.With(audit("forgot_password", "auth", auditByHandler)).Post("/auth/forgot-password", h.RequestPasswordReset)
+		r.With(audit("reset_password", "auth", auditByHandler)).Post("/auth/reset-password", h.ConfirmPasswordReset)
 		r.Post("/auth/github", h.StartGitHubOAuth)
 		r.Get("/auth/github/callback", h.GitHubOAuthCallback)
 	}

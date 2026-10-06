@@ -463,33 +463,34 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email, tenantID 
 }
 
 // ConfirmPasswordReset validates a password reset token and sets a new password.
-// Marks the token as used and invalidates all sessions.
-func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) error {
+// Marks the token as used and invalidates all sessions. It returns the user
+// whose password was reset (the audit entry names it, KI-172).
+func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) (*user.User, error) {
 	if err := user.ValidatePasswordComplexity(newPassword); err != nil {
-		return fmt.Errorf("%w: %w", domain.ErrValidation, err)
+		return nil, fmt.Errorf("%w: %w", domain.ErrValidation, err)
 	}
 
 	tokenHash := crypto.HashSHA256(rawToken)
 	prt, err := s.store.GetPasswordResetTokenByHash(ctx, tokenHash)
 	if err != nil {
-		return fmt.Errorf("%w: invalid or expired reset token", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: invalid or expired reset token", domain.ErrValidation)
 	}
 
 	if prt.Used {
-		return fmt.Errorf("%w: reset token has already been used", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: reset token has already been used", domain.ErrValidation)
 	}
 	if time.Now().After(prt.ExpiresAt) {
-		return fmt.Errorf("%w: reset token has expired", domain.ErrValidation)
+		return nil, fmt.Errorf("%w: reset token has expired", domain.ErrValidation)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.cfg.BcryptCost)
 	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
 	u, err := s.store.GetUser(ctx, prt.UserID)
 	if err != nil {
-		return fmt.Errorf("get user: %w", err)
+		return nil, fmt.Errorf("get user: %w", err)
 	}
 
 	u.PasswordHash = string(hash)
@@ -498,14 +499,14 @@ func (s *AuthService) ConfirmPasswordReset(ctx context.Context, rawToken, newPas
 	u.LockedUntil = time.Time{}
 
 	if err := s.saveEndingSessions(ctx, u); err != nil {
-		return err
+		return nil, err
 	}
 	if err := s.store.MarkPasswordResetTokenUsed(ctx, prt.ID); err != nil {
 		slog.Warn("failed to mark reset token as used", "token_id", prt.ID, "error", err)
 	}
 
 	slog.Info("password reset completed via token", "user_id", u.ID)
-	return nil
+	return u, nil
 }
 
 // ChangePassword verifies the old password, validates complexity of the new one,

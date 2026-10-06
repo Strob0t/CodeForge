@@ -1081,7 +1081,7 @@ func run() error {
 		authRLCleanup := authRL.StartCleanup(cfg.Rate.CleanupInterval, cfg.Rate.MaxIdleTime)
 		defer authRLCleanup()
 
-		cfhttp.MountRoutes(api, handlers, cfhttp.WithAuthRateLimiter(authRL))
+		cfhttp.MountRoutes(api, handlers, apiRouteOptions(authRL, store)...)
 
 		// A2A protocol routes (Phase 27 — SDK-based)
 		if cfg.A2A.Enabled {

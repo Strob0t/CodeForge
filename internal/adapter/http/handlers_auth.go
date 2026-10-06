@@ -46,9 +46,11 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	resp, rawRefresh, err := h.Auth.Login(r.Context(), req, tenantID)
 	if err != nil {
 		slog.Debug("login failed", "error", err)
+		auditAuthFailure(r, req.Email)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	auditAuthSuccess(r, &resp.User)
 
 	// Set refresh token as httpOnly cookie.
 	http.SetCookie(w, &http.Cookie{
@@ -88,6 +90,7 @@ func (h *Handlers) Refresh(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
+	auditAuthSuccess(r, &resp.User)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -328,7 +331,7 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 
 	// Atomically create admin user only if no users exist for this tenant.
 	// This eliminates the TOCTOU race between GetSetupStatus and Register (CWE-367).
-	_, err := h.Auth.CompleteSetup(r.Context(), &user.CreateRequest{
+	admin, err := h.Auth.CompleteSetup(r.Context(), &user.CreateRequest{
 		Email:    req.Email,
 		Name:     req.Name,
 		Password: req.Password,
@@ -336,6 +339,7 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	}, req.SetupToken)
 	if err != nil {
+		auditAuthFailure(r, req.Email)
 		switch {
 		case errors.Is(err, user.ErrInvalidSetupToken):
 			writeError(w, http.StatusForbidden, user.ErrInvalidSetupToken.Error())
@@ -347,6 +351,7 @@ func (h *Handlers) InitialSetup(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	auditAuthSuccess(r, admin)
 
 	// Auto-login with the new credentials.
 	loginResp, rawRefresh, err := h.Auth.Login(r.Context(), user.LoginRequest{
@@ -390,6 +395,9 @@ func (h *Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		slog.Error("password reset request failed", "error", err)
 	}
+	// The answer never says whether the email exists; the entry names the
+	// attempted email only.
+	logBestEffortAudit(r, middleware.RecordAuditAs(r.Context(), middleware.AnonymousActorID, req.Email, "", nil))
 
 	// Log redacted token for development only; in production an email would be sent.
 	if token != "" && h.AppEnv == "development" {
@@ -420,12 +428,36 @@ func (h *Handlers) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := h.Auth.ConfirmPasswordReset(r.Context(), req.Token, req.NewPassword); err != nil {
+	u, err := h.Auth.ConfirmPasswordReset(r.Context(), req.Token, req.NewPassword)
+	if err != nil {
+		auditAuthFailure(r, "")
 		writeDomainError(w, err, "password reset failed")
 		return
 	}
+	auditAuthSuccess(r, u)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+// auditAuthSuccess records the request's audit entry (login, setup, refresh,
+// reset_password) for the user the handler resolved (KI-172).
+func auditAuthSuccess(r *http.Request, u *user.User) {
+	logBestEffortAudit(r, middleware.RecordAuditAs(r.Context(), u.ID, u.Email, u.ID, map[string]string{"result": "success"}))
+}
+
+// auditAuthFailure records a refused login, setup or password reset with
+// the attempted email (empty when the request named none) and the anonymous
+// actor; the credential itself is never recorded.
+func auditAuthFailure(r *http.Request, attemptedEmail string) {
+	logBestEffortAudit(r, middleware.RecordAuditAs(r.Context(), middleware.AnonymousActorID, attemptedEmail, "", map[string]string{"result": "failure"}))
+}
+
+// logBestEffortAudit keeps an auth entry that could not be written in the
+// log (RecordAuditAs logged it); an auth request is answered either way.
+func logBestEffortAudit(r *http.Request, err error) {
+	if err != nil {
+		slog.WarnContext(r.Context(), "auth audit entry not written", "path", r.URL.Path, "error", err)
+	}
 }
 
 // forcePasswordChangeRequest is the request body for POST /api/v1/users/{id}/force-password-change.
