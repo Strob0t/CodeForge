@@ -113,8 +113,12 @@ _EXAMPLES: tuple[tuple[str, str, dict[str, object]], ...] = (
 # at most at this many "{" positions.
 _MAX_SCAN_CHARS = 200_000
 _MAX_DECODE_ATTEMPTS = 64
-# Characters that matter for an object's span: brackets, quotes, escapes, commas.
-_STRUCTURE = re.compile(r'[\\"{}\[\],]')
+# Characters that matter for an object's span: brackets, quotes (single
+# quotes too: a Python-style value must not end the span), escapes, commas.
+_STRUCTURE = re.compile(r"""[\\"'{}\[\],]""")
+# A quoted key: a "{" whose text up to the next "{" holds one opens an object
+# (also a broken one); otherwise it is a brace in prose.
+_KEY_LIKE = re.compile(r"""["'][^"'\n\\]{1,64}["']\s*:""")
 
 # Key names of the protocol and of the formats models fall back to (Hermes
 # <tool_call>, OpenAI function objects, LangChain action/action_input).
@@ -134,9 +138,12 @@ _PROSE_TAIL = re.compile(r"(?:```[\w-]*|<tool_call>|\[)\s*$")
 # A reply that looks like a call without a usable object: protocol keys (also
 # single-quoted), a <tool_call> block or ReAct's "Action Input:" line.
 _CALL_HINT = re.compile(
-    r"""["'](?:tool|function|action|final|args|arguments|thought)["']\s*:|<tool_call>|^[ \t]*Action Input[ \t]*:""",
+    r"""["'](?:tool|function|action|action_input|final|final_answer|args|arguments|thought)["']\s*:"""
+    r"""|<tool_call>|^[ \t]*Action Input[ \t]*:""",
     re.MULTILINE,
 )
+# The keys that make an object a turn only together or with a tool's name.
+_NAMING_KEY = re.compile(r"""["'](name|action|parameters|input)["']\s*:\s*(?:["']([^"'\n\\]{0,100})["'])?""")
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 _WRITE_ONE_OBJECT = "write it as one JSON object with double quotes"
@@ -541,10 +548,12 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
 
     The object is searched in fences, <tool_call> blocks and prose (the
     first JSON object that is a turn); trailing commas and raw newlines in
-    strings are repaired. A broken object that looks like a call before the
-    turn is an error, and nothing inside a broken object is ever run. A
-    reply without any turn object is a final answer, unless it was cut off
-    or holds a broken call.
+    strings are repaired. Nothing that may sit inside another object is run:
+    a broken object before the turn, or a quoted key between the turn and
+    another object on its line (an unescaped quote ends a string early, and
+    the rest of the object then decodes on its own) is an error. A reply
+    without any turn object is a final answer, unless it was cut off or
+    holds a broken call.
     """
     body, open_think = _strip_reasoning(text)
     if not body.strip():
@@ -552,17 +561,22 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
     window = body[:_MAX_SCAN_CHARS]
     candidates = _scan_candidates(window)
     turns = [c for c in candidates if c.value is not None and _is_turn(c.value, tool_names)]
-    broken = [c for c in candidates if c.value is None and _CALL_HINT.search(window, c.start, c.end)]
+    broken = [c for c in candidates if c.value is None]
+    calls = [c for c in broken if _looks_like_call(window, c, tool_names)]
     first = turns[0] if turns else None
-    if broken and (first is None or broken[0].start < first.start):
-        if truncated:
-            return TextProtocolError(_CUT_OFF)
-        return TextProtocolError(f"the tool call could not be read ({broken[0].error}); {_WRITE_ONE_OBJECT}")
     if first is not None and first.value is not None:
-        ignored = len(turns) - 1 + len(broken)
+        # A broken object before the turn may hold it (its span can end
+        # early at a quote the scanner misreads): the turn is not run.
+        if broken and broken[0].start < first.start:
+            return _broken_call_error(broken[0].error, truncated)
+        if _continues_an_object(window, candidates, first):
+            return _broken_call_error("an object goes on around it, a quote is probably not escaped", truncated)
+        ignored = len(turns) - 1 + len(calls)
         if not ignored and "<tool_result" in window[first.end :]:
             ignored = 1  # a made-up result: the model went on without the real one
         return _to_turn(first.value, _prose_before(window[: first.start]), tool_names, ignored)
+    if calls:
+        return _broken_call_error(calls[0].error, truncated)
     if truncated:
         return TextProtocolError(_CUT_OFF)
     if open_think:
@@ -595,6 +609,45 @@ def _strip_reasoning(text: str) -> tuple[str, bool]:
     return text, False
 
 
+def _broken_call_error(reason: str, truncated: bool) -> TextProtocolError:
+    if truncated:
+        return TextProtocolError(_CUT_OFF)
+    return TextProtocolError(f"the tool call could not be read ({reason}); {_WRITE_ONE_OBJECT}")
+
+
+def _continues_an_object(text: str, candidates: list[_Candidate], turn: _Candidate) -> bool:
+    """Whether a quoted key sits between *turn* and the candidate next to it on its line.
+
+    ``{"path": "x", "content": "a"b", "y": {"tool": ...}}`` decodes as a
+    complete object up to ``"a"`` and leaves ``b", "y": `` before the
+    nested call: the call is part of another object.
+    """
+    index = candidates.index(turn)
+    if index > 0:
+        before = text[candidates[index - 1].end : turn.start].rsplit("\n", 1)[-1]
+        if _KEY_LIKE.search(before):
+            return True
+    after_end = candidates[index + 1].start if index + 1 < len(candidates) else len(text)
+    after = text[turn.end : after_end].split("\n", 1)[0]
+    return _KEY_LIKE.search(after) is not None
+
+
+def _looks_like_call(text: str, candidate: _Candidate, tool_names: Sequence[str]) -> bool:
+    """Whether a broken object holds a key a turn has: by _is_turn's rules, within its span."""
+    if _CALL_HINT.search(text, candidate.start, candidate.end):
+        return True
+    lowered = {name.lower() for name in tool_names}
+    keys: set[str] = set()
+    for match in _NAMING_KEY.finditer(text, candidate.start, candidate.end):
+        key, value = match.group(1), match.group(2)
+        keys.add(key)
+        if key in ("name", "action") and value is not None:
+            named = value.strip().lower()
+            if named in lowered or named == _FINAL_ACTION:
+                return True
+    return "name" in keys and bool(keys & {"parameters", "input"})
+
+
 @dataclass(frozen=True, slots=True)
 class _Candidate:
     """A JSON object candidate at a "{": its span, and the object or why it did not decode."""
@@ -606,12 +659,13 @@ class _Candidate:
 
 
 def _scan_candidates(text: str) -> list[_Candidate]:
-    """The object candidates in *text*, in order, at most _MAX_DECODE_ATTEMPTS.
+    """The object candidates in *text*, in order, from at most _MAX_DECODE_ATTEMPTS "{" positions.
 
     The scan goes on after each candidate's span, decoded or not, so an
     object inside another one (a call in a broken call's arguments) is never
-    a candidate of its own. Spans do not overlap: the work is linear in the
-    text.
+    a candidate of its own. A "{" that does not decode and has no quoted key
+    before the next "{" is a brace in prose, not a candidate: the scan goes
+    on right after it. Spans do not overlap: the work is linear in the text.
     """
     decoder = json.JSONDecoder(strict=False)
     candidates: list[_Candidate] = []
@@ -621,16 +675,19 @@ def _scan_candidates(text: str) -> list[_Candidate]:
         if start < 0:
             break
         candidate = _decode_at(decoder, text, start)
+        if candidate is None:
+            pos = start + 1
+            continue
         candidates.append(candidate)
         pos = max(candidate.end, start + 1)
     return candidates
 
 
-def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate:
+def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate | None:
     """The candidate at *start*: decoded as is, else with its trailing commas removed.
 
     A candidate that does not decode spans to its closing bracket (or the
-    end of the text when it never closes).
+    end of the text when it never closes); None for a brace in prose.
     """
     try:
         value, end = decoder.raw_decode(text, start)
@@ -640,6 +697,9 @@ def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate:
         error = _TOO_DEEP
     else:
         return _Candidate(start, end, value if isinstance(value, dict) else None)
+    nested = text.find("{", start + 1)
+    if not _KEY_LIKE.search(text, start + 1, nested if nested >= 0 else len(text)):
+        return None
     end, repaired = _object_span(text, start)
     if repaired is not None:
         try:
@@ -657,13 +717,13 @@ def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate:
 def _object_span(text: str, start: int) -> tuple[int, str | None]:
     """The end of the object at *start* (after its closing bracket, or the text's end) and its repaired text.
 
-    One pass over the structural characters, aware of strings and escapes:
-    a comma followed only by whitespace before "}" or "]" is a trailing
-    comma and becomes a space (positions stay). The repaired text is None
-    when there is no trailing comma.
+    One pass over the structural characters, aware of strings (double- and
+    single-quoted) and escapes: a comma followed only by whitespace before
+    "}" or "]" is a trailing comma and becomes a space (positions stay). The
+    repaired text is None when there is no trailing comma.
     """
     depth = 0
-    in_string = False
+    quote = ""  # the quote of the string the scan is in
     escaped = -1  # position of the character after a backslash
     comma = -1  # the last comma outside strings, until another token follows
     trailing: list[int] = []
@@ -673,11 +733,11 @@ def _object_span(text: str, start: int) -> tuple[int, str | None]:
         if i == escaped:
             continue
         ch = text[i]
-        if in_string:
+        if quote:
             if ch == "\\":
                 escaped = i + 1
-            elif ch == '"':
-                in_string = False
+            elif ch == quote:
+                quote = ""
             continue
         if ch in "}]":
             if comma >= 0 and not text[comma + 1 : i].strip():
@@ -688,8 +748,8 @@ def _object_span(text: str, start: int) -> tuple[int, str | None]:
                 break
         elif ch in "{[":
             depth += 1
-        elif ch == '"':
-            in_string = True
+        elif ch in "\"'":
+            quote = ch
         comma = i if ch == "," else -1
     return end, _blanked(text, start, end, trailing)
 

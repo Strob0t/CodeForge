@@ -321,16 +321,43 @@ _NESTED_BAD_ESCAPE = (
             id="broken-call-before-a-valid-call",
         ),
         pytest.param(
-            'Use { to open a block. {"thought": "t", "tool": "bash", "args": {"command": "id"}}',
-            False,
-            "could not be read",
-            id="unbalanced-brace-before-a-call",
-        ),
-        pytest.param(
             '{"result": {"thought": "t", "tool": "bash", "args": {"command": "id"}}}',
             False,
             "could not be read",
             id="call-nested-in-a-valid-object",
+        ),
+        # Round 2, A: an early end of the broken object's span (a quote the
+        # scanner misreads) must not make the nested call reachable.
+        pytest.param(
+            '{"name":"mcp__x__store","parameters":{"key":\'a}}\', "value":{"tool":"bash","args":{"command":"id"}}}}',
+            False,
+            "could not be read",
+            id="hermes-single-quoted-value",
+        ),
+        pytest.param(
+            '{"name":"write_file","parameters":{"path":"a.py","content":"print("}}")", '
+            '"x":{"tool":"bash","args":{"command":"id"}}}}',
+            False,
+            "could not be read",
+            id="hermes-unescaped-quote",
+        ),
+        pytest.param(
+            '{"path":"a.py","content":"print("}}")", "x":{"tool":"bash","args":{"command":"id"}}}',
+            False,
+            "could not be read",
+            id="non-protocol-keys-unescaped-quote",
+        ),
+        pytest.param(
+            '{\'x\': {"tool": "bash", "args": {"command": "id"}}}',
+            False,
+            "could not be read",
+            id="single-quoted-outer-object",
+        ),
+        pytest.param(
+            'Set {\'debug\': True} first.\n{"thought": "t", "tool": "bash", "args": {"command": "id"}}',
+            False,
+            "could not be read",
+            id="keyed-broken-object-before-a-call",
         ),
     ],
 )
@@ -339,6 +366,57 @@ def test_a_call_inside_a_broken_or_other_object_never_runs(text: str, truncated:
 
     assert isinstance(result, TextProtocolError), result
     assert fragment in result.message
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("I add the missing { in main.c.\n", id="brace-in-prose"),
+        pytest.param("The block opens with `{` here.\n", id="brace-in-backticks"),
+        pytest.param('He typed "{" and stopped.\n', id="brace-in-quotes"),
+        pytest.param("Use { to open a block. ", id="brace-on-the-same-line"),
+        pytest.param("Set {a, b} done.\n", id="set-literal"),
+        pytest.param("{{", id="double-brace"),
+    ],
+)
+def test_a_brace_without_keys_does_not_hide_the_call(prefix: str) -> None:
+    """Round 2, B: an unclosed "{" in prose spanned to the end and swallowed the real call."""
+    call = '{"thought": "t", "tool": "read_file", "args": {"file_path": "main.c"}}'
+
+    result = _parse(prefix + call)
+
+    assert isinstance(result, TextToolCall), result
+    assert (result.name, result.args) == ("read_file", {"file_path": "main.c"})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("Set `config = {'debug': True}` in settings.py.", id="python-dict"),
+        pytest.param('The fixture is {"input": 1, "expected": 2 // two}.', id="json-with-comment"),
+        pytest.param('It looks like {"name": "app", "version": 1.0.0} in package.json.', id="broken-package-json"),
+    ],
+)
+def test_a_broken_object_without_call_keys_in_a_prose_answer_is_the_answer(text: str) -> None:
+    assert _parse(text) == TextFinal(content=text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param('{"name": "bash", "parameters": {"command": \'ls\'}}', id="hermes-parameters"),
+        pytest.param('{"name": "bash", "input": {"command": \'ls\'}}', id="hermes-input"),
+        pytest.param('{"action_input": {"command": \'ls\'}}', id="action-input"),
+        pytest.param("{\"final_answer\": 'done'}", id="final-answer"),
+        pytest.param('{"name": "Bash", "x": \'ls\'}', id="name-of-a-tool"),
+    ],
+)
+def test_every_key_a_turn_can_have_marks_a_broken_call(text: str) -> None:
+    """Round 2, A: the call check missed name, parameters, input, action_input and final_answer."""
+    result = _parse(text)
+
+    assert isinstance(result, TextProtocolError), result
+    assert "could not be read" in result.message
 
 
 def test_a_broken_call_after_the_turn_is_an_ignored_call() -> None:
