@@ -237,6 +237,23 @@ READ = {"file_path": "a.py"}
             _call("bash", {"command": "ls"}, "t"),
             id="prose-brace-in-reasoning",
         ),
+        # A broken draft never closes: its span must not swallow the closing tag.
+        pytest.param(
+            '<think>maybe {"tool": "bash", then no</think>\n{"thought": "t", "tool": "read_file", "args": {"file_path": "a.py"}}',
+            _call("read_file", READ, "t"),
+            id="broken-draft-in-a-leading-block",
+        ),
+        pytest.param(
+            '<think>pass {"path": "a" and so</think>\n{"thought": "t", "tool": "read_file", "args": {"file_path": "a.py"}}',
+            _call("read_file", READ, "t"),
+            id="broken-keyed-draft-in-a-leading-block",
+        ),
+        pytest.param(
+            'I think the dict {"tool": "bash" is wrong</think>\n'
+            '{"thought": "t", "tool": "read_file", "args": {"file_path": "a.py"}}',
+            _call("read_file", READ, "t"),
+            id="broken-draft-in-template-reasoning",
+        ),
         # Round 2, D: think blocks between the parts of a prose answer.
         pytest.param(
             "<think>a</think>Answer 1 <think>b</think> part 2",

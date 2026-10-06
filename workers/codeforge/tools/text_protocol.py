@@ -607,11 +607,16 @@ def _strip_reasoning(text: str) -> tuple[str, bool]:
 
 
 def _reasoning_end(text: str) -> int:
-    """The position of the first </think> outside every object candidate's span, or -1."""
+    """The position of the first </think> outside every decoded object, or -1.
+
+    A tag in a decoded object's string (a draft's, or the turn's own) is no
+    end. A broken draft never closes, so its span would reach past the tag
+    and the call after it: broken candidates do not hide a tag.
+    """
     close = text.find(_THINK_CLOSE)
     if close < 0:
         return -1
-    spans = [(c.start, c.end) for c in _scan_candidates(text[:_MAX_SCAN_CHARS])]
+    spans = [(c.start, c.end) for c in _scan_candidates(text[:_MAX_SCAN_CHARS]) if c.value is not None]
     for start, end in spans:
         if close < start:
             return close
