@@ -168,6 +168,47 @@ describe("QuarantinePage live updates", () => {
       expect(screen.queryAllByRole("button", { name: "Approve" })).toHaveLength(1),
     );
   });
+
+  // The WebSocket client calls its listeners in a loop without a guard: a
+  // listener that throws would cost the later ones the event.
+  it("handles events while the list failed to load", async () => {
+    apiMock.list.mockRejectedValue(new Error("list failed"));
+    renderPage();
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(1));
+    fireEvent.change(screen.getByLabelText("Select a project"), { target: { value: "p-1" } });
+    await waitFor(() => expect(apiMock.list).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const listCalls = apiMock.list.mock.calls.length;
+    expect(() =>
+      ws.emit("quarantine.resolved", { id: "q-7", action: "withdrawn", reviewed_by: "sender" }),
+    ).not.toThrow();
+    expect(() =>
+      ws.emit("quarantine.alert", { id: "q-2", project_id: "p-1", subject: "x" }),
+    ).not.toThrow();
+    await waitFor(() => expect(apiMock.list.mock.calls.length).toBe(listCalls + 1));
+  });
+
+  // The expiry sweep resolves up to 100 messages at once.
+  it("asks for the list once more after a burst of events, not once per event", async () => {
+    await renderWithProject();
+    const slow = <T,>(value: T) =>
+      new Promise<T>((resolve) => setTimeout(() => resolve(value), 30));
+    apiMock.list.mockImplementation(() => slow([pending]));
+    apiMock.stats.mockImplementation(() =>
+      slow({ pending: 1, approved: 0, rejected: 0, expired: 0 }),
+    );
+    const listCalls = apiMock.list.mock.calls.length;
+    const statsCalls = apiMock.stats.mock.calls.length;
+    for (let i = 0; i < 10; i++) {
+      ws.emit("quarantine.resolved", { id: `q-${i}`, project_id: "p-1", action: "expired" });
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(apiMock.list.mock.calls.length - listCalls).toBeGreaterThanOrEqual(1);
+    expect(apiMock.list.mock.calls.length - listCalls).toBeLessThanOrEqual(2);
+    expect(apiMock.stats.mock.calls.length - statsCalls).toBeLessThanOrEqual(2);
+  });
 });
 
 // KI-79: the reviewer was a free-text name typed into the form; the server now

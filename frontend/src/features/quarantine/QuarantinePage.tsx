@@ -6,6 +6,7 @@ import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
+import { coalesce } from "~/lib/coalesce";
 import { extractErrorMessage } from "~/lib/errorUtils";
 import {
   Badge,
@@ -119,17 +120,22 @@ export default function QuarantinePage() {
 
   // Messages quarantined or resolved elsewhere (another admin, the expiry
   // sweep, a sender's withdrawal) show without a reload. A withdrawal names
-  // no project, so a message the page shows also counts by its id.
+  // no project, so a message the page shows also counts by its id. An
+  // expiry sweep sends up to 100 events: one refresh at a time, and one more
+  // after it.
+  const refreshQuarantine = coalesce(() => Promise.all([refetchMessages(), refetchStats()]));
+  /** Whether the page shows the message; a list that failed to load shows none. */
+  const isShown = (id: string | undefined): boolean =>
+    !messages.error && (messages() ?? []).some((m) => m.id === id);
   const { onMessage } = useWebSocket();
   // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
   const offQuarantineEvents = onMessage((msg) => {
     if (msg.type !== "quarantine.alert" && msg.type !== "quarantine.resolved") return;
-    const id = msg.payload.id as string | undefined;
-    const shown = (messages() ?? []).some((m) => m.id === id);
     const pid = selectedProjectId();
-    if (!pid || (msg.payload.project_id !== pid && !shown)) return;
-    refetchMessages();
-    refetchStats();
+    if (!pid) return;
+    const id = msg.payload.id as string | undefined;
+    if (msg.payload.project_id !== pid && !isShown(id)) return;
+    refreshQuarantine();
     if (msg.type === "quarantine.resolved") {
       showResolved(id, resolvedStatus(msg.payload.action as string | undefined));
     }
