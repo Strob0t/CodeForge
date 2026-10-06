@@ -235,13 +235,13 @@ def _build_evaluators(evaluator_names: list[str], model: str, llm: LiteLLMClient
     return evaluators
 
 
-def _verifier_model(model: str) -> str:
+async def _verifier_model(model: str) -> str:
     """The model the LLM verifiers of a run use: the run's model, or for "auto" the resolved default."""
     if model != "auto":
         return model
-    from codeforge.model_resolver import resolve_model
+    from codeforge.model_resolver import resolve_model_async
 
-    return resolve_model()
+    return await resolve_model_async()
 
 
 def _build_hybrid_pipeline(evaluators: list) -> object:
@@ -327,7 +327,7 @@ class _RoutingLLMWrapper:
         self._router = router
         self.routing_log: list[dict[str, str]] = []
 
-    def _route_model(self, kwargs: dict[str, object]) -> None:
+    async def _route_model(self, kwargs: dict[str, object]) -> None:
         messages = kwargs.get("messages", [])
         prompt = ""
         for m in reversed(messages):
@@ -338,7 +338,8 @@ class _RoutingLLMWrapper:
         decision = None
         if prompt:
             with contextlib.suppress(Exception):
-                decision = self._router.route(prompt)
+                # Synchronous: it may resolve a model and call the meta-router's LLM (KI-196 review).
+                decision = await asyncio.to_thread(self._router.route, prompt)
         if decision is not None and decision.model:
             kwargs["model"] = decision.model
             self.routing_log.append(
@@ -349,9 +350,9 @@ class _RoutingLLMWrapper:
                 }
             )
         else:
-            from codeforge.model_resolver import resolve_model
+            from codeforge.model_resolver import resolve_model_async
 
-            fallback_model = resolve_model()
+            fallback_model = await resolve_model_async()
             kwargs["model"] = fallback_model
             self.routing_log.append(
                 {"model": fallback_model, "layer": "fallback", "reasoning": "router returned no decision"}
@@ -366,12 +367,12 @@ class _RoutingLLMWrapper:
             sanitize_tool_messages(messages)
 
     async def chat_completion(self, **kwargs: object) -> object:
-        self._route_model(kwargs)
+        await self._route_model(kwargs)
         self._sanitize_messages(kwargs)
         return await self._llm.chat_completion(**kwargs)
 
     async def chat_completion_stream(self, **kwargs: object) -> object:
-        self._route_model(kwargs)
+        await self._route_model(kwargs)
         self._sanitize_messages(kwargs)
         return await self._llm.chat_completion_stream(**kwargs)
 
@@ -481,7 +482,7 @@ class BenchmarkHandlerMixin:
                 # The verifiers judge the run: a concrete model (never "auto")
                 # on the worker's own client, so their calls are neither routed
                 # by the task prompt nor recorded in the run's routing log.
-                evaluators = _build_evaluators(req.evaluators, _verifier_model(req.model), llm=self._llm)
+                evaluators = _build_evaluators(req.evaluators, await _verifier_model(req.model), llm=self._llm)
                 pipeline = EvaluationPipeline(evaluators)
                 hybrid_pipeline = _build_hybrid_pipeline(evaluators) if req.hybrid_verification else None
                 on_start, on_complete = _build_progress_callbacks(self._js, req.run_id, req.tenant_id)

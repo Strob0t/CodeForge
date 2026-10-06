@@ -695,9 +695,9 @@ class LiteLLMClient:
     ) -> CompletionResponse:
         """Send a chat completion request to LiteLLM with automatic retry."""
         if not model:
-            from codeforge.model_resolver import resolve_model
+            from codeforge.model_resolver import resolve_model_async
 
-            model = await asyncio.to_thread(resolve_model)
+            model = await resolve_model_async()
 
         async def _inner() -> CompletionResponse:
             messages: list[dict[str, str]] = []
@@ -779,9 +779,9 @@ class LiteLLMClient:
         candidates for the first output token.
         """
         if not model:
-            from codeforge.model_resolver import resolve_model
+            from codeforge.model_resolver import resolve_model_async
 
-            model = await asyncio.to_thread(resolve_model)
+            model = await resolve_model_async()
 
         async def _inner() -> ChatCompletionResponse:
             payload: dict[str, object] = {
@@ -887,9 +887,9 @@ class LiteLLMClient:
         a ``json_schema`` grammar); None sends none.
         """
         if not model:
-            from codeforge.model_resolver import resolve_model
+            from codeforge.model_resolver import resolve_model_async
 
-            model = await asyncio.to_thread(resolve_model)
+            model = await resolve_model_async()
 
         # Whether the caller received text of this request: then it is not retried.
         shown = False

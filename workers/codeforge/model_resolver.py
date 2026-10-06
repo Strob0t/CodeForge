@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 
@@ -16,6 +17,9 @@ _CACHE_TTL_SECONDS = 60.0
 # After a failed refresh the cache is not refreshed again for this long: each
 # refresh waits up to 2 x 5 s for LiteLLM (KI-196).
 _FAILURE_BACKOFF_SECONDS = 30.0
+# resolve_model_async refreshes in a thread when the cache would be due this
+# soon: the read on the event loop right after it must not refresh.
+_REFRESH_AHEAD_SECONDS = 5.0
 
 
 def expand_wildcard_models(raw_ids: list[str]) -> list[str]:
@@ -77,8 +81,9 @@ def _fetch_healthy_models(litellm_url: str, headers: dict[str, str]) -> set[str]
 class _ModelCache:
     """Thread-safe cached list of available models from LiteLLM.
 
-    A refresh makes blocking HTTP calls: coroutines call the public functions
-    of this module through ``asyncio.to_thread``. One refresh runs at a time;
+    A refresh makes blocking HTTP calls: coroutines use resolve_model_async,
+    or call the public functions of this module through ``asyncio.to_thread``.
+    One refresh runs at a time;
     after a failed one the cache keeps its last list for
     _FAILURE_BACKOFF_SECONDS before it asks LiteLLM again.
     """
@@ -94,9 +99,13 @@ class _ModelCache:
         self._last_refresh: float = 0.0
         self._retry_at: float = 0.0
 
-    def _needs_refresh(self) -> bool:
-        now = time.monotonic()
+    def _needs_refresh(self, ahead: float = 0.0) -> bool:
+        """Whether a read *ahead* seconds from now refreshes the cache."""
+        now = time.monotonic() + ahead
         return (now - self._last_refresh) > _CACHE_TTL_SECONDS and now >= self._retry_at
+
+    def refresh_due_soon(self) -> bool:
+        return self._needs_refresh(_REFRESH_AHEAD_SECONDS)
 
     def get_models(self) -> list[str]:
         self._refresh_if_needed()
@@ -211,7 +220,7 @@ def resolve_model(explicit: str = "") -> str:
 
     Priority: explicit > CODEFORGE_DEFAULT_MODEL env var > LiteLLM auto-discovery.
     Raises NoModelAvailableError if no model can be resolved. Discovery may
-    block on LiteLLM: coroutines call it through ``asyncio.to_thread``.
+    block on LiteLLM: coroutines use resolve_model_async.
     """
     if explicit:
         return explicit
@@ -229,6 +238,18 @@ def resolve_model(explicit: str = "") -> str:
         "model (a local model, or a provider key named in CODEFORGE_LITELLM_KEYED_PROVIDERS)."
     )
     raise NoModelAvailableError(msg)
+
+
+async def resolve_model_async(explicit: str = "") -> str:
+    """resolve_model() for coroutines (KI-196 review).
+
+    It answers on the event loop from the cache; only when the cache is due
+    for a refresh (blocking HTTP calls to LiteLLM) does it run in a worker
+    thread, so a call takes no default-executor thread otherwise.
+    """
+    if explicit or get_settings().default_model or not _cache.refresh_due_soon():
+        return resolve_model(explicit)
+    return await asyncio.to_thread(resolve_model, explicit)
 
 
 def get_available_models() -> list[str]:
