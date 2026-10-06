@@ -170,6 +170,64 @@ def test_brackets_at_line_start_in_prose() -> None:
     assert text == "[1] See the note.\n[\nnot json\n"
 
 
+# --- raw call JSON never leaks (S9-C review, finding 6) ---
+
+
+def _run_with_tools(text: str, tools: tuple[str, ...]) -> str:
+    pieces: list[str] = []
+    stream = ProtocolStreamFilter(pieces.append, tool_names=tools)
+    for ch in text:
+        stream.feed(ch)
+    stream.finish()
+    return "".join(pieces)
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        pytest.param(
+            'I will read it. {"thought": "T", "tool": "read_file", "args": {"file_path": "a.py"}}',
+            "I will read it. T",
+            id="call-after-prose-on-the-same-line",
+        ),
+        pytest.param(
+            '{"a": 1} {"thought": "T", "tool": "bash", "args": {"command": "ls"}}',
+            '{"a": 1} T',
+            id="call-after-a-non-call-object-on-the-same-line",
+        ),
+        pytest.param('{"name": "bash", "parameters": {"command": "ls"}}', "", id="name-and-parameters"),
+        pytest.param('{"name": "bash", "input": {"command": "ls"}}', "", id="name-and-input"),
+        pytest.param('{"parameters": {"command": "ls"}, "name": "bash"}', "", id="parameters-before-name"),
+        pytest.param("Use { carefully.\nThen } closes.", "Use { carefully.\nThen } closes.", id="unbalanced-mid-line"),
+        pytest.param("A set {x} here.", "A set {x} here.", id="braces-mid-line"),
+    ],
+)
+def test_call_json_never_leaks(reply: str, expected: str) -> None:
+    text, _ = _run(_chars(reply))
+
+    assert text == expected
+    assert '"command"' not in text
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param('{"name": "read_file"}', id="name-of-a-tool"),
+        pytest.param('{"name": "READ_FILE", "file_path": "a.py"}', id="name-of-a-tool-any-case"),
+        pytest.param('{"action": "bash", "command": "ls"}', id="action-of-a-tool"),
+        pytest.param('{"action": "Final Answer", "text": "x"}', id="final-answer-action"),
+    ],
+)
+def test_a_call_by_tool_name_is_hidden(reply: str) -> None:
+    assert _run_with_tools(reply, ("read_file", "bash")) == ""
+
+
+def test_a_name_that_is_no_tool_is_shown() -> None:
+    reply = 'The config:\n{"name": "my-app", "version": "1.0"}'
+
+    assert _run_with_tools(reply, ("read_file", "bash")) == reply
+
+
 def test_feed_after_finish_is_ignored() -> None:
     pieces: list[str] = []
     stream = ProtocolStreamFilter(pieces.append)

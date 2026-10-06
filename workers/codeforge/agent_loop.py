@@ -753,7 +753,8 @@ class AgentLoopExecutor:
             task = loop.create_task(self._runtime.send_output(chunk_text))
             pending_sends.append(task)
 
-        stream_filter = ProtocolStreamFilter(_on_chunk) if state.tool_protocol is not None else None
+        protocol = state.tool_protocol
+        stream_filter = ProtocolStreamFilter(_on_chunk, protocol.tool_names) if protocol is not None else None
 
         with tracer.start_as_current_span(
             "llm.chat_completion",

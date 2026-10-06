@@ -5,6 +5,9 @@ its leading prose, the decoded ``thought`` and ``final`` strings of that
 object as they arrive, and never the raw protocol JSON: tool cards come from
 the same events as native calls. JSON that is no protocol object (a code
 block, a config file in a prose answer) is shown as written once it ends.
+An object is a protocol object by the parser's rules: a protocol key, a
+"name" with "parameters" or "input", or a "name"/"action" naming an offered
+tool (or "Final Answer").
 """
 
 from __future__ import annotations
@@ -14,12 +17,15 @@ from typing import TYPE_CHECKING
 from codeforge.tools.text_protocol import TURN_KEYS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 # A prose line starting with one of these may start the protocol object
 # ("[{": several calls as an array, of which the parser runs the first).
 _MARKERS = ("```", "<tool_call>", "{", "[{")
 _STREAMED_KEYS = frozenset({"thought", "final"})
+# Keys whose string value may name a tool, and the LangChain final answer.
+_NAMING_KEYS = frozenset({"name", "action"})
+_FINAL_ACTION = "final answer"
 _ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
 
 _PROSE = "prose"  # text before the object streams line by line
@@ -31,11 +37,13 @@ _DONE = "done"  # after the object: dropped
 class ProtocolStreamFilter:
     """Wraps a stream's chunk callback: ``feed`` each chunk, ``finish`` at the end.
 
-    *emit* receives the visible text, at most once per ``feed``.
+    *emit* receives the visible text, at most once per ``feed``;
+    *tool_names* are the offered tools (an object naming one is a call).
     """
 
-    def __init__(self, emit: Callable[[str], None]) -> None:
+    def __init__(self, emit: Callable[[str], None], tool_names: Sequence[str] = ()) -> None:
         self._emit = emit
+        self._tool_names = frozenset(name.lower() for name in tool_names)
         self._mode = _PROSE
         self._out: list[str] = []
         self._emitted = False
@@ -52,7 +60,9 @@ class ProtocolStreamFilter:
         self._expect_key = False
         self._key: list[str] | None = None
         self._last_key = ""
+        self._keys: set[str] = set()
         self._value_key = ""
+        self._capture: list[str] | None = None
         self._high_surrogate = 0
         self._separate = False
 
@@ -84,6 +94,10 @@ class ProtocolStreamFilter:
 
     def _prose(self, ch: str) -> None:
         if not self._at_line_start:
+            if ch == "{":  # a call may follow prose on the same line
+                self._held = [ch]
+                self._start_object()
+                return
             self._send(ch)
             self._at_line_start = ch == "\n"
             return
@@ -116,7 +130,9 @@ class ProtocolStreamFilter:
         self._expect_key = True
         self._key = None
         self._last_key = ""
+        self._keys = set()
         self._value_key = ""
+        self._capture = None
 
     def _object(self, ch: str) -> None:
         if not self._protocol:
@@ -145,6 +161,8 @@ class ProtocolStreamFilter:
         elif self._protocol and self._last_key in _STREAMED_KEYS:
             self._value_key = self._last_key
             self._separate = self._value_key == "final" and self._emitted
+        elif not self._protocol and self._last_key in _NAMING_KEYS:
+            self._capture = []
 
     def _string_char(self, ch: str) -> None:
         if self._escape:
@@ -191,6 +209,8 @@ class ProtocolStreamFilter:
         self._put_pending_surrogate()
         if self._key is not None:
             self._key.append(text)
+        elif self._capture is not None:
+            self._capture.append(text)
         elif self._value_key:
             if self._separate:
                 self._separate = False
@@ -203,10 +223,21 @@ class ProtocolStreamFilter:
         if self._key is not None:
             self._last_key = "".join(self._key)
             self._key = None
-            if self._last_key in TURN_KEYS and not self._protocol:
-                self._protocol = True
-                self._held.clear()
+            self._keys.add(self._last_key)
+            if self._last_key in TURN_KEYS or ("name" in self._keys and self._keys & {"parameters", "input"}):
+                self._confirm_protocol()
+        elif self._capture is not None:
+            named = "".join(self._capture).strip().lower()
+            self._capture = None
+            if named in self._tool_names or named == _FINAL_ACTION:
+                self._confirm_protocol()
         self._value_key = ""
+
+    def _confirm_protocol(self) -> None:
+        """The object is a turn: its raw text is never shown."""
+        if not self._protocol:
+            self._protocol = True
+            self._held.clear()
 
     def _end_object(self) -> None:
         if self._protocol:
