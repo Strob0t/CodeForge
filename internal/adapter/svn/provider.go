@@ -101,6 +101,9 @@ func (p *Provider) ListRepos(_ context.Context) ([]string, error) {
 // errUnsafeWorkingCopy: svn is not run on the working copy.
 var errUnsafeWorkingCopy = errors.New("unsafe SVN working copy")
 
+// errNotWorkingCopy: the directory has no .svn directory.
+var errNotWorkingCopy = errors.New("not an SVN working copy")
+
 // Clone checks out an SVN repository to the given local path.
 // If Branch is set via CloneOption, the URL is adjusted to point to the branch
 // directory following SVN's standard trunk/branches layout.
@@ -133,16 +136,23 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 
 // reclone handles re-checkout when the destination directory already exists.
 // If it's an SVN working copy with the same URL, runs svn update.
-// Otherwise removes the directory (o.RemoveDestination) and does a fresh
-// checkout. A working copy whose metadata is unsafe is reported, not removed.
+// If it is no working copy or one of another URL, removes the directory
+// (o.RemoveDestination) and does a fresh checkout. A working copy whose
+// metadata is unsafe, or whose URL could not be read, is reported and kept
+// with its uncommitted work.
 func (p *Provider) reclone(ctx context.Context, url, absPath string, o *gitprovider.CloneOptions) error {
 	wcErr := checkWorkingCopy(absPath)
-	if errors.Is(wcErr, errUnsafeWorkingCopy) {
+	switch {
+	case errors.Is(wcErr, errNotWorkingCopy):
+		// No working copy: discarded below.
+	case wcErr != nil:
 		return wcErr
-	}
-	if wcErr == nil {
+	default:
 		wcURL, err := p.runSVN(ctx, absPath, "info", "--show-item", "url")
-		if err == nil && strings.TrimSpace(wcURL) == url {
+		if err != nil {
+			return fmt.Errorf("svn: read the working copy's URL: %w", err)
+		}
+		if strings.TrimSpace(wcURL) == url {
 			// Same URL as the project's: update from it.
 			if _, updErr := p.runSVN(ctx, absPath, "update", "--ignore-externals"); updErr != nil {
 				return fmt.Errorf("svn: update: %w", updErr)
@@ -337,7 +347,7 @@ func checkWorkingCopy(dir string) error {
 	meta := filepath.Join(dir, ".svn")
 	info, err := os.Lstat(meta)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("svn: %s is not an SVN working copy (no .svn directory)", dir)
+		return fmt.Errorf("svn: %s: %w (no .svn directory)", dir, errNotWorkingCopy)
 	}
 	if err != nil {
 		return fmt.Errorf("svn: inspect %s: %w", meta, err)

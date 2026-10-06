@@ -372,6 +372,17 @@ func (r *Repo) HasConfig(key string) bool {
 	return len(r.config[key]) > 0
 }
 
+// Config returns the last value of key in the repository config (as git
+// lists it: section and variable lower case) and whether it is set, as
+// OpenRepo read it: no git process runs.
+func (r *Repo) Config(key string) (string, bool) {
+	values := r.config[key]
+	if len(values) == 0 {
+		return "", false
+	}
+	return values[len(values)-1], true
+}
+
 // RequireNetworkSafe refuses network operations (fetch, pull, push) in a
 // repository whose config redirects or configures transports.
 func (r *Repo) RequireNetworkSafe() error {
