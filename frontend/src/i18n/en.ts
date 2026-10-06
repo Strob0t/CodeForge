@@ -1786,6 +1786,17 @@ const en = {
   "session.createdAt": "Created {{date}}",
   "session.forkedNote": "Conversation forked. Send a message to continue.",
 
+  // -- Review refactoring approval (KI-94) -----------------------------------
+  "reviewApproval.userEdits.title": "These files were changed by users while the refactorer ran:",
+  "reviewApproval.userEdits.hint":
+    "Their changes count as part of the refactoring: undoing it sets them back too.",
+  "reviewApproval.userEdits.more": "... and {{count}} more",
+  "reviewApproval.userEdits.by": "{{operation}} by {{user}}, {{time}}",
+  "reviewApproval.userEdits.unknownUser": "unknown user",
+  "reviewApproval.userEdits.op.write": "edited",
+  "reviewApproval.userEdits.op.delete": "deleted",
+  "reviewApproval.userEdits.op.rename": "renamed",
+
   // -- Files ------------------------------------------------------------------
   "files.createFile": "New File",
   "files.fileName": "File path",

@@ -2,8 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PendingReviewDecision, ReviewImpactEvent } from "~/api/types";
+import type { PendingReviewDecision, ReviewImpactEvent, ReviewUserEdit } from "~/api/types";
 import type { WSMessage } from "~/api/websocket";
+import { I18nProvider } from "~/i18n";
 
 const ws = vi.hoisted(() => {
   const handlers = new Set<(msg: WSMessage) => void>();
@@ -71,6 +72,14 @@ vi.mock("~/components/Toast", () => ({
 
 import RefactorApproval from "./RefactorApproval";
 
+function renderDialog(): ReturnType<typeof render> {
+  return render(() => (
+    <I18nProvider>
+      <RefactorApproval projectId="p-1" />
+    </I18nProvider>
+  ));
+}
+
 function impact(overrides: Partial<ReviewImpactEvent> = {}): Record<string, unknown> {
   return {
     run_id: "run-4",
@@ -112,7 +121,7 @@ beforeEach(() => {
 // event.ReviewImpactEvent) and decides through the authenticated API client.
 describe("RefactorApproval", () => {
   it("opens for its project's approval request with the impact", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
 
     ws.emit("review.approval_required", impact());
 
@@ -124,7 +133,7 @@ describe("RefactorApproval", () => {
   });
 
   it("ignores other projects and the old event name", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
 
     ws.emit("review.approval_required", impact({ project_id: "p-2" }));
     ws.emit("refactor.approval_required", impact());
@@ -134,7 +143,7 @@ describe("RefactorApproval", () => {
   });
 
   it("approves through the API client and closes", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
     ws.emit("review.approval_required", impact());
 
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
@@ -149,7 +158,7 @@ describe("RefactorApproval", () => {
 
   it("keeps the dialog open with the error when the rejection fails", async () => {
     apiMock.rejectRefactor.mockRejectedValue(new Error("no workspace baseline to undo it"));
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
     ws.emit("review.approval_required", impact());
 
     fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
@@ -163,7 +172,7 @@ describe("RefactorApproval", () => {
   });
 
   it("shows why an unscored refactoring needs approval", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
     ws.emit(
       "review.approval_required",
       impact({ reason: "the change could not be measured", impact_level: "high" }),
@@ -173,7 +182,7 @@ describe("RefactorApproval", () => {
   });
 
   it("notifies about an applied medium-impact refactoring", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
 
     ws.emit("review.refactor_applied", impact({ impact_level: "medium", lines_added: 80 }));
     ws.emit("review.refactor_applied", impact({ project_id: "p-2" }));
@@ -196,7 +205,7 @@ describe("RefactorApproval", () => {
         reason: "the refactoring step ended failed",
       }),
     ]);
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
 
     await screen.findByText(/1 of 2 refactorings/);
     expect(apiMock.pending).toHaveBeenCalledWith("p-1");
@@ -217,7 +226,7 @@ describe("RefactorApproval", () => {
   });
 
   it("queues a second request instead of replacing the first", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
     ws.emit("review.approval_required", impact());
     ws.emit("review.approval_required", impact({ run_id: "run-5", step_id: "step-5" }));
     ws.emit("review.approval_required", impact()); // the same request again
@@ -226,7 +235,7 @@ describe("RefactorApproval", () => {
   });
 
   it("reloads the pending decisions when the WebSocket reconnects", async () => {
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
     await waitFor(() => expect(apiMock.pending).toHaveBeenCalledTimes(1));
     apiMock.pending.mockResolvedValue([pendingDecision()]);
 
@@ -243,7 +252,7 @@ describe("RefactorApproval", () => {
       head_restored: false,
       message: "HEAD was left at main: only the files were restored",
     });
-    render(() => <RefactorApproval projectId="p-1" />);
+    renderDialog();
     ws.emit("review.approval_required", impact());
 
     fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
@@ -251,5 +260,52 @@ describe("RefactorApproval", () => {
     await waitFor(() =>
       expect(apiMock.toast).toHaveBeenCalledWith("warning", expect.stringMatching(/HEAD was left/)),
     );
+  });
+
+  // KI-94: the workspace records no writer, so files users changed while the
+  // refactorer ran count as its change; the dialog names them before keep or
+  // undo.
+  describe("files changed by users while the refactorer ran", () => {
+    const edits: ReviewUserEdit[] = [
+      {
+        path: "src/a.go",
+        operation: "write",
+        user_id: "u1",
+        user_name: "Ada",
+        edited_at: "2026-10-04T12:00:00Z",
+      },
+      { path: "old.go", operation: "rename", edited_at: "2026-10-04T12:01:00Z" },
+    ];
+
+    it("lists them with who changed them and how", async () => {
+      renderDialog();
+      ws.emit("review.approval_required", impact({ user_edits: edits, user_edits_total: 2 }));
+
+      await screen.findByText(/These files were changed by users while the refactorer ran/);
+      expect(screen.getByText("src/a.go")).toBeTruthy();
+      expect(screen.getByText(/edited by Ada/)).toBeTruthy();
+      expect(screen.getByText("old.go")).toBeTruthy();
+      expect(screen.getByText(/renamed by unknown user/)).toBeTruthy();
+      expect(screen.getByText(/undoing it sets them back too/)).toBeTruthy();
+      expect(screen.queryByText(/more/)).toBeNull();
+    });
+
+    it("says how many more there are when the list is capped", async () => {
+      apiMock.pending.mockResolvedValue([
+        pendingDecision({ user_edits: edits.slice(0, 1), user_edits_total: 3 }),
+      ]);
+      renderDialog();
+
+      await screen.findByText("src/a.go");
+      expect(screen.getByText(/and 2 more/)).toBeTruthy();
+    });
+
+    it("shows no warning when nobody changed a file", async () => {
+      renderDialog();
+      ws.emit("review.approval_required", impact({ user_edits: [] }));
+
+      await screen.findByRole("dialog", { name: "Refactor approval" });
+      expect(screen.queryByText(/changed by users/)).toBeNull();
+    });
   });
 });

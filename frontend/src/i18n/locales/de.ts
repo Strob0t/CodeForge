@@ -1799,6 +1799,18 @@ const de: Translations = {
   "session.createdAt": "Erstellt {{date}}",
   "session.forkedNote": "Konversation abgezweigt. Senden Sie eine Nachricht zum Fortfahren.",
 
+  // -- Review refactoring approval (KI-94) -----------------------------------
+  "reviewApproval.userEdits.title":
+    "Diese Dateien wurden von Benutzern geändert, während der Refactorer lief:",
+  "reviewApproval.userEdits.hint":
+    "Ihre Änderungen zählen zum Refactoring: Rückgängigmachen setzt sie ebenfalls zurück.",
+  "reviewApproval.userEdits.more": "... und {{count}} weitere",
+  "reviewApproval.userEdits.by": "{{operation}} von {{user}}, {{time}}",
+  "reviewApproval.userEdits.unknownUser": "unbekannter Benutzer",
+  "reviewApproval.userEdits.op.write": "bearbeitet",
+  "reviewApproval.userEdits.op.delete": "gelöscht",
+  "reviewApproval.userEdits.op.rename": "umbenannt",
+
   // -- Files ------------------------------------------------------------------
   "files.createFile": "Neue Datei",
   "files.fileName": "Dateipfad",

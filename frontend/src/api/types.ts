@@ -2019,6 +2019,25 @@ export interface ReviewImpactEvent {
   structural: boolean;
   /** Why the refactoring needs approval although it could not be scored. */
   reason?: string;
+  /**
+   * Paths users changed through the editor or the file API while the
+   * refactoring ran (KI-94): they count as its change, and an undo sets them
+   * back too. At most 100, by path; `user_edits_total` counts them all.
+   */
+  user_edits?: ReviewUserEdit[];
+  user_edits_total?: number;
+}
+
+/** A path a user changed while a review refactoring ran; Go review.UserEdit. */
+export interface ReviewUserEdit {
+  path: string;
+  /** A rename lists the old and the new path. */
+  operation: "write" | "delete" | "rename";
+  /** Absent without an account (authentication disabled) or once it is deleted. */
+  user_id?: string;
+  user_name?: string;
+  /** The latest change of the path. */
+  edited_at: string;
 }
 
 /**

@@ -1,11 +1,12 @@
-import { createEffect, createSignal, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
-import type { PendingReviewDecision, ReviewImpactEvent } from "~/api/types";
+import type { PendingReviewDecision, ReviewImpactEvent, ReviewUserEdit } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useFocusTrap } from "~/hooks/useFocusTrap";
-import { Button } from "~/ui";
+import { useI18n } from "~/i18n";
+import { Alert, Button } from "~/ui";
 
 function isReviewImpact(p: unknown): p is ReviewImpactEvent {
   return (
@@ -22,6 +23,41 @@ function isReviewImpact(p: unknown): p is ReviewImpactEvent {
 type Pending = ReviewImpactEvent & Partial<Pick<PendingReviewDecision, "step_status">>;
 
 const key = (p: Pending): string => `${p.run_id}/${p.step_id}`;
+
+/**
+ * Files users changed through the editor or the file API while the
+ * refactorer ran (KI-94): the workspace records no writer, so they count as
+ * the refactoring's change and an undo sets them back too.
+ */
+function UserEdits(props: { edits: ReviewUserEdit[]; total: number }) {
+  const { t, fmt } = useI18n();
+  const more = (): number => props.total - props.edits.length;
+  return (
+    <Alert variant="warning">
+      <p class="font-medium">{t("reviewApproval.userEdits.title")}</p>
+      <ul class="mt-1 max-h-40 space-y-1 overflow-y-auto">
+        <For each={props.edits}>
+          {(edit) => (
+            <li>
+              <span class="break-all font-mono text-xs">{edit.path}</span>{" "}
+              <span class="text-xs opacity-80">
+                {t("reviewApproval.userEdits.by", {
+                  operation: t(`reviewApproval.userEdits.op.${edit.operation}`),
+                  user: edit.user_name || t("reviewApproval.userEdits.unknownUser"),
+                  time: fmt.dateTime(edit.edited_at),
+                })}
+              </span>
+            </li>
+          )}
+        </For>
+      </ul>
+      <Show when={more() > 0}>
+        <p class="mt-1 text-xs">{t("reviewApproval.userEdits.more", { count: more() })}</p>
+      </Show>
+      <p class="mt-1 text-xs">{t("reviewApproval.userEdits.hint")}</p>
+    </Alert>
+  );
+}
 
 /**
  * Threshold HITL of the review pipeline (KI-17): refactorings that wait for
@@ -166,6 +202,12 @@ export default function RefactorApproval(props: { projectId: string }) {
                 <div class="rounded bg-cf-danger-bg px-2 py-1 text-cf-danger-fg">
                   Structural changes (files added, deleted or renamed)
                 </div>
+              </Show>
+              <Show when={req().user_edits?.length}>
+                <UserEdits
+                  edits={req().user_edits ?? []}
+                  total={Math.max(req().user_edits_total ?? 0, req().user_edits?.length ?? 0)}
+                />
               </Show>
               <p class="text-xs text-cf-text-muted">
                 Undoing reverts only the refactoring's changes; HEAD moves back only if it still
