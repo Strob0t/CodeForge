@@ -273,6 +273,15 @@ def test_core_trusts_only_the_proxy_addresses_of_the_public_network() -> None:
     assert _default(trusted) == str(ip_range)
 
 
+def test_public_subnet_is_outside_dockers_default_address_pools() -> None:
+    """KI-211: a fixed subnet inside Docker's default pools (172.17-172.31.0.0/16, 192.168.0.0/16)
+    can collide with a network Docker allocated earlier ("Pool overlaps with other one")."""
+    ipam = COMPOSE["networks"]["public"]["ipam"]["config"][0]
+    subnet = ipaddress.ip_network(_default(ipam["subnet"]))
+    for pool in (ipaddress.ip_network("172.16.0.0/12"), ipaddress.ip_network("192.168.0.0/16")):
+        assert not subnet.overlaps(pool), (subnet, pool)  # type: ignore[arg-type]
+
+
 class _ComposeLoader(yaml.SafeLoader):
     """Reads Compose's !reset and !override tags as their plain values."""
 
@@ -384,7 +393,7 @@ def _dummy_secrets(directory: Path) -> Path:
 @pytest.mark.parametrize(
     ("env", "want"),
     [
-        ({}, "172.31.240.128/25"),
+        ({}, "10.250.240.128/25"),
         ({"CODEFORGE_PUBLIC_IP_RANGE": "10.77.0.128/25", "CODEFORGE_PUBLIC_SUBNET": "10.77.0.0/24"}, "10.77.0.128/25"),
         ({"CODEFORGE_TRUSTED_PROXIES": "10.1.2.3"}, "10.1.2.3"),
     ],
