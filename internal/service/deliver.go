@@ -40,6 +40,9 @@ type DeliverService struct {
 	store database.Store
 	cfg   *config.Runtime
 	pool  *git.Pool
+	// pushURL, when set, maps the project's repository URL to the URL
+	// branch delivery pushes to (tests point it at a local server).
+	pushURL func(repoURL string) string
 	// githubToken is the operator's GitHub token (github.token); it opens
 	// pull requests of github.com repositories in the default tenant only.
 	githubToken string
@@ -49,16 +52,11 @@ type DeliverService struct {
 	// deliver_protection.go); profiles tells which quality gate a run passed.
 	protection *BranchProtectionService
 	profiles   gateProfiles
-	// pushURL maps the project's repository URL to the URL branch delivery
-	// pushes to (the URL itself; tests point it at a local server).
-	pushURL func(repoURL string) string
 }
 
 // NewDeliverService creates a new DeliverService with a shared git pool.
 func NewDeliverService(store database.Store, cfg *config.Runtime, pool *git.Pool) *DeliverService {
-	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider,
-		protection: NewBranchProtectionService(store),
-		pushURL:    func(repoURL string) string { return repoURL }}
+	return &DeliverService{store: store, cfg: cfg, pool: pool, pullRequests: pullRequestProvider, protection: NewBranchProtectionService(store)}
 }
 
 // SetOperatorGitHubToken sets the operator's GitHub token (github.token).
@@ -286,8 +284,11 @@ func (s *DeliverService) deliverBranch(ctx context.Context, proj *project.Projec
 		// The transport settings come from agent-writable config: a
 		// repository that configures transports is not pushed from.
 		pushErr := errors.New("the project has no repository URL to push the branch to (set its repo_url)")
-		if proj.RepoURL != "" {
-			pushErr = repo.PushBranch(ctx, s.pushURL(proj.RepoURL), branchName)
+		if url := proj.RepoURL; url != "" {
+			if s.pushURL != nil {
+				url = s.pushURL(url)
+			}
+			pushErr = repo.PushBranch(ctx, url, branchName)
 		}
 		var pushError string
 		if pushErr != nil {
