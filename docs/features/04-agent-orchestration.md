@@ -21,7 +21,7 @@ Coordination of various AI coding agents through a **unified** orchestration lay
 
 All Go backends implement the `agentbackend.Backend` interface with capability declarations. All Python backends implement the `BackendExecutor` protocol (see below).
 
-> **Current status:** Aider, Goose, OpenCode, Plandex and SWE-agent are CLI wrappers (each CLI must be installed); OpenHands is an HTTP API client that talks to a running OpenHands server. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. The Python consumer routes tasks to the correct backend based on the NATS subject name. `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`, `dispatch_id`, `heartbeat_seconds`); every backend CLI runs in its own process group (as the tenant's tool user), which `tasks.cancel` stops, and the result then has status `cancelled` (KI-22, KI-23 fixed). Dispatch IDs, heartbeats and result costs: [ADR-016](../architecture/adr/016-nats-delivery-semantics.md).
+> **Current status:** Aider, Goose, OpenCode, Plandex and SWE-agent are CLI wrappers (each CLI must be installed); OpenHands is an HTTP API client that talks to a running OpenHands server. `AiderExecutor` runs `aider --yes-always --no-auto-commits --message` as a subprocess with streaming output, timeout, and cancel support. The Python consumer routes tasks to the correct backend based on the NATS subject name. `tasks.agent.*` carries `TaskAgentPayload` (`task_id`, `project_id`, `tenant_id`, `agent_id`, `backend`, `workspace_path`, `dispatch_id`, `heartbeat_seconds`); every backend CLI runs in its own process group (as the tenant's tool user), which `tasks.cancel` stops, and the result then has status `cancelled` (KI-22, KI-23 fixed). The backend timeout is one deadline for the whole task; agent tools (Bash, grep, benchmark test commands) run in process groups that a Stop, a timeout or a worker abort kills as a whole (KI-194). Dispatch IDs, heartbeats and result costs: [ADR-016](../architecture/adr/016-nats-delivery-semantics.md).
 
 #### Claude Code (`claudecode/*` routing target)
 
@@ -120,6 +120,7 @@ Each step is individually configurable. The **autonomy** level determines who ap
 ### Safety Layer (8 Components)
 
 - Budget Limiter -- hard stop on cost exceeded.
+  Every LLM call is costed, streamed ones included: a stream without LiteLLM's cost header is priced from the per-token prices of `/model/info` (cached prompt tokens at the cache-read price, failed attempts after their usage chunk added), and the fallback table `configs/model_pricing.yaml` ships in the worker image (KI-196, 2026-10-06).
 - Command Safety Evaluator -- blocklist + regex matching.
 - Branch Isolation -- never on main, always feature branch.
 - Test/Lint Gate -- deliver only when tests + lint pass.
