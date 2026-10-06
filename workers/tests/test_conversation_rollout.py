@@ -19,6 +19,9 @@ class _FakeWorkspace:
     async def capture(self) -> str:
         return "tree"
 
+    async def changed_since_capture(self) -> bool:
+        return False
+
     async def reset(self) -> None:
         return None
 

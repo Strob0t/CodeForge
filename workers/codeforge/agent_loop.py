@@ -1151,12 +1151,17 @@ class _RolloutWorkspace:
     stash entry is created. A rollout may check out another branch: HEAD is
     pointed back at the start branch (or the start commit, when it was
     detached) before every reset, so a reset never moves that other branch.
+
+    No rollout runs between a capture and the next reset or keep: a change
+    then (another turn or run, the user) is not a rollout's, and
+    ``changed_since_capture`` reports it before anything is reset.
     """
 
     def __init__(self, path: str) -> None:
         self._path = path
         self._head = ""
         self._ref = ""  # the start branch (refs/heads/...), or "HEAD" when detached
+        self._captured = ""  # the workspace's status right after the last capture
 
     async def start(self) -> str:
         """Record the start commit and branch; return why rollouts cannot run here, or ""."""
@@ -1171,7 +1176,19 @@ class _RolloutWorkspace:
     async def capture(self) -> str:
         """Record the working tree (every file but ignored ones) as a git tree."""
         await _run_git(self._path, "add", "--all")
-        return (await _run_git(self._path, "write-tree")).strip()
+        tree = (await _run_git(self._path, "write-tree")).strip()
+        self._captured = await self._status()
+        return tree
+
+    async def _status(self) -> str:
+        # Porcelain v2 with --branch names HEAD's commit and branch and the
+        # index object of every entry, so a commit, a checkout, a staged or an
+        # unstaged change and a new file each change it.
+        return await _run_git(self._path, "status", "--porcelain=v2", "--branch", "--untracked-files=all")
+
+    async def changed_since_capture(self) -> bool:
+        """Report whether the workspace changed after the last capture (no rollout ran since)."""
+        return await self._status() != self._captured
 
     async def _restore_head(self) -> None:
         """Point HEAD at the start branch, or detach it at the start commit; files stay as they are."""
@@ -1249,9 +1266,13 @@ class ConversationRolloutExecutor:
         total_tokens_in = 0
         total_tokens_out = 0
         early_stopped = False
+        workspace_changed = False
 
         for rollout_id in range(self._rollout_count):
             if rollout_id > 0:
+                if await workspace.changed_since_capture():
+                    workspace_changed = True
+                    break
                 await workspace.reset()
             config.rollout_id = rollout_id
             result = await self._executor.run(list(messages), config=config)
@@ -1269,13 +1290,28 @@ class ConversationRolloutExecutor:
                 break
 
         scores = [compute_rollout_score(r) for r in results]
-        best_idx = select_best_rollout(results, scores)
-        best = results[best_idx]
         # The workspace ends with the rollout that is reported.
-        await workspace.keep(trees[best_idx])
+        if workspace_changed or await workspace.changed_since_capture():
+            # Someone else wrote to the workspace: nothing is reset, so it
+            # holds the last rollout and that change (KI-195).
+            workspace_changed = True
+            best_idx = len(results) - 1
+            await self._report_workspace_changed(best_idx)
+        else:
+            best_idx = select_best_rollout(results, scores)
+            await workspace.keep(trees[best_idx])
+        best = results[best_idx]
         await self._publish_rollout_trajectory(
             total_rollouts=len(results), selected_index=best_idx, scores=scores, early_stopped=early_stopped
         )
+        metadata: dict[str, object] = {
+            "rollout_count": len(results),
+            "selected_index": best_idx,
+            "scores": scores,
+            "early_stopped": early_stopped,
+        }
+        if workspace_changed:
+            metadata["stopped_reason"] = "workspace_changed"
 
         return AgentLoopResult(
             final_content=best.final_content,
@@ -1286,13 +1322,16 @@ class ConversationRolloutExecutor:
             step_count=best.step_count,
             model=best.model,
             error=best.error,
-            metadata={
-                "rollout_count": len(results),
-                "selected_index": best_idx,
-                "scores": scores,
-                "early_stopped": early_stopped,
-            },
+            metadata=metadata,
         )
+
+    async def _report_workspace_changed(self, last_idx: int) -> None:
+        logger.warning("workspace changed outside the rollouts, stopping after rollout %d", last_idx + 1)
+        if self._runtime is not None:
+            await self._runtime.send_output(
+                "\n[Multi-rollout stopped: the workspace changed outside the rollouts. It is left as it is, "
+                f"with the changes of rollout {last_idx + 1}.]\n"
+            )
 
     async def _publish_rollout_trajectory(
         self, total_rollouts: int, selected_index: int, scores: list[float], early_stopped: bool

@@ -233,3 +233,42 @@ async def test_a_rollout_that_checks_out_a_branch_leaves_its_commits_intact(repo
     assert seen_refs == [start_ref] * 3
     assert _git(repo, "rev-parse", "--symbolic-full-name", "HEAD") == start_ref
     assert _git(repo, "rev-parse", "HEAD") == head
+
+
+@pytest.mark.parametrize(
+    ("rollouts_before_change", "rollout_count"),
+    [(1, 3), (2, 2)],  # before a reset between rollouts; before the best rollout is kept
+)
+async def test_a_change_no_rollout_wrote_stops_the_rollouts_and_is_kept(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, rollouts_before_change: int, rollout_count: int
+) -> None:
+    """Another turn or the user wrote to the workspace after a rollout: nothing is reset or deleted."""
+    real_capture = agent_loop._RolloutWorkspace.capture
+    captures = 0
+
+    async def capture_then_someone_writes(self: agent_loop._RolloutWorkspace) -> str:
+        nonlocal captures
+        tree = await real_capture(self)
+        captures += 1
+        if captures == rollouts_before_change:
+            (repo / "user.txt").write_text("written meanwhile\n")
+        return tree
+
+    monkeypatch.setattr(agent_loop._RolloutWorkspace, "capture", capture_then_someone_writes)
+    rollouts = _Rollouts(repo)
+    runtime = AsyncMock()
+    executor = ConversationRolloutExecutor(
+        rollouts, rollout_count=rollout_count, workspace_path=str(repo), runtime=runtime
+    )  # type: ignore[arg-type]
+
+    result = await executor.execute([{"role": "user", "content": "x"}], LoopConfig())
+
+    assert rollouts.n == rollouts_before_change
+    assert (repo / "user.txt").read_text() == "written meanwhile\n"
+    # The workspace holds the last rollout, which is the one reported.
+    assert (repo / f"rollout{rollouts_before_change}.txt").exists()
+    assert result.final_content == f"rollout {rollouts_before_change}"
+    assert result.metadata["selected_index"] == rollouts_before_change - 1
+    assert result.metadata["stopped_reason"] == "workspace_changed"
+    outputs = " ".join(str(c.args[0]) for c in runtime.send_output.await_args_list)
+    assert "changed outside the rollouts" in outputs
