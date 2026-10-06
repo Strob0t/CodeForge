@@ -526,6 +526,8 @@ const en = {
   "retrieval.files": "Files",
   "retrieval.chunks": "Chunks",
   "retrieval.model": "Model",
+  "retrieval.bm25Only":
+    "Semantic search is off: no embedding model can be used, so the index ranks by keywords (BM25) only.",
   "retrieval.indexError": "Index error:",
   "retrieval.searchPlaceholder": "Search code...",
   "retrieval.agentSearchPlaceholder": "Describe what you're looking for...",

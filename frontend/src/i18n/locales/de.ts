@@ -518,6 +518,8 @@ const de: Translations = {
   "retrieval.files": "Dateien",
   "retrieval.chunks": "Fragmente",
   "retrieval.model": "Modell",
+  "retrieval.bm25Only":
+    "Semantische Suche ist aus: Kein Embedding-Modell ist nutzbar, der Index sucht nur nach Stichworten (BM25).",
   "retrieval.indexError": "Indexfehler:",
   "retrieval.searchPlaceholder": "Code durchsuchen\u2026",
   "retrieval.agentSearchPlaceholder": "Beschreiben Sie, wonach Sie suchen\u2026",
