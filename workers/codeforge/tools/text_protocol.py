@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from codeforge.history import estimate_messages_tokens
-from codeforge.llm import ToolCallPart
+from codeforge.llm import ToolCallPart, strip_think_blocks
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -583,7 +583,8 @@ def parse_tool_turn(text: str, tool_names: Sequence[str], *, truncated: bool = F
         return TextProtocolError("the reply ended inside a <think> block without a JSON object")
     if _CALL_HINT.search(window):
         return TextProtocolError(f"the tool call could not be read; {_WRITE_ONE_OBJECT}")
-    return TextFinal(content=_utf8_safe(body.strip()))
+    # A prose answer: think blocks between its parts go, as in the content of a native reply.
+    return TextFinal(content=_utf8_safe(strip_think_blocks(body).strip()))
 
 
 def _strip_reasoning(text: str) -> tuple[str, bool]:

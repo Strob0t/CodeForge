@@ -237,6 +237,17 @@ READ = {"file_path": "a.py"}
             _call("bash", {"command": "ls"}, "t"),
             id="prose-brace-in-reasoning",
         ),
+        # Round 2, D: think blocks between the parts of a prose answer.
+        pytest.param(
+            "<think>a</think>Answer 1 <think>b</think> part 2",
+            TextFinal(content="Answer 1  part 2"),
+            id="interleaved-blocks-in-a-prose-answer",
+        ),
+        pytest.param(
+            "plan</think>Answer <think>x</think>done",
+            TextFinal(content="Answer done"),
+            id="interleaved-block-after-template-reasoning",
+        ),
     ],
 )
 def test_parse(text: str, expected: TextToolCall | TextFinal) -> None:

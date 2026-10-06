@@ -42,7 +42,7 @@ _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
 
 
-def _strip_think_blocks(text: str) -> str:
+def strip_think_blocks(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from assembled LLM output.
 
     Each block ends at the first closing tag after its opening tag; an
@@ -811,7 +811,7 @@ class LiteLLMClient:
         tokens_in = usage.get("prompt_tokens", 0) if isinstance(usage, dict) else 0
         tokens_out = usage.get("completion_tokens", 0) if isinstance(usage, dict) else 0
         return ChatCompletionResponse(
-            content=_strip_think_blocks(str(content)),
+            content=strip_think_blocks(str(content)),
             tool_calls=tool_calls,
             finish_reason=str(finish_reason),
             tokens_in=int(tokens_in),
@@ -906,7 +906,7 @@ class LiteLLMClient:
             raw_content = "".join(acc.content_parts)
 
             return ChatCompletionResponse(
-                content=_strip_think_blocks(raw_content),
+                content=strip_think_blocks(raw_content),
                 tool_calls=tool_calls,
                 finish_reason=acc.finish_reason,
                 tokens_in=int(acc.tokens_in),
