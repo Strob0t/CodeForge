@@ -108,6 +108,7 @@ const de: Translations = {
   "dashboard.form.branch": "Branch",
   "dashboard.form.branchPlaceholder": "Standard-Branch",
   "dashboard.form.branchLoading": "Branches werden geladen...",
+  "dashboard.health.noRuns": "Keine Runs in den letzten 7 Tagen",
   "dashboard.loading": "Projekte werden geladen\u2026",
   "dashboard.loadError": "Projekte konnten nicht geladen werden.",
   "dashboard.empty": "Noch keine Projekte. Erstellen Sie ein neues, um zu beginnen.",

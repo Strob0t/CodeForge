@@ -106,6 +106,7 @@ const en = {
   "dashboard.form.branch": "Branch",
   "dashboard.form.branchPlaceholder": "Default branch",
   "dashboard.form.branchLoading": "Loading branches...",
+  "dashboard.health.noRuns": "No runs in the last 7 days",
   "dashboard.loading": "Loading projects...",
   "dashboard.loadError": "Failed to load projects.",
   "dashboard.empty": "No projects yet. Create one to get started.",

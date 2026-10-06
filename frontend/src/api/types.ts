@@ -1874,9 +1874,12 @@ export interface ProjectHealthStats {
   last_activity_at: string;
 }
 
+/** "unknown": no runs in the last 7 days, so the score has no evidence (KI-129). */
+export type HealthLevel = "healthy" | "warning" | "critical" | "unknown";
+
 export interface ProjectHealth {
   score: number;
-  level: "healthy" | "warning" | "critical";
+  level: HealthLevel;
   factors: HealthFactors;
   sparkline_7d: number[];
   stats: ProjectHealthStats;

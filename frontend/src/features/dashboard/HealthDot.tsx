@@ -1,15 +1,19 @@
 import { type Component, createSignal, For, Show } from "solid-js";
 
-import type { HealthFactors } from "~/api/types";
+import type { HealthFactors, HealthLevel } from "~/api/types";
+import { useI18n } from "~/i18n";
 
 interface HealthDotProps {
   score: number;
-  level: "healthy" | "warning" | "critical";
+  level: HealthLevel;
   factors: HealthFactors;
 }
 
 const HealthDot: Component<HealthDotProps> = (props) => {
+  const { t } = useI18n();
   const [showTooltip, setShowTooltip] = createSignal(false);
+  // A project without runs has no evidence for a score (KI-129).
+  const unknown = () => props.level === "unknown";
 
   const color = () => {
     switch (props.level) {
@@ -19,6 +23,8 @@ const HealthDot: Component<HealthDotProps> = (props) => {
         return "bg-[var(--cf-warning)]";
       case "critical":
         return "bg-[var(--cf-danger)]";
+      case "unknown":
+        return "bg-[var(--cf-text-muted)]";
     }
   };
 
@@ -38,12 +44,12 @@ const HealthDot: Component<HealthDotProps> = (props) => {
     >
       <span
         class={`inline-block h-3 w-3 rounded-full ${color()}`}
-        title={`Health: ${props.score}`}
+        title={unknown() ? t("dashboard.health.noRuns") : `Health: ${props.score}`}
       />
       <Show when={showTooltip()}>
         <div class="absolute left-5 top-0 z-50 w-56 rounded-lg border border-[var(--cf-border)] bg-[var(--cf-bg-surface)] p-3 shadow-lg">
           <p class="mb-2 text-sm font-bold text-[var(--cf-text-primary)]">
-            Health Score: {props.score}
+            {unknown() ? t("dashboard.health.noRuns") : `Health Score: ${props.score}`}
           </p>
           <div class="space-y-1.5">
             <For each={factorRows()}>

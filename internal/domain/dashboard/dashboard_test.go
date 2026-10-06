@@ -81,3 +81,30 @@ func TestHealthLevel(t *testing.T) {
 		}
 	}
 }
+
+// KI-129: a project without runs in the scoring window has no evidence for
+// its health; its neutral factors (no errors, stable cost) score 35, which
+// must not rate it critical.
+func TestProjectHealthLevel(t *testing.T) {
+	tests := []struct {
+		name   string
+		score  int
+		runs7d int
+		want   string
+	}{
+		{"no runs, default factors", 35, 0, dashboard.HealthUnknown},
+		{"no runs, zero score", 0, 0, dashboard.HealthUnknown},
+		{"no runs, high score", 90, 0, dashboard.HealthUnknown},
+		{"negative run count", 35, -1, dashboard.HealthUnknown},
+		{"one run, low score", 35, 1, "critical"},
+		{"one run, warning", 40, 1, "warning"},
+		{"many runs, healthy", 75, 100, "healthy"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dashboard.ProjectHealthLevel(tt.score, tt.runs7d); got != tt.want {
+				t.Errorf("ProjectHealthLevel(%d, %d) = %q, want %q", tt.score, tt.runs7d, got, tt.want)
+			}
+		})
+	}
+}

@@ -53,6 +53,21 @@ func HealthLevel(score int) string {
 	}
 }
 
+// HealthUnknown is the level of a project without runs in the scoring
+// window. Its factors then fall back to neutral values (no errors, stable
+// cost) that score 35, which would rate a new project critical without any
+// evidence (KI-129).
+const HealthUnknown = "unknown"
+
+// ProjectHealthLevel returns the health level of a project whose score was
+// computed from runs7d runs in the last 7 days.
+func ProjectHealthLevel(score, runs7d int) string {
+	if runs7d <= 0 {
+		return HealthUnknown
+	}
+	return HealthLevel(score)
+}
+
 // ProjectHealth holds the complete health response for a single project.
 type ProjectHealth struct {
 	Score     int                `json:"score"`
