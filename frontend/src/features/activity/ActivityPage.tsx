@@ -1,6 +1,7 @@
 import { useSearchParams } from "@solidjs/router";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
+import type { DeliveryStatus } from "~/api/types";
 import type { WSMessage } from "~/api/websocket";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { severityVariant } from "~/config/statusVariants";
@@ -20,6 +21,20 @@ interface ActivityEntry {
 }
 
 const MAX_ENTRIES = 200;
+
+const DELIVERY_SEVERITY: Record<DeliveryStatus, ActivityEntry["severity"]> = {
+  started: "info",
+  completed: "success",
+  partial: "warning", // the branch was pushed, the pull request was not opened
+  failed: "error",
+};
+
+/** Severity of a run.delivery status; an unknown status is info. */
+export function deliverySeverity(status: string): ActivityEntry["severity"] {
+  return Object.hasOwn(DELIVERY_SEVERITY, status)
+    ? DELIVERY_SEVERITY[status as DeliveryStatus]
+    : "info";
+}
 
 let nextId = 0;
 
@@ -105,7 +120,7 @@ function classifyMessage(msg: WSMessage): ActivityEntry | null {
         type: msg.type,
         projectId,
         summary: `Delivery ${status}`,
-        severity: status === "completed" ? "success" : status === "failed" ? "error" : "info",
+        severity: deliverySeverity(status),
       };
     }
     case "agent.status": {

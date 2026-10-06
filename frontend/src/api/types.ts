@@ -367,6 +367,10 @@ export interface ReviewDecision {
   suggested_reviewers: string[];
 }
 
+/** WS event run.delivery: status of a run's delivery ("partial": the branch
+ * was pushed, the pull request was not opened) */
+export type DeliveryStatus = "started" | "completed" | "partial" | "failed";
+
 /** WS event: multi-agent debate status */
 export interface DebateStatusEvent {
   plan_id: string;

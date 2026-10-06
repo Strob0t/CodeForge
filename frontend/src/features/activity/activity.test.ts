@@ -38,4 +38,16 @@ describe("Activity Feature", () => {
     expect(mod.ActivityContent).toBeDefined();
     expect(typeof mod.ActivityContent).toBe("function");
   });
+
+  // A partial delivery (branch pushed, pull request not opened) needs the
+  // user's attention: a warning, not an info line.
+  it.each([
+    ["completed", "success"],
+    ["partial", "warning"],
+    ["failed", "error"],
+    ["started", "info"],
+  ] as const)("shows a %s delivery as %s", async (status, severity) => {
+    const mod = await import("./ActivityPage");
+    expect(mod.deliverySeverity(status)).toBe(severity);
+  });
 });

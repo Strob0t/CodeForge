@@ -21,6 +21,7 @@ const TIER_MAP: Record<string, number> = {
   "run.stall_detected": 1,
   "run.budget_alert": 2,
   "run.qualitygate.failed": 2,
+  "run.delivery.partial": 2, // branch pushed, pull request not opened
   "run.completed": 3,
   "run.delivery.completed": 3,
   "plan.completed": 3,
