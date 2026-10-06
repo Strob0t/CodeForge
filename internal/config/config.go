@@ -302,6 +302,10 @@ type SVN struct {
 	// from the agent-writable wc.db and read any repository on the Go Core
 	// host. Default: false.
 	AllowFileURLs bool `yaml:"allow_file_urls"`
+	// AllowedPrivateHosts are the host names, IP addresses and CIDR prefixes
+	// of private (and, listed explicitly, loopback) SVN servers svn may
+	// contact; link-local and metadata addresses stay refused. Default: none.
+	AllowedPrivateHosts []string `yaml:"allowed_private_hosts"`
 }
 
 // Orchestrator holds multi-agent execution plan configuration.

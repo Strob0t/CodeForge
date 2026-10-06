@@ -44,6 +44,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 	"github.com/Strob0t/CodeForge/internal/proctemp"
 )
@@ -63,15 +64,27 @@ type Provider struct {
 	// repo_url, set by the project service): svn contacts only URLs inside
 	// the project it names (contactable).
 	repoURL string
+	// outbound decides which hosts svn may contact (contactable):
+	// svn.allowed_private_hosts, never link-local or metadata addresses.
+	outbound *netutil.OutboundPolicy
 
 	configOnce sync.Once
 	configDir  string
 	configErr  error
 }
 
+// noPrivateHosts is the outbound policy without an allowlist.
+var noPrivateHosts = func() *netutil.OutboundPolicy {
+	policy, err := netutil.NewOutboundPolicy(nil)
+	if err != nil {
+		panic(fmt.Sprintf("svn: outbound policy without allowlist: %v", err)) // only a bad entry fails
+	}
+	return policy
+}()
+
 // NewProvider creates an SVN provider that limits concurrent operations via pool.
 func NewProvider(pool *git.Pool) *Provider {
-	return &Provider{pool: pool, execCommand: exec.CommandContext}
+	return &Provider{pool: pool, execCommand: exec.CommandContext, outbound: noPrivateHosts}
 }
 
 // Name returns "svn".
@@ -117,7 +130,7 @@ func (p *Provider) Clone(ctx context.Context, url, destPath string, opts ...gitp
 
 	o := gitprovider.ApplyCloneOptions(opts)
 	checkoutURL := resolveBranchURL(url, o.Branch)
-	if err := p.contactable(checkoutURL); err != nil {
+	if err := p.contactable(ctx, checkoutURL); err != nil {
 		return err
 	}
 
@@ -278,7 +291,7 @@ func (p *Provider) ListBranches(ctx context.Context, repoPath string) ([]project
 
 		// List branches
 		branchesURL := baseURL + "/branches"
-		if err := p.contactable(branchesURL); err != nil {
+		if err := p.contactable(ctx, branchesURL); err != nil {
 			return err
 		}
 		out, err := p.runSVN(ctx, "", "ls", branchesURL)
@@ -330,7 +343,7 @@ func (p *Provider) Checkout(ctx context.Context, repoPath, branch string) error 
 		} else {
 			targetURL = baseURL + "/branches/" + branch
 		}
-		if err := p.contactable(targetURL); err != nil {
+		if err := p.contactable(ctx, targetURL); err != nil {
 			return err
 		}
 
@@ -385,7 +398,7 @@ func (p *Provider) checkWorkingCopyURL(ctx context.Context, repoPath string) err
 	if err != nil {
 		return fmt.Errorf("svn: get working copy URL: %w", err)
 	}
-	return p.contactable(strings.TrimSpace(out))
+	return p.contactable(ctx, strings.TrimSpace(out))
 }
 
 // layoutBase returns the URL that trunk/ and branches/ are below: the
@@ -409,8 +422,11 @@ func (p *Provider) layoutBase(ctx context.Context, repoPath string) (string, err
 // the configured credentials to that server, and the URL may come from the
 // agent-writable wc.db. With credentials configured the project's URL is
 // required.
-func (p *Provider) contactable(raw string) error {
+func (p *Provider) contactable(ctx context.Context, raw string) error {
 	if err := p.checkRepositoryURL(raw); err != nil {
+		return err
+	}
+	if err := p.checkHost(ctx, raw); err != nil {
 		return err
 	}
 	if p.repoURL == "" {
@@ -424,6 +440,32 @@ func (p *Provider) contactable(raw string) error {
 	scope, ok2 := parseLocation(base)
 	if !ok1 || !ok2 || !target.within(scope) {
 		return fmt.Errorf("svn: %q is outside the project's repository %q (same scheme, host and port, a path below it): %w", raw, base, errUnsafeWorkingCopy)
+	}
+	return nil
+}
+
+// checkHost refuses a URL whose host resolves to an address the outbound
+// policy refuses (S10-D review): link-local and metadata addresses always,
+// private and loopback ones unless svn.allowed_private_hosts names them.
+// svn resolves the name again when it connects; a lookup error is left to
+// svn, which fails the same way.
+func (p *Provider) checkHost(ctx context.Context, raw string) error {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("svn: repository URL %q: %w", raw, err)
+	}
+	if strings.EqualFold(u.Scheme, "file") {
+		return nil
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("svn: repository URL %q has no host: %w", raw, errUnsafeWorkingCopy)
+	}
+	policy := p.outbound
+	if policy == nil {
+		policy = noPrivateHosts
+	}
+	if err := policy.CheckHost(ctx, u.Hostname()); errors.Is(err, netutil.ErrAddressRefused) {
+		return fmt.Errorf("svn: %q: %w; only the platform operator can allow it (svn.allowed_private_hosts)", raw, err)
 	}
 	return nil
 }

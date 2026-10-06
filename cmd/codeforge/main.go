@@ -185,6 +185,9 @@ func run() error {
 	slog.Info("git worker pool initialized", "max_concurrent", cfg.Git.MaxConcurrent,
 		"command_timeout", cfg.Git.CommandTimeout, "network_timeout", cfg.Git.NetworkTimeout)
 	svn.SetAllowFileURLs(cfg.SVN.AllowFileURLs)
+	if err := svn.SetAllowedPrivateHosts(cfg.SVN.AllowedPrivateHosts); err != nil {
+		return err
+	}
 
 	// --- Agent Backends ---
 	aider.Register(queue)

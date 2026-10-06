@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Strob0t/CodeForge/internal/netutil"
 )
 
 // KI-87: the SVN password never appears on svn's command line, which every
@@ -173,9 +175,14 @@ func TestSVN_PasswordFromStdinWithRealServer(t *testing.T) {
 	}
 
 	url := "svn://" + addr + "/repo"
+	loopback, err := netutil.NewOutboundPolicy([]string{"127.0.0.1"}) // as svn.allowed_private_hosts would
+	if err != nil {
+		t.Fatal(err)
+	}
 	newProvider := func(password string) *Provider {
 		p := NewProvider(nil)
 		p.username, p.password, p.repoURL = "alice", password, url
+		p.outbound = loopback
 		return p
 	}
 	ctx := context.Background()

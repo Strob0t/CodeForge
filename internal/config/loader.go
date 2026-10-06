@@ -236,6 +236,7 @@ func loadEnv(cfg *Config) error {
 	setTyped(&errs, &cfg.Git.CommandTimeout, "CODEFORGE_GIT_COMMAND_TIMEOUT", time.ParseDuration)
 	setTyped(&errs, &cfg.Git.NetworkTimeout, "CODEFORGE_GIT_NETWORK_TIMEOUT", time.ParseDuration)
 	setTyped(&errs, &cfg.SVN.AllowFileURLs, "CODEFORGE_SVN_ALLOW_FILE_URLS", strconv.ParseBool)
+	setStringSlice(&cfg.SVN.AllowedPrivateHosts, "CODEFORGE_SVN_ALLOWED_PRIVATE_HOSTS")
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
@@ -601,6 +602,9 @@ func validate(cfg *Config) error {
 	}
 	if _, err := netutil.NewOutboundPolicy(cfg.PM.AllowedPrivateHosts); err != nil {
 		return fmt.Errorf("pm.allowed_private_hosts: %w", err)
+	}
+	if _, err := netutil.NewOutboundPolicy(cfg.SVN.AllowedPrivateHosts); err != nil {
+		return fmt.Errorf("svn.allowed_private_hosts: %w", err)
 	}
 
 	// Without auth every request acts as a platform admin (KI-213).

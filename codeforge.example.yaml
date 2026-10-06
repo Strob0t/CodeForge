@@ -93,6 +93,12 @@ svn:
   # Allow local (file://) SVN repositories (KI-189). Off: such a URL can come
   # from the agent-writable working copy and read any repository on the host.
   allow_file_urls: false
+  # Private SVN servers svn may contact: host names, IP addresses or CIDR
+  # prefixes (loopback only when listed explicitly). Link-local and cloud
+  # metadata addresses are always refused. Default: none.
+  # Env: CODEFORGE_SVN_ALLOWED_PRIVATE_HOSTS (comma-separated).
+  # allowed_private_hosts:
+  #   - svn.corp.internal
 
 # Project workspaces (<root>/<tenant>/<project>)
 workspace:
