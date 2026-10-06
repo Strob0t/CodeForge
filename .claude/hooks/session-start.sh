@@ -53,7 +53,8 @@ if ! go version -m "$GOBIN/gopls" 2>/dev/null | grep -q "golang.org/x/tools/gopl
 fi
 
 env_line "export GOTOOLCHAIN=$GO_TOOLCHAIN"
-env_line "export PATH=\"$GOBIN:\$PATH\""
+# Idempotent: the env file is sourced on every start of a long-lived session (KI-226).
+env_line "case \":\$PATH:\" in *\":$GOBIN:\"*) ;; *) export PATH=\"$GOBIN:\$PATH\" ;; esac"
 
 # -- Python (Poetry, Python 3.12 like CI) ----------------------------------
 log "poetry install ($PYTHON)"
