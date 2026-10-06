@@ -97,9 +97,10 @@ var allowedKeys = map[string]bool{
 	"gpg.format":              true,
 	"extensions.objectformat": true,
 	// push, fetch, pull, checkout: recursion and signing are overridden on
-	// the command line; everything else here is data.
+	// the command line; everything else here is data. PushBranch pushes from
+	// a private repository, so no push.* key of the workspace reaches it.
 	"push.default": true, "push.autosetupremote": true, "push.followtags": true, "push.recursesubmodules": true,
-	"push.gpgsign": true, "push.pushoption": true, "push.negotiate": true, "push.useforceifincludes": true,
+	"push.gpgsign": true, "push.negotiate": true, "push.useforceifincludes": true,
 	"push.usebitmaps":         true,
 	"fetch.recursesubmodules": true, "fetch.fsckobjects": true, "fetch.unpacklimit": true, "fetch.prune": true,
 	"fetch.prunetags": true, "fetch.all": true, "fetch.output": true, "fetch.negotiationalgorithm": true,
@@ -130,7 +131,10 @@ var allowedSubsectionKeys = map[string]bool{
 var networkOnlySections = map[string]bool{"http": true, "protocol": true, "url": true}
 
 var networkOnlyKeys = map[string]bool{
-	"fetch.bundleuri": true,
+	"fetch.bundleuri": true, "transfer.bundleuri": true,
+	// Push options reach the server's hooks: on GitLab merge_request.create,
+	// ci.variable, ci.skip (PushBranch also clears them on the command line).
+	"push.pushoption": true,
 	"remote.proxy":    true, "remote.proxyauthmethod": true, "remote.serveroption": true,
 }
 
