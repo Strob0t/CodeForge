@@ -115,7 +115,7 @@ _PROSE_TAIL = re.compile(r"(?:```[\w-]*|<tool_call>|\[)\s*$")
 # A reply that looks like a call without a usable object: protocol keys (also
 # single-quoted), a <tool_call> block or ReAct's "Action Input:" line.
 _CALL_HINT = re.compile(
-    r"""["'](?:tool|function|action|final|args|arguments|thought)["']\s*:|<tool_call>|^\s*Action Input\s*:""",
+    r"""["'](?:tool|function|action|final|args|arguments|thought)["']\s*:|<tool_call>|^[ \t]*Action Input[ \t]*:""",
     re.MULTILINE,
 )
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")

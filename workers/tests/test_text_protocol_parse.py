@@ -362,6 +362,27 @@ def test_think_handling_is_linear(text: str) -> None:
     assert elapsed < 0.5
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("x" + "\n" * 40_000, id="newlines"),
+        pytest.param("x" + " \n\t" * 40_000 + "Action", id="whitespace-lines"),
+    ],
+)
+def test_the_call_check_is_linear(text: str) -> None:
+    """S9-C review: ^\\s*Action Input\\s*: in MULTILINE mode was quadratic over blank lines."""
+    elapsed, result = _elapsed(text)
+
+    assert elapsed < 0.5
+    assert isinstance(result, TextFinal)
+
+
+def test_an_indented_react_call_is_still_an_error() -> None:
+    result = _parse('Thought: x\n  Action: bash\n  Action Input: {"command": "ls"}')
+
+    assert isinstance(result, TextProtocolError)
+
+
 def test_a_huge_valid_call_is_parsed() -> None:
     content = "x" * 150_000
     text = '{"thought": "t", "tool": "write_file", "args": {"file_path": "a.txt", "content": "' + content + '"}}'
