@@ -135,6 +135,12 @@ class ProtocolStreamFilter:
         self._capture = None
 
     def _object(self, ch: str) -> None:
+        if self._not_a_key(ch):
+            # A "{" not followed by a key is a brace in prose: show what was
+            # held and read this character as prose (a "{" may start an object).
+            self._end_object()
+            self._prose(ch)
+            return
         if not self._protocol:
             self._held.append(ch)
         if self._in_string:
@@ -151,6 +157,21 @@ class ProtocolStreamFilter:
             self._expect_key = True
         elif self._depth == 1 and ch == ":":
             self._expect_key = False
+
+    def _not_a_key(self, ch: str) -> bool:
+        """Whether *ch* stands where the object's next key must start, but cannot start one.
+
+        Only before the object is known to be a call: a key follows "{" or
+        "," directly (whitespace allowed).
+        """
+        return (
+            not self._protocol
+            and not self._in_string
+            and self._depth == 1
+            and self._expect_key
+            and not ch.isspace()
+            and ch not in '"}'
+        )
 
     def _open_string(self) -> None:
         self._in_string = True
@@ -223,6 +244,7 @@ class ProtocolStreamFilter:
         if self._key is not None:
             self._last_key = "".join(self._key)
             self._key = None
+            self._expect_key = False  # the colon and the value follow
             self._keys.add(self._last_key)
             if self._last_key in TURN_KEYS or ("name" in self._keys and self._keys & {"parameters", "input"}):
                 self._confirm_protocol()

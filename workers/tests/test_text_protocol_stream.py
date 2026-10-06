@@ -222,6 +222,35 @@ def test_a_call_by_tool_name_is_hidden(reply: str) -> None:
     assert _run_with_tools(reply, ("read_file", "bash")) == ""
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param('Use { to open a block. The "args" key holds the list. More text here.', id="mid-line"),
+        pytest.param('{ opens a block; the "tool" key names it.\nMore text.', id="line-start"),
+        pytest.param('A {x, "final": y} set.', id="key-after-a-non-key"),
+    ],
+)
+def test_a_brace_without_a_key_right_after_it_is_prose(reply: str) -> None:
+    """Round 2, E: a protocol word later in the prose hid the rest of the stream."""
+    text, _ = _run(_chars(reply))
+
+    assert text == reply
+
+
+def test_a_call_right_after_a_stray_brace_stays_hidden() -> None:
+    text, _ = _run(_chars('{{"thought": "T", "tool": "bash", "args": {"command": "cat secret"}}}'))
+
+    assert text == "{T"
+
+
+def test_whitespace_before_the_first_key_is_allowed() -> None:
+    reply = '{\n  "thought": "T",\n  "tool": "bash",\n  "args": {"command": "ls"}\n}'
+
+    text, _ = _run(_chars(reply))
+
+    assert text == "T"
+
+
 def test_a_name_that_is_no_tool_is_shown() -> None:
     reply = 'The config:\n{"name": "my-app", "version": "1.0"}'
 
