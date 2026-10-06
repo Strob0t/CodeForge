@@ -140,6 +140,9 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     disposed = true;
   });
   const isCurrent = (gen: number): boolean => !disposed && gen === generation;
+  /** Whether the panel shows projectId: also after a switch away and back,
+   * when the forms and dialogs are new ones but its secrets still belong. */
+  const showsProject = (projectId: string): boolean => !disposed && projectId === props.projectId;
 
   const [webhooks, { refetch }] = createResource(
     () => (canView() ? props.projectId : false),
@@ -261,11 +264,11 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     setSaving(true);
     try {
       const reg = await api.webhooks.create(projectId, req);
-      if (!isCurrent(gen)) {
+      if (!showsProject(projectId)) {
         reportUnseen(reg, CREATED_UNSEEN);
         return;
       }
-      closeForm();
+      if (isCurrent(gen)) closeForm();
       reveal(projectId, reg);
       toast(
         "success",
@@ -323,11 +326,11 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
         target.id,
         given ? rotateSecret() : undefined,
       );
-      if (!isCurrent(gen)) {
+      if (!showsProject(projectId)) {
         reportUnseen(reg, ROTATED_UNSEEN);
         return;
       }
-      setRotateDialog(null);
+      if (isCurrent(gen)) setRotateDialog(null);
       reveal(projectId, reg);
       toast("success", t("webhooks.toast.rotated"));
       void refetch();
@@ -353,11 +356,12 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     const target = deleteTarget();
     if (!target || deleting()) return;
     const gen = generation;
+    const projectId = props.projectId;
     setDeleting(true);
     try {
-      await api.webhooks.delete(props.projectId, target.id);
+      await api.webhooks.delete(projectId, target.id);
       toast("success", t("webhooks.toast.deleted"));
-      if (isCurrent(gen)) void refetch();
+      if (showsProject(projectId)) void refetch();
     } catch (err) {
       const message = extractErrorMessage(err, t("webhooks.toast.deleteFailed"));
       if (isCurrent(gen)) setError(message);
@@ -396,17 +400,16 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     const target = tokenTarget();
     if (!target || savingToken()) return;
     const gen = generation;
+    const projectId = props.projectId;
     setSavingToken(true);
     try {
-      await api.webhooks.setAPIToken(props.projectId, target.id, token);
+      await api.webhooks.setAPIToken(projectId, target.id, token);
       toast(
         "success",
         token === "" ? t("webhooks.toast.apiTokenRemoved") : t("webhooks.toast.apiTokenSaved"),
       );
-      if (isCurrent(gen)) {
-        setTokenDialog(null);
-        void refetch();
-      }
+      if (isCurrent(gen)) setTokenDialog(null);
+      if (showsProject(projectId)) void refetch();
     } catch (err) {
       const message = extractErrorMessage(err, t("webhooks.toast.apiTokenFailed"));
       if (isCurrent(gen)) setTokenError(message);

@@ -500,6 +500,68 @@ describe("WebhooksPanel across project switches", () => {
     expect(screen.queryByDisplayValue("ROTATED_A_0123456789")).toBeNull();
   });
 
+  // S9-D re-review: back on project A, A's answer is A's again.
+  it("shows project A's new secret after a switch to B and back to A", async () => {
+    const answer = deferred<WebhookRegistered>();
+    webhooks.create.mockReturnValue(answer.promise);
+    const panel = renderSwitchable();
+    fireEvent.submit(await openForm());
+    await waitFor(() => expect(webhooks.create).toHaveBeenCalled());
+
+    panel.switchTo("B");
+    await screen.findByDisplayValue(fullURL(endpointOf("B").url));
+    panel.switchTo("A");
+    await screen.findByDisplayValue(fullURL(endpointOf("A").url));
+    answer.resolve(registered(endpointOf("A"), "SECRET_OF_A_0123456789"));
+
+    expect(((await screen.findByTestId("webhook-secret")) as HTMLInputElement).value).toBe(
+      "SECRET_OF_A_0123456789",
+    );
+    expect(screen.getByText("Webhook registered")).toBeTruthy();
+    expect(screen.queryByText(/previous project/)).toBeNull();
+    await waitFor(() => expect(webhooks.list.mock.calls).toEqual([["A"], ["B"], ["A"], ["A"]]));
+  });
+
+  it("shows project A's rotated secret after a switch to B and back to A", async () => {
+    const answer = deferred<WebhookRegistered>();
+    webhooks.rotate.mockReturnValue(answer.promise);
+    const panel = renderSwitchable();
+    fireEvent.click(
+      await screen.findByLabelText("Rotate the secret of the GitHub VCS events webhook"),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate" }));
+    await waitFor(() => expect(webhooks.rotate).toHaveBeenCalled());
+
+    panel.switchTo("B");
+    await screen.findByDisplayValue(fullURL(endpointOf("B").url));
+    panel.switchTo("A");
+    await screen.findByDisplayValue(fullURL(endpointOf("A").url));
+    answer.resolve(registered(endpointOf("A"), "ROTATED_A_0123456789"));
+
+    expect(((await screen.findByTestId("webhook-secret")) as HTMLInputElement).value).toBe(
+      "ROTATED_A_0123456789",
+    );
+    expect(screen.getByText("Secret rotated")).toBeTruthy();
+    expect(screen.queryByText(/previous project/)).toBeNull();
+  });
+
+  it("reloads project A's list when A's delete ends after a switch to B and back", async () => {
+    const answer = deferred<undefined>();
+    webhooks.delete.mockReturnValueOnce(answer.promise);
+    const panel = renderSwitchable();
+    fireEvent.click(await screen.findByLabelText("Delete the GitHub VCS events webhook"));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(webhooks.delete).toHaveBeenCalled());
+
+    panel.switchTo("B");
+    await screen.findByDisplayValue(fullURL(endpointOf("B").url));
+    panel.switchTo("A");
+    await screen.findByDisplayValue(fullURL(endpointOf("A").url));
+    answer.resolve(undefined);
+
+    await waitFor(() => expect(webhooks.list.mock.calls).toEqual([["A"], ["B"], ["A"], ["A"]]));
+  });
+
   it("says a secret rotated after the panel closed must be rotated again", async () => {
     const answer = deferred<WebhookRegistered>();
     webhooks.rotate.mockReturnValue(answer.promise);
