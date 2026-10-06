@@ -1,8 +1,9 @@
-import { createResource, createSignal, For, onMount, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { api } from "~/api/client";
 import type { Project, QuarantineMessage, QuarantineStats, QuarantineStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
+import { useWebSocket } from "~/components/WebSocketProvider";
 import { useAsyncAction } from "~/hooks";
 import { useI18n } from "~/i18n";
 import { extractErrorMessage } from "~/lib/errorUtils";
@@ -113,6 +114,34 @@ export default function QuarantinePage() {
     refetchMessages();
     refetchStats();
   });
+
+  // -- Live updates (KI-142) -----------------------------------------------
+
+  // Messages quarantined or resolved elsewhere (another admin, the expiry
+  // sweep, a sender's withdrawal) show without a reload. A withdrawal names
+  // no project, so a message the page shows also counts by its id.
+  const { onMessage } = useWebSocket();
+  // eslint-disable-next-line solid/reactivity -- subscription callback, not a reactive computation
+  const offQuarantineEvents = onMessage((msg) => {
+    if (msg.type !== "quarantine.alert" && msg.type !== "quarantine.resolved") return;
+    const id = msg.payload.id as string | undefined;
+    const shown = (messages() ?? []).some((m) => m.id === id);
+    const pid = selectedProjectId();
+    if (!pid || (msg.payload.project_id !== pid && !shown)) return;
+    refetchMessages();
+    refetchStats();
+    if (msg.type === "quarantine.resolved") {
+      showResolved(id, resolvedStatus(msg.payload.action as string | undefined));
+    }
+  });
+  onCleanup(offQuarantineEvents);
+
+  /** An open detail or review of a message resolved elsewhere no longer offers a decision. */
+  function showResolved(id: string | undefined, status: QuarantineStatus) {
+    const open = selectedMessage();
+    if (open && open.id === id) setSelectedMessage({ ...open, status });
+    if (reviewTarget()?.id === id && !submitting()) cancelReview();
+  }
 
   // -- Table columns --------------------------------------------------------
 
@@ -471,6 +500,20 @@ export default function QuarantinePage() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The status a quarantine.resolved action leaves: a withdrawal by its
+ * sender is stored as a rejection.
+ */
+function resolvedStatus(action: string | undefined): QuarantineStatus {
+  switch (action) {
+    case "approved":
+    case "expired":
+      return action;
+    default:
+      return "rejected";
+  }
+}
 
 /** Try to pretty-print JSON payloads, fall back to raw string. */
 function formatPayload(payload: string): string {
