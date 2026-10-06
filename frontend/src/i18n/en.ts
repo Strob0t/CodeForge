@@ -1516,6 +1516,7 @@ const en = {
   "a2a.tasks.all": "All",
   "a2a.pushConfigs.url": "Webhook URL",
   "a2a.pushConfigs.token": "Token",
+  "a2a.pushConfigs.tokenSet": "set",
   "a2a.pushConfigs.selectTask": "Select a task",
   "a2a.pushConfigs.create": "Create Push Config",
   "a2a.pushConfigs.empty": "No push configs for this task.",

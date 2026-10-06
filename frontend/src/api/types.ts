@@ -1985,12 +1985,16 @@ export interface SendA2ATaskRequest {
   prompt: string;
 }
 
-/** Matches Go database.A2APushConfig */
+/**
+ * Matches Go database.A2APushConfig as the API returns it (pushConfigView):
+ * has_token for everyone, the token itself to admins only ("" otherwise).
+ */
 export interface A2APushConfig {
   id: string;
   task_id: string;
   url: string;
   token: string;
+  has_token: boolean;
   created_at: string;
 }
 

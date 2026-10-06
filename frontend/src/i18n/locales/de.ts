@@ -1524,6 +1524,7 @@ const de: Translations = {
   "a2a.tasks.all": "Alle",
   "a2a.pushConfigs.url": "Webhook-URL",
   "a2a.pushConfigs.token": "Token",
+  "a2a.pushConfigs.tokenSet": "gesetzt",
   "a2a.pushConfigs.selectTask": "Aufgabe auswaehlen",
   "a2a.pushConfigs.create": "Push-Konfiguration erstellen",
   "a2a.pushConfigs.empty": "Keine Push-Konfigurationen fuer diese Aufgabe.",
