@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from codeforge.consumer._conversation import _detect_frameworks, _find_search_docs_tool, _prefetch_docs
-from codeforge.mcp_models import MCPTool, MCPToolCallResult
+from codeforge.consumer._conversation import _detect_frameworks, _prefetch_docs, _search_docs_tool
+from codeforge.models import ToolCallDecision
+from codeforge.tools import ToolRegistry
+from codeforge.tools._base import ToolDefinition, ToolResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # --- _detect_frameworks tests ---
 
@@ -81,148 +87,134 @@ class TestDetectFrameworks:
         assert frameworks == []
 
 
-# --- _find_search_docs_tool tests ---
+# --- _prefetch_docs: through the tool-call policy (KI-192) ---
+#
+# Before, the prefetch called search_docs on the workbench directly with the
+# user's message: no policy decision, mode denied_tools ignored, supervised
+# and ask-all presets bypassed.
+
+SEARCH_DOCS = "mcp__docs__search_docs"
+LONG_DOCS = "createSignal is a reactive primitive in SolidJS that returns a getter and setter pair. " * 5
 
 
-class TestFindSearchDocsTool:
+class _DocsTool:
+    def __init__(self, result: ToolResult | Exception) -> None:
+        self.calls: list[dict[str, object]] = []
+        self._result = result
+
+    async def execute(self, arguments: dict[str, object], workspace_path: str) -> ToolResult:
+        self.calls.append(arguments)
+        if isinstance(self._result, Exception):
+            raise self._result
+        return self._result
+
+
+def _registry(tool: _DocsTool, *, denied: tuple[str, ...] = ()) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.restrict_to_mode([], list(denied))
+    registry.register(ToolDefinition(name=SEARCH_DOCS, description="Search documentation"), tool)
+    return registry
+
+
+def _runtime(decision: str = "allow") -> MagicMock:
+    runtime = MagicMock()
+    runtime.request_tool_call = AsyncMock(
+        return_value=ToolCallDecision(call_id="call-1", decision=decision, reason="by policy")
+    )
+    runtime.report_tool_result = AsyncMock()
+    return runtime
+
+
+def _solid_workspace(tmp_path: Path) -> str:
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"solid-js": "^1.8.0"}}))
+    return str(tmp_path)
+
+
+def _log() -> object:
+    import structlog
+
+    return structlog.get_logger()
+
+
+class TestSearchDocsTool:
     def test_found(self) -> None:
-        workbench = MagicMock()
-        workbench._tools = [
-            MCPTool(server_id="docs", name="search_docs", description="Search"),
-            MCPTool(server_id="docs", name="scrape_docs", description="Scrape"),
-        ]
-        tool = _find_search_docs_tool(workbench)
-        assert tool is not None
-        assert tool.server_id == "docs"
-        assert tool.name == "search_docs"
+        assert _search_docs_tool(["read_file", "mcp__gh__search_issues", SEARCH_DOCS]) == SEARCH_DOCS
+
+    def test_first_of_several_servers(self) -> None:
+        assert _search_docs_tool(["mcp__z__search_docs", "mcp__a__search_docs"]) == "mcp__a__search_docs"
 
     def test_not_found(self) -> None:
-        workbench = MagicMock()
-        workbench._tools = [
-            MCPTool(server_id="github", name="list_issues", description="List"),
-        ]
-        assert _find_search_docs_tool(workbench) is None
-
-    def test_empty_tools(self) -> None:
-        workbench = MagicMock()
-        workbench._tools = []
-        assert _find_search_docs_tool(workbench) is None
-
-
-# --- _prefetch_docs tests ---
+        assert _search_docs_tool(["mcp__github__list_issues", "search_docs"]) is None
+        assert _search_docs_tool([]) is None
 
 
 class TestPrefetchDocs:
-    @pytest.mark.asyncio
-    async def test_no_workbench(self) -> None:
-        import structlog
+    async def test_allowed_call_is_requested_executed_and_reported(self, tmp_path: Path) -> None:
+        tool = _DocsTool(ToolResult(output=LONG_DOCS))
+        runtime = _runtime()
 
-        log = structlog.get_logger()
-        result = await _prefetch_docs(None, "/tmp", "hello", log)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_no_message(self) -> None:
-        import structlog
-
-        log = structlog.get_logger()
-        workbench = MagicMock()
-        result = await _prefetch_docs(workbench, "/tmp", "", log)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_no_search_docs_tool(self, tmp_path: str) -> None:
-        import structlog
-
-        log = structlog.get_logger()
-        workbench = MagicMock()
-        workbench._tools = []
-        result = await _prefetch_docs(workbench, str(tmp_path), "how to use solidjs", log)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_successful_prefetch(self, tmp_path: str) -> None:
-        import structlog
-
-        log = structlog.get_logger()
-
-        # Set up workspace with solidjs
-        pkg = {"dependencies": {"solid-js": "^1.8.0"}}
-        (tmp_path / "package.json").write_text(json.dumps(pkg))
-
-        # Set up workbench with search_docs tool
-        workbench = MagicMock()
-        workbench._tools = [
-            MCPTool(server_id="docs", name="search_docs", description="Search documentation"),
-        ]
-        workbench.call_tool = AsyncMock(
-            return_value=MCPToolCallResult(
-                success=True,
-                output="createSignal is a reactive primitive in SolidJS that returns a getter and setter pair. " * 5,
-            )
+        result = await _prefetch_docs(
+            _registry(tool), runtime, _solid_workspace(tmp_path), "how to use signals", _log()
         )
 
-        result = await _prefetch_docs(workbench, str(tmp_path), "how to use signals", log)
-        assert len(result) == 1
-        assert result[0].kind == "knowledge"
-        assert result[0].path == "docs/solidjs"
-        assert result[0].priority == 80
+        assert [(e.kind, e.path, e.priority) for e in result] == [("knowledge", "docs/solidjs", 80)]
         assert len(result[0].content) <= 2000
+        assert tool.calls == [{"library": "solidjs", "query": "how to use signals", "limit": 3}]
+        request = runtime.request_tool_call.await_args.kwargs
+        assert request["tool"] == SEARCH_DOCS
+        assert "how to use signals" in request["arguments_preview"]
+        report = runtime.report_tool_result.await_args.kwargs
+        assert (report["call_id"], report["tool"], report["success"]) == ("call-1", SEARCH_DOCS, True)
 
-        # Verify call_tool was called with correct args
-        workbench.call_tool.assert_called_once_with(
-            "docs",
-            "search_docs",
-            {"library": "solidjs", "query": "how to use signals", "limit": 3},
+    @pytest.mark.parametrize("decision", ["deny", "ask"])
+    async def test_a_call_the_policy_does_not_allow_is_not_made(self, tmp_path: Path, decision: str) -> None:
+        tool = _DocsTool(ToolResult(output=LONG_DOCS))
+        runtime = _runtime(decision)
+
+        result = await _prefetch_docs(
+            _registry(tool), runtime, _solid_workspace(tmp_path), "how to use signals", _log()
         )
 
-    @pytest.mark.asyncio
-    async def test_short_output_skipped(self, tmp_path: str) -> None:
-        import structlog
+        assert result == []
+        assert tool.calls == []
+        runtime.report_tool_result.assert_not_awaited()
 
-        log = structlog.get_logger()
+    async def test_a_tool_the_mode_denies_is_not_requested(self, tmp_path: Path) -> None:
+        tool = _DocsTool(ToolResult(output=LONG_DOCS))
+        runtime = _runtime()
 
-        pkg = {"dependencies": {"solid-js": "^1.8.0"}}
-        (tmp_path / "package.json").write_text(json.dumps(pkg))
+        result = await _prefetch_docs(
+            _registry(tool, denied=(SEARCH_DOCS,)), runtime, _solid_workspace(tmp_path), "how to use signals", _log()
+        )
 
-        workbench = MagicMock()
-        workbench._tools = [
-            MCPTool(server_id="docs", name="search_docs", description="Search"),
-        ]
-        workbench.call_tool = AsyncMock(return_value=MCPToolCallResult(success=True, output="No results"))
+        assert result == []
+        runtime.request_tool_call.assert_not_awaited()
+        assert tool.calls == []
 
-        result = await _prefetch_docs(workbench, str(tmp_path), "how to use signals", log)
+    async def test_no_message(self, tmp_path: Path) -> None:
+        runtime = _runtime()
+        tool = _DocsTool(ToolResult(output=LONG_DOCS))
+        assert await _prefetch_docs(_registry(tool), runtime, _solid_workspace(tmp_path), "", _log()) == []
+        runtime.request_tool_call.assert_not_awaited()
+
+    async def test_no_frameworks_detected(self, tmp_path: Path) -> None:
+        runtime = _runtime()
+        tool = _DocsTool(ToolResult(output=LONG_DOCS))
+        assert await _prefetch_docs(_registry(tool), runtime, str(tmp_path), "how to use signals", _log()) == []
+        runtime.request_tool_call.assert_not_awaited()
+
+    async def test_short_output_skipped(self, tmp_path: Path) -> None:
+        tool = _DocsTool(ToolResult(output="No results"))
+        result = await _prefetch_docs(_registry(tool), _runtime(), _solid_workspace(tmp_path), "signals", _log())
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_mcp_error_handled_gracefully(self, tmp_path: str) -> None:
-        import structlog
+    async def test_mcp_error_is_reported_and_handled(self, tmp_path: Path) -> None:
+        tool = _DocsTool(ConnectionError("MCP server down"))
+        runtime = _runtime()
 
-        log = structlog.get_logger()
+        result = await _prefetch_docs(_registry(tool), runtime, _solid_workspace(tmp_path), "signals", _log())
 
-        pkg = {"dependencies": {"solid-js": "^1.8.0"}}
-        (tmp_path / "package.json").write_text(json.dumps(pkg))
-
-        workbench = MagicMock()
-        workbench._tools = [
-            MCPTool(server_id="docs", name="search_docs", description="Search"),
-        ]
-        workbench.call_tool = AsyncMock(side_effect=ConnectionError("MCP server down"))
-
-        result = await _prefetch_docs(workbench, str(tmp_path), "how to use signals", log)
         assert result == []
-
-    @pytest.mark.asyncio
-    async def test_no_frameworks_detected(self, tmp_path: str) -> None:
-        import structlog
-
-        log = structlog.get_logger()
-
-        # Empty workspace, no dependency files
-        workbench = MagicMock()
-        workbench._tools = [
-            MCPTool(server_id="docs", name="search_docs", description="Search"),
-        ]
-
-        result = await _prefetch_docs(workbench, str(tmp_path), "how to use signals", log)
-        assert result == []
+        report = runtime.report_tool_result.await_args.kwargs
+        assert report["success"] is False
+        assert "MCP server down" in report["error"]

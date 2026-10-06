@@ -27,8 +27,9 @@ from codeforge.loop_config import build_loop_config, resolve_model_capability
 from codeforge.model_resolver import NoModelAvailableError
 from codeforge.models import AgentLoopResult, ConversationRunCompleteMessage, ConversationRunStartMessage
 from codeforge.nats_publish import publish_with_retry
+from codeforge.policy_args import policy_request_args
 from codeforge.provider_keys import fallbacks_for_key, model_provider
-from codeforge.runtime import RuntimeClient, heartbeat_interval
+from codeforge.runtime import RuntimeClient, arguments_preview, heartbeat_interval
 from codeforge.tool_identity import ToolIsolationError, tool_tenant
 from codeforge.tools.capability import CapabilityLevel
 from codeforge.tools.text_protocol import HISTORY_RESERVE_TOKENS
@@ -38,9 +39,9 @@ if TYPE_CHECKING:
     import nats.aio.msg
 
     from codeforge.consumer._in_flight import AcceptedWork
-    from codeforge.mcp_models import MCPTool
     from codeforge.mcp_workbench import McpWorkbench
     from codeforge.models import ContextEntry
+    from codeforge.tools import ToolRegistry
 
 logger = structlog.get_logger()
 
@@ -168,55 +169,73 @@ def _detect_frameworks(workspace_path: str) -> list[str]:
     return frameworks[:5]
 
 
-def _find_search_docs_tool(workbench: McpWorkbench) -> MCPTool | None:
-    """Find the search_docs tool in the workbench's discovered tools."""
-    for tool in workbench._tools:
-        if tool.name == "search_docs":
-            return tool
-    return None
+def _search_docs_tool(tool_names: list[str]) -> str | None:
+    """Return the registered docs search tool (``mcp__<server>__search_docs``), or None.
+
+    The registry holds only the tools the agent mode allows, so a tool the
+    mode denies is not found.
+    """
+    return next((n for n in sorted(tool_names) if n.startswith("mcp__") and n.endswith("__search_docs")), None)
 
 
 async def _prefetch_docs(
-    workbench: McpWorkbench,
+    registry: ToolRegistry,
+    runtime: RuntimeClient,
     workspace_path: str,
     user_message: str,
     log: structlog.stdlib.BoundLogger,
 ) -> list[ContextEntry]:
-    """Pre-fetch documentation from docs-mcp-server for detected frameworks."""
+    """Pre-fetch documentation from docs-mcp-server for detected frameworks.
+
+    Every call is a tool call of the turn (KI-192): the Go policy decides it
+    (mode denied tools, supervised presets) and its result is reported; a call
+    the policy does not allow ends the prefetch.
+    """
     from codeforge.models import ContextEntry
 
-    if not workbench or not user_message:
+    if not user_message:
         return []
-
-    search_tool = _find_search_docs_tool(workbench)
-    if search_tool is None:
+    tool = _search_docs_tool(registry.tool_names)
+    if tool is None:
         return []
-
     frameworks = _detect_frameworks(workspace_path)
     if not frameworks:
         return []
 
     entries: list[ContextEntry] = []
     for framework in frameworks[:3]:
+        args: dict[str, object] = {"library": framework, "query": user_message, "limit": 3}
+        command, path = policy_request_args(tool, args, workspace_path)
+        decision = await runtime.request_tool_call(
+            tool=tool, command=command, path=path, arguments_preview=arguments_preview(args)
+        )
+        if decision.decision != "allow":
+            log.info("docs prefetch not allowed", tool=tool, decision=decision.decision, reason=decision.reason)
+            break
         try:
-            result = await workbench.call_tool(
-                search_tool.server_id,
-                "search_docs",
-                {"library": framework, "query": user_message, "limit": 3},
-            )
-            if result and result.output and len(result.output) > 50:
-                entries.append(
-                    ContextEntry(
-                        kind="knowledge",
-                        path=f"docs/{framework}",
-                        content=result.output[:2000],
-                        tokens=len(result.output) // 4,
-                        priority=80,
-                    )
-                )
-                log.info("prefetched docs", framework=framework, chars=len(result.output))
+            result = await registry.execute(tool, args, workspace_path)
         except Exception as exc:
             log.debug("docs prefetch failed", framework=framework, error=str(exc))
+            await runtime.report_tool_result(call_id=decision.call_id, tool=tool, success=False, error=str(exc))
+            continue
+        await runtime.report_tool_result(
+            call_id=decision.call_id,
+            tool=tool,
+            success=result.success,
+            output=result.output[:500] if result.output else "",
+            error=result.error,
+        )
+        if result.success and result.output and len(result.output) > 50:
+            entries.append(
+                ContextEntry(
+                    kind="knowledge",
+                    path=f"docs/{framework}",
+                    content=result.output[:2000],
+                    tokens=len(result.output) // 4,
+                    priority=80,
+                )
+            )
+            log.info("prefetched docs", framework=framework, chars=len(result.output))
 
     return entries
 
@@ -417,7 +436,7 @@ class ConversationHandlerMixin:
         listener sees every cancel published after it (S2-G fix, f2).
         """
         from codeforge.mcp_workbench import McpWorkbench
-        from codeforge.tools import ToolRegistry, build_default_registry
+        from codeforge.tools import build_default_registry
 
         log.info("received conversation run start")
         if run_msg.agentic:
@@ -467,7 +486,7 @@ class ConversationHandlerMixin:
                 registry.merge_mcp_tools(workbench)
                 log.info("mcp tools merged", count=len(workbench.get_tools_for_llm()))
 
-            await self._maybe_prefetch_docs(workbench, run_msg, log)
+            await self._maybe_prefetch_docs(registry, runtime, run_msg, log)
 
             # The turn's message, not the conversation's first one (KI-192).
             user_prompt = last_user_message(run_msg.messages)
@@ -804,15 +823,15 @@ class ConversationHandlerMixin:
 
     @staticmethod
     async def _maybe_prefetch_docs(
-        workbench: McpWorkbench | None,
+        registry: ToolRegistry,
+        runtime: RuntimeClient,
         run_msg: ConversationRunStartMessage,
         log: structlog.stdlib.BoundLogger,
     ) -> None:
-        """Prefetch docs from MCP workbench and append to run_msg.context."""
-        if workbench is None:
-            return
+        """Prefetch docs through the turn's registry and policy; append them to run_msg.context."""
         prefetched = await _prefetch_docs(
-            workbench=workbench,
+            registry=registry,
+            runtime=runtime,
             workspace_path=run_msg.workspace_path,
             user_message=last_user_message(run_msg.messages),
             log=log,
