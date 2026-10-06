@@ -43,7 +43,6 @@ test-results/
 **/e2e/.auth/
 
 # -- IDE ------------------------------------------
-.mcp.json
 .idea/
 *.swp
 *.swo

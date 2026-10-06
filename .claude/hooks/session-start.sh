@@ -13,6 +13,7 @@ fi
 GO_TOOLCHAIN="go1.25.14"      # CI: setup-go "1.25" (latest patch)
 GOLANGCI_LINT_VERSION="2.11.4"
 GOIMPORTS_VERSION="v0.42.0"
+GOPLS_VERSION="v0.21.1"       # gopls MCP server (.mcp.json); v0.22+ need Go 1.26 to build
 PYTHON="python3.12"
 
 cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
@@ -40,6 +41,13 @@ if ! go version -m "$GOBIN/goimports" 2>/dev/null | grep -q "golang.org/x/tools[
   go install "golang.org/x/tools/cmd/goimports@$GOIMPORTS_VERSION" >&2
 fi
 
+# Only the MCP server needs gopls, so a failed install does not stop the hook.
+if ! go version -m "$GOBIN/gopls" 2>/dev/null | grep -q "golang.org/x/tools/gopls[[:space:]]*$GOPLS_VERSION"; then
+  log "installing gopls $GOPLS_VERSION"
+  go install "golang.org/x/tools/gopls@$GOPLS_VERSION" >&2 \
+    || log "gopls install failed; the gopls MCP server will not start"
+fi
+
 env_line "export GOTOOLCHAIN=$GO_TOOLCHAIN"
 env_line "export PATH=\"$GOBIN:\$PATH\""
 
@@ -56,6 +64,18 @@ npm install --prefix frontend --no-audit --no-fund >&2
 log "pre-commit hooks"
 pre-commit install >&2
 pre-commit install-hooks >&2
+
+# -- MCP servers (.mcp.json, best effort) ------------------------------------
+# Claude Code waits 30 s (MCP_TIMEOUT) for a stdio server to start. Fill the npx
+# cache with the package .mcp.json pins, so a start does not download.
+prewarm() {
+  local pkg="$1"; shift
+  [ -n "$pkg" ] || { log "MCP pre-warm: package not found in .mcp.json"; return 0; }
+  log "MCP pre-warm: $pkg"
+  "$@" >/dev/null 2>&1 || log "MCP pre-warm failed: $pkg (its first start may time out)"
+}
+playwright_mcp="$(grep -o '@playwright/mcp@[0-9.]*' .mcp.json || true)"
+prewarm "$playwright_mcp" npx -y "$playwright_mcp" --help
 
 # -- Test services (best effort) ---------------------------------------------
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }

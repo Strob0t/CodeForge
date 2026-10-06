@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "gopls": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["-c", "exec \"$(go env GOPATH)/bin/gopls\" mcp"]
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "exec \"$CLAUDE_PROJECT_DIR/scripts/mcp-playwright.sh\" \"$@\"",
+        "mcp-playwright",
+        "npx",
+        "-y",
+        "@playwright/mcp@0.0.83",
+        "--headless",
+        "--isolated",
+        "--no-webmcp",
+        "--browser",
+        "chromium",
+        "--allowed-origins",
+        "http://localhost:3000;http://localhost:8080",
+        "--output-dir",
+        "/tmp/playwright-mcp"
+      ]
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    }
+  }
+}
