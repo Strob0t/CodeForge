@@ -6,7 +6,6 @@ runs test commands, and feeds results into the evaluation pipeline.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import tempfile
 import time
@@ -15,11 +14,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from codeforge.constants import MAX_WORKSPACE_FILE_BYTES
+from codeforge.constants import MAX_OUTPUT_CHARS, MAX_WORKSPACE_FILE_BYTES
 from codeforge.evaluation.providers.base import ExecutionResult, TaskSpec, ToolCall
 from codeforge.evaluation.runners._base import BaseBenchmarkRunner, RunResult
-from codeforge.subprocess_env import tool_env
-from codeforge.tool_process import start_tool_shell, tool_workspace
+from codeforge.subprocess_utils import run_tool_shell
+from codeforge.tool_process import tool_workspace
 from codeforge.workspace_fs import WorkspaceRoot
 
 if TYPE_CHECKING:
@@ -86,18 +85,16 @@ def _write_initial_files(task: TaskSpec, workspace: Path) -> None:
 
 
 async def _run_test_command(test_command: str, workspace: Path, timeout: int = 60) -> tuple[str, int]:
-    """Run a test command in the workspace and return (output, exit_code)."""
+    """Run a test command in the workspace and return (output, exit_code).
+
+    On a timeout the command and everything it started are killed before
+    the workspace is removed, and its output is capped (KI-194).
+    """
     try:
-        proc = await start_tool_shell(
-            test_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=str(workspace),
-            env=tool_env(),
+        exit_code, output = await run_tool_shell(
+            test_command, cwd=str(workspace), timeout=timeout, max_output=MAX_OUTPUT_CHARS
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        output = stdout.decode("utf-8", errors="replace") if stdout else ""
-        return output, proc.returncode or 0
+        return output, exit_code
     except TimeoutError:
         return f"Test command timed out after {timeout}s", 124
     except OSError as exc:

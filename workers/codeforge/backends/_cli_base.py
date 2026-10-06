@@ -169,27 +169,26 @@ class CLIBackendExecutor(ABC):
             stdout = proc.stdout
             if stdout is None:
                 return TaskResult(status="failed", error=f"Failed to capture {name} stdout")
-            while True:
-                try:
-                    line_bytes = await asyncio.wait_for(stdout.readline(), timeout=timeout)
-                except TimeoutError:
-                    # The finally below stops the process group.
-                    return TaskResult(
-                        status="failed",
-                        output="\n".join(output_lines),
-                        error=f"{self.info.display_name} timed out after {timeout}s",
-                    )
-
-                if not line_bytes:
-                    break
-
-                line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
-                output_lines.append(line)
-
-                if on_output is not None:
-                    await on_output(line)
-
-            await proc.wait()
+            # One deadline for the whole task, not per line: a backend that
+            # keeps printing must time out too (KI-194).
+            deadline = asyncio.timeout(timeout)
+            try:
+                async with deadline:
+                    while line_bytes := await stdout.readline():
+                        line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
+                        output_lines.append(line)
+                        if on_output is not None:
+                            await on_output(line)
+                    await proc.wait()
+            except TimeoutError:
+                if not deadline.expired():
+                    raise  # on_output's own, not the deadline
+                # The finally below stops the process group.
+                return TaskResult(
+                    status="failed",
+                    output="\n".join(output_lines),
+                    error=f"{self.info.display_name} timed out after {timeout}s",
+                )
 
             output = "\n".join(output_lines)
             if proc.returncode == 0:

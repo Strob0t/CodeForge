@@ -12,7 +12,7 @@ import signal
 from codeforge.constants import CLI_CHECK_TIMEOUT_SECONDS
 from codeforge.subprocess_env import tool_env
 from codeforge.tool_identity import system_work, use_identity
-from codeforge.tool_process import start_tool_process, tool_isolation
+from codeforge.tool_process import start_tool_process, start_tool_shell, tool_isolation
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,90 @@ def _signal_group(pgid: object, sig: signal.Signals) -> None:
     # ESRCH: the group is gone; EPERM: its members are exiting (zombies).
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(pgid, sig)
+
+
+def kill_process_group(proc: asyncio.subprocess.Process) -> None:
+    """SIGKILL the process group of *proc* (started with ``start_new_session=True``) at once.
+
+    Synchronous: a cancelled caller runs it before it awaits anything, so
+    nothing the process started survives the cancel (KI-194).
+    """
+    _signal_group(proc.pid, signal.SIGKILL)
+
+
+async def communicate_in_group(proc: asyncio.subprocess.Process, timeout: float) -> tuple[bytes | None, bytes | None]:
+    """``proc.communicate()`` for at most *timeout* seconds; *proc* runs in a process group of its own.
+
+    When it does not end in time (TimeoutError), when the caller is
+    cancelled (a Stop, a run's wall clock, a worker shutdown) and when the
+    wait fails, the whole group is killed: neither the command nor anything
+    it started keeps running or holds its pipes (KI-194).
+    """
+    try:
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        kill_process_group(proc)
+        await proc.wait()
+        raise
+    except BaseException:
+        kill_process_group(proc)
+        raise
+
+
+# How much a read of capped output asks for at once.
+_READ_CHUNK = 64 * 1024
+
+
+async def _read_capped(stream: asyncio.StreamReader | None, limit: int) -> bytes:
+    """Read *stream* to its end, keeping its first and last *limit*/2 bytes (the summary of a
+    test run is at its end); what lies between is dropped, with a note, as it arrives."""
+    if stream is None:
+        return b""
+    half = limit // 2
+    head = bytearray()
+    tail = bytearray()
+    total = 0
+    while chunk := await stream.read(_READ_CHUNK):
+        total += len(chunk)
+        if len(head) < half:
+            room = half - len(head)
+            head += chunk[:room]
+            chunk = chunk[room:]
+        tail += chunk
+        del tail[: max(0, len(tail) - half)]
+    dropped = total - len(head) - len(tail)
+    if dropped <= 0:
+        return bytes(head + tail)
+    return bytes(head) + f"\n\n... {dropped} bytes of output truncated ...\n\n".encode() + bytes(tail)
+
+
+async def run_tool_shell(command: str, *, cwd: str | None, timeout: float, max_output: int) -> tuple[int, str]:
+    """Run a shell *command* for an agent, stdout and stderr together; (exit code, output).
+
+    It runs in a process group of its own for at most *timeout* seconds
+    (then TimeoutError). On a timeout, a cancel or an error the whole group
+    is killed. The output keeps its first and last *max_output*/2 bytes.
+    """
+    proc = await start_tool_shell(
+        command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=cwd,
+        env=tool_env(),
+        start_new_session=True,
+    )
+    try:
+        async with asyncio.timeout(timeout):
+            output = await _read_capped(proc.stdout, max_output)
+            await proc.wait()
+    except TimeoutError:
+        kill_process_group(proc)
+        await proc.wait()
+        raise
+    except BaseException:
+        kill_process_group(proc)
+        raise
+    return proc.returncode or 0, output.decode("utf-8", errors="replace")
 
 
 async def terminate_process_group(

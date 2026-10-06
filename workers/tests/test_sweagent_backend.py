@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from codeforge.backends.sweagent import SweagentExecutor
+
+
+async def _hang() -> bytes:
+    """A CLI that prints nothing and never ends: the task's deadline expires (KI-194)."""
+    await asyncio.Event().wait()
+    return b""
 
 
 class TestSweagentInfo:
@@ -104,7 +111,7 @@ class TestSweagentExecute:
         mock_proc = AsyncMock()
         mock_proc.returncode = None
         mock_proc.stdout = AsyncMock()
-        mock_proc.stdout.readline = AsyncMock(side_effect=TimeoutError)
+        mock_proc.stdout.readline = AsyncMock(side_effect=_hang)
         mock_proc.terminate = AsyncMock()
         mock_proc.wait = AsyncMock()
         mock_proc.kill = AsyncMock()

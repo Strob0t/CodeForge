@@ -10,6 +10,7 @@ from typing import Any
 
 from codeforge.constants import MAX_SEARCH_MATCHES
 from codeforge.subprocess_env import tool_env
+from codeforge.subprocess_utils import communicate_in_group
 from codeforge.tool_process import start_tool_process
 from codeforge.tools._base import (
     ToolDefinition,
@@ -122,8 +123,10 @@ class SearchFilesTool(ToolExecutor):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_path,
                 env=tool_env(),
+                start_new_session=True,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            # A timeout or a cancel of the run kills grep (KI-194).
+            stdout, stderr = await communicate_in_group(proc, 30)
         except TimeoutError:
             return ToolResult(output="", error="search timed out", success=False)
         except OSError as os_exc:

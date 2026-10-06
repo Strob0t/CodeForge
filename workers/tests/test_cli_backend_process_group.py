@@ -120,3 +120,39 @@ async def test_the_cli_runs_in_its_own_process_group(tmp_path: Path) -> None:
         execution.cancel()
         with pytest.raises(asyncio.CancelledError):
             await execution
+
+
+class _ChattyAgent(_ShellAgent):
+    """An 'agent CLI' that prints a line every 0.2 s and never ends."""
+
+    def _build_command(self, prompt: str, config: ExecutorConfig) -> list[str]:
+        return ["sh", "-c", 'echo "child 0"; echo "cli $$"; while true; do echo tick; sleep 0.2; done']
+
+
+async def test_the_timeout_is_a_total_deadline(tmp_path: Path) -> None:
+    """KI-194 (R8-18): the timeout applied to each line, so a backend that kept printing never timed out."""
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    execution, pids = await _start(_ChattyAgent(), tmp_path, config={"timeout": 1})
+
+    result = await asyncio.wait_for(execution, timeout=15)
+
+    assert result.status == "failed"
+    assert "timed out after 1s" in result.error
+    assert loop.time() - started < 10
+    assert "tick" in result.output
+    assert await _gone(pids.values["cli"]), "the agent CLI survived the timeout"
+
+
+async def test_an_error_of_the_output_callback_is_not_a_timeout(tmp_path: Path) -> None:
+    """A TimeoutError of on_output (a NATS publish) is not the backend's deadline."""
+
+    async def failing(_line: str) -> None:
+        raise TimeoutError("nats publish timed out")
+
+    execution = asyncio.create_task(
+        _ChattyAgent().execute("task-1", "do it", str(tmp_path), config={"timeout": 60}, on_output=failing)
+    )
+
+    with pytest.raises(TimeoutError, match="nats publish"):
+        await asyncio.wait_for(execution, timeout=10)

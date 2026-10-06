@@ -14,6 +14,13 @@ from codeforge.backends.opencode import OpenCodeExecutor
 from codeforge.backends.openhands import OpenHandsExecutor
 from codeforge.backends.plandex import PlandexExecutor
 
+
+async def _hang() -> bytes:
+    """A CLI that prints nothing and never ends: the task's deadline expires (KI-194)."""
+    await asyncio.Event().wait()
+    return b""
+
+
 # ---------- BackendInfo metadata tests ----------
 
 EXECUTOR_INFO = [
@@ -144,7 +151,7 @@ class TestCLIBackendExecute:
         executor = cls(cli_path=cli_path)
 
         mock_stdout = AsyncMock()
-        mock_stdout.readline = AsyncMock(side_effect=TimeoutError)
+        mock_stdout.readline = AsyncMock(side_effect=_hang)
 
         mock_proc = AsyncMock()
         mock_proc.stdout = mock_stdout
@@ -156,7 +163,7 @@ class TestCLIBackendExecute:
             patch("asyncio.create_subprocess_exec", return_value=mock_proc),
             patch("codeforge.subprocess_utils.os.killpg") as killpg,
         ):
-            result = await executor.execute("t1", "fix bug", "/workspace", config={"timeout": 5})
+            result = await executor.execute("t1", "fix bug", "/workspace", config={"timeout": 1})
 
         assert result.status == "failed"
         assert "timed out" in result.error

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from typing import Any
 
 from codeforge.constants import MAX_OUTPUT_CHARS
 from codeforge.subprocess_env import tool_env
+from codeforge.subprocess_utils import communicate_in_group
 from codeforge.tool_process import start_tool_process
 from codeforge.tools._base import ToolDefinition, ToolExample, ToolExecutor, ToolResult
 
@@ -16,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 MAX_OUTPUT = MAX_OUTPUT_CHARS
 HALF_OUTPUT = MAX_OUTPUT // 2
+
+DEFAULT_TIMEOUT_SECONDS = 120
+# A conversation run's default wall clock (CODEFORGE_CONVERSATION_TIMEOUT):
+# a longer command would outlive its run anyway.
+MAX_TIMEOUT_SECONDS = 3600
 
 # "rm -rf" targeting the root itself ("/", "/*", "//", "/.", ...) or a top-level
 # system directory ("/etc", "/usr/", "/home/*", ...), ended by whitespace, a shell
@@ -42,7 +49,7 @@ DEFINITION = ToolDefinition(
             },
             "timeout": {
                 "type": "integer",
-                "description": "Timeout in seconds (default 120).",
+                "description": f"Timeout in seconds (default {DEFAULT_TIMEOUT_SECONDS}, at most {MAX_TIMEOUT_SECONDS}).",
             },
         },
         "required": ["command"],
@@ -72,6 +79,23 @@ DEFINITION = ToolDefinition(
         ),
     ],
 )
+
+
+def timeout_seconds(value: object) -> int:
+    """The command's timeout from the model's ``timeout`` argument (KI-194).
+
+    Models send numbers, numeric strings ("60") or null: a number is
+    truncated to whole seconds and clamped to 1..MAX_TIMEOUT_SECONDS;
+    anything else (null, a word, a bool, inf, NaN) gets the default.
+    """
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return DEFAULT_TIMEOUT_SECONDS
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return DEFAULT_TIMEOUT_SECONDS
+    return min(max(int(value), 1), MAX_TIMEOUT_SECONDS)
 
 
 def _truncate(text: str) -> str:
@@ -124,7 +148,7 @@ class BashTool(ToolExecutor):
 
     async def execute(self, arguments: dict[str, Any], workspace_path: str) -> ToolResult:
         command = arguments.get("command", "")
-        timeout = arguments.get("timeout", 120)
+        timeout = timeout_seconds(arguments.get("timeout"))
 
         # Defense-in-depth: block catastrophic commands before execution.
         if block_reason := _check_dangerous_command(command):
@@ -139,19 +163,19 @@ class BashTool(ToolExecutor):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace_path,
                 env=tool_env(),
+                # Its own process group: a timeout or a cancel stops everything it started.
+                start_new_session=True,
             )
         except OSError as exc:
             return ToolResult(output="", error=str(exc), success=False)
 
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout_bytes, stderr_bytes = await communicate_in_group(proc, timeout)
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
             return ToolResult(output="", error=f"command timed out after {timeout}s", success=False)
 
-        stdout = _truncate(stdout_bytes.decode("utf-8", errors="replace"))
-        stderr = _truncate(stderr_bytes.decode("utf-8", errors="replace"))
+        stdout = _truncate((stdout_bytes or b"").decode("utf-8", errors="replace"))
+        stderr = _truncate((stderr_bytes or b"").decode("utf-8", errors="replace"))
 
         success = proc.returncode == 0
         output = stdout
