@@ -9,7 +9,7 @@ Every tool call an agent makes is checked against your policy, can wait for your
 
 [![CI](https://github.com/Strob0t/CodeForge/actions/workflows/ci.yml/badge.svg?branch=staging)](https://github.com/Strob0t/CodeForge/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.0-green.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.9.0-green.svg)](VERSION)
 
 [**Quick Start**](#quick-start) | [**Architecture**](#architecture) | [**Features**](#features) | [**FAQ**](#faq) | [**Documentation**](docs/README.md) | [**Known Issues**](docs/todo.md#known-issues)
 
@@ -144,7 +144,7 @@ docker compose -f docker-compose.prod.yml logs core | grep 'SETUP TOKEN'
 
 The token is also in `/data/setup_token` inside the Core container; the setup uses it up.
 
-**Agent backends and network:** the worker image includes the Aider, Claude Code, OpenCode and Goose CLIs. The worker has no internet access: point backends at LiteLLM (`http://litellm:4000`), or add `-f docker-compose.egress.yml`, which gives every tenant's tool processes a route out.
+**Agent backends and network:** the published worker image includes the Aider, OpenCode and Goose CLIs. Claude Code is proprietary and not redistributed: build your own worker image with `docker build -f Dockerfile.worker --build-arg INSTALL_CLAUDE_CODE=true -t codeforge-worker:claude-code .` and set `CODEFORGE_CLAUDECODE_ENABLED=true` plus its credentials. The worker has no internet access: point backends at LiteLLM (`http://litellm:4000`), or add `-f docker-compose.egress.yml`, which gives every tenant's tool processes a route out.
 
 **Local models:** run Ollama or LM Studio on the host and set `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`) or `LM_STUDIO_API_BASE` in `.env`. Their models show up in the model list, and models with tool support get the agent tools; no API key is needed.
 
@@ -242,7 +242,7 @@ CodeForge is free software (AGPL-3.0). You pay only your model providers; local 
 Every tool call needs a policy decision from the Go Core, and destructive calls can require your approval. Tool processes run as a per-tenant Linux user under Landlock, cannot see other processes and never get secrets on their command line. Not yet isolated: network traffic between tool processes of different tenants ([KI-110](docs/todo.md#known-issues)). Details: [Security](docs/SECURITY.md).
 
 **Can I use Claude Code, Aider or OpenHands?**
-Claude Code runs as a conversation model (`claudecode/default`) when the `claude` CLI is installed in the worker and `CODEFORGE_CLAUDECODE_ENABLED=true`; its tool calls go through the same policy check. Aider, Goose, OpenCode and Plandex need their CLIs in the worker image, OpenHands its service; the standard image does not include them yet ([KI-118](docs/todo.md#known-issues)). The built-in agent loop works out of the box.
+Claude Code runs as a conversation model (`claudecode/default`) when the worker image was built with `INSTALL_CLAUDE_CODE=true` and `CODEFORGE_CLAUDECODE_ENABLED=true` is set (without the CLI a run fails with that hint); its tool calls go through the same policy check. Aider, Goose and OpenCode are in the published worker image; Plandex and SWE-agent are not shipped and OpenHands needs its own service ([KI-118](docs/todo.md#known-issues)). The built-in agent loop works out of the box.
 
 **Can several teams share one installation?**
 The backend separates tenants (data, tool processes, MCP servers, policies). The web UI currently works with the default tenant only ([KI-120](docs/todo.md#known-issues)).
@@ -257,7 +257,7 @@ Go for the control plane (concurrency, state, policies, a single binary), Python
 
 ## Status and roadmap
 
-CodeForge is under active development; version 0.8.0 is on the `staging` branch. Known gaps, with their severity and status, are tracked as Known Issues in [docs/todo.md](docs/todo.md#known-issues), and the plan for fixing them in [docs/known-issues-fix-plan.md](docs/known-issues-fix-plan.md). Next on the roadmap: sub-agents like Claude Code's ([KI-25](docs/plans/ki25-subagents-plan.md)), read-only submodules ([KI-88](docs/plans/ki88-opaque-submodules-plan.md)) and network isolation between tenants ([KI-110](docs/todo.md#known-issues)). Phase history: [Project Status](docs/project-status.md).
+CodeForge is under active development; version 0.9.0 is on the `staging` branch. Known gaps, with their severity and status, are tracked as Known Issues in [docs/todo.md](docs/todo.md#known-issues), and the plan for fixing them in [docs/known-issues-fix-plan.md](docs/known-issues-fix-plan.md). Next on the roadmap: sub-agents like Claude Code's ([KI-25](docs/plans/ki25-subagents-plan.md)), read-only submodules ([KI-88](docs/plans/ki88-opaque-submodules-plan.md)) and network isolation between tenants ([KI-110](docs/todo.md#known-issues)). Phase history: [Project Status](docs/project-status.md).
 
 ---
 

@@ -386,7 +386,7 @@ docker exec codeforge-docs-mcp npx docs-mcp-server scrape fastapi https://fastap
 - Core and worker in the compose network: register `http://docs-mcp:6280/sse` and allowlist `docs-mcp`, or the container address or the network's CIDR (for example `172.18.0.0/16`).
 - A `servers_dir` YAML definition needs no entry in the worker (operator config).
 
-PM syncs: a self-hosted GitLab on a private network or on the host needs an entry in `pm.allowed_private_hosts` (for example `gitlab.corp.internal`, `10.20.0.0/16`, or `127.0.0.1` in dev); the list is separate from `mcp.allowed_private_hosts`.
+PM syncs: a self-hosted GitLab or GitHub Enterprise Server on a private network or on the host needs an entry in `pm.allowed_private_hosts` (for example `gitlab.corp.internal`, `10.20.0.0/16`, or `127.0.0.1` in dev); the list is separate from `mcp.allowed_private_hosts`.
 
 
 
@@ -730,7 +730,7 @@ Example:
 | `litellm.health_poll_interval` | `CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL` | `60s` | LiteLLM health poll interval |
 | `plane.api_token` | `CODEFORGE_PLANE_API_TOKEN` (or `_FILE`) | `` | Plane.so API token for PM sync and Plane webhooks; serves only the default tenant (webhook syncs, imports), other tenants need their own `api_token` |
 | `plane.base_url` | `CODEFORGE_PLANE_BASE_URL` | `https://api.plane.so` | Plane API the token belongs to (absolute http(s) URL); the token is sent only there, a project whose `plane_base_url` names another host is not synced by webhooks |
-| `pm.allowed_private_hosts` | `CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS` | `` (none) | Host names, IPs and CIDRs (comma-separated in the env) whose private addresses the GitLab PM provider may reach. Its base URL is a project's `repo_url` host or a manual sync's `base_url`, chosen by tenants. Loopback opens only by an explicit entry; link-local and cloud metadata addresses never. Invalid entries stop startup. Separate from `mcp.allowed_private_hosts`. A self-hosted GitLab on a private network must be listed. GitLab PM requests use no proxy |
+| `pm.allowed_private_hosts` | `CODEFORGE_PM_ALLOWED_PRIVATE_HOSTS` | `` (none) | Host names, IPs and CIDRs (comma-separated in the env) whose private addresses the GitLab PM provider, the github-api provider (PR delivery, ListRepos) and github-issues integrations with a `base_url` (a GitHub Enterprise Server API such as `https://ghe.example.com/api/v3`, only with the integration's own token) may reach; a refusal names this setting. A GitHub Enterprise project's issues webhook syncs with `https://<host>/api/v3` and needs the integration's own `api_token` (the operator's `github.token` goes only to api.github.com). Its base URL is a project's `repo_url` host or a manual sync's `base_url`, chosen by tenants. Loopback opens only by an explicit entry; link-local and cloud metadata addresses never. Invalid entries stop startup. Separate from `mcp.allowed_private_hosts`. A self-hosted GitLab on a private network must be listed. GitLab PM requests use no proxy |
 | `copilot.hosts_file_path` | `CODEFORGE_COPILOT_HOSTS_FILE` | `` (falls back to `~/.config/github-copilot/hosts.json`) | Copilot hosts file path |
 | `experience.enabled` | `CODEFORGE_EXPERIENCE_ENABLED` | `false` | Experience pool (Go and worker): tenant-scoped cache used only for the first turn of a simple (non-agentic) chat |
 | `experience.confidence_threshold` | `CODEFORGE_EXPERIENCE_CONFIDENCE_THRESHOLD` | `0.85` | Minimum similarity to use a cached answer (0 < value <= 1) |
