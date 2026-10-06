@@ -36,20 +36,24 @@ const MaxFailedAttempts = 5
 // MaxFailedAttempts.
 const LockoutDuration = 15 * time.Minute
 
-// The synthetic request identities without a row in users: every request
-// acts as AuthDisabledUserID while authentication is disabled, and the
-// internal service key (CODEFORGE_INTERNAL_KEY) acts as
-// InternalServiceUserID.
+// The synthetic identities without a row in users: every request acts as
+// AuthDisabledUserID while authentication is disabled, the internal service
+// key (CODEFORGE_INTERNAL_KEY) acts as InternalServiceUserID, and an audit
+// entry whose request resolved no user (a failed login, a password reset
+// request) names AnonymousActorUserID as its actor. They are distinct, so
+// an audit trail written with authentication disabled still tells the
+// operator's actions from failed logins.
 const (
 	AuthDisabledUserID    = "00000000-0000-0000-0000-000000000000"
 	InternalServiceUserID = "00000000-0000-0000-0000-000000000001"
+	AnonymousActorUserID  = "00000000-0000-0000-0000-000000000002"
 )
 
 // IsAccountless reports whether id is one of the synthetic identities that
 // have no users row; any other user ID names an account, which may have been
 // deleted or erased since its access token was issued.
 func IsAccountless(id string) bool {
-	return id == AuthDisabledUserID || id == InternalServiceUserID
+	return id == AuthDisabledUserID || id == InternalServiceUserID || id == AnonymousActorUserID
 }
 
 // ErrAccountGone reports that a request's user has no account (any more):

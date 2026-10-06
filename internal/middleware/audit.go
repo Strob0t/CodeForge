@@ -103,9 +103,10 @@ func RecordAudit(ctx context.Context, resourceID string, details map[string]stri
 }
 
 // AnonymousActorID is the actor of an audit entry whose request resolved no
-// user (a failed login, a password reset request): the nil UUID, as the
-// entry's admin_id must be a UUID.
-const AnonymousActorID = "00000000-0000-0000-0000-000000000000"
+// user (a failed login, a password reset request): a reserved UUID of its
+// own (the entry's admin_id must be a UUID), not the identity every request
+// acts as while authentication is disabled.
+const AnonymousActorID = user.AnonymousActorUserID
 
 // RecordAuditAs is RecordAudit for a request without a user in its context
 // (the public auth routes, KI-172): the handler names the actor it resolved

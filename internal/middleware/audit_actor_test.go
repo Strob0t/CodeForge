@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Strob0t/CodeForge/internal/domain/user"
 	"github.com/Strob0t/CodeForge/internal/middleware"
 )
 
@@ -38,6 +39,19 @@ func TestRecordAuditAs_WritesTheResolvedActor(t *testing.T) {
 	}
 }
 
+// The anonymous actor of a failed login is its own reserved identity, not
+// the one every request acts as while authentication is disabled: with
+// auth.enabled=false the operator's audited actions and failed logins
+// stay apart (S10-A review).
+func TestAnonymousActorID_IsNotTheAuthDisabledUser(t *testing.T) {
+	if middleware.AnonymousActorID != user.AnonymousActorUserID {
+		t.Fatalf("AnonymousActorID = %q, want user.AnonymousActorUserID %q", middleware.AnonymousActorID, user.AnonymousActorUserID)
+	}
+	if middleware.AnonymousActorID == user.AuthDisabledUserID {
+		t.Fatalf("AnonymousActorID %q is the auth-disabled identity", middleware.AnonymousActorID)
+	}
+}
+
 // A failed login names the attempted email and the anonymous actor, whose
 // ID is a valid UUID (audit_log.admin_id is NOT NULL).
 func TestRecordAuditAs_AnonymousActorForAFailedLogin(t *testing.T) {
@@ -51,7 +65,7 @@ func TestRecordAuditAs_AnonymousActorForAFailedLogin(t *testing.T) {
 		t.Fatalf("entries = %+v, want one", store.entries)
 	}
 	e := store.entries[0]
-	if e.AdminID != "00000000-0000-0000-0000-000000000000" || e.AdminEmail == nil || *e.AdminEmail != "who@example.com" || e.ResourceID != "" {
+	if e.AdminID != "00000000-0000-0000-0000-000000000002" || e.AdminEmail == nil || *e.AdminEmail != "who@example.com" || e.ResourceID != "" {
 		t.Fatalf("entry = %+v", e)
 	}
 }
