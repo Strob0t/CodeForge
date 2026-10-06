@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter, deque
+from collections import deque
 
 # Every stall error starts with it; the Go Core re-plans a plan step whose run
 # failed with such an error (run.StallMarker, contract:
@@ -31,16 +31,22 @@ STALL_ESCAPE_PROMPT = (
 class StallDetector:
     """Detect when the agent repeats the same tool call and force escape.
 
-    Maintains a sliding window of recent ``(tool_name, args_hash)`` tuples.
-    If *stall_threshold* or more entries in the last *window_size* are
-    identical, the agent is considered stalled.  After two escape attempts
-    the detector signals that the loop should abort.
+    A stall is *stall_threshold* identical ``(tool_name, args)`` calls in a
+    row, with no other call in between (KI-191): an edit/test loop repeats
+    its test command, but with an edit in between, which is progress. An
+    escape prompt clears the window, so only a new run of repeats stalls
+    again; a stall after *max_escapes* escape prompts aborts the loop. The
+    window keeps the last *window_size* calls for the contextual escape
+    prompt.
     """
 
-    def __init__(self, window_size: int = 5, stall_threshold: int = 3) -> None:
+    def __init__(self, window_size: int = 5, stall_threshold: int = 3, max_escapes: int = 2) -> None:
         self._window: deque[tuple[str, str]] = deque(maxlen=window_size)
         self._threshold = stall_threshold
+        self._max_escapes = max_escapes
         self._escape_count = 0
+        # Length of the run of identical calls at the end of the window.
+        self._repeats = 0
 
     @staticmethod
     def _hash_args(name: str, args: dict[str, object]) -> str:
@@ -48,33 +54,30 @@ class StallDetector:
         return hashlib.sha256(f"{name}:{raw}".encode()).hexdigest()
 
     def record(self, tool_name: str, args: dict[str, object]) -> None:
-        """Append a tool call to the sliding window."""
-        self._window.append((tool_name, self._hash_args(tool_name, args)))
+        """Append a tool call to the window and extend or restart the run of repeats."""
+        entry = (tool_name, self._hash_args(tool_name, args))
+        self._repeats = self._repeats + 1 if self._window and self._window[-1] == entry else 1
+        self._window.append(entry)
 
     def is_stalled(self) -> bool:
-        """Return True if >= threshold entries in the window are identical."""
-        if len(self._window) < self._threshold:
-            return False
-        counts = Counter(self._window)
-        return counts.most_common(1)[0][1] >= self._threshold
+        """Return True if the last *stall_threshold* calls are one identical call."""
+        return self._repeats >= self._threshold
 
     def get_repeated_action(self) -> str | None:
-        """Return the tool name of the most-repeated action, or None."""
-        if not self._window:
+        """Return the tool name of the repeated call while stalled, or None."""
+        if not self.is_stalled():
             return None
-        counts = Counter(self._window)
-        entry, count = counts.most_common(1)[0]
-        if count >= self._threshold:
-            return entry[0]  # tool_name from (tool_name, args_hash)
-        return None
+        return self._window[-1][0]  # tool_name from (tool_name, args_hash)
 
     def record_escape(self) -> None:
-        """Record that an escape prompt was injected."""
+        """Record an injected escape prompt and clear the window for a fresh start."""
         self._escape_count += 1
+        self._window.clear()
+        self._repeats = 0
 
     def should_abort(self) -> bool:
-        """Return True if the loop should abort (>= 2 escape attempts)."""
-        return self._escape_count >= 2
+        """Return True if the agent stalls again after *max_escapes* escape prompts."""
+        return self._escape_count >= self._max_escapes and self.is_stalled()
 
     def get_abort_info(self) -> dict[str, object]:
         """Return structured info about the stall for error reporting."""
