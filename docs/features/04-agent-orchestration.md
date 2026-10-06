@@ -413,11 +413,16 @@ JSON object per turn: `{"thought","tool","args"}` or `{"thought","final"}`
 - **Parsing** (`workers/codeforge/tools/text_protocol.py`): finds the object in fences, `<tool_call>` blocks or prose,
   accepts Hermes, OpenAI and LangChain key names and repairs trailing commas and raw newlines. A call then takes the
   native path (Go policy, approvals, trajectory, stall detection, stored messages). One call per reply; an unusable
-  reply is sent back once with the reason, a second in a row ends the run.
+  reply is sent back once with the reason, a second in a row ends the run. Parsing is linear in the reply length.
+  An object nested in another object's data is never run: a `{` without a quoted key before the next `{` is prose,
+  and a broken object before the turn (or a quoted key between the turn and an object next to it on its line)
+  stops the turn with a repair message. Reasoning ends at the first `</think>` outside every decoded object (drafts
+  before it are dropped); a prose answer has its think blocks removed; a turn nesting deeper than 32 levels gets the
+  repair message. Remaining edge cases with malformed JSON: [KI-225](../todo.md#known-issues).
 - **History:** results go back as `<tool_result tool="name">` user text and earlier calls as protocol JSON; stored
   messages stay in OpenAI format, so one conversation works with both kinds of model.
 - **Streaming:** the UI shows prose, thought and final answer live, never protocol JSON.
-- **Limits:** `max_tokens` 8192 per turn; a section of about 4,000 characters.
+- **Limits:** `max_tokens` 8192 per turn, cut to what the prompt leaves of a known context window (at least 1,024); after a context-length 400 no `max_tokens` is sent for the rest of the run. A section of about 4,000 characters. An unusable reply counts as a failed routing outcome.
 - **Native refusal:** a request whose tools the server refuses ("does not support tools", "tool choice requires",
   "--jinja", ...) switches the run to the protocol.
 
