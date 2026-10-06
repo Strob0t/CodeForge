@@ -31,23 +31,24 @@ Recommended for hourly scheduled backups. Produces a portable SQL dump.
 
 ```bash
 # Run from the Docker host or a backup sidecar container.
-# Uses the codeforge-postgres service name from docker-compose.prod.yml.
+# The postgres service of docker-compose.prod.yml (it sets no container_name).
+PG="$(docker compose -f docker-compose.prod.yml ps -q postgres)"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR=/backups/postgres
 
-docker exec codeforge-postgres pg_dump \
+docker exec "$PG" pg_dump \
   -U codeforge \
   -d codeforge \
   --format=custom \
   --compress=zstd:6 \
   --file=/tmp/codeforge_${TIMESTAMP}.dump
 
-docker cp codeforge-postgres:/tmp/codeforge_${TIMESTAMP}.dump \
+docker cp "$PG":/tmp/codeforge_${TIMESTAMP}.dump \
   ${BACKUP_DIR}/codeforge_${TIMESTAMP}.dump
 
 # Clean up inside container
-docker exec codeforge-postgres rm /tmp/codeforge_${TIMESTAMP}.dump
+docker exec "$PG" rm /tmp/codeforge_${TIMESTAMP}.dump
 ```
 
 Schedule via cron:
@@ -62,11 +63,13 @@ Required for point-in-time recovery (PITR). Take a base backup weekly.
 
 Prerequisites -- enable WAL archiving in PostgreSQL:
 
-```
-# postgresql.conf (or via environment in docker-compose.prod.yml)
-wal_level = replica
-archive_mode = on
-archive_command = 'cp %p /backups/postgres/wal/%f'
+WAL archiving is off by default (KI-210): with it on and no base backups, the archive grows by gigabytes a day and
+cannot be replayed. Turn it on only together with base backups and pruning: set `POSTGRES_ARCHIVE_MODE=on` for
+`docker-compose.prod.yml` (the postgres service archives to `/archive` in the `postgres_archive` volume) and prune old
+segments, for example daily:
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T postgres sh -s -- 7 < scripts/cleanup-wal-archives.sh
 ```
 
 Take the base backup:
@@ -75,7 +78,7 @@ Take the base backup:
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_DIR=/backups/postgres/base
 
-docker exec codeforge-postgres pg_basebackup \
+docker exec "$PG" pg_basebackup \
   -U codeforge \
   -D /tmp/basebackup_${TIMESTAMP} \
   --format=tar \
@@ -83,10 +86,10 @@ docker exec codeforge-postgres pg_basebackup \
   --checkpoint=fast \
   --wal-method=stream
 
-docker cp codeforge-postgres:/tmp/basebackup_${TIMESTAMP} \
+docker cp "$PG":/tmp/basebackup_${TIMESTAMP} \
   ${BACKUP_DIR}/basebackup_${TIMESTAMP}
 
-docker exec codeforge-postgres rm -rf /tmp/basebackup_${TIMESTAMP}
+docker exec "$PG" rm -rf /tmp/basebackup_${TIMESTAMP}
 ```
 
 ### 3.3 Retention Policy
@@ -106,19 +109,19 @@ docker exec codeforge-postgres rm -rf /tmp/basebackup_${TIMESTAMP}
 docker compose -f docker-compose.prod.yml stop core litellm worker
 
 # Drop and recreate the database
-docker exec codeforge-postgres psql -U codeforge -c "DROP DATABASE IF EXISTS codeforge;"
-docker exec codeforge-postgres psql -U codeforge -c "CREATE DATABASE codeforge OWNER codeforge;"
+docker exec "$PG" psql -U codeforge -c "DROP DATABASE IF EXISTS codeforge;"
+docker exec "$PG" psql -U codeforge -c "CREATE DATABASE codeforge OWNER codeforge;"
 
 # Restore from dump
-docker cp ${BACKUP_DIR}/codeforge_${TIMESTAMP}.dump codeforge-postgres:/tmp/restore.dump
-docker exec codeforge-postgres pg_restore \
+docker cp ${BACKUP_DIR}/codeforge_${TIMESTAMP}.dump "$(docker compose -f docker-compose.prod.yml ps -q postgres)":/tmp/restore.dump
+docker exec "$PG" pg_restore \
   -U codeforge \
   -d codeforge \
   --no-owner \
   --no-privileges \
   /tmp/restore.dump
 
-docker exec codeforge-postgres rm /tmp/restore.dump
+docker exec "$PG" rm /tmp/restore.dump
 
 # Restart services
 docker compose -f docker-compose.prod.yml up -d core litellm worker
@@ -151,7 +154,7 @@ docker run --rm \
   -v codeforge_postgres_data:/var/lib/postgresql \
   postgres:18-alpine \
   sh -c "touch /var/lib/postgresql/18/docker/recovery.signal && \
-    echo \"restore_command = 'cp /backups/postgres/wal/%f %p'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
+    echo \"restore_command = 'cp /archive/%f %p'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
     echo \"recovery_target_time = '${TARGET_TIME}'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
     echo \"recovery_target_action = 'promote'\" >> /var/lib/postgresql/18/docker/postgresql.auto.conf && \
     chown postgres:postgres /var/lib/postgresql/18/docker/recovery.signal /var/lib/postgresql/18/docker/postgresql.auto.conf"
@@ -160,7 +163,7 @@ docker run --rm \
 docker compose -f docker-compose.prod.yml up -d postgres
 
 # Monitor recovery progress
-docker logs -f codeforge-postgres
+docker compose -f docker-compose.prod.yml logs -f postgres
 
 # After recovery completes, restart remaining services
 docker compose -f docker-compose.prod.yml up -d core litellm worker
@@ -263,15 +266,15 @@ Use this checklist for a complete platform recovery (e.g., host migration, full 
 4. **Restore PostgreSQL from latest dump**
    ```bash
    LATEST=$(ls -t /backups/postgres/codeforge_*.dump | head -1)
-   docker cp ${LATEST} codeforge-postgres:/tmp/restore.dump
-   docker exec codeforge-postgres pg_restore \
+   docker cp ${LATEST} "$(docker compose -f docker-compose.prod.yml ps -q postgres)":/tmp/restore.dump
+   docker exec "$PG" pg_restore \
      -U codeforge -d codeforge --no-owner --no-privileges /tmp/restore.dump
-   docker exec codeforge-postgres rm /tmp/restore.dump
+   docker exec "$PG" rm /tmp/restore.dump
    ```
 
 5. **Verify database integrity**
    ```bash
-   docker exec codeforge-postgres psql -U codeforge -d codeforge \
+   docker exec "$PG" psql -U codeforge -d codeforge \
      -c "SELECT count(*) FROM users; SELECT count(*) FROM projects;"
    ```
 
@@ -404,7 +407,7 @@ Run monthly to ensure backups are restorable.
 
 | Docker Volume | Service | Data | Backup? |
 |---|---|---|---|
-| codeforge_postgres_data | codeforge-postgres | Database files | Yes (pg_dump + pg_basebackup) |
+| codeforge_postgres_data | postgres (service) | Database files | Yes (pg_dump + pg_basebackup) |
 | codeforge_nats_data | codeforge-nats | JetStream state | No (auto-recreated) |
 | codeforge_litellm_config | codeforge-litellm | litellm-config.yaml | No (in version control) |
 | codeforge_workspaces | codeforge-core, codeforge-worker | Cloned repositories, worker state `.codeforge` (tool UID bindings) | Optional (re-clone from VCS); keep POSIX ACLs and restore it to the database's point (section 7.2) |

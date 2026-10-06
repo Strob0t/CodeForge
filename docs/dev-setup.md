@@ -612,6 +612,8 @@ Example:
 | YAML Key | ENV Variable | Default | Description |
 |---|---|---|---|
 | `server.port` | `CODEFORGE_PORT` | `8080` | HTTP server port |
+| `server.host` | `CODEFORGE_HOST` | `` (all interfaces) | Listen address of the Go Core; the live-E2E env and the E2E flow set `127.0.0.1` |
+| `server.force_secure_cookies` | `CODEFORGE_FORCE_SECURE_COOKIES` | `false` | Mark the refresh cookie `Secure` even when the request looks like HTTP (TLS terminated in front of nginx) |
 | `server.cors_origin` | `CODEFORGE_CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin |
 | `server.trusted_proxies` | `CODEFORGE_TRUSTED_PROXIES` | `[]` | Reverse proxies (IPs or CIDR prefixes, comma-separated in the env var) whose `X-Forwarded-For` / `X-Real-IP` headers identify the client for rate limiting, audit and consent records; empty = headers ignored; invalid entries fail startup |
 | `postgres.dsn` | `DATABASE_URL` | `postgres://codeforge:...` | PostgreSQL DSN |
@@ -621,6 +623,7 @@ Example:
 | `nats.stream_max_bytes` | `CODEFORGE_NATS_STREAM_MAX_BYTES` | `10737418240` (10 GiB) | Size limit of the `CODEFORGE` JetStream stream. JetStream reserves it against `max_file_store` (default 75% of free disk); lower it on small hosts, or the core exits with "insufficient storage resources" |
 | `litellm.url` | `LITELLM_BASE_URL` | `http://localhost:4000` | LiteLLM Proxy URL |
 | `litellm.master_key` | `LITELLM_MASTER_KEY` | `` | LiteLLM API key |
+| `litellm.completion_timeout` | `CODEFORGE_LITELLM_COMPLETION_TIMEOUT` | `10m` | Timeout of a Go Core chat completion (decomposition, review router); admin calls keep 10 s |
 | `litellm.conversation_model` | `CODEFORGE_CONVERSATION_MODEL` | (auto-detect) | LLM model for chat conversations (empty = auto-select strongest) |
 | `litellm.keyed_providers` | `CODEFORGE_LITELLM_KEYED_PROVIDERS` | (empty) | Core and worker: providers whose API key LiteLLM holds, names only (comma-separated in the env var; `openai`, `anthropic`, `gemini`, `groq`, `mistral`, `openrouter`, `cerebras`, `chutes`, `aihubmix`, `deepseek`, `cohere`, `together_ai`, `fireworks_ai`, `github_copilot`). Their models are listed and can be the default model; other cloud routes show as one entry and are not routed to. A provider whose key variable is set in the process' environment counts too. An unknown name, or a YAML value that is not a list (worker), stops startup. `docker-compose.prod.yml` sets it from the key variables; set it (or export the keys) when the Core and the worker run outside compose. |
 | `logging.level` | `CODEFORGE_LOG_LEVEL` | `info` | Log level |
@@ -644,6 +647,7 @@ Example:
 | `orchestrator.graph_max_hops` | `CODEFORGE_ORCH_GRAPH_MAX_HOPS` | `2` | Max BFS hops for graph traversal |
 | `orchestrator.graph_top_k` | `CODEFORGE_ORCH_GRAPH_TOP_K` | `10` | Top-K results for graph search |
 | `orchestrator.graph_hop_decay` | `CODEFORGE_ORCH_GRAPH_HOP_DECAY` | `0.7` | Score decay per hop (0.0-1.0) |
+| `git.operation_timeout` | `CODEFORGE_GIT_OPERATION_TIMEOUT` | `30m` | Deadline of a synchronous clone, setup or pull request (exempt from the 30 s route timeout); a cancelled request leaves no partial directory |
 | `git.max_concurrent` | `CODEFORGE_GIT_MAX_CONCURRENT` | `5` | Max concurrent git CLI operations |
 | `mcp.enabled` | `CODEFORGE_MCP_ENABLED` | `false` | Enable MCP integration |
 | `mcp.servers_dir` | `CODEFORGE_MCP_SERVERS_DIR` | `` | Directory with MCP server YAML definitions |
@@ -1320,6 +1324,15 @@ generates its own secret: create the webhook in Plane first, then register it wi
 `POST .../webhooks/{webhookId}/rotate` issues a new secret (for Plane: send Plane's new secret as `{"secret": ...}`), `PUT .../webhooks/{webhookId}/api-token`
 sets or removes (`""`) the PM token, `DELETE` removes the webhook. An event is acted on only when it names the project's repository exactly
 (host and owner/name of `repo_url`, case-insensitive; Plane: `plane_project_id`); a PM webhook syncs with its own `api_token`.
+
+#### Upgrading to 0.9.0 (S10-I operations fixes)
+
+- **WAL archiving is off by default (KI-210).** Set `POSTGRES_ARCHIVE_MODE=on` only together with base backups and pruning (see [disaster-recovery.md](disaster-recovery.md)).
+- **Public network subnet (KI-211).** The `public` network's default subnet moved to `10.250.240.0/24` (outside Docker's default pools; proxies get `10.250.240.128/25`, gateway `10.250.240.1`), and `CODEFORGE_TRUSTED_PROXIES` follows `CODEFORGE_PUBLIC_IP_RANGE` unless set. Docker does not change an existing network, so recreate it once: `docker compose -f docker-compose.prod.yml down` (add `-f docker-compose.blue-green.yml` for blue-green; volumes and data stay), `docker network rm <project>_public`, then `up -d`. If the subnet collides with a host network (VPN, LAN), set `CODEFORGE_PUBLIC_SUBNET`, `CODEFORGE_PUBLIC_IP_RANGE` and `CODEFORGE_PUBLIC_GATEWAY` together.
+- **Blue-green: Traefik without Docker access (KI-214).** Traefik routes from a file that `scripts/deploy-blue-green.sh` writes (`traefik/dynamic/active-color.yaml`). After updating, run `./scripts/deploy-blue-green.sh` once before recreating Traefik by hand, or Traefik serves 404 until the routes exist.
+- **Core port and A2A (KI-213).** The Core's published port binds to `127.0.0.1`; external A2A clients use the frontend address, where nginx proxies `/a2a` and `/.well-known/agent-card.json`.
+- **Fail-fast configuration (KI-213).** A missing explicitly named config file, an unparsable typed env value (named in the error) and `auth.enabled=false` with `APP_ENV=production` stop the Core at startup. The Core's `stop_grace_period` is 75 s, and NATS reconnects without limit (Core and worker).
+- **Restore (KI-212).** `scripts/restore-postgres.sh` reads the whole backup before dropping the database and restores encrypted `.gpg` backups with `BACKUP_ENCRYPTION_KEY_FILE`; retention prunes them too.
 
 #### Upgrading to per-project webhooks (KI-85)
 
