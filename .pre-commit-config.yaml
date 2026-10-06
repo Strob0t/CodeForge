@@ -47,7 +47,8 @@ repos:
     hooks:
       - id: go-imports-repo
         name: go-imports-repo
-        entry: goimports -l -d
+        # goimports -l -d exits 0 with a diff: fail when it lists a file (KI-214).
+        entry: bash -c 'files=$(goimports -l "$@") || exit 1; if [ -n "$files" ]; then goimports -d "$@"; exit 1; fi' --
         language: system
         types: [go]
         exclude: ^(data/|vendor/)

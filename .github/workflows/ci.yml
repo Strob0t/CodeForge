@@ -41,9 +41,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Start NATS with JetStream
+        # The production server version (docker-compose.prod.yml).
         run: |
           docker run -d --name nats-test -p 4222:4222 -p 8222:8222 \
-            nats:latest --jetstream --store_dir /data -m 8222
+            nats:2.15-alpine --jetstream --store_dir /data -m 8222
           sleep 2
 
       - name: nats-server binary for the NATS authentication tests (KI-71)
@@ -83,6 +84,26 @@ jobs:
   test-python:
     name: Python
     runs-on: ubuntu-latest
+
+    # The real-SQL tests of the worker's own queries (tenant scoping,
+    # workers/tests/pg_schema.py) skip without a database (KI-214).
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: codeforge
+          POSTGRES_PASSWORD: codeforge_dev
+          POSTGRES_DB: codeforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U codeforge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CODEFORGE_TEST_DATABASE_URL: postgresql://codeforge:codeforge_dev@localhost:5432/codeforge
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -305,6 +326,8 @@ jobs:
       SMOKE_SKIP_LLM: "true"
       SMOKE_SKIP_LITELLM: "true"
       SMOKE_BASE_URL: "http://localhost:8080"
+      # Dev credentials below: the Core listens on loopback only (KI-213).
+      CODEFORGE_HOST: "127.0.0.1"
       APP_ENV: development
       # Seeds admin@localhost, which the smoke tests log in as (dev credentials).
       CODEFORGE_AUTH_ADMIN_PASS: "Changeme123"
@@ -315,9 +338,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Start NATS with JetStream
+        # The production server version (docker-compose.prod.yml).
         run: |
           docker run -d --name nats-test -p 4222:4222 -p 8222:8222 \
-            nats:latest --jetstream --store_dir /data -m 8222
+            nats:2.15-alpine --jetstream --store_dir /data -m 8222
           sleep 2
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -370,7 +394,7 @@ jobs:
           fetch-depth: 0
 
       - name: Secret scanning (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

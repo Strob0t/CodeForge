@@ -9,7 +9,7 @@
 #
 # Output:
 #   stdout  -- Markdown table (same format as docs/feature-verification-matrix.md)
-#   /tmp/verification-summary.json -- machine-readable summary
+#   ${TMPDIR:-/tmp}/verification-summary.json -- machine-readable summary
 #   data/verification-history/     -- historical results (date_sha.json per run)
 #
 # Exit code:
@@ -20,12 +20,17 @@ set -euo pipefail
 ROOTDIR="$(cd "$(dirname "$0")/.." && pwd)"
 QUICK="${1:-}"
 
-GO_RESULTS_FILE="/tmp/go-test-results.json"
-PY_RESULTS_FILE="/tmp/pytest-report.json"
-CONTRACT_RESULTS_FILE="/tmp/contract-test-results.txt"
-SMOKE_RESULTS_FILE="/tmp/smoke-test-results.txt"
-SUMMARY_FILE="/tmp/verification-summary.json"
+WORK_DIR="${TMPDIR:-/tmp}"
+GO_RESULTS_FILE="$WORK_DIR/go-test-results.json"
+PY_RESULTS_FILE="$WORK_DIR/pytest-report.json"
+PY_PLAIN_FILE="$WORK_DIR/pytest-plain.txt"
+PY_PARSED_FILE="$WORK_DIR/pytest-parsed.txt"
+CONTRACT_RESULTS_FILE="$WORK_DIR/contract-test-results.txt"
+SMOKE_RESULTS_FILE="$WORK_DIR/smoke-test-results.txt"
+SUMMARY_FILE="$WORK_DIR/verification-summary.json"
 HISTORY_DIR="$ROOTDIR/data/verification-history"
+# Set when pytest could not run the suite at all (collection or internal error).
+PY_RUN_FAILED=false
 
 TODAY="$(date +%Y-%m-%d)"
 TIMESTAMP="$(date +%Y-%m-%dT%H:%M:%S)"
@@ -101,31 +106,21 @@ run_go_tests() {
 run_python_tests() {
   echo ">>> Running Python tests..." >&2
   cd "$ROOTDIR"
-  if poetry run pytest --json-report --json-report-file="$PY_RESULTS_FILE" -q 2>/dev/null; then
-    echo ">>> Python tests complete (json-report)." >&2
-  else
-    # json-report plugin might not be installed; fall back to plain run
-    if [ ! -f "$PY_RESULTS_FILE" ]; then
-      echo ">>> json-report unavailable, falling back to plain pytest..." >&2
-      poetry run pytest -q > /tmp/pytest-plain.txt 2>&1 || true
-      # Build a minimal JSON from plain output
-      echo '{"summary":{"total":0},"tests":[]}' > "$PY_RESULTS_FILE"
-      # Parse pass/fail counts from last line like "168 passed, 2 failed"
-      if [ -f /tmp/pytest-plain.txt ]; then
-        while IFS= read -r line; do
-          # Lines like "workers/tests/test_tool_bash.py::test_name PASSED"
-          local nodeid outcome
-          nodeid="$(echo "$line" | awk '{print $1}')"
-          outcome="$(echo "$line" | awk '{print $NF}')"
-          case "$outcome" in
-            PASSED|passed) echo "$nodeid PASS" >> /tmp/pytest-parsed.txt ;;
-            FAILED|failed) echo "$nodeid FAIL" >> /tmp/pytest-parsed.txt ;;
-          esac
-        done < /tmp/pytest-plain.txt
-      fi
-    fi
-    echo ">>> Python tests complete." >&2
+  rm -f "$PY_RESULTS_FILE" "$PY_PARSED_FILE"
+  # -rA lists every test with its outcome in the summary ("PASSED <id>",
+  # "FAILED <id> - <reason>", "ERROR <id>"), without a plugin (KI-214: the
+  # json-report fallback recorded no results, so this half never failed).
+  local status=0
+  poetry run pytest -q -rA > "$PY_PLAIN_FILE" 2>&1 || status=$?
+  awk '$1 == "PASSED" { print $2 " PASS" } $1 == "FAILED" || $1 == "ERROR" { print $2 " FAIL" }' \
+    "$PY_PLAIN_FILE" > "$PY_PARSED_FILE"
+  # 0: all passed, 1: some failed (listed above); anything else means the
+  # suite did not run (collection error, internal error, no tests).
+  if [ "$status" -gt 1 ]; then
+    echo ">>> pytest could not run the suite (exit $status), see $PY_PLAIN_FILE" >&2
+    PY_RUN_FAILED=true
   fi
+  echo ">>> Python tests complete (exit $status)." >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -134,7 +129,7 @@ run_python_tests() {
 run_contract_tests() {
   echo ">>> Running contract tests..." >&2
   # Go side: generate fixtures
-  go test "$ROOTDIR/internal/port/messagequeue/" -run Contract -v -count=1 > /tmp/contract-go.txt 2>&1 || true
+  go test "$ROOTDIR/internal/port/messagequeue/" -run Contract -v -count=1 > "$WORK_DIR/contract-go.txt" 2>&1 || true
   # Python side: validate fixtures
   cd "$ROOTDIR"
   poetry run pytest workers/tests/test_nats_contracts.py -v > "$CONTRACT_RESULTS_FILE" 2>&1 || true
@@ -235,7 +230,7 @@ parse_python_results() {
   fi
 
   # Fall back to parsed plain output
-  if [ -f /tmp/pytest-parsed.txt ]; then
+  if [ -f "$PY_PARSED_FILE" ]; then
     parse_python_plain
     return
   fi
@@ -296,10 +291,10 @@ parse_python_plain() {
 
     IFS='|' read -ra patterns <<< "$py_pattern"
     for pat in "${patterns[@]}"; do
-      if grep -q "${pat}.*PASS" /tmp/pytest-parsed.txt 2>/dev/null; then
+      if grep -q "${pat}.*PASS" "$PY_PARSED_FILE" 2>/dev/null; then
         has_pass=true
       fi
-      if grep -q "${pat}.*FAIL" /tmp/pytest-parsed.txt 2>/dev/null; then
+      if grep -q "${pat}.*FAIL" "$PY_PARSED_FILE" 2>/dev/null; then
         has_fail=true
       fi
     done
@@ -628,6 +623,10 @@ print(f'| {date} | {sha} | {branch} | {verified} | {partial} | {not_v} | {crit} 
 # Check critical features exit code
 # ---------------------------------------------------------------------------
 check_critical() {
+  if [ "$PY_RUN_FAILED" = true ]; then
+    echo ">>> CRITICAL: the Python suite did not run." >&2
+    return 1
+  fi
   for crit_id in 1 2 3 4 5 6 7 8 9 10 22 23; do
     local idx=$((crit_id - 1))
     if [ "${RES_GO[$idx]}" = "FAIL" ] || [ "${RES_PY[$idx]}" = "FAIL" ]; then
