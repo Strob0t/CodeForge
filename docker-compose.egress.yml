@@ -16,9 +16,32 @@
 #     mcp.allowed_private_hosts) and stdio MCP servers that call out;
 #   - package installs by agents (pip, npm), benchmark dataset downloads and
 #     an OpenHands server outside this compose project.
-# It gives every tool process of every tenant that route: an agent can then
-# send what its workspace holds anywhere. Enable it only when the
-# deployment's tenants may do that.
+#
+# What it opens: every tool process of every tenant (Bash, backend CLIs, MCP
+# stdio servers) gets this route, with nothing between it and the network:
+#   - an agent can send what its workspace holds anywhere;
+#   - it can also reach the host's LAN, the host's own services and published
+#     ports, and the cloud metadata service (169.254.169.254, which hands out
+#     the machine's cloud credentials). netutil.OutboundPolicy and
+#     mcp.allowed_private_hosts guard only the worker's own connections (its
+#     HTTP MCP clients), not what a tool process connects to.
+# Enable it only when the deployment's tenants may do all of that, and block
+# the private ranges on the host. An example for iptables (run as root after
+# `up`; the project name "codeforge" gives the network codeforge_egress):
+#   EGRESS_IF="br-$(docker network inspect -f '{{.Id}}' codeforge_egress | cut -c1-12)"
+#   for net in 169.254.0.0/16 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
+#     iptables -I DOCKER-USER -i "$EGRESS_IF" ! -o "$EGRESS_IF" -d "$net" -j DROP
+#   done
+#   iptables -I INPUT -i "$EGRESS_IF" -j DROP
+# "! -o" keeps traffic inside the egress network (the containers of this
+# project on it); the compose networks themselves need no exception, since
+# the worker reaches NATS, the Go Core and LiteLLM on "internal", not through
+# this bridge. The INPUT rule keeps the containers on the egress network
+# away from the host's own services; LiteLLM shares this network, so when it
+# uses a model server on the host (host.docker.internal) or on the LAN,
+# insert an ACCEPT for that address and port first (iptables -I puts a rule
+# at the top: add the ACCEPT last). The rules do not survive a reboot or a
+# re-created network: keep them in the host's firewall configuration.
 services:
   worker:
     networks:

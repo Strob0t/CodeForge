@@ -191,3 +191,14 @@ def test_egress_is_an_explicit_override() -> None:
     assert prod["networks"]["egress"].get("internal") is not True
     assert set(override) == {"services"}
     assert override["services"] == {"worker": {"networks": ["internal", "egress"]}}
+
+
+def test_egress_override_says_what_it_opens() -> None:
+    """Tool processes get the route unfiltered: the file names the LAN, the host and the metadata service, and how to block them."""
+    raw = (REPO / "docker-compose.egress.yml").read_bytes()
+    assert raw.isascii()
+    text = raw.decode()
+    for needle in ("host's LAN", "published", "169.254.169.254", "netutil.OutboundPolicy", "DOCKER-USER", "INPUT"):
+        assert needle in text, needle
+    for net in ("169.254.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+        assert net in text, net
