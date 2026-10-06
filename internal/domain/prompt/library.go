@@ -59,6 +59,11 @@ type Conditions struct {
 	ModelCapabilities []string `yaml:"model_capabilities"`
 	AgenticOnly       bool     `yaml:"agentic_only"`
 	Env               []string `yaml:"env"`
+
+	// Runtime triggers, checked only for reminders when a conversation turn
+	// is dispatched (ReminderFires): every trigger set must be reached.
+	StallIterationsMin int     `yaml:"stall_iterations_min"`
+	BudgetPercentMin   float64 `yaml:"budget_percent_min"`
 }
 
 // PromptEntry represents a single modular prompt fragment loaded from YAML.
@@ -105,6 +110,38 @@ func (e *PromptEntry) Matches(ctx AssemblyContext) bool {
 		return false
 	}
 	if len(c.Env) > 0 && !containsStr(c.Env, ctx.Env) {
+		return false
+	}
+	return true
+}
+
+// ReminderSignals are the runtime values of a conversation turn that
+// reminder triggers are checked against.
+type ReminderSignals struct {
+	StallIterations int
+	BudgetPercent   float64
+}
+
+// HasReminderCondition reports whether the entry names the situation it is
+// meant for: a mode list or a runtime trigger.
+func (e *PromptEntry) HasReminderCondition() bool {
+	c := &e.Conditions
+	return len(c.Modes) > 0 || c.StallIterationsMin > 0 || c.BudgetPercentMin > 0
+}
+
+// ReminderFires reports whether a reminder applies to a turn: it has a
+// condition (HasReminderCondition), its conditions match ctx and every
+// runtime trigger it sets is reached. A reminder without a condition never
+// fires; it would otherwise be sent on every turn (KI-190).
+func (e *PromptEntry) ReminderFires(ctx AssemblyContext, sig ReminderSignals) bool {
+	if !e.HasReminderCondition() || !e.Matches(ctx) {
+		return false
+	}
+	c := &e.Conditions
+	if c.StallIterationsMin > 0 && sig.StallIterations < c.StallIterationsMin {
+		return false
+	}
+	if c.BudgetPercentMin > 0 && sig.BudgetPercent < c.BudgetPercentMin {
 		return false
 	}
 	return true

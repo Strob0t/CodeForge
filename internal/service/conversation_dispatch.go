@@ -299,7 +299,7 @@ func (s *ConversationService) dispatchAgenticRun(
 		contextEntries = append(contextEntries, opts.extraContext...)
 	}
 
-	reminders := s.evaluateReminders(ctx, conversationID, protoMessages)
+	reminders := s.evaluateReminders(ctx, conversationID, resolvedMode, modeAutonomy, protoMessages)
 
 	// Resolve rollout count (only for autonomy >= 4, capped at 8).
 	rolloutCount := opts.rolloutCount

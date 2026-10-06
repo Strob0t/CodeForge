@@ -3,6 +3,10 @@ category: reminder
 name: Stall Detection
 priority: 85
 sort_order: 3
+# Consecutive tool results without Edit, Write or Bash at the end of the
+# history; never counted in a read-only mode.
+conditions:
+  stall_iterations_min: 10
 content: |
   WARNING: No meaningful progress detected in {{.StallIterations}} iterations. You may be stuck in a loop. Step back and reconsider your approach:
   1. Re-read the original task requirements.

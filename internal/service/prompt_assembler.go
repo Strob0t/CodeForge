@@ -2,6 +2,9 @@ package service
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"text/template"
@@ -53,7 +56,7 @@ func (a *PromptAssembler) AssembleWithFingerprint(ctx prompt.AssemblyContext, te
 
 func (a *PromptAssembler) assembleInternal(ctx prompt.AssemblyContext, templateData any, modelFamily string) AssemblyResult {
 	// 1. Filter: query the library for matching entries.
-	entries := a.library.Query(ctx)
+	entries := a.promptEntries(ctx)
 	if len(entries) == 0 {
 		return AssemblyResult{}
 	}
@@ -86,8 +89,7 @@ func (a *PromptAssembler) assembleInternal(ctx prompt.AssemblyContext, templateD
 	// 5. Render templates and convert to PromptSection.
 	var sections []PromptSection
 	for i := range entries {
-		text := renderEntry(&entries[i], templateData)
-		text = strings.TrimSpace(text)
+		text := renderedEntry(&entries[i], templateData)
 		if text == "" {
 			continue
 		}
@@ -120,25 +122,63 @@ func (a *PromptAssembler) FingerprintForMode(modeID string) string {
 		return ""
 	}
 	ctx := prompt.AssemblyContext{ModeID: modeID}
-	entries := a.library.Query(ctx)
+	entries := a.promptEntries(ctx)
 	if len(entries) == 0 {
 		return ""
 	}
 	return prompt.Fingerprint(entries)
 }
 
-// renderEntry renders a prompt entry's content, executing Go templates if present.
-func renderEntry(e *prompt.PromptEntry, data any) string {
-	if data == nil || !strings.Contains(e.Content, "{{") {
-		return e.Content
+// promptEntries returns the library entries of a system prompt for ctx.
+// Reminders are not part of it: they fire per turn under their own
+// conditions (EvaluateReminders, KI-190).
+func (a *PromptAssembler) promptEntries(ctx prompt.AssemblyContext) []prompt.PromptEntry {
+	entries := a.library.Query(ctx)
+	kept := entries[:0]
+	for i := range entries {
+		if entries[i].Category != prompt.CategoryReminder {
+			kept = append(kept, entries[i])
+		}
 	}
-	tmpl, err := template.New(e.ID).Parse(e.Content)
+	return kept
+}
+
+// errNoTemplateData is returned for a templated entry rendered without data.
+var errNoTemplateData = errors.New("templated prompt entry rendered without data")
+
+// renderEntry renders a prompt entry's content, executing Go templates if
+// present. A templated entry needs data; without it, or when its template
+// fails, it returns an error instead of the raw template (KI-190).
+func renderEntry(e *prompt.PromptEntry, data any) (string, error) {
+	if !strings.Contains(e.Content, "{{") {
+		return e.Content, nil
+	}
+	if data == nil {
+		return "", errNoTemplateData
+	}
+	tmpl, err := template.New(e.ID).Option("missingkey=error").Parse(e.Content)
 	if err != nil {
-		return e.Content // return raw content on parse failure
+		return "", fmt.Errorf("parse template: %w", err)
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return e.Content // return raw content on execution failure
+		return "", fmt.Errorf("execute template: %w", err)
 	}
-	return buf.String()
+	return buf.String(), nil
+}
+
+// renderedEntry returns the trimmed text of e for a prompt, or "" when the
+// entry cannot render: it is then left out, and a failed template is logged.
+// A templated entry without data (a caller that has none) is left out
+// silently.
+func renderedEntry(e *prompt.PromptEntry, data any) string {
+	text, err := renderEntry(e, data)
+	if errors.Is(err, errNoTemplateData) {
+		return ""
+	}
+	if err != nil {
+		slog.Error("prompt entry template failed, entry skipped", "id", e.ID, "error", err)
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
