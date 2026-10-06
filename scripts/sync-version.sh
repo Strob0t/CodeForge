@@ -36,7 +36,7 @@ sed -i '9s/"version": "[^"]*"/"version": "'"$VERSION"'"/' "$ROOT_DIR/frontend/pa
 echo "  updated frontend/package-lock.json"
 
 # docker-compose.prod.yml: the default image tags (KI-116), e.g.
-# ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:0.8.0}
+# ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:<VERSION>}
 sed -i -E 's#(\$\{(CORE|WORKER|FRONTEND)_IMAGE:-ghcr\.io/strob0t/codeforge-(core|worker|frontend)):[^}]*\}#\1:'"$VERSION"'}#' \
   "$ROOT_DIR/docker-compose.prod.yml"
 echo "  updated docker-compose.prod.yml"

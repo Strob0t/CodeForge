@@ -241,7 +241,7 @@ services:
   # --- Application ---
 
   core:
-    image: ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:0.8.0}
+    image: ${CORE_IMAGE:-ghcr.io/strob0t/codeforge-core:0.9.0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -317,7 +317,7 @@ services:
     logging: *default-logging
 
   worker:
-    image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:0.8.0}
+    image: ${WORKER_IMAGE:-ghcr.io/strob0t/codeforge-worker:0.9.0}
     build:
       context: .
       dockerfile: Dockerfile.worker
@@ -404,7 +404,7 @@ services:
     logging: *default-logging
 
   frontend:
-    image: ${FRONTEND_IMAGE:-ghcr.io/strob0t/codeforge-frontend:0.8.0}
+    image: ${FRONTEND_IMAGE:-ghcr.io/strob0t/codeforge-frontend:0.9.0}
     build:
       context: .
       dockerfile: Dockerfile.frontend
