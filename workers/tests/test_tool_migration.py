@@ -144,8 +144,9 @@ def test_census_counts_links_inside_the_tree(tmp_path: Path) -> None:
     os.link(tree / "a", tree / "d" / "b")
     (tmp_path / "out").write_text("y")
     os.link(tmp_path / "out", tree / "c")
-    counts = tool_walk.census(str(tree))
+    counts, report = tool_walk.census(str(tree))
     a, c = (tree / "a").stat(), (tree / "c").stat()
+    assert report.unentered == 0
     assert counts[(a.st_dev, a.st_ino)] == 2
     assert counts[(c.st_dev, c.st_ino)] == 1
 
@@ -547,6 +548,17 @@ def test_unsharing_fails_when_a_subtree_was_skipped(tmp_path: Path, monkeypatch:
     _refuse_entering(monkeypatch, "skipped")
 
     with pytest.raises(ToolIsolationError, match="skipped"):
+        tool_migration.unshare_links(str(tree))
+
+
+def test_unsharing_fails_when_the_census_missed_a_subtree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A census that missed a subtree takes links into it for links outside the tree (KI-223 review)."""
+    tree = tmp_path / "tenant"
+    tree.mkdir()
+    missed = tool_walk.Report(unentered=1, errors=[f"{tree}/hidden: cannot be entered"])
+    monkeypatch.setattr(tool_walk, "census", lambda _root: ({}, missed))
+
+    with pytest.raises(ToolIsolationError, match=r"census.*hidden"):
         tool_migration.unshare_links(str(tree))
 
 

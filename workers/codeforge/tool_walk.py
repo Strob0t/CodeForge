@@ -97,7 +97,8 @@ class Report:
     foreign: int = 0
     skipped: int = 0
     linked_outside: int = 0
-    # Directories the walk could not list or enter: nothing below them was visited.
+    # Directories the walk could not list or enter (nothing below them was
+    # visited) and entries it could not examine.
     unentered: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -108,6 +109,12 @@ class Report:
     def not_walked(self, path: str, reason: str) -> None:
         self.unentered += 1
         self.error(f"{path}: {reason}")
+
+    def missed(self, other: Report) -> None:
+        """Count what an earlier walk this one relies on (a census) could not walk."""
+        self.unentered += other.unentered
+        for message in other.errors:
+            self.error(message)
 
 
 def open_root(path: str) -> int:
@@ -234,6 +241,10 @@ def _inode(info: os.stat_result) -> Inode:
     return (info.st_dev, info.st_ino)
 
 
+def _lstat_at(dir_fd: int, name: str) -> os.stat_result:
+    return os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+
+
 def _list(directory: _Dir, dev: int, visit: Callable[[int, str, os.stat_result, Report], None], report: Report) -> None:
     """Visit the entries of *directory* and keep its subdirectories in its pending list."""
     try:
@@ -243,9 +254,12 @@ def _list(directory: _Dir, dev: int, visit: Callable[[int, str, os.stat_result, 
         return
     for name in names:
         try:
-            info = os.stat(name, dir_fd=directory.fd, follow_symlinks=False)
-        except OSError:
+            info = _lstat_at(directory.fd, name)
+        except FileNotFoundError:
             continue  # removed meanwhile
+        except OSError as exc:
+            report.not_walked(f"{directory.path}/{name}", exc.strerror or str(exc))
+            continue
         if info.st_dev != dev or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
             report.skipped += 1
             continue
@@ -403,8 +417,12 @@ def legacy_open(root: str, *, uid: int | None = None) -> Report:
     return walk(root, lambda d, n, i, r: _owned(d, n, i, owner, r, change), Report())
 
 
-def census(root: str) -> dict[Inode, int]:
-    """How many names inside *root* each regular file with more than one link has."""
+def census(root: str) -> tuple[dict[Inode, int], Report]:
+    """How many names inside *root* each regular file with more than one link has, and the walk's report.
+
+    A census that missed a subtree takes links into it for links outside
+    the tree: its caller must count what it could not walk (KI-223 review).
+    """
     counts: dict[Inode, int] = {}
 
     def visit(_dir_fd: int, _name: str, info: os.stat_result, _report: Report) -> None:
@@ -412,8 +430,7 @@ def census(root: str) -> dict[Inode, int]:
             key = (info.st_dev, info.st_ino)
             counts[key] = counts.get(key, 0) + 1
 
-    walk(root, visit, Report())
-    return counts
+    return counts, walk(root, visit, Report())
 
 
 def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: bool = True) -> Report:
@@ -425,7 +442,9 @@ def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: boo
     directory gets the tenant's ACLs, not a project's).
     """
     owner = os.getuid() if uid is None else uid
-    inside = census(root)
+    inside, counted = census(root)
+    report = Report()
+    report.missed(counted)
 
     def change(target: str, info: os.stat_result) -> bool:
         directory = stat.S_ISDIR(info.st_mode)
@@ -443,7 +462,7 @@ def exact(root: str, tool_uid: int, *, uid: int | None = None, include_root: boo
             return
         _owned(dir_fd, name, info, owner, report, change)
 
-    return walk(root, visit, Report(), include_root=include_root)
+    return walk(root, visit, report, include_root=include_root)
 
 
 _USAGE = (

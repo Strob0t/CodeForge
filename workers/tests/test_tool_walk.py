@@ -340,3 +340,62 @@ def test_the_count_of_skipped_subtrees_is_in_the_report(tmp_path: Path) -> None:
     assert "unentered" in json.loads(
         json.dumps(asdict(tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report())))
     )
+
+
+# ---------------------------------------------------------------------------
+# What the walk could not check is reported, never hidden (KI-223 review)
+# ---------------------------------------------------------------------------
+
+
+def _failing_lstat(monkeypatch: pytest.MonkeyPatch, name: str, error: OSError) -> None:
+    real = tool_walk._lstat_at
+
+    def lstat_at(dir_fd: int, entry: str) -> os.stat_result:
+        if entry == name:
+            raise error
+        return real(dir_fd, entry)
+
+    monkeypatch.setattr(tool_walk, "_lstat_at", lstat_at)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(OSError(errno.EIO, "Input/output error"), id="EIO"),
+        pytest.param(OSError(errno.ELOOP, "Too many levels of symbolic links"), id="ELOOP"),
+    ],
+)
+def test_an_entry_that_cannot_be_examined_is_not_walked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    """Only an entry removed meanwhile may be passed over silently: an EIO or EACCES hid a subtree."""
+    (tmp_path / "broken" / "inner").mkdir(parents=True)
+    _failing_lstat(monkeypatch, "broken", error)
+
+    report = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report())
+
+    assert report.unentered == 1
+    assert any("broken" in message for message in report.errors)
+
+
+def test_an_entry_removed_meanwhile_is_passed_over(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "gone").mkdir()
+    _failing_lstat(monkeypatch, "gone", FileNotFoundError(errno.ENOENT, "No such file or directory"))
+
+    report = tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report())
+
+    assert report.unentered == 0
+    assert report.errors == []
+
+
+def test_exact_fails_when_its_census_missed_a_subtree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A census that missed a subtree takes the links into it for links outside the tree: exact()
+    would leave those files' legacy ACLs (and planted entries) as they are."""
+    (tmp_path / "f").write_text("x")
+    missed = tool_walk.Report(unentered=1, errors=[f"{tmp_path}/hidden: cannot be entered"])
+    monkeypatch.setattr(tool_walk, "census", lambda _root: ({}, missed))
+
+    report = tool_walk.exact(str(tmp_path), 20009)
+
+    assert report.unentered == 1
+    assert any("hidden" in message for message in report.errors)

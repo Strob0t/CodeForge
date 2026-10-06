@@ -299,7 +299,8 @@ def _copy_over(dir_fd: int, name: str, listed: os.stat_result) -> None:
 
 def unshare_links(tree: str) -> int:
     """Copy every regular file of *tree* whose inode has links outside it (D9 step 3); how many were copied."""
-    inside = tool_walk.census(tree)
+    inside, counted = tool_walk.census(tree)
+    _fail_if_not_walked("the hard-link census", tree, counted.unentered, counted.errors)
     copied = 0
 
     def visit(dir_fd: int, name: str, info: os.stat_result, report: tool_walk.Report) -> None:
