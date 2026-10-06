@@ -334,6 +334,38 @@ def test_nginx_does_not_cut_long_api_requests() -> None:
     assert re.search(r"^\s*proxy_read_timeout 1h;", api, re.MULTILINE), api
 
 
+def _nginx_location(conf: str, match: str) -> str:
+    return conf.split(f"location {match} {{", 1)[1].split("\n    }", 1)[0]
+
+
+@pytest.mark.parametrize("match", ["= /a2a", "= /.well-known/agent-card.json"])
+def test_nginx_proxies_a2a_to_the_core(match: str) -> None:
+    """KI-213: the Core port is loopback-only, so external A2A callers come through nginx."""
+    conf = (REPO / "frontend" / "nginx.conf").read_text()
+    assert f"location {match} {{" in conf
+    block = _nginx_location(conf, match)
+    for line in (
+        "proxy_pass http://${CORE_UPSTREAM};",
+        "proxy_set_header Host $host;",
+        "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        "proxy_set_header X-Forwarded-Proto $scheme;",
+    ):
+        assert line in block, (match, line)
+
+
+def test_nginx_a2a_streams_are_not_buffered_or_cut() -> None:
+    """KI-213: message/stream and tasks/resubscribe answer with SSE that may run for a long time."""
+    block = _nginx_location((REPO / "frontend" / "nginx.conf").read_text(), "= /a2a")
+    for directive in (
+        "proxy_http_version 1.1;",
+        'proxy_set_header Connection "";',
+        "proxy_buffering off;",
+        "proxy_cache off;",
+        "proxy_read_timeout 1h;",
+    ):
+        assert re.search(rf"^\s*{re.escape(directive)}", block, re.MULTILINE), directive
+
+
 def test_live_e2e_core_listens_on_loopback() -> None:
     """KI-213: live E2E runs with public dev credentials and tool isolation off."""
     env = (REPO / "scripts" / "live-e2e" / "env.example.sh").read_text()
