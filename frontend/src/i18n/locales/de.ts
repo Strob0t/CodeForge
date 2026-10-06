@@ -804,6 +804,20 @@ const de: Translations = {
   "webhooks.toast.apiTokenSaved": "API-Token gespeichert",
   "webhooks.toast.apiTokenRemoved": "API-Token entfernt",
   "webhooks.toast.apiTokenFailed": "Das API-Token konnte nicht geändert werden.",
+  "webhooks.form.exists":
+    "Dieses Projekt hat bereits einen Webhook {{name}}; rotieren Sie stattdessen sein Secret.",
+  "webhooks.error.createNoAnswer":
+    "Keine Antwort erhalten. Der Webhook wurde möglicherweise trotzdem registriert: Steht er nach dem Neuladen in der Liste, rotieren Sie sein Secret, um ein neues zu erhalten.",
+  "webhooks.error.rotateNoAnswer":
+    "Keine Antwort erhalten. Das Secret wurde möglicherweise trotzdem rotiert, dann gilt das alte nicht mehr: Rotieren Sie es erneut, um ein neues zu erhalten.",
+  "webhooks.toast.createdElsewhere":
+    "Der Webhook {{name}} des vorherigen Projekts wurde registriert, sein Secret konnte hier aber nicht angezeigt werden. Rotieren Sie dort sein Secret, um ein neues zu erhalten.",
+  "webhooks.toast.createdClosed":
+    "Der Webhook {{name}} wurde registriert, nachdem das Webhooks-Panel geschlossen wurde; sein Secret konnte daher nicht angezeigt werden. Rotieren Sie sein Secret, um ein neues zu erhalten.",
+  "webhooks.toast.rotatedElsewhere":
+    "Das Secret des Webhooks {{name}} des vorherigen Projekts wurde rotiert, das neue Secret konnte hier aber nicht angezeigt werden. Rotieren Sie es dort erneut, um ein neues zu erhalten.",
+  "webhooks.toast.rotatedClosed":
+    "Das Secret des Webhooks {{name}} wurde rotiert, nachdem das Webhooks-Panel geschlossen wurde; das neue Secret konnte daher nicht angezeigt werden. Rotieren Sie es erneut, um ein neues zu erhalten.",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live-Ausgabe",

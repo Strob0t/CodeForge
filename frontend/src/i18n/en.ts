@@ -810,6 +810,19 @@ const en = {
   "webhooks.toast.apiTokenSaved": "API token saved",
   "webhooks.toast.apiTokenRemoved": "API token removed",
   "webhooks.toast.apiTokenFailed": "The API token could not be changed.",
+  "webhooks.form.exists": "This project already has a {{name}} webhook; rotate its secret instead.",
+  "webhooks.error.createNoAnswer":
+    "No answer arrived. The webhook may have been registered anyway: if it is listed after a reload, rotate its secret to get a new one.",
+  "webhooks.error.rotateNoAnswer":
+    "No answer arrived. The secret may have been rotated anyway, and then the old one no longer works: rotate it again to get a new one.",
+  "webhooks.toast.createdElsewhere":
+    "The {{name}} webhook of the previous project was registered, but its secret could not be shown here. Rotate its secret there to get a new one.",
+  "webhooks.toast.createdClosed":
+    "The {{name}} webhook was registered after the Webhooks panel closed, so its secret could not be shown. Rotate its secret to get a new one.",
+  "webhooks.toast.rotatedElsewhere":
+    "The secret of the {{name}} webhook of the previous project was rotated, but the new secret could not be shown here. Rotate it there again to get a new one.",
+  "webhooks.toast.rotatedClosed":
+    "The secret of the {{name}} webhook was rotated after the Webhooks panel closed, so the new secret could not be shown. Rotate it again to get a new one.",
 
   // -- Live output ----------------------------------------------------------
   "output.title": "Live Output",

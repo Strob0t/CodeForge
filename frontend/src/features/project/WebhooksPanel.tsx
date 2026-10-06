@@ -6,10 +6,12 @@ import {
   For,
   type JSX,
   on,
+  onCleanup,
   Show,
 } from "solid-js";
 
 import { api } from "~/api/client";
+import { FetchError } from "~/api/core";
 import type {
   CreateWebhookRequest,
   WebhookEndpoint,
@@ -62,6 +64,37 @@ const PROVIDER_LABELS: Record<WebhookProvider, string> = {
   plane: "Plane",
 };
 
+/** Secret and token inputs: neither the browser nor a password manager may
+ * offer to save them (not every manager honors autocomplete alone). */
+const SECRET_INPUT = {
+  type: "password",
+  autocomplete: "new-password",
+  "data-1p-ignore": "",
+  "data-lpignore": "true",
+} as const;
+
+/** The toasts for an answer that arrives after the panel moved on. */
+interface UnseenMessages {
+  /** The project changed: the webhook belongs to the previous one. */
+  elsewhere: TranslationKey;
+  /** The panel closed. */
+  closed: TranslationKey;
+  /** Nothing was lost: a Plane secret is the admin's own. */
+  plain: TranslationKey;
+}
+
+const CREATED_UNSEEN: UnseenMessages = {
+  elsewhere: "webhooks.toast.createdElsewhere",
+  closed: "webhooks.toast.createdClosed",
+  plain: "webhooks.toast.created",
+};
+
+const ROTATED_UNSEEN: UnseenMessages = {
+  elsewhere: "webhooks.toast.rotatedElsewhere",
+  closed: "webhooks.toast.rotatedClosed",
+  plain: "webhooks.toast.rotated",
+};
+
 function asKind(value: string): WebhookKind | undefined {
   return KINDS.find((k) => k === value);
 }
@@ -78,9 +111,11 @@ function inboundURL(path: string): string {
   return new URL(path, window.location.origin).href;
 }
 
-/** A secret shown once, after a registration or a rotation. It lives only in
- * this panel's memory: never in browser storage, never in the API cache. */
+/** A secret shown once, after a registration or a rotation, on the project
+ * it was issued for. It lives only in this panel's memory: never in browser
+ * storage, never in the API cache. */
 interface RevealedSecret {
+  projectId: string;
   name: string;
   provider: WebhookProvider;
   url: string;
@@ -96,21 +131,36 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
   const canView = (): boolean => hasRole("admin", "editor");
   const isAdmin = (): boolean => hasRole("admin");
 
+  // The panel stays mounted when the project changes. Each change starts a
+  // new generation: the answer to a request sent before it changes nothing
+  // here, and neither does one that arrives after the panel closed.
+  let generation = 0;
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
+  const isCurrent = (gen: number): boolean => !disposed && gen === generation;
+
   const [webhooks, { refetch }] = createResource(
     () => (canView() ? props.projectId : false),
-    (projectId) => api.webhooks.list(projectId),
+    async (projectId) => ({ projectId, items: await api.webhooks.list(projectId) }),
   );
+  /** The webhooks of the project shown. They stay visible while they are
+   * reloaded; another project's never show. */
+  const listed = (): WebhookEndpoint[] | undefined => {
+    if (webhooks.error || webhooks.state === "unresolved" || webhooks.state === "pending") {
+      return undefined;
+    }
+    const latest = webhooks.latest;
+    return latest?.projectId === props.projectId ? latest.items : undefined;
+  };
 
   const [error, setError] = createSignal("");
   const [revealed, setRevealed] = createSignal<RevealedSecret | null>(null);
-  // A secret belongs to the project it was shown for.
-  createEffect(
-    on(
-      () => props.projectId,
-      () => setRevealed(null),
-      { defer: true },
-    ),
-  );
+  const shownSecret = (): RevealedSecret | null => {
+    const r = revealed();
+    return r !== null && r.projectId === props.projectId ? r : null;
+  };
 
   const nameOf = (w: { kind: WebhookKind; provider: WebhookProvider }): string =>
     t("webhooks.name", { provider: PROVIDER_LABELS[w.provider], kind: t(KIND_LABELS[w.kind]) });
@@ -120,14 +170,33 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
 
   /** Shows a CodeForge-generated secret once. A secret Plane generated is
    * not echoed: the admin just pasted it. */
-  function reveal(reg: WebhookRegistered): void {
+  function reveal(projectId: string, reg: WebhookRegistered): void {
     if (webhookProviderGeneratesSecret(reg.provider)) return;
     setRevealed({
+      projectId,
       name: nameOf(reg),
       provider: reg.provider,
       url: inboundURL(reg.url),
       secret: reg.secret,
     });
+  }
+
+  /** Reports an answer that came after the panel moved on. A secret
+   * CodeForge generated is lost then: only another rotation shows one. */
+  function reportUnseen(reg: WebhookRegistered, messages: UnseenMessages): void {
+    if (webhookProviderGeneratesSecret(reg.provider)) {
+      toast("success", t(messages.plain));
+      return;
+    }
+    toast("warning", t(disposed ? messages.closed : messages.elsewhere, { name: nameOf(reg) }), 0);
+  }
+
+  /** The message for a failed change. Without an answer (a network error)
+   * the change may still have gone through. */
+  function changeError(err: unknown, failed: TranslationKey, noAnswer: TranslationKey): string {
+    if (err instanceof FetchError) return extractErrorMessage(err, t(failed));
+    logError("webhooks.change", err);
+    return t(noAnswer);
   }
 
   // -- Register --------------------------------------------------------------
@@ -166,6 +235,15 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     if (!webhookProviderGeneratesSecret(next)) setGivenSecret("");
   }
 
+  function createError(err: unknown, req: CreateWebhookRequest): string {
+    // The Go Core answers a second webhook of one kind and provider with 409
+    // and a generic conflict message (writeDomainError).
+    if (err instanceof FetchError && err.status === 409) {
+      return t("webhooks.form.exists", { name: nameOf(req) });
+    }
+    return changeError(err, "webhooks.toast.createFailed", "webhooks.error.createNoAnswer");
+  }
+
   async function handleCreate(): Promise<void> {
     if (saving()) return;
     setFormError("");
@@ -178,11 +256,17 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
       req.secret = givenSecret();
     }
     if (kind() === "pm" && apiToken() !== "") req.api_token = apiToken();
+    const gen = generation;
+    const projectId = props.projectId;
     setSaving(true);
     try {
-      const reg = await api.webhooks.create(props.projectId, req);
+      const reg = await api.webhooks.create(projectId, req);
+      if (!isCurrent(gen)) {
+        reportUnseen(reg, CREATED_UNSEEN);
+        return;
+      }
       closeForm();
-      reveal(reg);
+      reveal(projectId, reg);
       toast(
         "success",
         webhookProviderGeneratesSecret(reg.provider)
@@ -191,9 +275,11 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
       );
       void refetch();
     } catch (err) {
-      setFormError(extractErrorMessage(err, t("webhooks.toast.createFailed")));
+      const message = createError(err, req);
+      if (isCurrent(gen)) setFormError(message);
+      else toast("error", message);
     } finally {
-      setSaving(false);
+      if (isCurrent(gen)) setSaving(false);
     }
   }
 
@@ -208,9 +294,10 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     return w !== null && webhookProviderGeneratesSecret(w.provider);
   };
 
-  function closeRotate(): void {
+  /** Opens and closes the dialog with nothing typed or failed before. */
+  function setRotateDialog(w: WebhookEndpoint | null): void {
     batch(() => {
-      setRotateTarget(null);
+      setRotateTarget(w);
       setRotateSecret("");
       setRotateError("");
     });
@@ -224,21 +311,36 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
       setRotateError(secretTooShort());
       return;
     }
+    const gen = generation;
+    const projectId = props.projectId;
+    setRotateError("");
+    // The dialog cannot be cancelled while the rotation runs (busy): its
+    // answer always finds it, unless the project changed or the panel closed.
     setRotating(true);
     try {
       const reg = await api.webhooks.rotate(
-        props.projectId,
+        projectId,
         target.id,
         given ? rotateSecret() : undefined,
       );
-      closeRotate();
-      reveal(reg);
+      if (!isCurrent(gen)) {
+        reportUnseen(reg, ROTATED_UNSEEN);
+        return;
+      }
+      setRotateDialog(null);
+      reveal(projectId, reg);
       toast("success", t("webhooks.toast.rotated"));
       void refetch();
     } catch (err) {
-      setRotateError(extractErrorMessage(err, t("webhooks.toast.rotateFailed")));
+      const message = changeError(
+        err,
+        "webhooks.toast.rotateFailed",
+        "webhooks.error.rotateNoAnswer",
+      );
+      if (isCurrent(gen)) setRotateError(message);
+      else toast("error", message);
     } finally {
-      setRotating(false);
+      if (isCurrent(gen)) setRotating(false);
     }
   }
 
@@ -250,16 +352,22 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
   async function confirmDelete(): Promise<void> {
     const target = deleteTarget();
     if (!target || deleting()) return;
+    const gen = generation;
     setDeleting(true);
     try {
       await api.webhooks.delete(props.projectId, target.id);
       toast("success", t("webhooks.toast.deleted"));
-      void refetch();
+      if (isCurrent(gen)) void refetch();
     } catch (err) {
-      setError(extractErrorMessage(err, t("webhooks.toast.deleteFailed")));
+      const message = extractErrorMessage(err, t("webhooks.toast.deleteFailed"));
+      if (isCurrent(gen)) setError(message);
+      else toast("error", message);
     } finally {
-      setDeleteTarget(null);
-      setDeleting(false);
+      if (isCurrent(gen)) {
+        // Only the dialog of this delete closes.
+        if (deleteTarget() === target) setDeleteTarget(null);
+        setDeleting(false);
+      }
     }
   }
 
@@ -270,31 +378,41 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
   const [tokenError, setTokenError] = createSignal("");
   const [savingToken, setSavingToken] = createSignal(false);
 
-  function closeToken(): void {
+  /** Opens and closes the dialog with nothing typed or failed before. */
+  function setTokenDialog(w: WebhookEndpoint | null): void {
     batch(() => {
-      setTokenTarget(null);
+      setTokenTarget(w);
       setNewToken("");
       setTokenError("");
     });
+  }
+
+  function cancelToken(): void {
+    if (!savingToken()) setTokenDialog(null);
   }
 
   /** Sets the token, or removes it with "". */
   async function applyToken(token: string): Promise<void> {
     const target = tokenTarget();
     if (!target || savingToken()) return;
+    const gen = generation;
     setSavingToken(true);
     try {
       await api.webhooks.setAPIToken(props.projectId, target.id, token);
-      closeToken();
       toast(
         "success",
         token === "" ? t("webhooks.toast.apiTokenRemoved") : t("webhooks.toast.apiTokenSaved"),
       );
-      void refetch();
+      if (isCurrent(gen)) {
+        setTokenDialog(null);
+        void refetch();
+      }
     } catch (err) {
-      setTokenError(extractErrorMessage(err, t("webhooks.toast.apiTokenFailed")));
+      const message = extractErrorMessage(err, t("webhooks.toast.apiTokenFailed"));
+      if (isCurrent(gen)) setTokenError(message);
+      else toast("error", message);
     } finally {
-      setSavingToken(false);
+      if (isCurrent(gen)) setSavingToken(false);
     }
   }
 
@@ -305,6 +423,31 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
     }
     void applyToken(newToken());
   }
+
+  // -- Project switch --------------------------------------------------------
+
+  // Nothing typed, opened or failed for one project carries over to the next.
+  createEffect(
+    on(
+      () => props.projectId,
+      () => {
+        generation += 1;
+        batch(() => {
+          setRevealed(null);
+          setError("");
+          closeForm();
+          setRotateDialog(null);
+          setDeleteTarget(null);
+          setTokenDialog(null);
+          setSaving(false);
+          setRotating(false);
+          setDeleting(false);
+          setSavingToken(false);
+        });
+      },
+      { defer: true },
+    ),
+  );
 
   // -- View ------------------------------------------------------------------
 
@@ -333,32 +476,36 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
 
         <ErrorBanner error={error} onDismiss={() => setError("")} class="" />
 
-        <Show when={revealed()}>
+        <Show when={shownSecret()}>
           {(r) => (
-            <Alert variant="warning">
-              <div class="min-w-0 flex-1 space-y-2">
-                <p class="font-medium">
-                  {t("webhooks.secret.title")}: {r().name}
-                </p>
-                <p>{t("webhooks.secret.once", { provider: PROVIDER_LABELS[r().provider] })}</p>
-                <CopyField
-                  id="webhook_revealed_url"
-                  label={t("webhooks.field.url")}
-                  value={r().url}
-                  copyLabel={t("webhooks.copyURL", { name: r().name })}
-                />
-                <CopyField
-                  id="webhook_revealed_secret"
-                  testId="webhook-secret"
-                  label={t("webhooks.secret.label")}
-                  value={r().secret}
-                  copyLabel={t("webhooks.secret.copy")}
-                />
-                <Button variant="secondary" size="xs" onClick={() => setRevealed(null)}>
-                  {t("webhooks.secret.done")}
-                </Button>
-              </div>
-            </Alert>
+            // Not an Alert: role="alert" would make screen readers read the
+            // secret aloud. The status line announces the box without it.
+            <section
+              data-testid="webhook-secret-box"
+              aria-labelledby="webhook_secret_title"
+              class="space-y-2 rounded-cf-md border border-cf-warning-border bg-cf-warning-bg p-3 text-sm text-cf-warning-fg"
+            >
+              <p id="webhook_secret_title" role="status" class="font-medium">
+                {t("webhooks.secret.title")}: {r().name}
+              </p>
+              <p>{t("webhooks.secret.once", { provider: PROVIDER_LABELS[r().provider] })}</p>
+              <CopyField
+                id="webhook_revealed_url"
+                label={t("webhooks.field.url")}
+                value={r().url}
+                copyLabel={t("webhooks.copyURL", { name: r().name })}
+              />
+              <CopyField
+                id="webhook_revealed_secret"
+                testId="webhook-secret"
+                label={t("webhooks.secret.label")}
+                value={r().secret}
+                copyLabel={t("webhooks.secret.copy")}
+              />
+              <Button variant="secondary" size="xs" onClick={() => setRevealed(null)}>
+                {t("webhooks.secret.done")}
+              </Button>
+            </section>
           )}
         </Show>
 
@@ -413,8 +560,7 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
               >
                 <Input
                   id="webhook_given_secret"
-                  type="password"
-                  autocomplete="off"
+                  {...SECRET_INPUT}
                   mono
                   value={givenSecret()}
                   onInput={(e) => setGivenSecret(e.currentTarget.value)}
@@ -429,8 +575,7 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
               >
                 <Input
                   id="webhook_api_token"
-                  type="password"
-                  autocomplete="off"
+                  {...SECRET_INPUT}
                   mono
                   value={apiToken()}
                   onInput={(e) => setAPIToken(e.currentTarget.value)}
@@ -445,11 +590,11 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
           </form>
         </Show>
 
-        <Show when={webhooks.loading}>
+        <Show when={listed() === undefined && webhooks.loading}>
           <LoadingState message={t("webhooks.loading")} />
         </Show>
 
-        <Show when={webhooks.error}>
+        <Show when={webhooks.error && !webhooks.loading}>
           <Alert variant="error">
             <div class="flex flex-1 flex-wrap items-center justify-between gap-2">
               <span>{t("webhooks.loadError")}</span>
@@ -460,94 +605,96 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
           </Alert>
         </Show>
 
-        <Show when={!webhooks.loading && !webhooks.error}>
-          <Show
-            when={(webhooks() ?? []).length > 0}
-            fallback={
-              <EmptyState
-                title={t("webhooks.empty")}
-                description={
-                  isAdmin()
-                    ? t("webhooks.emptyDescription")
-                    : t("webhooks.emptyDescriptionReadOnly")
-                }
-              />
-            }
-          >
-            <ul class="space-y-3">
-              <For each={webhooks() ?? []}>
-                {(w) => (
-                  <li
-                    data-testid={`webhook-${w.id}`}
-                    class="space-y-2 rounded-cf-md border border-cf-border bg-cf-bg-surface p-3"
-                  >
-                    <div class="flex flex-wrap items-center gap-2">
-                      <Badge variant={w.kind === "vcs" ? "info" : "primary"}>
-                        {t(KIND_LABELS[w.kind])}
-                      </Badge>
-                      <span class="text-sm font-medium text-cf-text-primary">
-                        {PROVIDER_LABELS[w.provider]}
-                      </span>
-                      <Show when={isAdmin()}>
-                        <div class="ml-auto flex flex-wrap gap-1">
-                          <Show when={w.kind === "pm"}>
+        <Show when={listed()}>
+          {(items) => (
+            <Show
+              when={items().length > 0}
+              fallback={
+                <EmptyState
+                  title={t("webhooks.empty")}
+                  description={
+                    isAdmin()
+                      ? t("webhooks.emptyDescription")
+                      : t("webhooks.emptyDescriptionReadOnly")
+                  }
+                />
+              }
+            >
+              <ul class="space-y-3">
+                <For each={items()}>
+                  {(w) => (
+                    <li
+                      data-testid={`webhook-${w.id}`}
+                      class="space-y-2 rounded-cf-md border border-cf-border bg-cf-bg-surface p-3"
+                    >
+                      <div class="flex flex-wrap items-center gap-2">
+                        <Badge variant={w.kind === "vcs" ? "info" : "primary"}>
+                          {t(KIND_LABELS[w.kind])}
+                        </Badge>
+                        <span class="text-sm font-medium text-cf-text-primary">
+                          {PROVIDER_LABELS[w.provider]}
+                        </span>
+                        <Show when={isAdmin()}>
+                          <div class="ml-auto flex flex-wrap gap-1">
+                            <Show when={w.kind === "pm"}>
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                aria-label={t("webhooks.apiTokenLabel", { name: nameOf(w) })}
+                                onClick={() => setTokenDialog(w)}
+                              >
+                                {t("webhooks.apiToken.edit")}
+                              </Button>
+                            </Show>
                             <Button
                               variant="ghost"
                               size="xs"
-                              aria-label={t("webhooks.apiTokenLabel", { name: nameOf(w) })}
-                              onClick={() => setTokenTarget(w)}
+                              aria-label={t("webhooks.rotateLabel", { name: nameOf(w) })}
+                              onClick={() => setRotateDialog(w)}
                             >
-                              {t("webhooks.apiToken.edit")}
+                              {t("webhooks.rotate")}
                             </Button>
-                          </Show>
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            aria-label={t("webhooks.rotateLabel", { name: nameOf(w) })}
-                            onClick={() => setRotateTarget(w)}
-                          >
-                            {t("webhooks.rotate")}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            class="text-cf-danger-fg"
-                            aria-label={t("webhooks.deleteLabel", { name: nameOf(w) })}
-                            onClick={() => setDeleteTarget(w)}
-                          >
-                            {t("webhooks.delete")}
-                          </Button>
-                        </div>
-                      </Show>
-                    </div>
-                    <CopyField
-                      id={`webhook_url_${w.id}`}
-                      label={t("webhooks.field.url")}
-                      value={inboundURL(w.url)}
-                      copyLabel={t("webhooks.copyURL", { name: nameOf(w) })}
-                    />
-                    <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                      <dt class="text-cf-text-muted">{t("webhooks.field.created")}</dt>
-                      <dd class="text-cf-text-secondary">{fmt.dateTime(w.created_at)}</dd>
-                      <dt class="text-cf-text-muted">{t("webhooks.field.secretSince")}</dt>
-                      <dd class="text-cf-text-secondary">{fmt.dateTime(w.secret_rotated_at)}</dd>
-                      <Show when={w.kind === "pm"}>
-                        <dt class="text-cf-text-muted">{t("webhooks.field.apiToken")}</dt>
-                        <dd class="text-cf-text-secondary">
-                          {w.has_api_token
-                            ? t("webhooks.apiToken.own")
-                            : t("webhooks.apiToken.none")}
-                        </dd>
-                      </Show>
-                    </dl>
-                  </li>
-                )}
-              </For>
-            </ul>
-            <p class="text-xs text-cf-text-muted">
-              {t("webhooks.urlHint", { origin: window.location.origin })}
-            </p>
-          </Show>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              class="text-cf-danger-fg"
+                              aria-label={t("webhooks.deleteLabel", { name: nameOf(w) })}
+                              onClick={() => setDeleteTarget(w)}
+                            >
+                              {t("webhooks.delete")}
+                            </Button>
+                          </div>
+                        </Show>
+                      </div>
+                      <CopyField
+                        id={`webhook_url_${w.id}`}
+                        label={t("webhooks.field.url")}
+                        value={inboundURL(w.url)}
+                        copyLabel={t("webhooks.copyURL", { name: nameOf(w) })}
+                      />
+                      <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                        <dt class="text-cf-text-muted">{t("webhooks.field.created")}</dt>
+                        <dd class="text-cf-text-secondary">{fmt.dateTime(w.created_at)}</dd>
+                        <dt class="text-cf-text-muted">{t("webhooks.field.secretSince")}</dt>
+                        <dd class="text-cf-text-secondary">{fmt.dateTime(w.secret_rotated_at)}</dd>
+                        <Show when={w.kind === "pm"}>
+                          <dt class="text-cf-text-muted">{t("webhooks.field.apiToken")}</dt>
+                          <dd class="text-cf-text-secondary">
+                            {w.has_api_token
+                              ? t("webhooks.apiToken.own")
+                              : t("webhooks.apiToken.none")}
+                          </dd>
+                        </Show>
+                      </dl>
+                    </li>
+                  )}
+                </For>
+              </ul>
+              <p class="text-xs text-cf-text-muted">
+                {t("webhooks.urlHint", { origin: window.location.origin })}
+              </p>
+            </Show>
+          )}
         </Show>
       </Show>
 
@@ -571,8 +718,7 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
               >
                 <Input
                   id="webhook_rotate_secret"
-                  type="password"
-                  autocomplete="off"
+                  {...SECRET_INPUT}
                   mono
                   value={rotateSecret()}
                   onInput={(e) => setRotateSecret(e.currentTarget.value)}
@@ -587,10 +733,11 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
           </div>
         }
         variant="danger"
+        busy={rotating()}
         confirmLabel={t("webhooks.rotate.confirm")}
         cancelLabel={t("common.cancel")}
         onConfirm={() => void confirmRotate()}
-        onCancel={closeRotate}
+        onCancel={() => setRotateDialog(null)}
       />
 
       <ConfirmDialog
@@ -600,6 +747,7 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
           provider: PROVIDER_LABELS[deleteTarget()?.provider ?? "github"],
         })}
         variant="danger"
+        busy={deleting()}
         confirmLabel={t("webhooks.delete")}
         cancelLabel={t("common.cancel")}
         onConfirm={() => void confirmDelete()}
@@ -608,7 +756,7 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
 
       <Modal
         open={tokenTarget() !== null}
-        onClose={closeToken}
+        onClose={cancelToken}
         title={t("webhooks.apiToken.title", {
           name: nameOf(tokenTarget() ?? { kind: "pm", provider: "github" }),
         })}
@@ -628,8 +776,7 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
           >
             <Input
               id="webhook_new_api_token"
-              type="password"
-              autocomplete="off"
+              {...SECRET_INPUT}
               mono
               value={newToken()}
               onInput={(e) => setNewToken(e.currentTarget.value)}
@@ -646,7 +793,12 @@ export default function WebhooksPanel(props: { projectId: string }): JSX.Element
                 {t("webhooks.apiToken.remove")}
               </Button>
             </Show>
-            <Button type="button" variant="secondary" onClick={closeToken}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={savingToken()}
+              onClick={cancelToken}
+            >
               {t("common.cancel")}
             </Button>
             <Button type="submit" loading={savingToken()}>
