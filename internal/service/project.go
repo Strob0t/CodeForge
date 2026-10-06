@@ -193,12 +193,11 @@ func (s *ProjectService) Create(ctx context.Context, req *project.CreateRequest)
 // (see project.ConfigPatch), so a client that changes one setting cannot wipe
 // the others, such as policy_preset or detected_languages.
 func (s *ProjectService) Update(ctx context.Context, id string, req project.UpdateRequest) (*project.Project, error) {
-	if err := project.ValidateUpdateRequest(req); err != nil {
-		return nil, err
-	}
-
 	p, err := s.store.GetProject(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := project.ValidateUpdateRequest(req, p.Provider); err != nil {
 		return nil, err
 	}
 

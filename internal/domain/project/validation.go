@@ -2,9 +2,11 @@ package project
 
 import (
 	"fmt"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"unicode"
 
 	"github.com/Strob0t/CodeForge/internal/domain"
@@ -45,10 +47,10 @@ func ValidateCreateRequest(req *CreateRequest, availableProviders []string) erro
 		}
 	}
 
-	// RepoURL: if non-empty, must be HTTPS or SSH.
+	// RepoURL: if non-empty, a URL the provider can use.
 	if req.RepoURL != "" {
-		if !IsValidRepoURL(req.RepoURL) {
-			return fmt.Errorf("repo_url must start with https:// or match git@host:path format: %w", domain.ErrValidation)
+		if err := ValidateRepoURL(req.Provider, req.RepoURL); err != nil {
+			return err
 		}
 	}
 
@@ -83,8 +85,10 @@ func ValidateCreateRequest(req *CreateRequest, availableProviders []string) erro
 	return validateGateCommands(config)
 }
 
-// ValidateUpdateRequest validates the fields of a project update request.
-func ValidateUpdateRequest(req UpdateRequest) error {
+// ValidateUpdateRequest validates the fields of a project update request;
+// a repo_url is checked against the provider the request sets, or else
+// storedProvider, the project's.
+func ValidateUpdateRequest(req UpdateRequest, storedProvider string) error {
 	if req.Name != nil {
 		if *req.Name == "" {
 			return fmt.Errorf("name cannot be empty: %w", domain.ErrValidation)
@@ -102,11 +106,38 @@ func ValidateUpdateRequest(req UpdateRequest) error {
 		return fmt.Errorf("description exceeds 2000 characters: %w", domain.ErrValidation)
 	}
 	if req.RepoURL != nil && *req.RepoURL != "" {
-		if !IsValidRepoURL(*req.RepoURL) {
-			return fmt.Errorf("repo_url must start with https:// or match git@host:path format: %w", domain.ErrValidation)
+		provider := storedProvider
+		if req.Provider != nil {
+			provider = *req.Provider
+		}
+		if err := ValidateRepoURL(provider, *req.RepoURL); err != nil {
+			return err
 		}
 	}
 	return validateGateCommands(req.Config)
+}
+
+// svnSchemes are the remote repository URL schemes of the SVN provider
+// (its own check, svn.allowedSchemes, also allows them). Local file://
+// repositories are no project URL: checkCloneSource and the operator key
+// svn.allow_file_urls decide about those.
+var svnSchemes = map[string]bool{"http": true, "https": true, "svn": true, "svn+ssh": true}
+
+// ValidateRepoURL checks that url is a remote repository URL of provider
+// (KI-189): an SVN project takes http://, https://, svn:// and svn+ssh://
+// URLs with a host, every other (git) provider https:// or git@host:path.
+func ValidateRepoURL(provider, url string) error {
+	if provider != "svn" {
+		if !IsValidRepoURL(url) {
+			return fmt.Errorf("repo_url must start with https:// or match git@host:path format: %w", domain.ErrValidation)
+		}
+		return nil
+	}
+	u, err := neturl.Parse(url)
+	if err != nil || !svnSchemes[strings.ToLower(u.Scheme)] || u.Host == "" || u.Hostname() == "" {
+		return fmt.Errorf("repo_url of an SVN project must be an http://, https://, svn:// or svn+ssh:// URL with a host: %w", domain.ErrValidation)
+	}
+	return nil
 }
 
 // IsValidRepoURL checks that the URL is either HTTPS or a git SSH URL.

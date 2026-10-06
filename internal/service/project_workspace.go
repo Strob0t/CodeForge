@@ -31,7 +31,7 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 	if p.RepoURL == "" {
 		return nil, fmt.Errorf("project %s has no repo_url", id)
 	}
-	if err := s.checkCloneSource(ctx, p.RepoURL); err != nil {
+	if err := s.checkCloneSource(ctx, p.Provider, p.RepoURL); err != nil {
 		return nil, err
 	}
 
@@ -278,14 +278,15 @@ func strictlyInside(path, dir string) bool {
 	return strings.HasPrefix(path, dir+string(filepath.Separator))
 }
 
-// checkCloneSource allows remote repository URLs (https://, git@host:) and
-// local ones (a path or file://) only where localSourceAllowed allows them:
+// checkCloneSource allows remote repository URLs of the provider
+// (project.ValidateRepoURL) and local ones (a path or file://) only where
+// localSourceAllowed allows them:
 // repo_url validation keeps local paths out of new projects, and a stored
 // one must not read another tenant's workspace (S3 follow-up 1f, S3-F
 // review C4). The URL is the project's, not chosen at clone time, so the
 // adopt roots apply whoever clones.
-func (s *ProjectService) checkCloneSource(ctx context.Context, url string) error {
-	if project.IsValidRepoURL(url) {
+func (s *ProjectService) checkCloneSource(ctx context.Context, provider, url string) error {
+	if project.ValidateRepoURL(provider, url) == nil {
 		return nil
 	}
 	local := strings.TrimPrefix(url, "file://")

@@ -117,7 +117,7 @@ func TestAdopt_AdoptRootsNeverOpenTheWorkspaceRoot(t *testing.T) {
 	if _, err := svc.Adopt(ctx, "p1", otherTenant, true); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("platform admin adopting another tenant's directory through an adopt root = %v, want a validation error", err)
 	}
-	if err := svc.checkCloneSource(ctx, otherTenant); !errors.Is(err, domain.ErrValidation) {
+	if err := svc.checkCloneSource(ctx, "", otherTenant); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("clone from another tenant's directory through an adopt root = %v, want a validation error", err)
 	}
 	if _, err := svc.Adopt(ctx, "p1", own, true); err != nil {
@@ -134,10 +134,17 @@ func TestAdopt_AdoptRootsNeverOpenTheWorkspaceRoot(t *testing.T) {
 func TestCheckCloneSource(t *testing.T) {
 	e := newAdoptEnv(t)
 	tests := []struct {
-		url     string
-		wantErr bool
+		provider string
+		url      string
+		wantErr  bool
 	}{
 		{url: "https://github.com/example/repo.git"},
+		// Remote URLs are checked per provider (KI-189).
+		{url: "svn://svn.example.com/repo", wantErr: true},
+		{provider: "svn", url: "svn://svn.example.com/repo"},
+		{provider: "svn", url: "svn+ssh://svn.example.com/repo"},
+		{provider: "svn", url: "file://" + e.other, wantErr: true},
+		{provider: "svn", url: "file://" + e.extra},
 		{url: "git@github.com:example/repo.git"},
 		{url: e.other, wantErr: true},
 		{url: "file://" + e.other, wantErr: true},
@@ -147,8 +154,8 @@ func TestCheckCloneSource(t *testing.T) {
 		{url: "file://" + e.extra},
 	}
 	for _, tc := range tests {
-		t.Run(tc.url, func(t *testing.T) {
-			err := e.svc.checkCloneSource(tenantctx.WithTenant(context.Background(), "tenant-a"), tc.url)
+		t.Run(tc.provider+" "+tc.url, func(t *testing.T) {
+			err := e.svc.checkCloneSource(tenantctx.WithTenant(context.Background(), "tenant-a"), tc.provider, tc.url)
 			if tc.wantErr != (err != nil) {
 				t.Fatalf("checkCloneSource(%q) = %v, want error %t", tc.url, err, tc.wantErr)
 			}

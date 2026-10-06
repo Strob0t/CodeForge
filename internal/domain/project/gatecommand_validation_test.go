@@ -103,10 +103,10 @@ func TestValidateGateCommand(t *testing.T) {
 
 func TestValidateRequests_GateCommands(t *testing.T) {
 	bad, good := "echo hi", "pytest"
-	if err := ValidateUpdateRequest(UpdateRequest{Config: ConfigPatch{ConfigLintCommand: &bad}}); !errors.Is(err, domain.ErrValidation) {
+	if err := ValidateUpdateRequest(UpdateRequest{Config: ConfigPatch{ConfigLintCommand: &bad}}, ""); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("update with a disallowed lint_command = %v, want a validation error", err)
 	}
-	if err := ValidateUpdateRequest(UpdateRequest{Config: ConfigPatch{ConfigTestCommand: &good, ConfigLintCommand: nil, "other": &bad}}); err != nil {
+	if err := ValidateUpdateRequest(UpdateRequest{Config: ConfigPatch{ConfigTestCommand: &good, ConfigLintCommand: nil, "other": &bad}}, ""); err != nil {
 		t.Fatalf("update with an allowed test_command, a deleted lint_command and another key: %v", err)
 	}
 	if err := ValidateCreateRequest(&CreateRequest{Name: "p", Config: map[string]string{ConfigTestCommand: bad}}, nil); !errors.Is(err, domain.ErrValidation) {
