@@ -179,6 +179,20 @@ class TestPrefetchDocs:
         assert tool.calls == []
         runtime.report_tool_result.assert_not_awaited()
 
+    async def test_one_call_for_several_frameworks(self, tmp_path: Path) -> None:
+        """A prefetch the user never asked for asks a supervised user at most once (KI-192 review)."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"dependencies": {"solid-js": "1", "react": "1", "vue": "1"}})
+        )
+        tool = _DocsTool(ToolResult(output=LONG_DOCS))
+        runtime = _runtime()
+
+        result = await _prefetch_docs(_registry(tool), runtime, str(tmp_path), "how to use signals", _log())
+
+        runtime.request_tool_call.assert_awaited_once()
+        assert tool.calls == [{"library": "solidjs", "query": "how to use signals", "limit": 3}]
+        assert [e.path for e in result] == ["docs/solidjs"]
+
     async def test_a_tool_the_mode_denies_is_not_requested(self, tmp_path: Path) -> None:
         tool = _DocsTool(ToolResult(output=LONG_DOCS))
         runtime = _runtime()

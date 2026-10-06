@@ -185,11 +185,12 @@ async def _prefetch_docs(
     user_message: str,
     log: structlog.stdlib.BoundLogger,
 ) -> list[ContextEntry]:
-    """Pre-fetch documentation from docs-mcp-server for detected frameworks.
+    """Pre-fetch documentation from docs-mcp-server for the workspace's main framework.
 
-    Every call is a tool call of the turn (KI-192): the Go policy decides it
-    (mode denied tools, supervised presets) and its result is reported; a call
-    the policy does not allow ends the prefetch.
+    The call is a tool call of the turn (KI-192): the Go policy decides it
+    (mode denied tools, supervised presets) and its result is reported. It is
+    a single call, for the first detected framework: under a supervised
+    preset the user, who never asked for it, is asked once at most.
     """
     from codeforge.models import ContextEntry
 
@@ -202,42 +203,40 @@ async def _prefetch_docs(
     if not frameworks:
         return []
 
-    entries: list[ContextEntry] = []
-    for framework in frameworks[:3]:
-        args: dict[str, object] = {"library": framework, "query": user_message, "limit": 3}
-        command, path = policy_request_args(tool, args, workspace_path)
-        decision = await runtime.request_tool_call(
-            tool=tool, command=command, path=path, arguments_preview=arguments_preview(args)
+    framework = frameworks[0]
+    args: dict[str, object] = {"library": framework, "query": user_message, "limit": 3}
+    command, path = policy_request_args(tool, args, workspace_path)
+    decision = await runtime.request_tool_call(
+        tool=tool, command=command, path=path, arguments_preview=arguments_preview(args)
+    )
+    if decision.decision != "allow":
+        log.info("docs prefetch not allowed", tool=tool, decision=decision.decision, reason=decision.reason)
+        return []
+    try:
+        result = await registry.execute(tool, args, workspace_path)
+    except Exception as exc:
+        log.debug("docs prefetch failed", framework=framework, error=str(exc))
+        await runtime.report_tool_result(call_id=decision.call_id, tool=tool, success=False, error=str(exc))
+        return []
+    await runtime.report_tool_result(
+        call_id=decision.call_id,
+        tool=tool,
+        success=result.success,
+        output=result.output[:500] if result.output else "",
+        error=result.error,
+    )
+    if not (result.success and result.output and len(result.output) > 50):
+        return []
+    log.info("prefetched docs", framework=framework, chars=len(result.output))
+    return [
+        ContextEntry(
+            kind="knowledge",
+            path=f"docs/{framework}",
+            content=result.output[:2000],
+            tokens=len(result.output) // 4,
+            priority=80,
         )
-        if decision.decision != "allow":
-            log.info("docs prefetch not allowed", tool=tool, decision=decision.decision, reason=decision.reason)
-            break
-        try:
-            result = await registry.execute(tool, args, workspace_path)
-        except Exception as exc:
-            log.debug("docs prefetch failed", framework=framework, error=str(exc))
-            await runtime.report_tool_result(call_id=decision.call_id, tool=tool, success=False, error=str(exc))
-            continue
-        await runtime.report_tool_result(
-            call_id=decision.call_id,
-            tool=tool,
-            success=result.success,
-            output=result.output[:500] if result.output else "",
-            error=result.error,
-        )
-        if result.success and result.output and len(result.output) > 50:
-            entries.append(
-                ContextEntry(
-                    kind="knowledge",
-                    path=f"docs/{framework}",
-                    content=result.output[:2000],
-                    tokens=len(result.output) // 4,
-                    priority=80,
-                )
-            )
-            log.info("prefetched docs", framework=framework, chars=len(result.output))
-
-    return entries
+    ]
 
 
 class ConversationHandlerMixin:
