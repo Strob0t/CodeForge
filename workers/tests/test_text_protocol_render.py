@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import itertools
+import json
 
 import pytest
 
@@ -467,6 +468,20 @@ def test_orphan_tool_results_are_rendered_as_text() -> None:
         "role": "user",
         "content": '<tool_result tool="read_file">\nx\n</tool_result>\n\n<tool_result tool="unknown">\ny\n</tool_result>',
     }
+
+
+@pytest.mark.parametrize("depth", [40, 5000, 100_000])
+def test_deeply_nested_stored_arguments_stay_text(depth: int) -> None:
+    """S9-C review, finding 5: decoding or encoding them could raise RecursionError and end the run."""
+    deep = "[" * depth + "]" * depth
+    history = [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": "", "tool_calls": [_native_call("c1", "bash", deep)]},
+    ]
+
+    wire = _protocol().wire_messages(history)
+
+    assert json.loads(str(wire[-1]["content"]))["args"] == deep
 
 
 def test_earlier_native_parallel_calls() -> None:

@@ -305,6 +305,17 @@ async def test_cut_off_reply_is_repaired(tmp_path: Path) -> None:
     assert "write large files in parts" in llm.text(1)
 
 
+async def test_deep_nesting_is_repaired_not_a_crash(tmp_path: Path) -> None:
+    """S9-C review, finding 5: a RecursionError ended the run."""
+    deep = "[" * 3000 + "]" * 3000
+    llm = ScriptedLLM([_reply('{"thought": "x", "tool": "bash", "args": {"x": ' + deep + "}}"), _final("ok")])
+
+    result, _, _ = await _run(llm, tmp_path)
+
+    assert not result.error  # type: ignore[attr-defined]
+    assert "nested" in llm.text(1)
+
+
 # --- grammar ---
 
 

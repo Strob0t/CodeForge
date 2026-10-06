@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 from codeforge.llm import ToolCallPart
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
     from codeforge.llm import ChatCompletionResponse
 
@@ -122,6 +122,10 @@ _CALL_HINT = re.compile(
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 _WRITE_ONE_OBJECT = "write it as one JSON object with double quotes"
+# A turn nests objects and arrays at most this deep: deeper ones are refused
+# before anything recurses over them (the decoder, json.dumps, the UTF-8 fix).
+_MAX_TURN_DEPTH = 32
+_TOO_DEEP = f"the JSON object is nested more than {_MAX_TURN_DEPTH} levels deep; use flatter arguments"
 _CUT_OFF = (
     "the reply was cut off at the output limit before its JSON object was complete; "
     "keep replies short and write large files in parts"
@@ -594,6 +598,8 @@ def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate:
         value, end = decoder.raw_decode(text, start)
     except json.JSONDecodeError as exc:
         error = f"{exc.msg} at character {exc.pos - start + 1} of the object"
+    except RecursionError:
+        error = _TOO_DEEP
     else:
         return _Candidate(start, end, value if isinstance(value, dict) else None)
     end, repaired = _object_span(text, start)
@@ -602,6 +608,8 @@ def _decode_at(decoder: json.JSONDecoder, text: str, start: int) -> _Candidate:
             value, length = decoder.raw_decode(repaired)
         except json.JSONDecodeError as exc:
             error = f"{exc.msg} at character {exc.pos + 1} of the object"
+        except RecursionError:
+            error = _TOO_DEEP
         else:
             if isinstance(value, dict):
                 return _Candidate(start, start + length, value)
@@ -672,6 +680,8 @@ def _is_turn(obj: dict[str, object], tool_names: Sequence[str]) -> bool:
 
 
 def _to_turn(obj: dict[str, object], prose: str, tool_names: Sequence[str], ignored: int) -> TextTurn:
+    if _too_deep(obj):
+        return TextProtocolError(_TOO_DEEP)
     thought = _utf8_safe(_first_text(obj, _THOUGHT_KEYS) or prose)
     final = _final_text(obj)
     name, raw_args = _call_parts(obj)
@@ -687,10 +697,32 @@ def _to_turn(obj: dict[str, object], prose: str, tool_names: Sequence[str], igno
     if resolved is None:
         tools = ", ".join(tool_names) if tool_names else "none"
         return TextProtocolError(f"unknown tool {name!r}; the tools are: {tools}")
-    args = _decode_args(raw_args)
+    try:
+        args = _decode_args(raw_args)
+    except RecursionError:
+        return TextProtocolError(_TOO_DEEP)
     if args is None:
         return TextProtocolError(f"the args of {resolved} must be a JSON object, not {_json_kind(raw_args)}")
+    if _too_deep(args):
+        return TextProtocolError(_TOO_DEEP)
     return TextToolCall(name=resolved, args=_utf8_safe_args(args), thought=thought, ignored_calls=ignored)
+
+
+def _too_deep(value: object) -> bool:
+    """Whether *value* nests objects and arrays more than _MAX_TURN_DEPTH levels (checked without recursion)."""
+    stack: list[tuple[object, int]] = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, dict):
+            children: Iterable[object] = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > _MAX_TURN_DEPTH:
+            return True
+        stack.extend((child, depth + 1) for child in children)
+    return False
 
 
 def _first_text(obj: dict[str, object], keys: tuple[str, ...]) -> str:
@@ -872,15 +904,16 @@ def _render_assistant(msg: dict[str, object], call_names: dict[str, str]) -> str
 
 
 def _wire_args(raw: object) -> object:
-    """Stored arguments (a JSON string) as JSON; text that does not decode stays text."""
+    """Stored arguments (a JSON string) as JSON; text that does not decode, or nests too deep, stays text."""
     if not isinstance(raw, str):
         return raw if raw is not None else {}
     if not raw.strip():
         return {}
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, RecursionError):
         return raw
+    return raw if _too_deep(value) else value
 
 
 def _render_result(msg: dict[str, object], call_names: dict[str, str]) -> str:

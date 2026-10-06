@@ -9,6 +9,7 @@ back to the model once.
 
 from __future__ import annotations
 
+import json
 import re
 import time
 
@@ -385,6 +386,58 @@ def _crafted_comma_reply() -> str:
 )
 def test_parsing_is_bounded(text: str) -> None:
     """S9-C review, finding 3c: 64 starts x 32 comma retries x a 200,000-character copy took 8.9 s."""
+    elapsed, _ = _elapsed(text)
+
+    assert elapsed < 0.5
+
+
+# --- deep nesting is a repair, never a crash (S9-C review, finding 5) ---
+
+
+def _nested(depth: int) -> str:
+    return "[" * depth + "]" * depth
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            '{"thought": "t", "tool": "bash", "args": {"command": "ls", "x": ' + _nested(40) + "}}",
+            id="args-over-the-limit",
+        ),
+        pytest.param(
+            '{"thought": "t", "tool": "bash", "args": {"x": ' + _nested(900) + "}}",
+            id="args-near-the-recursion-limit",
+        ),
+        pytest.param('{"thought": "t", "final": ' + _nested(500) + "}", id="deep-final"),
+        pytest.param('{"thought": "t", "tool": "bash", "args": ' + _nested(20_000)[:-1] + "}", id="decoder-recursion"),
+        pytest.param(
+            '{"thought": "t", "tool": "bash", "args": "{\\"x\\": ' + _nested(3000) + '}"}',
+            id="deep-args-in-a-string",
+        ),
+    ],
+)
+def test_deep_nesting_is_an_error(text: str) -> None:
+    result = _parse(text)
+
+    assert isinstance(result, TextProtocolError), result
+    assert "nested" in result.message
+
+
+def test_nesting_up_to_the_limit_is_accepted() -> None:
+    args = {"command": "ls", "x": json.loads(_nested(28))}
+
+    assert _parse(json.dumps({"thought": "t", "tool": "bash", "args": args})) == _call("bash", args, "t")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param('{"a": ' + "[" * 199_990, id="open-brackets"),
+        pytest.param('{"thought": "t", "tool": "bash", "args": ' + _nested(90_000) + "}", id="closed-brackets"),
+    ],
+)
+def test_deep_nesting_is_bounded(text: str) -> None:
     elapsed, _ = _elapsed(text)
 
     assert elapsed < 0.5
