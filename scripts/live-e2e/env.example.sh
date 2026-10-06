@@ -51,7 +51,7 @@ export LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://127.0.0.1:$LIVE_LITELLM_PORT}
 export LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-codeforge-dev}  # DEV ONLY
 export OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
 # The model every conversation, agent and worker call uses (no routing).
-: "${LIVE_MODEL:=ollama/qwen3:4b-instruct}"
+: "${LIVE_MODEL:=ollama/qwen3.5:4b-q4_K_M}"
 export LIVE_MODEL
 export CODEFORGE_CONVERSATION_MODEL=${CODEFORGE_CONVERSATION_MODEL:-$LIVE_MODEL}
 export CODEFORGE_AGENT_DEFAULT_MODEL=${CODEFORGE_AGENT_DEFAULT_MODEL:-$LIVE_MODEL}

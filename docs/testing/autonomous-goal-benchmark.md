@@ -126,6 +126,7 @@ copy in the system temp directory (or `--work-dir`) and removes it unless `--kee
 | Date | Model | Hardware | Autonomous | Acceptance | Total | Wall time | Cost | Report |
 |---|---|---|---|---|---|---|---|---|
 | 2026-10-04 | `ollama/qwen3:4b-instruct` (Ollama 0.35.1, `num_ctx` 16384) | 4 CPU cores | yes so far (0 interventions; dev mode, no isolation) | not graded (unfinished, no package) | - | more than 2 h 08 min (planning 27.5 min), stopped by a budget block and a container restart | $0 | [run 1](#run-1-2026-10-04) |
+| - | `ollama/qwen3.5:4b-q4_K_M` (the new default, [model-smoke-test.md](model-smoke-test.md)) | 4 CPU cores | planned (run 2) | | | | | |
 | - | a cloud model (owner provides the key as an environment secret) | - | planned | | | | | |
 
 The lessons from each run go into [live-e2e-findings.md](live-e2e-findings.md), and the bugs into

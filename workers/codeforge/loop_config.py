@@ -97,6 +97,10 @@ def build_loop_config(
     logger.info("tool router selected", count=len(selected_tools), tools=selected_tools)
 
     is_local = primary_model.startswith(_LOCAL_MODEL_PREFIXES)
+    settings = get_settings()
+    local_extra_body: dict[str, object] = {"top_k": 20, "repetition_penalty": 1.05}
+    if settings.local_reasoning_effort != "off":
+        local_extra_body["reasoning_effort"] = settings.local_reasoning_effort
     loop_cfg = LoopConfig(
         max_iterations=max_steps or DEFAULT_MAX_ITERATIONS,
         max_cost=max_cost or 0.0,
@@ -116,11 +120,11 @@ def build_loop_config(
         capability_level=str(capability_level),
         mode_tools=mode_tools,
         top_p=0.8 if is_local else None,
-        extra_body={"top_k": 20, "repetition_penalty": 1.05} if is_local else None,
+        extra_body=local_extra_body if is_local else None,
         selected_tools=selected_tools,
         tool_output_max_chars=tool_output_max_chars,
         implementation_turn=implementation_turn,
-        text_tool_grammar=get_settings().text_tool_grammar,
+        text_tool_grammar=settings.text_tool_grammar,
         context_window=context_window or 0,
     )
 

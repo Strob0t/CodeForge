@@ -233,7 +233,7 @@ Aider, OpenHands, Goose and Claude Code are **agents**: they read code, call a m
 ## FAQ
 
 **Can I run CodeForge without any cloud model?**
-Yes. Point it at Ollama or LM Studio and use only local models; in production the worker has no internet access of its own and reaches models only through the LiteLLM container. Ollama models that support tool calling get the agent tools out of the box (their capability comes from LiteLLM's model metadata; `CODEFORGE_MODEL_CAPABILITIES` overrides it per model). The screenshots in this README were made with `qwen3:4b-instruct` on four CPU cores and no API key; larger models are faster and better at multi-step work. Models without native tool calling cannot use the tools yet.
+Yes. Point it at Ollama or LM Studio and use only local models; in production the worker has no internet access of its own and reaches models only through the LiteLLM container. Ollama models that support tool calling get the agent tools out of the box (their capability comes from LiteLLM's model metadata; `CODEFORGE_MODEL_CAPABILITIES` overrides it per model). The screenshots in this README were made with `qwen3:4b-instruct` on four CPU cores and no API key; larger models are faster and better at multi-step work; the live E2E and benchmark default is now `qwen3.5:4b-q4_K_M`. Models without native tool calling use the tools through the worker's text tool protocol (ADR-021).
 
 **What does it cost?**
 CodeForge is free software (AGPL-3.0). You pay only your model providers; local models cost nothing. Every run's cost is tracked, and budgets in the policy profile stop a run that would exceed them.

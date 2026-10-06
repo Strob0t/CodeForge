@@ -146,6 +146,18 @@ MODEL_CAPABILITIES_ENV = "CODEFORGE_MODEL_CAPABILITIES"
 _CAPABILITY_LEVELS = frozenset({"full", "api_with_tools", "pure_completion"})
 
 
+LOCAL_REASONING_EFFORTS = ("off", "none", "low", "medium", "high")
+
+
+def _resolve_local_reasoning_effort(yaml_value: object) -> str:
+    """Resolve litellm.local_reasoning_effort (env > YAML > "none"); only the OpenAI levels or "off"."""
+    value = _resolve_str("CODEFORGE_LOCAL_REASONING_EFFORT", yaml_value, "none").strip().lower()
+    if value not in LOCAL_REASONING_EFFORTS:
+        msg = f"CODEFORGE_LOCAL_REASONING_EFFORT must be one of {', '.join(LOCAL_REASONING_EFFORTS)}, got {value!r}"
+        raise ValueError(msg)
+    return value
+
+
 def _resolve_model_capabilities(yaml_value: object) -> tuple[tuple[str, str], ...]:
     """Resolve the operator's tool-capability overrides: env var > YAML > none.
 
@@ -229,6 +241,7 @@ class WorkerSettings:
     default_model: str
     model_capabilities: tuple[tuple[str, str], ...]
     text_tool_grammar: bool
+    local_reasoning_effort: str
     keyed_providers: frozenset[str]
 
     # Consumer
@@ -348,6 +361,10 @@ class WorkerSettings:
         self.text_tool_grammar = _resolve_bool(
             "CODEFORGE_TEXT_TOOL_GRAMMAR", litellm_cfg.get("text_tool_grammar"), True
         )
+        # Thinking of local hybrid models (Qwen3.5, Granite 4.2): at CPU speed
+        # a thinking turn takes minutes, so it is off unless asked for. "off"
+        # sends nothing.
+        self.local_reasoning_effort = _resolve_local_reasoning_effort(litellm_cfg.get("local_reasoning_effort"))
         # Providers whose API key LiteLLM holds, as the Go Core reads them (KI-125).
         self.keyed_providers = parse_keyed_providers(
             os.environ.get(KEYED_PROVIDERS_ENV, ""), litellm_cfg.get("keyed_providers")

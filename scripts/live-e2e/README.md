@@ -16,9 +16,11 @@ Landlock), and well-known development passwords and keys. Never expose it to any
 - Docker (for the LiteLLM container), `psql` (to create the session's database; otherwise create it yourself).
 - Go 1.25, Python 3.12, the worker's Poetry environment (`cd workers && poetry install`) and the frontend
   packages (`cd frontend && npm ci`).
-- A model in Ollama. The default is `qwen3:4b-instruct` (`ollama pull qwen3:4b-instruct`): it calls tools, and
-  runs on 4 CPU cores at about 9 tokens/s. Give Ollama a context of at least 16k tokens
-  (`OLLAMA_CONTEXT_LENGTH=16384`).
+- A model in Ollama. The default is `qwen3.5:4b-q4_K_M` (`ollama pull qwen3.5:4b-q4_K_M`, chosen on
+  2026-10-06 over `qwen3:4b-instruct`, see [model-smoke-test.md](../../docs/testing/model-smoke-test.md)): it
+  calls tools, follows the text tool protocol under a JSON grammar and runs on 4 CPU cores at about 8 tokens/s.
+  Its thinking is turned off by the worker (`reasoning_effort: none` for local models). Give Ollama a context of
+  at least 16k tokens (`OLLAMA_CONTEXT_LENGTH=16384`; its KV cache at 32k is 1.1 GB, so 32k fits in 8 GB).
 
 ## Starting and stopping
 
@@ -54,7 +56,7 @@ LIVE_DIR=$HOME/live2 LIVE_DB_NAME=codeforge_live2 scripts/live-e2e/start-core.sh
 |---|---|---|
 | `LIVE_DIR` | `$TMPDIR/codeforge-live` | Logs, PIDs, binary and data of the session |
 | `LIVE_DB_NAME` | `codeforge_live` | The session's database (Core and LiteLLM share it; `DATABASE_URL` is always built from `LIVE_PG_URL` and this name, never inherited); use a fresh one per session |
-| `LIVE_MODEL` | `ollama/qwen3:4b-instruct` | The model of conversations, agents and the worker (routing off) |
+| `LIVE_MODEL` | `ollama/qwen3.5:4b-q4_K_M` | The model of conversations, agents and the worker (routing off) |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server |
 | `LIVE_NATS_URL` | `nats://127.0.0.1:4222` | NATS (exported as `NATS_URL`); a NATS of your own keeps other test runs away from the stream |
 | `LIVE_WORKER_PYTHON` | the Poetry environment of `workers/` | The worker's interpreter |

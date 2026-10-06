@@ -53,6 +53,11 @@ litellm:
   # models, servers whose output gets worse under it). Env:
   # CODEFORGE_TEXT_TOOL_GRAMMAR=false
   # text_tool_grammar: true
+  # Worker: reasoning_effort sent with every local model call (ollama/,
+  # lm_studio/). none turns the thinking of hybrid models (Qwen3.5,
+  # Granite 4.2) off; low, medium and high turn it on; off sends nothing.
+  # Env: CODEFORGE_LOCAL_REASONING_EFFORT
+  # local_reasoning_effort: none
   # Core and worker: the providers whose API key LiteLLM holds (names only,
   # never the key). Their models are listed and can be the default model;
   # the other cloud routes show as one entry ("groq/*") and are not routed

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from codeforge.config import get_settings
 from codeforge.executor import AgentExecutor
 from codeforge.llm import ChatCompletionResponse, RoutingResult, ToolCallPart
 from codeforge.models import ModeConfig, TaskMessage, TerminationConfig
@@ -285,7 +286,7 @@ async def test_local_model_gets_sampling_parameters_and_the_tool_guide(
     cfg = spy.config
     assert cfg is not None
     assert (cfg.temperature, cfg.top_p) == (0.7, 0.8)
-    assert cfg.extra_body == {"top_k": 20, "repetition_penalty": 1.05}
+    assert cfg.extra_body == {"top_k": 20, "repetition_penalty": 1.05, "reasoning_effort": "none"}
     system_prompt = str(spy.messages[0]["content"])
     assert "--- Tool Usage Guide ---" in system_prompt or "--- Workflow Rules ---" in system_prompt
 
@@ -371,3 +372,50 @@ async def test_pure_completion_run_without_the_grammar(tmp_path: Path, monkeypat
     assert (tmp_path / "hello.txt").read_text() == "hi\n"
     assert [call["response_format"] for call in llm.calls] == [None, None]
     assert llm.calls[0]["tools"] is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", {"top_k": 20, "repetition_penalty": 1.05, "reasoning_effort": "none"}),
+        ("low", {"top_k": 20, "repetition_penalty": 1.05, "reasoning_effort": "low"}),
+        ("off", {"top_k": 20, "repetition_penalty": 1.05}),
+    ],
+)
+async def test_local_reasoning_effort_setting(
+    value: str, expected: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CODEFORGE_LOCAL_REASONING_EFFORT: thinking of local hybrid models (Qwen3.5) is off by default."""
+    monkeypatch.setenv("CODEFORGE_LOCAL_REASONING_EFFORT", value)
+    get_settings.cache_clear()
+    try:
+        spy = _LoopSpy(monkeypatch)
+        _route(monkeypatch, RoutingResult(), [])
+        await AgentExecutor(llm=ScriptedLLM([_answer("done")])).execute_with_runtime(  # type: ignore[arg-type]
+            _task_with_model(str(tmp_path), "ollama/qwen3.5:4b"), _runtime(PolicyJetStream())
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert spy.config is not None
+    assert spy.config.extra_body == expected
+
+
+async def test_cloud_models_get_no_reasoning_effort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = _LoopSpy(monkeypatch)
+    _route(monkeypatch, RoutingResult(), [])
+    await AgentExecutor(llm=ScriptedLLM([_answer("done")])).execute_with_runtime(  # type: ignore[arg-type]
+        _task_with_model(str(tmp_path), "openai/gpt-4o-mini"), _runtime(PolicyJetStream())
+    )
+    assert spy.config is not None
+    assert spy.config.extra_body is None
+
+
+def test_invalid_local_reasoning_effort_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEFORGE_LOCAL_REASONING_EFFORT", "maximum")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="CODEFORGE_LOCAL_REASONING_EFFORT"):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
