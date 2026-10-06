@@ -14,13 +14,15 @@ import (
 // status. A marker that already says so is kept as written ("[X]" stays).
 // Only marker bytes change (KI-203: the file was rendered anew and lost
 // everything that was not a heading or a list item). Each item's line must
-// still hold a checkbox with the item's title, outside code blocks;
-// otherwise nothing is returned and the error wraps ErrItemMoved.
+// still hold a checkbox, outside code blocks; otherwise nothing is returned
+// and the error wraps ErrItemMoved. Its title may differ from the item's
+// (a feature renamed in the UI): the caller checks that the file did not
+// change since it was parsed.
 func patchCheckboxes(content []byte, items []specprovider.SpecItemDetail) ([]byte, error) {
-	boxes := make(map[int]string)
+	boxes := make(map[int]bool)
 	for _, it := range ParseMarkdown(content) {
 		if it.Level == LevelCheckbox {
-			boxes[it.SourceLine] = it.Title
+			boxes[it.SourceLine] = true
 		}
 	}
 	var starts []int // byte offset of each line
@@ -33,9 +35,8 @@ func patchCheckboxes(content []byte, items []specprovider.SpecItemDetail) ([]byt
 
 	out := bytes.Clone(content)
 	for _, it := range items {
-		title, ok := boxes[it.SourceLine]
-		if !ok || title != it.Title {
-			return nil, fmt.Errorf("%w: line %d does not hold the checkbox %q", specprovider.ErrItemMoved, it.SourceLine, it.Title)
+		if !boxes[it.SourceLine] {
+			return nil, fmt.Errorf("%w: line %d of %q does not hold a checkbox", specprovider.ErrItemMoved, it.SourceLine, it.Title)
 		}
 		start := starts[it.SourceLine-1]
 		marker := markerOffset(out[start:starts[it.SourceLine]])

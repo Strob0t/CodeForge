@@ -280,10 +280,9 @@ func (s *RoadmapService) ImportSpecs(ctx context.Context, projectID string) (*ro
 // (KI-203): headings, plain and numbered list items and code are not
 // features. The spec_ref of an item's feature is "specPath#Lline".
 //
-// An item takes the roadmap feature of the same file and title (the n-th
-// item with a title the feature whose line comes n-th), wherever the
-// feature's milestone is, so inserted lines move references instead of
-// duplicating features; a new item becomes a feature of ms. The checkbox
+// An item takes a roadmap feature of the same file as pairSpecItems says,
+// wherever the feature's milestone is, so inserted lines move references
+// instead of duplicating features; a new item becomes a feature of ms. The checkbox
 // sets the status as importedStatus says. A feature of the file that no
 // item takes keeps the file but loses its line, so "Sync to file" never
 // writes to a line that holds something else now. The file's content hash
@@ -312,7 +311,7 @@ func (s *RoadmapService) importSpecItems(
 		return
 	}
 	sum := contentSHA256(content)
-	_, lastChecked, err := s.specFileState(ctx, ms.RoadmapID, spec.Path, sum)
+	state, lastChecked, err := s.specFileState(ctx, ms.RoadmapID, spec.Path, sum)
 	if err != nil {
 		fail("spec file record of %s: %v", spec.Path, err)
 		return
@@ -322,7 +321,7 @@ func (s *RoadmapService) importSpecItems(
 		fail("list features: %v", err)
 		return
 	}
-	byTitle := fileFeaturesByTitle(features, spec.Path)
+	pairs, rest := pairSpecItems(items, features, spec.Path, state == specFileUnchanged)
 
 	record := roadmap.SpecFile{RoadmapID: ms.RoadmapID, Path: spec.Path, ContentSHA256: sum, Checked: map[string]bool{}}
 	stored := true
@@ -334,15 +333,11 @@ func (s *RoadmapService) importSpecItems(
 		}
 		result.FeaturesUpdated++
 	}
-	for _, item := range items {
-		if item.Level != specItemCheckbox {
-			continue
-		}
+	for _, pair := range pairs {
+		item := pair.item
 		ref := fmt.Sprintf("%s#L%d", spec.Path, item.SourceLine)
 		checked := item.Status == specItemDone
-		if same := byTitle[item.Title]; len(same) > 0 {
-			f := same[0]
-			byTitle[item.Title] = same[1:]
+		if f := pair.feature; f != nil {
 			last, seen := lastChecked[f.ID]
 			status, changed := importedStatus(f.Status, checked, last, seen)
 			if f.SpecRef != ref || changed {
@@ -359,12 +354,10 @@ func (s *RoadmapService) importSpecItems(
 		}
 		record.Checked[id] = checked
 	}
-	for _, rest := range byTitle {
-		for _, f := range rest {
-			if f.SpecRef != spec.Path {
-				f.SpecRef = spec.Path
-				save(f)
-			}
+	for _, f := range rest {
+		if f.SpecRef != spec.Path {
+			f.SpecRef = spec.Path
+			save(f)
 		}
 	}
 	if stored {

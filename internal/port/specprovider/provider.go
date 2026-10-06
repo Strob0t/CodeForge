@@ -72,8 +72,9 @@ type ItemWriter interface {
 	// PatchItems returns content with the status marker of each item's line
 	// set to the item's Status ("done" checks it, any other status unchecks
 	// it). Nothing else changes, byte for byte: the file is never rendered
-	// anew (KI-203). Each item's SourceLine must still hold a checkbox with
-	// the item's Title, or PatchItems returns no content and an error
-	// wrapping ErrItemMoved.
+	// anew (KI-203). Each item's SourceLine must still hold a checkbox, or
+	// PatchItems returns no content and an error wrapping ErrItemMoved. The
+	// checkbox's title may differ from the item's Title (a renamed feature):
+	// the caller makes sure the content did not change since it was parsed.
 	PatchItems(content []byte, items []SpecItemDetail) ([]byte, error)
 }

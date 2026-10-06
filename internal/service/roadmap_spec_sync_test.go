@@ -426,6 +426,31 @@ func TestSyncToSpecFile_RecordsTheWrittenBoxes(t *testing.T) {
 	wantRefs(t, env.refs(), "Item@TODO.md#L2=backlog")
 }
 
+// A feature renamed in the UI keeps its line while the file does not
+// change: "Sync to file" writes its marker although the line has the old
+// title (the file's hash proves the line did not move), and a re-import
+// pairs the line with the feature instead of creating a duplicate.
+func TestSyncToSpecFile_RenamedFeature(t *testing.T) {
+	env := newSpecEnv(t, map[string]string{"TODO.md": "- [ ] Item\n- [ ] Other\n"})
+	env.importSpecs(t)
+	env.store.feature(t, "Item").Title = "Item (renamed)"
+	env.store.setStatus(t, "Item (renamed)", roadmap.FeatureDone)
+
+	if res := env.importSpecs(t); res.FeaturesCreated != 0 {
+		t.Fatalf("re-import of the unchanged file = %+v", res)
+	}
+	if err := env.svc.SyncToSpecFile(context.Background(), "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := env.read(t, "TODO.md"); got != "- [x] Item\n- [ ] Other\n" {
+		t.Fatalf("synced file = %q", got)
+	}
+	if res := env.importSpecs(t); res.FeaturesCreated != 0 || res.FeaturesUpdated != 0 {
+		t.Fatalf("re-import after the sync = %+v", res)
+	}
+	wantRefs(t, env.refs(), "Item (renamed)@TODO.md#L1=done", "Other@TODO.md#L2=backlog")
+}
+
 // The spec file is never overwritten when it cannot be patched safely: it
 // changed since the last import or sync, it was never imported, a line no
 // longer holds its feature's checkbox, or a spec_ref names a file that is
@@ -442,8 +467,11 @@ func TestSyncToSpecFile_Refusals(t *testing.T) {
 		{"file never imported", func(_ *testing.T, env *specEnv) {
 			clear(env.store.specFiles)
 		}, domain.ErrConflict},
-		{"line holds another title", func(t *testing.T, env *specEnv) {
+		{"two features name one line", func(t *testing.T, env *specEnv) {
 			env.store.feature(t, "Open item").SpecRef = "TODO.md#L7"
+		}, domain.ErrConflict},
+		{"line holds no checkbox", func(t *testing.T, env *specEnv) {
+			env.store.feature(t, "Open item").SpecRef = "TODO.md#L1"
 		}, domain.ErrConflict},
 		{"line out of the file", func(t *testing.T, env *specEnv) {
 			env.store.feature(t, "Open item").SpecRef = "TODO.md#L999"

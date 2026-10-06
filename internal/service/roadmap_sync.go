@@ -178,8 +178,9 @@ type specFilePatch struct {
 //     can be set by hand; no other file is ever written);
 //   - it did not change since the roadmap last imported or synced it, and
 //     it was imported since the roadmap records that;
-//   - each feature's line still holds a checkbox with the feature's title,
-//     and no two features name one line.
+//   - each feature's line still holds a checkbox, and no two features name
+//     one line (the checkbox's title may differ: a feature renamed in the
+//     UI keeps its line while the file does not change).
 //
 // A failed check writes nothing (ErrValidation for a path, ErrConflict
 // otherwise: import the file again).

@@ -94,8 +94,8 @@ func TestPatchItems_ChangesOnlyTheMarkers(t *testing.T) {
 	}
 }
 
-// A line that no longer holds the item's checkbox is never written: the
-// whole patch fails and nothing is returned.
+// A line that no longer holds a checkbox is never written: the whole patch
+// fails and nothing is returned.
 func TestPatchItems_RefusesMovedItems(t *testing.T) {
 	content := todoFixture()
 	open := func(line int, title string) []specprovider.SpecItemDetail {
@@ -108,7 +108,6 @@ func TestPatchItems_RefusesMovedItems(t *testing.T) {
 		name  string
 		items []specprovider.SpecItemDetail
 	}{
-		{"another title on the line", open(9, "Renamed item")},
 		{"a heading line", open(5, "Phase 1")},
 		{"a checkbox inside a code block", open(14, "not an item")},
 		{"a numbered list line", open(18, "numbered step")},
@@ -123,6 +122,22 @@ func TestPatchItems_RefusesMovedItems(t *testing.T) {
 				t.Fatalf("PatchItems = %d bytes, %v; want ErrItemMoved and no content", len(got), err)
 			}
 		})
+	}
+}
+
+// A checkbox whose title differs from the item's (a feature renamed in the
+// UI) is patched: the caller made sure the file did not change since it was
+// parsed (KI-203), so the line still holds the item.
+func TestPatchItems_RenamedItem(t *testing.T) {
+	content := todoFixture()
+	got, err := (&Provider{}).PatchItems([]byte(content), []specprovider.SpecItemDetail{
+		{Title: "Renamed item", Status: "done", SourceLine: 9, Level: "checkbox"},
+	})
+	if err != nil {
+		t.Fatalf("PatchItems = %v", err)
+	}
+	if want := strings.Replace(content, "- [ ] Open item", "- [x] Open item", 1); string(got) != want {
+		t.Fatalf("PatchItems changed more than the marker: %s", firstDifference(got, []byte(want)))
 	}
 }
 

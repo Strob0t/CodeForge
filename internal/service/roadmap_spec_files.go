@@ -13,6 +13,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
+	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 )
 
 // Spec file import and write-back (KI-203). The roadmap records what it
@@ -83,6 +84,73 @@ func importedStatus(cur roadmap.FeatureStatus, checked, last, seen bool) (roadma
 	default:
 		return cur, false
 	}
+}
+
+// specItemPair is a checkbox item of a spec file and the feature it takes
+// (nil for a new item).
+type specItemPair struct {
+	item    specprovider.SpecItemDetail
+	feature *roadmap.Feature
+}
+
+// pairSpecItems pairs the checkbox items of the spec file path with the
+// roadmap's features of that file, and returns the features no item takes.
+// In a file unchanged since the last import or sync, an item takes the
+// feature whose spec_ref names its line, whatever the feature's title is
+// now (it may have been renamed in the UI; the hash proves the line did
+// not move). The other items take features by title: the n-th item with a
+// title the feature whose line comes n-th (fileFeaturesByTitle).
+func pairSpecItems(items []specprovider.SpecItemDetail, features []roadmap.Feature, path string, unchanged bool) ([]specItemPair, []*roadmap.Feature) {
+	byTitle := fileFeaturesByTitle(features, path)
+	atLine := make(map[int]*roadmap.Feature)
+	if unchanged {
+		for _, same := range byTitle {
+			for _, f := range same {
+				if _, line := parseSpecRef(f.SpecRef); line > 0 {
+					atLine[line] = f
+				}
+			}
+		}
+	}
+
+	taken := make(map[*roadmap.Feature]bool)
+	var pairs []specItemPair
+	for _, item := range items {
+		if item.Level != specItemCheckbox {
+			continue
+		}
+		f := atLine[item.SourceLine]
+		if f != nil {
+			taken[f] = true
+		}
+		pairs = append(pairs, specItemPair{item: item, feature: f})
+	}
+	for i := range pairs {
+		if pairs[i].feature != nil {
+			continue
+		}
+		title := pairs[i].item.Title
+		same := byTitle[title]
+		for len(same) > 0 && taken[same[0]] {
+			same = same[1:]
+		}
+		if len(same) > 0 {
+			pairs[i].feature = same[0]
+			taken[same[0]] = true
+			same = same[1:]
+		}
+		byTitle[title] = same
+	}
+
+	var rest []*roadmap.Feature
+	for _, same := range byTitle {
+		for _, f := range same {
+			if !taken[f] {
+				rest = append(rest, f)
+			}
+		}
+	}
+	return pairs, rest
 }
 
 // fileFeaturesByTitle groups the features whose spec_ref names the spec
