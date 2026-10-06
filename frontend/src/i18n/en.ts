@@ -1180,6 +1180,7 @@ const en = {
   "reviews.status.completed": "Completed",
   "reviews.status.failed": "Failed",
   // Knowledge Bases (Phase 12K)
+  "kb.adminOnly": "Only admins of your organization create, index and delete knowledge bases.",
   "kb.title": "Knowledge Bases",
   "kb.description": "Curated knowledge modules for agent context",
   "kb.empty": "No knowledge bases available",
@@ -1200,6 +1201,7 @@ const en = {
   "kb.form.category": "Category",
   "kb.form.tags": "Tags",
   "kb.form.contentPath": "Content Path",
+  "kb.index.indexing": "Indexing...",
   "kb.index.button": "Index",
   "kb.index.reindex": "Re-index",
   "kb.toast.created": "Knowledge base created",

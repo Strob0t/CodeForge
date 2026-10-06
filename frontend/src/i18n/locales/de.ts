@@ -1183,6 +1183,8 @@ const de: Translations = {
   "reviews.status.failed": "Fehlgeschlagen",
 
   // -- Knowledge Bases (Phase 12K) -------------------------------------------
+  "kb.adminOnly":
+    "Nur Admins Ihrer Organisation erstellen, indexieren und l\u00f6schen Wissensdatenbanken.",
   "kb.title": "Wissensbasen",
   "kb.emptyDescription": "Erstelle eine Wissensbasis, um den Agent-Kontext zu verbessern.",
   "kb.description": "Kuratierte Wissensmodule f\u00fcr Agent-Kontext",
@@ -1203,6 +1205,7 @@ const de: Translations = {
   "kb.form.category": "Kategorie",
   "kb.form.tags": "Tags",
   "kb.form.contentPath": "Inhaltspfad",
+  "kb.index.indexing": "Wird indexiert...",
   "kb.index.button": "Indizieren",
   "kb.index.reindex": "Neu indizieren",
   "kb.toast.created": "Wissensbasis erstellt",
