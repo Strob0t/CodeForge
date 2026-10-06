@@ -1,10 +1,11 @@
 import { createEffect, createResource, createSignal, onCleanup } from "solid-js";
 
 import { api } from "~/api/client";
-import type { AutoAgentStatus, BudgetAlertEvent } from "~/api/types";
+import type { AutoAgentStatus, BudgetAlertEvent, GitStatus } from "~/api/types";
 import { useToast } from "~/components/Toast";
 import { useWebSocket } from "~/components/WebSocketProvider";
 import { useI18n } from "~/i18n";
+import { coalesce } from "~/lib/coalesce";
 import { extractErrorMessage } from "~/lib/errorUtils";
 
 import { createProjectTaskIndex, parseTaskOutput } from "./liveEvents";
@@ -48,13 +49,20 @@ export function useProjectDetail(projectId: () => string) {
   const [project, { refetch: refetchProject }] = createResource(projectId, (id) =>
     api.projects.get(id),
   );
+  // Reading a resource that failed throws; outside JSX (event handlers,
+  // resource sources) and for the branch badge, a failure reads as "none".
+  const loadedProject = () => (project.error ? undefined : project());
   const [tasks, { refetch: refetchTasks }] = createResource(projectId, (id) => api.tasks.list(id));
-  const [gitStatus, { refetch: refetchGitStatus }] = createResource(
-    () => (project()?.workspace_path ? projectId() : undefined),
+  const [gitStatusResource, { refetch: refetchGitStatus }] = createResource(
+    () => (loadedProject()?.workspace_path ? projectId() : undefined),
     (id: string) => api.projects.gitStatus(id),
   );
+  // The badge reads the status; a failed refresh hides the badge instead of
+  // throwing to the page's error boundary.
+  const gitStatus = (): GitStatus | undefined =>
+    gitStatusResource.error ? undefined : gitStatusResource();
   const [, { refetch: refetchBranches }] = createResource(
-    () => (project()?.workspace_path ? projectId() : undefined),
+    () => (loadedProject()?.workspace_path ? projectId() : undefined),
     (id: string) => api.projects.branches(id),
   );
   const [agents, { refetch: refetchAgents }] = createResource(projectId, (id) =>
@@ -64,23 +72,9 @@ export function useProjectDetail(projectId: () => string) {
   // What agents do in the workspace (a run ends or delivers, a chat tool
   // call) refreshes the branch badge (KI-129): one git status request at a
   // time, and one more after it when activity came in meanwhile.
-  let gitStatusInFlight = false;
-  let gitStatusAgain = false;
+  const refetchGitStatusCoalesced = coalesce(refetchGitStatus);
   const refreshGitStatus = (): void => {
-    if (!project()?.workspace_path) return;
-    if (gitStatusInFlight) {
-      gitStatusAgain = true;
-      return;
-    }
-    gitStatusInFlight = true;
-    const done = (): void => {
-      gitStatusInFlight = false;
-      if (gitStatusAgain) {
-        gitStatusAgain = false;
-        refreshGitStatus();
-      }
-    };
-    void Promise.resolve(refetchGitStatus()).then(done, done);
+    if (loadedProject()?.workspace_path) refetchGitStatusCoalesced();
   };
 
   // Onboarding data
