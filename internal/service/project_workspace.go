@@ -51,7 +51,18 @@ func (s *ProjectService) Clone(ctx context.Context, id, tenantID, branch string)
 		return nil, err
 	}
 	destPath := filepath.Join(s.workspaceRoot, tenantID, p.ID)
+	_, statErr := os.Lstat(destPath)
+	fresh := errors.Is(statErr, fs.ErrNotExist)
 	if err := gp.Clone(ctx, p.RepoURL, destPath, opts...); err != nil {
+		// A clone that failed or was cancelled half-way (the request ended,
+		// git.operation_timeout passed) leaves a partial directory the next
+		// clone would take for a repository (KI-213). Only what this clone
+		// created goes; no project uses it yet.
+		if fresh {
+			if rmErr := os.RemoveAll(destPath); rmErr != nil {
+				slog.Warn("clone: partial workspace not removed", "project_id", p.ID, "path", destPath, "error", rmErr)
+			}
+		}
 		return nil, fmt.Errorf("clone: %w", err)
 	}
 

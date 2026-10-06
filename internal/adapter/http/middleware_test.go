@@ -2,10 +2,12 @@ package http
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // hijackableRecorder wraps httptest.ResponseRecorder to implement http.Hijacker.
@@ -106,5 +108,28 @@ func TestResponseWriterFlush(t *testing.T) {
 
 	if !inner.Flushed {
 		t.Fatal("expected inner ResponseRecorder to be flushed")
+	}
+}
+
+// The route timeouts move the connection's write deadline through
+// http.ResponseController, which needs Unwrap on every writer in the chain
+// (KI-213).
+func TestLoggerKeepsTheResponseController(t *testing.T) {
+	var deadlineErr error
+	srv := httptest.NewServer(Logger(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		deadlineErr = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	})))
+	defer srv.Close()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if deadlineErr != nil {
+		t.Fatalf("SetWriteDeadline through Logger: %v", deadlineErr)
 	}
 }

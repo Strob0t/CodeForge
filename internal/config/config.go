@@ -283,6 +283,9 @@ type Experience struct {
 // Git holds git operation configuration.
 type Git struct {
 	MaxConcurrent int `yaml:"max_concurrent"` // Max concurrent git CLI operations (default: 5)
+	// OperationTimeout bounds the synchronous clone, setup and pull API calls
+	// instead of the default request timeout (default: 30m, KI-213).
+	OperationTimeout time.Duration `yaml:"operation_timeout"`
 }
 
 // Orchestrator holds multi-agent execution plan configuration.
@@ -703,7 +706,8 @@ func Defaults() Config {
 			AuthBurst:         5,
 		},
 		Git: Git{
-			MaxConcurrent: 5,
+			MaxConcurrent:    5,
+			OperationTimeout: 30 * time.Minute,
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",

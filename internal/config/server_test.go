@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // server.host (CODEFORGE_HOST) chooses the listen address; the default ""
@@ -42,6 +43,28 @@ func TestLoadEnv_ServerHostAndSecureCookies(t *testing.T) {
 	}
 	if d := Defaults(); d.Server.Host != "" || d.Server.ForceSecureCookies {
 		t.Errorf("defaults: host=%q force_secure_cookies=%v, want all interfaces and false", d.Server.Host, d.Server.ForceSecureCookies)
+	}
+}
+
+// git.operation_timeout bounds the synchronous clone, setup and pull API
+// calls instead of the 30 s request timeout (KI-213).
+func TestGitOperationTimeout(t *testing.T) {
+	if got := Defaults().Git.OperationTimeout; got != 30*time.Minute {
+		t.Fatalf("default git.operation_timeout = %s, want 30m", got)
+	}
+	t.Setenv("CODEFORGE_GIT_OPERATION_TIMEOUT", "2h")
+	cfg := Defaults()
+	mustLoadEnv(t, &cfg)
+	if cfg.Git.OperationTimeout != 2*time.Hour {
+		t.Fatalf("git.operation_timeout = %s, want 2h", cfg.Git.OperationTimeout)
+	}
+	for _, d := range []time.Duration{0, -time.Second} {
+		cfg := Defaults()
+		cfg.Auth.Enabled = false
+		cfg.Git.OperationTimeout = d
+		if err := validate(&cfg); err == nil || !strings.Contains(err.Error(), "git.operation_timeout") {
+			t.Errorf("validate(%s) = %v, want a git.operation_timeout error", d, err)
+		}
 	}
 }
 

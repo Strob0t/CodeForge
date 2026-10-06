@@ -73,6 +73,9 @@ rate:
 # Git worker pool - limits concurrent git CLI operations
 git:
   max_concurrent: 5
+  # Bound of the synchronous clone, setup and pull API calls (every other
+  # API request: 30 s). Env: CODEFORGE_GIT_OPERATION_TIMEOUT.
+  operation_timeout: "30m"
 
 # Project workspaces (<root>/<tenant>/<project>)
 workspace:

@@ -232,6 +232,7 @@ func loadEnv(cfg *Config) error {
 	setTyped(&errs, &cfg.Rate.AuthPerSecond, "CODEFORGE_RATE_AUTH_RPS", func(s string) (float64, error) { return strconv.ParseFloat(s, 64) })
 	setTyped(&errs, &cfg.Rate.AuthBurst, "CODEFORGE_RATE_AUTH_BURST", strconv.Atoi)
 	setTyped(&errs, &cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT", strconv.Atoi)
+	setTyped(&errs, &cfg.Git.OperationTimeout, "CODEFORGE_GIT_OPERATION_TIMEOUT", time.ParseDuration)
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
@@ -504,6 +505,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Breaker.MaxFailures < 1 {
 		return errors.New("breaker.max_failures must be >= 1")
+	}
+	if cfg.Git.OperationTimeout <= 0 {
+		return fmt.Errorf("git.operation_timeout must be positive (got %s)", cfg.Git.OperationTimeout)
 	}
 	if cfg.Rate.Burst < 1 {
 		return errors.New("rate.burst must be >= 1")

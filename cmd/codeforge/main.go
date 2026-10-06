@@ -1062,7 +1062,9 @@ func run() error {
 
 	// API routes wrapped in a group with additional middleware
 	r.Group(func(api chi.Router) {
-		api.Use(chimw.Timeout(30 * time.Second))
+		// 30 s per request; clone, setup and pull get git.operation_timeout,
+		// the A2A task stream none (KI-213).
+		api.Use(middleware.RouteTimeout(r, 30*time.Second, cfhttp.LongRunningRoutes(cfg.Git.OperationTimeout)))
 		api.Use(rateLimiter.Handler)
 		api.Use(middleware.Idempotency(idempotencyKV))
 

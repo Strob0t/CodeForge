@@ -278,6 +278,13 @@ def test_core_api_port_is_published_on_loopback_only() -> None:
     assert CORE["ports"] == ["127.0.0.1:${CORE_PORT:-8080}:8080"]
 
 
+def test_nginx_does_not_cut_long_api_requests() -> None:
+    """KI-213: the Core bounds API requests itself; clone, setup and pull may take minutes."""
+    conf = (REPO / "frontend" / "nginx.conf").read_text()
+    api = conf.split("location /api/ {", 1)[1].split("\n    }", 1)[0]
+    assert re.search(r"^\s*proxy_read_timeout 1h;", api, re.MULTILINE), api
+
+
 def test_live_e2e_core_listens_on_loopback() -> None:
     """KI-213: live E2E runs with public dev credentials and tool isolation off."""
     env = (REPO / "scripts" / "live-e2e" / "env.example.sh").read_text()
