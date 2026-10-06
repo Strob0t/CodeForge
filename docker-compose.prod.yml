@@ -313,6 +313,10 @@ services:
         condition: service_healthy
       litellm:
         condition: service_healthy
+    # On SIGTERM the core stops HTTP (up to 30 s for open requests), then
+    # drains NATS (up to 30 s for pending publishes); Docker's default of
+    # 10 s killed it in the first phase (KI-214).
+    stop_grace_period: 75s
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 10s

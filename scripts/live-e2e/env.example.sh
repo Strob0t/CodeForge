@@ -43,7 +43,8 @@ export CODEFORGE_NATS_STREAM_MAX_BYTES=${CODEFORGE_NATS_STREAM_MAX_BYTES:-536870
 
 # --- LLM ---------------------------------------------------------------------
 : "${LIVE_LITELLM_CONTAINER:=codeforge-live-litellm}"
-: "${LIVE_LITELLM_IMAGE:=docker.litellm.ai/berriai/litellm:main-stable}"
+# The release production runs (docker-compose.prod.yml).
+: "${LIVE_LITELLM_IMAGE:=ghcr.io/berriai/litellm:v1.103.1}"
 : "${LIVE_LITELLM_PORT:=4000}"
 export LIVE_LITELLM_CONTAINER LIVE_LITELLM_IMAGE LIVE_LITELLM_PORT
 export LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://127.0.0.1:$LIVE_LITELLM_PORT}

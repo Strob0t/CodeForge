@@ -30,7 +30,8 @@ services:
     logging: *default-logging
     profiles:
       - dev
-    ipc: host
+    # Its own IPC namespace (the browser loads arbitrary sites); shm_size
+    # gives Chromium its shared memory (KI-214).
     shm_size: "1gb"
     user: "1000:1000"
     security_opt:
@@ -178,7 +179,8 @@ services:
       - codeforge
 
   litellm:
-    image: docker.litellm.ai/berriai/litellm:main-stable
+    # The release production runs (docker-compose.prod.yml, KI-214).
+    image: ghcr.io/berriai/litellm:v1.103.1
     container_name: codeforge-litellm
     restart: unless-stopped
     logging: *default-logging

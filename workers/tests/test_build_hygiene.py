@@ -176,3 +176,35 @@ def test_feature_verification_python_half_can_fail(
     assert result.returncode == want_exit, result.stdout + result.stderr
     if want_exit == 0:
         assert "| 4 | LLM Model Registry | NONE | PASS |" in result.stdout, result.stdout
+
+
+def _seconds(duration: str) -> int:
+    match = re.fullmatch(r"(?:(\d+)m)?(?:(\d+)s)?", duration)
+    assert match, duration
+    return int(match.group(1) or 0) * 60 + int(match.group(2) or 0)
+
+
+def test_core_gets_time_for_its_graceful_shutdown() -> None:
+    """Docker's default of 10 s killed the Core in phase 1 (HTTP shutdown, up to 30 s), before the
+    NATS drain (up to 30 s) published its pending messages."""
+    assert _seconds(PROD["services"]["core"]["stop_grace_period"]) >= 65
+
+
+DEV = yaml.safe_load((REPO / "docker-compose.yml").read_text())
+
+
+def test_dev_browser_has_its_own_ipc_namespace() -> None:
+    """playwright-mcp loads arbitrary sites; shm_size already gives Chromium its shared memory."""
+    browser = DEV["services"]["playwright-mcp"]
+    assert "ipc" not in browser
+    assert browser["shm_size"]
+
+
+def test_dev_and_live_e2e_run_the_litellm_of_production() -> None:
+    prod_image = PROD["services"]["litellm"]["image"]
+    tag = prod_image.rsplit(":", 1)[1]
+    assert DEV["services"]["litellm"]["image"].endswith(f"/berriai/litellm:{tag}")
+    env = (REPO / "scripts" / "live-e2e" / "env.example.sh").read_text()
+    match = re.search(r'LIVE_LITELLM_IMAGE:=([^}"]+)', env)
+    assert match
+    assert match.group(1).endswith(f"/berriai/litellm:{tag}")
