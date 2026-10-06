@@ -286,6 +286,10 @@ services:
       # refuses tool work without it). Deleted projects' workspaces are removed
       # by the worker as that UID.
       CODEFORGE_WORKSPACE_TOOL_ACLS: required
+      # Clients reach the core through nginx (Traefik in blue-green): their
+      # forwarding headers count only from the proxy containers' addresses on
+      # the public network (rate limits and audit see the real client, KI-211).
+      CODEFORGE_TRUSTED_PROXIES: ${CODEFORGE_TRUSTED_PROXIES:-${CODEFORGE_PUBLIC_IP_RANGE:-172.31.240.128/25}}
     # The root filesystem stays read-only: /data (initial admin password, setup
     # token, the OAuth .env next to the workspace root) and the workspaces
     # shared with the worker are volumes, /tmp is a tmpfs. Knowledge-base
@@ -476,8 +480,18 @@ volumes:
   tool_homes:
 
 networks:
+  # A fixed subnet, so the core can trust the proxies' addresses
+  # (CODEFORGE_TRUSTED_PROXIES). Containers get addresses from ip_range only;
+  # the gateway, which is the source of connections Docker's userland proxy
+  # forwards, stays outside it and is not trusted. Set the three variables
+  # together if the subnet collides with another network.
   public:
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${CODEFORGE_PUBLIC_SUBNET:-172.31.240.0/24}
+          ip_range: ${CODEFORGE_PUBLIC_IP_RANGE:-172.31.240.128/25}
+          gateway: ${CODEFORGE_PUBLIC_GATEWAY:-172.31.240.1}
   internal:
     driver: bridge
     internal: true

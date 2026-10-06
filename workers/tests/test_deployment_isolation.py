@@ -9,6 +9,7 @@ NATS with its own user. Runs the real generate-secrets.sh / validate-env.sh
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shutil
@@ -247,6 +248,78 @@ def test_compose_config_is_valid(overlay: bool, tmp_path: Path) -> None:
     homes = [v for v in services["worker"]["volumes"] if v["target"] == "/home/codeforge-tools"]
     assert homes, services["worker"]["volumes"]
     assert homes[0]["type"] == "volume", homes
+
+
+def _default(value: str) -> str:
+    """The default of a Compose ${VAR:-default} reference (nested ones resolved)."""
+    match = re.fullmatch(r"\$\{(\w+):-(.*)\}", value)
+    assert match, value
+    return _default(match.group(2)) if match.group(2).startswith("${") else match.group(2)
+
+
+def test_core_trusts_only_the_proxy_addresses_of_the_public_network() -> None:
+    """KI-211: nginx (Traefik in blue-green) is the Core's peer; without trusted proxies every client
+    shares the proxy's rate-limit bucket. The containers get addresses from ip_range, the Docker
+    gateway (the peer of connections through docker-proxy) stays outside it, so it is not trusted."""
+    ipam = COMPOSE["networks"]["public"]["ipam"]["config"][0]
+    subnet = ipaddress.ip_network(_default(ipam["subnet"]))
+    ip_range = ipaddress.ip_network(_default(ipam["ip_range"]))
+    gateway = ipaddress.ip_address(_default(ipam["gateway"]))
+    assert ip_range.subnet_of(subnet)  # type: ignore[arg-type]
+    assert gateway in subnet
+    assert gateway not in ip_range
+    trusted = CORE["environment"]["CODEFORGE_TRUSTED_PROXIES"]
+    assert trusted == "${CODEFORGE_TRUSTED_PROXIES:-" + ipam["ip_range"] + "}"
+    assert _default(trusted) == str(ip_range)
+
+
+def _dummy_secrets(directory: Path) -> Path:
+    directory.mkdir()
+    for entry in COMPOSE["secrets"].values():
+        (directory / Path(entry["file"]).name).write_text("x")
+    return directory
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="needs docker compose")
+@pytest.mark.parametrize("overlay", [False, True], ids=["prod", "blue-green"])
+@pytest.mark.parametrize(
+    ("env", "want"),
+    [
+        ({}, "172.31.240.128/25"),
+        ({"CODEFORGE_PUBLIC_IP_RANGE": "10.77.0.128/25", "CODEFORGE_PUBLIC_SUBNET": "10.77.0.0/24"}, "10.77.0.128/25"),
+        ({"CODEFORGE_TRUSTED_PROXIES": "10.1.2.3"}, "10.1.2.3"),
+    ],
+    ids=["default", "own-range", "explicit"],
+)
+def test_compose_resolves_the_trusted_proxies(overlay: bool, env: dict[str, str], want: str, tmp_path: Path) -> None:
+    files = ["-f", "docker-compose.prod.yml"]
+    if overlay:
+        files += ["-f", "docker-compose.blue-green.yml", "--profile", "blue", "--profile", "green"]
+    base = {k: v for k, v in os.environ.items() if not k.startswith(("CODEFORGE_PUBLIC_", "CODEFORGE_TRUSTED_"))}
+    result = subprocess.run(  # noqa: S603 - docker compose of this repository
+        [str(shutil.which("docker")), "compose", *files, "config", "--format", "json"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        env={
+            **base,
+            "SECRETS_DIR": str(_dummy_secrets(tmp_path / "secrets")),
+            "ACME_EMAIL": "ops@example.com",
+            "CODEFORGE_DOMAIN": "x.example",
+            **env,
+        },
+        check=False,
+        timeout=120,
+    )
+    if result.returncode != 0 and "'compose' is not a docker command" in result.stderr:
+        pytest.skip("docker compose plugin not installed")
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load(result.stdout)
+    for name in ["core-blue", "core-green"] if overlay else ["core"]:
+        assert config["services"][name]["environment"]["CODEFORGE_TRUSTED_PROXIES"] == want, name
+    ipam = config["networks"]["public"]["ipam"]["config"][0]
+    if "CODEFORGE_TRUSTED_PROXIES" not in env:
+        assert ipam["ip_range"] == want
 
 
 def test_core_image_has_svn_and_no_gh() -> None:
