@@ -233,6 +233,8 @@ func loadEnv(cfg *Config) error {
 	setTyped(&errs, &cfg.Rate.AuthBurst, "CODEFORGE_RATE_AUTH_BURST", strconv.Atoi)
 	setTyped(&errs, &cfg.Git.MaxConcurrent, "CODEFORGE_GIT_MAX_CONCURRENT", strconv.Atoi)
 	setTyped(&errs, &cfg.Git.OperationTimeout, "CODEFORGE_GIT_OPERATION_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Git.CommandTimeout, "CODEFORGE_GIT_COMMAND_TIMEOUT", time.ParseDuration)
+	setTyped(&errs, &cfg.Git.NetworkTimeout, "CODEFORGE_GIT_NETWORK_TIMEOUT", time.ParseDuration)
 	setString(&cfg.Policy.DefaultProfile, "CODEFORGE_POLICY_DEFAULT")
 	setString(&cfg.Policy.CustomDir, "CODEFORGE_POLICY_DIR")
 	setString(&cfg.Workspace.Root, "CODEFORGE_WORKSPACE_ROOT")
@@ -526,6 +528,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Runtime.StaleCheckInterval <= 0 {
 		return errors.New("runtime.stale_check_interval must be > 0")
+	}
+	if cfg.Git.CommandTimeout < time.Second {
+		return fmt.Errorf("git.command_timeout must be >= 1s (got %s)", cfg.Git.CommandTimeout)
+	}
+	if cfg.Git.NetworkTimeout < time.Second {
+		return fmt.Errorf("git.network_timeout must be >= 1s (got %s)", cfg.Git.NetworkTimeout)
 	}
 	for _, root := range cfg.Workspace.AdoptRoots {
 		if !filepath.IsAbs(root) || filepath.Clean(root) == "/" {

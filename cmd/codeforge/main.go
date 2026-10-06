@@ -180,7 +180,9 @@ func run() error {
 
 	// --- Git Worker Pool ---
 	gitPool := git.NewPool(cfg.Git.MaxConcurrent)
-	slog.Info("git worker pool initialized", "max_concurrent", cfg.Git.MaxConcurrent)
+	git.SetTimeouts(cfg.Git.CommandTimeout, cfg.Git.NetworkTimeout)
+	slog.Info("git worker pool initialized", "max_concurrent", cfg.Git.MaxConcurrent,
+		"command_timeout", cfg.Git.CommandTimeout, "network_timeout", cfg.Git.NetworkTimeout)
 
 	// --- Agent Backends ---
 	aider.Register(queue)

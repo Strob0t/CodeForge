@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Workspace git (KI-77). Agents write to project workspaces, including .git
@@ -29,7 +30,10 @@ import (
 //     that another program starts) disables fsmonitor, hooks, credential
 //     helpers, signing, automatic gc and submodule recursion, and neutralises
 //     every filter driver the repository config defines, so LFS repositories
-//     keep working with their files as plain content;
+//     keep working with their files as plain content; it also fixes the keys
+//     that size processes, threads and memory windows (KI-187);
+//   - every git process ends at a deadline (deadline.go), and OpenRepo
+//     refuses FIFOs and devices where git opens files by name (special.go);
 //   - OpenRepo reads the repository config without running anything and
 //     refuses the repository (fail closed) for any key outside an allowlist of
 //     data-only keys, for include/includeIf, core.worktree, a .git that is a
@@ -108,6 +112,23 @@ var commonOverrides = [][2]string{
 	{"merge.verifySignatures", "false"},
 	{"status.submoduleSummary", "false"},
 	{"diff.submodule", "short"},
+	// Keys that size the Go Core's processes stay data for the repository
+	// but never size anything (KI-187): checkout.workers=300 started 300
+	// processes for one rewind. Overriding them keeps repositories that set
+	// them working, where refusing the keys would refuse those repositories.
+	// The values are git's defaults, or its 32-bit ones where the 64-bit
+	// default exceeds the Go Core container.
+	{"checkout.workers", "1"},
+	{"index.threads", "1"},
+	{"pack.threads", "1"},
+	{"pack.window", "10"},
+	{"pack.depth", "50"},
+	{"pack.windowMemory", "256m"},
+	{"pack.deltaCacheSize", "256m"},
+	{"core.packedGitLimit", "256m"},
+	{"core.packedGitWindowSize", "32m"},
+	{"core.deltaBaseCacheSize", "96m"},
+	{"core.bigFileThreshold", "512m"},
 }
 
 // DiffFormatArgs make git diff print the plain default format whatever the
@@ -202,6 +223,12 @@ func OpenRepo(ctx context.Context, dir string) (*Repo, error) {
 	if err := r.loadConfig(ctx); err != nil {
 		return nil, err
 	}
+	if err := r.checkExcludesFile(); err != nil {
+		return nil, err
+	}
+	if err := r.refuseSpecialRootFiles(); err != nil {
+		return nil, err
+	}
 
 	r.overrides = slices.Concat(commonOverrides, repoOverrides, [][2]string{{"safe.directory", abs}})
 	for _, name := range r.filterDrivers() {
@@ -254,6 +281,12 @@ func checkGitDir(gitDir string) error {
 	if info, err := os.Lstat(filepath.Join(gitDir, "info")); err == nil && info.Mode()&fs.ModeSymlink != 0 {
 		return unsafeRepo(".git/info is a symlink")
 	}
+	// Files git opens by name must not block it (KI-187).
+	for _, name := range []string{"", "info"} {
+		if err := refuseSpecialEntries(filepath.Join(gitDir, name), filepath.ToSlash(filepath.Join(".git", name))); err != nil {
+			return err
+		}
+	}
 	for _, name := range []string{"refs", "logs", "objects"} {
 		if err := refuseSymlinkedDirs(gitDir, name); err != nil {
 			return err
@@ -262,9 +295,10 @@ func checkGitDir(gitDir string) error {
 	return nil
 }
 
-// refuseSymlinkedDirs refuses a symlink anywhere in the directory tree
-// .git/name (objects: the directory and its immediate entries only, loose
-// objects and packs are only read).
+// refuseSymlinkedDirs refuses a symlink, FIFO, socket or device anywhere in
+// the directory tree .git/name (objects: the directory, its immediate
+// entries and those of objects/info and objects/pack only; loose objects are
+// only read, and too many to check).
 func refuseSymlinkedDirs(gitDir, name string) error {
 	root := filepath.Join(gitDir, name)
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -274,11 +308,15 @@ func refuseSymlinkedDirs(gitDir, name string) error {
 		if err != nil {
 			return fmt.Errorf("inspect %s: %w", path, err)
 		}
+		rel, _ := filepath.Rel(gitDir, path)
+		rel = filepath.ToSlash(rel)
 		if d.Type()&fs.ModeSymlink != 0 {
-			rel, _ := filepath.Rel(gitDir, path)
-			return unsafeRepo(".git/" + filepath.ToSlash(rel) + " is a symlink")
+			return unsafeRepo(".git/" + rel + " is a symlink")
 		}
-		if name == "objects" && d.IsDir() && path != root {
+		if isSpecial(d.Type()) {
+			return unsafeRepo(".git/" + rel + " is a FIFO, socket or device, which git would block on (KI-187)")
+		}
+		if name == "objects" && d.IsDir() && path != root && rel != "objects/info" && rel != "objects/pack" {
 			return fs.SkipDir
 		}
 		return nil
@@ -391,18 +429,36 @@ func (r *Repo) Command(ctx context.Context, name string, args ...string) *exec.C
 	return cmd
 }
 
-// runGit runs git with env in dir and returns its standard output.
+// waitDelay bounds the wait for git's output pipes after it was killed.
+const waitDelay = 5 * time.Second
+
+// runGit runs git with env in dir and returns its standard output. It ends
+// at the command's deadline (commandTimeout) or ctx's, whichever is first.
 func runGit(ctx context.Context, dir string, env []string, args ...string) (string, error) {
+	op := "git"
+	if len(args) > 0 {
+		op += " " + args[0]
+	}
+	timeout := commandTimeout(strings.TrimPrefix(op, "git "))
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // G204: arguments chosen by the Go Core, no shell
 	cmd.Dir = dir
 	cmd.Env = env
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = waitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		op := "git"
-		if len(args) > 0 {
-			op += " " + args[0]
+		switch ctxErr := ctx.Err(); {
+		case errors.Is(ctxErr, context.DeadlineExceeded):
+			// A workspace file git blocks on (a FIFO) ends here too.
+			return stdout.String(), fmt.Errorf("%s: %w (%w; git deadline %s): %s",
+				op, ErrGitTimeout, ctxErr, timeout, strings.TrimSpace(stderr.String()))
+		case ctxErr != nil:
+			return stdout.String(), fmt.Errorf("%s: %w", op, ctxErr)
 		}
 		// Standard output is returned as well: some commands report their
 		// result with a non-zero exit (git merge-tree on conflicts).

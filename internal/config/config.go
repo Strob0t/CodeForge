@@ -286,6 +286,12 @@ type Git struct {
 	// OperationTimeout bounds the synchronous clone, setup and pull API calls
 	// instead of the default request timeout (default: 30m, KI-213).
 	OperationTimeout time.Duration `yaml:"operation_timeout"`
+	// CommandTimeout and NetworkTimeout end every git process of the Go Core
+	// (KI-187): agent-writable workspace state such as a FIFO .gitignore
+	// must not block it. NetworkTimeout applies to clone, fetch, pull, push
+	// and ls-remote, CommandTimeout to all other commands.
+	CommandTimeout time.Duration `yaml:"command_timeout"` // default: 2m
+	NetworkTimeout time.Duration `yaml:"network_timeout"` // default: 10m
 }
 
 // Orchestrator holds multi-agent execution plan configuration.
@@ -712,6 +718,8 @@ func Defaults() Config {
 		Git: Git{
 			MaxConcurrent:    5,
 			OperationTimeout: 30 * time.Minute,
+			CommandTimeout:   2 * time.Minute,  // git.DefaultCommandTimeout
+			NetworkTimeout:   10 * time.Minute, // git.DefaultNetworkTimeout
 		},
 		Policy: Policy{
 			DefaultProfile: "headless-safe-sandbox",

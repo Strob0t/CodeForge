@@ -67,8 +67,9 @@ var refusedAnywhereKeys = map[string]bool{
 
 // allowedKeys are the section.variable keys (no subsection) a workspace
 // repository may set outside the allowed sections. The fsmonitor, hooks
-// path, untracked cache, split index, attributes file and signing keys are
-// overridden on the command line.
+// path, untracked cache, split index, attributes file and signing keys, and
+// the keys that size processes (checkout.workers, core.packedGitLimit, ...;
+// KI-187) are overridden on the command line.
 var allowedKeys = map[string]bool{
 	"core.repositoryformatversion": true, "core.filemode": true, "core.bare": true, "core.logallrefupdates": true,
 	"core.ignorecase": true, "core.precomposeunicode": true, "core.symlinks": true, "core.autocrlf": true,

@@ -18,7 +18,9 @@ func TestOpenRepo_AcceptsCommonRealWorldConfig(t *testing.T) {
 	ctx := context.Background()
 	dir := newRepo(t)
 	for _, kv := range [][2]string{
-		{"core.excludesFile", "/home/dev/.gitignore_global"},
+		// Inside the workspace only (KI-187, special_files_test.go); the
+		// attributes file is overridden on the command line, never read.
+		{"core.excludesFile", ".git/info/ignore_extra"},
 		{"core.attributesFile", "/home/dev/.gitattributes_global"},
 		{"core.preloadIndex", "true"},
 		{"core.longpaths", "true"},

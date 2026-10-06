@@ -80,6 +80,13 @@ git:
   # Bound of the synchronous clone, setup and pull API calls (every other
   # API request: 30 s). Env: CODEFORGE_GIT_OPERATION_TIMEOUT.
   operation_timeout: "30m"
+  # Deadlines of every git process of the Go Core (KI-187): agent-writable
+  # workspace state (a FIFO .gitignore) must not block it. network_timeout
+  # applies to clone, fetch, pull, push and ls-remote, so a synchronous clone
+  # ends at the smaller of network_timeout and operation_timeout: raise both
+  # for very large repositories.
+  command_timeout: "2m"
+  network_timeout: "10m"
 
 # Project workspaces (<root>/<tenant>/<project>)
 workspace:

@@ -128,10 +128,12 @@ var errWalkBound = errors.New("walk bound reached")
 
 // walkForNestedGit walks the working tree below root, without following
 // symbolic links and skipping the root's .git and the ignored directories,
-// and refuses the first nested .git (directory, file or link).
+// and refuses the first nested .git (directory, file or link) and the first
+// ignore or attributes file git would block on (KI-187).
 func walkForNestedGit(root string, ignored map[string]bool) error {
 	entries := 0
 	var nested string
+	var special error
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err // unreadable: fail closed
@@ -151,6 +153,11 @@ func walkForNestedGit(root string, ignored map[string]bool) error {
 			nested = filepath.ToSlash(filepath.Dir(rel))
 			return fs.SkipAll
 		}
+		if d.Name() == ".gitignore" || d.Name() == ".gitattributes" {
+			if special = refuseSpecialFile(path, rel); special != nil {
+				return fs.SkipAll
+			}
+		}
 		entries++
 		if entries > maxNestedWalkEntries || strings.Count(rel, "/") >= maxNestedWalkDepth {
 			return errWalkBound
@@ -163,6 +170,8 @@ func walkForNestedGit(root string, ignored map[string]bool) error {
 	switch {
 	case nested != "":
 		return nestedRepo(nested)
+	case special != nil:
+		return special
 	case errors.Is(err, errWalkBound):
 		return unsafeRepo(fmt.Sprintf("the working tree has more than %d entries or deeper than %d directories outside ignored ones; "+
 			"it cannot be checked for nested repositories (KI-77)", maxNestedWalkEntries, maxNestedWalkDepth))
