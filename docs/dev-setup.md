@@ -465,6 +465,20 @@ cd workers && poetry run pytest -v                         # Python unit tests
 npm run lint --prefix frontend && npm run build --prefix frontend  # Frontend
 ```
 
+#### Running a Single Test
+
+```bash
+go test -race -count=1 ./internal/service/ -run 'TestStartRun_'           # Go: one package, tests matching a regexp
+DATABASE_URL=postgres://codeforge:codeforge_dev@localhost:5432/<private_db> \
+  go test -race -count=1 ./internal/adapter/postgres/ -run TestStore_X    # store tests skip without DATABASE_URL (they run the migrations)
+go test -race -count=1 -tags=integration ./tests/integration/ -run TestX  # files with //go:build integration
+poetry run pytest workers/tests/test_text_protocol_parse.py -q -k repair  # Python, from the repo root (testpaths = workers/tests)
+cd frontend && npx vitest run src/features/project/WebhooksPanel.test.tsx -t "rotate"   # one vitest file / test name
+cd frontend && npx playwright test e2e/activity.spec.ts -g "title"        # one E2E spec (full stack running)
+```
+
+Use a private database for store and integration tests that add migrations, and drop it afterwards.
+
 #### E2E Browser Tests
 
 E2E tests use Playwright and require the full stack to be running (Go backend + frontend dev server + infrastructure).
