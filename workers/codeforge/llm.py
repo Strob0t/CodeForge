@@ -356,6 +356,8 @@ class ModelMetadata:
     # USD per token, from LiteLLM's cost map (KI-196).
     input_cost_per_token: float | None = None
     output_cost_per_token: float | None = None
+    # USD per prompt token read from the provider's prompt cache.
+    cache_read_cost_per_token: float | None = None
 
 
 # How long a LiteLLMClient reuses the /model/info table.
@@ -368,6 +370,17 @@ def _price(value: object) -> float | None:
         return None
     price = float(value)
     return price if math.isfinite(price) and price >= 0 else None
+
+
+def _listed_cost(metadata: ModelMetadata, tokens_in: int, tokens_out: int, cached: int) -> float:
+    """The cost of a call at the per-token prices of *metadata*; *cached* of the prompt tokens were
+    read from the provider's cache (its own price when LiteLLM lists one)."""
+    input_price = metadata.input_cost_per_token or 0.0
+    cached = min(max(cached, 0), tokens_in)
+    cache_price = input_price if metadata.cache_read_cost_per_token is None else metadata.cache_read_cost_per_token
+    return (
+        (tokens_in - cached) * input_price + cached * cache_price + tokens_out * (metadata.output_cost_per_token or 0.0)
+    )
 
 
 def _model_info_table(data: object) -> dict[str, ModelMetadata]:
@@ -390,6 +403,7 @@ def _model_info_table(data: object) -> dict[str, ModelMetadata]:
             supports_function_calling=fc if isinstance(fc, bool) else None,
             input_cost_per_token=_price(info.get("input_cost_per_token")),
             output_cost_per_token=_price(info.get("output_cost_per_token")),
+            cache_read_cost_per_token=_price(info.get("cache_read_input_token_cost")),
         )
         params = row.get("litellm_params")
         litellm_model = params.get("model") if isinstance(params, dict) else None
@@ -879,6 +893,8 @@ class LiteLLMClient:
 
         # Whether the caller received text of this request: then it is not retried.
         shown = False
+        # Every attempt: one that failed after its usage arrived was billed too (KI-196 review).
+        attempts: list[_StreamAccumulator] = []
 
         def _show(text: str) -> None:
             nonlocal shown
@@ -917,6 +933,7 @@ class LiteLLMClient:
             )
 
             acc = _StreamAccumulator(model=model)
+            attempts.append(acc)
 
             async with self._client.stream("POST", "/v1/chat/completions", json=payload) as resp:
                 self._report_rate_info(self._extract_rate_info(resp.headers, model))
@@ -955,20 +972,28 @@ class LiteLLMClient:
             )
 
         response = cast("ChatCompletionResponse", await self._with_retry(_inner, may_retry=lambda: not shown))
-        if response.cost_usd > 0 or not (response.tokens_in or response.tokens_out):
-            return response
-        return replace(response, cost_usd=await self._listed_cost(model, response.tokens_in, response.tokens_out))
+        cost = 0.0
+        for attempt in attempts:
+            cost += await self._stream_cost(attempt)
+        return response if cost == response.cost_usd else replace(response, cost_usd=cost)
 
-    async def _listed_cost(self, model: str, tokens_in: int, tokens_out: int) -> float:
-        """The cost of *tokens_in* and *tokens_out* at the per-token prices /model/info lists for *model*.
+    async def _stream_cost(self, acc: _StreamAccumulator) -> float:
+        """What one streamed attempt cost: its own cost, else its tokens at the prices /model/info lists.
 
         A stream carries no cost of its own: LiteLLM sets the cost header
         before the stream starts, and v1.103.1 adds ``usage.cost`` to chunks
-        only on /v1/messages and pass-through routes (KI-196). 0 when
-        LiteLLM lists no price (the caller's fallback table takes over).
+        only on /v1/messages and pass-through routes (KI-196). The prices are
+        those of the model that served the stream (its chunks name it), else
+        of the model asked for. 0 when LiteLLM lists no price (the caller's
+        fallback table takes over).
         """
-        metadata = await self.model_metadata(model)
-        return tokens_in * (metadata.input_cost_per_token or 0.0) + tokens_out * (metadata.output_cost_per_token or 0.0)
+        if acc.cost > 0 or not (acc.tokens_in or acc.tokens_out):
+            return acc.cost
+        for name in dict.fromkeys(name for name in (acc.served_model, acc.model) if name):
+            metadata = await self.model_metadata(name)
+            if metadata.input_cost_per_token is not None or metadata.output_cost_per_token is not None:
+                return _listed_cost(metadata, int(acc.tokens_in), int(acc.tokens_out), acc.cached_tokens)
+        return 0.0
 
     async def embedding(self, text: str, model: str = "text-embedding-3-small") -> list[float]:
         """Compute an embedding vector via the LiteLLM Proxy."""
@@ -982,8 +1007,9 @@ class LiteLLMClient:
     async def model_metadata(self, model: str) -> ModelMetadata:
         """Return what LiteLLM's ``/model/info`` reports for *model* (KI-125).
 
-        The table is fetched once per MODEL_INFO_TTL_SECONDS; a failed fetch
-        is not cached and yields empty metadata.
+        The table is fetched once per MODEL_INFO_TTL_SECONDS. After a failed
+        fetch the last table (empty at first) is used for as long: every
+        streamed call would wait for /model/info again (KI-196 review).
         """
         now = time.monotonic()
         if self._model_info is None or now - self._model_info[0] > MODEL_INFO_TTL_SECONDS:
@@ -993,7 +1019,7 @@ class LiteLLMClient:
                 self._model_info = (now, _model_info_table(resp.json()))
             except (httpx.HTTPError, ValueError) as exc:
                 logger.warning("LiteLLM model info unavailable for %s: %s", model, exc)
-                return ModelMetadata()
+                self._model_info = (now, self._model_info[1] if self._model_info else {})
         return self._model_info[1].get(model, ModelMetadata())
 
     async def health(self) -> bool:
@@ -1060,10 +1086,12 @@ class _StreamAccumulator:
     __slots__ = (
         "_call_by_index",
         "_in_think",
+        "cached_tokens",
         "content_parts",
         "cost",
         "finish_reason",
         "model",
+        "served_model",
         "tc_accum",
         "tokens_in",
         "tokens_out",
@@ -1072,6 +1100,10 @@ class _StreamAccumulator:
     def __init__(self, model: str = "") -> None:
         # The requested model, named by the LLMError of an error frame.
         self.model = model
+        # The model the chunks name: the deployment that served the stream.
+        self.served_model = ""
+        # Prompt tokens read from the provider's prompt cache.
+        self.cached_tokens = 0
         self.content_parts: list[str] = []
         # Tool calls by their number in the stream (0, 1, ...), and the call
         # each provider index currently continues.
@@ -1117,6 +1149,9 @@ class _StreamAccumulator:
         chunk = self._parse_frame(raw)
         if chunk is None:
             return
+        served = chunk.get("model")
+        if isinstance(served, str) and served:
+            self.served_model = served
 
         # OpenAI sends the include_usage chunk with an empty choices list.
         usage = chunk.get("usage")
@@ -1183,6 +1218,13 @@ class _StreamAccumulator:
         cost = _price(usage.get("cost"))
         if cost:
             self.cost = cost
+        # OpenAI reports cached prompt tokens in prompt_tokens_details, Anthropic as cache_read_input_tokens.
+        details = usage.get("prompt_tokens_details")
+        cached = details.get("cached_tokens") if isinstance(details, dict) else None
+        if cached is None:
+            cached = usage.get("cache_read_input_tokens")
+        if isinstance(cached, int) and not isinstance(cached, bool) and cached >= 0:
+            self.cached_tokens = cached
 
     def _tool_call_for(self, index: int, call_id: str, name: str) -> dict[str, str]:
         """Return the call a tool-call delta continues, or a new one.

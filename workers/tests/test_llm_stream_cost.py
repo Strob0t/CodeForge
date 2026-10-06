@@ -154,3 +154,107 @@ async def test_one_price_missing_prices_the_other_side() -> None:
 )
 def test_model_info_prices(cost_in: object, cost_out: object, expected: ModelMetadata) -> None:
     assert _model_info_table(_info([_row(MODEL, cost_in, cost_out)]))[MODEL] == expected
+
+
+# ---------------------------------------------------------------------------
+# KI-196 review: cached prompt tokens, the serving model, failures, retries
+# ---------------------------------------------------------------------------
+
+
+def _cached_row(name: str, cache_read: object) -> dict[str, object]:
+    row = _row(name, 3e-06, 1.5e-05)
+    row["model_info"]["cache_read_input_token_cost"] = cache_read  # type: ignore[index]
+    return row
+
+
+@pytest.mark.parametrize(
+    ("usage_cached", "cache_read", "expected"),
+    [
+        pytest.param(
+            {"prompt_tokens_details": {"cached_tokens": 800}},
+            3e-07,
+            200 * 3e-06 + 800 * 3e-07 + 500 * 1.5e-05,
+            id="openai-cached-tokens",
+        ),
+        pytest.param(
+            {"cache_read_input_tokens": 800}, 3e-07, 200 * 3e-06 + 800 * 3e-07 + 500 * 1.5e-05, id="anthropic-style"
+        ),
+        pytest.param(
+            {"prompt_tokens_details": {"cached_tokens": 800}}, None, 1000 * 3e-06 + 500 * 1.5e-05, id="no-cache-price"
+        ),
+        pytest.param({"prompt_tokens_details": {"cached_tokens": 5000}}, 0.0, 500 * 1.5e-05, id="more-than-the-prompt"),
+        pytest.param(
+            {"prompt_tokens_details": {"cached_tokens": "800"}}, 3e-07, 1000 * 3e-06 + 500 * 1.5e-05, id="junk"
+        ),
+    ],
+)
+async def test_cached_prompt_tokens_are_priced_at_the_cache_read_price(
+    usage_cached: dict[str, object], cache_read: object, expected: float
+) -> None:
+    proxy = _Proxy(
+        _stream({"prompt_tokens": 1000, "completion_tokens": 500, **usage_cached}),
+        _info([_cached_row(MODEL, cache_read)]),
+    )
+
+    assert await _cost(proxy) == pytest.approx(expected)
+
+
+def _served_by(model: str) -> str:
+    frames = [
+        json.dumps({"model": model, "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}]}),
+        json.dumps({"model": model, "choices": [], "usage": {"prompt_tokens": 1000, "completion_tokens": 500}}),
+        "[DONE]",
+    ]
+    return _sse(*frames)
+
+
+async def test_the_model_that_served_the_stream_prices_it() -> None:
+    """A model group or a router may serve another deployment than the name asked for."""
+    proxy = _Proxy(
+        _served_by("openai/gpt-4o-mini"),
+        _info([_row(MODEL, 3e-06, 1.5e-05), _row("openai/gpt-4o-mini", 1.5e-07, 6e-07)]),
+    )
+
+    assert await _cost(proxy) == pytest.approx(1000 * 1.5e-07 + 500 * 6e-07)
+    assert proxy.info_requests == 1
+
+
+async def test_a_serving_model_without_prices_falls_back_to_the_requested_one() -> None:
+    proxy = _Proxy(_served_by("claude-sonnet-4-20250514"), _info([_row(MODEL, 3e-06, 1.5e-05)]))
+
+    assert await _cost(proxy) == pytest.approx(1000 * 3e-06 + 500 * 1.5e-05)
+
+
+async def test_a_failed_model_info_request_is_not_repeated_at_once() -> None:
+    """Every stream without a cost of its own waited up to 5 s for /model/info again."""
+    proxy = _Proxy(_stream({"prompt_tokens": 1000, "completion_tokens": 500}), {}, info_status=503)
+    client = proxy.client()
+
+    for _ in range(3):
+        response = await client.chat_completion_stream(messages=[{"role": "user", "content": "hi"}], model=MODEL)
+        assert response.cost_usd == 0.0
+    assert proxy.info_requests == 1
+
+
+async def test_a_failed_attempt_that_reported_usage_is_costed() -> None:
+    """The provider billed the tokens of an attempt that failed after its usage chunk arrived."""
+    failed = _sse(
+        json.dumps({"choices": [], "usage": {"prompt_tokens": 1000, "completion_tokens": 100}}),
+        json.dumps({"error": {"message": "upstream reset", "code": "503"}}),
+    )
+    answers = [failed, _stream({"prompt_tokens": 1000, "completion_tokens": 500})]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/model/info":
+            return httpx.Response(200, json=_info([_row(MODEL, 3e-06, 1.5e-05)]))
+        return httpx.Response(200, text=answers.pop(0), headers={"content-type": "text/event-stream"})
+
+    client = LiteLLMClient(
+        base_url="http://litellm", config=LLMClientConfig(max_retries=1, backoff_base=0.0, backoff_max=0.0)
+    )
+    client._client = httpx.AsyncClient(base_url="http://litellm", transport=httpx.MockTransport(handler))
+
+    response = await client.chat_completion_stream(messages=[{"role": "user", "content": "hi"}], model=MODEL)
+
+    assert response.content == "ok"
+    assert response.cost_usd == pytest.approx((1000 * 3e-06 + 100 * 1.5e-05) + (1000 * 3e-06 + 500 * 1.5e-05))

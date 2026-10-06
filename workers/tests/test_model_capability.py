@@ -216,7 +216,20 @@ async def test_model_metadata_unavailable(status: int) -> None:
 
     assert await llm.model_metadata(LOCAL) == ModelMetadata()
     assert await llm.model_metadata(LOCAL) == ModelMetadata()
-    assert llm.info_requests == 2, "a failed lookup is not cached"
+    # Every streamed call without a cost of its own asks: not again at once (KI-196 review).
+    assert llm.info_requests == 1, "a failed lookup is not repeated within the TTL"
+
+
+async def test_model_metadata_is_asked_again_after_a_failure_once_the_ttl_passed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    llm = MetadataLLM([_row(LOCAL, fc=True)], status=500)
+    assert await llm.model_metadata(LOCAL) == ModelMetadata()
+    monkeypatch.setattr("codeforge.llm.MODEL_INFO_TTL_SECONDS", -1.0)
+
+    await llm.model_metadata(LOCAL)
+
+    assert llm.info_requests == 2
 
 
 async def test_model_metadata_ignores_non_bool_and_non_int_values() -> None:
