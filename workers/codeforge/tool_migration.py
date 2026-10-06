@@ -43,6 +43,7 @@ import contextlib
 import errno
 import fcntl
 import hashlib
+import json
 import logging
 import os
 import stat
@@ -315,9 +316,19 @@ def unshare_links(tree: str) -> int:
         copied += 1
 
     report = tool_walk.walk(tree, visit, tool_walk.Report())
+    _fail_if_not_walked("unsharing the hard links", tree, report.unentered, report.errors)
     if report.errors:
         logger.warning("could not unshare every hard link in %s: %s", tree, "; ".join(report.errors))
     return copied
+
+
+def _fail_if_not_walked(step: str, tree: str, unentered: int, errors: list[str]) -> None:
+    """A step that could not walk subtrees of *tree* left their entries as they were: the migration fails
+    (KI-223); the tree is not stamped, and the next work item of the tenant migrates it again."""
+    if unentered:
+        raise ToolIsolationError(
+            f"the migration of {tree} failed: {step} could not walk {unentered} subtrees: {'; '.join(errors)[-1000:]}"
+        )
 
 
 def legacy_identity(tenant_id: str, tree: str) -> ToolIdentity:
@@ -338,12 +349,28 @@ def _run_legacy_walk(tenant_id: str, tree: str, args: list[str]) -> dict[str, ob
     done = tool_process.run_walker(
         legacy_identity(tenant_id, tree), args, timeout=tool_process.MIGRATION_WALK_TIMEOUT_SECONDS
     )
-    # 1: some entries could not be checked (logged below); anything else, a killed walk (it timed
-    # out) included, left the tree half done.
+    # 1: some entries could not be checked (logged below), unless whole subtrees were not walked;
+    # anything else, a killed walk (it timed out) included, left the tree half done.
     if done.returncode not in (0, 1):
         raise ToolIsolationError(
             f"the migration walk {args[0]} of {tree} failed (exit {done.returncode}): {done.stderr.strip()[-500:]}"
         )
+    try:
+        report = json.loads(done.stdout)
+    except ValueError:
+        report = None
+    if not isinstance(report, dict):
+        raise ToolIsolationError(
+            f"the migration walk {args[0]} of {tree} printed no report: {done.stdout.strip()[-500:]}"
+        )
+    unentered = report.get("unentered", 0)
+    errors = report.get("errors", [])
+    _fail_if_not_walked(
+        f"the walk {args[0]}",
+        tree,
+        unentered if isinstance(unentered, int) else 1,
+        [str(error) for error in errors] if isinstance(errors, list) else [],
+    )
     if done.returncode:
         logger.warning("the migration walk %s of %s left entries: %s", args[0], tree, done.stdout.strip()[-1000:])
     return {"walk": args[0], "exit": done.returncode, "report": done.stdout.strip()}
@@ -365,6 +392,7 @@ def migrate_tree(tree: str, tenant_id: str, uid: int, *, include_root: bool) -> 
     copied = unshare_links(tree)
     exact_legacy = _run_legacy_walk(tenant_id, tree, ["legacy-exact", tree, str(uid)])
     own = tool_walk.exact(tree, uid, include_root=include_root)
+    _fail_if_not_walked("the worker's walk", tree, own.unentered, own.errors)
     if own.errors:
         logger.warning("could not set the ACLs of every worker entry in %s: %s", tree, "; ".join(own.errors))
     logger.info(

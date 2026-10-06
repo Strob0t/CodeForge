@@ -73,6 +73,10 @@ else:  # pragma: no cover - exercised through the launcher and test_the_walker_r
     posix_acl = _sibling("posix_acl")
 
 _MAX_ERRORS = 20
+# Directory descriptors a walk holds at once (KI-223): below that depth a
+# directory is reopened from the root, one component at a time, when its next
+# subdirectory is entered.
+_MAX_HELD_DIRS = 32
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _PATH_FLAGS = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 # Entries changed this long before --since are still checked (time stamps of
@@ -93,11 +97,17 @@ class Report:
     foreign: int = 0
     skipped: int = 0
     linked_outside: int = 0
+    # Directories the walk could not list or enter: nothing below them was visited.
+    unentered: int = 0
     errors: list[str] = field(default_factory=list)
 
     def error(self, message: str) -> None:
         if len(self.errors) < _MAX_ERRORS:
             self.errors.append(message)
+
+    def not_walked(self, path: str, reason: str) -> None:
+        self.unentered += 1
+        self.error(f"{path}: {reason}")
 
 
 def open_root(path: str) -> int:
@@ -158,6 +168,22 @@ def _open_subdir(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
     return fd
 
 
+@dataclass
+class _Dir:
+    """A directory of a walk whose subdirectories are still to be entered.
+
+    fd is -1 once the walk closed it to bound its descriptors; *names* lead
+    to it from the root and *ident* is its inode, which a reopened descriptor
+    must have.
+    """
+
+    path: str
+    names: tuple[str, ...]
+    ident: Inode
+    fd: int
+    pending: list[tuple[str, os.stat_result]] = field(default_factory=list)
+
+
 def walk(
     root: str,
     visit: Callable[[int, str, os.stat_result, Report], None],
@@ -169,41 +195,108 @@ def walk(
 
     A directory is visited before it is entered (the visit may give its
     owner search access). Symlinks, special files and other file systems
-    are counted as skipped.
+    are counted as skipped. The walk is depth-first and enters a
+    subdirectory only when it gets to it, so it holds at most
+    _MAX_HELD_DIRS directory descriptors plus a few, however wide or deep
+    the tree is (KI-223). A directory it cannot list or enter is counted in
+    ``report.unentered``.
     """
     root_fd = open_root(root)
-    root_info = os.fstat(root_fd)
-    if include_root:
-        parent_fd = os.open("..", _PATH_FLAGS, dir_fd=root_fd)
-        try:
-            visit(parent_fd, os.path.basename(os.path.normpath(root)) or ".", root_info, report)
-        finally:
-            os.close(parent_fd)
-    stack: list[tuple[int, str]] = [(root_fd, root)]
-    while stack:
-        dir_fd, path = stack.pop()
-        try:
-            names = os.listdir(dir_fd)
-        except OSError as exc:
-            report.error(f"{path}: {exc.strerror}")
-            names = []
-        for name in names:
+    stack: list[_Dir] = []
+    try:
+        root_info = os.fstat(root_fd)
+        if include_root:
+            parent_fd = os.open("..", _PATH_FLAGS, dir_fd=root_fd)
             try:
-                info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-            except OSError:
-                continue  # removed meanwhile
-            if info.st_dev != root_info.st_dev or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
-                report.skipped += 1
-                continue
-            visit(dir_fd, name, info, report)
-            if stat.S_ISDIR(info.st_mode):
-                sub = _open_subdir(dir_fd, name, info)
-                if sub is None:
-                    report.error(f"{path}/{name}: cannot be entered")
-                else:
-                    stack.append((sub, f"{path}/{name}"))
-        os.close(dir_fd)
+                visit(parent_fd, os.path.basename(os.path.normpath(root)) or ".", root_info, report)
+            finally:
+                os.close(parent_fd)
+        current: _Dir | None = _Dir(root, (), _inode(root_info), os.dup(root_fd))
+        while current is not None:
+            _list(current, root_info.st_dev, visit, report)
+            if current.pending and len(stack) < _MAX_HELD_DIRS:
+                stack.append(current)
+            else:
+                os.close(current.fd)
+                current.fd = -1
+                if current.pending:
+                    stack.append(current)
+            current = _enter_next(stack, root_fd, report)
+    finally:
+        for held in stack:
+            if held.fd >= 0:
+                os.close(held.fd)
+        os.close(root_fd)
     return report
+
+
+def _inode(info: os.stat_result) -> Inode:
+    return (info.st_dev, info.st_ino)
+
+
+def _list(directory: _Dir, dev: int, visit: Callable[[int, str, os.stat_result, Report], None], report: Report) -> None:
+    """Visit the entries of *directory* and keep its subdirectories in its pending list."""
+    try:
+        names = os.listdir(directory.fd)
+    except OSError as exc:
+        report.not_walked(directory.path, exc.strerror or str(exc))
+        return
+    for name in names:
+        try:
+            info = os.stat(name, dir_fd=directory.fd, follow_symlinks=False)
+        except OSError:
+            continue  # removed meanwhile
+        if info.st_dev != dev or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+            report.skipped += 1
+            continue
+        visit(directory.fd, name, info, report)
+        if stat.S_ISDIR(info.st_mode):
+            directory.pending.append((name, info))
+
+
+def _enter_next(stack: list[_Dir], root_fd: int, report: Report) -> _Dir | None:
+    """Open the next subdirectory of the walk; None when the walk is done."""
+    while stack:
+        top = stack[-1]
+        if not top.pending:
+            if top.fd >= 0:
+                os.close(top.fd)
+            stack.pop()
+            continue
+        name, listed = top.pending.pop()
+        parent_fd = top.fd if top.fd >= 0 else _reopen(root_fd, top)
+        if parent_fd < 0:
+            report.not_walked(top.path, "changed while the walk ran: its subdirectories were not entered")
+            top.pending.clear()
+            continue
+        try:
+            sub = _open_subdir(parent_fd, name, listed)
+        finally:
+            if parent_fd != top.fd:
+                os.close(parent_fd)
+        if sub is None:
+            report.not_walked(f"{top.path}/{name}", "cannot be entered")
+            continue
+        return _Dir(f"{top.path}/{name}", (*top.names, name), _inode(listed), sub)
+    return None
+
+
+def _reopen(root_fd: int, directory: _Dir) -> int:
+    """A new descriptor of *directory*, opened from the root without following a symlink; -1 when that
+    is no longer the walked inode."""
+    fd = os.dup(root_fd)
+    try:
+        for name in directory.names:
+            next_fd = os.open(name, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    except OSError:
+        os.close(fd)
+        return -1
+    if _inode(os.fstat(fd)) != directory.ident:
+        os.close(fd)
+        return -1
+    return fd
 
 
 def _minimal(mode: int) -> list[posix_acl.Entry]:

@@ -12,11 +12,13 @@ through a symlink, and writes only what differs.
 from __future__ import annotations
 
 import errno
+import json
 import os
 import stat
 import subprocess
 import sys
 import time
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 
 import pytest
@@ -224,3 +226,117 @@ def test_the_walker_runs_as_a_script(workspace: Path) -> None:
     assert done.returncode == 0, done.stderr
     assert '"changed": 1' in done.stdout
     assert _effective_group(workspace / "p") == 7
+
+
+# ---------------------------------------------------------------------------
+# A bounded number of descriptors (KI-223, R8-8)
+# ---------------------------------------------------------------------------
+
+# Runs the walk in a process of its own with RLIMIT_NOFILE at the descriptors
+# it has open plus argv[2]; prints what it saw. The walk opened a descriptor
+# for every subdirectory of a directory before descending: a node_modules
+# with more than about 1000 packages hit EMFILE under Docker's usual soft
+# limit of 1024, and those subtrees were skipped.
+_LIMITED_WALK = """
+import json, os, resource, sys
+from codeforge import tool_walk
+headroom = int(sys.argv[2])
+soft = len(os.listdir("/proc/self/fd")) + headroom
+resource.setrlimit(resource.RLIMIT_NOFILE, (soft, resource.getrlimit(resource.RLIMIT_NOFILE)[1]))
+seen = []
+report = tool_walk.walk(sys.argv[1], lambda d, n, i, r: seen.append(n), tool_walk.Report())
+print(json.dumps({"visited": len(seen), "errors": report.errors}))
+"""
+
+
+def _limited_walk(root: Path, headroom: int) -> dict[str, object]:
+    done = subprocess.run(  # noqa: S603 - this interpreter
+        [sys.executable, "-c", _LIMITED_WALK, str(root), str(headroom)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(tool_walk.__file__))),
+    )
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_a_wide_tree_is_walked_under_a_low_descriptor_limit(tmp_path: Path) -> None:
+    modules = tmp_path / "node_modules"
+    modules.mkdir()
+    for i in range(1500):
+        (modules / f"pkg{i}" / "lib").mkdir(parents=True)
+
+    result = _limited_walk(tmp_path, 48)
+
+    assert result["errors"] == []
+    assert result["visited"] == 1 + 1 + 1500 * 2  # the root, node_modules, each package and its lib
+
+
+def test_a_deep_tree_is_walked_under_a_low_descriptor_limit(tmp_path: Path) -> None:
+    """Deeper than the descriptors the walk holds: the deep levels are reopened from the root."""
+    depth = 200
+    path = tmp_path
+    for level in range(depth):
+        path = path / f"d{level}"
+        path.mkdir()
+        (path / "f").write_text("x")
+    (tmp_path / "d0" / "side").mkdir()
+
+    result = _limited_walk(tmp_path, 48)
+
+    assert result["errors"] == []
+    assert result["visited"] == 1 + depth * 2 + 1
+
+
+def test_a_deep_directory_replaced_meanwhile_is_not_entered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A level the walk reopens from the root must still be the listed inode."""
+    monkeypatch.setattr(tool_walk, "_MAX_HELD_DIRS", 2)
+    path = tmp_path
+    for level in range(5):
+        path = path / f"d{level}"
+        path.mkdir()
+    deep = tmp_path / "d0" / "d1" / "d2" / "d3"
+    (deep / "a").mkdir()
+    (deep / "b").mkdir()
+    swapped: list[str] = []
+
+    def visit(_dir_fd: int, name: str, _info: os.stat_result, _report: tool_walk.Report) -> None:
+        if name == "a" and not swapped:
+            # The walk listed d3 and holds no descriptor for it: replace it before b is entered.
+            moved = tmp_path / "moved"
+            deep.rename(moved)
+            deep.mkdir()
+            (deep / "b").mkdir()
+            swapped.append(name)
+
+    report = tool_walk.walk(str(tmp_path), visit, tool_walk.Report())
+
+    assert swapped
+    assert report.unentered >= 1
+    assert any("d3" in error for error in report.errors)
+
+
+def test_a_subtree_that_cannot_be_entered_is_counted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "ok" / "inner").mkdir(parents=True)
+    (tmp_path / "locked" / "inner").mkdir(parents=True)
+    real_open = tool_walk._open_subdir
+
+    def refuse_locked(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
+        return None if name == "locked" else real_open(dir_fd, name, listed)
+
+    monkeypatch.setattr(tool_walk, "_open_subdir", refuse_locked)
+    seen: list[str] = []
+
+    report = tool_walk.walk(str(tmp_path), lambda _d, n, _i, _r: seen.append(n), tool_walk.Report())
+
+    assert report.unentered == 1
+    assert sorted(seen) == sorted([tmp_path.name, "ok", "inner", "locked"])
+    assert any(error.endswith("locked: cannot be entered") for error in report.errors)
+
+
+def test_the_count_of_skipped_subtrees_is_in_the_report(tmp_path: Path) -> None:
+    """The migration reads it from the walker's JSON report."""
+    assert "unentered" in json.loads(
+        json.dumps(asdict(tool_walk.walk(str(tmp_path), lambda *_: None, tool_walk.Report())))
+    )

@@ -503,3 +503,67 @@ def test_a_walk_that_ran_through_lets_the_migration_go_on(returncode: int, monke
     monkeypatch.setattr(tool_process, "run_walker", walker)
     done = tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
     assert done["exit"] == returncode
+
+
+# ---------------------------------------------------------------------------
+# A walk that skipped subtrees fails the migration (KI-223, R8-8)
+# ---------------------------------------------------------------------------
+# Entries in a skipped subtree keep their legacy ACLs and planted entries; a
+# tree stamped migrated anyway is never migrated again.
+
+
+def test_a_legacy_walk_that_skipped_subtrees_fails_the_migration(monkeypatch: pytest.MonkeyPatch) -> None:
+    report = '{"checked": 5, "unentered": 2, "errors": ["/w/tenant-a/node_modules/pkg7: cannot be entered"]}'
+
+    def walker(_identity: object, args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 1, report, "")
+
+    monkeypatch.setattr(tool_process, "run_walker", walker)
+    with pytest.raises(ToolIsolationError, match=r"legacy-exact.*2 subtrees.*pkg7"):
+        tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-exact", "/w/tenant-a", "20009"])
+
+
+def test_a_legacy_walk_report_that_cannot_be_read_fails_the_migration(monkeypatch: pytest.MonkeyPatch) -> None:
+    def walker(_identity: object, args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 1, "not json", "")
+
+    monkeypatch.setattr(tool_process, "run_walker", walker)
+    with pytest.raises(ToolIsolationError, match="legacy-open"):
+        tool_migration._run_legacy_walk("tenant-a", "/w/tenant-a", ["legacy-open", "/w/tenant-a"])
+
+
+def _refuse_entering(monkeypatch: pytest.MonkeyPatch, refused: str) -> None:
+    real_open = tool_walk._open_subdir
+
+    def open_subdir(dir_fd: int, name: str, listed: os.stat_result) -> int | None:
+        return None if name == refused else real_open(dir_fd, name, listed)
+
+    monkeypatch.setattr(tool_walk, "_open_subdir", open_subdir)
+
+
+def test_unsharing_fails_when_a_subtree_was_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tree = tmp_path / "tenant"
+    (tree / "skipped" / "inner").mkdir(parents=True)
+    _refuse_entering(monkeypatch, "skipped")
+
+    with pytest.raises(ToolIsolationError, match="skipped"):
+        tool_migration.unshare_links(str(tree))
+
+
+def test_the_worker_walk_fails_the_migration_when_a_subtree_was_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = tmp_path / "tenant"
+    (tree / "p" / "skipped").mkdir(parents=True)
+
+    def walker(_identity: object, args: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, 0, '{"checked": 1, "unentered": 0, "errors": []}', "")
+
+    monkeypatch.setattr(tool_process, "run_walker", walker)
+    monkeypatch.setattr(tool_reaper, "reap", lambda _uid: 0)
+    monkeypatch.setattr(tool_reaper, "running_processes_of", lambda _uids: {})
+    monkeypatch.setattr(tool_migration, "unshare_links", lambda _tree: 0)
+    _refuse_entering(monkeypatch, "skipped")
+
+    with pytest.raises(ToolIsolationError, match="skipped"):
+        tool_migration.migrate_tree(str(tree), "tenant-a", TOOL_UID, include_root=False)
