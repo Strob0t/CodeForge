@@ -1,61 +1,66 @@
 package markdownspec
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
+	"unicode"
+
+	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 )
 
-// RenderMarkdown converts a flat list of SpecItems back into markdown text.
-// The output preserves heading hierarchy, checkbox syntax, and descriptions.
-func RenderMarkdown(items []SpecItem) []byte {
-	var b strings.Builder
-	prevLevel := ItemLevel("")
-
-	for i, item := range items {
-		// Add a blank line between items (except at the start).
-		if i > 0 {
-			// Extra blank line before headings for readability.
-			if isHeading(item.Level) || isHeading(prevLevel) {
-				b.WriteString("\n")
-			}
+// patchCheckboxes returns content with the checkbox marker of each item's
+// line set to the item's status: "[x]" for done, "[ ]" for any other
+// status. A marker that already says so is kept as written ("[X]" stays).
+// Only marker bytes change (KI-203: the file was rendered anew and lost
+// everything that was not a heading or a list item). Each item's line must
+// still hold a checkbox with the item's title, outside code blocks;
+// otherwise nothing is returned and the error wraps ErrItemMoved.
+func patchCheckboxes(content []byte, items []specprovider.SpecItemDetail) ([]byte, error) {
+	boxes := make(map[int]string)
+	for _, it := range ParseMarkdown(content) {
+		if it.Level == LevelCheckbox {
+			boxes[it.SourceLine] = it.Title
 		}
-
-		switch item.Level {
-		case LevelH1:
-			fmt.Fprintf(&b, "# %s\n", item.Title)
-		case LevelH2:
-			fmt.Fprintf(&b, "## %s\n", item.Title)
-		case LevelH3:
-			fmt.Fprintf(&b, "### %s\n", item.Title)
-		case LevelCheckbox:
-			marker := "[ ]"
-			if item.Status == StatusDone {
-				marker = "[x]"
-			}
-			fmt.Fprintf(&b, "- %s %s\n", marker, item.Title)
-		case LevelListItem:
-			fmt.Fprintf(&b, "- %s\n", item.Title)
-		}
-
-		// Append description if present.
-		if item.Description != "" {
-			for _, line := range strings.Split(item.Description, "\n") {
-				if line == "" {
-					b.WriteString("\n")
-				} else {
-					b.WriteString(line)
-					b.WriteString("\n")
-				}
-			}
-		}
-
-		prevLevel = item.Level
 	}
+	var starts []int // byte offset of each line
+	offset := 0
+	for line := range bytes.Lines(content) {
+		starts = append(starts, offset)
+		offset += len(line)
+	}
+	starts = append(starts, offset)
 
-	return []byte(b.String())
+	out := bytes.Clone(content)
+	for _, it := range items {
+		title, ok := boxes[it.SourceLine]
+		if !ok || title != it.Title {
+			return nil, fmt.Errorf("%w: line %d does not hold the checkbox %q", specprovider.ErrItemMoved, it.SourceLine, it.Title)
+		}
+		start := starts[it.SourceLine-1]
+		marker := markerOffset(out[start:starts[it.SourceLine]])
+		if marker < 0 {
+			return nil, fmt.Errorf("%w: line %d has no checkbox marker", specprovider.ErrItemMoved, it.SourceLine)
+		}
+		at := start + marker
+		switch done := it.Status == string(StatusDone); {
+		case done && out[at] == ' ':
+			out[at] = 'x'
+		case !done && (out[at] == 'x' || out[at] == 'X'):
+			out[at] = ' '
+		}
+	}
+	return out, nil
 }
 
-// isHeading returns true for heading-level items.
-func isHeading(level ItemLevel) bool {
-	return level == LevelH1 || level == LevelH2 || level == LevelH3
+// markerOffset is the offset of the marker character (" ", "x" or "X") of
+// the checkbox on line, after its indentation and "- [" or "* [";
+// -1 when line holds no checkbox.
+func markerOffset(line []byte) int {
+	text := string(line)
+	indent := len(text) - len(strings.TrimLeftFunc(text, unicode.IsSpace))
+	if !isCheckbox(strings.TrimSpace(text)) {
+		return -1
+	}
+	return indent + len("- [")
 }

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/event"
 	"github.com/Strob0t/CodeForge/internal/domain/roadmap"
 	"github.com/Strob0t/CodeForge/internal/port/eventstore"
@@ -360,6 +362,12 @@ func (h *Handlers) SyncToSpecFile(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
 
 	if err := h.Roadmap.SyncToSpecFile(r.Context(), projectID); err != nil {
+		// A refused sync says why (KI-203): which spec file changed or
+		// cannot be written, and that the specs must be imported again.
+		if errors.Is(err, domain.ErrConflict) {
+			writeError(w, http.StatusConflict, strings.TrimPrefix(err.Error(), domain.ErrConflict.Error()+": "))
+			return
+		}
 		writeDomainError(w, err, "sync to spec file failed")
 		return
 	}

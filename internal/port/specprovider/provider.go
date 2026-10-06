@@ -2,7 +2,10 @@
 // (OpenSpec, Spec Kit, Autospec, etc.).
 package specprovider
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // MaxSpecBytes caps a spec file a provider reads from a workspace (KI-95:
 // workspace files are read through workspacefs, never through a symlink that
@@ -50,17 +53,27 @@ type Provider interface {
 	ReadSpec(ctx context.Context, workspacePath, specPath string) ([]byte, error)
 }
 
+// ErrItemMoved is the error of ItemWriter.PatchItems when the line of an
+// item no longer holds that item: the file changed since it was parsed.
+var ErrItemMoved = errors.New("spec item is no longer on its line")
+
 // ItemParser is an optional interface that providers can implement to support
 // parsing individual items from spec files. When supported, ImportSpecs()
-// creates one Feature per item instead of one Feature per file.
+// imports the file's checkbox items as features (KI-203).
 type ItemParser interface {
-	// ParseItems returns individual actionable items from a spec file.
-	ParseItems(ctx context.Context, workspacePath, specPath string) ([]SpecItemDetail, error)
+	// ParseItems returns the items of a spec file's content (as ReadSpec
+	// returns it) in file order; SourceLine counts from 1.
+	ParseItems(content []byte) ([]SpecItemDetail, error)
 }
 
 // ItemWriter is an optional interface that providers can implement to support
 // writing feature status changes back to spec files.
 type ItemWriter interface {
-	// WriteItems writes spec items back to the spec file, updating statuses.
-	WriteItems(ctx context.Context, workspacePath, specPath string, items []SpecItemDetail) error
+	// PatchItems returns content with the status marker of each item's line
+	// set to the item's Status ("done" checks it, any other status unchecks
+	// it). Nothing else changes, byte for byte: the file is never rendered
+	// anew (KI-203). Each item's SourceLine must still hold a checkbox with
+	// the item's Title, or PatchItems returns no content and an error
+	// wrapping ErrItemMoved.
+	PatchItems(content []byte, items []SpecItemDetail) ([]byte, error)
 }

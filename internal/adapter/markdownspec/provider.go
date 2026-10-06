@@ -4,7 +4,6 @@ package markdownspec
 import (
 	"context"
 
-	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/port/specprovider"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
@@ -66,34 +65,10 @@ func (p *Provider) ReadSpec(_ context.Context, workspacePath, specPath string) (
 	return specprovider.ReadFile(workspacePath, specPath)
 }
 
-// ParseSpec reads a spec file and returns parsed structured items.
-func (p *Provider) ParseSpec(_ context.Context, workspacePath, specPath string) ([]SpecItem, error) {
-	content, err := specprovider.ReadFile(workspacePath, specPath)
-	if err != nil {
-		return nil, err
-	}
-	return ParseMarkdown(content), nil
-}
-
-// WriteSpec writes structured items back to a spec file as markdown.
-func (p *Provider) WriteSpec(_ context.Context, workspacePath, specPath string, items []SpecItem) error {
-	ws, err := workspacefs.Open(workspacePath)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = ws.Close() }()
-	// Shared with the worker's tool user (KI-71).
-	return ws.WriteFile(specPath, RenderMarkdown(items), project.WorkspaceFilePerm)
-}
-
 // ParseItems implements specprovider.ItemParser by converting internal SpecItems
 // to the port-level SpecItemDetail type.
-func (p *Provider) ParseItems(ctx context.Context, workspacePath, specPath string) ([]specprovider.SpecItemDetail, error) {
-	items, err := p.ParseSpec(ctx, workspacePath, specPath)
-	if err != nil {
-		return nil, err
-	}
-
+func (p *Provider) ParseItems(content []byte) ([]specprovider.SpecItemDetail, error) {
+	items := ParseMarkdown(content)
 	details := make([]specprovider.SpecItemDetail, 0, len(items))
 	for _, item := range items {
 		details = append(details, specprovider.SpecItemDetail{
@@ -106,18 +81,8 @@ func (p *Provider) ParseItems(ctx context.Context, workspacePath, specPath strin
 	return details, nil
 }
 
-// WriteItems implements specprovider.ItemWriter by converting port-level
-// SpecItemDetail back to internal SpecItems and writing the file.
-func (p *Provider) WriteItems(ctx context.Context, workspacePath, specPath string, items []specprovider.SpecItemDetail) error {
-	specItems := make([]SpecItem, 0, len(items))
-	for i, item := range items {
-		specItems = append(specItems, SpecItem{
-			Title:      item.Title,
-			Status:     ItemStatus(item.Status),
-			SortOrder:  i + 1,
-			Level:      ItemLevel(item.Level),
-			SourceLine: item.SourceLine,
-		})
-	}
-	return p.WriteSpec(ctx, workspacePath, specPath, specItems)
+// PatchItems implements specprovider.ItemWriter: it sets the checkbox
+// markers of the items' lines and changes nothing else (KI-203).
+func (p *Provider) PatchItems(content []byte, items []specprovider.SpecItemDetail) ([]byte, error) {
+	return patchCheckboxes(content, items)
 }

@@ -31,4 +31,11 @@ type RoadmapStore interface {
 	ListFeaturesByRoadmap(ctx context.Context, roadmapID string) ([]roadmap.Feature, error)
 	UpdateFeature(ctx context.Context, f *roadmap.Feature) error
 	DeleteFeature(ctx context.Context, id string) error
+
+	// Spec files (KI-203): the SHA-256 (hex) of a workspace spec file's
+	// content when the roadmap last imported it or wrote it back.
+	// GetSpecFileHash returns domain.ErrNotFound when none is recorded;
+	// SetSpecFileHash returns it when the roadmap is not the tenant's.
+	GetSpecFileHash(ctx context.Context, roadmapID, path string) (string, error)
+	SetSpecFileHash(ctx context.Context, roadmapID, path, sha256 string) error
 }

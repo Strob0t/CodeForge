@@ -720,6 +720,10 @@ func (m *mockStore) DeleteFeature(_ context.Context, id string) error {
 	}
 	return errNotFound
 }
+func (m *mockStore) GetSpecFileHash(_ context.Context, _, _ string) (string, error) {
+	return "", domain.ErrNotFound
+}
+func (m *mockStore) SetSpecFileHash(_ context.Context, _, _, _ string) error { return nil }
 
 // Tenant stubs
 func (m *mockStore) CreateTenant(_ context.Context, req tenant.CreateRequest) (*tenant.Tenant, error) {

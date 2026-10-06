@@ -449,6 +449,10 @@ func (m *mockStore) ListFeaturesByRoadmap(_ context.Context, _ string) ([]roadma
 }
 func (m *mockStore) UpdateFeature(_ context.Context, _ *roadmap.Feature) error { return nil }
 func (m *mockStore) DeleteFeature(_ context.Context, _ string) error           { return nil }
+func (m *mockStore) GetSpecFileHash(_ context.Context, _, _ string) (string, error) {
+	return "", domain.ErrNotFound
+}
+func (m *mockStore) SetSpecFileHash(_ context.Context, _, _, _ string) error { return nil }
 
 // Tenant stubs
 func (m *mockStore) CreateTenant(_ context.Context, _ tenant.CreateRequest) (*tenant.Tenant, error) {

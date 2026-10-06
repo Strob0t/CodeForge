@@ -2,10 +2,10 @@
 
 package specprovider_test
 
-// Spec providers read (and the markdown provider writes) workspace files
-// through workspacefs (KI-95): a spec file or directory that is a symlink out
-// of the workspace is neither listed nor read nor written, and a FIFO never
-// blocks a detection or an import.
+// Spec providers read workspace files through workspacefs (KI-95): a spec
+// file or directory that is a symlink out of the workspace is neither listed
+// nor read, and a FIFO never blocks a detection or an import. (The roadmap
+// service writes spec files, through workspacefs too: KI-203.)
 
 import (
 	"context"
@@ -117,16 +117,6 @@ func TestSpecProviders_StayInsideTheWorkspace(t *testing.T) {
 			}
 			if readErr := within(t, func() error { _, e := p.ReadSpec(ctx, ws, pipe); return e }); !errors.Is(readErr, workspacefs.ErrNotRegular) {
 				t.Errorf("ReadSpec(%s) = %v, want ErrNotRegular", pipe, readErr)
-			}
-
-			if w, ok := p.(specprovider.ItemWriter); ok {
-				items := []specprovider.SpecItemDetail{{Title: "pwned", Status: "todo", Level: "checkbox"}}
-				if writeErr := w.WriteItems(ctx, ws, leak, items); !errors.Is(writeErr, workspacefs.ErrLeavesWorkspace) {
-					t.Errorf("WriteItems through a symlink out = %v", writeErr)
-				}
-				if got, _ := os.ReadFile(secret); !strings.Contains(string(got), outsideTitle) { //nolint:gosec // test file
-					t.Error("the outside file was written")
-				}
 			}
 		})
 	}

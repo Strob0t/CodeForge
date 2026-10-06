@@ -300,8 +300,10 @@ func TestRoadmap_StaysInsideTheWorkspace(t *testing.T) {
 		}
 	}
 
+	// The roadmap is rendered only into a new ROADMAP.md (KI-203): the
+	// symlink is an existing file, so nothing is written through it.
 	err := svc.SyncToSpecFile(context.Background(), "p1")
-	if !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
+	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("SyncToSpecFile through a symlink out = %v", err)
 	}
 	assertOutsideUnchanged(t, out)
