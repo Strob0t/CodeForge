@@ -152,9 +152,3 @@ func (h *Handlers) ApproveRun(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) RejectRun(w http.ResponseWriter, r *http.Request) {
 	h.decideReview(w, r, false)
 }
-
-// ApproveRunPartial handles POST /api/v1/runs/{id}/approve-partial. Applying
-// part of a refactoring is not implemented: approve or reject it as a whole.
-func (h *Handlers) ApproveRunPartial(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "partial approval is not implemented: approve or reject the whole refactoring")
-}

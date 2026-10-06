@@ -1353,24 +1353,6 @@ paths:
         "503":
           description: Review pipeline not configured
 
-  /runs/{id}/approve-partial:
-    post:
-      tags: [Review]
-      summary: Approve part of a refactoring (not implemented)
-      description: Requires admin or editor role. Approve or reject the refactoring as a whole.
-      operationId: approveReviewRefactoringPartial
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/RunID"
-      responses:
-        "501":
-          description: Not implemented
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
   /runs/{id}/trajectory:
     get:
       tags: [Runs]

@@ -325,8 +325,6 @@ func mountRunRoutes(r chi.Router, h *Handlers) {
 		Post("/runs/{id}/approve", h.ApproveRun)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
 		Post("/runs/{id}/reject", h.RejectRun)
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).
-		Post("/runs/{id}/approve-partial", h.ApproveRunPartial)
 
 	// HITL (Human-in-the-Loop) Approval
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).

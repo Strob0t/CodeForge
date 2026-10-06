@@ -62,7 +62,6 @@ func serveReview(h *cfhttp.Handlers, path, body string) *httptest.ResponseRecord
 	r.Post("/projects/{id}/boundaries/analyze", h.TriggerBoundaryAnalysis)
 	r.Post("/runs/{id}/approve", h.ApproveRun)
 	r.Post("/runs/{id}/reject", h.RejectRun)
-	r.Post("/runs/{id}/approve-partial", h.ApproveRunPartial)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
 	return rec
@@ -229,7 +228,6 @@ func TestReviewDecisionEndpoints(t *testing.T) {
 		{"unknown plan", "/runs/run-4/approve", `{"plan_id":"plan-9","step_id":"step-1"}`, plan.StepStatusWaitingApproval, http.StatusNotFound},
 		{"step not waiting", "/runs/run-4/reject", step, plan.StepStatusCompleted, http.StatusBadRequest},
 		{"missing step", "/runs/run-4/approve", `{"plan_id":"plan-1"}`, plan.StepStatusWaitingApproval, http.StatusBadRequest},
-		{"partial approval", "/runs/run-4/approve-partial", step, plan.StepStatusWaitingApproval, http.StatusNotImplemented},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			h, planner := newHandlers(tt.status)
@@ -245,6 +243,21 @@ func TestReviewDecisionEndpoints(t *testing.T) {
 			t.Fatalf("approve = %d, want 503", rec.Code)
 		}
 	})
+}
+
+// KI-94 (owner decision 2026-10-04): partial approval is not offered; the
+// route that only answered 501 is gone, so a refactoring is kept or undone as
+// a whole (approve / reject).
+func TestApprovePartialRouteRemoved(t *testing.T) {
+	r := newTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-4/approve-partial",
+		strings.NewReader(`{"plan_id":"plan-1","step_id":"step-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /runs/{id}/approve-partial = %d %s, want 404 (no such route)", rec.Code, rec.Body.String())
+	}
 }
 
 // S6-F 6: GET /projects/{id}/review/pending lists the refactorings waiting
