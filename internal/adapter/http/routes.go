@@ -170,8 +170,10 @@ func mountProjectRoutes(r chi.Router, h *Handlers, audit auditFunc) {
 	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "webhook", auditByHandler)).
 		Delete("/projects/{id}/webhooks/{webhookId}", h.DeleteWebhook)
 
-	// Batch project operations
-	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/delete", h.BatchDeleteProjects)
+	// Batch project operations. Deleting is admin-only and audited per
+	// project, like DELETE /projects/{id} (KI-173).
+	r.With(middleware.RequireRole(user.RoleAdmin), audit("delete", "project", auditByHandler)).
+		Post("/projects/batch/delete", h.BatchDeleteProjects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/pull", h.BatchPullProjects)
 	r.With(middleware.RequireRole(user.RoleAdmin, user.RoleEditor)).Post("/projects/batch/status", h.BatchStatusProjects)
 
