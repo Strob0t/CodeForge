@@ -454,3 +454,54 @@ func TestProviderUsesGitHubAPI(t *testing.T) {
 		t.Fatalf("base URL %q", got)
 	}
 }
+
+// KI-166: an integration with a token of its own may name a GitHub
+// Enterprise Server API (provider_config base_url), reached through the PM
+// outbound policy (pm.allowed_private_hosts); the operator's github.token
+// is sent to api.github.com only.
+func TestBaseURL(t *testing.T) {
+	f := newFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusOK, []apiIssue{issueJSON(1, "one", "open")})
+	})
+	policy, err := netutil.NewOutboundPolicy([]string{"127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetOutboundPolicy(policy)
+	SetOperatorToken("ghp_operator")
+	t.Cleanup(func() {
+		none, _ := netutil.NewOutboundPolicy(nil)
+		SetOutboundPolicy(none)
+		SetOperatorToken("")
+	})
+
+	prov, err := pmprovider.New(providerName, map[string]string{"token": testToken, "base_url": f.srv.URL + "/api/v3"})
+	if err != nil {
+		t.Fatalf("New with its own token and base_url: %v", err)
+	}
+	if _, err := prov.ListItems(t.Context(), "acme/app"); err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+	if req := f.recorded()[0]; req.Path != "/api/v3/repos/acme/app/issues" || req.Auth != "Bearer "+testToken {
+		t.Fatalf("request %+v", req)
+	}
+
+	for _, base := range []string{f.srv.URL, "https://ghe.example.com/api/v3"} {
+		if _, err := pmprovider.New(providerName, map[string]string{"base_url": base}); !errors.Is(err, domain.ErrValidation) ||
+			!strings.Contains(err.Error(), "github.token") {
+			t.Errorf("base_url %q without a token: %v, want ErrValidation naming github.token", base, err)
+		}
+	}
+	for _, base := range []string{"", "https://api.github.com", "https://api.github.com/"} {
+		p, err := pmprovider.New(providerName, map[string]string{"base_url": base})
+		if err != nil || p.(*Provider).token != "ghp_operator" {
+			t.Errorf("base_url %q: %v; want the operator token for api.github.com", base, err)
+		}
+	}
+	if _, err := pmprovider.New(providerName, map[string]string{"token": testToken, "base_url": "ftp://ghe.example.com"}); !errors.Is(err, domain.ErrValidation) {
+		t.Errorf("an ftp base_url: %v, want ErrValidation", err)
+	}
+	if len(f.recorded()) != 1 {
+		t.Fatalf("%d requests, want 1", len(f.recorded()))
+	}
+}

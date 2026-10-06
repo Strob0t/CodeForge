@@ -28,8 +28,9 @@ const (
 
 // client is the HTTP client of every provider the factory creates: it
 // connects through the PM outbound policy (SetOutboundPolicy) to
-// api.github.com, never through a proxy, and follows redirects only within
-// the origin, so the token stays with GitHub.
+// api.github.com or an integration's GitHub Enterprise Server, never through
+// a proxy, and follows redirects only within the origin, so the token stays
+// with that API.
 var client atomic.Pointer[http.Client]
 
 // operatorToken is the operator's GitHub token (github.token): a provider
@@ -60,13 +61,23 @@ type Provider struct {
 	client *githubapi.Client
 }
 
-// newProvider returns a provider of api.github.com with token, or with the
-// operator's token when token is "".
-func newProvider(token string) (*Provider, error) {
+// newProvider returns a provider of the integration's configuration: its
+// token, and the API of a GitHub Enterprise Server as base_url (KI-166;
+// default api.github.com). Without a token it uses the operator's, which
+// goes to api.github.com only.
+func newProvider(cfg map[string]string) (*Provider, error) {
+	token, baseURL := cfg["token"], strings.TrimSuffix(cfg["base_url"], "/")
+	if baseURL == "" {
+		baseURL = githubapi.DefaultBaseURL
+	}
 	if token == "" {
+		if baseURL != githubapi.DefaultBaseURL {
+			return nil, fmt.Errorf("%w: a github-issues base_url other than %s needs the integration's own token (github.token is sent to %s only)",
+				domain.ErrValidation, githubapi.DefaultBaseURL, githubapi.DefaultBaseURL)
+		}
 		token = *operatorToken.Load()
 	}
-	return newProviderAt(githubapi.DefaultBaseURL, token, client.Load())
+	return newProviderAt(baseURL, token, client.Load())
 }
 
 func newProviderAt(baseURL, token string, httpClient *http.Client) (*Provider, error) {

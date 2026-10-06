@@ -243,10 +243,15 @@ func errorMessage(body []byte) string {
 
 // requestError describes a request that failed before an answer by its
 // method, its path and what failed; Go's error quotes the whole URL. A
-// refused address is passed on (netutil.ErrAddressRefused).
+// refused address is passed on (netutil.ErrAddressRefused), with the
+// setting that opens it when the operator can.
 func (c *Client) requestError(ctx context.Context, method, path string, err error) error {
 	var refused *netutil.RefusedAddressError
 	if errors.As(err, &refused) {
+		if refused.Allowable() {
+			// A GitHub Enterprise Server on a private network (KI-166).
+			return fmt.Errorf("GitHub API %s %s: %w; only the platform operator can allow it (pm.allowed_private_hosts)", method, path, refused)
+		}
 		return fmt.Errorf("GitHub API %s %s: %w", method, path, refused)
 	}
 	cause := err

@@ -12,11 +12,13 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Strob0t/CodeForge/internal/adapter/githubapi"
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
 	"github.com/Strob0t/CodeForge/internal/git"
+	"github.com/Strob0t/CodeForge/internal/netutil"
 	"github.com/Strob0t/CodeForge/internal/port/gitprovider"
 )
 
@@ -36,14 +38,26 @@ type Provider struct {
 var _ gitprovider.PullRequestCreator = (*Provider)(nil)
 
 // apiClient is the HTTP client of every provider NewProvider creates: the
-// base URL is project configuration, which tenants write, so it connects to
-// public addresses only and follows redirects only within the API's origin.
-var apiClient = githubapi.PublicHTTPClient()
+// base URL is project configuration, which tenants write, so it connects
+// only to the addresses its outbound policy allows (public ones, plus the
+// private hosts of pm.allowed_private_hosts, KI-166) and follows redirects
+// only within the API's origin.
+var apiClient atomic.Pointer[http.Client]
+
+func init() {
+	apiClient.Store(githubapi.PublicHTTPClient())
+}
+
+// SetOutboundPolicy makes the providers created from now on connect through
+// policy; the Go Core builds it from pm.allowed_private_hosts at startup.
+func SetOutboundPolicy(policy *netutil.OutboundPolicy) {
+	apiClient.Store(githubapi.NewHTTPClient(policy))
+}
 
 // NewProvider creates a GitHub API provider with the given token and base
 // URL.
 func NewProvider(token, baseURL string) *Provider {
-	return newProvider(token, baseURL, apiClient)
+	return newProvider(token, baseURL, apiClient.Load())
 }
 
 func newProvider(token, baseURL string, httpClient *http.Client) *Provider {

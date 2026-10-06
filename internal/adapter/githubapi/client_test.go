@@ -1,10 +1,12 @@
 package githubapi
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -157,5 +159,39 @@ func TestNextLink(t *testing.T) {
 		if got := c.nextLink(tt.header); got != tt.want {
 			t.Errorf("nextLink(%q) = %q, want %q", tt.header, got, tt.want)
 		}
+	}
+}
+
+// KI-166: a refused private or loopback address names the setting that
+// opens it; link-local and metadata addresses can never be opened.
+func TestDo_RefusalNamesTheSetting(t *testing.T) {
+	tests := []struct {
+		name, ip  string
+		allowable bool
+	}{
+		{"loopback", "127.0.0.1", true},
+		{"private", "10.0.0.5", true},
+		{"metadata", "169.254.169.254", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy, err := netutil.NewOutboundPolicy(nil, netutil.WithLookup(func(context.Context, string) ([]netip.Addr, error) {
+				return []netip.Addr{netip.MustParseAddr(tt.ip)}, nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, err := NewClient("https://ghe.example.com/api/v3", "ghp_secret", NewHTTPClient(policy))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.Do(t.Context(), http.MethodGet, "/user/repos", nil)
+			if !errors.Is(err, netutil.ErrAddressRefused) {
+				t.Fatalf("err %v, want ErrAddressRefused", err)
+			}
+			if hint := strings.Contains(err.Error(), "pm.allowed_private_hosts"); hint != tt.allowable {
+				t.Fatalf("error %q names pm.allowed_private_hosts: %v, want %v", err, hint, tt.allowable)
+			}
+		})
 	}
 }

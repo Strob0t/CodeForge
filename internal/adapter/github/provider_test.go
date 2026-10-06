@@ -285,3 +285,38 @@ func TestCreatePullRequest_NeedsHeadAndTitle(t *testing.T) {
 		}
 	}
 }
+
+// KI-166: a GitHub Enterprise Server on a private network is reached once
+// the operator allows its host (pm.allowed_private_hosts, wired by the Go
+// Core through SetOutboundPolicy); until then the refusal names the setting.
+func TestSetOutboundPolicy(t *testing.T) {
+	t.Cleanup(func() {
+		policy, _ := netutil.NewOutboundPolicy(nil)
+		SetOutboundPolicy(policy)
+	})
+	srv, requests := fakePullsAPI(t, http.StatusCreated, `{"html_url":"https://ghe.example.com/acme/app/pull/1"}`)
+	open := func() error {
+		prov, err := gitprovider.New("github-api", map[string]string{"token": "tok", "base_url": srv.URL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = prov.(gitprovider.PullRequestCreator).CreatePullRequest(context.Background(), &gitprovider.PullRequest{
+			Repo: "acme/app", Head: "codeforge/x", Base: "main", Title: "t",
+		})
+		return err
+	}
+
+	err := open()
+	if !errors.Is(err, netutil.ErrAddressRefused) || !strings.Contains(err.Error(), "pm.allowed_private_hosts") || len(*requests) != 0 {
+		t.Fatalf("default policy: %v, %d requests; want a refusal naming pm.allowed_private_hosts", err, len(*requests))
+	}
+
+	policy, err := netutil.NewOutboundPolicy([]string{"127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetOutboundPolicy(policy)
+	if err := open(); err != nil || len(*requests) != 1 {
+		t.Fatalf("allowed host: %v, %d requests", err, len(*requests))
+	}
+}
