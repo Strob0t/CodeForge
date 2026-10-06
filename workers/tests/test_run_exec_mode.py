@@ -8,6 +8,7 @@ Go rejects these runs at start; this guard covers run starts that bypass Go
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,6 +36,8 @@ def _run_start_msg(exec_mode: str) -> MagicMock:
         agent_id="agent-1",
         prompt="run the tests",
         exec_mode=exec_mode,
+        # An existing directory: a run needs one (KI-193).
+        workspace_path=os.path.dirname(os.path.abspath(__file__)),
     )
     msg = MagicMock()
     msg.data = run_msg.model_dump_json().encode()

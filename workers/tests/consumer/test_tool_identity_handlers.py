@@ -9,6 +9,7 @@ failed with the reason, and nothing runs.
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -95,6 +96,10 @@ def _published(worker: TaskConsumer, subject: str) -> list[dict[str, object]]:
     return [json.loads(data) for s, data in worker._js.published if s == subject]  # type: ignore[union-attr]
 
 
+# An existing directory: a run needs one (KI-193).
+_RUN_WORKSPACE = os.path.dirname(os.path.abspath(__file__))
+
+
 def _run_start(tool_uid: int) -> tuple[object, object]:
     payload = RunStartMessage(
         run_id="run-1",
@@ -103,7 +108,7 @@ def _run_start(tool_uid: int) -> tuple[object, object]:
         tenant_id="tenant-a",
         agent_id="a1",
         prompt="fix it",
-        workspace_path="/data/workspaces/tenant-a/p1",
+        workspace_path=_RUN_WORKSPACE,
         tool_uid=tool_uid,
     )
     return jetstream_msg(payload.model_dump_json().encode(), subject="runs.start", stream_seq=10)
@@ -123,7 +128,7 @@ async def test_a_run_runs_as_the_tenants_tool_identity(
 
     await consumer._handle_run_start(msg)  # type: ignore[arg-type]
 
-    assert accepted == [("tenant-a", 20003, "/data/workspaces/tenant-a/p1")]
+    assert accepted == [("tenant-a", 20003, _RUN_WORKSPACE)]
     assert [(i.tenant_id, i.uid) for i in seen if i] == [("tenant-a", 20003)]
     assert current_identity.get() is None
     assert _published(consumer, "runs.complete") == [], "leaving the identity did not fail the run"

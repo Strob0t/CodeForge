@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import structlog
@@ -97,6 +98,14 @@ class RunHandlerMixin:
                 f"{run_msg.exec_mode!r} execution mode is not available yet: tools would run without isolation (KI-13)"
             )
             log.error("run rejected", exec_mode=run_msg.exec_mode, error=error)
+            await runtime.complete_run(status="failed", error=error)
+            return
+        workspace = run_msg.workspace_path.strip()
+        if not workspace or not os.path.isdir(workspace):
+            # Without it the file tools would work in the worker's own
+            # directory (KI-193); refused before any tool or MCP server starts.
+            error = f"run has no usable workspace ({run_msg.workspace_path!r} is not a directory on this worker)"
+            log.error("run rejected", error=error)
             await runtime.complete_run(status="failed", error=error)
             return
 

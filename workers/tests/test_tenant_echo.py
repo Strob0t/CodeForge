@@ -8,6 +8,7 @@ on behalf of a run or request must carry that request's ``tenant_id``.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections import OrderedDict
 from types import SimpleNamespace
@@ -54,6 +55,8 @@ from codeforge.nats_subjects import (
 from codeforge.runtime import RuntimeClient
 
 TENANT = "aaaaaaaa-0000-0000-0000-000000000001"
+# An existing directory: a run needs one (KI-193).
+_WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 
 
 @pytest.fixture(autouse=True)
@@ -168,6 +171,7 @@ async def test_run_start_passes_tenant_to_runtime_client() -> None:
         project_id="proj-1",
         agent_id="agent-1",
         prompt="do it",
+        workspace_path=_WORKSPACE,
     )
 
     await handler._do_run_start(run_msg, MagicMock())
@@ -191,6 +195,7 @@ async def test_run_start_passes_the_approval_timeout_to_runtime_client() -> None
         agent_id="agent-1",
         prompt="do it",
         approval_timeout_seconds=240,
+        workspace_path=_WORKSPACE,
     )
 
     await handler._do_run_start(run_msg, MagicMock())

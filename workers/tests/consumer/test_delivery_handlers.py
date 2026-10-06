@@ -297,7 +297,14 @@ class TestTasks:
 
 def _run_start_payload(run_id: str = "run-1") -> bytes:
     return (
-        RunStartMessage(run_id=run_id, task_id="task-1", project_id="p1", agent_id="a1", prompt="fix it")
+        RunStartMessage(
+            run_id=run_id,
+            task_id="task-1",
+            project_id="p1",
+            agent_id="a1",
+            prompt="fix it",
+            workspace_path=os.path.dirname(os.path.abspath(__file__)),
+        )
         .model_dump_json()
         .encode()
     )

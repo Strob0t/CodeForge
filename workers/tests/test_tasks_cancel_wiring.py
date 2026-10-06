@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -148,6 +149,8 @@ class TestRunsHandlerExtraSubjects:
             prompt="do something",
             policy_profile="default",
             exec_mode="mount",
+            # An existing directory: a run needs one (KI-193).
+            workspace_path=os.path.dirname(os.path.abspath(__file__)),
             termination=TerminationConfig(max_steps=50, timeout_seconds=600, max_cost=5.0),
             heartbeat_seconds=7,
         )

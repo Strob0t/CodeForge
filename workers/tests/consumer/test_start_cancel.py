@@ -47,7 +47,13 @@ def _completions(worker: TaskConsumer, subject: str) -> list[dict[str, object]]:
 
 def _run_start(run_id: str = "run-q", seq: int = 10) -> tuple[object, object]:
     payload = RunStartMessage(
-        run_id=run_id, task_id="task-q", project_id="p1", tenant_id="tenant-q", agent_id="a1", prompt="fix it"
+        run_id=run_id,
+        task_id="task-q",
+        project_id="p1",
+        tenant_id="tenant-q",
+        agent_id="a1",
+        prompt="fix it",
+        workspace_path=os.path.dirname(os.path.abspath(__file__)),
     )
     return jetstream_msg(payload.model_dump_json().encode(), subject="runs.start", stream_seq=seq)
 

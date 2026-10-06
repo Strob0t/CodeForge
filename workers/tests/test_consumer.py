@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from codeforge.consumer import TaskConsumer
 from codeforge.models import ContextEntry, RunStartMessage, TaskMessage
+
+# An existing directory: a run needs one (KI-193).
+_WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 
 
 @pytest.fixture
@@ -151,6 +155,7 @@ async def test_handle_run_start_with_context(consumer: TaskConsumer) -> None:
         project_id="proj-1",
         agent_id="agent-1",
         prompt="Fix the login bug",
+        workspace_path=_WORKSPACE,
         context=[
             ContextEntry(kind="file", path="src/auth.py", content="def login(): pass", tokens=5, priority=80),
             ContextEntry(kind="shared", path="", content="step-1 completed OK", tokens=5, priority=90),
@@ -188,6 +193,7 @@ async def test_handle_run_start_without_context(consumer: TaskConsumer) -> None:
         project_id="proj-1",
         agent_id="agent-1",
         prompt="Refactor utils module",
+        workspace_path=_WORKSPACE,
     )
     msg = MagicMock()
     msg.data = run_msg.model_dump_json().encode()
@@ -218,7 +224,7 @@ async def test_handle_run_start_passes_workspace_and_backend(consumer: TaskConsu
         project_id="proj-1",
         agent_id="agent-1",
         prompt="Add a test",
-        workspace_path="/data/workspaces/proj-1",
+        workspace_path=_WORKSPACE,
         backend="aider",
     )
     msg = MagicMock()
@@ -234,7 +240,7 @@ async def test_handle_run_start_passes_workspace_and_backend(consumer: TaskConsu
     await consumer._handle_run_start(msg)
 
     task_arg = consumer._executor.execute_with_runtime.call_args.args[0]
-    assert task_arg.workspace_path == "/data/workspaces/proj-1"
+    assert task_arg.workspace_path == _WORKSPACE
     assert task_arg.backend == "aider"
     assert task_arg.agent_id == "agent-1"
 
@@ -250,6 +256,7 @@ async def test_handle_run_start_passes_mcp_servers(consumer: TaskConsumer) -> No
         project_id="proj-1",
         agent_id="agent-1",
         prompt="Look it up",
+        workspace_path=_WORKSPACE,
         mcp_servers=[server],
     )
     msg = MagicMock()
