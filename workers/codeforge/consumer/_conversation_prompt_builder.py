@@ -11,10 +11,22 @@ import structlog
 from codeforge.tools.capability import CapabilityLevel
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from codeforge.llm import LiteLLMClient
     from codeforge.loop_config import ModelCapability
+    from codeforge.models import ConversationMessagePayload
 
 logger = structlog.get_logger()
+
+
+def last_user_message(messages: Sequence[ConversationMessagePayload]) -> str:
+    """Return the turn's message: the newest non-empty user message of *messages*, or "".
+
+    Go sends the whole history with the newest message last (KI-192).
+    """
+    return next((m.content for m in reversed(messages) if m.role == "user" and m.content), "")
+
 
 # Cache the step-by-step prompt content (loaded once from YAML).
 _STEP_BY_STEP_CACHE: str | None = None
@@ -91,7 +103,7 @@ def inject_tool_guide(
 async def inject_skills(
     system_prompt: str,
     project_id: str,
-    messages: list[object],
+    messages: Sequence[ConversationMessagePayload],
     tenant_id: str,
     log: structlog.stdlib.BoundLogger,
     db_url: str,
@@ -143,7 +155,7 @@ async def inject_skills(
         if not skills:
             return system_prompt, all_skills
 
-        task_ctx = next((m.content for m in messages if m.role == "user"), "")
+        task_ctx = last_user_message(messages)
         if not task_ctx:
             return system_prompt, all_skills
 

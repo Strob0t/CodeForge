@@ -13,7 +13,7 @@ import structlog
 
 from codeforge.consumer._cancel_registry import conversation_key, run_key
 from codeforge.consumer._conversation_experience import answer_from_experience, remember_answer
-from codeforge.consumer._conversation_prompt_builder import build_system_prompt
+from codeforge.consumer._conversation_prompt_builder import build_system_prompt, last_user_message
 from codeforge.consumer._conversation_routing import resolve_model_and_fallbacks
 from codeforge.consumer._conversation_skill_integration import (
     register_handoff_tool,
@@ -469,11 +469,8 @@ class ConversationHandlerMixin:
 
             await self._maybe_prefetch_docs(workbench, run_msg, log)
 
-            user_prompt = ""
-            for m in run_msg.messages:
-                if m.role == "user" and m.content:
-                    user_prompt = m.content
-                    break
+            # The turn's message, not the conversation's first one (KI-192).
+            user_prompt = last_user_message(run_msg.messages)
 
             # The model first: the prompt and history are sized for its
             # capability, also when the Go Core sent none (KI-125).
@@ -814,14 +811,10 @@ class ConversationHandlerMixin:
         """Prefetch docs from MCP workbench and append to run_msg.context."""
         if workbench is None:
             return
-        user_message = next(
-            (m.content for m in run_msg.messages if m.role == "user" and m.content),
-            "",
-        )
         prefetched = await _prefetch_docs(
             workbench=workbench,
             workspace_path=run_msg.workspace_path,
-            user_message=user_message,
+            user_message=last_user_message(run_msg.messages),
             log=log,
         )
         if prefetched:
