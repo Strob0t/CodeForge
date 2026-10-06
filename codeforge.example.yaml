@@ -3,8 +3,16 @@
 # Copy to codeforge.yaml and adjust as needed.
 
 server:
+  # Listen address: "" (all interfaces, the containers) or an IP address
+  # such as "127.0.0.1" (a development Core with dev credentials stays off
+  # the network). Env: CODEFORGE_HOST.
+  host: ""
   port: "8080"
   cors_origin: "http://localhost:3000"
+  # Always set the Secure flag on cookies, also when the request reaches the
+  # Core over plain HTTP: behind a TLS terminator in front of nginx (which
+  # forwards its own scheme, http). Env: CODEFORGE_FORCE_SECURE_COOKIES.
+  force_secure_cookies: false
   tls_cert_file: ""    # Path to TLS certificate file (PEM). Leave empty for plain HTTP.
   tls_key_file: ""     # Path to TLS private key file (PEM). Leave empty for plain HTTP.
   # Reverse proxies (IPs or CIDR prefixes, e.g. "10.0.0.0/8") whose X-Forwarded-For /

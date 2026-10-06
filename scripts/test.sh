@@ -86,7 +86,7 @@ run_e2e() {
   # Check if Go backend is reachable on port 8080
   if ! (echo > /dev/tcp/localhost/8080) 2>/dev/null; then
     echo -e "${YELLOW}Go backend not reachable on port 8080. Start it first:${NC}"
-    echo "  go run ./cmd/codeforge/"
+    echo "  CODEFORGE_HOST=127.0.0.1 go run ./cmd/codeforge/"
     RESULTS[e2e]="skip"
     return
   fi

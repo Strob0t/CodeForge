@@ -273,6 +273,17 @@ def test_core_trusts_only_the_proxy_addresses_of_the_public_network() -> None:
     assert _default(trusted) == str(ip_range)
 
 
+def test_core_api_port_is_published_on_loopback_only() -> None:
+    """KI-213: clients use the frontend's port; the plain-HTTP API port is for checks on the host."""
+    assert CORE["ports"] == ["127.0.0.1:${CORE_PORT:-8080}:8080"]
+
+
+def test_live_e2e_core_listens_on_loopback() -> None:
+    """KI-213: live E2E runs with public dev credentials and tool isolation off."""
+    env = (REPO / "scripts" / "live-e2e" / "env.example.sh").read_text()
+    assert "export CODEFORGE_HOST=${CODEFORGE_HOST:-127.0.0.1}" in env
+
+
 def _dummy_secrets(directory: Path) -> Path:
     directory.mkdir()
     for entry in COMPOSE["secrets"].values():

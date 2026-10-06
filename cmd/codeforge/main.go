@@ -983,6 +983,9 @@ func run() error {
 		GDPR:             gdprSvc,
 		Consent:          service.NewConsentService(store),
 		WSTickets:        wsTickets,
+		// Behind a TLS terminator in front of nginx, the request looks
+		// like plain HTTP: the operator forces Secure cookies (KI-213).
+		ForceSecureCookies: cfg.Server.ForceSecureCookies,
 	}
 	handlers.WireGroups()
 
@@ -1157,7 +1160,7 @@ func run() error {
 		}
 	}
 
-	addr := ":" + cfg.Server.Port
+	addr := cfg.Server.ListenAddr()
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -1183,12 +1186,11 @@ func run() error {
 		}
 	}()
 
-	go func() {
-		slog.Info("starting server", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server failed", "error", err)
-		}
-	}()
+	serveErr, err := serveHTTP(ctx, srv)
+	if err != nil {
+		return fmt.Errorf("http server: %w", err)
+	}
+	slog.Info("server started", "addr", srv.Addr)
 
 	// --- Stuck-work watchdog (KI-28 quality gates, KI-65 lost workers, KI-33 teams) ---
 	// Work acked on accept whose worker stopped sending heartbeats is ended
@@ -1226,7 +1228,15 @@ func run() error {
 	// stale_check_interval and reports what it ends as stuck work.
 	stopRetention := service.NewRetentionService(store, cfg.Retention, cfg.Webhook.DeliveryRetention).Start(ctx)
 
-	<-done
+	// A serve failure ends the process like a signal, with an error exit so
+	// the container restarts (KI-213).
+	var runErr error
+	select {
+	case <-done:
+	case err := <-serveErr:
+		slog.Error("http server failed, shutting down", "error", err)
+		runErr = fmt.Errorf("http server: %w", err)
+	}
 
 	// --- Ordered Graceful Shutdown ---
 	// Phase 1: Stop accepting new HTTP requests
@@ -1290,7 +1300,7 @@ func run() error {
 	pool.Close()
 
 	slog.Info("shutdown complete")
-	return nil
+	return runErr
 }
 
 // livenessHandler always returns 200 (Kubernetes liveness probe).

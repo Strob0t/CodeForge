@@ -301,8 +301,11 @@ services:
       - knowledge:/data/knowledge:ro
     tmpfs:
       - /tmp
+    # Clients use the frontend's port (nginx proxies /api, /ws and /health);
+    # the API port itself is plain HTTP and only for checks on this host
+    # (KI-213).
     ports:
-      - "${CORE_PORT:-8080}:8080"
+      - "127.0.0.1:${CORE_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy

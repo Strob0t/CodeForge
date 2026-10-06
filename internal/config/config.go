@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -438,6 +439,10 @@ func (w *Workspace) ToolACLsRequired() (required, known bool) {
 
 // Server holds HTTP server configuration.
 type Server struct {
+	// Host is the address the HTTP server listens on: "" (default) listens
+	// on all interfaces (containers), 127.0.0.1 keeps a development Core off
+	// the network. An IP address or "localhost".
+	Host               string        `yaml:"host"`
 	Port               string        `yaml:"port"`
 	CORSOrigin         string        `yaml:"cors_origin"`
 	ReadHeaderTimeout  time.Duration `yaml:"read_header_timeout"`
@@ -450,6 +455,11 @@ type Server struct {
 	// TrustedProxies lists reverse proxies (IPs or CIDR prefixes) whose X-Forwarded-For /
 	// X-Real-IP headers identify the client. Empty = forwarding headers are ignored.
 	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// ListenAddr is the HTTP server's listen address (host:port).
+func (s *Server) ListenAddr() string {
+	return net.JoinHostPort(s.Host, s.Port)
 }
 
 // TrustedProxyPrefixes parses TrustedProxies; a bare IP becomes a single-address prefix.

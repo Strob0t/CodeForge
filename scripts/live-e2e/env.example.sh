@@ -72,6 +72,9 @@ fi
 export CODEFORGE_LITELLM_KEYED_PROVIDERS
 
 # --- Ports and the worker ----------------------------------------------------
+# DEV ONLY credentials and isolation off: the Core listens on loopback only,
+# like LiteLLM and the frontend (KI-213).
+export CODEFORGE_HOST=${CODEFORGE_HOST:-127.0.0.1}
 export CODEFORGE_PORT=${CODEFORGE_PORT:-8080}
 export CODEFORGE_CORE_URL=${CODEFORGE_CORE_URL:-http://127.0.0.1:$CODEFORGE_PORT}
 export CODEFORGE_WORKER_HEALTH_PORT=${CODEFORGE_WORKER_HEALTH_PORT:-8081}

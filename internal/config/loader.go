@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -202,7 +203,9 @@ func loadEnv(cfg *Config) error {
 	setString(&cfg.AppEnv, "APP_ENV")
 	setString(&cfg.InternalKey, "CODEFORGE_INTERNAL_KEY")
 
+	setString(&cfg.Server.Host, "CODEFORGE_HOST")
 	setString(&cfg.Server.Port, "CODEFORGE_PORT")
+	setTyped(&errs, &cfg.Server.ForceSecureCookies, "CODEFORGE_FORCE_SECURE_COOKIES", strconv.ParseBool)
 	setString(&cfg.Server.CORSOrigin, "CODEFORGE_CORS_ORIGIN")
 	setStringSlice(&cfg.Server.TrustedProxies, "CODEFORGE_TRUSTED_PROXIES")
 	setString(&cfg.Postgres.DSN, "DATABASE_URL")
@@ -478,6 +481,11 @@ func loadSecretFiles(cfg *Config) error {
 func validate(cfg *Config) error {
 	if cfg.Server.Port == "" {
 		return errors.New("server.port is required")
+	}
+	if h := cfg.Server.Host; h != "" && h != "localhost" {
+		if _, err := netip.ParseAddr(h); err != nil {
+			return fmt.Errorf("server.host must be an IP address or localhost (got %q)", h)
+		}
 	}
 	if _, err := cfg.Server.TrustedProxyPrefixes(); err != nil {
 		return fmt.Errorf("server.trusted_proxies: %w", err)
