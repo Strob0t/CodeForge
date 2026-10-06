@@ -1148,19 +1148,23 @@ class _RolloutWorkspace:
     Each rollout's result is recorded as a git tree, the workspace is reset to
     the start commit between rollouts, and the best rollout's tree is left in
     the working tree, as uncommitted changes on the start commit. No ref or
-    stash entry is created.
+    stash entry is created. A rollout may check out another branch: HEAD is
+    pointed back at the start branch (or the start commit, when it was
+    detached) before every reset, so a reset never moves that other branch.
     """
 
     def __init__(self, path: str) -> None:
         self._path = path
         self._head = ""
+        self._ref = ""  # the start branch (refs/heads/...), or "HEAD" when detached
 
     async def start(self) -> str:
-        """Record the start commit; return why rollouts cannot run here, or ""."""
+        """Record the start commit and branch; return why rollouts cannot run here, or ""."""
         try:
             self._head = (await _run_git(self._path, "rev-parse", "--verify", "HEAD")).strip()
         except RuntimeError:
             return "no_commit"
+        self._ref = (await _run_git(self._path, "rev-parse", "--symbolic-full-name", "HEAD")).strip()
         status = await _run_git(self._path, "status", "--porcelain", "--untracked-files=all")
         return "uncommitted_changes" if status.strip() else ""
 
@@ -1169,8 +1173,16 @@ class _RolloutWorkspace:
         await _run_git(self._path, "add", "--all")
         return (await _run_git(self._path, "write-tree")).strip()
 
+    async def _restore_head(self) -> None:
+        """Point HEAD at the start branch, or detach it at the start commit; files stay as they are."""
+        if self._ref.startswith("refs/heads/"):
+            await _run_git(self._path, "symbolic-ref", "HEAD", self._ref)
+        else:
+            await _run_git(self._path, "update-ref", "--no-deref", "HEAD", self._head)
+
     async def reset(self) -> None:
-        """Return the workspace to the start commit, without the rollout's files."""
+        """Return the workspace to the start commit and branch, without the rollout's files."""
+        await self._restore_head()
         await _run_git(self._path, "reset", "--quiet", "--hard", self._head)
         await _run_git(self._path, "clean", "--quiet", "-d", "--force")
 

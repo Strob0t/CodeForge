@@ -200,3 +200,36 @@ async def test_a_cancelled_git_call_stops_its_process_group(tmp_path: Path, monk
         await call
 
     assert hanging.procs[0].returncode is not None
+
+
+@pytest.mark.parametrize("detached", [False, True])
+async def test_a_rollout_that_checks_out_a_branch_leaves_its_commits_intact(repo: Path, detached: bool) -> None:
+    """Resetting between rollouts moves the start branch only, never a branch a rollout checked out."""
+    _git(repo, "checkout", "-q", "-b", "feature")
+    (repo / "feature.txt").write_text("feature work\n")
+    _git(repo, "add", "feature.txt")
+    _git(repo, "commit", "-qm", "feature")
+    feature_tip = _git(repo, "rev-parse", "feature")
+    _git(repo, "checkout", "-q", "-")
+    if detached:
+        _git(repo, "checkout", "-q", "--detach")
+    start_ref = _git(repo, "rev-parse", "--symbolic-full-name", "HEAD")
+    head = _git(repo, "rev-parse", "HEAD")
+    seen_refs: list[str] = []
+
+    async def run(messages: list[dict[str, object]], config: LoopConfig) -> AgentLoopResult:
+        seen_refs.append(_git(repo, "rev-parse", "--symbolic-full-name", "HEAD"))
+        _git(repo, "checkout", "-q", "feature")
+        (repo / "a.txt").write_text(f"rollout {len(seen_refs)}\n")
+        return AgentLoopResult(final_content=f"rollout {len(seen_refs)}", step_count=1)
+
+    loop = AsyncMock()
+    loop.run = run
+    executor = ConversationRolloutExecutor(loop, rollout_count=3, workspace_path=str(repo))
+
+    await executor.execute([{"role": "user", "content": "x"}], LoopConfig())
+
+    assert _git(repo, "rev-parse", "feature") == feature_tip
+    assert seen_refs == [start_ref] * 3
+    assert _git(repo, "rev-parse", "--symbolic-full-name", "HEAD") == start_ref
+    assert _git(repo, "rev-parse", "HEAD") == head
