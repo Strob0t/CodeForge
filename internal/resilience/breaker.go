@@ -2,6 +2,7 @@
 package resilience
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -55,7 +56,11 @@ func (b *Breaker) Execute(fn func() error) error {
 	defer b.mu.Unlock()
 
 	if err != nil {
-		b.onFailure()
+		// A request the service rejected, or one its caller gave up on,
+		// says nothing about an outage: it neither counts nor resets.
+		if !IsNeutral(err) && !errors.Is(err, context.Canceled) {
+			b.onFailure()
+		}
 		return fmt.Errorf("circuit breaker: %w", err)
 	}
 
@@ -95,4 +100,28 @@ func (b *Breaker) onFailure() {
 func (b *Breaker) onSuccess() {
 	b.failures = 0
 	b.state = stateClosed
+}
+
+// neutralError marks an error that is the outcome of one request, not of the
+// service being down.
+type neutralError struct{ err error }
+
+func (e *neutralError) Error() string { return e.err.Error() }
+func (e *neutralError) Unwrap() error { return e.err }
+
+// Neutral marks err as the outcome of the request itself (the service
+// answered 4xx, the payload is too large): the breaker passes it on without
+// counting it, so one caller's bad requests cannot open the circuit for
+// everyone (KI-213). Transport errors, 5xx and timeouts stay failures.
+func Neutral(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &neutralError{err: err}
+}
+
+// IsNeutral reports whether err (or an error it wraps) was marked Neutral.
+func IsNeutral(err error) bool {
+	var n *neutralError
+	return errors.As(err, &n)
 }

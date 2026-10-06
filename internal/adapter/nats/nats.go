@@ -256,7 +256,7 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 	publish := func() error {
 		_, err := q.js.PublishMsg(ctx, msg)
 		if err != nil {
-			return fmt.Errorf("nats publish %s: %w", subject, err)
+			return publishError(subject, err)
 		}
 		return nil
 	}
@@ -265,6 +265,19 @@ func (q *Queue) Publish(ctx context.Context, subject string, data []byte) error 
 		return q.breaker.Execute(publish)
 	}
 	return publish()
+}
+
+// publishError wraps a publish error. A message refused as such (larger than
+// the server's max payload, a 4xx JetStream API answer) is the publisher's
+// problem, not an outage: it does not count in the shared breaker, which
+// would otherwise block every tenant's publishes (KI-213).
+func publishError(subject string, err error) error {
+	wrapped := fmt.Errorf("nats publish %s: %w", subject, err)
+	var apiErr *jetstream.APIError
+	if errors.Is(err, nats.ErrMaxPayload) || (errors.As(err, &apiErr) && apiErr.Code >= 400 && apiErr.Code < 500) {
+		return resilience.Neutral(wrapped)
+	}
+	return wrapped
 }
 
 // PublishWithDedup sends a message with a Nats-Msg-Id header for JetStream deduplication.
@@ -280,7 +293,7 @@ func (q *Queue) PublishWithDedup(ctx context.Context, subject string, data []byt
 	publish := func() error {
 		_, err := q.js.PublishMsg(ctx, msg)
 		if err != nil {
-			return fmt.Errorf("nats publish %s: %w", subject, err)
+			return publishError(subject, err)
 		}
 		return nil
 	}

@@ -336,6 +336,7 @@ func run() error {
 	// --- HTTP ---
 	llmClient := litellm.NewClient(cfg.LiteLLM.URL, cfg.LiteLLM.MasterKey)
 	llmClient.SetBreaker(llmBreaker)
+	llmClient.SetCompletionTimeout(cfg.LiteLLM.CompletionTimeout)
 	llmClient.SetVault(vault)
 	providerKeys, err := llmPort.NewProviderKeys(cfg.LiteLLM.KeyedProviders, os.Getenv)
 	if err != nil {

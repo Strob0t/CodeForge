@@ -94,7 +94,7 @@ func TestDeleteModel(t *testing.T) {
 
 func TestHealth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
+		if r.URL.Path != "/health/readiness" { // not /health: no live model calls (KI-213)
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)

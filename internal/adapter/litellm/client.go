@@ -45,14 +45,21 @@ type (
 	AddModelRequest        = llm.AddModelRequest
 )
 
+// DefaultCompletionTimeout bounds one chat completion (litellm.completion_timeout).
+const DefaultCompletionTimeout = 10 * time.Minute
+
 // Client talks to the LiteLLM Proxy admin API.
 type Client struct {
-	baseURL    string
-	masterKey  string
-	vault      *secrets.Vault
+	baseURL   string
+	masterKey string
+	vault     *secrets.Vault
+	// httpClient serves the admin calls (models, health): 10 s.
 	httpClient *http.Client
-	breaker    *resilience.Breaker
-	keys       llm.ProviderKeys
+	// completionClient serves chat completions, which take minutes on real
+	// and local models (KI-213).
+	completionClient *http.Client
+	breaker          *resilience.Breaker
+	keys             llm.ProviderKeys
 }
 
 // NewClient creates a new LiteLLM admin client.
@@ -63,7 +70,16 @@ func NewClient(baseURL, masterKey string) *Client {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		completionClient: &http.Client{
+			Timeout: DefaultCompletionTimeout,
+		},
 	}
+}
+
+// SetCompletionTimeout sets the timeout of one chat completion, streamed or
+// not (litellm.completion_timeout); the admin calls keep theirs.
+func (c *Client) SetCompletionTimeout(d time.Duration) {
+	c.completionClient = &http.Client{Timeout: d}
 }
 
 // SetBreaker attaches a circuit breaker to all outgoing HTTP calls.
@@ -220,8 +236,10 @@ func (c *Client) DeleteModel(ctx context.Context, modelID string) error {
 }
 
 // Health checks if LiteLLM is healthy.
+// It asks /health/readiness: /health makes a live model call per checked
+// deployment (KI-213).
 func (c *Client) Health(ctx context.Context) (bool, error) {
-	_, err := c.doRequest(ctx, http.MethodGet, "/health", nil)
+	_, err := c.doRequest(ctx, http.MethodGet, "/health/readiness", nil)
 	return err == nil, err
 }
 
@@ -460,7 +478,7 @@ func (c *Client) ChatCompletion(ctx context.Context, req ChatCompletionRequest) 
 		return nil, fmt.Errorf("marshal completion request: %w", err)
 	}
 
-	data, err := c.doRequest(ctx, http.MethodPost, "/v1/chat/completions", body)
+	data, err := c.doRequestWith(ctx, c.completionClient, http.MethodPost, "/v1/chat/completions", body)
 	if err != nil {
 		return nil, fmt.Errorf("chat completion: %w", err)
 	}
@@ -531,9 +549,7 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 		httpReq.Header.Set("Authorization", "Bearer "+key)
 	}
 
-	// Use a longer timeout for streaming — LLM responses can take minutes.
-	streamClient := &http.Client{Timeout: 10 * time.Minute}
-	resp, err := streamClient.Do(httpReq)
+	resp, err := c.completionClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("stream request: %w", err)
 	}
@@ -668,6 +684,13 @@ func (c *Client) ChatCompletionStream(ctx context.Context, req ChatCompletionReq
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	return c.doRequestWith(ctx, c.httpClient, method, path, body)
+}
+
+// doRequestWith sends one request with the given client through the breaker.
+// A 4xx answer is the request's fault and does not count against LiteLLM
+// (resilience.Neutral); transport errors, timeouts and 5xx do (KI-213).
+func (c *Client) doRequestWith(ctx context.Context, client *http.Client, method, path string, body []byte) ([]byte, error) {
 	var result []byte
 	call := func() error {
 		var bodyReader io.Reader
@@ -685,7 +708,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("http request: %w", err)
 		}
@@ -697,7 +720,11 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body []byte
 		}
 
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("litellm API error %d: %s", resp.StatusCode, string(data))
+			apiErr := fmt.Errorf("litellm API error %d: %s", resp.StatusCode, string(data))
+			if resp.StatusCode < 500 {
+				return resilience.Neutral(apiErr)
+			}
+			return apiErr
 		}
 
 		result = data

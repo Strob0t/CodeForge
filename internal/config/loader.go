@@ -376,6 +376,7 @@ func loadEnv(cfg *Config) error {
 
 	// LiteLLM health polling
 	setTyped(&errs, &cfg.LiteLLM.HealthPollInterval, "CODEFORGE_LITELLM_HEALTH_POLL_INTERVAL", time.ParseDuration)
+	setTyped(&errs, &cfg.LiteLLM.CompletionTimeout, "CODEFORGE_LITELLM_COMPLETION_TIMEOUT", time.ParseDuration)
 
 	// Copilot
 	setTyped(&errs, &cfg.Copilot.Enabled, "CODEFORGE_COPILOT_ENABLED", strconv.ParseBool)
@@ -505,6 +506,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Breaker.MaxFailures < 1 {
 		return errors.New("breaker.max_failures must be >= 1")
+	}
+	if cfg.LiteLLM.CompletionTimeout <= 0 {
+		return fmt.Errorf("litellm.completion_timeout must be positive (got %s)", cfg.LiteLLM.CompletionTimeout)
 	}
 	if cfg.Git.OperationTimeout <= 0 {
 		return fmt.Errorf("git.operation_timeout must be positive (got %s)", cfg.Git.OperationTimeout)

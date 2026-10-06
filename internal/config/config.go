@@ -505,6 +505,9 @@ type LiteLLM struct {
 	MasterKey          string        `yaml:"master_key" json:"-"`
 	ConversationModel  string        `yaml:"conversation_model"`   // Model for chat conversations (default: resolved at init)
 	HealthPollInterval time.Duration `yaml:"health_poll_interval"` // Model health poll interval (default: 60s)
+	// CompletionTimeout bounds one chat completion of the Go Core
+	// (decomposition, review routing); admin calls keep 10 s (default: 10m, KI-213).
+	CompletionTimeout time.Duration `yaml:"completion_timeout"`
 	// KeyedProviders names the providers whose API key LiteLLM holds (names
 	// only, never a key): their wildcard routes list their models and the
 	// default model can be one of them (KI-125). docker-compose.prod.yml
@@ -687,6 +690,7 @@ func Defaults() Config {
 		LiteLLM: LiteLLM{
 			URL:                "http://localhost:4000",
 			HealthPollInterval: 60 * time.Second,
+			CompletionTimeout:  10 * time.Minute,
 		},
 		Logging: Logging{
 			Level:   "info",

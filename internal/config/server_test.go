@@ -68,6 +68,28 @@ func TestGitOperationTimeout(t *testing.T) {
 	}
 }
 
+// litellm.completion_timeout bounds one chat completion of the Go Core; the
+// admin calls keep 10 s (KI-213).
+func TestLiteLLMCompletionTimeout(t *testing.T) {
+	if got := Defaults().LiteLLM.CompletionTimeout; got != 10*time.Minute {
+		t.Fatalf("default litellm.completion_timeout = %s, want 10m", got)
+	}
+	t.Setenv("CODEFORGE_LITELLM_COMPLETION_TIMEOUT", "25m")
+	cfg := Defaults()
+	mustLoadEnv(t, &cfg)
+	if cfg.LiteLLM.CompletionTimeout != 25*time.Minute {
+		t.Fatalf("litellm.completion_timeout = %s, want 25m", cfg.LiteLLM.CompletionTimeout)
+	}
+	for _, d := range []time.Duration{0, -time.Minute} {
+		cfg := Defaults()
+		cfg.Auth.Enabled = false
+		cfg.LiteLLM.CompletionTimeout = d
+		if err := validate(&cfg); err == nil || !strings.Contains(err.Error(), "litellm.completion_timeout") {
+			t.Errorf("validate(%s) = %v, want a litellm.completion_timeout error", d, err)
+		}
+	}
+}
+
 func TestValidate_ServerHost(t *testing.T) {
 	tests := []struct {
 		host    string
