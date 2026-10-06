@@ -202,3 +202,24 @@ def test_egress_override_says_what_it_opens() -> None:
         assert needle in text, needle
     for net in ("169.254.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
         assert net in text, net
+
+
+def test_egress_rules_keep_dns_and_the_opened_hosts() -> None:
+    """The example's DROPs would cut DNS (the embedded resolver's upstreams sit in those ranges) and the hosts opened on purpose."""
+    lines = [line.removeprefix("#").strip() for line in (REPO / "docker-compose.egress.yml").read_text().splitlines()]
+    rules = [line for line in lines if line.startswith("iptables ")]
+    first_accept = min(i for i, rule in enumerate(rules) if "-j ACCEPT" in rule)
+    last_drop = max(i for i, rule in enumerate(rules) if "-j DROP" in rule)
+    assert all(rule.startswith("iptables -I ") for rule in rules), "-I: a later rule lands above the earlier ones"
+    assert first_accept > last_drop, "inserted after the DROPs, the ACCEPTs end up above them"
+    dns = [rule for rule in rules if "--dport 53" in rule and "-j ACCEPT" in rule]
+    assert {chain for rule in dns for chain in ("DOCKER-USER", "INPUT") if f"-I {chain} " in rule} == {
+        "DOCKER-USER",
+        "INPUT",
+    }
+    assert any('-p "$proto"' in rule for rule in dns), "udp and tcp"
+    text = "\n".join(lines)
+    assert "awk '/^nameserver/" in text
+    assert "/run/systemd/resolve/resolv.conf" in text
+    assert "/etc/resolv.conf" in text
+    assert "mcp.allowed_private_hosts" in text.split('iptables -I INPUT -i "$EGRESS_IF" -j DROP', 1)[1]

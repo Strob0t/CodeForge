@@ -27,20 +27,44 @@
 #     HTTP MCP clients), not what a tool process connects to.
 # Enable it only when the deployment's tenants may do all of that, and block
 # the private ranges on the host. An example for iptables (run as root after
-# `up`; the project name "codeforge" gives the network codeforge_egress):
+# `up`; the project name "codeforge" gives the network codeforge_egress).
+# First the DROPs: traffic leaving the egress bridge for link-local and
+# metadata, RFC 1918 and CGNAT addresses, and the host's own services:
 #   EGRESS_IF="br-$(docker network inspect -f '{{.Id}}' codeforge_egress | cut -c1-12)"
 #   for net in 169.254.0.0/16 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10; do
 #     iptables -I DOCKER-USER -i "$EGRESS_IF" ! -o "$EGRESS_IF" -d "$net" -j DROP
 #   done
 #   iptables -I INPUT -i "$EGRESS_IF" -j DROP
+# Then the exceptions. iptables -I puts each rule at the top, so these,
+# inserted after the DROPs, are checked before them. DNS first: Docker's
+# embedded resolver sends the containers' queries to the host's upstream
+# resolvers from inside the container, through this bridge, and those
+# usually sit in the dropped ranges (a home router at 192.168.x.1, AWS
+# 10.x.0.2 or 169.254.169.253, GCP 169.254.169.254, a resolver on the host
+# itself); without them LiteLLM cannot resolve its providers. On a host with
+# systemd-resolved the upstreams are in /run/systemd/resolve/resolv.conf
+# (/etc/resolv.conf names its local stub), else in /etc/resolv.conf:
+#   RESOLV=/run/systemd/resolve/resolv.conf
+#   [ -r "$RESOLV" ] || RESOLV=/etc/resolv.conf
+#   for ns in $(awk '/^nameserver/ && $2 ~ /^[0-9.]+$/ {print $2}' "$RESOLV"); do
+#     for proto in udp tcp; do
+#       iptables -I DOCKER-USER -i "$EGRESS_IF" -d "$ns" -p "$proto" --dport 53 -j ACCEPT
+#       iptables -I INPUT -i "$EGRESS_IF" -d "$ns" -p "$proto" --dport 53 -j ACCEPT
+#     done
+#   done
+# Then every private host the deployment opens on purpose: the hosts of
+# mcp.allowed_private_hosts (the worker's HTTP MCP servers) and LiteLLM's
+# model servers on the LAN or on the host (host.docker.internal), each with
+# its address and port, for example:
+#   iptables -I DOCKER-USER -i "$EGRESS_IF" -d 192.168.1.50 -p tcp --dport 11434 -j ACCEPT
+#   iptables -I INPUT -i "$EGRESS_IF" -p tcp --dport 1234 -j ACCEPT
 # "! -o" keeps traffic inside the egress network (the containers of this
 # project on it); the compose networks themselves need no exception, since
 # the worker reaches NATS, the Go Core and LiteLLM on "internal", not through
-# this bridge. The INPUT rule keeps the containers on the egress network
-# away from the host's own services; LiteLLM shares this network, so when it
-# uses a model server on the host (host.docker.internal) or on the LAN,
-# insert an ACCEPT for that address and port first (iptables -I puts a rule
-# at the top: add the ACCEPT last). The rules do not survive a reboot or a
+# this bridge. IPv6 upstreams or an IPv6 egress network need the same rules
+# with ip6tables. Instead of the DNS exceptions, litellm and worker can get
+# public resolvers here (dns: [1.1.1.1, 9.9.9.9] under each service); they
+# then resolve no internal names. The rules do not survive a reboot or a
 # re-created network: keep them in the host's firewall configuration.
 services:
   worker:
