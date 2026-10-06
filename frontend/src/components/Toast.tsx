@@ -71,13 +71,15 @@ export function ToastProvider(props: ParentProps): JSX.Element {
 
     setToasts((prev) => {
       const next = [...prev, { id, level, message, dismissMs }];
-      // Evict oldest when exceeding max
+      // Above the max the oldest timed toasts go. A persistent one
+      // (dismissMs 0) carries what the user must act on: only the user
+      // dismisses it, and the new toast shows even if only those are left.
       while (next.length > MAX_VISIBLE_TOASTS) {
-        const removed = next.shift();
-        if (removed) {
-          clearTimeout(timers.get(removed.id));
-          timers.delete(removed.id);
-        }
+        const oldest = next.findIndex((t, i) => t.dismissMs > 0 && i < next.length - 1);
+        if (oldest < 0) break;
+        const [removed] = next.splice(oldest, 1);
+        clearTimeout(timers.get(removed.id));
+        timers.delete(removed.id);
       }
       return next;
     });
