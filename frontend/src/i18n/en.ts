@@ -1980,6 +1980,8 @@ const en = {
   "routing.stats.empty": "No routing stats available",
   "routing.stats.emptyDescription":
     "Seed data from benchmarks or wait for routing decisions to accumulate.",
+  "routing.stats.removed": "removed",
+  "routing.stats.removedHint": "This model is no longer configured; the router does not pick it.",
   "routing.stats.refresh": "Refresh Stats",
   "routing.stats.seed": "Seed from Benchmarks",
   "routing.stats.seeded": "Seeded {{count}} outcomes from benchmark data.",

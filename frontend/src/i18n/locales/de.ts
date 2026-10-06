@@ -2016,6 +2016,9 @@ const de: Translations = {
   "routing.stats.empty": "Keine Routing-Statistiken verfuegbar",
   "routing.stats.emptyDescription":
     "Daten aus Benchmarks importieren oder auf Routing-Entscheidungen warten.",
+  "routing.stats.removed": "entfernt",
+  "routing.stats.removedHint":
+    "Dieses Modell ist nicht mehr konfiguriert; das Routing w\u00e4hlt es nicht mehr.",
   "routing.stats.refresh": "Statistiken aktualisieren",
   "routing.stats.seed": "Aus Benchmarks importieren",
   "routing.stats.seeded": "{{count}} Ergebnisse aus Benchmark-Daten importiert.",

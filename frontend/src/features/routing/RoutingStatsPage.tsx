@@ -23,6 +23,8 @@ import {
 } from "~/ui";
 import type { TableColumn } from "~/ui/composites/Table";
 
+import { isConfiguredModel } from "./configuredModels";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -48,6 +50,19 @@ export default function RoutingStatsPage() {
     () => ({ taskType: taskType(), tier: tier() }),
     (opts) => api.routing.stats(opts.taskType || undefined, opts.tier || undefined),
   );
+  // The configured models; null when they could not be loaded, then no row
+  // is marked as removed.
+  const [configuredModels] = createResource(async (): Promise<string[] | null> => {
+    try {
+      return (await api.llm.models()).map((m) => m.model_name);
+    } catch {
+      return null;
+    }
+  });
+  const isRemoved = (model: string): boolean => {
+    const configured = configuredModels();
+    return configured != null && !isConfiguredModel(model, configured);
+  };
 
   // ---- Outcomes section ----
   const [outcomes, { refetch: refetchOutcomes }] = createResource(() => api.routing.outcomes(50));
@@ -90,7 +105,17 @@ export default function RoutingStatsPage() {
     {
       key: "model_name",
       header: t("routing.field.modelName"),
-      render: (row) => <span class="font-mono text-sm">{row.model_name}</span>,
+      render: (row) => (
+        <Show
+          when={isRemoved(row.model_name)}
+          fallback={<span class="font-mono text-sm">{row.model_name}</span>}
+        >
+          <span class="inline-flex items-center gap-2" title={t("routing.stats.removedHint")}>
+            <span class="font-mono text-sm text-cf-text-muted line-through">{row.model_name}</span>
+            <Badge variant="neutral">{t("routing.stats.removed")}</Badge>
+          </span>
+        </Show>
+      ),
     },
     { key: "task_type", header: t("routing.field.taskType") },
     {
