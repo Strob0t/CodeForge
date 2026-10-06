@@ -198,14 +198,16 @@ func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content
 	}
 	defer func() { _ = ws.Close() }()
 	name := workspaceName(relPath)
-
-	// Ensure parent directory exists
-	if err := ws.MkdirAll(filepath.Dir(name), project.WorkspaceDirPerm); err != nil {
-		return refused(err, "create parent directory")
+	if err := insideWorkspace(name); err != nil {
+		return err
 	}
 
 	if err := s.recordEdit(ctx, projectID, userID, review.UserEditWrite, name); err != nil {
 		return err
+	}
+	// Ensure parent directory exists
+	if err := ws.MkdirAll(filepath.Dir(name), project.WorkspaceDirPerm); err != nil {
+		return refused(err, "create parent directory")
 	}
 	if err := ws.WriteFile(name, []byte(content), project.WorkspaceFilePerm); err != nil {
 		return refused(err, "write file")
@@ -256,14 +258,16 @@ func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, new
 	if _, statErr := ws.Lstat(oldName); statErr != nil {
 		return refused(statErr, "source does not exist")
 	}
-
-	// Ensure parent directory of destination exists
-	if mkErr := ws.MkdirAll(filepath.Dir(newName), project.WorkspaceDirPerm); mkErr != nil {
-		return refused(mkErr, "create parent directory")
+	if err := insideWorkspace(newName); err != nil {
+		return err
 	}
 
 	if err := s.recordEdit(ctx, projectID, userID, review.UserEditRename, oldName, newName); err != nil {
 		return err
+	}
+	// Ensure parent directory of destination exists
+	if mkErr := ws.MkdirAll(filepath.Dir(newName), project.WorkspaceDirPerm); mkErr != nil {
+		return refused(mkErr, "create parent directory")
 	}
 	if err := ws.Rename(oldName, newName); err != nil {
 		return refused(err, "rename failed")
@@ -271,12 +275,13 @@ func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, new
 	return nil
 }
 
-// recordEdit records, before the change is made, that userID changes the
-// workspace names of the project (KI-94): a review refactoring that is not
-// measured yet counts the change as its own. Recording first means a change
-// the measurement includes is always listed; a change that then fails is
-// listed too. A change that cannot be recorded is refused, as an undo of
-// the refactoring could set it back without a warning.
+// recordEdit records, before anything is changed (parent directories
+// included), that userID changes the workspace names of the project
+// (KI-94): a review refactoring that is not measured yet counts the change
+// as its own. Recording first means a change the measurement includes is
+// always listed; a change that then fails (os.Root refuses a name behind a
+// symlink, say) is listed too. A change that cannot be recorded is refused,
+// as an undo of the refactoring could set it back without a warning.
 func (s *FileService) recordEdit(ctx context.Context, projectID, userID string, op review.UserEditOp, names ...string) error {
 	if s.edits == nil {
 		return nil
@@ -301,6 +306,16 @@ func (s *FileService) openWorkspace(ctx context.Context, projectID string) (*wor
 		return nil, refused(err, "open workspace")
 	}
 	return ws, nil
+}
+
+// insideWorkspace refuses a cleaned name that leaves the workspace by its
+// spelling ("..", "../x"), before the change is recorded; os.Root refuses
+// the rest when the change is made.
+func insideWorkspace(name string) error {
+	if !filepath.IsLocal(name) {
+		return fmt.Errorf("%w: %w: %s", domain.ErrValidation, workspacefs.ErrLeavesWorkspace, name)
+	}
+	return nil
 }
 
 // errWorkspaceRoot refuses deleting or renaming the workspace itself.

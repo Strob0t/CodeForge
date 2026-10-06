@@ -4825,6 +4825,7 @@ components:
 
     ReviewUserEdit:
       type: object
+      required: [path, operation, edited_at]
       properties:
         path:
           type: string
@@ -4835,9 +4836,10 @@ components:
           description: A rename lists the old and the new path
         user_id:
           type: string
-          description: Empty without an account (authentication disabled) or once the account is deleted
+          description: Omitted without an account (authentication disabled) and once the account is deleted
         user_name:
           type: string
+          description: The user's current name; omitted when user_id is
         edited_at:
           type: string
           format: date-time

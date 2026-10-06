@@ -119,6 +119,11 @@ func TestFileService_UnrecordedReviewEditIsRefused(t *testing.T) {
 		{"write", func(svc *FileService) error { return svc.WriteFile(ctx, "p1", "a.go", "new", "u1") }},
 		{"delete", func(svc *FileService) error { return svc.DeleteFile(ctx, "p1", "a.go", "u1") }},
 		{"rename", func(svc *FileService) error { return svc.RenameFile(ctx, "p1", "a.go", "b.go", "u1") }},
+		// Review nit: not even the parent directories are created.
+		{"write into a new directory", func(svc *FileService) error { return svc.WriteFile(ctx, "p1", "newdir/b.go", "b", "u1") }},
+		{"rename into a new directory", func(svc *FileService) error {
+			return svc.RenameFile(ctx, "p1", "a.go", "newdir/b.go", "u1")
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, rec, dir := editFixture(t)
@@ -129,8 +134,10 @@ func TestFileService_UnrecordedReviewEditIsRefused(t *testing.T) {
 			if got := readFile(t, dir, "a.go"); got != "old" {
 				t.Fatalf("a.go = %q, want it unchanged", got)
 			}
-			if _, err := os.Stat(filepath.Join(dir, "b.go")); !os.IsNotExist(err) {
-				t.Fatalf("b.go: %v, want no rename", err)
+			for _, name := range []string{"b.go", "newdir"} {
+				if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+					t.Fatalf("%s: %v, want the workspace left as it was", name, err)
+				}
 			}
 		})
 	}

@@ -18,13 +18,13 @@ import (
 // state refactoring meanwhile either waits for the insert or is seen in its
 // new state, and then nothing is recorded.
 const recordReviewUserEditsSQL = `
-	INSERT INTO review_user_edits (plan_id, path, tenant_id, step_id, operation, user_id)
-	SELECT rp.plan_id, p.path, rp.tenant_id, rp.step_id, $4, $5
+	INSERT INTO review_user_edits (plan_id, path, tenant_id, operation, user_id)
+	SELECT rp.plan_id, p.path, rp.tenant_id, $4, $5
 	FROM review_pipelines rp CROSS JOIN (SELECT DISTINCT unnest($3::text[])) AS p(path)
 	WHERE rp.project_id = $1 AND rp.tenant_id = $2 AND rp.state = $6
 	FOR SHARE OF rp
 	ON CONFLICT (plan_id, path) DO UPDATE
-	SET step_id = EXCLUDED.step_id, operation = EXCLUDED.operation, user_id = EXCLUDED.user_id, edited_at = now()`
+	SET operation = EXCLUDED.operation, user_id = EXCLUDED.user_id, edited_at = now()`
 
 // RecordReviewUserEdits records that userID changes paths of the project
 // through the editor or the file API, for each review pipeline of the

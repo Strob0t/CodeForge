@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS review_user_edits (
     plan_id   UUID NOT NULL REFERENCES review_pipelines(plan_id) ON DELETE CASCADE,
     path      TEXT NOT NULL,
     tenant_id UUID NOT NULL,
-    step_id   TEXT NOT NULL DEFAULT '',
     operation TEXT NOT NULL CHECK (operation IN ('write', 'delete', 'rename')),
     user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
     edited_at TIMESTAMPTZ NOT NULL DEFAULT now(),
