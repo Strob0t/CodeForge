@@ -7,6 +7,12 @@ on:
 
 permissions: {} # Default: no permissions. Jobs declare what they need.
 
+# One run per ref at a time, in order: a later push never leaves :main or
+# :staging pointing at an older commit (KI-214).
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ${{ github.repository_owner }}/codeforge
@@ -136,8 +142,8 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=core
+          cache-to: type=gha,mode=max,scope=core
 
       # The scan pulls exactly this push by digest; registry paths must be
       # lowercase and the repository owner may not be.
@@ -209,8 +215,8 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
 
       # The scan pulls exactly this push by digest; registry paths must be
       # lowercase and the repository owner may not be.
@@ -282,8 +288,8 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
       # The scan pulls exactly this push by digest; registry paths must be
       # lowercase and the repository owner may not be.
