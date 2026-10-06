@@ -856,7 +856,7 @@ def _prose_before(text: str) -> str:
 
 def _utf8_safe(text: str) -> str:
     """*text* with lone surrogates (from "\\udXXX" escapes) replaced, so it encodes as UTF-8."""
-    return _LONE_SURROGATE.sub("�", text)
+    return _LONE_SURROGATE.sub("\ufffd", text)
 
 
 def _utf8_safe_args(value: dict[str, object]) -> dict[str, object]:

@@ -185,7 +185,7 @@ class ProtocolStreamFilter:
         try:
             code = int(digits, 16)
         except ValueError:
-            self._put("�")
+            self._put("\ufffd")
             return
         if 0xD800 <= code <= 0xDBFF:
             self._put_pending_surrogate()
@@ -195,14 +195,14 @@ class ProtocolStreamFilter:
             self._high_surrogate = 0
             self._put(chr(pair))
         elif 0xDC00 <= code <= 0xDFFF:
-            self._put("�")
+            self._put("\ufffd")
         else:
             self._put(chr(code))
 
     def _put_pending_surrogate(self) -> None:
         if self._high_surrogate:
             self._high_surrogate = 0
-            self._put("�")
+            self._put("\ufffd")
 
     def _put(self, text: str) -> None:
         """A decoded string character: part of a key, of a streamed value, or dropped."""
