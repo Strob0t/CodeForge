@@ -5,6 +5,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain/channel"
 	lspDomain "github.com/Strob0t/CodeForge/internal/domain/lsp"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
 // TaskStatusEvent is broadcast when a task's status changes.
@@ -212,6 +213,12 @@ type ReviewImpactEvent struct {
 	CrossLayer   bool   `json:"cross_layer"`
 	Structural   bool   `json:"structural"`
 	Reason       string `json:"reason,omitempty"`
+	// UserEdits are the paths users changed through the editor or the file
+	// API while the refactoring ran (KI-94): they count as its change, and an
+	// undo sets them back too. Set on approval requests; the list is capped
+	// and UserEditsTotal counts them all.
+	UserEdits      []review.UserEdit `json:"user_edits,omitempty"`
+	UserEditsTotal int               `json:"user_edits_total,omitempty"`
 }
 
 // ReviewStatusEvent is broadcast when a review's status changes.

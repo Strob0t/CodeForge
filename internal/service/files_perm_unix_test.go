@@ -19,7 +19,7 @@ func TestWriteFile_WritableForTheWorkspaceGroup(t *testing.T) {
 
 	wsDir := t.TempDir()
 	svc := newTestFileService(wsDir)
-	if err := svc.WriteFile(context.Background(), "p1", "new.txt", "x"); err != nil {
+	if err := svc.WriteFile(context.Background(), "p1", "new.txt", "x", ""); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(wsDir, "new.txt"))

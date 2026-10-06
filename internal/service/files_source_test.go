@@ -149,7 +149,7 @@ func TestWriteFile_CreatesDirectories(t *testing.T) {
 
 	// WriteFile creates the missing parent directories inside the workspace.
 	relPath := filepath.Join("sub", "deeper", "newfile.txt")
-	err := svc.WriteFile(context.Background(), "p1", relPath, "hello world")
+	err := svc.WriteFile(context.Background(), "p1", relPath, "hello world", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestDeleteFile_NotFound(t *testing.T) {
 	wsDir := t.TempDir()
 	svc := newTestFileService(wsDir)
 
-	err := svc.DeleteFile(context.Background(), "p1", "nonexistent.go")
+	err := svc.DeleteFile(context.Background(), "p1", "nonexistent.go", "")
 	if err == nil {
 		t.Fatal("expected error for deleting nonexistent file")
 	}
@@ -194,7 +194,7 @@ func TestRenameFile_CrossDirectory(t *testing.T) {
 
 	svc := newTestFileService(wsDir)
 
-	err := svc.RenameFile(context.Background(), "p1", "subdir-a/file.txt", "subdir-b/file.txt")
+	err := svc.RenameFile(context.Background(), "p1", "subdir-a/file.txt", "subdir-b/file.txt", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

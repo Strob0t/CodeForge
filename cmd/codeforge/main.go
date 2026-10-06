@@ -860,6 +860,9 @@ func run() error {
 
 	// --- File Service ---
 	fileSvc := service.NewFileService(store)
+	// Editor and file-API changes made while a review refactoring runs are
+	// listed in its approval dialog (KI-94).
+	fileSvc.SetReviewEditRecorder(store)
 	slog.Info("file service initialized")
 
 	// --- Feedback Providers (Phase 22D) ---

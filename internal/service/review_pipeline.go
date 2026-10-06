@@ -80,7 +80,14 @@ type reviewPipelineStore interface {
 	HasActiveReviewPipeline(ctx context.Context, projectID string) (bool, error)
 	GetPlanStepByRunID(ctx context.Context, runID string) (*plan.Step, error)
 	ListPlansByProject(ctx context.Context, projectID string) ([]plan.ExecutionPlan, error)
+	ListReviewUserEdits(ctx context.Context, planID string, limit int) ([]review.UserEdit, int, error)
+	DeleteReviewUserEdits(ctx context.Context, planID string) error
 }
+
+// maxListedUserEdits caps the user edits an approval request lists (KI-94),
+// so a bulk change through the file API cannot make the event or the dialog
+// large; the request counts them all (UserEditsTotal).
+const maxListedUserEdits = 100
 
 // reviewPlanner creates, starts and decides the review plans.
 type reviewPlanner interface {
@@ -640,8 +647,21 @@ func (s *ReviewPipelineService) requireApproval(_ context.Context, ev *event.Rev
 		if rp != nil && rp.State == review.PipelineRefactoring && !s.awaitDecision(ctx, rp, &announced) {
 			return
 		}
-		s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, announced)
+		s.announceApproval(ctx, &announced)
 	}
+}
+
+// announceApproval broadcasts review.approval_required with the paths users
+// changed while the refactoring ran (KI-94). They are read once the decision
+// is recorded, when no more are recorded for it. A failed read is logged and
+// the request is announced without them: the dialog loads them again with
+// the pending decisions (PendingDecisions).
+func (s *ReviewPipelineService) announceApproval(ctx context.Context, ev *event.ReviewImpactEvent) {
+	edits, total, err := s.store.ListReviewUserEdits(ctx, ev.PlanID, maxListedUserEdits)
+	logBestEffort(ctx, err, "ListReviewUserEdits: approval request announced without the user edits",
+		slog.String("plan_id", ev.PlanID))
+	ev.UserEdits, ev.UserEditsTotal = edits, total
+	s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, *ev)
 }
 
 // awaitDecision records that the measured refactoring of rp waits for the
@@ -695,8 +715,8 @@ func normalizeRepoPath(p string) string {
 }
 
 // finish marks the review pipeline done (compare-and-swap from state from)
-// and drops its refs. A record that moved on meanwhile (another path asks for
-// a decision, or finished it) keeps its refs.
+// and drops its refs and its recorded user edits. A record that moved on
+// meanwhile (another path asks for a decision, or finished it) keeps them.
 func (s *ReviewPipelineService) finish(ctx context.Context, rp *review.Pipeline, dir string, from review.PipelineState) {
 	rp.State = review.PipelineDone
 	err := s.store.UpdateReviewPipeline(ctx, rp, from)
@@ -708,6 +728,10 @@ func (s *ReviewPipelineService) finish(ctx context.Context, rp *review.Pipeline,
 		logBestEffort(ctx, err, "UpdateReviewPipeline: review done", slog.String("plan_id", rp.PlanID))
 		return
 	}
+	// The user edits recorded during the refactoring (KI-94) were for its
+	// decision; left behind they are never shown and go with the plan.
+	logBestEffort(ctx, s.store.DeleteReviewUserEdits(ctx, rp.PlanID), "DeleteReviewUserEdits: review done",
+		slog.String("plan_id", rp.PlanID))
 	s.dropRefs(ctx, dir, rp.PlanID)
 }
 
@@ -741,8 +765,10 @@ type PendingReviewDecision struct {
 // PendingDecisions lists the refactorings of a project that wait for a keep
 // or undo decision, oldest first (S6-F 6): the dialog loads them when it
 // opens and when the WebSocket reconnects, so a decision is not lost with a
-// missed event. They wait until decided; there is no timeout. The project
-// must belong to the tenant in ctx.
+// missed event. They wait until decided; there is no timeout. Each lists the
+// paths users changed while it ran (KI-94); when those cannot be read the
+// listing fails, as the dialog would offer an undo that sets them back
+// unannounced. The project must belong to the tenant in ctx.
 func (s *ReviewPipelineService) PendingDecisions(ctx context.Context, projectID string) ([]PendingReviewDecision, error) {
 	if _, err := s.store.GetProject(ctx, projectID); err != nil {
 		return nil, err
@@ -761,6 +787,9 @@ func (s *ReviewPipelineService) PendingDecisions(ctx context.Context, projectID 
 		if im := rp.Impact; im != nil {
 			d.ImpactLevel, d.FilesChanged, d.LinesAdded, d.LinesRemoved = im.Level, im.FilesChanged, im.LinesAdded, im.LinesRemoved
 			d.CrossLayer, d.Structural, d.Reason = im.CrossLayer, im.Structural, im.Reason
+		}
+		if d.UserEdits, d.UserEditsTotal, err = s.store.ListReviewUserEdits(ctx, rp.PlanID, maxListedUserEdits); err != nil {
+			return nil, err
 		}
 		if p, err := s.store.GetPlan(ctx, rp.PlanID); err == nil {
 			d.PlanStatus = string(p.Status)
@@ -1021,7 +1050,7 @@ func (s *ReviewPipelineService) askAfterEnd(ctx context.Context, rp *review.Pipe
 	}
 	slog.Warn("ended refactoring waits for keep or undo", "plan_id", rp.PlanID, "step_id", step.ID, "reason", ev.Reason)
 	if s.awaitDecision(ctx, rp, &ev) {
-		s.hub.BroadcastEvent(ctx, event.EventReviewApprovalRequired, ev)
+		s.announceApproval(ctx, &ev)
 	}
 	return true
 }

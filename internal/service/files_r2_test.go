@@ -25,20 +25,20 @@ func TestFileService_DeleteAndRenameRefuseTheRoot(t *testing.T) {
 	ctx := context.Background()
 
 	for _, name := range []string{".", "", "/", "x/..", "./", "x/y/../..", "x/../.", "/x/.."} {
-		if err := svc.DeleteFile(ctx, "p1", name); !errors.Is(err, domain.ErrValidation) {
+		if err := svc.DeleteFile(ctx, "p1", name, ""); !errors.Is(err, domain.ErrValidation) {
 			t.Errorf("DeleteFile(%q) = %v, want a validation error", name, err)
 		}
-		if err := svc.RenameFile(ctx, "p1", name, "moved"); !errors.Is(err, domain.ErrValidation) {
+		if err := svc.RenameFile(ctx, "p1", name, "moved", ""); !errors.Is(err, domain.ErrValidation) {
 			t.Errorf("RenameFile(%q, moved) = %v, want a validation error", name, err)
 		}
-		if err := svc.RenameFile(ctx, "p1", "keep.txt", name); !errors.Is(err, domain.ErrValidation) {
+		if err := svc.RenameFile(ctx, "p1", "keep.txt", name, ""); !errors.Is(err, domain.ErrValidation) {
 			t.Errorf("RenameFile(keep.txt, %q) = %v, want a validation error", name, err)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(ws, "keep.txt")); err != nil {
 		t.Fatal("the workspace contents were changed")
 	}
-	if err := svc.DeleteFile(ctx, "p1", "x/y/.."); err != nil {
+	if err := svc.DeleteFile(ctx, "p1", "x/y/..", ""); err != nil {
 		t.Fatalf("DeleteFile(x/y/..) deletes x: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "x")); !os.IsNotExist(err) {

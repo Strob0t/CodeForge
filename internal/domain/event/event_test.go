@@ -3,8 +3,10 @@ package event_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/Strob0t/CodeForge/internal/domain/event"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 )
 
 func TestAgentEvent_SequenceNumberJSON(t *testing.T) {
@@ -89,5 +91,32 @@ func TestReviewImpactEvent_JSONFields(t *testing.T) {
 	}
 	if len(fields) != 11 {
 		t.Errorf("ReviewImpactEvent JSON has %d fields, want 11: %s", len(fields), data)
+	}
+}
+
+// KI-94: an approval request lists the files users changed while the
+// refactoring ran, as the frontend's ReviewUserEdit reads them.
+func TestReviewImpactEvent_UserEditsJSON(t *testing.T) {
+	data, err := json.Marshal(event.ReviewImpactEvent{RunID: "r", UserEditsTotal: 1, UserEdits: []review.UserEdit{{
+		Path: "a.go", Operation: review.UserEditWrite, UserID: "u1", UserName: "Ada",
+		EditedAt: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC),
+	}}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got struct {
+		Total int                          `json:"user_edits_total"`
+		Edits []map[string]json.RawMessage `json:"user_edits"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Total != 1 || len(got.Edits) != 1 {
+		t.Fatalf("ReviewImpactEvent JSON = %s, want one user edit", data)
+	}
+	for _, key := range []string{"path", "operation", "user_id", "user_name", "edited_at"} {
+		if _, ok := got.Edits[0][key]; !ok {
+			t.Errorf("user edit JSON has no %q: %s", key, data)
+		}
 	}
 }

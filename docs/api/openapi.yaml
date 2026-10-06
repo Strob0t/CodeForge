@@ -644,6 +644,9 @@ paths:
       description: |
         Requires admin or editor role. Deletes the file or directory at `path` (a symlink is deleted itself, never its
         target). The workspace root cannot be deleted: `.` and any name that cleans to it, such as `x/..`, answer 400.
+        While a review pipeline of the project refactors (its change not measured yet), the path is recorded with
+        the user and listed in the refactoring's approval dialog (KI-94); the change is still made. A change that
+        cannot be recorded is refused (401 when the account is gone).
       operationId: deleteProjectFile
       security:
         - bearerAuth: []
@@ -664,6 +667,8 @@ paths:
                 $ref: "#/components/schemas/StatusOK"
         "400":
           $ref: "#/components/responses/WorkspacePathRefused"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -737,6 +742,9 @@ paths:
       description: |
         Requires admin or editor role. Creates or overwrites a regular file (parent directories are created). A path
         that leaves the workspace, or an existing special file, answers 400.
+        While a review pipeline of the project refactors (its change not measured yet), the path is recorded with
+        the user and listed in the refactoring's approval dialog (KI-94); the change is still made. A change that
+        cannot be recorded is refused (401 when the account is gone).
       operationId: writeProjectFile
       security:
         - bearerAuth: []
@@ -763,6 +771,8 @@ paths:
                 $ref: "#/components/schemas/StatusOK"
         "400":
           $ref: "#/components/responses/WorkspacePathRefused"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -774,7 +784,11 @@ paths:
       summary: Rename or move a workspace file or directory
       description: |
         Requires admin or editor role. A symlink is renamed itself, never its target. The workspace root can be neither
-        the source nor the target: `.` and any name that cleans to it answer 400.
+        the source nor the target: `.` and any name that cleans to it answer 400. A rename is recorded for the old and
+        the new path.
+        While a review pipeline of the project refactors (its change not measured yet), the path is recorded with
+        the user and listed in the refactoring's approval dialog (KI-94); the change is still made. A change that
+        cannot be recorded is refused (401 when the account is gone).
       operationId: renameProjectFile
       security:
         - bearerAuth: []
@@ -801,6 +815,8 @@ paths:
                 $ref: "#/components/schemas/StatusOK"
         "400":
           $ref: "#/components/responses/WorkspacePathRefused"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -4796,6 +4812,36 @@ components:
         since:
           type: string
           format: date-time
+        user_edits:
+          type: array
+          description: >
+            The paths users changed through the editor or the file API while the refactoring ran (KI-94).
+            They count as the refactoring's change, and an undo sets them back too. At most 100, by path.
+          items:
+            $ref: "#/components/schemas/ReviewUserEdit"
+        user_edits_total:
+          type: integer
+          description: How many paths users changed in all (user_edits is capped)
+
+    ReviewUserEdit:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Workspace-relative path
+        operation:
+          type: string
+          enum: [write, delete, rename]
+          description: A rename lists the old and the new path
+        user_id:
+          type: string
+          description: Empty without an account (authentication disabled) or once the account is deleted
+        user_name:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+          description: The latest change of the path
 
     QuarantineMessage:
       type: object

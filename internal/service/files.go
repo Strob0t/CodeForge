@@ -12,6 +12,7 @@ import (
 
 	"github.com/Strob0t/CodeForge/internal/domain"
 	"github.com/Strob0t/CodeForge/internal/domain/project"
+	"github.com/Strob0t/CodeForge/internal/domain/review"
 	"github.com/Strob0t/CodeForge/internal/port/database"
 	"github.com/Strob0t/CodeForge/internal/workspacefs"
 )
@@ -40,11 +41,30 @@ type FileContent struct {
 // and symlinks are deleted and renamed themselves, never their targets.
 type FileService struct {
 	store database.Store
+	// edits, when set, records the changes users make while a review
+	// pipeline of the project refactors (KI-94).
+	edits reviewEditRecorder
+}
+
+// reviewEditRecorder records that a user changes paths of a project through
+// the editor or the file API, for each review pipeline of the project whose
+// refactoring is not measured yet; nothing when there is none
+// (postgres.Store.RecordReviewUserEdits).
+type reviewEditRecorder interface {
+	RecordReviewUserEdits(ctx context.Context, projectID, userID string, op review.UserEditOp, paths []string) error
 }
 
 // NewFileService creates a new FileService.
 func NewFileService(store database.Store) *FileService {
 	return &FileService{store: store}
+}
+
+// SetReviewEditRecorder makes the changes users make while a review
+// pipeline's refactoring runs show in its approval dialog (KI-94): the
+// workspace records no writer, so such a change counts as the refactoring's
+// and an undo sets it back too. The changes stay allowed.
+func (s *FileService) SetReviewEditRecorder(r reviewEditRecorder) {
+	s.edits = r
 }
 
 // maxFileSize caps the files ReadFile returns, to prevent OOM.
@@ -169,8 +189,9 @@ func (s *FileService) ReadFile(ctx context.Context, projectID, relPath string) (
 	}, nil
 }
 
-// WriteFile writes content to a file within a project workspace.
-func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content string) error {
+// WriteFile writes content to a file within a project workspace on behalf
+// of userID ("" for a request without an account).
+func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content, userID string) error {
 	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return err
@@ -183,6 +204,9 @@ func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content
 		return refused(err, "create parent directory")
 	}
 
+	if err := s.recordEdit(ctx, projectID, userID, review.UserEditWrite, name); err != nil {
+		return err
+	}
 	if err := ws.WriteFile(name, []byte(content), project.WorkspaceFilePerm); err != nil {
 		return refused(err, "write file")
 	}
@@ -191,8 +215,8 @@ func (s *FileService) WriteFile(ctx context.Context, projectID, relPath, content
 }
 
 // DeleteFile removes a file or directory within a project workspace (a
-// symlink itself, never its target).
-func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string) error {
+// symlink itself, never its target) on behalf of userID.
+func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath, userID string) error {
 	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return err
@@ -207,6 +231,9 @@ func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string)
 		return refused(statErr, "path does not exist")
 	}
 
+	if err := s.recordEdit(ctx, projectID, userID, review.UserEditDelete, name); err != nil {
+		return err
+	}
 	if err := ws.RemoveAll(name); err != nil {
 		return refused(err, "delete failed")
 	}
@@ -214,8 +241,8 @@ func (s *FileService) DeleteFile(ctx context.Context, projectID, relPath string)
 }
 
 // RenameFile moves/renames a file or directory within a project workspace
-// (a symlink itself, never its target).
-func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, newRelPath string) error {
+// (a symlink itself, never its target) on behalf of userID.
+func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, newRelPath, userID string) error {
 	ws, err := s.openWorkspace(ctx, projectID)
 	if err != nil {
 		return err
@@ -235,8 +262,27 @@ func (s *FileService) RenameFile(ctx context.Context, projectID, oldRelPath, new
 		return refused(mkErr, "create parent directory")
 	}
 
+	if err := s.recordEdit(ctx, projectID, userID, review.UserEditRename, oldName, newName); err != nil {
+		return err
+	}
 	if err := ws.Rename(oldName, newName); err != nil {
 		return refused(err, "rename failed")
+	}
+	return nil
+}
+
+// recordEdit records, before the change is made, that userID changes the
+// workspace names of the project (KI-94): a review refactoring that is not
+// measured yet counts the change as its own. Recording first means a change
+// the measurement includes is always listed; a change that then fails is
+// listed too. A change that cannot be recorded is refused, as an undo of
+// the refactoring could set it back without a warning.
+func (s *FileService) recordEdit(ctx context.Context, projectID, userID string, op review.UserEditOp, names ...string) error {
+	if s.edits == nil {
+		return nil
+	}
+	if err := s.edits.RecordReviewUserEdits(ctx, projectID, userID, op, names); err != nil {
+		return fmt.Errorf("record the change for the project's review refactoring: %w", err)
 	}
 	return nil
 }

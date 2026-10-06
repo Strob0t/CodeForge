@@ -68,3 +68,31 @@ type Impact struct {
 	// measured (or why a failed refactoring asks), "" otherwise.
 	Reason string `json:"reason,omitempty"`
 }
+
+// UserEditOp is how a user changed a workspace path through the editor or
+// the file API.
+type UserEditOp string
+
+const (
+	UserEditWrite  UserEditOp = "write"
+	UserEditDelete UserEditOp = "delete"
+	// UserEditRename is recorded for the old and for the new path.
+	UserEditRename UserEditOp = "rename"
+)
+
+// UserEdit is a workspace path a user changed through the editor or the file
+// API while a review pipeline's refactoring was not measured yet (state
+// refactoring, KI-94). The workspace records no writer, so the change counts
+// as the refactoring's: it is measured with it, and an undo sets it back
+// too. The approval dialog lists these paths, one entry per path (its latest
+// change).
+type UserEdit struct {
+	Path      string     `json:"path"`
+	Operation UserEditOp `json:"operation"`
+	// UserID and UserName are "" for a request without an account
+	// (authentication disabled, internal service key) and once the account
+	// is deleted.
+	UserID   string    `json:"user_id,omitempty"`
+	UserName string    `json:"user_name,omitempty"`
+	EditedAt time.Time `json:"edited_at"`
+}

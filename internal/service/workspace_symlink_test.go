@@ -128,26 +128,26 @@ func TestFileService_StaysInsideTheWorkspace(t *testing.T) {
 	}
 
 	for _, name := range []string{"leak.txt", "outdir/new.txt", "outdir/x/y.txt", "../escape.txt"} {
-		if err := svc.WriteFile(ctx, "p1", name, "pwned"); !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
+		if err := svc.WriteFile(ctx, "p1", name, "pwned", ""); !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
 			t.Errorf("WriteFile(%s) = %v", name, err)
 		}
 	}
-	if err := within(t, func() error { return svc.WriteFile(ctx, "p1", "pipe", "x") }); !errors.Is(err, workspacefs.ErrNotRegular) {
+	if err := within(t, func() error { return svc.WriteFile(ctx, "p1", "pipe", "x", "") }); !errors.Is(err, workspacefs.ErrNotRegular) {
 		t.Errorf("WriteFile(pipe) = %v", err)
 	}
-	if err := svc.RenameFile(ctx, "p1", "src/a.go", "../moved.go"); !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
+	if err := svc.RenameFile(ctx, "p1", "src/a.go", "../moved.go", ""); !errors.Is(err, workspacefs.ErrLeavesWorkspace) {
 		t.Errorf("RenameFile out = %v", err)
 	}
-	if err := svc.RenameFile(ctx, "p1", "alias.go", "renamed.go"); err != nil {
+	if err := svc.RenameFile(ctx, "p1", "alias.go", "renamed.go", ""); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Lstat(filepath.Join(ws, "renamed.go")); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Error("RenameFile must move the symlink itself")
 	}
-	if err := svc.DeleteFile(ctx, "p1", "outdir"); err != nil {
+	if err := svc.DeleteFile(ctx, "p1", "outdir", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.DeleteFile(ctx, "p1", "."); !errors.Is(err, domain.ErrValidation) {
+	if err := svc.DeleteFile(ctx, "p1", ".", ""); !errors.Is(err, domain.ErrValidation) {
 		t.Errorf("DeleteFile(.) = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "src", "a.go")); err != nil {

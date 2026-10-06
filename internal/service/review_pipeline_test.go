@@ -54,6 +54,13 @@ type fakeReviewStore struct {
 	onGetProject   func()
 	recordErr      error // CreateReviewPipeline fails with it
 	cancelledTasks []string
+
+	// KI-94: the user edits recorded per plan, the limit they were last
+	// listed with, a listing error, and the plans whose edits were deleted.
+	userEdits    map[string][]review.UserEdit
+	editsLimit   int
+	editsErr     error
+	editsDeleted []string
 }
 
 func (f *fakeReviewStore) UpdateTaskStatus(_ context.Context, id string, status task.Status) error {

@@ -157,6 +157,13 @@ func (decisionStore) ListPendingReviewDecisions(_ context.Context, projectID str
 		Impact: &review.Impact{Level: "high", FilesChanged: 2, Reason: "the refactoring step ended failed"},
 	}}, nil
 }
+func (decisionStore) ListReviewUserEdits(_ context.Context, planID string, _ int) ([]review.UserEdit, int, error) {
+	if planID != "plan-1" {
+		return nil, 0, nil
+	}
+	return []review.UserEdit{{Path: "a.go", Operation: review.UserEditWrite, UserID: "u1", UserName: "Ada"}}, 1, nil
+}
+func (decisionStore) DeleteReviewUserEdits(context.Context, string) error { return nil }
 func (decisionStore) GetReviewPipeline(_ context.Context, planID string) (*review.Pipeline, error) {
 	if planID != "plan-1" {
 		return nil, domain.ErrNotFound
@@ -281,6 +288,11 @@ func TestPendingReviewDecisionsEndpoint(t *testing.T) {
 	if d := pending[0]; d.RunID != "run-4" || d.StepID != "step-1" || d.ProjectID != "proj-1" || d.ImpactLevel != "high" ||
 		d.StepStatus != "failed" || d.Reason == "" {
 		t.Fatalf("pending decision = %+v, want run-4 of the failed step with its impact", d)
+	}
+	// KI-94: the dialog names the files users changed while it ran.
+	if !strings.Contains(rec.Body.String(), `"user_edits":[{"path":"a.go","operation":"write","user_id":"u1","user_name":"Ada",`) ||
+		!strings.Contains(rec.Body.String(), `"user_edits_total":1`) {
+		t.Fatalf("GET pending = %s, want the user edits", rec.Body.String())
 	}
 	if rec := get(&cfhttp.Handlers{ReviewPipeline: svc}, "proj-2"); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Fatalf("GET pending of a project without decisions = %d %s, want []", rec.Code, rec.Body.String())
