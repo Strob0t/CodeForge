@@ -14,7 +14,14 @@ import json
 import pytest
 
 from codeforge.tools import build_default_registry
-from codeforge.tools.text_protocol import PROMPT_MAX_CHARS, TRANSITION_TOOL, TextToolProtocol
+from codeforge.tools.text_protocol import (
+    PROMPT_MAX_CHARS,
+    TRANSITION_TOOL,
+    TURN_MAX_TOKENS,
+    TextToolProtocol,
+    output_limit_rejected,
+    turn_max_tokens,
+)
 
 
 def _tool(name: str, description: str = "", parameters: dict[str, object] | None = None) -> dict[str, object]:
@@ -509,3 +516,44 @@ def test_earlier_native_parallel_calls() -> None:
     assert wire[3]["content"] == (
         '<tool_result tool="read_file">\nA\n</tool_result>\n\n<tool_result tool="read_file">\nB\n</tool_result>'
     )
+
+
+# --- output limit (S9-C review, finding 4) ---
+
+
+def _prompt_of(tokens: int) -> list[dict[str, object]]:
+    return [{"role": "system", "content": "s"}, {"role": "user", "content": "x" * (tokens * 4)}]
+
+
+@pytest.mark.parametrize(
+    ("window", "prompt_tokens", "expected"),
+    [
+        pytest.param(0, 1000, TURN_MAX_TOKENS, id="unknown-window"),
+        pytest.param(128_000, 1000, TURN_MAX_TOKENS, id="large-window"),
+        pytest.param(8192, 2000, 8192 - int((2000 + 1) * 1.25) - 256, id="small-window"),  # +1: the system message
+        pytest.param(4096, 3500, 1024, id="floor"),
+    ],
+)
+def test_turn_max_tokens_fits_the_context_window(window: int, prompt_tokens: int, expected: int) -> None:
+    assert turn_max_tokens(window, _prompt_of(prompt_tokens)) == expected
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "rejected"),
+    [
+        pytest.param(
+            400,
+            "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens "
+            "(808 in the messages, 8192 in the completion).",
+            True,
+            id="vllm",
+        ),
+        pytest.param(400, "litellm.ContextWindowExceededError: prompt too long", True, id="litellm"),
+        pytest.param(400, "max_tokens is too large: 8192. This model supports at most 4096", True, id="max-tokens"),
+        pytest.param(400, "the request exceeds the available context size", True, id="llama-cpp"),
+        pytest.param(500, "maximum context length", False, id="other-status"),
+        pytest.param(400, "invalid api key", False, id="other-error"),
+    ],
+)
+def test_output_limit_rejected(status: int, body: str, rejected: bool) -> None:
+    assert output_limit_rejected(status, body) is rejected

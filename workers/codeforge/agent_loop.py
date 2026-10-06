@@ -60,13 +60,14 @@ from codeforge.tools.capability import ALWAYS_OFFERED_TOOLS, TOOLS_BY_CAPABILITY
 from codeforge.tools.text_protocol import (
     EXTRA_CALLS_NOTE,
     REPAIR_NOTICE,
-    TURN_MAX_TOKENS,
     TextProtocolError,
     TextToolCall,
     TextToolProtocol,
     grammar_rejected,
     native_response,
     native_tools_refused,
+    output_limit_rejected,
+    turn_max_tokens,
 )
 from codeforge.tools.text_protocol_stream import ProtocolStreamFilter
 from codeforge.tracing import metrics as otel_metrics
@@ -153,6 +154,9 @@ class LoopConfig:
     # Pure-completion models: constrain text tool protocol replies with a
     # JSON-schema grammar (litellm.text_tool_grammar, S9-C).
     text_tool_grammar: bool = True
+    # The model's context window in tokens (LiteLLM's max_input_tokens),
+    # 0 when unknown: text protocol turns cut max_tokens to fit it.
+    context_window: int = 0
 
 
 # An announced next step in the last part of a reply ("I will now ...",
@@ -221,16 +225,20 @@ class _LLMRequest:
 
 
 def _llm_request(
-    protocol: TextToolProtocol | None, tools_array: list[dict[str, object]], messages: list[dict[str, object]]
+    protocol: TextToolProtocol | None,
+    tools_array: list[dict[str, object]],
+    messages: list[dict[str, object]],
+    context_window: int,
 ) -> _LLMRequest:
-    """The request of an iteration: native tools, or the text tool protocol's text and grammar (S9-C)."""
+    """The request of an iteration: native tools, or the text tool protocol's text, grammar and output limit (S9-C)."""
     if protocol is None:
         return _LLMRequest(messages=messages, tools=tools_array or None)
+    wire = protocol.wire_messages(messages)
     return _LLMRequest(
-        messages=protocol.wire_messages(messages),
+        messages=wire,
         tools=None,
         response_format=protocol.response_format(),
-        max_tokens=TURN_MAX_TOKENS,
+        max_tokens=turn_max_tokens(context_window, wire) if protocol.send_max_tokens else None,
     )
 
 
@@ -439,6 +447,7 @@ class AgentLoopExecutor:
         if next_model is None:
             return f"LLM call failed: {exc}"
         cfg.model = next_model
+        cfg.context_window = 0  # the window was the failed model's
         logger.warning("model fallback: %s -> %s (status %d)", failed_model, next_model, exc.status_code)
         notice = f"\n[Model {failed_model} unavailable ({exc.status_code}). Switching to {next_model}]\n"
         await self._runtime.send_output(notice)
@@ -740,7 +749,7 @@ class AgentLoopExecutor:
         messages, grammar and max_tokens instead of tools, and the stream
         shows only the reply's prose, thought and final text.
         """
-        request = _llm_request(state.tool_protocol, tools_array, messages)
+        request = _llm_request(state.tool_protocol, tools_array, messages, cfg.context_window)
         tracer = trace.get_tracer("codeforge")
         model_name = cfg.model or resolve_model()
         llm_start = time.monotonic()
@@ -818,8 +827,10 @@ class AgentLoopExecutor:
         if not isinstance(exc, LLMError):
             logger.exception("LLM call failed on iteration %d (unexpected)", iteration)
             exc = LLMError(status_code=500, model=model_name, body=str(exc))
-        elif self._drop_rejected_grammar(state.tool_protocol, exc) or await self._switch_to_text_protocol(
-            cfg, state, tools_array, exc
+        elif (
+            self._drop_rejected_grammar(state.tool_protocol, exc)
+            or self._drop_rejected_output_limit(state.tool_protocol, exc)
+            or await self._switch_to_text_protocol(cfg, state, tools_array, exc)
         ):
             return IterationContinue()
         err = await self._handle_llm_error(cfg, state, exc, iteration)
@@ -847,6 +858,21 @@ class AgentLoopExecutor:
         )
         await self._runtime.send_output(
             f"\n[Model {cfg.model} does not support native tool calls. Switching to the text tool protocol]\n"
+        )
+        return True
+
+    @staticmethod
+    def _drop_rejected_output_limit(protocol: TextToolProtocol | None, exc: LLMError) -> bool:
+        """Stop sending max_tokens for the run when the server refused it (it exceeds the context window).
+
+        Returns True when the iteration should be retried without it: the
+        server then uses what the prompt leaves of the window.
+        """
+        if protocol is None or not protocol.send_max_tokens or not output_limit_rejected(exc.status_code, exc.body):
+            return False
+        protocol.send_max_tokens = False
+        logger.warning(
+            "the server refused max_tokens (status %d), continuing without it: %s", exc.status_code, exc.body[:200]
         )
         return True
 

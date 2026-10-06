@@ -23,6 +23,7 @@ import string
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from codeforge.history import estimate_messages_tokens
 from codeforge.llm import ToolCallPart
 
 if TYPE_CHECKING:
@@ -33,8 +34,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # max_tokens of a protocol turn: a grammar can make a model loop on
-# whitespace inside the object; revisit after the live check.
+# whitespace inside the object; revisit after the live check. With a known
+# context window it is cut to what the prompt leaves (an estimate: chars/4,
+# plus a quarter and the chat template's overhead), but not below the floor.
 TURN_MAX_TOKENS = 8192
+_MIN_TURN_TOKENS = 1024
+_PROMPT_ESTIMATE_FACTOR = 1.25
+_TEMPLATE_OVERHEAD_TOKENS = 256
+# Error bodies of a server that refuses the output limit (400): the prompt
+# and max_tokens exceed the context window (vLLM, OpenAI, llama.cpp,
+# LiteLLM's ContextWindowExceededError), or max_tokens exceeds the model's.
+_OUTPUT_LIMIT_WORDS = (
+    "maximum context length",
+    "context length",
+    "context window",
+    "contextwindowexceeded",
+    "context size",
+    "max_tokens",
+    "max_completion_tokens",
+)
 # Tokens a conversation's history budget leaves for the prompt section.
 HISTORY_RESERVE_TOKENS = 1000
 # Shown to the user when an unusable reply is sent back to the model once.
@@ -187,6 +205,9 @@ class TextToolProtocol:
 
     def __init__(self, tools: list[dict[str, object]], *, plan_act: bool = False, grammar: bool = True) -> None:
         self.grammar = grammar
+        # Whether requests carry max_tokens; off for the rest of the run
+        # when the server refused it (output_limit_rejected).
+        self.send_max_tokens = True
         self.prompt, offered = _render_section(_tools_from_openai(tools), plan_act)
         names = [t.name for t in offered]
         if plan_act:
@@ -269,6 +290,23 @@ def grammar_rejected(status_code: int, body: str) -> bool:
     """Whether an LLM error says the server refused the turn grammar (response_format)."""
     lowered = body.lower()
     return status_code in _GRAMMAR_ERROR_STATUS and any(word in lowered for word in _GRAMMAR_ERROR_WORDS)
+
+
+def output_limit_rejected(status_code: int, body: str) -> bool:
+    """Whether an LLM error says the request's max_tokens does not fit the model."""
+    lowered = body.lower()
+    return status_code == 400 and any(word in lowered for word in _OUTPUT_LIMIT_WORDS)
+
+
+def turn_max_tokens(context_window: int, messages: list[dict[str, object]]) -> int:
+    """max_tokens of a protocol turn: TURN_MAX_TOKENS, cut to what *messages* leave of a known window.
+
+    *context_window* 0 means unknown (wildcard local routes report none).
+    """
+    if context_window <= 0:
+        return TURN_MAX_TOKENS
+    prompt = int(estimate_messages_tokens(messages) * _PROMPT_ESTIMATE_FACTOR) + _TEMPLATE_OVERHEAD_TOKENS
+    return max(_MIN_TURN_TOKENS, min(TURN_MAX_TOKENS, context_window - prompt))
 
 
 def native_tools_refused(status_code: int, body: str) -> bool:

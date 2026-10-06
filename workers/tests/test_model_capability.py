@@ -233,7 +233,9 @@ async def test_model_metadata_ignores_non_bool_and_non_int_values() -> None:
 async def test_resolve_capability_uses_metadata_and_context_window() -> None:
     llm = MetadataLLM([_row(LOCAL, fc=True, window=20_000)])
 
-    assert await resolve_model_capability(llm, LOCAL) == ModelCapability(CapabilityLevel.API_WITH_TOOLS, 17_000)
+    assert await resolve_model_capability(llm, LOCAL) == ModelCapability(
+        CapabilityLevel.API_WITH_TOOLS, 17_000, context_window=20_000
+    )
 
 
 async def test_resolve_capability_without_a_litellm_client_uses_the_name() -> None:
@@ -385,3 +387,40 @@ async def test_model_without_function_calling_uses_the_text_protocol_on_both_pat
 
     assert _uses_the_text_protocol(run_llm.calls[0])
     assert _uses_the_text_protocol(conversation_llm.calls[0])
+
+
+@pytest.mark.usefixtures("no_router")
+async def test_the_text_protocol_output_fits_the_reported_context_window(tmp_path: Path) -> None:
+    """S9-C review, finding 4: max_tokens 8192 made an 8k-context model fail every request."""
+    from codeforge.consumer import TaskConsumer
+
+    run_llm = MetadataLLM([_row(LOCAL, fc=False, window=8192)])
+    await _run(run_llm, tmp_path, {"model": LOCAL})
+
+    conversation_llm = MetadataLLM([_row(LOCAL, fc=False, window=8192)])
+    worker = TaskConsumer(nats_url="nats://test:4222", litellm_url="http://litellm.test")
+    worker._llm = conversation_llm
+    run_msg = ConversationRunStartMessage(
+        run_id="run-1",
+        conversation_id="c1",
+        project_id="proj-1",
+        messages=[],
+        system_prompt="s",
+        model=LOCAL,
+        workspace_path=str(tmp_path),
+        agentic=True,
+    )
+    await worker._execute_litellm_loop(
+        run_msg,
+        [{"role": "system", "content": "s"}, {"role": "user", "content": "Fix the bug in app.py"}],
+        LOCAL,
+        RoutingResult(),
+        _runtime(_AllowAll()),
+        build_default_registry(),
+        [],
+    )
+
+    for llm in (run_llm, conversation_llm):
+        max_tokens = llm.calls[0]["max_tokens"]
+        assert isinstance(max_tokens, int)
+        assert 1024 <= max_tokens < 8192

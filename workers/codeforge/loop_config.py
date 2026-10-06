@@ -31,10 +31,14 @@ _FALLBACK_CONTEXT_LIMITS: dict[CapabilityLevel, int] = {
 
 @dataclass(frozen=True)
 class ModelCapability:
-    """A model's tool capability level and the context token limit a run uses for it."""
+    """A model's tool capability level and the context token limit a run uses for it.
+
+    *context_window* is the window LiteLLM reports (None when unknown).
+    """
 
     level: CapabilityLevel
     context_limit: int
+    context_window: int | None = None
 
 
 async def resolve_model_capability(llm: object, model: str) -> ModelCapability:
@@ -58,7 +62,7 @@ async def resolve_model_capability(llm: object, model: str) -> ModelCapability:
         context_window=metadata.max_input_tokens,
         context_limit=limit,
     )
-    return ModelCapability(level=level, context_limit=limit)
+    return ModelCapability(level=level, context_limit=limit, context_window=metadata.max_input_tokens)
 
 
 def build_loop_config(
@@ -76,6 +80,7 @@ def build_loop_config(
     plan_act_enabled: bool = False,
     tool_output_max_chars: int = 0,
     implementation_turn: bool = False,
+    context_window: int | None = None,
 ) -> tuple[LoopConfig, str | None]:
     """Build the LoopConfig of a run with complexity-aware adjustments.
 
@@ -119,6 +124,7 @@ def build_loop_config(
         tool_output_max_chars=tool_output_max_chars,
         implementation_turn=implementation_turn,
         text_tool_grammar=get_settings().text_tool_grammar,
+        context_window=context_window or 0,
     )
 
     complexity = routing.complexity_tier or "unknown"

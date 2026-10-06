@@ -210,6 +210,7 @@ class AgentExecutor:
                 mode_tools=frozenset(mode.tools) if mode else frozenset(),
                 tool_output_max_chars=tool_output_max_chars,
                 implementation_turn=True,  # a run implements its task (KI-153)
+                context_window=capability.context_window,
             )
             messages: list[dict[str, object]] = [
                 {"role": "system", "content": system_prompt},

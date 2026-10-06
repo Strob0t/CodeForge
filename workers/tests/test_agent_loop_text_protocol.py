@@ -353,7 +353,7 @@ async def test_grammar_stays_off_for_the_rest_of_the_run(tmp_path: Path) -> None
 
 
 async def test_other_errors_keep_the_grammar(tmp_path: Path) -> None:
-    llm = ScriptedLLM([LLMError(400, MODEL, "context length exceeded")])
+    llm = ScriptedLLM([LLMError(400, MODEL, "invalid request: messages must alternate")])
 
     result, _, _ = await _run(llm, tmp_path)
 
@@ -368,6 +368,56 @@ async def test_grammar_switch_off(tmp_path: Path) -> None:
 
     assert llm.calls[0]["response_format"] is None
     assert SECTION in llm.text(0), "the protocol works without the grammar"
+
+
+# --- output limit (S9-C review, finding 4) ---
+
+_CONTEXT_400 = LLMError(
+    400,
+    MODEL,
+    "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens "
+    "(808 in the messages, 8192 in the completion). Please reduce the length of the messages or completion.",
+)
+
+
+async def test_max_tokens_fits_a_known_context_window(tmp_path: Path) -> None:
+    llm = ScriptedLLM([_final("Done.")])
+
+    await _run(llm, tmp_path, context_window=8192)
+
+    max_tokens = llm.calls[0]["max_tokens"]
+    assert isinstance(max_tokens, int)
+    assert 1024 <= max_tokens < 8192
+
+
+async def test_a_context_length_rejection_drops_max_tokens_for_the_run(tmp_path: Path) -> None:
+    llm = ScriptedLLM([_CONTEXT_400, _call("bash", {"command": "ls"}), _final("Done.")])
+
+    result, _, _ = await _run(llm, tmp_path, fallback_models=["ollama/other"])
+
+    assert not result.error  # type: ignore[attr-defined]
+    assert llm.calls[0]["max_tokens"] == TURN_MAX_TOKENS
+    assert [c["max_tokens"] for c in llm.calls[1:]] == [None, None]
+    assert all(c["model"] == MODEL for c in llm.calls), "no model fallback"
+    assert all(c["response_format"] is not None for c in llm.calls), "the grammar stays"
+
+
+async def test_a_second_context_length_rejection_is_an_error(tmp_path: Path) -> None:
+    llm = ScriptedLLM([_CONTEXT_400, _CONTEXT_400])
+
+    result, _, _ = await _run(llm, tmp_path)
+
+    assert "LLM call failed" in result.error  # type: ignore[attr-defined]
+    assert len(llm.calls) == 2
+
+
+async def test_a_model_fallback_forgets_the_context_window(tmp_path: Path) -> None:
+    llm = ScriptedLLM([LLMError(500, MODEL, "connection refused"), _final("Done.")])
+
+    await _run(llm, tmp_path, context_window=8192, fallback_models=["ollama/other"])
+
+    assert llm.calls[1]["model"] == "ollama/other"
+    assert llm.calls[1]["max_tokens"] == TURN_MAX_TOKENS, "the window was the primary model's"
 
 
 # --- native calls, plan/act, extra calls, stall ---

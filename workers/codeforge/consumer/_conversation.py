@@ -694,6 +694,7 @@ class ConversationHandlerMixin:
             plan_act_enabled=run_msg.plan_act_enabled,
             tool_output_max_chars=run_msg.tool_output_max_chars,
             implementation_turn=run_msg.implementation_turn,
+            context_window=capability.context_window,
         )
         if complexity_hint:
             messages.append({"role": "system", "content": complexity_hint})
