@@ -68,6 +68,13 @@ repos:
         pass_filenames: false
         types: [go]
 
+      - id: agents-word-limit
+        name: agents-word-limit
+        entry: scripts/check-agents-words.sh
+        language: system
+        pass_filenames: false
+        files: ^AGENTS\.md$
+
   # -- TypeScript / JavaScript (ESLint + Prettier) ------------
   - repo: local
     hooks:

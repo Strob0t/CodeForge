@@ -4,7 +4,7 @@ Instructions for developers and AI assistants working on CodeForge. This file ho
 
 Documentation, code comments, commit messages and configs are **English only**.
 
-**Keeping this file small:** one rule per line, mechanics and status go to `docs/` and are linked. Add a line only when breaking it would cause a defect that review and CI would not reliably catch. Target: under 3,000 words.
+**Keeping this file small:** one rule per line, mechanics and status go to `docs/` and are linked. Add a line only when breaking it would cause a defect that review and CI would not reliably catch. Limit: 3,000 words (`scripts/check-agents-words.sh`, pre-commit).
 
 ---
 
@@ -24,7 +24,7 @@ cd frontend && npm run lint && npm run format:check && npm run typecheck && npm 
 ```
 
 - Fix all errors before committing; add no new warnings.
-- Small atomic commits, one subtask each, never unrelated changes together.
+- Small atomic commits: one topic each, as a rule under 400 changed product lines, never an "in-progress" bundle; a `fix` of product code carries a regression test, or its body says why none is possible.
 - Conventional Commits: `<type>(<scope>): <subject>` (`feat`, `fix`, `docs`, `refactor`, `test`, `chore`, ...), English.
 - **Docs ship with the code: every change is documented in the same commit** (table below). Read `docs/todo.md` before work; mark items `[x]` with the date on completion; add new tasks and Known Issues when discovered.
 - Push after each successful change.
@@ -77,7 +77,7 @@ More: [`docs/architecture.md`](docs/architecture.md), [`docs/architecture/projec
 - **Approach C (ADR-006):** Go owns state, policies and sessions; Python owns LLM calls, tools and the agent loop; every tool call gets a Go policy decision over NATS.
 - **LLM capability levels:** full-featured agents (Claude Code, Aider, OpenHands) get orchestration only; APIs with tools (OpenAI, Claude, Gemini) add context (GraphRAG), routing and tools; pure completion (Ollama, LM Studio) gets everything, tools through the worker's text tool protocol (ADR-021). Worker modules: [`docs/architecture.md`](docs/architecture.md#worker-modules-in-detail).
 - Where things live: event types in `internal/domain/event/` (not the adapter layer); OTEL span helpers in `internal/telemetry/` (API only; services use `port/metrics.Recorder`); decoupling ports `port/codeintel/`, `port/tokenexchange/`, `port/llm/`; non-fatal store errors via `logBestEffort` (`internal/service/log_best_effort.go`), never silenced.
-- Prompt templates: YAML library in `internal/service/prompts/` (`//go:embed`, `text/template` via `PromptAssembler`) plus `.tmpl` files in `internal/service/templates/`.
+- Prompt templates: YAML library in `internal/service/prompts/` (`//go:embed`, `text/template` via `PromptAssembler`) plus `.tmpl` files in `internal/service/templates/`. A prompt is never changed to mask a non-prompt defect: classify an agent failure first (prompt, history, tool schema or result size, policy, loop).
 
 ### Infrastructure
 - **Zero-config startup** (defaults for everything); precedence defaults < YAML < env < CLI flags (ADR-003); YAML for config files, JSON only for API responses, events and internal exchange.
@@ -134,6 +134,8 @@ All new features follow TDD, no exceptions: **RED planning** (goals, acceptance 
 
 Edge case checklist: nil/null | empty strings/slices/maps | duplicates (idempotency) | concurrent access | max length/overflow | invalid UTF-8/special chars | missing required fields | exists vs not-found | permission edge cases | timeout/cancellation.
 
+Verification by risk: docs and config-only changes need the diff checked; runtime changes their packages' tests; migrations, policy, tenant isolation, NATS delivery and git/workspace safety also a read-only review ([`docs/agents/review.md`](docs/agents/review.md)).
+
 One test: [`docs/dev-setup.md#running-a-single-test`](docs/dev-setup.md#running-a-single-test). E2E (Playwright) and the live stack with a local model: [`docs/testing/e2e-setup.md`](docs/testing/e2e-setup.md), `scripts/live-e2e/`.
 
 ---
@@ -143,7 +145,7 @@ One test: [`docs/dev-setup.md#running-a-single-test`](docs/dev-setup.md#running-
 ### Agent system ([`docs/features/04-agent-orchestration.md`](docs/features/04-agent-orchestration.md))
 - Execution modes: only `mount` runs; `sandbox` and `hybrid` are rejected at start (HTTP 400, KI-13).
 - Per-mode tool lists live inline in each Mode (`Mode.Tools` / `Mode.DeniedTools`, canonical names), enforced by the Go policy on run and conversation paths.
-- MCP servers are tenant-scoped (their admins manage them); credentials (env and header values, URL userinfo/query, credential args) are redacted to `***`, and a stored value is kept only when sent back unchanged together with the transport, URL, command, args, other env values and headers (otherwise a stored token could be redirected); sse/streamable_http URLs follow the outbound policy (section 3).
+- MCP servers are tenant-scoped (their admins manage them); credentials (env and header values, URL userinfo/query, credential args) are redacted to `***`; a stored value is kept only when sent back unchanged with the same transport, URL, command, args, env and headers (else a token could be redirected); sse/streamable_http URLs follow the outbound policy (section 3).
 - Real-time state: `BroadcastEvent` is tenant-scoped (events without a tenant are dropped; `BroadcastGlobal` only for tenant-free data); WebSocket auth by single-use tickets (`POST /api/v1/ws/ticket`, then `GET /ws?ticket=`), never a JWT in the URL.
 - Conversations: one active run per conversation (a second message gets 409); every dispatch has a `turn_id`, calls of a stopped turn are denied. Runs (`runs.start`) use the same agent loop (`workers/codeforge/loop_config.py`). Key files: `workers/codeforge/agent_loop.py`, `workers/codeforge/tools/`, `internal/service/conversation.go`, `internal/service/runtime_*.go`.
 
@@ -184,12 +186,10 @@ One test: [`docs/dev-setup.md#running-a-single-test`](docs/dev-setup.md#running-
 
 ## 8. Subagents
 
-- Use them for well-specified, independent work (one Known Issue or one coherent group per agent, in its own git worktree); the prompt gives the scope, what not to touch, this file's conventions and the verification commands.
-- Review every agent result before it lands: cherry-pick onto the working branch, full verification (Go race + integration, Python, frontend, golangci-lint, pre-commit), a security and a code review, then a fix round. The lead writes the docs.
-- Agents never push and never edit `AGENTS.md` or `docs/` unless asked.
-- Reviews run on a read-only snapshot (a worktree at a fixed commit) and report each finding as file:line, severity, what breaks and the fix; the lead decides and applies.
-- In a worktree, agents use the gopls CLI (`gopls check`, `gopls references`), the session's gopls MCP server is bound to the main checkout.
-- Heavy runs (`go test -race ./...`, the full pytest, golangci-lint) are serialized through one lock across all agents (16 GB host, no swap); an agent that needs a database creates a private one (`codeforge_<round>`) and drops it when done.
+- Use them for well-specified, independent work (one Known Issue or coherent group per agent, in its own worktree); briefs follow [`docs/agents/brief.md`](docs/agents/brief.md).
+- Review every agent result before it lands: a read-only snapshot review per [`docs/agents/review.md`](docs/agents/review.md), then cherry-pick, full verification (Go race + integration, Python, frontend, golangci-lint, pre-commit) and a fix round. The lead writes the docs and decides each finding.
+- Agents never push and never edit `AGENTS.md` or `docs/` unless asked; they commit each Known Issue as soon as its tests are green.
+- At most two agents run at a time; heavy runs share one lock (16 GB host, no swap).
 
 ---
 

@@ -1330,6 +1330,10 @@ generates its own secret: create the webhook in Plane first, then register it wi
 sets or removes (`""`) the PM token, `DELETE` removes the webhook. An event is acted on only when it names the project's repository exactly
 (host and owner/name of `repo_url`, case-insensitive; Plane: `plane_project_id`); a PM webhook syncs with its own `api_token`.
 
+#### Branch protection for `staging` and `main` (owner sets it)
+
+CI alone does not stop a red or force-pushed commit from reaching `staging` or `main`; a repository ruleset does. The session cannot create it (the GitHub proxy refuses write access to the rulesets API), so the owner imports [`docs/ci/ruleset-staging-main.json`](ci/ruleset-staging-main.json) once: *Settings -> Rules -> Rulesets -> New ruleset -> Import a ruleset*. It requires a pull request (no approvals, the repository has one maintainer), the status checks `Go`, `Python`, `Frontend`, `Contract Tests`, `Smoke Tests`, `Security Scanning`, `Feature Verification` and `Tenant isolation (Docker, KI-96)` (the job names in `.github/workflows/ci.yml`; `strict` means the branch must be up to date with its base), and forbids deletion and force-pushes. Renaming a CI job means updating the ruleset.
+
 #### Upgrading to 0.9.0 (S10-I operations, S10-D git and SVN fixes)
 
 - **WAL archiving is off by default (KI-210).** Set `POSTGRES_ARCHIVE_MODE=on` only together with base backups and pruning (see [disaster-recovery.md](disaster-recovery.md)).
