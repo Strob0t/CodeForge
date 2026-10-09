@@ -10,7 +10,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-GO_TOOLCHAIN="go1.25.14"      # CI: setup-go "1.25" (latest patch)
+GO_TOOLCHAIN="go1.26.9"       # CI: setup-go "1.26" (latest patch)
 GOLANGCI_LINT_VERSION="2.11.4"
 # sha256 of golangci-lint-<version>-linux-amd64.tar.gz (the release's checksums file).
 GOLANGCI_LINT_SHA256="200c5b7503f67b59a6743ccf32133026c174e272b930ee79aa2aa6f37aca7ef1"

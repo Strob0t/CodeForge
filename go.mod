@@ -2,6 +2,8 @@ module github.com/Strob0t/CodeForge
 
 go 1.25.0
 
+toolchain go1.26.9
+
 require (
 	github.com/a2aproject/a2a-go v0.3.8
 	github.com/coder/websocket v1.8.14

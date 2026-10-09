@@ -6,7 +6,7 @@
 
 | Language   | Version | Area of Use           |
 |------------|---------|----------------------|
-| Go         | 1.25    | Core Service         |
+| Go         | 1.26    | Core Service         |
 | Python     | 3.12    | AI Workers           |
 | TypeScript | 5.x     | Frontend             |
 | Node.js    | 22 LTS  | Frontend Build/Dev   |
@@ -77,7 +77,7 @@
 
 #### Docker Production
 
-- `Dockerfile` — Go Core multi-stage build (golang:1.25-alpine to alpine:3.21)
+- `Dockerfile` — Go Core multi-stage build (golang:1.26-alpine to alpine:3.21)
 - `Dockerfile.worker` — Python Workers (python:3.12-slim, poetry; the container starts as root with only `SETUID`/`SETGID`/`KILL` and its entrypoint runs the worker as uid 10001; agent tool processes run as their tenant's tool UID (20000-29999) through `setpriv` from util-linux, already part of the base image, and the launch helper `codeforge/tool_exec.py` (stdlib only, Landlock through `ctypes`); ADR-017, ADR-018. KI-96 adds the Debian `acl` package (`setfacl`/`getfacl` for operators and `scripts/check-host.sh`; the worker itself sets ACLs through xattrs), precompiles the stdlib (`compileall`, about 24 ms per tool launch instead of 80 ms on the read-only root), and installs pytest and ruff into the system interpreter for tool processes (`workers/tool-requirements.txt`))
 - `Dockerfile.frontend` — Frontend (node:22-alpine build to nginxinc/nginx-unprivileged:1.27-alpine serve)
 - `docker-compose.prod.yml` — 6 services (core, worker, frontend, postgres, nats, litellm); Docker secret files, PostgreSQL TLS, read-only core with `core_data`/`workspaces` volumes
@@ -99,7 +99,7 @@ Shared through `.mcp.json` (no secrets, versions pinned; owner decision 2026-10-
 | Context7 | remote, 4.1.1 (Upstash) | HTTP `https://mcp.context7.com/mcp` | Library docs snippets (LiteLLM proxy config: `/websites/litellm_ai`) |
 | Serena (trial) | `serena-agent` 1.7.0 (GPL-3.0) | stdio, uvx | Read-only symbol navigation across Go, Python and TypeScript (`find_implementations` lists interface implementations including test mocks) |
 
-- gopls v0.21.1 is the newest gopls that builds with the repo's Go 1.25 (v0.22+ need Go 1.26); bump it with the Go version.
+- gopls v0.21.1 is pinned in the SessionStart hook; since the move to Go 1.26 (2026-10-09) newer gopls releases (v0.22+) build as well and can be bumped with their own verification.
 - Risks: Playwright pages are a prompt-injection surface and `browser_evaluate` / `browser_run_code_unsafe` run code (`--allowed-origins` is not a security boundary and does not filter WebSockets; WebMCP page tools are off). Context7 returns third-party text (CVE-2026-75130 served library-owner rules verbatim) and sends library names and queries out; check answers against the pinned version (for Go APIs `go doc` is exact). Serena runs read-only with a project context (`.serena/claude-code-context.yml`), as an external tool only (GPL-3.0).
 - In agent worktrees the MCP servers describe the main checkout: use the gopls CLI there (`gopls implementation <file>:<line>:<col>`, `gopls references -d ...`, `gopls workspace_symbol <Name>`, `gopls check <file>`; 1-based positions; the MCP tools use 0-based lines).
 

@@ -39,7 +39,7 @@ The devcontainer also sets `APP_ENV=development`, `LITELLM_BASE_URL=http://codef
 Cloud sessions of Claude Code on the web run `.claude/hooks/session-start.sh` (registered in `.claude/settings.json`)
 before the session starts. The hook only acts when `CLAUDE_CODE_REMOTE=true` and is idempotent:
 
-- Go: `GOTOOLCHAIN=go1.25.14` (the CI toolchain), `go mod download`, golangci-lint v2.11.4 and goimports v0.42.0 in `$(go env GOPATH)/bin`
+- Go: `GOTOOLCHAIN=go1.26.9` (the CI toolchain), `go mod download`, golangci-lint v2.11.4 and goimports v0.42.0 in `$(go env GOPATH)/bin`
 - Python: `poetry install` on Python 3.12 (like CI, including the pinned ruff)
 - Frontend: `npm install --prefix frontend`
 - pre-commit: `pre-commit install` and `pre-commit install-hooks`
@@ -87,7 +87,7 @@ policy decision from Go control plane".
 consumers that silently fail after a stream purge. Kill ALL Go processes before
 purging: `ps aux | grep codeforge | grep -v grep`
 
-The container automatically installs Go 1.25, Python 3.12, Node.js 22, Poetry, golangci-lint v2.11.4 (same version as CI), goimports, Claude Code CLI, Python dependencies (poetry install, including the pinned dev dependency ruff 0.15.1), Node dependencies (npm install), and Pre-commit Hooks.
+The container automatically installs Go 1.26, Python 3.12, Node.js 22, Poetry, golangci-lint v2.11.4 (same version as CI), goimports, Claude Code CLI, Python dependencies (poetry install, including the pinned dev dependency ruff 0.15.1), Node dependencies (npm install), and Pre-commit Hooks.
 
 ### Project Structure
 
@@ -985,7 +985,7 @@ CodeForge ships with multi-stage Dockerfiles for all three services.
 #### Building Images
 
 ```bash
-# Go Core (multi-stage: golang:1.25-alpine -> alpine:3.21)
+# Go Core (multi-stage: golang:1.26-alpine -> alpine:3.21)
 docker build -t codeforge-core .
 
 # Python Worker (python:3.12-slim, poetry; starts as root, the entrypoint runs the worker as uid 10001, tool processes as the tenants' tool users 20000-29999)

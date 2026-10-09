@@ -103,7 +103,7 @@ sequenceDiagram
 | Component | Stack | Port |
 |---|---|---|
 | Frontend | TypeScript, SolidJS, Tailwind CSS (nginx in production) | 80 (production), 3000 (development) |
-| Go Core | Go 1.25, chi, pgx, coder/websocket | 8080 |
+| Go Core | Go 1.26, chi, pgx, coder/websocket | 8080 |
 | Python Worker | Python 3.12, LiteLLM client, tree-sitter | 8081 (health, internal) |
 | Messaging | NATS JetStream 2.15 | 4222 (internal) |
 | Database | PostgreSQL 18 | 5432 (internal) |

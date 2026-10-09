@@ -18,7 +18,7 @@ Documentation, code comments, commit messages and configs are **English only**.
 
 ```bash
 pre-commit run --all-files                                  # gofmt, goimports, go vet, golangci-lint, ruff, eslint, prettier
-go test -race ./...                                         # Go (CI: Go 1.25.14, also -tags=integration with PostgreSQL + NATS)
+go test -race ./...                                         # Go (CI: Go 1.26.9, also -tags=integration with PostgreSQL + NATS)
 cd workers && poetry run pytest                             # Python
 cd frontend && npm run lint && npm run format:check && npm run typecheck && npm test   # Frontend
 ```
@@ -58,7 +58,7 @@ CodeForge is a containerized service for orchestrating AI coding agents with a w
 | Layer | Language | Purpose |
 |---|---|---|
 | Frontend | TypeScript (SolidJS + Tailwind CSS) | Web GUI, REST + WebSocket |
-| Core Service | Go 1.25 | HTTP/WS, scheduling, repo management, state, policies (NATS JetStream to the workers) |
+| Core Service | Go 1.26 | HTTP/WS, scheduling, repo management, state, policies (NATS JetStream to the workers) |
 | AI Workers | Python 3.12 | LLM calls via the LiteLLM proxy, agent loop, tools |
 | Infrastructure | Docker | Containers, Docker-in-Docker |
 
